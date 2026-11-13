@@ -74,6 +74,7 @@ class GrpcConfig(StrictModel):
             "config_read",
             "config_write",
             "inject",
+            "simulation_execute",
             "lifecycle",
             "diagnose",
         }
@@ -102,39 +103,39 @@ class TargetMapping(StrictModel):
         return self
 
 
-class GenerationBinding(StrictModel):
+class SimulationTarget(StrictModel):
+    """Explicit Generator input endpoint used only after Commander authorization."""
+
+    endpoint: str = Field(min_length=1)
+    tls: TlsConfig
     scenario_id: str = Field(min_length=1)
 
-    @field_validator("scenario_id")
-    @classmethod
-    def validate_scenario(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Generator scenario binding must not be blank")
-        return value
+    @model_validator(mode="after")
+    def validate_simulation(self) -> SimulationTarget:
+        if not self.scenario_id.strip() or not self.endpoint.strip():
+            raise ValueError("simulation endpoint and Scenario must not be blank")
+        if not self.tls.enabled:
+            raise ValueError("simulation model updates require mutual TLS")
+        return self
 
 
 class ControlTarget(StrictModel):
-    kind: Literal["commander", "data_generator", "none"]
+    kind: Literal["commander", "none"]
     endpoint: str | None = None
     tls: TlsConfig | None = None
     request_timeout_ms: int = Field(default=5000, ge=1, le=60000)
     queue_capacity: int = Field(default=1024, ge=1, le=65536)
     max_inflight: int = Field(default=1, ge=1, le=256)
-    generation_binding: GenerationBinding | None = None
 
     @model_validator(mode="after")
     def validate_target(self) -> ControlTarget:
         if self.kind == "none":
-            if (
-                self.endpoint is not None
-                or self.tls is not None
-                or self.generation_binding is not None
-            ):
-                raise ValueError("none control target cannot have an external endpoint")
+            if self.endpoint is not None or self.tls is not None:
+                raise ValueError("none control target cannot declare an endpoint")
             return self
         endpoint = self.endpoint
         if not isinstance(endpoint, str) or not endpoint.strip():
-            raise ValueError("control target endpoint must be configured")
+            raise ValueError("Commander control target endpoint must be configured")
         host, separator, port_text = endpoint.rpartition(":")
         if (
             not separator
@@ -142,21 +143,14 @@ class ControlTarget(StrictModel):
             or not port_text.isdecimal()
             or not 1 <= int(port_text) <= 65535
         ):
-            raise ValueError("control target endpoint must be host:port")
+            raise ValueError("Commander endpoint must be host:port")
         host = host.strip("[]")
         if (not self.tls or not self.tls.enabled) and host not in {
             "127.0.0.1",
             "::1",
             "localhost",
         }:
-            raise ValueError("non-loopback control target requires mTLS")
-        if self.kind == "data_generator":
-            if self.generation_binding is None:
-                raise ValueError("Generator target requires a Scenario binding")
-            if self.tls is None or not self.tls.enabled:
-                raise ValueError("Generator model update requires mutual TLS")
-        elif self.generation_binding is not None:
-            raise ValueError("only Generator targets may bind a Scenario")
+            raise ValueError("non-loopback Commander target requires mutual TLS")
         return self
 
 
@@ -164,6 +158,7 @@ class ServerControl(StrictModel):
     enabled: bool
     target: ControlTarget
     mappings: tuple[TargetMapping, ...] = ()
+    simulation: SimulationTarget | None = None
 
     @model_validator(mode="after")
     def validate_control(self) -> ServerControl:
@@ -173,7 +168,7 @@ class ServerControl(StrictModel):
         if self.enabled:
             if self.target.kind == "none" or not variables:
                 raise ValueError("enabled control requires a target and mappings")
-        elif self.mappings or self.target.kind != "none":
+        elif self.mappings or self.target.kind != "none" or self.simulation is not None:
             raise ValueError("disabled control cannot declare active mappings or target")
         return self
 
