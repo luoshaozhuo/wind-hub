@@ -688,6 +688,8 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
                 "IndustrialGatewayService.ReadVariables",
                 "IndustrialGatewayService.UpdateVariables",
                 "IndustrialGatewayService.ClaimTargets",
+                "IndustrialGatewayService.ExecuteSimulationCommand",
+                "IndustrialGatewayService.GetSimulationExecutionResult",
             ],
             protocols=["modbus_tcp"],
             features=[
