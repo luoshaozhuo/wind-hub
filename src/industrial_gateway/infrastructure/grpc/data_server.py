@@ -16,9 +16,16 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
+from industrial_gateway.application.ports.simulation import SimulationInputPort
+from industrial_gateway.application.simulation import (
+    SimulationCommand,
+    SimulationController,
+    SimulationOutcome,
+)
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
 from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.grpc.diagnostics import GatewayDiagnostics
+from industrial_gateway.infrastructure.grpc.generator_client import GeneratorRpcClient
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
 from industrial_gateway.infrastructure.variable_leases import ClaimRequest, LeaseError
 
@@ -80,10 +87,35 @@ def _page(keys: list[str], page_size: int, page_token: str) -> tuple[list[str], 
 
 
 class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
-    """The eight canonical RPCs defined in industrial_gateway.proto."""
+    """The ten canonical Gateway RPCs, including authorized simulation commands."""
 
     def __init__(self, runtime: GatewayRuntime) -> None:
         self._runtime = runtime
+        self._simulation = SimulationController(self._simulation_client)
+
+    def _simulation_client(self, gateway_id: str) -> SimulationInputPort:
+        instance = self._runtime.instances[gateway_id]
+        target = instance.config.settings.control.simulation
+        if target is None:
+            raise ValueError("Gateway has no authorized simulation binding")
+        return GeneratorRpcClient(
+            endpoint=target.endpoint,
+            tls=target.tls,
+            project_root=self._runtime.config.project_root,
+            scenario_id=target.scenario_id,
+        )
+
+    @staticmethod
+    def _simulation_response(outcome: SimulationOutcome) -> pb.SimulationCommandResponse:
+        return pb.SimulationCommandResponse(
+            request_id=outcome.request_id,
+            accepted=outcome.accepted,
+            execution_id=outcome.execution_id,
+            state=outcome.state,
+            error_code=outcome.error_code,
+            message=outcome.message,
+            effective_step=outcome.effective_step,
+        )
 
     async def _instance(
         self, gateway_id: str, context: grpc.aio.ServicerContext[Any, Any]
@@ -380,6 +412,82 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
             observations.record(request.gateway_id, "updated_variables_total", successes)
         observations.latency(request.gateway_id, (perf_counter() - start) * 1000)
         return pb.UpdateVariablesResponse(results=results)
+
+
+    async def ExecuteSimulationCommand(
+        self,
+        request: pb.SimulationCommandRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.SimulationCommandResponse:
+        """Allow only Commander to request a model-input change."""
+        await _authorize(context, self._runtime, "simulation_execute")
+        if not self._runtime.config.service.grpc.tls.enabled:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
+            raise RuntimeError("abort unexpectedly returned") from None
+        instance = await self._instance(request.gateway_id, context)
+        control = instance.config.settings.control
+        if not control.enabled or control.simulation is None:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "simulation not configured")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if (
+            not request.request_id.strip()
+            or not request.device_id.strip()
+            or not request.point_id.strip()
+            or request.device_id != instance.config.settings.device_id
+            or not request.HasField("value")
+            or request.value.WhichOneof("kind") is None
+            or not request.HasField("expires_at")
+        ):
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid simulation command")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if request.expected_revision != self._runtime.config.revision:
+            await context.abort(grpc.StatusCode.ABORTED, "Gateway revision changed")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if instance.lifecycle.status.actual.value != "RUNNING":
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Gateway not running")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if request.point_id not in {
+            mapping.target_point_id for mapping in control.mappings
+        }:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "control point not mapped")
+            raise RuntimeError("abort unexpectedly returned") from None
+        expires_at = request.expires_at.ToDatetime(tzinfo=UTC)
+        if expires_at <= datetime.now(UTC):
+            await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "command expired")
+            raise RuntimeError("abort unexpectedly returned") from None
+        command = SimulationCommand(
+            caller=_trusted_identity(context, self._runtime),
+            gateway_id=request.gateway_id,
+            device_id=request.device_id,
+            point_id=request.point_id,
+            value=decode_scalar(request.value),
+            request_id=request.request_id,
+            expected_revision=request.expected_revision,
+            expires_at=expires_at,
+        )
+        outcome = await self._simulation.execute(command)
+        return self._simulation_response(outcome)
+
+    async def GetSimulationExecutionResult(
+        self,
+        request: pb.SimulationExecutionQuery,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.SimulationCommandResponse:
+        """Query known execution evidence; absent records remain UNKNOWN."""
+        await _authorize(context, self._runtime, "simulation_execute")
+        if not self._runtime.config.service.grpc.tls.enabled:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
+            raise RuntimeError("abort unexpectedly returned") from None
+        await self._instance(request.gateway_id, context)
+        if not request.request_id.strip():
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request_id is required")
+            raise RuntimeError("abort unexpectedly returned") from None
+        outcome = await self._simulation.result(
+            caller=_trusted_identity(context, self._runtime),
+            gateway_id=request.gateway_id,
+            request_id=request.request_id,
+        )
+        return self._simulation_response(outcome)
 
 
 class GatewayCommonService(common_rpc.CommonServiceServicer):
