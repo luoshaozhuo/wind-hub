@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.configuration.template_graph import resolve_device_templates
 from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
-from core.application.errors import ConfigError
 
 
 def _template(root: Path, category: str, name: str, body: str) -> None:

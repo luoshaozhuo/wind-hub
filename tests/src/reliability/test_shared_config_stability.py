@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.configuration.document_version import read_stable_document
 from core.configuration.shared_documents import SharedConfigPaths
-from core.application.errors import ConfigError
 
 pytestmark = [pytest.mark.reliability, pytest.mark.concurrency]
 

@@ -7,11 +7,11 @@ from shutil import copytree
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,
 )
-from core.application.errors import ConfigError
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.configuration.document_version import validate_document_version
 from core.application.errors import ConfigError
+from core.configuration.document_version import validate_document_version
 
 
 def test_valid_version() -> None:

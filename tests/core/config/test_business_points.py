@@ -2,8 +2,8 @@
 
 import pytest
 
-from core.configuration.business_points import parse_business_points
 from core.application.errors import ConfigError
+from core.configuration.business_points import parse_business_points
 from core.domain import BusinessPointId, DataType
 from tests.support.units import minimal_unit_catalog
 

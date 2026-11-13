@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from core.configuration.units import dump_unit_catalog, parse_unit_catalog
 from core.application import ConfigError
+from core.configuration.units import dump_unit_catalog, parse_unit_catalog
 from core.domain.unit import DIMENSIONLESS, Quantity, Unit, UnitCatalog, convert_value
 from tests.support.units import MINIMAL_UNITS_DOCUMENT, minimal_unit_catalog
 

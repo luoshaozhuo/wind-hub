@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.configuration.template_graph import validate_point_table_chain
 from core.configuration.versioned_templates import (
     TemplateRef,
     VersionedTemplateRepository,
 )
-from core.application.errors import ConfigError
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 

@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
+from core.application.errors import ConfigError
 from core.configuration.template_graph import resolve_model_templates
 from core.configuration.versioned_templates import TemplateRef, VersionedTemplateRepository
-from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint
 from core.infrastructure.config import read_yaml
 from core.infrastructure.protocol.ads.config import parse_ads_config
