@@ -22,8 +22,8 @@ from commander.application.control import CommandControl
 from commander.application.journal_port import JournalMetrics, JournalPort
 from commander.application.metrics import CommandMetrics
 from commander.application.persistence import BufferedJournal, PersistenceWorker
-from commander.application.queued_executor import QueuedExecutor
-from commander.application.settings import ServiceSettings
+from commander.application.queued_executor import QueuedExecutor, WriteSession
+from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.application.protocol_registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
@@ -85,11 +85,13 @@ class CommanderService:
         audit_transport: AuditTransport,
         settings_loader: Callable[[], ServiceSettings],
         journal_factory: Callable[[ServiceSettings], JournalPort],
+        simulation_factory: Callable[[str, SimulationGatewayTarget], WriteSession] | None = None,
     ) -> None:
         self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._settings_loader = settings_loader
         self._journal_factory = journal_factory
+        self._simulation_factory = simulation_factory
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._started_at: datetime | None = None
@@ -197,9 +199,17 @@ class CommanderService:
             control = CommandControl(
                 journal, writer, buffer, accept_timeout=settings.accept_commit_timeout
             )
+            def create_session(device_id: str) -> WriteSession:
+                target = settings.simulation_targets.get(device_id)
+                if target is None:
+                    return manager.create_session(device_id, self._registry)
+                if self._simulation_factory is None:
+                    raise RuntimeError("simulation execution Adapter is not registered")
+                return self._simulation_factory(device_id, target)
+
             executor = QueuedExecutor(
                 control,
-                lambda device_id: manager.create_session(device_id, self._registry),
+                create_session,
                 manager.authorized,
                 manager.prepare_write,
                 global_capacity=settings.global_capacity,
