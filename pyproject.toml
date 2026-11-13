@@ -108,7 +108,6 @@ extend-immutable-calls = [
 [tool.ruff.lint.per-file-ignores]
 # gRPC servicer 方法名由 proto service 定义强制（如 StartTask），
 # 框架按方法名分发，无法改为 snake_case。
-"src/collector/infrastructure/grpc/v2_server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 "src/industrial_gateway/infrastructure/grpc/data_server.py" = ["N802"]
 "src/data_generator/infrastructure/server.py" = ["N802"]
