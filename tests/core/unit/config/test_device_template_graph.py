@@ -9,6 +9,7 @@ import pytest
 from core.application.errors import ConfigError
 from core.configuration.template_graph import resolve_device_templates
 from core.configuration.versioned_templates import (
+    TEMPLATE_FILE_PREFIXES,
     TemplateRef,
     VersionedTemplateRepository,
 )
@@ -17,7 +18,7 @@ from core.configuration.versioned_templates import (
 def _template(root: Path, category: str, name: str, body: str) -> None:
     directory = root / category
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{name}_v1.0.0.yaml").write_text(
+    (directory / f"{TEMPLATE_FILE_PREFIXES[category]}{name}_v1.0.0.yaml").write_text(
         f"schema_version: 1\ntemplate_id: {name}\nfile_version: 1.0.0\n{body}",
         encoding="utf-8",
     )

@@ -30,8 +30,8 @@ def test_shared_instance_and_catalog_versions() -> None:
 def test_versioned_template_examples_resolve() -> None:
     repository = VersionedTemplateRepository(_CONFIGS / "templates")
     references = (
-        TemplateRef("device_models", "wtg_tz2mw", "1.0.0"),
-        TemplateRef("protocols", "modbus_tcp", "1.0.0"),
+        TemplateRef("device_models", "wtg_tz2mw", "1.1.0"),
+        TemplateRef("protocols", "modbus_tcp", "1.1.0"),
         TemplateRef("point_tables", "modbus_wtg_tz2mw", "1.0.0"),
         TemplateRef("tasks", "turbine_all", "1.0.0"),
     )

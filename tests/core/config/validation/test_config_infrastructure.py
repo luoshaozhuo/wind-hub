@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from core.configuration.validation import validate_core_config
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
@@ -32,7 +33,6 @@ from tests.support.units import (
     WATT_UNIT,
     minimal_unit_catalog,
 )
-from core.configuration.validation import validate_core_config
 
 
 def _indexes(
