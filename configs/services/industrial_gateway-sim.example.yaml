@@ -22,7 +22,7 @@ grpc:
     cert_file: configs/certs/gateway.pem
     key_file: configs/certs/gateway.key
   permissions:
-    commander: [simulation_execute]
+    commander: [simulation_execute, read]
     generator: [inject, read]
     operator: [read, lifecycle, diagnose]
 servers:
