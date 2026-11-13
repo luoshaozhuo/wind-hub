@@ -151,6 +151,10 @@ class CommanderConfigManager:
     def start(self) -> ServiceSettings:
         settings = self._settings_loader()
         docs = self._load(settings)
+        for device_id in settings.simulation_targets:
+            definition = docs.devices.get(device_id)
+            if definition is None or not definition.enabled:
+                raise ValueError(f"simulation target references an unavailable device: {device_id}")
         self._settings = settings
         self._documents = docs
         self._snapshot = build_shared_snapshot(docs)
