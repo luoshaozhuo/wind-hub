@@ -788,11 +788,10 @@ class QueuedExecutor:
             return await session.write_many(writes)
         for write, command in zip(writes, commands, strict=True):
             try:
-                result = (
-                    await session.write_authorized(command)
-                    if authorized
-                    else await session.write_one(write)
-                )
+                if isinstance(session, AuthorizedWriteSession):
+                    result = await session.write_authorized(command)
+                else:
+                    result = await session.write_one(write)
             except Exception as exc:
                 raise _SerialWriteError(tuple(progress), exc, current_unconfirmed=True) from exc
             progress.append(result)
