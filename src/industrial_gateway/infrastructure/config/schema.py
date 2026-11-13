@@ -114,6 +114,14 @@ class SimulationTarget(StrictModel):
     def validate_simulation(self) -> SimulationTarget:
         if not self.scenario_id.strip() or not self.endpoint.strip():
             raise ValueError("simulation endpoint and Scenario must not be blank")
+        host, separator, port_text = self.endpoint.rpartition(":")
+        if (
+            not separator
+            or not host.strip()
+            or not port_text.isdecimal()
+            or not 1 <= int(port_text) <= 65535
+        ):
+            raise ValueError("simulation endpoint must be host:port")
         if not self.tls.enabled:
             raise ValueError("simulation model updates require mutual TLS")
         return self
