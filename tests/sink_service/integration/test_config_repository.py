@@ -64,7 +64,7 @@ def test_commit_rejects_stale_expected_revision(tmp_path: Path) -> None:
 def test_published_template_version_is_immutable(tmp_path: Path) -> None:
     store, snapshot = _initial(tmp_path)
     docs = snapshot_docs(config_root=str(tmp_path))
-    target = f"{TEMPLATE_ROOT}/sinks/redis_realtime_v1.0.0.yaml"
+    target = f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml"
     docs[target]["output"]["namespace"] = "tampered"
     files = snapshot_files(docs)
     changed = validate_snapshot(files)
@@ -77,7 +77,7 @@ def test_unreferenced_template_violates_closure(tmp_path: Path) -> None:
     docs = snapshot_docs(config_root=str(tmp_path))
     extra = template_doc("redis_realtime")
     extra["file_version"] = "0.9.0"
-    docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_v0.9.0.yaml"] = extra
+    docs[f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v0.9.0.yaml"] = extra
     with pytest.raises(ConfigurationError, match="closure mismatch"):
         validate_snapshot(snapshot_files(docs))
 
@@ -85,10 +85,10 @@ def test_unreferenced_template_violates_closure(tmp_path: Path) -> None:
 def test_template_version_upgrade_keeps_old_generation_bytes(tmp_path: Path) -> None:
     # First generation references redis_realtime 0.9.0.
     old_docs = snapshot_docs(config_root=str(tmp_path))
-    legacy_path = f"{TEMPLATE_ROOT}/sinks/redis_realtime_v0.9.0.yaml"
+    legacy_path = f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v0.9.0.yaml"
     legacy = template_doc("redis_realtime")
     legacy["file_version"] = "0.9.0"
-    old_docs.pop(f"{TEMPLATE_ROOT}/sinks/redis_realtime_v1.0.0.yaml")
+    old_docs.pop(f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml")
     old_docs[legacy_path] = legacy
     old_docs[SINKS_INSTANCE]["sinks"]["ems_redis"]["template_version"] = "0.9.0"
     write_tree(tmp_path, old_docs)

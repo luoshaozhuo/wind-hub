@@ -143,7 +143,7 @@ async def test_changed_binding_closes_old_port_before_replacement_runs() -> None
     await registry.apply_configuration(first, factory)
     old_port = created["ems_power"]
 
-    docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.0.0.yaml"]["output"]["period_ms"] = 200
+    docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]["output"]["period_ms"] = 200
     changed = validate_snapshot(snapshot_files(docs))
     await registry.apply_configuration(changed, factory)
     assert old_port.stopped == 1
@@ -162,8 +162,8 @@ async def test_removed_delivery_stops_and_releases_ownership() -> None:
     # Exact-closure rule: the removed Delivery takes its unreferenced Sink and
     # both private templates out of the snapshot.
     del docs[SINKS_INSTANCE]["sinks"]["ems_redis"]
-    del docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.0.0.yaml"]
-    del docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_v1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml"]
     changed = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(changed, factory)
     assert "ems_power" in applied
@@ -181,8 +181,8 @@ async def test_failed_removal_retains_ownership_and_watchdog_does_not_restart() 
 
     del docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]
     del docs[SINKS_INSTANCE]["sinks"]["ems_redis"]
-    del docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_v1.0.0.yaml"]
-    del docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_v1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]
+    del docs[f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml"]
     changed = validate_snapshot(snapshot_files(docs))
     applied = await registry.apply_configuration(changed, factory)
     assert "ems_power" not in applied  # still FAILED, ownership retained
