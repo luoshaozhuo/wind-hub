@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-
 from industrial_gateway.application.ports.simulation import SimulationInputPort
 from industrial_gateway.application.variable_store import Scalar
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
