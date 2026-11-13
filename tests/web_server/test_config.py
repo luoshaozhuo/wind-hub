@@ -23,11 +23,11 @@ from typing import Any
 import pytest
 import yaml
 
-from web_server.application.config.diff import diff_config_snapshots
-from web_server.application.config.snapshot import ConfigSnapshot
 from tests.support.config_helper import write_config_tree
 from tests.support.functional_config import update_yaml
+from web_server.application.config.diff import diff_config_snapshots
 from web_server.application.config.service import ConfigService
+from web_server.application.config.snapshot import ConfigSnapshot
 from web_server.application.port.worker import (
     CollectorInfo,
     CommanderStatus,

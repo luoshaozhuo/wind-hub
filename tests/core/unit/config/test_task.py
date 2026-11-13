@@ -9,11 +9,11 @@ from typing import Any
 
 import pytest
 
-from web_server.application.config.task import Task, devices_for_task, validate_task_references
-from web_server.application.config.validation import validate_core_config
 from core.domain import DeviceGroup
 from core.domain.identities import DeviceGroupId
 from tests.support.units import minimal_unit_catalog
+from web_server.application.config.task import Task, devices_for_task, validate_task_references
+from web_server.application.config.validation import validate_core_config
 
 
 def make_task(**overrides: object) -> Task:

@@ -13,10 +13,10 @@ import signal
 import uvicorn
 from uvicorn.config import LOG_LEVELS
 
-from web_server.application.config.snapshot import ConfigSnapshot
 from core.infrastructure.crosscutting.log_setup import configure_process_logging
 from web_server.adapter.inbound.webapi.app import build_api
 from web_server.application.config.service import ConfigService
+from web_server.application.config.snapshot import ConfigSnapshot
 from web_server.application.task.reconcile import TaskPlacementReconciler
 from web_server.application.worker.registry import WorkerRegistry
 from web_server.assembly import ServerApp, assemble_server

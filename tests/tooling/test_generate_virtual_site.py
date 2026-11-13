@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from web_server.application.config.site_loader import load_domain
 from scripts.generate_virtual_site import generate_site
+from web_server.application.config.site_loader import load_domain
 
 pytestmark = pytest.mark.unit
 

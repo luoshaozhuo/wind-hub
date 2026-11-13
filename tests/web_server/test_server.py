@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import uvicorn
 
-from web_server.application.config.diff import ConfigSnapshotDiff
 from core.infrastructure.crosscutting.correlation import RequestIdFilter, bind_request_id
+from web_server.application.config.diff import ConfigSnapshotDiff
 from web_server.application.config.service import ReloadResult
 from web_server.server import (
     _wait_for_shutdown_or_api_exit,

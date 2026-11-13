@@ -38,9 +38,9 @@ from pymodbus.server import ModbusTcpServer
 
 from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
 from core.configuration.shared_snapshot import SharedDomainSnapshot
+from core.domain import DataType, Point
 from web_server.application.config.site_loader import load_domain
 from web_server.application.config.snapshot import ConfigSnapshot
-from core.domain import DataType, Point
 
 LOG = logging.getLogger("protocol-servers")
 _ADS_TCP_PORT = 48898
