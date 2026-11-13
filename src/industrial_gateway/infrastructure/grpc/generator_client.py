@@ -87,7 +87,9 @@ class GeneratorRpcClient:
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
             raise ValueError("target device has no running Generation")
-        generation = await stub.GetGeneration(common.ObjectId(id=generation_id), timeout=remaining())
+        generation = await stub.GetGeneration(
+            common.ObjectId(id=generation_id), timeout=remaining()
+        )
         bound = generation.generation
         if (
             bound.generation_id != generation_id
