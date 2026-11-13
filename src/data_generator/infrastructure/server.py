@@ -379,6 +379,21 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         )
 
 
+    async def GetInputExecution(
+        self, request: dg.GetInputExecutionRequest, context: Any
+    ) -> dg.GetInputExecutionResponse:
+        caller = await _authorize_variables(context, self.runtime, "variables_update")
+        if not request.generation_id.strip() or not request.request_id.strip():
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request identity required")
+            raise RuntimeError("gRPC abort returned")
+        state, step = await self.runtime.get_input_execution(
+            request.generation_id, caller, request.request_id
+        )
+        return dg.GetInputExecutionResponse(
+            request_id=request.request_id, state=state, effective_step=step
+        )
+
+
 class CommonService(common_rpc.CommonServiceServicer):
     def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
@@ -438,7 +453,7 @@ class CommonService(common_rpc.CommonServiceServicer):
                 m.name
                 for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
                 if (
-                    m.name not in {"ListVariables", "UpdateVariables"}
+                    m.name not in {"ListVariables", "UpdateVariables", "GetInputExecution"}
                     or bool(self.runtime.settings.service.get("security", {}).get("tls"))
                 )
             ]
@@ -709,7 +724,7 @@ class CommonService(common_rpc.CommonServiceServicer):
 def validate_rpc_contracts() -> None:
     """Fail startup on missing public unary implementations or descriptor drift."""
     services = (
-        (dg.DESCRIPTOR.services_by_name["DataGeneratorService"], DataGeneratorService, 8),
+        (dg.DESCRIPTOR.services_by_name["DataGeneratorService"], DataGeneratorService, 9),
         (common.DESCRIPTOR.services_by_name["CommonService"], CommonService, 9),
     )
     for descriptor, implementation, expected_count in services:
