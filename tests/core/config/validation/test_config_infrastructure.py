@@ -32,7 +32,7 @@ from tests.support.units import (
     WATT_UNIT,
     minimal_unit_catalog,
 )
-from web_server.application.config.validation import validate_core_config
+from core.configuration.validation import validate_core_config
 
 
 def _indexes(
