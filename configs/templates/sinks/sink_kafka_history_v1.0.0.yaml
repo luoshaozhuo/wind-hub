@@ -6,8 +6,8 @@ capabilities:
   realtime: false
   reliable: true                # 须明确下游接受至少一次或按 sample_id 去重
   idempotent: false            # Kafka Producer 幂等不等于跨系统业务幂等
-  supports_concurrent_write: false # 旧版 Sink 所有写入保持串行
-  max_safe_inflight: 1         # 旧版 Sink 串行额度
+  supports_concurrent_write: false # 单写入序列，无并行写入
+  max_safe_inflight: 1         # 单写入时必须为 1
 connection:
   bootstrap_servers: ["192.168.1.20:9092"]
   credential_ref: "kafka/history"
@@ -19,5 +19,3 @@ output:
   enable_idempotence: true
   acks: all
   write_timeout_ms: 2000
-
-# 旧版 Reliable Delivery 串行写入；历史实例仍精确引用此版本。
