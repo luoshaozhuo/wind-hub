@@ -607,9 +607,16 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 progress: list[ProtocolWriteResult] = []
+                stop_unstarted = asyncio.Event()
+                started_count = [0]
                 native = asyncio.create_task(
                     self._write_group(
-                        session, writes, progress, tuple(member.command for member in group)
+                        session,
+                        writes,
+                        progress,
+                        tuple(member.command for member in group),
+                        stop_unstarted,
+                        started_count,
                     )
                 )
                 try:
@@ -617,10 +624,18 @@ class QueuedExecutor:
                         asyncio.shield(native), timeout=self._write_timeout
                     )
                 except (TimeoutError, asyncio.CancelledError):
+                    # Prevent any not-yet-started serial writes after the caller
+                    # has observed a terminal result. The active write remains
+                    # owned until native completion and physical isolation.
+                    stop_unstarted.set()
                     self._block_late(device_id, native)
                     owns_gate = False
                     changes = self._serial_terminal_changes(
-                        group, tuple(progress), "WRITE_TIMEOUT", unsettled=True
+                        group,
+                        tuple(progress),
+                        "WRITE_TIMEOUT",
+                        unsettled=True,
+                        started_count=started_count[0],
                     )
                     self._track_unknown(device_id, changes)
                     await self._control.complete_many(changes)
@@ -739,6 +754,7 @@ class QueuedExecutor:
         *,
         unsettled: bool,
         current_unconfirmed: bool = True,
+        started_count: int | None = None,
     ) -> tuple[tuple[str, CommandState, CommandOutcome, str | None], ...]:
         changes: list[tuple[str, CommandState, CommandOutcome, str | None]] = []
         for index, member in enumerate(group):
@@ -762,6 +778,12 @@ class QueuedExecutor:
                         CommandOutcome.UNKNOWN,
                         "WRITE_UNKNOWN",
                     )
+            elif started_count is not None and index >= started_count:
+                state, outcome, code = (
+                    CommandState.INTERRUPTED,
+                    CommandOutcome.NOT_SENT,
+                    "BATCH_ABORTED_NOT_SENT",
+                )
             elif unsettled or (current_unconfirmed and index == len(confirmed)):
                 state, outcome, code = (CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code)
             else:
@@ -779,6 +801,8 @@ class QueuedExecutor:
         writes: tuple[ProtocolWrite, ...],
         progress: list[ProtocolWriteResult],
         commands: tuple[AcceptedCommand, ...],
+        stop_unstarted: asyncio.Event,
+        started_count: list[int],
     ) -> tuple[ProtocolWriteResult, ...]:
         """Native batch for real devices; command-aware calls retain idempotent identity."""
         authorized = isinstance(session, AuthorizedWriteSession)
@@ -787,8 +811,12 @@ class QueuedExecutor:
             and len(writes) > 1
             and ProtocolCapability.WRITE_MANY in session.capabilities()
         ):
+            started_count[0] = len(writes)
             return await session.write_many(writes)
         for write, command in zip(writes, commands, strict=True):
+            if stop_unstarted.is_set():
+                break
+            started_count[0] += 1
             try:
                 if isinstance(session, AuthorizedWriteSession):
                     result = await session.write_authorized(command)
