@@ -199,7 +199,7 @@ def write_service_config(
     model.write_text(_MODELS_TABLE, encoding="utf-8")
     # 保留真实业务点目录（其余 GW/TZ 设备的有效配置解析依赖它），
     # 仅补入验收点表引用的 setpoint_power。
-    business = root / "templates" / "business_points_standard.yaml
+    business = root / "templates" / "business_points_standard.yaml"
     business_text = business.read_text(encoding="utf-8")
     if "  setpoint_power:" not in business_text:
         business_text = business_text.replace(

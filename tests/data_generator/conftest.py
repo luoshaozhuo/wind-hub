@@ -661,7 +661,7 @@ def _v1_gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points_standard.yaml,
+        root / "templates" / "business_points_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(

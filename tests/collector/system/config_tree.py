@@ -129,7 +129,7 @@ def write_config_tree(
             }
         )
     )
-    (templates / "business_points_standard.yaml).write_bytes(
+    (templates / "business_points_standard.yaml").write_bytes(
         _dump(
             {
                 **_HEADER,

@@ -39,7 +39,7 @@ async def test_service_path_binding_persists_without_source_fallback(tmp_path: P
     (instances / "site-A.yaml").write_bytes(b"site_id: alpha\n")
     (instances / "turbines-A.yaml").write_bytes(b"devices: {}\n")
     (templates / "units_standard.yaml").write_bytes(b"quantities: {}\n")
-    (templates / "business_points_standard.yaml).write_bytes(b"business_points: {}\n")
+    (templates / "business_points_standard.yaml").write_bytes(b"business_points: {}\n")
     paths = resolve_source_paths(service)
     repository = CollectorSnapshotRepository(tmp_path / "state")
     files = repository.collect_source(paths)

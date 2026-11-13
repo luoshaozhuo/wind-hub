@@ -572,7 +572,7 @@ def write_v2_component_tree(
         {"schema_version": 1, "file_version": "1.0.0", **MINIMAL_UNITS_DOCUMENT},
     )
     _dump(
-        templates / "business_points_standard.yaml,
+        templates / "business_points_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", **_business_points(tables)},
     )
 

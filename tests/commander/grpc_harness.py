@@ -372,7 +372,7 @@ async def build_stack(
         table.write_text(_SETPOINT_TABLE, encoding="utf-8")
         model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
         model.write_text(_MODELS_TABLE, encoding="utf-8")
-        business = root / "templates" / "business_points_standard.yaml
+        business = root / "templates" / "business_points_standard.yaml"
         text = business.read_text(encoding="utf-8")
         if "  setpoint_power:" not in text:
             business.write_text(
