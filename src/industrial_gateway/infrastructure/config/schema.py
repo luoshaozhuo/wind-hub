@@ -1,4 +1,4 @@
-"""Strict Industrial Gateway v1 service configuration (no shared device copies)."""
+"""Strict Industrial Gateway service configuration without shared device copies."""
 
 from __future__ import annotations
 
