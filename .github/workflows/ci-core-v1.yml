@@ -1,8 +1,8 @@
-name: Core v1 Static Gate
+name: Core and Configuration Static Gate
 
 on:
   push:
-    branches: [refactor/core-v1]
+    branches: [refactor/core-v1, design/architecture-dfd-alignment-20261113]
 
 permissions:
   contents: read
@@ -26,11 +26,15 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
+      - name: Validate lockfile and Proto bindings
+        run: |
+          poetry check --lock
+          python scripts/generate_rpc.py --check
       - name: Ruff lint
         run: python -m ruff check src tests scripts
       - name: Ruff format
         run: python -m ruff format --check src tests scripts
       - name: Core and Configuration typing
-        run: python -m mypy src/core src/configuration
+        run: python -m mypy src
       - name: Import boundaries
         run: lint-imports
