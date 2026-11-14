@@ -165,13 +165,28 @@ def test_same_request_epoch_renewal_preserves_immutable_decision_and_outbox(
 
 
 def test_newer_decision_blocks_old_request_even_with_renewed_epoch(tmp_path: Path) -> None:
-    repository = EventRepository(tmp_path / "renewal-superseded.db")
+    path = tmp_path / "renewal-superseded.db"
+    repository = EventRepository(path)
     try:
         _commit(repository, request_id="req-old", token_id="token-old", epoch=1)
         _commit(repository, request_id="req-new", token_id="token-new", epoch=2)
         # 最新设备 epoch 已超过原裁决；旧请求不得借更大的续期 epoch 重新取得解除依据。
         with pytest.raises(ValueError):
             _commit(repository, request_id="req-old", token_id="token-old", epoch=3)
+        repository.close()
+        repository = EventRepository(path)
+        with pytest.raises(ValueError):
+            _commit(repository, request_id="req-old", token_id="token-old", epoch=3)
+        with pytest.raises(FileExistsError):
+            _commit(repository, request_id="req-old", token_id="token-other", epoch=3)
+        with pytest.raises(FileExistsError):
+            _commit(
+                repository,
+                request_id="req-old",
+                token_id="token-old",
+                epoch=3,
+                digest="b" * 64,
+            )
     finally:
         repository.close()
 
