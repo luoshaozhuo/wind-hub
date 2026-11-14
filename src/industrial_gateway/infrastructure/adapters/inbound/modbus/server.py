@@ -15,11 +15,11 @@ from industrial_gateway.application.variable_store import (
     VariableStore,
     validate_value,
 )
-from industrial_gateway.infrastructure.protocol.modbus.access import (
+from industrial_gateway.infrastructure.adapters.inbound.modbus.access import (
     GatewayTcpServer,
     request_bit_span,
 )
-from industrial_gateway.infrastructure.protocol.modbus.codec import (
+from industrial_gateway.infrastructure.adapters.inbound.modbus.codec import (
     RegisterMapping,
     decode_registers,
     encode_registers,
