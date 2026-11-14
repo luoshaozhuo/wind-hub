@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from industrial_gateway.application.variable_store import VariableStore
-from industrial_gateway.infrastructure.variable_leases import (
+from industrial_gateway.application.variable_leases import (
     ClaimRequest,
     LeaseError,
     VariableLeases,
@@ -143,7 +143,7 @@ async def test_batch_preflight_blocks_all_values_before_mutation() -> None:
 
 
 async def test_expired_claim_can_be_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
-    import industrial_gateway.infrastructure.variable_leases as module
+    import industrial_gateway.application.variable_leases as module
 
     clock = [0.0]
     monkeypatch.setattr(module, "monotonic", lambda: clock[0])
