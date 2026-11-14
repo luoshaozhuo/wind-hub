@@ -48,7 +48,7 @@ def write_commander_service(
             {
                 "caller_id": IDENTITIES["ops"][1],
                 "certificate_identity": IDENTITIES["ops"][0],
-                "permissions": ["query", "control", "reload"],
+                "permissions": ["query", "control", "reload", "recover"],
             }
         ],
     }

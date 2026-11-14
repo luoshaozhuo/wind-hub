@@ -34,11 +34,11 @@ from tests.support.process import free_port
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[2] / "configs"
 
-# §9.3.1 权限矩阵：query / control / reload
+# §9.3.1 / §13.1.1 权限矩阵：recover 仅授予运维与部署角色。
 IDENTITIES = {
     "viewer": ("viewer@windhub.test", "viewer-console", ("query",)),
-    "ops": ("ops@windhub.test", "ops-console", ("control", "query")),
-    "deployer": ("deployer@windhub.test", "reload-deployer", ("reload", "query")),
+    "ops": ("ops@windhub.test", "ops-console", ("control", "query", "recover")),
+    "deployer": ("deployer@windhub.test", "reload-deployer", ("reload", "query", "recover")),
 }
 STRANGER_IDENTITY = "stranger@windhub.test"
 
