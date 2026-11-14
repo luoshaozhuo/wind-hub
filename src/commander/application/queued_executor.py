@@ -144,6 +144,7 @@ class QueuedExecutor:
         self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
         self._blocked: set[str] = set(initially_blocked)
+        self._recovered_blocked: set[str] = set(initially_blocked)
         self._reloading: set[str] = set()
         self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
@@ -970,9 +971,28 @@ class QueuedExecutor:
 
         task.add_done_callback(settled)
 
+    def release_recovered_device(self, device_id: str) -> None:
+        """Only call after external fencing and durable recovery audit commit."""
+        if (
+            self._closed
+            or self._fatal
+            or device_id not in self._recovered_blocked
+            or device_id not in self._blocked
+            or self._native_by_device[device_id]
+            or self._sessions.get(device_id) is not None
+            or self._queues.get(device_id)
+        ):
+            raise RuntimeError("recovered device is not safe to release")
+        self._recovered_blocked.remove(device_id)
+        self._blocked.remove(device_id)
+
     async def isolate_device(self, device_id: str) -> bool:
         """Clear blocking only after native work settles and physical close succeeds."""
-        if device_id not in self._blocked or self._native_by_device[device_id]:
+        if (
+            device_id not in self._blocked
+            or device_id in self._recovered_blocked
+            or self._native_by_device[device_id]
+        ):
             return False
         existing = self._isolation_tasks.get(device_id)
         if existing is None:
