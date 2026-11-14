@@ -317,6 +317,25 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
         finally:
             self._boundary.service.metrics.accept_latency((perf_counter() - started) * 1000)
 
+    async def RecoverDeviceControl(self, request: Any, context: Any) -> Any:
+        """Reject recovery until an independent isolation authority is wired.
+
+        Transport and authentication alone cannot prove that the previous
+        process no longer owns native I/O or physical control authority.
+        """
+        await self._boundary.require(context, "recover")
+        if (
+            not request.device_id.strip()
+            or not request.expected_revision.strip()
+            or not request.request_id.strip()
+            or not request.isolation_attestation
+        ):
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "recovery fields are required")
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "independent isolation attestation verifier is not configured",
+        )
+
     async def GetRequestResult(self, request: Any, context: Any) -> Any:
         started = perf_counter()
         caller = await self._boundary.require(context, "query")
