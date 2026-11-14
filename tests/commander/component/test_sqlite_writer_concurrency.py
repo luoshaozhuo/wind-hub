@@ -805,10 +805,14 @@ class _HangThenResumeSession(FakeSession):
         return ProtocolWriteResult(write.point, WriteOutcome.CONFIRMED_SUCCESS)
 
 
-async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without_overwrite(
+async def test_serial_batch_write_timeout_stops_unstarted_suffix_and_preserves_unknown(
     control, repository, sqlite_writer, buffer, persistence
 ) -> None:
-    """超时后 shield 底层任务继续：未确认点 UNKNOWN；物理成功不得覆盖终态。"""
+    """R1-F1 M-P1-01：超时后未开始后缀 NOT_SENT 且现场零写入。
+
+    已确认前缀保留真实结果；在途未确认点 UNKNOWN；底层迟到收敛不得覆盖终态；
+    后缀 p2 即使在 shield 原生任务恢复后也绝不下发（设计 §3.1.5.4、§5.3）。
+    """
     session = _HangThenResumeSession()
     executor = build_executor(control, {"WT01": session}, max_batch_points=10, write_timeout=0.3)
     accepted = await executor.accept(
@@ -827,14 +831,18 @@ async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without
         assert states_at_timeout == {
             "p0": CommandState.SUCCEEDED,
             "p1": CommandState.UNKNOWN,
-            "p2": CommandState.UNKNOWN,
+            "p2": CommandState.INTERRUPTED,
         }
+        suffix = buffer.get_cached(accepted[2].command_id)
+        assert suffix.outcome is CommandOutcome.NOT_SENT
+        assert suffix.error_code == "BATCH_ABORTED_NOT_SENT"
         assert session.one_calls == ["p0", "p1"]
         session.resume.set()
+        # 等原生在途写收敛并完成物理隔离（设备解除阻断），再断言后缀仍零写入。
         deadline = time.monotonic() + 3.0
-        while "p2" not in session.one_calls and time.monotonic() < deadline:
+        while executor.blocked_devices() and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
-        assert session.one_calls == ["p0", "p1", "p2"]
+        assert session.one_calls == ["p0", "p1"]
         states_after_settle = {
             c.spec.point_id: buffer.get_cached(c.command_id).state for c in accepted
         }
@@ -846,9 +854,11 @@ async def test_serial_batch_write_timeout_marks_unsettled_suffix_unknown_without
         c.spec.point_id: sqlite_writer.submit(repository.get, c.command_id).result()
         for c in accepted
     }
-    assert {r.state for r in durable.values()} == {
-        CommandState.SUCCEEDED,
-        CommandState.UNKNOWN,
+    # 落盘后逐点终态与内存一致：前缀成功、在途 UNKNOWN、后缀 NOT_SENT。
+    assert {point: r.state for point, r in durable.items()} == {
+        "p0": CommandState.SUCCEEDED,
+        "p1": CommandState.UNKNOWN,
+        "p2": CommandState.INTERRUPTED,
     }
 
 

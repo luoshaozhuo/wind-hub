@@ -202,14 +202,27 @@ async def test_restart_recovers_executing_command_as_unknown(
     try:
         health = service2.health()
         assert health.recovered_commands == 1
-        assert health.state is ServiceState.READY
+        # R1-F1 M-P1-03：恢复 UNKNOWN 的设备未确认隔离前不得 READY。
+        assert health.state is ServiceState.DEGRADED
+        assert health.ready is False
+        assert "WT01" in service2.executor.blocked_devices()
         recovered = await service2.control.get_command(command_id)
         assert recovered is not None and recovered.outcome is not None
         assert recovered.state.value == "UNKNOWN"
         assert recovered.outcome.value == "UNKNOWN"
-        # 恢复绝不重发：寄存器保持 0（服务从未下发）。
+        # 未确认隔离的设备拒绝新的冲突控制命令（受理阶段即拒绝，无 T1）。
+        fingerprint2 = _fingerprint(service2)
+        with pytest.raises(RuntimeError, match="device unavailable"):
+            await service2.executor.accept(
+                [CommandSpec("WT01", "setpoint_power", 99.0, fingerprint2)],
+                request_id=f"req-e2e-{uuid4().hex}",
+                caller_id="ops-console",
+            )
+        # 恢复绝不重发、拒绝命令也不下发：寄存器保持 0（服务从未下发）。
+        assert modbus_server.write_count == 0
     finally:
-        assert await service2.stop() == frozenset()
+        # 停机必须如实报告残留阻断设备，不得伪装 STOPPED。
+        assert await service2.stop() == frozenset({"WT01"})
 
 
 async def test_reload_unchanged_config_is_noop_and_restart_not_required(
