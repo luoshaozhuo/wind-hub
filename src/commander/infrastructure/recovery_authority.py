@@ -10,22 +10,12 @@ import asyncio
 import base64
 import json
 import ssl
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from commander.application.recovery import RecoveryProof
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-
-
-@dataclass(frozen=True, slots=True)
-class RecoveryProof:
-    token_id: str
-    device_id: str
-    revision: str
-    old_instance: str
-    new_instance: str
-    fencing_epoch: int
-    expires_at: datetime
 
 
 class IsolationAuthorityClient:
