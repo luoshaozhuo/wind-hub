@@ -22,11 +22,8 @@ from industrial_gateway.application.variable_store import (
 from industrial_gateway.infrastructure.adapters.inbound.modbus.server import (
     DeviceModbusServer,
 )
-from industrial_gateway.infrastructure.adapters.outbound.forwarder import (
-    CommandForwarder,
-    ForwardRecord,
-    ForwardState,
-)
+from industrial_gateway.application.forwarding import ForwardRecord, ForwardState
+from industrial_gateway.infrastructure.adapters.outbound.forwarder import CommandForwarder
 from industrial_gateway.infrastructure.config.resolution import (
     ResolvedGateway,
     ResolvedServer,

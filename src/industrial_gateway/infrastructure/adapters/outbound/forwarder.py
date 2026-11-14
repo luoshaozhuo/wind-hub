@@ -6,12 +6,12 @@ from pathlib import Path
 
 import grpc
 
-from industrial_gateway.infrastructure.adapters.outbound.grpc.commander_client import (
-    CommanderRpcClient,
-)
 from industrial_gateway.application.forwarding import (
     CommandForwarder as ApplicationCommandForwarder,
     RecordObserver,
+)
+from industrial_gateway.infrastructure.adapters.outbound.grpc.commander_client import (
+    CommanderRpcClient,
 )
 from industrial_gateway.infrastructure.config.schema import ControlTarget
 
@@ -31,8 +31,10 @@ _AUTHORITATIVE_REJECTIONS = frozenset(
 )
 
 
-def _definitive_rpc_rejection(error: grpc.RpcError) -> bool:
+def _definitive_rpc_rejection(error: Exception) -> bool:
     """Recognize explicit RPC rejection without assuming transport settlement."""
+    if not isinstance(error, grpc.RpcError):
+        return False
     code = getattr(error, "code", None)
     if not callable(code):
         return False

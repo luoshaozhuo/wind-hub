@@ -9,7 +9,7 @@ from time import perf_counter
 import grpc
 
 from contracts import common_pb2 as pb
-from industrial_gateway.infrastructure.adapters.outbound.forwarder import ForwardState
+from industrial_gateway.application.forwarding import ForwardState
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _STAGES = ("injection", "protocol", "control")
