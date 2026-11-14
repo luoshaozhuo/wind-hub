@@ -28,6 +28,7 @@ from commander.application.persistence import BufferedJournal
 from commander.application.service_lifecycle import CommanderService, ServiceState
 from commander.domain.command import CommandSpec
 from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc, common_pb2
 from tests.commander.grpc_harness import GrpcStack, Pki, build_stack
@@ -234,6 +235,20 @@ def _assert_unknown_durable(path: Path, command_ids: tuple[str, ...]) -> None:
         connection.close()
 
 
+def _recovery_epochs(path: Path) -> list[tuple[str, int]]:
+    connection = sqlite3.connect(path, timeout=5)
+    try:
+        return [
+            (str(request_id), int(epoch))
+            for request_id, epoch in connection.execute(
+                "SELECT request_id,fencing_epoch FROM recovery_decisions "
+                "WHERE device_id='WT01' ORDER BY fencing_epoch"
+            )
+        ]
+    finally:
+        connection.close()
+
+
 def _pending_audit_counts(path: Path) -> tuple[int, int]:
     connection = sqlite3.connect(path, timeout=5)
     try:
@@ -375,7 +390,9 @@ async def test_external_fencing_success_unblocks_without_rewriting_unknown(
         fenced = authority.state()["devices"]["WT01"]
         assert fenced["old_fenced"] is True
         assert fenced["owner"] == _NEW_INSTANCE
-        assert fenced["epoch"] == 1
+        # 首次裁决 epoch=1；COMMIT 后同一控制权的续期核验增长到 2。
+        assert fenced["epoch"] == 2
+        assert len(authority.state()["requests"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -384,6 +401,11 @@ async def test_external_fencing_success_unblocks_without_rewriting_unknown(
         ({"status": 403}, "invalid-proof"),
         ({"overrides": {"expires_at": "2000-01-01T00:00:00+00:00"}}, "expired"),
         ({"overrides": {"revoked": True}}, "revoked"),
+        ({"omit": ["revoked"]}, "revoked-missing"),
+        ({"overrides": {"revoked": "false"}}, "revoked-string"),
+        ({"overrides": {"revoked": 0}}, "revoked-zero"),
+        ({"overrides": {"revoked": 1}}, "revoked-one"),
+        ({"overrides": {"revoked": None}}, "revoked-null"),
         ({"overrides": {"fencing_epoch": 0}}, "zero-epoch"),
         ({"overrides": {"device_id": "WT02"}}, "device-mismatch"),
         ({"overrides": {"config_revision": "other-revision"}}, "revision-mismatch"),
@@ -506,7 +528,8 @@ async def test_same_request_retry_is_idempotent_and_different_content_conflicts(
         with pytest.raises(grpc.aio.AioRpcError) as exc_info:
             await _recover(context, pki, evidence=b"different-evidence")
         assert exc_info.value.code() is grpc.StatusCode.ALREADY_EXISTS
-        assert len(authority.state()["requests"]) == 2
+        # 首次恢复核验两次，解除后的幂等重试实时核验一次；冲突不再调用证明方。
+        assert len(authority.state()["requests"]) == 3
 
 
 async def test_different_devices_and_same_device_recovery_races_are_safe(
@@ -557,8 +580,52 @@ async def test_different_devices_and_same_device_recovery_races_are_safe(
             failures = [item for item in same_device if isinstance(item, grpc.aio.AioRpcError)]
             assert len(successes) == 1 and len(failures) == 1
             assert restarted.service.executor.blocked_devices() == frozenset({"WT02"})
+            assert _decision_count(restarted.stack.db_path) == 3
+            epochs = [epoch for _request_id, epoch in _recovery_epochs(restarted.stack.db_path)]
+            assert len(epochs) == 2 and epochs[0] < epochs[1]
     finally:
         await second_modbus.stop()
+
+
+async def test_released_old_request_cannot_bypass_new_epoch_after_restart(
+    tmp_path: Path,
+    pki: Pki,
+    modbus_server: Any,
+    authority_factory: Callable[..., FencingAuthorityProcess],
+) -> None:
+    authority = authority_factory()
+    async with _recovery_context(
+        tmp_path, pki, modbus_server, _settings(pki, authority)
+    ) as context:
+        command_ids = context.command_ids
+        database_path = context.stack.db_path
+        await _recover(context, pki, request_id="req-old-epoch")
+
+    # 持久化新一代裁决并再次重启后，旧请求的相同 token 也不能复用历史授权。
+    authority.configure({})
+    async with _recovery_context(
+        tmp_path / "new-epoch",
+        pki,
+        modbus_server,
+        _settings(pki, authority),
+        database_source=database_path,
+    ) as context:
+        current = await _recover(context, pki, request_id="req-current-epoch")
+        repeated = await _recover(context, pki, request_id="req-current-epoch")
+        assert repeated.decision_id == current.decision_id
+        with pytest.raises(grpc.aio.AioRpcError) as exc_info:
+            await _recover(context, pki, request_id="req-old-epoch")
+        assert exc_info.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+        assert context.service.executor.blocked_devices() == frozenset()
+        assert _decision_count(context.stack.db_path) == 2
+        epochs = _recovery_epochs(context.stack.db_path)
+        assert [request_id for request_id, _epoch in epochs] == [
+            "req-old-epoch",
+            "req-current-epoch",
+        ]
+        assert epochs[0][1] < epochs[1][1]
+        _assert_unknown_durable(context.stack.db_path, command_ids)
+        assert modbus_server.write_count == 0
 
 
 async def test_fencing_success_but_sqlite_insert_failure_rolls_back_and_stays_blocked(
@@ -610,7 +677,121 @@ async def test_stopped_audit_worker_rejects_recovery_instead_of_unblocking(
         assert _decision_count(context.stack.db_path) == 0
 
 
+@pytest.mark.docker
+@pytest.mark.parametrize("stop_after_verification", [1, 2], ids=["before-commit", "before-release"])
+async def test_audit_worker_stop_during_recovery_never_unblocks(
+    stop_after_verification: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pki: Pki,
+    modbus_server: Any,
+    authority_factory: Callable[..., FencingAuthorityProcess],
+    trusted_nats_container,
+) -> None:
+    authority = authority_factory()
+    nats_url, _container = trusted_nats_container
+    async with _recovery_context(
+        tmp_path, pki, modbus_server, _settings(pki, authority), nats_url=nats_url
+    ) as context:
+        audit = vars(context.service)["_audit"]
+        assert audit is not None
+        original = IsolationAuthorityClient.verify_and_fence
+        calls = 0
+
+        async def verify_then_stop(client: IsolationAuthorityClient, **kwargs: Any) -> Any:
+            nonlocal calls
+            proof = await original(client, **kwargs)
+            calls += 1
+            if calls == stop_after_verification:
+                assert await audit.stop(timeout=5.0) is True
+                assert audit.operational is False
+            return proof
+
+        monkeypatch.setattr(IsolationAuthorityClient, "verify_and_fence", verify_then_stop)
+        with pytest.raises(grpc.aio.AioRpcError):
+            await _recover(context, pki)
+        assert calls == stop_after_verification
+        assert context.service.executor.blocked_devices() == frozenset({"WT01"})
+        assert _decision_count(context.stack.db_path) == stop_after_verification - 1
+        await _assert_unknown(context)
+        assert modbus_server.write_count == 0
+
+
+@pytest.mark.parametrize(
+    ("initial_scenario", "second_scenario", "case_id"),
+    [
+        ({}, {"overrides": {"revoked": True}}, "revoked"),
+        (
+            {},
+            {"overrides": {"new_instance": "old-instance", "owner": "old-instance"}},
+            "old-owner",
+        ),
+        ({}, {"overrides": {"token_id": "rotated-token"}}, "token-change"),
+        (
+            {"overrides": {"fencing_epoch": 10}},
+            {"overrides": {"fencing_epoch": 9}},
+            "epoch-rollback",
+        ),
+        (
+            {},
+            {"overrides": {"expires_at": "2000-01-01T00:00:00+00:00"}},
+            "expired",
+        ),
+        ({}, {"delay_seconds": 3}, "timeout"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
 async def test_commit_window_rechecks_live_fencing_before_release(
+    initial_scenario: dict[str, Any],
+    second_scenario: dict[str, Any],
+    case_id: str,
+    tmp_path: Path,
+    pki: Pki,
+    modbus_server: Any,
+    authority_factory: Callable[..., FencingAuthorityProcess],
+) -> None:
+    authority = authority_factory(initial_scenario)
+    async with _recovery_context(
+        tmp_path,
+        pki,
+        modbus_server,
+        _settings(pki, authority, timeout=0.2 if case_id == "timeout" else 1.0),
+    ) as context:
+        journal = vars(context.service)["_journal"]
+        original = journal.commit_recovery
+        committed = threading.Event()
+        proceed = threading.Event()
+
+        def delayed_commit(**kwargs: Any) -> str:
+            decision_id = original(**kwargs)
+            committed.set()
+            assert proceed.wait(timeout=5), "test did not release delayed commit"
+            return decision_id
+
+        journal.commit_recovery = delayed_commit
+        recovery = asyncio.create_task(_recover(context, pki))
+        try:
+            assert await asyncio.to_thread(committed.wait, 5)
+            authority.configure(second_scenario)
+            proceed.set()
+            with pytest.raises(grpc.aio.AioRpcError):
+                await recovery
+            expected_requests = 1 if case_id == "timeout" else 2
+            assert len(authority.state()["requests"]) == expected_requests
+            assert context.service.executor.blocked_devices() == frozenset({"WT01"})
+            assert _decision_count(context.stack.db_path) == 1
+            await _assert_unknown(context)
+            assert modbus_server.write_count == 0
+            if case_id == "old-owner":
+                assert authority.state()["devices"]["WT01"]["owner"] == "old-instance"
+        finally:
+            proceed.set()
+            if not recovery.done():
+                recovery.cancel()
+                await asyncio.gather(recovery, return_exceptions=True)
+
+
+async def test_same_request_after_commit_window_failure_accepts_renewed_epoch(
     tmp_path: Path,
     pki: Pki,
     modbus_server: Any,
@@ -639,13 +820,23 @@ async def test_commit_window_rechecks_live_fencing_before_release(
             proceed.set()
             with pytest.raises(grpc.aio.AioRpcError):
                 await recovery
-            assert len(authority.state()["requests"]) == 2
-            assert context.service.executor.blocked_devices() == frozenset({"WT01"})
         finally:
             proceed.set()
             if not recovery.done():
                 recovery.cancel()
                 await asyncio.gather(recovery, return_exceptions=True)
+        assert context.service.executor.blocked_devices() == frozenset({"WT01"})
+        assert _decision_count(context.stack.db_path) == 1
+
+        # 同一请求身份、证据和 token 的合法续期不是异内容冲突，应重新核验后解除。
+        authority.configure({})
+        journal.commit_recovery = original
+        response = await _recover(context, pki)
+        assert response.state == "UNBLOCKED"
+        assert context.service.executor.blocked_devices() == frozenset()
+        assert _decision_count(context.stack.db_path) == 1
+        await _assert_unknown(context)
+        assert modbus_server.write_count == 0
 
 
 @pytest.mark.docker
@@ -732,6 +923,8 @@ async def test_jetstream_outage_keeps_durable_outbox_then_republishes_once(
         await _wait_audit_drained(context.stack.db_path)
         subprocess.run(["docker", "stop", container], capture_output=True, check=True, timeout=20)
         _wait_port(int(nats_url.rsplit(":", 1)[1]), open_expected=False)
+        audit = vars(context.service)["_audit"]
+        assert audit is not None and audit.operational is True
         try:
             response = await _recover(context, pki)
             assert response.state == "UNBLOCKED"
@@ -863,4 +1056,29 @@ async def test_recovery_and_graceful_shutdown_are_serialized(
         assert health.inflight_io == 0
         assert health.blocked_devices == ()
         _assert_unknown_durable(context.stack.db_path, context.command_ids)
+        assert modbus_server.write_count == 0
+
+
+async def test_recovery_and_reload_are_serialized(
+    tmp_path: Path,
+    pki: Pki,
+    modbus_server: Any,
+    authority_factory: Callable[..., FencingAuthorityProcess],
+) -> None:
+    authority = authority_factory({"delay_seconds": 0.5})
+    async with _recovery_context(
+        tmp_path, pki, modbus_server, _settings(pki, authority)
+    ) as context:
+        recovery = asyncio.create_task(_recover(context, pki))
+        async with asyncio.timeout(5):
+            while not authority.state()["requests"]:
+                await asyncio.sleep(0.02)
+        reloading = asyncio.create_task(context.service.reload())
+        await asyncio.sleep(0.1)
+        assert not reloading.done()
+        response = await recovery
+        await reloading
+        assert response.state == "UNBLOCKED"
+        assert context.service.executor.blocked_devices() == frozenset()
+        await _assert_unknown(context)
         assert modbus_server.write_count == 0

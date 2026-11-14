@@ -72,7 +72,9 @@ class _State:
             fenced = isolated and enforced
             current = {
                 "epoch": epoch,
-                "owner": request["new_instance"] if fenced else previous["owner"],
+                "owner": overrides.get(
+                    "owner", request["new_instance"] if fenced else previous["owner"]
+                ),
                 "old_fenced": fenced,
                 "tokens": [*previous["tokens"], token_id],
             }
@@ -93,6 +95,8 @@ class _State:
                 "revoked": False,
             }
             response.update(overrides)
+            for key in self.scenario().get("omit", []):
+                response.pop(key, None)
             return int(self.scenario().get("status", 200)), response
 
 
