@@ -9,8 +9,8 @@ from typing import Any
 
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.output_pool import SharedSinkOutputPool
 from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.output_pool import SharedSinkOutputPool, _QuotaWriter
 from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
 from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
