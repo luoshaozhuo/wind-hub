@@ -105,8 +105,12 @@ class IsolationAuthorityClient:
         result = await asyncio.wait_for(asyncio.to_thread(invoke), timeout=self._timeout + 1)
         # Do not accept merely signed or self-reported status. The trusted
         # authority must assert its *enforced* fencing and I/O isolation.
-        if result.get("isolated") is not True or result.get("fencing_enforced") is not True:
-            raise RuntimeError("physical isolation and fencing not confirmed")
+        if (
+            result.get("isolated") is not True
+            or result.get("fencing_enforced") is not True
+            or result.get("revoked") is not False
+        ):
+            raise RuntimeError("physical isolation, fencing or revocation status not confirmed")
         epoch = result.get("fencing_epoch")
         if type(epoch) is not int or epoch <= 0:
             raise ValueError("invalid recovery fencing epoch")
