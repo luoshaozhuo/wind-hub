@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_39 · 20261113</p>
+<p class="subtitle">v1_40 · 20261113</p>
 
 <style>
 body {
@@ -1597,6 +1597,8 @@ Gateway Application 管理协议 Server 及变量状态、租约和控制事件�
 现行 `infrastructure/runtime.py` 中的业务协调须迁入 Application。配置 Schema、配置解析和 Modbus Server 的目标实现文件分别为 `infrastructure/config/schema.py`、`infrastructure/config/resolution.py`、`infrastructure/adapters/inbound/modbus/server.py`；实现迁移须同时消除内部函数名的版本后缀，更新所有调用方，不创建旧版兼容模块。只有真实需要持久化时才创建 persistence；不得为统一形式增设空实现。
 
 Gateway 目标租约 `VariableLeases` 及 Claim/Update 的原子业务规则位于 `application/variable_leases.py`；gRPC 入站仅将请求转换为 Application 数据，Modbus/协议适配器只负责真实 I/O，不在 Infrastructure 重复维护租约裁决。
+
+Gateway `CommandForwarder` 的有序队列、deadline、状态（ACCEPTED/REJECTED/UNKNOWN）、同目标 FIFO、撤销与请求修订缓存由 `application/forwarding.py` 管理，依赖应用层 `CommanderClientPort`。Infrastructure 的 `adapters/outbound/forwarder.py` 负责具体 `CommanderRpcClient` 构造和 gRPC 状态码到明确拒绝/不确定结果的转换；不将具体 gRPC 异常类型作为 Application 契约。
 
 ## 7.2 静态依赖
 

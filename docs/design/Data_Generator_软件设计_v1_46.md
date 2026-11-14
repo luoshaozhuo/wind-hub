@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_45 · 20261113</p>
+<p class="subtitle">v1_46 · 20261113</p>
 
 <style>
 body {
@@ -3067,6 +3067,8 @@ scenarios:
 **固定物理模型**：设备仅通过 `device_id` 绑定已生效共享实例，由实例型号模板读取 `simulation.parameters`，全部默认输出点来自设备 Point Table。气象绑定 `weather_ref`、控制归属 `controller_mode` 仅属于运行方案。可配置随机模型的分布及规则继续属于 Scenario，不将其变成设备固有参数。
 
 **Gateway 设备级路由**：每项必须指定 `gateway_id`、`endpoint`、`device_id`。默认目标变量身份为完整限定名 `<device_id>.<point_id>`；当 Gateway 的正式点表使用不同的变量名或源点需投送同一 Gateway 的多个目标时，可在该 Gateway 路由上填写可选 `variable_mapping`：键为有效源 `point_id`，值为非空目标 `variable_id` 字符串或非空字符串列表。未显式映射的源点使用默认限定名。不同源点不得复用相同 `(gateway_id,variable_id)`，不得引用未启用的源点。`feedback_mapping` 仍由 Gateway 负责，不能在此重复声明。一个设备可以投送多个不同 Gateway，各服务实例的变量必须预检数据类型和可写属性；目标 `(gateway_id, variable_id)` 唯一占用、租约和 UNKNOWN 不重放语义保持不变。Gateway 管理寄存器地址映射与控制事件转发。
+
+文件真值 JSONL 的应用层职责为源批次语义、顺序与值封装；`application/ports/recording.py` 定义追加 Port，`infrastructure/adapters/outbound/recording.py` 负责安全目录解析、JSONL 编码及异步文件追加。正式启动入口注入 `JsonlRecordWriter`，没有记录 Adapter 而启用了 `recording.enabled` 时必须拒绝，不允许静默丢弃记录。
 
 **文件真值输出**：`recording.enabled` 为布尔开关，默认关闭。打开后为每个 Generation 在受限目录 `recording.directory/<generation_id>.jsonl` 追加原始数据批；每行包含 `generation_id`、`sequence`、`produced_at`、`points[]`，其中每点包含 `device_id`、`point_id`、`source_time`、`value`。字节值采用带 `encoding: base64` 的对象编码。写入发生在 Gateway RPC 发送之前；文件写入失败导致当前 Generation 失败，不把未落盘的值称为真值。文件只证明实际生成值，物理正确性仍由守恒及单元测试独立验证。
 
