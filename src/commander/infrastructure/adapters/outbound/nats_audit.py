@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from commander.infrastructure.audit_publisher import AuditPublisher, JetStreamClient
+from commander.infrastructure.adapters.outbound.audit_publisher import AuditPublisher, JetStreamClient
 
 
 class NatsAuditTransport:

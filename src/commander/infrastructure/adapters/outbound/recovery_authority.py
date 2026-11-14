@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from commander.application.recovery import RecoveryProof
+from commander.application.ports.recovery import RecoveryProof
 
 
 class IsolationAuthorityClient:

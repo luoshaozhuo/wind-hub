@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
 
-from commander.application.journal_port import JournalMetrics
+from commander.application.ports.journal import JournalMetrics
 from commander.domain.command import (
     TERMINAL_STATES,
     AcceptedCommand,
