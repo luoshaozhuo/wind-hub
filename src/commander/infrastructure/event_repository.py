@@ -248,6 +248,21 @@ class EventRepository:
                     raise RepositoryError("SQLite transaction failed; retryable") from exc
                 raise
 
+    def recovery_blocked_devices(self) -> frozenset[str]:
+        """Restore uncertain field control safety across repeated process crashes."""
+        with self._lock:
+            if not self.operational:
+                raise RepositoryError("command journal is unavailable")
+            rows = self._db.execute(
+                "SELECT DISTINCT a.device_id FROM command_events AS a "
+                "JOIN command_events AS t ON t.command_id=a.command_id "
+                "AND t.event_type='COMPLETED' AND t.state='UNKNOWN' "
+                "WHERE a.event_type='ACCEPTED' AND NOT EXISTS ("
+                "SELECT 1 FROM recovery_decisions AS r "
+                "WHERE r.device_id=a.device_id AND r.occurred_at>=t.occurred_at)"
+            ).fetchall()
+            return frozenset(str(row[0]) for row in rows)
+
     def latest_receive_seq(self) -> int:
         with self._lock:
             row = self._db.execute(
@@ -408,7 +423,10 @@ class EventRepository:
                 "WHERE caller_id=? AND request_id=?",
                 (caller_id, request_id),
             ).fetchone()
-            return tuple(row) if row is not None else None
+            return (
+                (str(row[0]), str(row[1]), str(row[2]), str(row[3]), int(row[4]), str(row[5]))
+                if row is not None else None
+            )
 
     def commit_recovery(
         self,
