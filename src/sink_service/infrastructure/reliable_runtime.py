@@ -25,7 +25,7 @@ from sink_service.application.delivery_point import DeliveryPoint, select_delive
 from sink_service.application.latency_window import LatencyWindow
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
-from sink_service.infrastructure.kafka_wire import encode_kafka_points
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
