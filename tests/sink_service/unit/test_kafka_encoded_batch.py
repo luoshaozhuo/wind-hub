@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from sink_service.infrastructure.realtime_adapters import KafkaOutput
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
 from tests.src.unit.test_b2_batch_builder import (
     KEY,
     STRIPE,
