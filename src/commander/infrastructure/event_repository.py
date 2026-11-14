@@ -257,9 +257,7 @@ class EventRepository:
                 "SELECT DISTINCT a.device_id FROM command_events AS a "
                 "JOIN command_events AS t ON t.command_id=a.command_id "
                 "AND t.event_type='COMPLETED' AND t.state='UNKNOWN' "
-                "WHERE a.event_type='ACCEPTED' AND NOT EXISTS ("
-                "SELECT 1 FROM recovery_decisions AS r "
-                "WHERE r.device_id=a.device_id AND r.occurred_at>=t.occurred_at)"
+                "WHERE a.event_type='ACCEPTED'"
             ).fetchall()
             return frozenset(str(row[0]) for row in rows)
 
@@ -507,7 +505,7 @@ class EventRepository:
                     ).fetchall()
                     for row in recovery:
                         event = dict(row)
-                        event["event_type"] = "RECOVERY_UNBLOCKED"
+                        event["event_type"] = "RECOVERY_FENCE_COMMITTED"
                         event["command_id"] = event["decision_id"] if "decision_id" in event else event["event_id"]
                         events.append(event)
                 return tuple(events)
