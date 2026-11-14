@@ -16,8 +16,6 @@ from pathlib import Path
 import yaml
 
 from .config_models import (
-    Candidate,
-    CommitResult,
     SnapshotConflictError,
     SnapshotPaths,
     snapshot_digest,

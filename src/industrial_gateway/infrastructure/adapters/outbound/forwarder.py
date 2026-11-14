@@ -15,11 +15,11 @@ from time import monotonic
 import grpc
 
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.schema import ControlTarget
 from industrial_gateway.infrastructure.adapters.outbound.grpc.commander_client import (
     CommanderRpcClient,
     CommandQuery,
 )
+from industrial_gateway.infrastructure.config.schema import ControlTarget
 
 logger = logging.getLogger(__name__)
 

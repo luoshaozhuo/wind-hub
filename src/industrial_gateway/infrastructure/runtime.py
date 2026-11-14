@@ -19,6 +19,9 @@ from industrial_gateway.application.variable_store import (
     UpdateResult,
     VariableStore,
 )
+from industrial_gateway.infrastructure.adapters.inbound.modbus.server import (
+    DeviceModbusServer,
+)
 from industrial_gateway.infrastructure.adapters.outbound.forwarder import (
     CommandForwarder,
     ForwardRecord,
@@ -29,9 +32,6 @@ from industrial_gateway.infrastructure.config.resolution import (
     ResolvedServer,
 )
 from industrial_gateway.infrastructure.observability import GatewayObservability
-from industrial_gateway.infrastructure.adapters.inbound.modbus.server import (
-    DeviceModbusServer,
-)
 from industrial_gateway.infrastructure.variable_leases import (
     ClaimRequest,
     ClaimResult,

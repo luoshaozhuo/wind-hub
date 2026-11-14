@@ -12,8 +12,8 @@ import grpc
 from collector.application.acquisition import CollectorAcquisition, DeviceWorker
 from collector.application.config_models import SnapshotConflictError, SnapshotError
 from collector.application.configuration import CollectorConfigurationManager
-from collector.infrastructure.config.task_control import CollectorTaskControl
 from collector.infrastructure.adapters.inbound.grpc.config_service import CollectorConfigRpc
+from collector.infrastructure.config.task_control import CollectorTaskControl
 from contracts import collector_pb2 as pb
 from contracts import collector_pb2_grpc as rpc
 from contracts import common_pb2 as common

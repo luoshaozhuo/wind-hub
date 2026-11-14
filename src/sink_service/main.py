@@ -12,9 +12,9 @@ from pathlib import Path
 from sink_service.application.config import read_snapshot
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.observability import Observability
-from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from sink_service.infrastructure.adapters.inbound.grpc_credentials import server_credentials
 from sink_service.infrastructure.adapters.inbound.grpc_server import build_grpc_server
+from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from sink_service.infrastructure.supervisor import WorkerSupervisor
 from sink_service.infrastructure.worker_registry import WorkerRegistryView
 from sink_service.infrastructure.writer_lease import WriterLease

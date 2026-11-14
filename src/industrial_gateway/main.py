@@ -9,11 +9,11 @@ import signal
 from pathlib import Path
 
 from industrial_gateway.assembly import assemble_gateway
-from industrial_gateway.infrastructure.config.resolution import load_gateway
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
     create_gateway_grpc_server,
 )
+from industrial_gateway.infrastructure.config.resolution import load_gateway
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 
 logger = logging.getLogger(__name__)
 

@@ -15,8 +15,8 @@ from typing import Literal
 
 from sink_service.application.delivery_registry import DeliveryRegistry
 from sink_service.application.latency_window import LatencyWindow
-from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from sink_service.infrastructure.ipc import ControlReply, ControlRequest, read_frame, write_frame
+from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from sink_service.infrastructure.realtime_runtime import RealtimeFactory
 from sink_service.infrastructure.reliable_runtime import ReliableFactory
 

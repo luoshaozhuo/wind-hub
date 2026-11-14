@@ -13,8 +13,8 @@ from functools import partial
 from typing import Any
 from uuid import uuid4
 
-from commander.application.ports.journal import JournalPort
 from commander.application.metrics import CommandMetrics
+from commander.application.ports.journal import JournalPort
 from commander.domain.command import (
     TERMINAL_STATES,
     AcceptedCommand,

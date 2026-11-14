@@ -8,8 +8,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.application.ports.output import BatchWriter
 from sink_service.application.latency_window import LatencyWindow
+from sink_service.application.ports.output import BatchWriter
 
 
 @dataclass(frozen=True, slots=True)

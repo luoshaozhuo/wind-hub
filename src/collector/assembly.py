@@ -14,6 +14,11 @@ from pathlib import Path
 import grpc
 import yaml
 
+from collector.infrastructure.adapters.inbound.grpc.collector_service import CollectorDeviceRpc
+from collector.infrastructure.adapters.inbound.grpc.config_service import CollectorConfigRpc
+from collector.infrastructure.adapters.inbound.grpc.registration import register_collector_rpc
+from collector.infrastructure.adapters.outbound.metrics_emitter import CollectorMetricsEmitter
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
 from core.domain import Device, PointTable
@@ -34,11 +39,6 @@ from .infrastructure.config.validation import (
     resolve_source_paths,
     validate_collector_snapshot,
 )
-from collector.infrastructure.adapters.inbound.grpc.collector_service import CollectorDeviceRpc
-from collector.infrastructure.adapters.inbound.grpc.config_service import CollectorConfigRpc
-from collector.infrastructure.adapters.inbound.grpc.registration import register_collector_rpc
-from collector.infrastructure.adapters.outbound.metrics_emitter import CollectorMetricsEmitter
-from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from .infrastructure.resource_sampler import CollectorResourceSampler
 
 logger = logging.getLogger(__name__)

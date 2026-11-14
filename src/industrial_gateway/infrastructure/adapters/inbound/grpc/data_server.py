@@ -22,10 +22,12 @@ from industrial_gateway.application.simulation import (
     SimulationController,
     SimulationOutcome,
 )
+from industrial_gateway.infrastructure.adapters.inbound.grpc.diagnostics import GatewayDiagnostics
+from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import (
+    GeneratorRpcClient,
+)
 from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
-from industrial_gateway.infrastructure.adapters.inbound.grpc.diagnostics import GatewayDiagnostics
-from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import GeneratorRpcClient
 from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
 from industrial_gateway.infrastructure.variable_leases import ClaimRequest, LeaseError
 

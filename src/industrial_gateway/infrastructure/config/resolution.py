@@ -14,16 +14,16 @@ from core.configuration.versioned_templates import config_hash
 from core.domain import ConnectionEndpoint
 from core.infrastructure.config import read_yaml
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
-from industrial_gateway.infrastructure.config.schema import (
-    GatewayServiceConfig,
-    ServerConfig,
-    service_path,
-)
 from industrial_gateway.infrastructure.adapters.inbound.modbus.codec import (
     RegisterArea,
     RegisterMap,
     RegisterMapping,
     WordOrder,
+)
+from industrial_gateway.infrastructure.config.schema import (
+    GatewayServiceConfig,
+    ServerConfig,
+    service_path,
 )
 
 

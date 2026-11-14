@@ -8,7 +8,6 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_point import DeliveryPoint
@@ -17,7 +16,12 @@ from sink_service.application.realtime import BatchOutcome, RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.adapters.inbound.nats_consumer import NatsRealtimeIngress
 from sink_service.infrastructure.adapters.outbound.gateway import GatewayOutput
-from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput, ModbusOutput, RedisOutput
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import (
+    KafkaOutput,
+    ModbusOutput,
+    RedisOutput,
+)
+
 
 class _SinkOutput:
     """Shared adapter, ownership count, and a physical Sink concurrency cap."""

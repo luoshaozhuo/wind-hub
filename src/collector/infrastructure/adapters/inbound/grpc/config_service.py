@@ -19,8 +19,8 @@ from collector.application.acquisition import CollectorAcquisition
 from collector.application.configuration import CollectorConfigurationManager
 from collector.application.lifecycle import CollectorLifecycle, Lifecycle
 from collector.application.telemetry import CollectorTelemetry, RuntimeEvent
-from collector.infrastructure.config.snapshot_repository import SnapshotConflictError, SnapshotError
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
+from collector.infrastructure.config.snapshot_repository import SnapshotConflictError, SnapshotError
 from contracts import common_pb2 as pb
 from contracts import common_pb2_grpc as rpc
 from core.application.errors import ConfigError
