@@ -27,8 +27,8 @@ import pytest
 from commander.application.persistence import BufferedJournal
 from commander.application.service_lifecycle import CommanderService, ServiceState
 from commander.domain.command import CommandSpec
-from commander.infrastructure.event_repository import EventRepository
-from commander.infrastructure.recovery_authority import IsolationAuthorityClient
+from commander.infrastructure.persistence.event_repository import EventRepository
+from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc, common_pb2
 from tests.commander.grpc_harness import GrpcStack, Pki, build_stack

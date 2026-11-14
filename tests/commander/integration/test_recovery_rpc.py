@@ -16,7 +16,7 @@ import pytest
 from commander.application.persistence import BufferedJournal
 from commander.application.service_lifecycle import ServiceState
 from commander.domain.command import CommandSpec
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 from contracts import commander_pb2 as pb
 from tests.commander.grpc_harness import GrpcStack, Pki, build_stack
 

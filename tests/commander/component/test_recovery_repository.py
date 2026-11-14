@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from commander.domain.command import CommandOutcome, CommandSpec, CommandState
-from commander.infrastructure.event_repository import EventRepository, RepositoryError
+from commander.infrastructure.persistence.event_repository import EventRepository, RepositoryError
 
 from ..seed_events import seed_accept, seed_transition
 
