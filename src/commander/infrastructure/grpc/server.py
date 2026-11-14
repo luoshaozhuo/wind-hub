@@ -12,6 +12,7 @@ import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from commander.application.service_lifecycle import CommanderService
+from commander.infrastructure.recovery_authority import IsolationAuthorityClient
 from commander.domain.command import (
     TERMINAL_STATES,
     CommandOutcome,
@@ -129,8 +130,11 @@ class _Authorized:
 
 
 class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
-    def __init__(self, boundary: _Authorized) -> None:
+    def __init__(
+        self, boundary: _Authorized, authority: IsolationAuthorityClient | None = None
+    ) -> None:
         self._boundary = boundary
+        self._authority = authority
 
     def _devices(self) -> list[commander_pb2.Device]:
         config = self._boundary.service.config_manager
@@ -318,12 +322,7 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             self._boundary.service.metrics.accept_latency((perf_counter() - started) * 1000)
 
     async def RecoverDeviceControl(self, request: Any, context: Any) -> Any:
-        """Reject recovery until an independent isolation authority is wired.
-
-        Transport and authentication alone cannot prove that the previous
-        process no longer owns native I/O or physical control authority.
-        """
-        await self._boundary.require(context, "recover")
+        caller = await self._boundary.require(context, "recover")
         if (
             not request.device_id.strip()
             or not request.expected_revision.strip()
@@ -333,10 +332,32 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             or len(request.request_id.encode("utf-8")) > 128
         ):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "recovery fields are required")
-        await context.abort(
-            grpc.StatusCode.FAILED_PRECONDITION,
-            "independent isolation attestation verifier is not configured",
-        )
+        try:
+            decision_id, digest = await self._boundary.service.recover_device_control(
+                authority=self._authority,
+                caller_id=caller,
+                device_id=request.device_id,
+                expected_revision=request.expected_revision,
+                request_id=request.request_id,
+                attestation=request.isolation_attestation,
+            )
+            return commander_pb2.RecoverDeviceControlResponse(
+                device_id=request.device_id,
+                state="UNBLOCKED",
+                decision_id=decision_id,
+                evidence_digest=digest,
+            )
+        except Exception as exc:
+            # Never leak opaque attestation or remote TLS/HTTP error bodies.
+            if isinstance(exc, FileExistsError):
+                code = grpc.StatusCode.ALREADY_EXISTS
+            elif isinstance(exc, ValueError):
+                code = grpc.StatusCode.INVALID_ARGUMENT
+            elif isinstance(exc, TimeoutError):
+                code = grpc.StatusCode.DEADLINE_EXCEEDED
+            else:
+                code = grpc.StatusCode.FAILED_PRECONDITION
+            await context.abort(code, "trusted recovery verification or commit failed")
 
     async def GetRequestResult(self, request: Any, context: Any) -> Any:
         started = perf_counter()
