@@ -16,6 +16,7 @@ from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_sh
 from core.configuration.document_version import validate_document_version
 from core.configuration.effective import resolve_effective_device
 from core.configuration.template_graph import (
+    resolve_device_templates,
     resolve_model_templates,
     validate_point_table_chain,
 )
@@ -250,7 +251,12 @@ def _validate_all_templates(root: Path) -> None:
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: unsupported protocol")
             elif category == "device_models":
-                resolve_model_templates(repository, template)
+                # Shared device models need not define Collector task scheduling.
+                # Explicit task references remain strictly checked.
+                if "task" in document:
+                    resolve_model_templates(repository, template)
+                else:
+                    resolve_device_templates(repository, template)
             elif category == "point_tables":
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: point table protocol missing")
