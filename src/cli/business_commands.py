@@ -242,7 +242,11 @@ def commander_recover_device(
 
     if not device_id.strip() or not expected_revision.strip() or not request_id.strip():
         raise typer.BadParameter("device-id, expected-revision and request-id must be nonempty")
-    evidence = attestation_file.read_bytes()
+    try:
+        with attestation_file.open("rb") as source:
+            evidence = source.read(65537)
+    except OSError as exc:
+        raise typer.BadParameter(f"cannot read attestation file: {exc}") from exc
     if not evidence or len(evidence) > 65536:
         raise typer.BadParameter("attestation file must contain 1..65536 bytes")
     _run(
