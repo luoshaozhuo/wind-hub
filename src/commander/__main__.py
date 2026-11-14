@@ -6,8 +6,8 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.grpc_transport import run_grpc
+from commander.assembly import build_commander
+from commander.infrastructure.adapters.inbound.grpc_transport import run_grpc
 from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
