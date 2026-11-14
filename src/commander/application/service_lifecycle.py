@@ -358,9 +358,21 @@ class CommanderService:
             if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
                 raise RuntimeError("Commander stopped during recovery")
             if not blocked:
-                # Idempotent same-request read on an already released device.
-                if previous is None or proof.expires_at <= datetime.now(UTC):
-                    raise RuntimeError("no valid recovery decision")
+                # A past idempotent decision cannot authorize an older owner
+                # after a newer fencing epoch has been durably committed.
+                latest_epoch = await loop.run_in_executor(
+                    writer, journal.latest_recovery_epoch, device_id
+                )
+                if (
+                    previous is None
+                    or previous[4] < latest_epoch
+                    or previous[5] != proof.token_id
+                    or proof.fencing_epoch < latest_epoch
+                    or proof.expires_at <= datetime.now(UTC)
+                    or self._audit is None
+                    or not self._audit.operational
+                ):
+                    raise RuntimeError("no valid current recovery decision")
                 return previous[0], digest
             if manager.device_revision(device_id) != revision:
                 raise RuntimeError("device revision changed during recovery")
