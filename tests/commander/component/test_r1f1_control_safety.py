@@ -469,9 +469,11 @@ async def test_isolate_with_local_session_closes_and_unblocks_without_regression
     解除后设备可安全接受新命令。
     """
     session = FakeSession()
-    executor = build_executor(control, {"WT01": session}, initially_blocked=frozenset({"WT01"}))
+    executor = build_executor(control, {"WT01": session})
+    # 这是运行期本地阻断，不是崩溃恢复 UNKNOWN；本地物理关闭路径仍适用。
+    vars(executor)["_blocked"].add("WT01")
     # 模拟旧配置会话仍存在（例如热重载/运行期阻断），会话物理关闭即证据。
-    executor._sessions["WT01"] = session  # noqa: SLF001
+    vars(executor)["_sessions"]["WT01"] = session
     session.open = True
     cleared = await executor.isolate_device("WT01")
     assert cleared is True
@@ -490,8 +492,9 @@ async def test_isolate_with_local_session_closes_and_unblocks_without_regression
 async def test_isolate_session_close_failure_keeps_block_and_allows_retry(control) -> None:
     """隔离失败（物理 close 异常）：保持 BLOCKED，隔离任务句柄清理后可重试。"""
     session = FakeSession(close_error=ConnectionError("close failed"))
-    executor = build_executor(control, {"WT01": session}, initially_blocked=frozenset({"WT01"}))
-    executor._sessions["WT01"] = session  # noqa: SLF001
+    executor = build_executor(control, {"WT01": session})
+    vars(executor)["_blocked"].add("WT01")
+    vars(executor)["_sessions"]["WT01"] = session
     session.open = True
     assert await executor.isolate_device("WT01") is False
     assert executor.blocked_devices() == frozenset({"WT01"})

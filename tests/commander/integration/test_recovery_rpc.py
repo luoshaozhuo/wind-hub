@@ -62,7 +62,7 @@ async def test_recover_scope_excludes_viewer_and_allows_only_ops_deployer_to_bou
             commander.RecoverDeviceControl(_request(), timeout=5),
             grpc.StatusCode.FAILED_PRECONDITION,
         )
-        assert "verifier is not configured" in error.details()
+        assert error.details() == "trusted recovery verification or commit failed"
     _common, commander = grpc_stack.stubs(pki, client="ops")
     await _aborts(
         commander.RecoverDeviceControl(_request(isolation_attestation=b"x" * 65536), timeout=5),
@@ -165,8 +165,8 @@ async def test_unsigned_expired_or_replayed_attestation_never_unblocks_recovered
         assert await service.stop() == frozenset({"WT01"})
 
 
-def test_shipped_roles_grant_recover_without_weakening_viewer_model() -> None:
-    """出厂 ops/deployer 可进入恢复边界；权限仍由部署配置显式授予。"""
+def test_shipped_roles_reserve_recover_for_maintenance() -> None:
+    """出厂仅 maintenance 可恢复；普通 EMS 控制身份不得隐式获得该权限。"""
     import yaml
 
     shipped = Path(__file__).resolve().parents[3] / "configs" / "services" / "commander.yaml"
@@ -176,6 +176,6 @@ def test_shipped_roles_grant_recover_without_weakening_viewer_model() -> None:
         caller["caller_id"]: set(caller["permissions"])
         for caller in callers  # type: ignore[index]
     }
-    assert "recover" in grants["ems"]
+    assert "recover" not in grants["ems"]
     assert "recover" in grants["maintenance"]
     assert "viewer" not in grants

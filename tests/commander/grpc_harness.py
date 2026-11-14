@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.assembly import build_commander
 from commander.infrastructure.grpc.server import register_services
 from commander.infrastructure.grpc.snapshots import ConfigSnapshots
+from commander.infrastructure.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2_grpc, common_pb2_grpc
 from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -86,10 +88,10 @@ shutdown:
 """
 
 
-def _wt01_block(modbus_port: int, label: str) -> str:
+def _device_block(device_id: str, modbus_port: int, label: str) -> str:
     return f"""
-  WT01:
-    name: "Commander {label} Modbus WT01"
+  {device_id}:
+    name: "Commander {label} Modbus {device_id}"
     enabled: true
     model:
       id: modbus_wtg
@@ -229,6 +231,19 @@ def build_pki(tmp_path: Path) -> Pki:
     server_cert = issue(
         ca_cert, ca_private, server_private, "commander-server", [], server=True, serial=2
     )
+    authority_private = key()
+    authority_cert = issue(
+        ca_cert, ca_private, authority_private, "fencing-authority", [], server=True, serial=3
+    )
+    wrong_host_private = key()
+    wrong_host_cert = issue(
+        ca_cert,
+        ca_private,
+        wrong_host_private,
+        "wrong-authority-host",
+        ["authority@windhub.test"],
+        serial=4,
+    )
 
     leaves: dict[str, tuple[x509.Certificate, ec.EllipticCurvePrivateKey]] = {}
     serial = 10
@@ -269,6 +284,16 @@ def build_pki(tmp_path: Path) -> Pki:
         ["outsider@windhub.test"],
         serial=901,
     )
+    rogue_authority_private = key()
+    rogue_authority_cert = issue(
+        rogue_ca,
+        rogue_ca_private,
+        rogue_authority_private,
+        "rogue-fencing-authority",
+        [],
+        server=True,
+        serial=902,
+    )
 
     def dump(name: str, cert: x509.Certificate, private: ec.EllipticCurvePrivateKey) -> None:
         (tmp_path / f"{name}.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
@@ -276,6 +301,9 @@ def build_pki(tmp_path: Path) -> Pki:
 
     dump("ca", ca_cert, ca_private)
     dump("server", server_cert, server_private)
+    dump("authority", authority_cert, authority_private)
+    dump("wrong-host", wrong_host_cert, wrong_host_private)
+    dump("rogue-authority", rogue_authority_cert, rogue_authority_private)
     for name, (cert, private) in leaves.items():
         dump(name, cert, private)
     dump("rogue-ca", rogue_ca, rogue_ca_private)
@@ -341,6 +369,11 @@ async def build_stack(
     stream_prefix: str = "CMD_IT",
     label: str = "integration",
     prepare: Callable[[Path], None] | None = None,
+    recovery: dict[str, object] | None = None,
+    device_ids: tuple[str, ...] = ("WT01",),
+    device_ports: dict[str, int] | None = None,
+    audit_stream: str | None = None,
+    audit_subject: str | None = None,
 ) -> tuple[GrpcStack, grpc.aio.Server, CommanderService]:
     """真实共享配置树 + build_commander + 仅安全端口的 gRPC 服务器。
 
@@ -355,17 +388,40 @@ async def build_stack(
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     db_path = service_dir / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    stream = f"{stream_prefix}_{uuid.uuid4().hex[:12]}"
-    subject = f"commander.{label}.{uuid.uuid4().hex[:8]}"
+    stream = audit_stream or f"{stream_prefix}_{uuid.uuid4().hex[:12]}"
+    subject = audit_subject or f"commander.{label}.{uuid.uuid4().hex[:8]}"
     yaml_path = service_dir / "commander.yaml"
-    yaml_path.write_text(
-        _service_yaml(db_path, nats_url, stream=stream, subject=subject),
-        encoding="utf-8",
-    )
+    yaml_text = _service_yaml(db_path, nats_url, stream=stream, subject=subject)
+    if recovery is not None:
+        yaml_text += (
+            "grpc:\n"
+            "  listen_host: 127.0.0.1\n"
+            "  listen_port: 1\n"
+            "  max_active_rpcs: 100\n"
+            "security:\n"
+            f"  ca_cert: {json.dumps(str(pki.tmp / 'ca.crt'))}\n"
+            f"  server_cert: {json.dumps(str(pki.tmp / 'server.crt'))}\n"
+            f"  server_key: {json.dumps(str(pki.tmp / 'server.key'))}\n"
+            "  callers:\n"
+            "    - caller_id: ops-console\n"
+            f"      certificate_identity: {json.dumps(IDENTITIES['ops'][0])}\n"
+            "      permissions: [control, query, recover]\n"
+            "  recovery:\n"
+            + "".join(f"    {key}: {json.dumps(value)}\n" for key, value in recovery.items())
+        )
+    yaml_path.write_text(yaml_text, encoding="utf-8")
     if modbus_port is not None:
         devices_yaml = root / "instances" / "devices.yaml"
         devices_yaml.write_text(
-            devices_yaml.read_text(encoding="utf-8") + _wt01_block(modbus_port, label),
+            devices_yaml.read_text(encoding="utf-8")
+            + "".join(
+                _device_block(
+                    device_id,
+                    (device_ports or {}).get(device_id, modbus_port),
+                    label,
+                )
+                for device_id in device_ids
+            ),
             encoding="utf-8",
         )
         table = root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml"
@@ -389,7 +445,19 @@ async def build_stack(
     snapshots = ConfigSnapshots(service, yaml_path)
     permissions = _permissions()
     server = grpc.aio.server(maximum_concurrent_rpcs=100)
-    register_services(server, service, permissions, snapshots)
+    authority = (
+        IsolationAuthorityClient(
+            url=str(recovery["url"]),
+            ca_cert=Path(str(recovery["ca_cert"])),
+            client_cert=Path(str(recovery["client_cert"])),
+            client_key=Path(str(recovery["client_key"])),
+            instance_id=str(recovery["instance_id"]),
+            timeout=float(recovery.get("timeout_seconds", 5.0)),
+        )
+        if recovery is not None
+        else None
+    )
+    register_services(server, service, permissions, snapshots, authority)
     credentials = grpc.ssl_server_credentials(
         [(pki.key("server"), pki.cert("server"))],
         root_certificates=pki.ca_cert,
