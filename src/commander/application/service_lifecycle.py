@@ -369,8 +369,11 @@ class CommanderService:
                     new_instance=proof.new_instance,
                 ),
             )
-            # The authority must enforce fencing until the new controller
-            # relinquishes ownership; a bare short-lived proof is insufficient.
+            # Reject a proof that expired while the durable transaction ran.
+            # This may leave an audited fence without a local unblock; retries
+            # must revalidate externally and remain safe after a crash.
+            if proof.expires_at <= datetime.now(UTC):
+                raise RuntimeError("recovery fencing proof expired before release")
             executor.release_recovered_device(device_id)
             self._event("INFO", "Commander device recovery committed", "RECOVERY_UNBLOCKED")
             return decision_id, digest
