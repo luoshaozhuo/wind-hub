@@ -724,8 +724,11 @@ def register_services(
     service: CommanderService,
     permissions: dict[str, tuple[str, frozenset[str]]],
     snapshots: Any,
+    authority: IsolationAuthorityClient | None = None,
 ) -> None:
-    """Register both frozen Proto services against a single Commander application."""
+    """Register both Proto services against a single Commander application."""
     boundary = _Authorized(service, permissions)
-    commander_pb2_grpc.add_CommanderServiceServicer_to_server(CommanderRpc(boundary), server)
+    commander_pb2_grpc.add_CommanderServiceServicer_to_server(
+        CommanderRpc(boundary, authority), server
+    )
     common_pb2_grpc.add_CommonServiceServicer_to_server(CommonRpc(boundary, snapshots), server)
