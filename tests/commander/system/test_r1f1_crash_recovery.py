@@ -112,6 +112,13 @@ async def test_independent_process_crash_recovers_unknown_and_blocks_device(
         assert service2.health().state is ServiceState.DEGRADED
         assert service2.executor.blocked_devices() == frozenset({"WT01"})
         assert modbus_server.write_count == 0
+        # F1-GAP-01：无本地 Session=无可信证据，显式解除必须失败关闭；
+        # 解除失败后 Watchdog 仍不得把服务错误恢复为 READY。
+        assert await service2.executor.isolate_device("WT01") is False
+        await asyncio.sleep(1.0)
+        assert service2.health().state is ServiceState.DEGRADED
+        assert service2.executor.blocked_devices() == frozenset({"WT01"})
+        assert modbus_server.write_count == 0
     finally:
         # 停机必须显式报告残留阻断设备，不得伪装干净 STOPPED。
         assert await service2.stop() == frozenset({"WT01"})

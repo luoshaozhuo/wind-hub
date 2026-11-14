@@ -434,22 +434,72 @@ async def test_recovered_blocked_device_rejects_new_control_at_admission(control
     await executor.close(grace_seconds=1.0)
 
 
-async def test_isolate_without_local_session_clears_block_without_physical_evidence(
-    control,
-) -> None:
-    """S3-5 F1-GAP-01（已知缺口复现，非安全认可）：无本地 Session 时
-    isolate_device 直接清除 BLOCKED，全程没有任何物理隔离证据。
+async def test_isolate_without_local_session_fails_closed_and_keeps_block(control) -> None:
+    """S3-5 F1-GAP-01 复测：无本地 Session=无可信证据，isolate 必须失败关闭。
 
-    重启后的恢复设备在当前进程没有旧 Session；该路径使"未确认隔离"的
-    设备可以在零证据下重新开放控制。整改后本用例应改为：无证据时拒绝
-    解除阻断（返回 False 或要求显式安全证据），不得保留现行为。
+    断言：返回 False；设备保持 BLOCKED；保留额度不释放；UNKNOWN 不被判定
+    io_settled；新冲突命令仍被拒绝；并发/重复解除均安全失败。
     """
     session = FakeSession()
     executor = build_executor(control, {"WT01": session}, initially_blocked=frozenset({"WT01"}))
     assert executor._sessions == {}  # noqa: SLF001  # 旧进程 I/O 无本地句柄
+    retained_before = dict(executor._retained_permits)  # noqa: SLF001
+    settled_before = set(executor._settled_unknown)  # noqa: SLF001
+    # 并发解除与重复解除：全部返回 False，且无任何副作用。
+    results = await asyncio.gather(executor.isolate_device("WT01"), executor.isolate_device("WT01"))
+    assert results == [False, False]
+    assert await executor.isolate_device("WT01") is False
+    assert executor.blocked_devices() == frozenset({"WT01"})
+    assert dict(executor._retained_permits) == retained_before  # noqa: SLF001
+    assert set(executor._settled_unknown) == settled_before  # noqa: SLF001
+    assert session.closes == 0  # 不得"新建 Session 后立即关闭"伪造证据
+    assert session.connects == 0
+    with pytest.raises(RuntimeError, match="device unavailable"):
+        await executor.accept([make_spec("p0")], request_id=f"req-f1-{uuid4().hex}", caller_id="op")
+    assert session.one_calls == [] and session.many_calls == []
+    await executor.close(grace_seconds=1.0)
+
+
+async def test_isolate_with_local_session_closes_and_unblocks_without_regression(
+    control,
+) -> None:
+    """F1-GAP-01 不得退化正常路径：有本地 Session 时物理关闭后才解除阻断。
+
+    关闭成功 → True 且解除；重复解除幂等返回 False（已非 BLOCKED）；
+    解除后设备可安全接受新命令。
+    """
+    session = FakeSession()
+    executor = build_executor(control, {"WT01": session}, initially_blocked=frozenset({"WT01"}))
+    # 模拟旧配置会话仍存在（例如热重载/运行期阻断），会话物理关闭即证据。
+    executor._sessions["WT01"] = session  # noqa: SLF001
+    session.open = True
     cleared = await executor.isolate_device("WT01")
-    # 当前真实行为：无 Session 即认为可解除，无任何物理证据。
     assert cleared is True
+    assert session.closes == 1
+    assert session.open is False
     assert executor.blocked_devices() == frozenset()
-    assert session.closes == 0  # 未发生任何物理关闭/隔离动作
+    assert await executor.isolate_device("WT01") is False  # 重复解除安全幂等
+    accepted = await executor.accept(
+        [make_spec("p0")], request_id=f"req-f1-{uuid4().hex}", caller_id="op"
+    )
+    await asyncio.gather(executor.wait(accepted[0].command_id))
+    assert session.one_calls == ["p0"]  # 解除后可安全接受新命令
+    await executor.close(grace_seconds=1.0)
+
+
+async def test_isolate_session_close_failure_keeps_block_and_allows_retry(control) -> None:
+    """隔离失败（物理 close 异常）：保持 BLOCKED，隔离任务句柄清理后可重试。"""
+    session = FakeSession(close_error=ConnectionError("close failed"))
+    executor = build_executor(control, {"WT01": session}, initially_blocked=frozenset({"WT01"}))
+    executor._sessions["WT01"] = session  # noqa: SLF001
+    session.open = True
+    assert await executor.isolate_device("WT01") is False
+    assert executor.blocked_devices() == frozenset({"WT01"})
+    assert session.open is True  # 未物理关闭，不得放行
+    # 并发解除共用同一隔离任务；失败后清理句柄，恢复 close 后可成功重试。
+    session._close_error = None  # noqa: SLF001
+    results = await asyncio.gather(executor.isolate_device("WT01"), executor.isolate_device("WT01"))
+    assert results == [True, True]
+    assert session.closes == 2  # 首次失败 + 重试成功（并发共享同一次重试）
+    assert executor.blocked_devices() == frozenset()
     await executor.close(grace_seconds=1.0)

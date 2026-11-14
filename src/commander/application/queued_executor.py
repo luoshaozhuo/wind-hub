@@ -1041,9 +1041,7 @@ class QueuedExecutor:
         # the active native operation retains its original ownership.
         for entry in tuple(self._entries.values()):
             if not entry.gate_acquired and not entry.finished.done():
-                await self._terminate_queued(
-                    entry, CommandState.INTERRUPTED, "SERVICE_STOPPING"
-                )
+                await self._terminate_queued(entry, CommandState.INTERRUPTED, "SERVICE_STOPPING")
         if self._deadline_tasks:
             _, pending_deadlines = await asyncio.wait(
                 tuple(self._deadline_tasks), timeout=grace_seconds
