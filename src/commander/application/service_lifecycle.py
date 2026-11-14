@@ -392,7 +392,12 @@ class CommanderService:
                 attestation=attestation,
             )
             if (
-                current_proof != proof
+                current_proof.device_id != proof.device_id
+                or current_proof.revision != proof.revision
+                or current_proof.old_instance != proof.old_instance
+                or current_proof.new_instance != proof.new_instance
+                or current_proof.token_id != proof.token_id
+                or current_proof.fencing_epoch < proof.fencing_epoch
                 or current_proof.expires_at <= datetime.now(UTC)
                 or self._audit is None
                 or not self._audit.operational
