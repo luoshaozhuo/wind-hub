@@ -1,6 +1,6 @@
 # Commander 专属服务配置；共享依赖仅声明直接配置入口
 schema_version: 1
-file_version: 1.1.0
+file_version: 1.2.0
 
 config_sources:
   instances:
@@ -17,6 +17,16 @@ security:
   ca_cert: "/etc/wind-hub/certs/ca.pem"
   server_cert: "/etc/wind-hub/certs/commander.pem"
   server_key: "/etc/wind-hub/certs/commander.key"
+  # Recovery authority MUST independently enforce exclusive device control and
+  # irreversible fencing of previous native I/O before replying. Transport
+  # mTLS alone does not prove field isolation. Absent configuration means deny.
+  # recovery:
+  #   url: "https://control-fencing.example.invalid:8443/verify-and-fence"
+  #   instance_id: "commander-site-a-instance-1"
+  #   ca_cert: "/etc/wind-hub/certs/fencing-authority-ca.pem"
+  #   client_cert: "/etc/wind-hub/certs/commander.pem"
+  #   client_key: "/etc/wind-hub/certs/commander.key"
+  #   timeout_seconds: 5.0
   callers:
     - caller_id: ems
       certificate_identity: "spiffe://wind-hub/ems"
