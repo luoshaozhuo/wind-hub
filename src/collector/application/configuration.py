@@ -12,7 +12,6 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 import yaml
 
@@ -23,35 +22,8 @@ from .config_models import (
     SnapshotPaths,
     snapshot_digest,
 )
+from .ports.configuration import RuntimeConfigurationPort, SnapshotRepositoryPort
 from .telemetry import CollectorTelemetry
-
-
-class SnapshotRepositoryPort(Protocol):
-    def active_revision(self) -> str | None: ...
-    def active_paths(self) -> SnapshotPaths: ...
-    def read_generation(self, revision: str | None = None) -> dict[str, bytes]: ...
-    def get(self, candidate_id: str) -> Candidate: ...
-    def committed_revision(self, candidate_id: str, expected_revision: str) -> str | None: ...
-    def stage(
-        self,
-        files: dict[str, bytes],
-        *,
-        expected_revision: str,
-        validate: Callable[[SnapshotPaths], None],
-    ) -> Candidate: ...
-    async def commit(
-        self,
-        candidate_id: str,
-        *,
-        expected_revision: str,
-        validate: Callable[[SnapshotPaths], None],
-    ) -> CommitResult: ...
-
-
-class RuntimeConfigurationPort(Protocol):
-    async def converge(self, paths: SnapshotPaths, revision: str) -> dict[str, str]:
-        """Apply changed Collector runtime objects; return failures by object ID."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)
