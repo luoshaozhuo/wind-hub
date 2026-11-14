@@ -493,14 +493,16 @@ class EventRepository:
             if current is not None and fencing_epoch < int(current):
                 raise ValueError("recovery fencing epoch is stale")
             if previous is not None:
-                if tuple(previous[1:]) != (
-                    device_id,
-                    revision,
-                    evidence_digest,
-                    fencing_epoch,
-                    token_id,
+                # A renewed fencing lease may advance the epoch for the same
+                # immutable recovery request. Keep the original decision and
+                # outbox event; never overwrite the committed audit record.
+                if (
+                    tuple(previous[1:4]) != (device_id, revision, evidence_digest)
+                    or str(previous[5]) != token_id
                 ):
                     raise FileExistsError("recovery request_id conflict")
+                if fencing_epoch < int(previous[4]):
+                    raise ValueError("recovery fencing epoch is stale")
                 return str(previous[0])
             reused = self._db.execute(
                 "SELECT 1 FROM recovery_decisions WHERE token_id=?", (token_id,)
