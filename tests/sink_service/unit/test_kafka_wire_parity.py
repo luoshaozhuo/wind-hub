@@ -21,7 +21,7 @@ from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.kafka_wire import encode_kafka_point
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_point
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 

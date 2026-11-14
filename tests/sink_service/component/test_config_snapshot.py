@@ -18,7 +18,7 @@ from sink_service.domain.config import (
     ValidatedSnapshot,
     WriterRequiredError,
 )
-from sink_service.infrastructure.config_repository import GenerationStore
+from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,

@@ -20,7 +20,7 @@ import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.kafka_wire import (
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
     encode_kafka_point,
     encode_kafka_points,
 )
