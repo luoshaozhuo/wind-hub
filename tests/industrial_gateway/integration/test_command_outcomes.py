@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from contracts import industrial_gateway_pb2 as pb
-from industrial_gateway.infrastructure.commander.forwarder import ForwardState
+from industrial_gateway.infrastructure.adapters.outbound.forwarder import ForwardState
 from tests.support.gateway_v1 import (
     COMMAND_COIL,
     COMMAND_UINT,

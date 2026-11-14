@@ -40,7 +40,7 @@ from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
+from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import create_gateway_grpc_server
 from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

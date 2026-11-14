@@ -14,7 +14,7 @@ import grpc
 import pytest
 
 from contracts import commander_pb2_grpc as crpc
-from industrial_gateway.infrastructure.commander.forwarder import (
+from industrial_gateway.infrastructure.adapters.outbound.forwarder import (
     CommandForwarder,
     ForwardState,
 )
