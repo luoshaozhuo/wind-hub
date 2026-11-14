@@ -34,7 +34,10 @@ class AuditPublisher:
         event_type = event.get("event_type")
         if not isinstance(event_id, str) or not event_id:
             raise ValueError("audit event_id required")
-        if event_type not in ("ACCEPTED", "CONNECTING", "EXECUTING", "COMPLETED", "RECOVERY_FENCE_COMMITTED"):
+        if event_type not in (
+            "ACCEPTED", "CONNECTING", "EXECUTING", "COMPLETED",
+            "RECOVERY_FENCE_COMMITTED",
+        ):
             raise ValueError("invalid Commander command event type")
         # Explicit schema excludes database-only delivery flags and timestamps.
         body = {
