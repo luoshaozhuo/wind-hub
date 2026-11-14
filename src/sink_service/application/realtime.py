@@ -6,9 +6,9 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Protocol
 
 from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.ports.output import BatchWriter
 from sink_service.application.latency_window import LatencyWindow
 
 
@@ -24,10 +24,6 @@ class BatchOutcome:
     successful_latencies_ms: tuple[float, ...] = ()
     permanent: tuple[int, ...] = ()
     successful_latency_weights: tuple[tuple[float, int], ...] = ()
-
-
-class BatchWriter(Protocol):
-    async def write_batch(self, samples: tuple[DeliveryPoint, ...]) -> BatchOutcome: ...
 
 
 class RealtimeEngine:
