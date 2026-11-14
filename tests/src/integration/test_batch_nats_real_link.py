@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 import nats
 import pytest
 
-from collector.infrastructure.publisher import CollectorPublisher
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
 from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
