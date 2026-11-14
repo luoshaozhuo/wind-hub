@@ -200,6 +200,15 @@ class EventRepository:
                 "SELECT state, COUNT(*) FROM command_events "
                 "WHERE event_type='COMPLETED' GROUP BY state"
             ).fetchall()
+            recovery_pending, recovery_oldest = self._db.execute(
+                "SELECT COUNT(*), MIN(occurred_at) FROM recovery_decisions "
+                "WHERE publish_state='PENDING'"
+            ).fetchone()
+            pending += recovery_pending
+            if recovery_oldest is not None and (
+                oldest is None or recovery_oldest < oldest
+            ):
+                oldest = recovery_oldest
             age_ms = 0.0
             if oldest is not None:
                 age_ms = max(
@@ -511,7 +520,7 @@ class EventRepository:
                     "SELECT * FROM command_events WHERE publish_state='PENDING' "
                     "AND event_type IN ('ACCEPTED','CONNECTING','EXECUTING','COMPLETED') "
                     "ORDER BY event_seq LIMIT ?",
-                    (limit,),
+                    (max(1, limit - 1),),
                 ).fetchall()
                 events = [dict(row) for row in rows]
                 remaining = max(0, limit - len(events))
