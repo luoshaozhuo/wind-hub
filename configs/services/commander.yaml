@@ -1,6 +1,6 @@
 # Commander 专属服务配置；共享依赖仅声明直接配置入口
 schema_version: 1
-file_version: 1.2.0
+file_version: 1.3.0
 
 config_sources:
   instances:
@@ -30,7 +30,7 @@ security:
   callers:
     - caller_id: ems
       certificate_identity: "spiffe://wind-hub/ems"
-      permissions: [control, query, recover]
+      permissions: [control, query]
     - caller_id: maintenance
       certificate_identity: "spiffe://wind-hub/maintenance"
       permissions: [query, reload, recover]
