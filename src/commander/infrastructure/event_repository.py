@@ -476,6 +476,12 @@ class EventRepository:
                 "WHERE caller_id=? AND request_id=?",
                 (caller_id, request_id),
             ).fetchone()
+            current = self._db.execute(
+                "SELECT MAX(fencing_epoch) FROM recovery_decisions WHERE device_id=?",
+                (device_id,),
+            ).fetchone()[0]
+            if current is not None and fencing_epoch < int(current):
+                raise ValueError("recovery fencing epoch is stale")
             if previous is not None:
                 if tuple(previous[1:]) != (
                     device_id,
@@ -491,10 +497,6 @@ class EventRepository:
             ).fetchone()
             if reused is not None:
                 raise FileExistsError("recovery attestation already consumed")
-            current = self._db.execute(
-                "SELECT MAX(fencing_epoch) FROM recovery_decisions WHERE device_id=?",
-                (device_id,),
-            ).fetchone()[0]
             if current is not None and fencing_epoch <= int(current):
                 raise ValueError("recovery fencing epoch not increasing")
             self._allow_write_behind_flush()
