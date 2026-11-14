@@ -322,8 +322,6 @@ class CommanderService:
                 raise RuntimeError("Commander not ready for recovery")
             manager = self.config_manager
             executor = self.executor
-            if device_id not in executor.blocked_devices():
-                raise RuntimeError("device does not require recovery")
             revision = manager.device_revision(device_id)
             if revision is None or revision != expected_revision:
                 raise RuntimeError("device configuration revision conflict")
@@ -342,6 +340,9 @@ class CommanderService:
                 or previous[3] != digest
             ):
                 raise FileExistsError("recovery request_id conflict")
+            blocked = device_id in executor.blocked_devices()
+            if not blocked and previous is None:
+                raise RuntimeError("device does not require recovery")
             # Even an idempotent retry must confirm that fencing remains live.
             proof = await authority.verify_and_fence(
                 device_id=device_id,
@@ -352,6 +353,11 @@ class CommanderService:
             )
             if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
                 raise RuntimeError("Commander stopped during recovery")
+            if not blocked:
+                # Idempotent same-request read on an already released device.
+                if previous is None or proof.expires_at <= datetime.now(UTC):
+                    raise RuntimeError("no valid recovery decision")
+                return previous[0], digest
             if manager.device_revision(device_id) != revision:
                 raise RuntimeError("device revision changed during recovery")
             decision_id = await loop.run_in_executor(
