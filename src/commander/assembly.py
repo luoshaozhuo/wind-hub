@@ -30,6 +30,7 @@ def build_commander(
     return CommanderService(
         protocol_registry=protocol_registry,
         simulation_factory=GatewaySimulationSession,
+        native_session_factory=protocol_registry.create,
         audit_transport=audit_transport,
         settings_loader=lambda: load_service_settings(config_path),
         journal_factory=lambda current: EventRepository(

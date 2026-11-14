@@ -27,6 +27,7 @@ from commander.application.ports.recovery import RecoveryAuthority
 from commander.application.queued_executor import QueuedExecutor, WriteSession
 from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.application.protocol_registry import ProtocolRegistry
+from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,16 @@ class CommanderService:
         settings_loader: Callable[[], ServiceSettings],
         journal_factory: Callable[[ServiceSettings], JournalPort],
         simulation_factory: Callable[[str, SimulationGatewayTarget], WriteSession] | None = None,
+        native_session_factory: Callable[
+            [ConnectionEndpoint, PointTable, ProtocolOptions], WriteSession
+        ] | None = None,
     ) -> None:
         self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._settings_loader = settings_loader
         self._journal_factory = journal_factory
         self._simulation_factory = simulation_factory
+        self._native_session_factory = native_session_factory
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._started_at: datetime | None = None
@@ -219,7 +224,9 @@ class CommanderService:
             def create_session(device_id: str) -> WriteSession:
                 target = settings.simulation_targets.get(device_id)
                 if target is None:
-                    return manager.create_session(device_id, self._registry)
+                    if self._native_session_factory is None:
+                        raise RuntimeError("native protocol adapter is not registered")
+                    return self._native_session_factory(*manager.device_connection(device_id))
                 if self._simulation_factory is None:
                     raise RuntimeError("simulation execution Adapter is not registered")
                 return self._simulation_factory(device_id, target)

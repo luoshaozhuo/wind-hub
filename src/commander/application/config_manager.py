@@ -12,9 +12,7 @@ from typing import Any, Protocol
 
 from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
-from core.application.port import ProtocolPort
 from core.application.protocol_contract import ProtocolWrite
-from core.application.protocol_registry import ProtocolRegistry
 from core.configuration.effective import resolve_effective_device
 from core.configuration.immutable import plain_document
 from core.configuration.shared_documents import (
@@ -26,7 +24,16 @@ from core.configuration.shared_snapshot import (
     SharedDomainSnapshot,
     build_shared_snapshot,
 )
-from core.domain import DeviceId, DeviceModelId, PointAccess, PointTableId, convert_value
+from core.domain import (
+    ConnectionEndpoint,
+    DeviceId,
+    DeviceModelId,
+    PointAccess,
+    PointTable,
+    PointTableId,
+    ProtocolOptions,
+    convert_value,
+)
 from core.domain.point import raw_write_value
 
 
@@ -225,8 +232,10 @@ class CommanderConfigManager:
             raise ValueError("scaled protocol write value must be finite")
         return ProtocolWrite(point=spec.point_id, value=raw_value)
 
-    def create_session(self, device_id: str, registry: ProtocolRegistry) -> ProtocolPort:
-        """Construct a disconnected Core protocol driver from active configuration."""
+    def device_connection(
+        self, device_id: str
+    ) -> tuple[ConnectionEndpoint, PointTable, ProtocolOptions]:
+        """Return the active immutable connection plan, never a concrete driver."""
         snapshot = self._snapshot
         if snapshot is None or device_id in self._disabled:
             raise RuntimeError("device configuration is unavailable")
@@ -236,7 +245,7 @@ class CommanderConfigManager:
         model = snapshot.device_models[device.device_model_id]
         table = snapshot.point_tables[model.point_table_id]
         effective_device, options = resolve_effective_device(device, model, table.protocol.name)
-        return registry.create(effective_device.endpoint, table, options)
+        return effective_device.endpoint, table, options
 
     def device_revision(self, device_id: str) -> str | None:
         return self._fingerprints.get(device_id)
