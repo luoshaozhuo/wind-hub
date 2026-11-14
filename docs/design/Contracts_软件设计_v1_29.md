@@ -642,10 +642,10 @@ System Test 必须遵守以下规定：
 |---|---|---|---:|---|
 | `common.proto` | `windhub.common.v1` | `CommonService` | 9 | 五个服务共用管理、配置、指标、事件、诊断 |
 | `collector.proto` | `windhub.collector.v1` | `CollectorService` | 11 | 主动设备读、任务启停、总召 |
-| `commander.proto` | `windhub.commander.v1` | `CommanderService` | 7 | 可控点元数据、现场写入与结果 |
+| `commander.proto` | `windhub.commander.v1` | `CommanderService` | 8 | 可控点元数据、现场写入与结果 |
 | `sink_service.proto` | `windhub.sink.v1` | `SinkService` | 4 | Delivery 查询和启停 |
-| `industrial_gateway.proto` | `windhub.gateway.v1` | `IndustrialGatewayService` | 8 | Gateway 内存变量读写与租约 |
-| `data_generator.proto` | `windhub.data_generator.v1` | `DataGeneratorService` | 8 | 生成任务查询启停及目标变量发现、模型输入更新 |
+| `industrial_gateway.proto` | `windhub.gateway.v1` | `IndustrialGatewayService` | 10 | Gateway 内存变量读写与租约 |
+| `data_generator.proto` | `windhub.data_generator.v1` | `DataGeneratorService` | 9 | 生成任务查询启停及目标变量发现、模型输入更新 |
 
 **当前已发布 51 个唯一 Unary RPC**，即公共 9 + 专属 11+8+4+10+9；以六份正式 Proto 及生成 Descriptor 为线协议权威。Gateway 的两个仿真执行 RPC 已完成 Proto 与四类 Python 绑定生成，业务 Server 和跨模块链路仍须独立验证。公共 9 项由各业务服务分别注册，因此这是“唯一接口定义数”，不是所有服务实例注册方法的总和。六份 Proto 当前均以 `proto3` 定义，业务 Proto 通过 `import "contracts/common.proto"` 复用公共消息。
 
@@ -1075,6 +1075,7 @@ service IndustrialGatewayService {
 | `SubmitCommands` | `SubmitCommandsRequest` | `SubmitCommandsResponse` | 原子受理有序批次、异步逐点执行 |
 | `GetRequestResult` | `GetRequestResultRequest` | `GetRequestResultResponse` | 按 request_id 查询单点或批次全部结果 |
 | `GetCommandResult` | `GetCommandResultRequest` | `GetCommandResultResponse` | 凭 command_id 查询权威状态和 I/O 收敛 |
+| `RecoverDeviceControl` | `RecoverDeviceControlRequest` | `RecoverDeviceControlResponse` | 提交外部独立隔离证据；缺少可验证证明方时严格拒绝 |
 
 ## 6.3 消息与字段逐项定义
 
@@ -1131,7 +1132,7 @@ service IndustrialGatewayService {
 | `GetCommandResultResponse` | `updated_at` (8) | `Timestamp` | 单值（消息字段有消息 presence） | 此命令状态/结果最近一次记录更新的时间 |
 | `GetCommandResultResponse` | `io_settled` (9) | `bool` | proto3 单值 | 底层 I/O 是否已安全收敛；不等于仅客户端已收到终态 |
 
-Commander 当前 Proto 包含 15 种消息、58 个字段，包含请求级幂等和批量提交接口；其字段与语义以 §6.5 和 §12 描述为准，并须持续对照 Descriptor、生成绑定及真实服务测试。
+Commander 当前 Proto 包含 17 种消息、66 个字段，包含请求级幂等和批量提交接口；其字段与语义以 §6.5 和 §12 描述为准，并须持续对照 Descriptor、生成绑定及真实服务测试。
 
 ## 6.4 关键交互、失败及跨模块边界
 
@@ -1762,7 +1763,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 ## 12.1 Commander 目标 Proto 与验收矩阵
 
-**协议裁决：** `commander.proto` 同一 package `windhub.commander.v1` 增加 `SubmitCommands(SubmitCommandsRequest)->SubmitCommandsResponse`、`GetRequestResult(GetRequestResultRequest)->GetRequestResultResponse` 两个 Unary RPC。原五个方法及字段号不改，`SubmitCommandRequest.request_id=6`、`SubmitCommandResponse.request_id=7` 新增业务必填/回显。`CommandItem`、`SubmitCommandsRequest/Response`、`GetRequestResultRequest/Response` 共五种新增消息（§6.5 定义），并显式使用已导入的 `google.protobuf.Timestamp`、`common.ScalarValue`。原 10 种 Commander 消息 + 新增 5 种 = **15 种消息**；原 37 字段 + 单点消息新增 2 字段 + 五种新增消息 19 字段 = **58 字段**。稳定接口共 **51 RPC**，其中 Commander 8，其他模块专属和 Common 共 43。上述数量是当前发布契约，修改前后必须同时对 `.proto`、运行时 Descriptor、gRPC Stub、Servicer 注册和类型绑定核验；只核查 `.proto` 不能判为通过。
+**协议裁决：** `commander.proto` 同一 package `windhub.commander.v1` 增加 `SubmitCommands(SubmitCommandsRequest)->SubmitCommandsResponse`、`GetRequestResult(GetRequestResultRequest)->GetRequestResultResponse` 两个 Unary RPC。原五个方法及字段号不改，`SubmitCommandRequest.request_id=6`、`SubmitCommandResponse.request_id=7` 新增业务必填/回显。`CommandItem`、`SubmitCommandsRequest/Response`、`GetRequestResultRequest/Response` 共五种新增消息（§6.5 定义），并显式使用已导入的 `google.protobuf.Timestamp`、`common.ScalarValue`。原 10 种 Commander 消息 + 批量与幂等新增 5 种 + 恢复新增 2 种 = **17 种消息**；既有 58 字段 + 恢复请求/响应各 4 字段 = **66 字段**。稳定接口共 **51 RPC**，其中 Commander 8，其他模块专属和 Common 共 43。上述数量是当前发布契约，修改前后必须同时对 `.proto`、运行时 Descriptor、gRPC Stub、Servicer 注册和类型绑定核验；只核查 `.proto` 不能判为通过。
 
 **请求级结果身份：** 一次单点 SubmitCommand 与一次 SubmitCommands 都在 caller+Commander 实例作用域内以客户端提供的 request_id 标识。request_id 一旦受理并返回 accepted，就将其规范指纹、全部 command_id 与创建时状态持久存储；同 ID/同内容的重复提交不重新执行，异内容拒绝。保留期内调用方按原 ID 查询，过期只返回 NOT_FOUND，不承诺无限期永久去重；客户端不能因为 NOT_FOUND 自动创建新 ID 重发可能执行过的动作。Caller 作用域必须由认证身份得出，不接受调用方自报身份代替鉴权。
 
@@ -1770,8 +1771,8 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 | 目标 | 层级/Marker | 精确判定 |
 |---|---|---|
-| 51 个现行 RPC Descriptor | unit/contract | 六 Proto 的 service、method、input/output type、Unary 逐项对照；Commander 8 RPC 已发布；新增的是 Gateway 2 RPC，其他现行方法不变化 |
-| 15 Commander 消息、58 字段 | unit/contract | 逐字段核验 tag/type/label/presence，旧 tag 不重分配，新 request_id=6/7 |
+| 51 个现行 RPC Descriptor | unit/contract | 六 Proto 的 service、method、input/output type、Unary 逐项对照；Commander 8 RPC 已发布；新增的是 Gateway 2 RPC 与 Commander 1 项恢复 RPC，其他现行方法不变化 |
+| 17 Commander 消息、66 字段 | unit/contract | 逐字段核验 tag/type/label/presence，旧 tag 不重分配，新 request_id=6/7 |
 | 客户端 request_id | integration/security | 空 ID 拒绝、调用身份绑定、授权隔离、同 ID 不同内容冲突；单点和批次同命名空间 |
 | 批次整体验证 | component/contract | 非空有界、逐项合法性、顺序一致；一个非法全部拒绝无可执行命令 |
 | 批次查询结果 | integration/reliability | GetRequestResult 子结果与输入索引一致，单点结果对照 GetCommandResult；逐点 UNKNOWN/io_settled 如实表达 |
@@ -1786,7 +1787,7 @@ Contracts 文档验收不等于真实代码测试通过。提交前执行项目�
 
 ## 12.2 命令请求状态、错误与查询契约
 
-**字段统计统一口径：**Commander 新增五种消息内共 19 个字段；原单点请求、响应各增加一个 `request_id`，合计新增 21 个字段；原有 37 个字段加上 21 个新增字段为 58 个。RPC 总数以六份正式 Proto 的 Descriptor 为验收依据，不得将“新增消息内字段数”和“所有新增字段数”混用。
+**字段统计统一口径：**单点幂等与批量接口新增 21 字段，原有 37 字段合计 58 字段；设备可信恢复新增两个消息各 4 字段，当前共 66 字段。RPC 总数以六份正式 Proto 的 Descriptor 为验收依据，不得将“新增消息内字段数”和“所有新增字段数”混用。
 
 **生成物一致性门禁：** `scripts/generate_rpc.py` 为六份 Proto 的统一生成入口，应同时产出 `*_pb2.py`、`*_pb2_grpc.py`、`*_pb2.pyi`、`*_pb2_grpc.pyi`；生成物与源 Proto 同提交，禁止手工编辑生成文件或仅提交接口源文件。新 `request_id` 业务必填并非 proto3 标量 presence，需由 Commander 的请求校验明确拒绝空串。生成后由 Commander 服务端实现新 Unary 方法，并使 CLI 及所有真实控制调用方携带预存的 ID；这些实现约束不属于 Core/configuration。\n
 
