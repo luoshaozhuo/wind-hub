@@ -32,6 +32,7 @@ class CommanderServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> CommanderServiceAsyncStub: ...
+    RecoverDeviceControl: _grpc.UnaryUnaryMultiCallable[_commander_pb2.RecoverDeviceControlRequest, _commander_pb2.RecoverDeviceControlResponse]
     ListDevices: _grpc.UnaryUnaryMultiCallable[_commander_pb2.ListDevicesRequest, _commander_pb2.ListDevicesResponse]
     GetDevice: _grpc.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _commander_pb2.GetDeviceResponse]
     ListPoints: _grpc.UnaryUnaryMultiCallable[_commander_pb2.ListPointsRequest, _commander_pb2.ListPointsResponse]
@@ -43,6 +44,7 @@ class CommanderServiceStub:
 @_typing.type_check_only
 class CommanderServiceAsyncStub(CommanderServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
+    RecoverDeviceControl: _aio.UnaryUnaryMultiCallable[_commander_pb2.RecoverDeviceControlRequest, _commander_pb2.RecoverDeviceControlResponse]  # type: ignore[assignment]
     ListDevices: _aio.UnaryUnaryMultiCallable[_commander_pb2.ListDevicesRequest, _commander_pb2.ListDevicesResponse]  # type: ignore[assignment]
     GetDevice: _aio.UnaryUnaryMultiCallable[_common_pb2.ObjectId, _commander_pb2.GetDeviceResponse]  # type: ignore[assignment]
     ListPoints: _aio.UnaryUnaryMultiCallable[_commander_pb2.ListPointsRequest, _commander_pb2.ListPointsResponse]  # type: ignore[assignment]
@@ -52,6 +54,13 @@ class CommanderServiceAsyncStub(CommanderServiceStub):
     GetRequestResult: _aio.UnaryUnaryMultiCallable[_commander_pb2.GetRequestResultRequest, _commander_pb2.GetRequestResultResponse]  # type: ignore[assignment]
 
 class CommanderServiceServicer(metaclass=_abc_1.ABCMeta):
+    @_abc_1.abstractmethod
+    def RecoverDeviceControl(
+        self,
+        request: _commander_pb2.RecoverDeviceControlRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_commander_pb2.RecoverDeviceControlResponse, _abc.Awaitable[_commander_pb2.RecoverDeviceControlResponse]]: ...
+
     @_abc_1.abstractmethod
     def ListDevices(
         self,
