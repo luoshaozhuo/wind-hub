@@ -447,16 +447,31 @@ def load_settings(service_path: Path) -> Settings:
             if device_id not in devices:
                 raise GeneratorError("Gateway route references unknown scenario device")
             if "feedback_mapping" in gateway:
-                raise GeneratorError("Gateway point mapping belongs to Gateway configuration")
+                raise GeneratorError("Gateway feedback mapping belongs to Gateway configuration")
+            # Gateway identifies variables by the bound device plus its point.
+            # When its point-table identity differs, require an explicit
+            # source-point-to-Gateway-variable mapping, never a guessed alias.
+            raw_mapping = gateway.get("variable_mapping", {})
+            if not isinstance(raw_mapping, dict) or any(
+                not isinstance(key, str)
+                or not isinstance(value, str)
+                or not value.strip()
+                for key, value in raw_mapping.items()
+            ):
+                raise GeneratorError("invalid Gateway variable_mapping")
+            source_ids = {
+                point_id for source_device, point_id in points if source_device == device_id
+            }
+            if set(raw_mapping) - source_ids:
+                raise GeneratorError("Gateway variable_mapping references unknown source point")
             gateways[gateway_id] = endpoint
-            for source_device, point_id in points:
-                if source_device != device_id:
-                    continue
-                target = OutputTarget(gateway_id, point_id)
+            for point_id in source_ids:
+                variable_id = raw_mapping.get(point_id, f"{device_id}.{point_id}")
+                target = OutputTarget(gateway_id, variable_id)
                 if target in targets:
                     raise GeneratorError(f"duplicate output target: {target}")
                 targets.add(target)
-                mappings.append(OutputMapping(source_device, point_id, target))
+                mappings.append(OutputMapping(device_id, point_id, target))
         if not mappings:
             raise GeneratorError("scenario requires Gateway device routes")
         if set(points) - {(item.device_id, item.point_id) for item in mappings}:
