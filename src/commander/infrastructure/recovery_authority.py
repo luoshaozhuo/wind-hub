@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import http.client
 import json
 import ssl
 from datetime import UTC, datetime
@@ -15,7 +16,6 @@ from pathlib import Path
 
 from commander.application.recovery import RecoveryProof
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 
 class IsolationAuthorityClient:
@@ -32,11 +32,21 @@ class IsolationAuthorityClient:
         timeout: float = 5.0,
     ) -> None:
         target = urlparse(url)
-        if target.scheme != "https" or not target.hostname or target.username:
+        if (
+            target.scheme != "https"
+            or not target.hostname
+            or target.username
+            or target.password
+            or target.fragment
+        ):
             raise ValueError("recovery authority requires a trusted HTTPS endpoint")
         if not instance_id or timeout <= 0:
             raise ValueError("invalid recovery authority identity or timeout")
-        self._url = url
+        self._host = target.hostname
+        self._port = target.port or 443
+        self._path = target.path or "/"
+        if target.query:
+            self._path += "?" + target.query
         self._instance_id = instance_id
         self._timeout = timeout
         self._context = ssl.create_default_context(cafile=str(ca_cert))
@@ -67,17 +77,24 @@ class IsolationAuthorityClient:
         ).encode()
 
         def invoke() -> dict[str, object]:
-            request = Request(
-                self._url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            connection = http.client.HTTPSConnection(
+                self._host, self._port, context=self._context, timeout=self._timeout
             )
-            # urllib checks HTTPS server hostname against the deployment CA.
-            with urlopen(request, context=self._context, timeout=self._timeout) as response:
+            try:
+                connection.request(
+                    "POST",
+                    self._path,
+                    body=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                response = connection.getresponse()
+                # Never follow redirects: that could disclose credentials
+                # or attestation to a different endpoint.
                 if response.status != 200:
                     raise RuntimeError("recovery isolation authority rejected the request")
                 data = response.read(8193)
+            finally:
+                connection.close()
             if len(data) > 8192:
                 raise RuntimeError("recovery authority response too large")
             result = json.loads(data)
