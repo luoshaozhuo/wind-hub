@@ -20,10 +20,10 @@ security:
   callers:
     - caller_id: ems
       certificate_identity: "spiffe://wind-hub/ems"
-      permissions: [control, query]
+      permissions: [control, query, recover]
     - caller_id: maintenance
       certificate_identity: "spiffe://wind-hub/maintenance"
-      permissions: [query, reload]
+      permissions: [query, reload, recover]
 
 
 # Optional per-device simulation execution route. A simulated device must exist

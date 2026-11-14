@@ -427,6 +427,7 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
                 "CommonService.GetMetrics",
                 "CommonService.GetEvents",
                 "CommonService.Diagnose",
+                "CommanderService.RecoverDeviceControl",
                 "CommanderService.ListDevices",
                 "CommanderService.GetDevice",
                 "CommanderService.ListPoints",
