@@ -19,7 +19,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.recovery_authority import IsolationAuthorityClient
+from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2, commander_pb2_grpc, common_pb2, common_pb2_grpc
 from core.application.errors import ConfigError
 from core.configuration.effective import resolve_effective_device

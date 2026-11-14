@@ -8,7 +8,7 @@ from concurrent.futures import Executor
 from functools import partial
 from typing import Any, TypeVar
 
-from commander.application.journal_port import JournalPort
+from commander.application.ports.journal import JournalPort
 from commander.application.persistence import BufferedJournal
 from commander.domain.command import (
     AcceptedCommand,

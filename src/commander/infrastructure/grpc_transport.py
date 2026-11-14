@@ -11,7 +11,7 @@ import grpc
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.grpc.server import register_services
 from commander.infrastructure.grpc.snapshots import ConfigSnapshots
-from commander.infrastructure.recovery_authority import IsolationAuthorityClient
+from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from core.infrastructure.config import read_yaml
 
 
