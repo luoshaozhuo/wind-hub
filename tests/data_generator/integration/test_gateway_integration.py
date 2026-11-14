@@ -15,9 +15,9 @@ from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.domain.model import DataBatch, DataPoint
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.gateway import GatewayWriter
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 from ..conftest import ship_scenarios_document
 

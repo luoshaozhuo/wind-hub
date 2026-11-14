@@ -32,10 +32,10 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.application.runtime import Runtime
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.gateway import GatewayWriter
-from data_generator.infrastructure.server import make_server
-from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.adapters.inbound.server import make_server
+from data_generator.infrastructure.persistence.snapshots import file_sha256, recover_transaction
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.config.resolution import load_gateway
