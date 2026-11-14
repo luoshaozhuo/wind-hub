@@ -678,21 +678,15 @@ async def test_real_jetstream_commit_event_ready_transition_and_zero_replay(
         assert new_command_id != context.command_ids[0]
         await _assert_unknown(context)
         assert modbus_server.write_count == 1
+        await _wait_audit_drained(context.stack.db_path)
 
         connection = await _connect(nats_url)
         try:
             jetstream = connection.jetstream(timeout=5)
-            payloads: list[bytes] = []
             async with asyncio.timeout(15):
-                while len(payloads) < 7:
-                    payloads.extend(
-                        await _fetch_all(
-                            jetstream,
-                            context.stack.stream,
-                            context.stack.subject,
-                            7 - len(payloads),
-                        )
-                    )
+                while (await jetstream.stream_info(context.stack.stream)).state.messages < 7:
+                    await asyncio.sleep(0.05)
+            payloads = await _fetch_all(jetstream, context.stack.stream, context.stack.subject, 7)
         finally:
             await connection.drain()
         events = [json.loads(payload) for payload in payloads]
