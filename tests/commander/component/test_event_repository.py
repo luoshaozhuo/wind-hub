@@ -19,7 +19,7 @@ from commander.domain.command import (
     CommandState,
     CommandStateError,
 )
-from commander.infrastructure.event_repository import (
+from commander.infrastructure.persistence.event_repository import (
     EventRepository,
     RepositoryError,
 )

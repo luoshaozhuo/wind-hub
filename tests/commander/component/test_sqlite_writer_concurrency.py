@@ -24,7 +24,7 @@ from uuid import uuid4
 import pytest
 
 from commander.application.control import CommandControl
-from commander.application.journal_port import JournalPort
+from commander.application.ports.journal import JournalPort
 from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor
 from commander.domain.command import (
@@ -34,7 +34,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import EventRepository, RepositoryError
+from commander.infrastructure.persistence.event_repository import EventRepository, RepositoryError
 from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,

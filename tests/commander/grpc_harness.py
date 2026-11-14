@@ -25,10 +25,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from commander.application.service_lifecycle import CommanderService
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.grpc.server import register_services
-from commander.infrastructure.grpc.snapshots import ConfigSnapshots
-from commander.infrastructure.recovery_authority import IsolationAuthorityClient
+from commander.assembly import build_commander
+from commander.infrastructure.adapters.inbound.grpc.server import register_services
+from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
+from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2_grpc, common_pb2_grpc
 from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol.modbus import ModbusDriver

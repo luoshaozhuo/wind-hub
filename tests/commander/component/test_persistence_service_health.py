@@ -19,7 +19,7 @@ import pytest
 from commander.application.service_lifecycle import CommanderService, ServiceState
 from commander.application.settings import ServiceSettings
 from commander.domain.command import CommandSpec
-from commander.infrastructure.event_repository import EventRepository, RepositoryError
+from commander.infrastructure.persistence.event_repository import EventRepository, RepositoryError
 from core.application.protocol_registry import ProtocolRegistry
 
 pytestmark = pytest.mark.component
