@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -13,24 +12,13 @@ from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as rpc
 from contracts import common_pb2 as common
 from contracts.scalar_codec import encode_scalar
+from industrial_gateway.application.forwarding import CommandQuery, SubmissionReceipt
 from industrial_gateway.application.variable_store import Scalar
 from industrial_gateway.infrastructure.config.schema import (
     ControlTarget,
     TlsConfig,
     service_path,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class SubmissionReceipt:
-    accepted: bool
-    command_id: str
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class CommandQuery:
-    state: str
 
 
 class CommanderRpcClient:
