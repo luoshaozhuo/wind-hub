@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_43 · 20261113</p>
+<p class="subtitle">v1_44 · 20261113</p>
 
 <style>
 body {
@@ -2225,6 +2225,8 @@ src/commander/
 ```
 
 Application 的 `ControlExecutionPort` 在真实目标通过 Core 协议 Adapter 实现，在仿真目标通过 Gateway `ExecuteSimulationCommand/GetSimulationExecutionResult` Adapter 实现。请求受理、重试准入、结果裁决和审计权威均在 Commander Application；SQLite、gRPC、JetStream 与协议 I/O 留 Infrastructure。现行 `infrastructure/adapters/inbound/grpc_server.py`、`event_repository.py`、`protocol_bridge.py` 等旧平铺路径只作为整改入口，迁移时清理 imports 和旧兼容导出。
+
+Commander Application 仅解析活动设备的协议连接计划（Endpoint、PointTable、ProtocolOptions）；原生 Session 的具体工厂由 `commander/assembly.py` 注入，不能在 Application 中通过 Registry 创建具体 SDK Driver。连接原生任务超时且未收敛时，终态必须为 `UNKNOWN`，不得产生 `CONFIRMED_FAILURE`；保留设备阻断和原生 I/O 所有权直至安全关闭。
 
 ## 7.2 生产模块职责与对应测试
 

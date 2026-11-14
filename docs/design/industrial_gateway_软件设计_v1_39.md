@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_38 · 20261113</p>
+<p class="subtitle">v1_39 · 20261113</p>
 
 <style>
 body {
@@ -1595,6 +1595,8 @@ src/industrial_gateway/
 Gateway Application 管理协议 Server 及变量状态、租约和控制事件编排；它的 `application/ports/` 是外部依赖的业务抽象。工业 Client 写请求仅经 Commander 裁决，来自 Commander 的专用仿真执行 RPC 才可调用 Generator 输入接口。Gateway 的 `ClaimTargets/UpdateVariables` 是测量注入，不触发控制事件。协议写监听、gRPC 权限及 SDK 归 Inbound Adapter；Commander/Generator Client 归 Outbound Adapter，不能在业务层直接调用其 Stub。
 
 现行 `infrastructure/runtime.py` 中的业务协调须迁入 Application。配置 Schema、配置解析和 Modbus Server 的目标实现文件分别为 `infrastructure/config/schema.py`、`infrastructure/config/resolution.py`、`infrastructure/adapters/inbound/modbus/server.py`；实现迁移须同时消除内部函数名的版本后缀，更新所有调用方，不创建旧版兼容模块。只有真实需要持久化时才创建 persistence；不得为统一形式增设空实现。
+
+Gateway 目标租约 `VariableLeases` 及 Claim/Update 的原子业务规则位于 `application/variable_leases.py`；gRPC 入站仅将请求转换为 Application 数据，Modbus/协议适配器只负责真实 I/O，不在 Infrastructure 重复维护租约裁决。
 
 ## 7.2 静态依赖
 

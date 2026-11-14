@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_57 · 20261113</p>
+<p class="subtitle">v1_58 · 20261113</p>
 
 <style>
 body {
@@ -2292,6 +2292,8 @@ src/sink_service/
 Application 通过 `DeliveryOutputPort` 提交批量输出，Adapter 返回真实逐项 `CONFIRMED/FAILED/UNKNOWN` 和原生 I/O 收敛证据。Redis/Modbus/Gateway 只支持 Realtime；Kafka 只支持 Reliable。Gateway Adapter 负责租约与逐项 RPC 结果，Modbus TCP Server 仅更新本地可读寄存器镜像，不作为外部 Modbus Client 主动写目标服务器。
 
 `SourceConsumerPort` 将 NATS Core 最新值和 JetStream Durable 输入抽象为不同消费能力；可靠消息 ACK 由 Application 在完成交付裁决后经 Adapter 执行。实时 TTL、交付状态、重试/DLQ 与并发额度在 Application；协议 I/O、Kafka Builder、Redis Lua、连接池、IPC 传输在 Infrastructure。三进程模型不变，不创建新的控制进程或平行的消费状态机。当前 `infrastructure/realtime_runtime.py`、`reliable_runtime.py`、`grpc_server.py`、`nats_consumer.py`、`config_repository.py` 是需按职责拆分的代码路径，整改后不保留重复业务实现。
+
+Realtime Delivery 的启动、停止、上游注册/撤销及 I/O 收敛编排由 `application/realtime_delivery.py` 管理，经 `application/ports/realtime.py` 调用入站 NATS Adapter 和共享输出池。全局及 Sink 额度、未决 I/O 的保留及共享连接引用由 `application/output_pool.py` 管理；`infrastructure/realtime_runtime.py` 仅完成具体 Redis/Kafka/Modbus/Gateway Adapter 构造与 Realtime 进程工厂装配。Reliable 通道与 Worker 的后续业务编排/技术职责仍须按本章约束继续审查。
 
 ## 7.2 组件职责与对应测试
 
