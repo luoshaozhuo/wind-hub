@@ -83,6 +83,10 @@ CREATE INDEX IF NOT EXISTS ce_pending_publish
     ON command_events(event_seq) WHERE publish_state='PENDING';
 CREATE INDEX IF NOT EXISTS ce_device_order
     ON command_events(device_id,receive_seq) WHERE event_type='ACCEPTED';
+CREATE TABLE IF NOT EXISTS recovery_blocks (
+    device_id TEXT PRIMARY KEY,
+    first_unknown_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS recovery_decisions (
     decision_id TEXT PRIMARY KEY,
     caller_id TEXT NOT NULL,
@@ -148,6 +152,15 @@ class EventRepository:
             self._db.execute("PRAGMA synchronous=FULL")
             self._db.execute("PRAGMA foreign_keys=ON")
             self._db.executescript(_SCHEMA)
+            # Upgrade existing databases conservatively before cleanup may
+            # delete the command history that establishes unsafe control.
+            self._db.execute(
+                "INSERT OR IGNORE INTO recovery_blocks(device_id,first_unknown_at) "
+                "SELECT DISTINCT a.device_id,t.occurred_at FROM command_events AS a "
+                "JOIN command_events AS t ON t.command_id=a.command_id "
+                "AND t.event_type='COMPLETED' AND t.state='UNKNOWN' "
+                "WHERE a.event_type='ACCEPTED'"
+            )
             row = self._db.execute(
                 "SELECT value FROM repository_meta WHERE key='schema_version'"
             ).fetchone()
@@ -249,16 +262,11 @@ class EventRepository:
                 raise
 
     def recovery_blocked_devices(self) -> frozenset[str]:
-        """Restore uncertain field control safety across repeated process crashes."""
+        """Unknown field control remains blocked even after event retention cleanup."""
         with self._lock:
             if not self.operational:
                 raise RepositoryError("command journal is unavailable")
-            rows = self._db.execute(
-                "SELECT DISTINCT a.device_id FROM command_events AS a "
-                "JOIN command_events AS t ON t.command_id=a.command_id "
-                "AND t.event_type='COMPLETED' AND t.state='UNKNOWN' "
-                "WHERE a.event_type='ACCEPTED'"
-            ).fetchall()
+            rows = self._db.execute("SELECT device_id FROM recovery_blocks").fetchall()
             return frozenset(str(row[0]) for row in rows)
 
     def latest_receive_seq(self) -> int:
@@ -330,6 +338,19 @@ class EventRepository:
                 statement,
                 [tuple(event.get(column) for column in columns) for event in events],
             )
+            unknown_ids = [
+                str(event["command_id"])
+                for event in events
+                if event.get("event_type") == "COMPLETED"
+                and event.get("state") == "UNKNOWN"
+            ]
+            for command_id in unknown_ids:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO recovery_blocks(device_id,first_unknown_at) "
+                    "SELECT device_id,? FROM command_events "
+                    "WHERE command_id=? AND event_type='ACCEPTED'",
+                    (utc_now().isoformat(), command_id),
+                )
             newest = max((int(item.get("receive_seq") or 0) for item in events), default=0)
             if newest:
                 # UPSERT：全新库的 write-behind 首写也必须创建 meta 行，
@@ -570,6 +591,12 @@ class EventRepository:
                         state.value,
                         outcome.value,
                     ),
+                )
+                self._db.execute(
+                    "INSERT OR IGNORE INTO recovery_blocks(device_id,first_unknown_at) "
+                    "SELECT device_id,? FROM command_events "
+                    "WHERE command_id=? AND event_type='ACCEPTED'",
+                    (utc_now().isoformat(), command_id),
                 )
                 recovered.append(command_id)
             return tuple(recovered)
