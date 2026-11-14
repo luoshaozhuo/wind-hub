@@ -63,7 +63,21 @@ message GetRequestResultResponse {
   google.protobuf.Timestamp updated_at = 4;
   bool io_settled = 5;
 }
+// Recovery authority is external to this service; an unattested request must fail closed.
+message RecoverDeviceControlRequest {
+  string device_id = 1;
+  string expected_revision = 2;
+  string request_id = 3;
+  bytes isolation_attestation = 4;
+}
+message RecoverDeviceControlResponse {
+  string device_id = 1;
+  string state = 2;
+  string decision_id = 3;
+  string evidence_digest = 4;
+}
 service CommanderService {
+  rpc RecoverDeviceControl(RecoverDeviceControlRequest) returns (RecoverDeviceControlResponse);
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc GetDevice(windhub.common.v1.ObjectId) returns (GetDeviceResponse);
   rpc ListPoints(ListPointsRequest) returns (ListPointsResponse);
