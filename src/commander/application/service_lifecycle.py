@@ -24,8 +24,8 @@ from commander.application.journal_port import JournalMetrics, JournalPort
 from commander.application.metrics import CommandMetrics
 from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor, WriteSession
-from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from commander.application.recovery import RecoveryAuthority
+from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.application.protocol_registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
