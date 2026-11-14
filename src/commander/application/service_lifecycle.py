@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections import deque
 from collections.abc import Callable
@@ -24,6 +25,7 @@ from commander.application.metrics import CommandMetrics
 from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor, WriteSession
 from commander.application.settings import ServiceSettings, SimulationGatewayTarget
+from commander.infrastructure.recovery_authority import IsolationAuthorityClient
 from core.application.protocol_registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
@@ -298,6 +300,77 @@ class CommanderService:
         if self._executor is None:
             raise RuntimeError("no active executor")
         return await self._executor.quiesce_devices(devices)
+
+    async def recover_device_control(
+        self,
+        *,
+        authority: IsolationAuthorityClient | None,
+        caller_id: str,
+        device_id: str,
+        expected_revision: str,
+        request_id: str,
+        attestation: bytes,
+    ) -> tuple[str, str]:
+        """Fence externally, commit durable audit, then release one recovered block."""
+        if authority is None:
+            raise RuntimeError("independent isolation attestation verifier is not configured")
+        async with self._lifecycle_lock:
+            if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
+                raise RuntimeError("Commander not ready for recovery")
+            manager = self.config_manager
+            executor = self.executor
+            if device_id not in executor.blocked_devices():
+                raise RuntimeError("device does not require recovery")
+            revision = manager.device_revision(device_id)
+            if revision is None or revision != expected_revision:
+                raise RuntimeError("device configuration revision conflict")
+            journal = self._journal
+            writer = self._writer
+            if journal is None or writer is None or not journal.operational:
+                raise RuntimeError("durable recovery audit unavailable")
+            digest = hashlib.sha256(attestation).hexdigest()
+            loop = asyncio.get_running_loop()
+            previous = await loop.run_in_executor(
+                writer, journal.recovery_decision, caller_id, request_id
+            )
+            if previous is not None and (
+                previous[1] != device_id
+                or previous[2] != revision
+                or previous[3] != digest
+            ):
+                raise FileExistsError("recovery request_id conflict")
+            # Even an idempotent retry must confirm that fencing remains live.
+            proof = await authority.verify_and_fence(
+                device_id=device_id,
+                revision=revision,
+                caller_id=caller_id,
+                request_id=request_id,
+                attestation=attestation,
+            )
+            if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
+                raise RuntimeError("Commander stopped during recovery")
+            if manager.device_revision(device_id) != revision:
+                raise RuntimeError("device revision changed during recovery")
+            decision_id = await loop.run_in_executor(
+                writer,
+                partial(
+                    journal.commit_recovery,
+                    caller_id=caller_id,
+                    request_id=request_id,
+                    device_id=device_id,
+                    revision=revision,
+                    evidence_digest=digest,
+                    token_id=proof.token_id,
+                    fencing_epoch=proof.fencing_epoch,
+                    old_instance=proof.old_instance,
+                    new_instance=proof.new_instance,
+                ),
+            )
+            # The authority must enforce fencing until the new controller
+            # relinquishes ownership; a bare short-lived proof is insufficient.
+            executor.release_recovered_device(device_id)
+            self._event("INFO", "Commander device recovery committed", "RECOVERY_UNBLOCKED")
+            return decision_id, digest
 
     async def reload(self) -> ReloadReport:
         async with self._lifecycle_lock:
