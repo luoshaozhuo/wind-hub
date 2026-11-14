@@ -791,23 +791,28 @@ async def test_commit_window_rechecks_live_fencing_before_release(
                 await asyncio.gather(recovery, return_exceptions=True)
 
 
+@pytest.mark.docker
 async def test_same_request_after_commit_window_failure_accepts_renewed_epoch(
     tmp_path: Path,
     pki: Pki,
     modbus_server: Any,
     authority_factory: Callable[..., FencingAuthorityProcess],
+    trusted_nats_container,
 ) -> None:
     authority = authority_factory()
+    nats_url, _container = trusted_nats_container
     async with _recovery_context(
-        tmp_path, pki, modbus_server, _settings(pki, authority)
+        tmp_path, pki, modbus_server, _settings(pki, authority), nats_url=nats_url
     ) as context:
         journal = vars(context.service)["_journal"]
         original = journal.commit_recovery
         committed = threading.Event()
         proceed = threading.Event()
+        committed_decision_ids: list[str] = []
 
         def delayed_commit(**kwargs: Any) -> str:
             decision_id = original(**kwargs)
+            committed_decision_ids.append(decision_id)
             committed.set()
             assert proceed.wait(timeout=5), "test did not release delayed commit"
             return decision_id
@@ -833,8 +838,86 @@ async def test_same_request_after_commit_window_failure_accepts_renewed_epoch(
         journal.commit_recovery = original
         response = await _recover(context, pki)
         assert response.state == "UNBLOCKED"
+        assert response.decision_id == committed_decision_ids[0]
         assert context.service.executor.blocked_devices() == frozenset()
+        repeated = await _recover(context, pki)
+        assert repeated.decision_id == response.decision_id
         assert _decision_count(context.stack.db_path) == 1
+        assert _recovery_epochs(context.stack.db_path) == [("req-recovery-a", 1)]
+        await _assert_unknown(context)
+        assert modbus_server.write_count == 0
+
+        await _wait_audit_drained(context.stack.db_path)
+        connection = await _connect(nats_url)
+        try:
+            payloads = await _fetch_all(
+                connection.jetstream(timeout=5), context.stack.stream, context.stack.subject, 3
+            )
+        finally:
+            await connection.drain()
+        events = [json.loads(payload) for payload in payloads]
+        recovery_events = [
+            event for event in events if event["event_type"] == "RECOVERY_FENCE_COMMITTED"
+        ]
+        assert len(recovery_events) == 1
+        assert recovery_events[0]["event_id"] == response.decision_id
+        assert recovery_events[0]["fencing_epoch"] == 1
+
+
+async def test_superseded_request_cannot_release_with_renewed_epoch(
+    tmp_path: Path,
+    pki: Pki,
+    modbus_server: Any,
+    authority_factory: Callable[..., FencingAuthorityProcess],
+) -> None:
+    authority = authority_factory()
+    async with _recovery_context(
+        tmp_path, pki, modbus_server, _settings(pki, authority)
+    ) as context:
+        journal = vars(context.service)["_journal"]
+        original = journal.commit_recovery
+
+        async def commit_without_release(request_id: str) -> None:
+            committed = threading.Event()
+            proceed = threading.Event()
+
+            def delayed_commit(**kwargs: Any) -> str:
+                decision_id = original(**kwargs)
+                committed.set()
+                assert proceed.wait(timeout=5), "test did not release delayed commit"
+                return decision_id
+
+            journal.commit_recovery = delayed_commit
+            authority.configure({})
+            recovery = asyncio.create_task(_recover(context, pki, request_id=request_id))
+            try:
+                assert await asyncio.to_thread(committed.wait, 5)
+                authority.configure({"overrides": {"revoked": True}})
+                proceed.set()
+                with pytest.raises(grpc.aio.AioRpcError):
+                    await recovery
+            finally:
+                proceed.set()
+                journal.commit_recovery = original
+                if not recovery.done():
+                    recovery.cancel()
+                    await asyncio.gather(recovery, return_exceptions=True)
+
+        await commit_without_release("req-old-epoch")
+        await commit_without_release("req-newer-epoch")
+        epochs = _recovery_epochs(context.stack.db_path)
+        assert [request_id for request_id, _epoch in epochs] == [
+            "req-old-epoch",
+            "req-newer-epoch",
+        ]
+        assert epochs[0][1] < epochs[1][1]
+
+        authority.configure({})
+        with pytest.raises(grpc.aio.AioRpcError) as exc_info:
+            await _recover(context, pki, request_id="req-old-epoch")
+        assert exc_info.value.code() is grpc.StatusCode.INVALID_ARGUMENT
+        assert context.service.executor.blocked_devices() == frozenset({"WT01"})
+        assert _decision_count(context.stack.db_path) == 2
         await _assert_unknown(context)
         assert modbus_server.write_count == 0
 

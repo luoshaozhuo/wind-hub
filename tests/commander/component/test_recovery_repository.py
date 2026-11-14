@@ -132,6 +132,50 @@ def test_idempotent_old_epoch_cannot_authorize_a_new_release(tmp_path: Path) -> 
         repository.close()
 
 
+def test_same_request_epoch_renewal_preserves_immutable_decision_and_outbox(
+    tmp_path: Path,
+) -> None:
+    repository = EventRepository(tmp_path / "renewal.db")
+    try:
+        first = _commit(repository, request_id="req-renew", token_id="token-renew", epoch=1)
+        renewed = _commit(repository, request_id="req-renew", token_id="token-renew", epoch=2)
+        assert renewed == first
+        recovery = [
+            event
+            for event in repository.pending_events()
+            if event["event_type"] == "RECOVERY_FENCE_COMMITTED"
+        ]
+        assert len(recovery) == 1
+        assert recovery[0]["event_id"] == first
+        assert recovery[0]["fencing_epoch"] == 1
+        with pytest.raises(ValueError):
+            _commit(repository, request_id="req-renew", token_id="token-renew", epoch=0)
+        with pytest.raises(FileExistsError):
+            _commit(repository, request_id="req-renew", token_id="token-other", epoch=2)
+        with pytest.raises(FileExistsError):
+            _commit(
+                repository,
+                request_id="req-renew",
+                token_id="token-renew",
+                epoch=2,
+                digest="b" * 64,
+            )
+    finally:
+        repository.close()
+
+
+def test_newer_decision_blocks_old_request_even_with_renewed_epoch(tmp_path: Path) -> None:
+    repository = EventRepository(tmp_path / "renewal-superseded.db")
+    try:
+        _commit(repository, request_id="req-old", token_id="token-old", epoch=1)
+        _commit(repository, request_id="req-new", token_id="token-new", epoch=2)
+        # 最新设备 epoch 已超过原裁决；旧请求不得借更大的续期 epoch 重新取得解除依据。
+        with pytest.raises(ValueError):
+            _commit(repository, request_id="req-old", token_id="token-old", epoch=3)
+    finally:
+        repository.close()
+
+
 def test_recovery_outbox_has_reserved_slot_metrics_and_no_raw_attestation(
     tmp_path: Path,
 ) -> None:
