@@ -901,7 +901,7 @@ class QueuedExecutor:
         except (TimeoutError, asyncio.CancelledError):
             self._pending_unknown[device_id].add(command_id)
             self._block_late(device_id, task)
-            await self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
+            await self._unknown(command_id, "CONNECT_TIMEOUT")
             return False, False
         except Exception:
             await self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
