@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from datetime import UTC, datetime, timedelta
@@ -227,6 +228,37 @@ def _request_receipt(request_id: str, expires_at: str | None = None) -> None:
 def commander_request_result(request_id: str) -> None:
     """Look up the full caller-scoped result of one submitted request."""
     _call("commander", "GetRequestResult", {"request_id": request_id})
+
+
+@commander.command("recover-device")
+def commander_recover_device(
+    device_id: str = typer.Option(..., "--device-id"),
+    expected_revision: str = typer.Option(..., "--expected-revision"),
+    request_id: str = typer.Option(..., "--request-id"),
+    attestation_file: Path = typer.Option(..., "--attestation-file"),
+) -> None:
+    """Request evidence-gated recovery; never interpret a local file as proof."""
+    from .main import _run, runtime
+
+    if not device_id.strip() or not expected_revision.strip() or not request_id.strip():
+        raise typer.BadParameter("device-id, expected-revision and request-id must be nonempty")
+    evidence = attestation_file.read_bytes()
+    if not evidence or len(evidence) > 65536:
+        raise typer.BadParameter("attestation file must contain 1..65536 bytes")
+    _run(
+        "commander recover-device",
+        invoke(
+            runtime(),
+            "commander",
+            "RecoverDeviceControl",
+            {
+                "device_id": device_id,
+                "expected_revision": expected_revision,
+                "request_id": request_id,
+                "isolation_attestation": base64.b64encode(evidence).decode("ascii"),
+            },
+        ),
+    )
 
 
 @commander.command("write")
