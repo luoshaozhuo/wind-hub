@@ -12,7 +12,7 @@ from shutil import copytree
 import pytest
 
 from commander.application.config_manager import CommanderConfigManager
-from commander.infrastructure.service_settings import load_service_settings
+from commander.infrastructure.config.service_settings import load_service_settings
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 

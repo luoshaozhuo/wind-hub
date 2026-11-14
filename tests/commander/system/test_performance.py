@@ -33,7 +33,7 @@ import pytest
 
 from commander.application.control import CommandControl
 from commander.application.persistence import BufferedJournal, PersistenceWorker
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 from core.application.protocol_contract import ProtocolWrite, ProtocolWriteResult
 
 from ..component.conftest import FakeSession, build_executor, make_spec

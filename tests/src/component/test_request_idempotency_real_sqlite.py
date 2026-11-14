@@ -29,7 +29,7 @@ from commander.application.control import CommandControl
 from commander.application.persistence import BufferedJournal, PersistenceWorker
 from commander.application.queued_executor import QueuedExecutor
 from commander.domain.command import AcceptedCommand, CommandSpec
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 from tests.commander.component.conftest import FakeSession, build_executor, make_spec
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
