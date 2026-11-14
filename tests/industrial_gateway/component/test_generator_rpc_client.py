@@ -17,7 +17,7 @@ from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from industrial_gateway.infrastructure.config.schema import TlsConfig
-from industrial_gateway.infrastructure.grpc.generator_client import GeneratorRpcClient
+from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import GeneratorRpcClient
 from tests.support.gateway_v1 import reserve_port, write_mtls_pki
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]

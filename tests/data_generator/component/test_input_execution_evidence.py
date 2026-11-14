@@ -21,8 +21,8 @@ import yaml
 
 from data_generator.application.runtime import Runtime
 from data_generator.domain.model import DataBatch, DeliveryResult, GeneratorError, OutputTarget
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PHYSICAL_SERVICE = REPO_ROOT / "configs" / "services" / "data-generator-sim.example.yaml"

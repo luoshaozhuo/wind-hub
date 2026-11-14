@@ -38,7 +38,7 @@ _CHILD = r"""
 import json, os, sys
 from commander.application.persistence import BufferedJournal
 from commander.domain.command import CommandSpec, CommandState
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 
 db_path, fingerprint = sys.argv[1], sys.argv[2]
 journal = EventRepository(db_path)
