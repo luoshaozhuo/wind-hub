@@ -11,6 +11,7 @@ import grpc
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.grpc.server import register_services
 from commander.infrastructure.grpc.snapshots import ConfigSnapshots
+from commander.infrastructure.recovery_authority import IsolationAuthorityClient
 from core.infrastructure.config import read_yaml
 
 
@@ -85,7 +86,30 @@ async def start_grpc(service: CommanderService, service_config: Path) -> grpc.ai
     host, port, maximum, credentials, permissions = _security_config(service_config)
     server = grpc.aio.server(maximum_concurrent_rpcs=maximum)
     snapshots = ConfigSnapshots(service, service_config)
-    register_services(server, service, permissions, snapshots)
+    # No recovery configuration means the RPC remains fail-closed.
+    config = read_yaml(service_config)
+    security = _section(config.get("security"), "security")
+    recovery = security.get("recovery")
+    authority: IsolationAuthorityClient | None = None
+    if recovery is not None:
+        item = _section(recovery, "security.recovery")
+
+        def relative_path(name: str) -> Path:
+            path = Path(_text(item.get(name), f"security.recovery.{name}"))
+            return path if path.is_absolute() else service_config.resolve().parent / path
+
+        timeout_value = item.get("timeout_seconds", 5.0)
+        if type(timeout_value) not in (int, float) or timeout_value <= 0:
+            raise ValueError("invalid recovery authority timeout")
+        authority = IsolationAuthorityClient(
+            url=_text(item.get("url"), "security.recovery.url"),
+            ca_cert=relative_path("ca_cert"),
+            client_cert=relative_path("client_cert"),
+            client_key=relative_path("client_key"),
+            instance_id=_text(item.get("instance_id"), "security.recovery.instance_id"),
+            timeout=float(timeout_value),
+        )
+    register_services(server, service, permissions, snapshots, authority)
     bound = server.add_secure_port(f"{host}:{port}", credentials)
     if not bound:
         raise RuntimeError(f"unable to bind Commander gRPC listener at {host}:{port}")
