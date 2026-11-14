@@ -506,7 +506,7 @@ class EventRepository:
                     for row in recovery:
                         event = dict(row)
                         event["event_type"] = "RECOVERY_FENCE_COMMITTED"
-                        event["command_id"] = event["decision_id"] if "decision_id" in event else event["event_id"]
+                        event["command_id"] = event["event_id"]
                         events.append(event)
                 return tuple(events)
             finally:
