@@ -43,7 +43,7 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
     _keys(grpc, {"listen_host", "listen_port", "max_active_rpcs"}, "grpc")
     _keys(
         security,
-        {"ca_cert", "server_cert", "server_key", "callers"},
+        {"ca_cert", "server_cert", "server_key", "callers", "recovery"},
         "security",
     )
     host = grpc.get("listen_host")
@@ -80,7 +80,7 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
             not isinstance(permissions, list)
             or not permissions
             or any(
-                not isinstance(scope, str) or scope not in {"query", "control", "reload"}
+                not isinstance(scope, str) or scope not in {"query", "control", "reload", "recover"}
                 for scope in permissions
             )
             or len(permissions) != len(set(permissions))
