@@ -20,8 +20,8 @@ import pytest
 
 from commander.application.audit import AuditDelivery
 from commander.domain.command import CommandOutcome, CommandSpec, CommandState
-from commander.infrastructure.persistence.event_repository import EventRepository
 from commander.infrastructure.adapters.outbound.nats_audit import NatsAuditTransport
+from commander.infrastructure.persistence.event_repository import EventRepository
 from tests.support.process import free_port
 
 from ..seed_events import seed_accept, seed_transition

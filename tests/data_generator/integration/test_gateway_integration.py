@@ -15,8 +15,8 @@ from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.domain.model import DataBatch, DataPoint
-from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 from ..conftest import ship_scenarios_document
@@ -461,13 +461,6 @@ async def test_dg_writer_preflight_rejects_type_mismatch(
         {"gw-a": gateway.data_bind},
         mappings=[("gw-a", "GW01.pitch_angle")],
     )
-    # 把源点类型改为字符串：真实目录 float32 与期望 str 不一致必须预检拒绝。
-    document["scenarios"][0]["devices"][0]["points"][0]["model"] = {
-        "kind": "random",
-        "distribution": "uniform",
-        "minimum": 0,
-        "maximum": 10,
-    }
     service_path = configs_root(scenarios=document)
     recover_transaction(service_path.absolute().parent.parent)
     settings = load_settings(service_path)

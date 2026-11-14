@@ -28,11 +28,11 @@ from contracts import commander_pb2_grpc as crpc
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as ipb
 from industrial_gateway.assembly import assemble_gateway
-from industrial_gateway.infrastructure.config.resolution import load_gateway
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
     create_gateway_grpc_server,
 )
+from industrial_gateway.infrastructure.config.resolution import load_gateway
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 # 点表：所有测试设备共享同一份版本化模板。

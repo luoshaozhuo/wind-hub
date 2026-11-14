@@ -46,7 +46,7 @@ pytestmark = [
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 _DEVICES_REL = "instances/devices.yaml"
-_UNITS_REL = "templates/units.yaml"
+_UNITS_REL = "templates/units_standard.yaml"
 
 
 def _copy_tree(base: Path) -> Path:

@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 
 from contracts import common_pb2 as common
-from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.adapters.inbound.diagnostics import Diagnostics
+from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 from ..conftest import ship_scenarios_document

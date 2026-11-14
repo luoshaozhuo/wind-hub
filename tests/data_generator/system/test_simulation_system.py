@@ -88,7 +88,7 @@ def _scenario_path(snapshot: Any) -> str:  # noqa: ANN401
         next(
             item.relative_path
             for item in snapshot.files
-            if item.relative_path.endswith("instances/data-generator.yaml")
+            if item.relative_path.endswith("services/data-generator.yaml")
         )
     )
 

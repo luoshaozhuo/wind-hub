@@ -21,8 +21,8 @@ from nats.aio.client import Client as NatsClient
 
 from commander.application.persistence import BufferedJournal
 from commander.application.service_lifecycle import CommanderService, ServiceState
-from commander.domain.command import CommandSpec, CommandState
 from commander.assembly import build_commander
+from commander.domain.command import CommandSpec, CommandState
 from commander.infrastructure.persistence.event_repository import EventRepository
 from core.application.protocol_registry import ProtocolRegistry
 from core.domain import ConnectionEndpoint

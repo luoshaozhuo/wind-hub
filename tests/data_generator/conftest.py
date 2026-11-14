@@ -32,15 +32,17 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.application.runtime import Runtime
-from data_generator.infrastructure.config.service_settings import load_settings
-from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.adapters.inbound.server import make_server
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import file_sha256, recover_transaction
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
+from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
+    create_gateway_grpc_server,
+)
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import create_gateway_grpc_server
 from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
