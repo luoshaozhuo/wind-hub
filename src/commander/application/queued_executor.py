@@ -806,7 +806,11 @@ class QueuedExecutor:
                     "BATCH_ABORTED_NOT_SENT",
                 )
             elif unsettled or (current_unconfirmed and index == len(confirmed)):
-                state, outcome, code = (CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code)
+                state, outcome, code = (
+                    CommandState.UNKNOWN,
+                    CommandOutcome.UNKNOWN,
+                    error_code,
+                )
             else:
                 state, outcome, code = (
                     CommandState.INTERRUPTED,
@@ -974,10 +978,10 @@ class QueuedExecutor:
         if existing is None:
             session = self._sessions.get(device_id)
             if session is None:
-                self._blocked.discard(device_id)
-                self._release_retained(device_id)
-                self._confirm_unknown_settled(device_id)
-                return True
+                # A recovered command has no local transport to close. Absence
+                # of a session is not evidence that the previous process and
+                # the field device have safely settled; keep the device blocked.
+                return False
             existing = asyncio.create_task(session.close())
             self._isolation_tasks[device_id] = existing
         try:
