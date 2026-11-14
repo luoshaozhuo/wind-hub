@@ -83,6 +83,26 @@ CREATE INDEX IF NOT EXISTS ce_pending_publish
     ON command_events(event_seq) WHERE publish_state='PENDING';
 CREATE INDEX IF NOT EXISTS ce_device_order
     ON command_events(device_id,receive_seq) WHERE event_type='ACCEPTED';
+CREATE TABLE IF NOT EXISTS recovery_decisions (
+    decision_id TEXT PRIMARY KEY,
+    caller_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    evidence_digest TEXT NOT NULL,
+    token_id TEXT NOT NULL UNIQUE,
+    fencing_epoch INTEGER NOT NULL CHECK (fencing_epoch > 0),
+    old_instance TEXT NOT NULL,
+    new_instance TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    publish_state TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (publish_state IN ('PENDING','PUBLISHED')),
+    published_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(caller_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS recovery_pending_publish
+    ON recovery_decisions(occurred_at) WHERE publish_state='PENDING';
 CREATE TABLE IF NOT EXISTS repository_meta (
     key TEXT PRIMARY KEY, value TEXT NOT NULL
 );
@@ -376,6 +396,74 @@ class EventRepository:
         results = (self.get(command_id) for (command_id,) in rows)
         return tuple(result for result in results if result is not None)
 
+    def recovery_decision(
+        self, caller_id: str, request_id: str
+    ) -> tuple[str, str, str, str, int, str] | None:
+        with self._lock:
+            if not self.operational:
+                raise RepositoryError("command journal is unavailable")
+            row = self._db.execute(
+                "SELECT decision_id,device_id,revision,evidence_digest,"
+                "fencing_epoch,token_id FROM recovery_decisions "
+                "WHERE caller_id=? AND request_id=?",
+                (caller_id, request_id),
+            ).fetchone()
+            return tuple(row) if row is not None else None
+
+    def commit_recovery(
+        self,
+        *,
+        caller_id: str,
+        request_id: str,
+        device_id: str,
+        revision: str,
+        evidence_digest: str,
+        token_id: str,
+        fencing_epoch: int,
+        old_instance: str,
+        new_instance: str,
+    ) -> str:
+        """Commit fenced recovery and an outbox event in one SQLite transaction."""
+        def operation() -> str:
+            previous = self._db.execute(
+                "SELECT decision_id,device_id,revision,evidence_digest,"
+                "fencing_epoch,token_id FROM recovery_decisions "
+                "WHERE caller_id=? AND request_id=?",
+                (caller_id, request_id),
+            ).fetchone()
+            if previous is not None:
+                if tuple(previous[1:]) != (
+                    device_id, revision, evidence_digest, fencing_epoch, token_id
+                ):
+                    raise FileExistsError("recovery request_id conflict")
+                return str(previous[0])
+            reused = self._db.execute(
+                "SELECT 1 FROM recovery_decisions WHERE token_id=?", (token_id,)
+            ).fetchone()
+            if reused is not None:
+                raise FileExistsError("recovery attestation already consumed")
+            current = self._db.execute(
+                "SELECT MAX(fencing_epoch) FROM recovery_decisions WHERE device_id=?",
+                (device_id,),
+            ).fetchone()[0]
+            if current is not None and fencing_epoch <= int(current):
+                raise ValueError("recovery fencing epoch not increasing")
+            self._allow_write_behind_flush()
+            decision_id = str(uuid4())
+            self._db.execute(
+                "INSERT INTO recovery_decisions("
+                "decision_id,caller_id,request_id,device_id,revision,"
+                "evidence_digest,token_id,fencing_epoch,old_instance,new_instance,occurred_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    decision_id, caller_id, request_id, device_id, revision,
+                    evidence_digest, token_id, fencing_epoch, old_instance,
+                    new_instance, utc_now().isoformat(),
+                ),
+            )
+            return decision_id
+        return self._transaction(operation)
+
     def pending_events(self, limit: int = 100) -> tuple[dict[str, Any], ...]:
         if limit <= 0:
             raise ValueError("limit must be positive")
@@ -388,7 +476,23 @@ class EventRepository:
                     "ORDER BY event_seq LIMIT ?",
                     (limit,),
                 ).fetchall()
-                return tuple(dict(row) for row in rows)
+                events = [dict(row) for row in rows]
+                remaining = max(0, limit - len(events))
+                if remaining:
+                    recovery = self._db.execute(
+                        "SELECT decision_id AS event_id,device_id,caller_id,"
+                        "request_id,revision,evidence_digest,token_id,"
+                        "fencing_epoch,old_instance,new_instance,occurred_at,"
+                        "publish_state,attempts FROM recovery_decisions "
+                        "WHERE publish_state='PENDING' ORDER BY occurred_at LIMIT ?",
+                        (remaining,),
+                    ).fetchall()
+                    for row in recovery:
+                        event = dict(row)
+                        event["event_type"] = "RECOVERY_UNBLOCKED"
+                        event["command_id"] = event["decision_id"] if "decision_id" in event else event["event_id"]
+                        events.append(event)
+                return tuple(events)
             finally:
                 self._db.row_factory = None
 
@@ -399,16 +503,25 @@ class EventRepository:
                 "published_at=? WHERE event_id=? AND publish_state='PENDING'",
                 (utc_now().isoformat(), event_id),
             )
+            self._db.execute(
+                "UPDATE recovery_decisions SET publish_state='PUBLISHED',"
+                "published_at=? WHERE decision_id=? AND publish_state='PENDING'",
+                (utc_now().isoformat(), event_id),
+            )
 
         self._transaction(update)
 
     def record_publish_failure(self, event_id: str) -> None:
-        self._transaction(
-            lambda: self._db.execute(
+        def update() -> None:
+            self._db.execute(
                 "UPDATE command_events SET attempts=attempts+1 WHERE event_id=?",
                 (event_id,),
             )
-        )
+            self._db.execute(
+                "UPDATE recovery_decisions SET attempts=attempts+1 WHERE decision_id=?",
+                (event_id,),
+            )
+        self._transaction(update)
 
     def recover(self) -> tuple[str, ...]:
         """Finalize unfinished commands; no field I/O is ever performed."""
