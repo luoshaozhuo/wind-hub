@@ -205,9 +205,7 @@ class EventRepository:
                 "WHERE publish_state='PENDING'"
             ).fetchone()
             pending += recovery_pending
-            if recovery_oldest is not None and (
-                oldest is None or recovery_oldest < oldest
-            ):
+            if recovery_oldest is not None and (oldest is None or recovery_oldest < oldest):
                 oldest = recovery_oldest
             age_ms = 0.0
             if oldest is not None:
@@ -350,8 +348,7 @@ class EventRepository:
             unknown_ids = [
                 str(event["command_id"])
                 for event in events
-                if event.get("event_type") == "COMPLETED"
-                and event.get("state") == "UNKNOWN"
+                if event.get("event_type") == "COMPLETED" and event.get("state") == "UNKNOWN"
             ]
             for command_id in unknown_ids:
                 self._db.execute(
@@ -453,7 +450,8 @@ class EventRepository:
             ).fetchone()
             return (
                 (str(row[0]), str(row[1]), str(row[2]), str(row[3]), int(row[4]), str(row[5]))
-                if row is not None else None
+                if row is not None
+                else None
             )
 
     def commit_recovery(
@@ -470,6 +468,7 @@ class EventRepository:
         new_instance: str,
     ) -> str:
         """Commit fenced recovery and an outbox event in one SQLite transaction."""
+
         def operation() -> str:
             previous = self._db.execute(
                 "SELECT decision_id,device_id,revision,evidence_digest,"
@@ -479,7 +478,11 @@ class EventRepository:
             ).fetchone()
             if previous is not None:
                 if tuple(previous[1:]) != (
-                    device_id, revision, evidence_digest, fencing_epoch, token_id
+                    device_id,
+                    revision,
+                    evidence_digest,
+                    fencing_epoch,
+                    token_id,
                 ):
                     raise FileExistsError("recovery request_id conflict")
                 return str(previous[0])
@@ -502,12 +505,21 @@ class EventRepository:
                 "evidence_digest,token_id,fencing_epoch,old_instance,new_instance,occurred_at)"
                 " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    decision_id, caller_id, request_id, device_id, revision,
-                    evidence_digest, token_id, fencing_epoch, old_instance,
-                    new_instance, utc_now().isoformat(),
+                    decision_id,
+                    caller_id,
+                    request_id,
+                    device_id,
+                    revision,
+                    evidence_digest,
+                    token_id,
+                    fencing_epoch,
+                    old_instance,
+                    new_instance,
+                    utc_now().isoformat(),
                 ),
             )
             return decision_id
+
         return self._transaction(operation)
 
     def pending_events(self, limit: int = 100) -> tuple[dict[str, Any], ...]:
@@ -567,6 +579,7 @@ class EventRepository:
                 "UPDATE recovery_decisions SET attempts=attempts+1 WHERE decision_id=?",
                 (event_id,),
             )
+
         self._transaction(update)
 
     def recover(self) -> tuple[str, ...]:

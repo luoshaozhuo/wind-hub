@@ -335,9 +335,7 @@ class CommanderService:
                 writer, journal.recovery_decision, caller_id, request_id
             )
             if previous is not None and (
-                previous[1] != device_id
-                or previous[2] != revision
-                or previous[3] != digest
+                previous[1] != device_id or previous[2] != revision or previous[3] != digest
             ):
                 raise FileExistsError("recovery request_id conflict")
             blocked = device_id in executor.blocked_devices()
