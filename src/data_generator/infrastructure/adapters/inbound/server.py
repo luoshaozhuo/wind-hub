@@ -20,9 +20,9 @@ from core.domain import DeviceId
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.domain.model import GeneratorError, Scalar
-from data_generator.infrastructure.diagnostics import Diagnostics
+from data_generator.infrastructure.adapters.inbound.diagnostics import Diagnostics
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
-from data_generator.infrastructure.snapshots import FileContent, SnapshotManager, file_sha256
+from data_generator.infrastructure.persistence.snapshots import FileContent, SnapshotManager, file_sha256
 
 
 async def _authorize_variables(context: Any, runtime: Runtime, permission: str) -> str:

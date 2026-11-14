@@ -16,7 +16,7 @@ import yaml
 from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from data_generator.domain.model import GeneratorError
 from data_generator.domain.scenario import Settings
-from data_generator.infrastructure.config import load_settings
+from data_generator.infrastructure.config.service_settings import load_settings
 
 
 @dataclass(frozen=True, slots=True)

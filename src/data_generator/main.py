@@ -9,11 +9,11 @@ import signal
 from pathlib import Path
 
 from data_generator.application.runtime import Runtime
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.gateway import GatewayWriter
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.logging import configure_logging
-from data_generator.infrastructure.server import make_server
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.adapters.inbound.server import make_server
+from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 logger = logging.getLogger(__name__)
 
