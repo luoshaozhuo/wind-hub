@@ -327,7 +327,13 @@ class CommanderService:
                 raise RuntimeError("device configuration revision conflict")
             journal = self._journal
             writer = self._writer
-            if journal is None or writer is None or not journal.operational:
+            if (
+                journal is None
+                or writer is None
+                or not journal.operational
+                or self._audit is None
+                or not self._audit.operational
+            ):
                 raise RuntimeError("durable recovery audit unavailable")
             digest = hashlib.sha256(attestation).hexdigest()
             loop = asyncio.get_running_loop()
@@ -358,6 +364,8 @@ class CommanderService:
                 return previous[0], digest
             if manager.device_revision(device_id) != revision:
                 raise RuntimeError("device revision changed during recovery")
+            if self._audit is None or not self._audit.operational:
+                raise RuntimeError("recovery audit worker stopped")
             decision_id = await loop.run_in_executor(
                 writer,
                 partial(
@@ -373,11 +381,27 @@ class CommanderService:
                     new_instance=proof.new_instance,
                 ),
             )
-            # Reject a proof that expired while the durable transaction ran.
-            # This may leave an audited fence without a local unblock; retries
-            # must revalidate externally and remain safe after a crash.
-            if proof.expires_at <= datetime.now(UTC):
-                raise RuntimeError("recovery fencing proof expired before release")
+            # The SQLite commit is not evidence that physical fencing remains
+            # effective. Re-check the live authority *after* commit, while the
+            # lifecycle lock prevents an overlapping reload or stop.
+            current_proof = await authority.verify_and_fence(
+                device_id=device_id,
+                revision=revision,
+                caller_id=caller_id,
+                request_id=request_id,
+                attestation=attestation,
+            )
+            if (
+                current_proof != proof
+                or current_proof.expires_at <= datetime.now(UTC)
+                or self._audit is None
+                or not self._audit.operational
+                or not journal.operational
+                or manager.device_revision(device_id) != revision
+            ):
+                raise RuntimeError("recovery fencing or audit changed before release")
+            # A persisted decision followed by a failed verification remains
+            # blocked; repeat recovery requires fresh external fencing proof.
             executor.release_recovered_device(device_id)
             self._event("INFO", "Commander device recovery committed", "RECOVERY_UNBLOCKED")
             return decision_id, digest
