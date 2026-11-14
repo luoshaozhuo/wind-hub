@@ -329,6 +329,8 @@ class CommanderRpc(commander_pb2_grpc.CommanderServiceServicer):
             or not request.expected_revision.strip()
             or not request.request_id.strip()
             or not request.isolation_attestation
+            or len(request.isolation_attestation) > 65536
+            or len(request.request_id.encode("utf-8")) > 128
         ):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "recovery fields are required")
         await context.abort(
