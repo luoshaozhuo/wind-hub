@@ -503,6 +503,10 @@ class EventRepository:
                     raise FileExistsError("recovery request_id conflict")
                 if fencing_epoch < int(previous[4]):
                     raise ValueError("recovery fencing epoch is stale")
+                # 同一请求的续期只在它仍持有设备最新裁决时有效；
+                # 更大的新证明不能让已被其他请求超越的旧授权重新生效。
+                if current is not None and int(current) > int(previous[4]):
+                    raise ValueError("recovery request was superseded")
                 return str(previous[0])
             reused = self._db.execute(
                 "SELECT 1 FROM recovery_decisions WHERE token_id=?", (token_id,)
