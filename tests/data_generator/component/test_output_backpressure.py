@@ -16,7 +16,7 @@ from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.domain.model import DataBatch, DataPoint, OutputTarget
 from data_generator.domain.scenario import Scenario
-from data_generator.infrastructure.gateway import GatewayWriter
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 
 pytestmark = [
