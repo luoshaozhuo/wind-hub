@@ -67,7 +67,7 @@ def _security_config(
         if (
             not isinstance(granted, list)
             or not granted
-            or any(permission not in ("query", "reload", "control") for permission in granted)
+            or any(permission not in ("query", "reload", "control", "recover") for permission in granted)
         ):
             raise ValueError("invalid caller permissions")
         permissions[identity] = (caller_id, frozenset(granted))
