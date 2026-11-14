@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import json
 import logging
 import math
 import time
@@ -14,7 +13,6 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 
 from data_generator.application.model.inputs import (
     WEATHER_INPUTS,
@@ -26,6 +24,7 @@ from data_generator.application.model.random import generate as generate_configu
 from data_generator.application.models import generate_values
 from data_generator.application.physical_engine import PhysicalEngine
 from data_generator.application.ports.output import OutputPort
+from data_generator.application.ports.recording import RecordingPort
 from data_generator.application.replay import decode_value, iter_records, replay_deadline
 from data_generator.domain.model import (
     DataBatch,
@@ -70,9 +69,12 @@ class RuntimeEvent:
 class Runtime:
     """State transitions and ownership changes share one serialized control lock."""
 
-    def __init__(self, settings: Settings, writer: OutputPort) -> None:
+    def __init__(
+        self, settings: Settings, writer: OutputPort, recorder: RecordingPort | None = None
+    ) -> None:
         self.settings = settings
         self.writer = writer
+        self._recorder = recorder
         self.generations: dict[str, GenerationState] = {}
         self.events: deque[RuntimeEvent] = deque(maxlen=1000)
         self._active: str | None = None
@@ -549,22 +551,13 @@ class Runtime:
         if sequence == 0:
             raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
 
-    @staticmethod
-    def _append_record(path: Path, payload: dict[str, object]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
-
     async def _record(self, generation: GenerationState, batch: DataBatch) -> None:
         """Capture generated source values before delivery; never use Gateway ACK as truth."""
         options = generation.bound_settings.service.get("recording", {})
         if not options.get("enabled", False):
             return
-        base = generation.bound_settings.root.parent.resolve()
-        directory = (base / options["directory"]).resolve()
-        if not directory.is_relative_to(base):
-            raise GeneratorError("recording directory escapes project root")
-        path = directory / f"{generation.generation_id}.jsonl"
+        if self._recorder is None:
+            raise GeneratorError("recording adapter is not configured")
 
         def encode(value: Scalar) -> Scalar | dict[str, str]:
             if isinstance(value, bytes):
@@ -588,7 +581,9 @@ class Runtime:
                 for point in batch.points
             ],
         }
-        await asyncio.to_thread(self._append_record, path, payload)
+        await self._recorder.append(
+            generation.bound_settings, generation.generation_id, payload
+        )
 
     async def _emit(
         self,

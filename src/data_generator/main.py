@@ -11,6 +11,7 @@ from pathlib import Path
 from data_generator.application.runtime import Runtime
 from data_generator.infrastructure.adapters.inbound.server import make_server
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.adapters.outbound.recording import JsonlRecordWriter
 from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.logging import configure_logging
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
@@ -28,7 +29,7 @@ async def run(config_path: Path) -> None:
         max_points=int(buffer.get("max_points_per_batch", 1000)),
         max_inflight=int(output.get("max_inflight", 1)),
     )
-    runtime = Runtime(settings, writer)
+    runtime = Runtime(settings, writer, recorder=JsonlRecordWriter())
     bind = settings.service.get("service", {}).get("grpc_bind", "127.0.0.1:50061")
     server = make_server(runtime, bind)
     shutdown = asyncio.Event()
