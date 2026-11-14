@@ -452,26 +452,38 @@ def load_settings(service_path: Path) -> Settings:
             # When its point-table identity differs, require an explicit
             # source-point-to-Gateway-variable mapping, never a guessed alias.
             raw_mapping = gateway.get("variable_mapping", {})
-            if not isinstance(raw_mapping, dict) or any(
-                not isinstance(key, str)
-                or not isinstance(value, str)
-                or not value.strip()
-                for key, value in raw_mapping.items()
-            ):
+            if not isinstance(raw_mapping, dict):
                 raise GeneratorError("invalid Gateway variable_mapping")
             source_ids = {
                 point_id for source_device, point_id in points if source_device == device_id
             }
+            if any(not isinstance(key, str) for key in raw_mapping):
+                raise GeneratorError("Gateway variable_mapping keys must be strings")
             if set(raw_mapping) - source_ids:
                 raise GeneratorError("Gateway variable_mapping references unknown source point")
             gateways[gateway_id] = endpoint
-            for point_id in source_ids:
-                variable_id = raw_mapping.get(point_id, f"{device_id}.{point_id}")
-                target = OutputTarget(gateway_id, variable_id)
-                if target in targets:
-                    raise GeneratorError(f"duplicate output target: {target}")
-                targets.add(target)
-                mappings.append(OutputMapping(device_id, point_id, target))
+            for point_id in sorted(source_ids):
+                configured = raw_mapping.get(point_id, f"{device_id}.{point_id}")
+                variable_ids = (
+                    (configured,)
+                    if isinstance(configured, str)
+                    else configured
+                )
+                if (
+                    not isinstance(variable_ids, (tuple, list))
+                    or not variable_ids
+                    or any(
+                        not isinstance(variable_id, str) or not variable_id.strip()
+                        for variable_id in variable_ids
+                    )
+                ):
+                    raise GeneratorError("Gateway mapping must specify variable IDs")
+                for variable_id in variable_ids:
+                    target = OutputTarget(gateway_id, variable_id)
+                    if target in targets:
+                        raise GeneratorError(f"duplicate output target: {target}")
+                    targets.add(target)
+                    mappings.append(OutputMapping(device_id, point_id, target))
         if not mappings:
             raise GeneratorError("scenario requires Gateway device routes")
         if set(points) - {(item.device_id, item.point_id) for item in mappings}:
