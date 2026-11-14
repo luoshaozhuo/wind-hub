@@ -24,7 +24,7 @@ from sink_service.domain.config import (
     ValidatedSnapshot,
     WriterRequiredError,
 )
-from sink_service.infrastructure.grpc_auth import PeerAuthorization
+from sink_service.infrastructure.adapters.inbound.grpc_auth import PeerAuthorization
 from sink_service.infrastructure.worker_registry import WorkerRegistryView
 
 
