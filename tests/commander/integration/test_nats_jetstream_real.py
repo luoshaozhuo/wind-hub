@@ -27,9 +27,9 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.audit_publisher import AuditPublisher, JetStreamClient
-from commander.infrastructure.event_repository import EventRepository
-from commander.infrastructure.nats_audit import NatsAuditTransport
+from commander.infrastructure.adapters.outbound.audit_publisher import AuditPublisher, JetStreamClient
+from commander.infrastructure.persistence.event_repository import EventRepository
+from commander.infrastructure.adapters.outbound.nats_audit import NatsAuditTransport
 from tests.support.process import free_port
 
 from ..seed_events import seed_accept, seed_transition

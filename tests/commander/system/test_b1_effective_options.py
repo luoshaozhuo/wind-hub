@@ -17,8 +17,8 @@ import pytest
 from commander.application.config_manager import CommanderConfigManager
 from commander.application.service_lifecycle import CommanderService
 from commander.domain.command import CommandSpec
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.service_settings import load_service_settings
+from commander.assembly import build_commander
+from commander.infrastructure.config.service_settings import load_service_settings
 from core.application.protocol_contract import ProtocolWrite
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver

@@ -13,7 +13,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 
 _BUFFERS: WeakKeyDictionary[EventRepository, BufferedJournal] = WeakKeyDictionary()
 

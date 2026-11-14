@@ -17,7 +17,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import (
+from commander.infrastructure.persistence.event_repository import (
     EventRepository,
     RepositoryError,
 )

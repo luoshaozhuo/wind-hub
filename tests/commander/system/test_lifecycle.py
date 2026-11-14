@@ -15,8 +15,8 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.grpc.snapshots import ConfigSnapshots
+from commander.assembly import build_commander
+from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
 from contracts import commander_pb2, common_pb2
 from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol.modbus import ModbusDriver
