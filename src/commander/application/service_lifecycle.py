@@ -196,6 +196,9 @@ class CommanderService:
                 return frozenset(devices)
 
             recovered_devices = await loop.run_in_executor(writer, recovered_device_ids)
+            recovered_devices |= await loop.run_in_executor(
+                writer, journal.recovery_blocked_devices
+            )
             initial_sequence = await loop.run_in_executor(writer, journal.latest_receive_seq)
             buffer = BufferedJournal(
                 initial_sequence=initial_sequence,
