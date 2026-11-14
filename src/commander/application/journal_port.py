@@ -28,6 +28,25 @@ class JournalPort(Protocol):
 
     def recover(self) -> tuple[str, ...]: ...
 
+    def recovery_decision(
+        self, caller_id: str, request_id: str
+    ) -> tuple[str, str, str, str, int, str] | None: ...
+
+    def commit_recovery(
+        self,
+        *,
+        caller_id: str,
+        request_id: str,
+        device_id: str,
+        revision: str,
+        evidence_digest: str,
+        token_id: str,
+        fencing_epoch: int,
+        old_instance: str,
+        new_instance: str,
+    ) -> str: ...
+
+
     def latest_receive_seq(self) -> int: ...
 
     def append_events(self, events: Sequence[dict[str, Any]]) -> None: ...
