@@ -436,6 +436,16 @@ class EventRepository:
         results = (self.get(command_id) for (command_id,) in rows)
         return tuple(result for result in results if result is not None)
 
+    def latest_recovery_epoch(self, device_id: str) -> int:
+        with self._lock:
+            if not self.operational:
+                raise RepositoryError("command journal is unavailable")
+            value = self._db.execute(
+                "SELECT MAX(fencing_epoch) FROM recovery_decisions WHERE device_id=?",
+                (device_id,),
+            ).fetchone()[0]
+            return int(value) if value is not None else 0
+
     def recovery_decision(
         self, caller_id: str, request_id: str
     ) -> tuple[str, str, str, str, int, str] | None:
