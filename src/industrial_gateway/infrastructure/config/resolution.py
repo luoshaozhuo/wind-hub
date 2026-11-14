@@ -19,7 +19,7 @@ from industrial_gateway.infrastructure.config.schema import (
     ServerConfig,
     service_path,
 )
-from industrial_gateway.infrastructure.protocol.modbus.codec import (
+from industrial_gateway.infrastructure.adapters.inbound.modbus.codec import (
     RegisterArea,
     RegisterMap,
     RegisterMapping,
