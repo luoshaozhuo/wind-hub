@@ -42,7 +42,7 @@ def _js_name(value: Any) -> str:
     raise ConfigurationError("unrecognized JetStream configuration value")
 
 
-class ReliableDeliveryPort(ReliableDeliveryEngine):
+class ReliableDeliveryRuntime(ReliableDeliveryEngine):
     """One durable JetStream Consumer and one in-flight target write per Delivery."""
 
     def __init__(
@@ -504,7 +504,7 @@ class ReliableFactory:
 
     def __call__(
         self, definition: DeliveryDefinition, snapshot: ValidatedSnapshot
-    ) -> ReliableDeliveryPort:
+    ) -> ReliableDeliveryRuntime:
         if definition.channel != "reliable":
             raise ConfigurationError("ReliableFactory cannot own realtime Delivery")
-        return ReliableDeliveryPort(definition, snapshot, self._pool)
+        return ReliableDeliveryRuntime(definition, snapshot, self._pool)
