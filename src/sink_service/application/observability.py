@@ -87,6 +87,8 @@ class Observability:
                 "input_batches_total",
                 "input_values_total",
                 "acknowledged_batches_total",
+                "filtered_ack_batches_total",
+                "filtered_ack_values_total",
                 "rejected_batches_total",
                 "routed_values_total",
                 "retry_total",
