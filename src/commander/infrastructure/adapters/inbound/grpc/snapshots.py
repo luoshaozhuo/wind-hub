@@ -439,8 +439,12 @@ class ConfigSnapshots:
     async def validate_files(self, files: dict[str, bytes]) -> None:
         await asyncio.to_thread(self._validate, files)
 
-    async def commit_files(self, changed: dict[str, bytes]) -> None:
-        await asyncio.to_thread(commit_config_files, self._root, changed)
+    async def commit_files(
+        self, changed: dict[str, bytes], *, expected_files: dict[str, bytes]
+    ) -> None:
+        await asyncio.to_thread(
+            commit_config_files, self._root, changed, expected_files=expected_files
+        )
 
     async def apply(
         self, request: common_pb2.ApplyConfigSnapshotRequest
