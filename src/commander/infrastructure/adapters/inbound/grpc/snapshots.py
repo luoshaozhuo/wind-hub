@@ -436,9 +436,6 @@ class ConfigSnapshots:
         self._candidate.clear()
         self._candidate[candidate_id] = candidate
 
-on,
-            )
-
     def candidate(self, candidate_id: str) -> SnapshotCandidate | None:
         return self._candidate.get(candidate_id)
 
