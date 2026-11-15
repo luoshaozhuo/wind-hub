@@ -372,6 +372,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             "input_batches_total": "batches",
             "input_values_total": "samples",
             "acknowledged_batches_total": "batches",
+            "filtered_ack_batches_total": "batches",
+            "filtered_ack_values_total": "samples",
             "rejected_batches_total": "batches",
             "routed_values_total": "samples",
             "retry_total": "attempts",
