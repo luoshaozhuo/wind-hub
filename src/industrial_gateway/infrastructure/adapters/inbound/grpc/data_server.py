@@ -29,7 +29,8 @@ from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client i
 )
 from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
-from industrial_gateway.infrastructure.runtime import GatewayInstance, GatewayRuntime
+from industrial_gateway.application.runtime import GatewayInstance
+from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _PAGE_LIMIT = 500
 
