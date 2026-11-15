@@ -236,6 +236,11 @@ class SharedDocumentLoader:
                 raw.get("overrides", {}),
                 f"device {device_id}.overrides",
             )
+            _keys(
+                overrides,
+                frozenset({"protocol_options"}),
+                f"device {device_id}.overrides",
+            )
             options = _mapping(
                 overrides.get("protocol_options", {}),
                 f"device {device_id}.overrides.protocol_options",

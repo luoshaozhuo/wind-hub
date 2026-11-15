@@ -16,16 +16,16 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
+from sink_service.application.config_sources import config_sources
+from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
     ValidatedSnapshot,
-    config_sources,
     expect_mapping,
     expect_nonempty_str,
     require_keys,
     require_version,
-    validate_service,
 )
 from sink_service.infrastructure.config_schema import validate_service_technology
 

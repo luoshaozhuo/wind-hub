@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_17 · 20261113 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_20 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -186,12 +186,12 @@ $$
 
 | 领域 | 本分支最新版 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_15.md`、`Core_软件设计_v1_35.md` | DFD 归属、共享配置归 Core、业务专属配置归业务包 |
-| Contracts | `Contracts_软件设计_v1_27.md` | 六份 Proto、50 个唯一 Unary RPC、生成绑定 |
-| Data Generator | `Data_Generator_软件设计_v1_44.md` | 9 个业务 RPC、模型、录制与执行步证据 |
-| Industrial Gateway | `industrial_gateway_软件设计_v1_38.md` | 10 个业务 RPC、租约注入与仿真执行分离 |
-| Collector / Commander | `Collector_软件设计_v1_24.md`、`Commander_软件设计_v1_37.md` | 11 个采集 RPC、7 个控制 RPC、批次与子命令身份 |
-| Sink / CLI | `Sink_Service_软件设计_v1_57.md`、`CLI_软件设计_v1_37.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_17.md`、`Core_软件设计_v1_36.md` | DFD 归属、共享配置归 Core、业务专属配置归业务包 |
+| Contracts | `Contracts_软件设计_v1_29.md` | 六份 Proto、50 个唯一 Unary RPC、生成绑定 |
+| Data Generator | `Data_Generator_软件设计_v1_50.md` | 9 个业务 RPC、模型、录制与执行步证据 |
+| Industrial Gateway | `industrial_gateway_软件设计_v1_42.md` | 10 个业务 RPC、租约注入与仿真执行分离 |
+| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_46.md` | 11 个采集 RPC、7 个控制 RPC、批次与子命令身份 |
+| Sink / CLI | `Sink_Service_软件设计_v1_64.md`、`CLI_软件设计_v1_40.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
@@ -287,7 +287,7 @@ configs/
 
 <p class="figure-caption">图 5-1 正式配置资产、版本化模板及 E2E 引用边界</p>
 
-**命名约束**：依据总体设计 v1_15 第 5.4 节，带版本文件统一采用 `<前缀><名称>[_vMAJOR.MINOR.PATCH].yaml`；版本号前必须有字母 `v`，YAML 正文 `file_version` 的值仍为不带 `v` 的语义版本字符串。版本后缀是可选的，不能认为 `site.yaml`、`devices.yaml` 等无版本后缀文件违反该规则。路径变更必须同步精确模板解析器、全部 Service 引用和测试 Fixture。
+**命名约束**：依据总体设计第 5.4 节，带版本文件统一采用 `<前缀><名称>[_vMAJOR.MINOR.PATCH].yaml`；版本号前必须有字母 `v`，YAML 正文 `file_version` 的值仍为不带 `v` 的语义版本字符串。版本后缀是可选的，不能认为 `site.yaml`、`devices.yaml` 等无版本后缀文件违反该规则。路径变更必须同步精确模板解析器、全部 Service 引用和测试 Fixture。
 
 **E2E 命名示例**：若现有点表不满足测试要求，需要新增专用 Modbus 物理仿真点表，可在 `configs/templates/point_tables/` 下采用 `modbus_e2e_physical_v1.0.0.yaml`；此为测试信息名示例，不要求为了新名字复制现有等价点表。现行总体设计还要求类型前缀，须先修订总体设计才能正式采用该简化文件名；未修订前以总体设计的完整前缀规则为准。
 
@@ -384,7 +384,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | E2E-04 GRID/PPC | GRID/PPC、Commander、Gateway、Generator | 频率/电压激励、AGC/AVC/FFR 合法命令、重放/无权 | 真正 APPLIED 才为控制成功，失败/未知不冒充；测量反馈一致 |
 | E2E-05 随机/CSV | DG Service 合法 Scenario、`history/demo.csv` | 固定种子重复运行、同 CSV 重放 | 原始序列可复现、实际已发可靠批顺序一致 |
 | E2E-06 多速率 | DG 物理 Scenario + Collector 合法周期 | 生成 50/100 ms、采集 50/100/200/1000 ms 候选组合 | 实测采样窗和覆盖；不要求每一步必采 |
-| E2E-07 四种 Sink | 五业务进程、所有隔离 Sink/Delivery、Gateway/Modbus/Redis/Kafka | 单次序列与阶跃，正常和故障恢复两轮 | OUT-01～04 分别裁决；任何缺口显式保留 |
+| E2E-07 四种 Sink | 六业务服务身份、所有隔离 Sink/Delivery、Gateway/Modbus/Redis/Kafka | 单次序列与阶跃，正常和故障恢复两轮 | OUT-01～04 分别裁决；任何缺口显式保留 |
 | E2E-08 CLI/RPC | 全部服务及 CLI | 逐叶子命令和逐 RPC 的正常/失败路径 | 全量覆盖清单和真实副作用证据 |
 | E2E-09 生命周期 | CLI 有效测试配置 | 全服务 start/stop/restart、重复调用 | 进程/业务状态独立判断，Worker 无残留 |
 | E2E-10 故障与恢复 | 同上 + 受控基础设施故障 | 断 NATS、Kafka、Redis、Gateway，旧 generation 和重复 ID | Realtime 覆盖、Reliable 重投/DLQ、UNKNOWN 与授权隔离 |
@@ -399,6 +399,14 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | OUT-04 | Reliable → Kafka | JetStream→Sink Reliable→Kafka → 独立 Consumer | 应交付的真实源批、顺序、ACK、重投与下游去重界限 |
 
 四个 OUT 的 PASS 不可互相代替。工业控制 E2E 作为 E2E-04 单独裁决，不与 Gateway 测量注入混为一谈。
+
+## 7.4 严格 CLI 独立进程全链验证
+
+整个场景使用独立业务服务身份：Industrial Gateway、Data Generator、Realtime Collector、Reliable Collector、Sink Service、Commander。Sink Main 自行管理 Realtime/Reliable Worker；各业务进程的启动、停止、重启仅通过正式 CLI 的 Service 管理命令完成。中间件由独立测试基础设施管理器启动。全部业务命令经 CLI，未提供 CLI 操作的正式 RPC 经独立认证客户端覆盖并计入 RPC 清单。
+
+执行必须保留独立证据：① CLI 与 Linux 进程 PID/READY；② 两个 Collector 分别对应 Realtime、Reliable 的真实 SampleBatch 和 JetStream PubAck；③ Generator 真值 JSONL 和 Gateway/Collector 采集值；④ Industrial Gateway、Modbus TCP、Redis、Kafka 四个目标的独立读回；⑤ Commander request_id/command_id 与 Data Generator effective_step 的控制完成结果；⑥ restart 后已提交配置与业务运行状态一致、消息积压收敛；⑦ stop 后无遗留业务进程、连接或活跃 Worker。
+
+安全场景必须采用正式 mTLS 与权限约束，验证 Collector 管理令牌、Gateway/Generator 证书身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每一个 E2E ID 都必须有实际命令、日志、配置哈希、源值、目标读回和 PASS/FAIL/NOT_RUN 证据。
 
 # 8. CLI 与 gRPC 全功能覆盖
 
@@ -523,8 +531,12 @@ reason: "template only; not executed"
 2. Collector 模拟任务、Sink 四目标实例和 Delivery 与 `devices_sim.yaml` 使用同一套正式模板/点表；不覆盖真实现场设备或另设非法 Generator Instance。
 3. Sink GatewayOutput 的租约/权限/目标映射已可测试，独立 Modbus 客户端可读 Sink Server；四出口逐项证明。
 4. Generator 现有 Recording 的源批和文件完整性可验证；缺证据必须 INCONCLUSIVE 而不是假设源值。
-5. 全部业务进程可被当前 CLI 经真实 Linux 进程管理器启停，三进程控制链不得以单进程集成测试冒充。
+5. 全部业务进程可被当前 CLI 经真实 Linux 进程管理器启停；Realtime 与 Reliable 分别使用独立 Collector 身份，Sink Main 管理其内部 Worker。业务状态及下游副作用不得以单进程集成测试冒充。
 6. Proto 生成物与正式六 Proto 一致，完整枚举当前 50 RPC 和 CLI 叶子命令，结构归属符合总体/Core 设计。
+
+7. CLI 对 Collector 控制面的认证应使用正式配置/环境来源提供管理令牌，按服务契约发送 `x-windhub-admin-token` metadata；不存在明文回退、鉴权关闭或测试专用绕过。必须分别证明已授权与拒绝路径，测试证据不得泄露令牌。
+8. CLI 严格 E2E 依次验证全部业务进程 READY、Collector Task 启动、Generation 运行、四出口读回、Commander 写控制、服务重启恢复与关闭收敛；任一步失败不得将其后续步骤计为 PASS。
+9. 核对当前 HEAD 的全部 CLI 叶子命令、正式 RPC、已发布 Schema、`configs/` 路径和证书/端口绑定，覆盖矩阵在执行时生成；设计书中的数量和示例不替代运行时实际枚举。
 
 ## 12.2 裁决
 

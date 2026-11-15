@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_35 · 20261113 · main@3251e622（基础接口冻结基线）</p>
+<p class="subtitle">v1_36 · 20261115 · 公共能力与共享配置设计</p>
 
 <style>
 body {
@@ -1107,7 +1107,7 @@ flowchart TD
 **现行公共能力及验收边界（基线 `main@09796cd4`）：**
 
 1. Core 已在 `src/core/infrastructure/config/generic_yaml.py` 提供 `parse_yaml/read_yaml/dump_yaml/save_yaml/compare_config`，不再把这五项描述为缺失；业务配置版本、引用图、路径装配不由 Core 解释。
-2. `SharedDocumentLoader`、`build_shared_snapshot`、`resolve_effective_device`、`VersionedTemplateRepository` 当前位于 `src/configuration/`；目标迁入 `src/core/configuration/`，公开导入前缀为 `core.configuration`。R2-C 迁移时保留现有语义并删除旧包，不保留 re-export 或平行解析器。
+2. `SharedDocumentLoader`、`build_shared_snapshot`、`resolve_effective_device`、`VersionedTemplateRepository` 均属于 `src/core/configuration/`，公开导入前缀为 `core.configuration`。项目不保留独立顶级 `src/configuration/`、兼容重导出或平行配置解析器。
 3. Core 的 `diagnostic/network.py`、`diagnostic/protocol.py` 已提供网络与协议诊断入口；真实环境的正确性、权限、超时及资源收敛仍须测试。
 4. `crosscutting/observability.py` 等已具备观测装配及请求关联基础；是否被所有宿主完整接入、Trace SDK 可用性和运行业务不受影响，均需独立验证。
 5. Core 不再提供 `infrastructure/rpc/` 或标量 Protobuf 编解码；`contracts.scalar_codec` 是唯一 wire 标量适配器。Core 的依赖方向须由 import-linter 与全仓调用方静态检查持续约束，不得重建旧 RPC 转发层。
@@ -1456,9 +1456,9 @@ src/core/
     └── ...                      # 其余职责明确的现有组件
 ```
 
-此为 Core 公共库的职责组织，**不是**强制 Ports & Adapters 分层。R2-C 将 `src/configuration/` 迁入 `src/core/configuration/`，同步更新 `pyproject.toml` 的包收集与依赖、全部 imports、动态引用、测试、工具及 import-linter 契约；删除旧顶级包，不提供兼容 re-export。迁移前保留当前代码路径，仅以本节作为目标设计。
+此为 Core 公共库当前的职责组织，**不是**强制 Ports & Adapters 分层。共享配置能力归 `src/core/configuration/`，通用 YAML I/O 归 `src/core/infrastructure/config/`；全部调用方直接使用正式导入路径，不保留旧顶级包或兼容重导出。
 
-**根目录 `typings/`**：现行 `typings/grpc-stubs/` 是供 Mypy 使用的 gRPC 部分类型声明，`pyproject.toml` 已用 `mypy_path` 引用；该目录不属于业务运行代码，也不受 Ports & Adapters 约束。R2-C 须先核验可用的正式类型分发包和现有 gRPC Async/Sync Stub、Interceptor API 的类型检查完整性，全部相关检查通过后才允许删除此目录及其配置引用；否则保留必要的类型支持，不通过忽略规则绕过缺失。
+**类型检查依赖**：项目使用正式发行的 gRPC 类型声明；不维护根目录 `typings/` 或自定义 `grpc-stubs/`。类型契约变更必须执行 Mypy、导入检查及相关静态门禁，不通过新增忽略规则规避问题。
 
 
 
@@ -1559,7 +1559,7 @@ flowchart TD
 
 ## 6.5 可选版本与引用扩展
 
-版本检查、引用图及依赖解析不阻塞以上五个基本接口。wind-hub 专属的 `VersionedTemplateRepository`、`SharedDocumentLoader`、`build_shared_snapshot` 当前位于 `src/configuration/`，目标迁入 `src/core/configuration/`；通用 Core 原语不得反向依赖它们。未来确需跨项目共享的版本/引用原语，须先证明不绑定模板类别、目录及业务规则，并单独设计其输入、错误与安全语义。
+版本检查、引用图及依赖解析不阻塞以上五个基本接口。wind-hub 专属的 `VersionedTemplateRepository`、`SharedDocumentLoader`、`build_shared_snapshot` 位于 `src/core/configuration/`；通用 Core 原语不得反向依赖它们。确需跨项目共享的版本/引用原语，须先证明不绑定模板类别、目录及业务规则，并明确输入、错误与安全语义。
 
 ## 6.6 多文件使用方式
 

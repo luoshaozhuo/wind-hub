@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
+from sink_service.application.config_sources import config_sources
 from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.domain.config import (
     CandidateNotFoundError,
@@ -18,7 +19,6 @@ from sink_service.domain.config import (
     SnapshotFile,
     ValidatedSnapshot,
     WriterRequiredError,
-    config_sources,
 )
 
 

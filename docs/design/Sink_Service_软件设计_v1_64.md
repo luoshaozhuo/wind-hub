@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_63 · 20261115</p>
+<p class="subtitle">v1_64 · 20261115</p>
 
 <style>
 body {
@@ -1882,7 +1882,7 @@ UC-12 仅查询死信与积压证据，外部运维工具负责重放；UC-13 �
 
 ## 5.1 组件结构与职责
 
-Sink Service 的技术 Service Schema（gRPC、NATS、mTLS caller、指标窗口及部署路径）仅由 Infrastructure 配置解析器校验；Domain 只校验业务标识、引用、运行配额和 Reliable 交付规则。磁盘和远程候选快照均先经过同一技术 Schema 校验，再进入 Application 跨文档业务一致性校验，不允许从 Domain 引入技术端点或证书依赖。
+Sink Service 的技术 Service Schema（gRPC、NATS、mTLS caller、指标窗口及部署路径）由 Infrastructure 配置解析器校验；Application 负责显式配置来源、运行配额和 Reliable 交付策略，再校验跨文档业务一致性；Domain 仅保存配置身份、状态与通用局部不变量。磁盘和远程候选快照均经过相同的技术 Schema 与应用业务校验，Domain 不承担服务级配置装配，也不依赖技术端点或证书。
 
 
 ```mermaid
@@ -2283,48 +2283,61 @@ flowchart TD
 
 # 7. 开发视图
 
-本章规定模块边界及依赖。遵守总体设计 v1_15 第 6 章的 Domain / Application / Infrastructure；没有独立职责的类不强制分立。B2 已存在的 `application/latency_window.py`、`infrastructure/realtime_adapters.py`、`infrastructure/reliable_runtime.py`、`infrastructure/worker.py`、`infrastructure/worker_registry.py` 和 `main.py` 是代码核验入口，不强行拆分为仅存在于示意树中的类或文件。Clean Rewrite 不保留旧 `StartSink/StopSink/ClearSink` 控制兼容层。共享配置由 `core.configuration` 负责实例与模板的引用装配，Core 只提供通用 YAML 基础处理；Sink 复用不可变共享快照；Sink 自有配置仓储继续负责 Main 的 revision CAS、不可变版本与原子配置代。
+本章遵守总体设计第 6 章规定的 Domain / Application / Infrastructure 依赖方向，文件按当前明确职责组织，不为抽象而创建空目录或重复运行时。Sink Service 的共享型号与点表引用由 `core.configuration` 处理；自身 Service、Sink、Delivery 的配置校验及事务提交由本模块负责。系统采用 Main、Realtime、Reliable 三进程，不创建第二套业务状态机或兼容控制接口。
 
-## 7.1 目标代码结构与端口
+## 7.1 代码结构与端口
 
 ```text
 src/sink_service/
-├── domain/                       # Delivery、Sink、策略、不变量
+├── domain/
+│   └── config.py                    # 不可变快照身份、状态及通用局部不变量
 ├── application/
-│   ├── ports/                    # DeliveryOutputPort、SourceConsumerPort、配置/持久化 Port
-│   └── ...                       # Main 管理、Realtime/Reliable、ACK/DLQ 业务裁决
+│   ├── config.py                    # Sink/Delivery 跨文档配置语义
+│   ├── config_sources.py            # 显式 Instance/Template 引用规则
+│   ├── service_policy.py            # 配额及 Reliable 交付运行策略
+│   ├── config_manager.py           # Writer 候选、提交与运行配置协调
+│   ├── delivery_registry.py        # Delivery 身份、状态与运行期意图
+│   ├── realtime_delivery.py        # 实时 Delivery 运行逻辑
+│   ├── reliable_engine.py          # Reliable 交付及 ACK/DLQ 决策
+│   ├── reliable_policy.py          # 过滤和交付结果裁决
+│   ├── output_pool.py              # 共享物理目标、额度和 I/O 所有权
+│   ├── worker_coordinator.py       # Worker 生命周期及运行协调
+│   └── ports/                      # 应用侧传输、交付和输出抽象
 ├── infrastructure/
-│   ├── adapters/
-│   │   ├── inbound/              # gRPC Server、NATS Core/JetStream Consumer
-│   │   └── outbound/             # Redis、Modbus TCP Server 镜像、Gateway RPC、Kafka
-│   ├── persistence/              # 文件提交/CURRENT/revision 原子配置仓储
-│   └── config/                   # Sink Service/Template/Instance Schema
-├── assembly.py                   # 三进程各自装配，不承载业务状态
-└── main.py                       # 启动 Main/Realtime/Reliable
+│   ├── config_io.py                 # 文件与 YAML 编解码、快照加载
+│   ├── config_schema.py             # gRPC/NATS/安全/指标等技术 Schema
+│   ├── persistence/                # 事务、快照原子持久化
+│   ├── adapters/inbound/           # gRPC、NATS/JetStream
+│   ├── adapters/outbound/          # Redis、Kafka、Gateway、Modbus
+│   ├── realtime_runtime.py         # Realtime 技术资源装配
+│   ├── reliable_runtime.py         # Reliable JetStream/目标资源装配
+│   ├── supervisor.py               # 进程监督与 IPC
+│   └── worker.py                   # 子进程执行载体
+└── main.py                         # 真实业务进程入口
 ```
 
-Application 通过 `DeliveryOutputPort` 提交批量输出，Adapter 返回真实逐项 `CONFIRMED/FAILED/UNKNOWN` 和原生 I/O 收敛证据。Redis/Modbus/Gateway 只支持 Realtime；Kafka 只支持 Reliable。Gateway Adapter 负责租约与逐项 RPC 结果，Modbus TCP Server 仅更新本地可读寄存器镜像，不作为外部 Modbus Client 主动写目标服务器。
+配置解析顺序为：Infrastructure 读取 YAML、验证技术 Schema → Application 校验配置来源及交付业务规则 → 形成受控配置快照；不允许由 Domain 直接解析部署路径、gRPC、NATS、mTLS 及指标配置。Runtime 只持有技术资源和生命周期接口，策略不重复实现。
 
-`SourceConsumerPort` 将 NATS Core 最新值和 JetStream Durable 输入抽象为不同消费能力；可靠消息 ACK 由 Application 在完成交付裁决后经 Adapter 执行。实时 TTL、交付状态、重试/DLQ 与并发额度在 Application；协议 I/O、Kafka Builder、Redis Lua、连接池、IPC 传输在 Infrastructure。三进程模型不变，不创建新的控制进程或平行的消费状态机。当前 `infrastructure/realtime_runtime.py`、`reliable_runtime.py`、`grpc_server.py`、`nats_consumer.py`、`config_repository.py` 是需按职责拆分的代码路径，整改后不保留重复业务实现。
+Realtime Delivery 的启动、停止、上游注册及 I/O 收敛由 Application 控制，经 Application Port 调用 NATS Adapter 与共享输出池。可靠消息 ACK 由 Application 在业务交付裁决后通过 Adapter 执行；JetStream API、Kafka Builder、Redis Lua、连接池和 IPC 编码保持在 Infrastructure。
 
-Realtime Delivery 的启动、停止、上游注册/撤销及 I/O 收敛编排由 `application/realtime_delivery.py` 管理，经 `application/ports/realtime.py` 调用入站 NATS Adapter 和共享输出池。全局及 Sink 额度、未决 I/O 的保留及共享连接引用由 `application/output_pool.py` 管理；`infrastructure/realtime_runtime.py` 仅完成具体 Redis/Kafka/Modbus/Gateway Adapter 构造与 Realtime 进程工厂装配。Reliable 通道与 Worker 的后续业务编排/技术职责仍须按本章约束继续审查。
+## 7.2 组件职责与测试对应
 
-## 7.2 组件职责与对应测试
+<p class="table-caption">表 7-1 模块职责及对应验证</p>
 
-<p class="table-caption">表 7-1 模块职责及主要测试</p>
-
-| 模块 | 责任 | 对应测试文件 |
+| 代码位置 | 职责 | 验证重点 |
 |---|---|---|
-| domain/delivery.py | Delivery 状态、来源及输出语义 | unit/test_delivery_state.py |
-| domain/policy.py | 三种实时输出与质量判定 | unit/test_output_policy.py |
-| application/delivery_runtime.py | 独立 Consumer、历史 ACK 与实时策略 | component/test_delivery_runtime.py |
-| application/sink_runtime.py | 共享连接、并发、阻塞与确认 | component/test_sink_runtime.py |
-| application/config.py | Main 管理候选、提交和子进程配置代对账 | component/test_config.py |
-| infrastructure/adapters/inbound/nats_consumer.py | NATS / JetStream API、重投、死信 | integration/test_jetstream.py |
-| infrastructure/persistence/config_repository.py | 原子写入、版本、意图恢复 | integration/test_config_repository.py |
-| infrastructure/adapters/inbound/grpc_server.py | 按外部正式 proto 实现 Server、身份与权限 | integration/test_grpc.py |
-| infrastructure/adapters/* | Redis、Modbus、Gateway、Kafka 四类目标写入与确认；具体 SDK/网络 I/O 不进入 Application | integration/test_adapters.py |
-| application/runtime.py | Main 监督两个子进程、IPC 与收敛 | system/test_lifecycle.py |
+| `domain/config.py` | 领域状态、快照身份、通用不变量 | 领域类型与无技术依赖 |
+| `application/config_sources.py` | 显式配置来源、路径与引用规则 | 缺失、越界、未知字段、错误引用 |
+| `application/service_policy.py` | 运行配额、Reliable 业务策略 | 边界、非法参数、稳定拒绝语义 |
+| `application/config.py` | Sink/Delivery 业务校验、引用一致性 | 完整快照、源过滤、目标能力 |
+| `application/config_manager.py` | 候选、CAS、提交及运行代际 | 冲突、取消、提交不确定、重启恢复 |
+| `application/delivery_registry.py` | Delivery 生命周期、期望与实际状态 | 状态收敛、DEGRADED 与版本门禁 |
+| `application/reliable_engine.py` | Reliable 交付状态机、ACK/重试/DLQ | 原生 I/O 终态、异常、重投、过滤审计 |
+| `application/output_pool.py` | 物理目标额度、连接引用及 I/O 所有权 | 取消、动态最小限额、并发安全 |
+| `application/worker_coordinator.py` | Worker 收敛、Watchdog、指标调度 | 启停、重启、观测窗口及故障 |
+| `infrastructure/config_io.py`、`config_schema.py` | 文件与技术配置 Schema | YAML、gRPC/NATS/mTLS/指标准入 |
+| `infrastructure/adapters/` | 实际传输及网络 I/O | NATS、JetStream、Redis、Modbus、Gateway、Kafka |
+| `infrastructure/persistence/` | 原子配置提交、恢复、不可变版本 | 崩溃恢复、文件一致性和 CAS |
 
 ## 7.3 模块依赖
 

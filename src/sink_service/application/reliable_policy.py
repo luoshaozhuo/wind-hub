@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from zlib import crc32
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint, select_delivery_points
@@ -47,7 +48,8 @@ def select_reliable(
             item for item in batch.samples if point_ids is None or item.point_id in point_ids
         )
         key = ":".join((batch.wind_farm_id, batch.collector_id, batch.device_id)).encode("utf-8")
-        stripe = hash((batch.wind_farm_id, batch.collector_id, batch.device_id)) % 128
+        # Use stable device-lock affinity regardless of Python hash randomization.
+        stripe = crc32(key) % 128
         return ReliableSelection(items, (), key, stripe, "" if items else "point_filter_no_match")
     points = select_delivery_points(batch, point_ids)
     return ReliableSelection((), points, b"", 0, "" if points else "point_filter_no_match")

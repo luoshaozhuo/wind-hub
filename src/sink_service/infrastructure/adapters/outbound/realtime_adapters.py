@@ -14,6 +14,7 @@ from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol, cast
+from zlib import crc32
 
 from pymodbus.datastore import ModbusServerContext
 
@@ -344,7 +345,11 @@ class KafkaOutput:
         stripes = tuple(
             sorted(
                 {
-                    hash((sample.wind_farm_id, sample.collector_id, sample.device_id))
+                    crc32(
+                        ":".join(
+                            (sample.wind_farm_id, sample.collector_id, sample.device_id)
+                        ).encode("utf-8")
+                    )
                     % len(self._device_locks)
                     for sample in samples
                 }
