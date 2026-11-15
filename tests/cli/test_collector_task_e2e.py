@@ -99,3 +99,42 @@ def test_missing_revision_fails_closed_exit2(cli_env: Any) -> None:
     result = cli_env.subprocess_invoke("collector", "stop", "t1", "--yes")
     assert result.exit_code == 2, result.stdout
     assert not [c for c in server.calls if c.path.endswith("/StopTask")]
+
+
+def test_admin_token_attached_to_control_rpc_metadata(cli_env: Any) -> None:
+    """N-CLI-1：管理令牌以 x-windhub-admin-token 随受保护控制 RPC 上送，且不出现在输出。"""
+    server = cli_env.server
+    server.respond_value(
+        _p(server, "GetTask"),
+        col.GetTaskResponse(task=col.Task(task_id="t1", revision="rev-9")),
+    )
+    server.respond_value(
+        _p(server, "StartTask"),
+        common_pb2.OperationResult(accepted=True, actual_state="STARTED"),
+    )
+    result = cli_env.subprocess_invoke("collector", "start", "t1", "--yes")
+    assert result.exit_code == 0, result.stdout
+    starts = [c for c in server.calls if c.path.endswith("/StartTask")]
+    assert len(starts) == 1
+    metadata = dict(starts[0].metadata)
+    assert metadata.get("x-windhub-admin-token") == "cli-e2e-admin-token"
+    assert "cli-e2e-admin-token" not in result.stdout
+
+
+def test_missing_admin_token_fails_closed_without_leak(
+    cli_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N-CLI-1：令牌缺失时管理命令本地拒绝（不发匿名请求），不泄漏任何令牌值。"""
+    server = cli_env.server
+    # GetTask 属豁免只读 RPC（revision 预取），令牌缺失只应拦截受保护的 StartTask。
+    server.respond_value(
+        _p(server, "GetTask"),
+        col.GetTaskResponse(task=col.Task(task_id="t1", revision="rev-9")),
+    )
+    monkeypatch.delenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", raising=False)
+    result = cli_env.subprocess_invoke("collector", "start", "t1", "--yes")
+    assert result.exit_code == 2, result.stdout
+    assert "Collector management RPC requires admin credentials" in result.stdout
+    assert "cli-e2e-admin-token" not in result.stdout
+    # fail-closed：本地拒绝即无受保护 RPC 上送。
+    assert not [c for c in server.calls if c.path.endswith("/StartTask")]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shlex
 import struct
 import subprocess
@@ -21,7 +22,7 @@ import yaml
 from tests.cli.e2e_util import last_json, run_cli
 from tests.commander.grpc_harness import build_pki
 from tests.data_generator.conftest import _real_tree, simulation_document, write_service_yaml
-from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
 from tests.sink_service._stage1_tls import write_mtls_bundle
@@ -41,6 +42,8 @@ pytestmark = [
 ]
 
 SRC = Path(__file__).resolve().parents[2] / "src"
+#: N-CLI-1：Collector 管理/读/诊断 RPC 的管理员令牌；服务进程与 CLI 进程须一致。
+ADMIN_TOKEN = "strict-cli-admin-token"
 SERVICES = (
     "gateway",
     "data-generator",
@@ -123,6 +126,19 @@ def _write_cli(
     return path
 
 
+def _scalar_number(raw: object) -> float | None:
+    """CLI JSON 输出中的 ScalarValue 以 kind 字典渲染；解包数值。"""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int | float):
+        return float(raw)
+    if isinstance(raw, dict):
+        for key in ("double_value", "float_value", "int_value", "uint_value"):
+            if isinstance(raw.get(key), int | float) and not isinstance(raw[key], bool):
+                return float(raw[key])
+    return None
+
+
 class StrictCliE2E:
     """只暴露 CLI 业务操作；systemctl 仅用于安装和最终清理测试单元。"""
 
@@ -147,7 +163,12 @@ class StrictCliE2E:
             "Type=simple",
             f"WorkingDirectory={cwd}",
             f"ExecStart={shlex.join(argv)}",
-            *(f"Environment={shlex.quote(f'{key}={value}')}" for key, value in environment.items()),
+            # systemd 对 Environment= 值做 C 风格转义：JSON 载荷中的
+            # 反斜杠必须双写，否则 "\n" 被解释成真实换行、Secret 解析失败。
+            *(
+                f"Environment={shlex.quote(f'{key}={value.replace(chr(92), chr(92) * 2)}')}"
+                for key, value in environment.items()
+            ),
             f"StandardOutput=append:{self.root / (name + '.log')}",
             f"StandardError=append:{self.root / (name + '.log')}",
             "Restart=no",
@@ -161,11 +182,25 @@ class StrictCliE2E:
     def reload(self) -> None:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, timeout=20)
 
+    def cli_env(self, *, token: str | None = ADMIN_TOKEN) -> dict[str, str]:
+        """CLI 子进程环境：默认注入管理令牌；None 表示删除（fail-closed 路径）。"""
+        environment = dict(os.environ)
+        if token is None:
+            environment.pop("WIND_HUB_COLLECTOR_ADMIN_TOKEN", None)
+        else:
+            environment["WIND_HUB_COLLECTOR_ADMIN_TOKEN"] = token
+        return environment
+
     async def cli(
-        self, config: Path, *args: str, timeout: float = 45, check: bool = True
+        self,
+        config: Path,
+        *args: str,
+        timeout: float = 45,
+        check: bool = True,
+        token: str | None = ADMIN_TOKEN,
     ) -> dict[str, Any]:
         def invoke() -> subprocess.CompletedProcess[str]:
-            return run_cli(config, *args, timeout=timeout)
+            return run_cli(config, *args, timeout=timeout, env=self.cli_env(token=token))
 
         result = await asyncio.to_thread(invoke)
         with self.log.open("a", encoding="utf-8") as stream:
@@ -316,7 +351,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
     scenario = f"strict-cli-{token}"
     value = 42.25
     stack: r5_stack.R5Stack | None = None
-    modbus = ModbusMockServer(port=reserve_port())
+    # 采集链源头寄存器预置本用例期望值：rotor_speed=42.25（modbus-1）。
+    modbus = ModbusMockServer(port=reserve_port(), holding=_holding_registers(value, 800.0))
     harness = StrictCliE2E(tmp_path)
     sink: SinkSystemHarness | None = None
     generation_id: str | None = None
@@ -330,6 +366,9 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         gateway_root = tmp_path / "gateway"
         pki = write_mtls_pki(gateway_root, ("cli", "generator", "sink"))
+        # D01 的上游是本用例的真实 ModbusMockServer；Gateway 自身的下游
+        # Modbus 侦听必须独立端口，否则与设备端口冲突（启动 fail-closed）。
+        gateway_listen_port = reserve_port()
         gateway_service = write_config_tree(
             gateway_root,
             [
@@ -337,6 +376,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                     server_id="gw-strict",
                     device_id="D01",
                     modbus_port=modbus.port,
+                    listen_port=gateway_listen_port,
                     control_enabled=False,
                 )
             ],
@@ -580,6 +620,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
             "WIND_HUB_COLLECTOR_TLS_KEY": str(pki["server_key"]),
             "WIND_HUB_COLLECTOR_TLS_CA": str(pki["ca"]),
+            # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
+            "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
         }
         harness.install_unit(
             "gateway",
@@ -685,6 +727,18 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 ),
             )
             assert len(tasks["tasks"]) == 1
+            # N-CLI-1：错误令牌与缺失令牌必须被拒绝，且令牌不出现在输出。
+            wrong = await harness.cli(
+                config, "collector", "start", device, "--yes", check=False, token="wrong-token"
+            )
+            assert wrong["status"] == "FAILURE", wrong
+            assert "denied" in (wrong.get("message") or "").lower(), wrong
+            missing = await harness.cli(
+                config, "collector", "start", device, "--yes", check=False, token=None
+            )
+            assert missing["status"] == "FAILURE", missing
+            assert "admin credentials" in (missing.get("message") or ""), missing
+            assert ADMIN_TOKEN not in json.dumps(wrong) + json.dumps(missing)
             await harness.cli(config, "collector", "start", device, "--yes")
         for service in ("sink_realtime", "sink_reliable"):
             await harness.poll_cli(
@@ -716,7 +770,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "read",
             "gw-strict",
             "fb_float",
-            predicate=lambda data: data.get("values") and data["values"][0].get("value") == value,
+            predicate=lambda data: data.get("values")
+            and _scalar_number(data["values"][0].get("value")) == value,
         )
         assert gateway_value["values"][0]["quality"] == "GOOD"
         for config in (harness.cli_realtime, harness.cli_reliable):
@@ -727,7 +782,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 device,
                 point,
                 predicate=lambda data: any(
-                    sample.get("point_id") == point and sample.get("value") == value
+                    sample.get("point_id") == point and _scalar_number(sample.get("value")) == value
                     for sample in data.get("samples", [])
                 ),
             )
@@ -760,12 +815,13 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "gw-strict",
             "sink_value",
             predicate=lambda data: data.get("values")
-            and data["values"][0].get("value") == pytest.approx(value)
+            and _scalar_number(data["values"][0].get("value")) == pytest.approx(value)
             and data["values"][0].get("quality") == "GOOD",
             timeout=60,
         )
-        sink_registers = await modbus.read_holding(1, 102, 2)
-        assert struct.unpack(">f", struct.pack(">HH", *sink_registers))[0] == pytest.approx(value)
+        # Modbus TCP 交付路由：sink 自身的 Modbus 从站（EMS 可读），
+        # 不是设备回写——UpdateVariables 只入网关变量存储，设备写入是
+        # Commander 控制路径（本用例 control_enabled=False）。
         await _wait_sink_modbus(sink_modbus_port, value)
 
         registers = await modbus.read_holding(1, 100, 2)
@@ -790,6 +846,11 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         registers = await modbus.read_holding(1, 200, 2)
         assert struct.unpack(">f", struct.pack(">HH", *registers))[0] == pytest.approx(12.5)
 
+        # DG 运行时 generation 不跨进程 restart 存活：restart 前用真实 CLI
+        # 停止本用例的生成（停止语义须在注册表仍在时验证）。
+        await harness.cli(harness.cli_realtime, "data-generator", "stop", generation_id, "--yes")
+        generation_id = None
+
         # 六个独立身份都执行真实 CLI restart；恢复后要求采集产生新样本。
         for name in SERVICES:
             await harness.service(harness.cli_realtime, "restart", name)
@@ -799,7 +860,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         persisted = await harness.cli(harness.cli_realtime, "commander", "result", command_id)
         assert persisted["data"]["state"] == "SUCCEEDED"
 
-        await harness.cli(harness.cli_realtime, "data-generator", "stop", generation_id, "--yes")
         for config in (harness.cli_realtime, harness.cli_reliable):
             await harness.cli(config, "collector", "stop", device, "--yes")
         for service, delivery in (
@@ -811,9 +871,15 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             await harness.cli(
                 harness.cli_realtime, "sink", "stop", delivery, "--service", service, "--yes"
             )
-        generation_id = None
         for name in reversed(SERVICES):
             await harness.service(harness.cli_realtime, "stop", name)
+
+        # N-CLI-1：令牌不得出现在任何 CLI 输出记录与服务日志中。
+        audit_text = harness.log.read_text(encoding="utf-8")
+        assert ADMIN_TOKEN not in audit_text, "admin token leaked into CLI call audit log"
+        for log_file in harness.root.glob("*.log"):
+            content = log_file.read_text(encoding="utf-8", errors="replace")
+            assert ADMIN_TOKEN not in content, f"admin token leaked into service log {log_file}"
     finally:
         if generation_id is not None and harness.cli_realtime.exists():
             await harness.cli(

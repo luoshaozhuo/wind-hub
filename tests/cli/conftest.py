@@ -13,6 +13,7 @@ import asyncio
 import datetime
 import ipaddress
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -139,6 +140,7 @@ Behavior = Callable[[Any, grpc_aio.ServicerContext], Awaitable[Any]]
 class CallRecord:
     path: str
     request: Any
+    metadata: tuple[tuple[str, Any], ...] = ()
 
 
 class FakeRpcServer:
@@ -230,7 +232,7 @@ class FakeRpcServer:
     def _make(self, path: str, request_cls: Any) -> Callable[..., Awaitable[Any]]:
         async def dispatch(raw_request: Any, context: grpc_aio.ServicerContext) -> Any:
             request = request_cls() if raw_request is None else raw_request
-            self.calls.append(CallRecord(path, request))
+            self.calls.append(CallRecord(path, request, tuple(context.invocation_metadata() or ())))
             behavior = self.behaviors.get(path)
             if behavior is None:
                 await context.abort(grpc.StatusCode.UNIMPLEMENTED, f"no test behavior for {path}")
@@ -317,9 +319,17 @@ class CliEnv:
 
 
 @pytest.fixture
-def cli_env(tmp_path: Path, certs: dict[str, Path], fake_server: FakeRpcServer):
+def cli_env(
+    tmp_path: Path,
+    certs: dict[str, Path],
+    fake_server: FakeRpcServer,
+    monkeypatch: pytest.MonkeyPatch,
+):
     import cli.main as main_module
 
+    # N-CLI-1：Collector 管理/读/诊断 RPC 客户端 fail-closed，
+    # 测试环境必须提供管理员令牌（FakeRpcServer 不校验其值）。
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "cli-e2e-admin-token")
     config_path = _write_cli_yaml(tmp_path / "cli.yaml", certs, fake_server.port)
     runner = CliRunner()
     previous = (
@@ -339,6 +349,8 @@ def cli_env(tmp_path: Path, certs: dict[str, Path], fake_server: FakeRpcServer):
         return CliResult(result.exit_code, result.stdout)
 
     def subprocess_invoke(*arguments: str) -> CliResult:
+        # 继承当前进程环境（含 fixture monkeypatch 注入的管理令牌）；
+        # delenv 后的失败路径用例同样经由这里验证。
         completed = subprocess.run(
             [
                 sys.executable,
@@ -355,6 +367,7 @@ def cli_env(tmp_path: Path, certs: dict[str, Path], fake_server: FakeRpcServer):
             text=True,
             timeout=30,
             check=False,
+            env=dict(os.environ),
         )
         return CliResult(completed.returncode, completed.stdout)
 

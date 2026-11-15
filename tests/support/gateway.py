@@ -167,6 +167,10 @@ class ServerSpec:
     server_id: str
     device_id: str
     modbus_port: int
+    #: 下游 Modbus 侦听端口；缺省与 modbus_port 相同（无真实上游设备的
+    #: 自服务拓扑）。真实上游设备在场时必须显式指定独立端口，否则 Gateway
+    #: 侦听会与设备端口冲突（fail-closed 启动失败）。
+    listen_port: int | None = None
     slave_id: int = 1
     desired_state: str = "START"
     control_enabled: bool = True
@@ -443,7 +447,7 @@ def write_config_tree(
             "server_id": spec.server_id,
             "device_id": spec.device_id,
             "listen_host": "127.0.0.1",
-            "listen_port": spec.modbus_port,
+            "listen_port": spec.listen_port or spec.modbus_port,
             "desired_state": spec.desired_state,
             "control": control,
         }
