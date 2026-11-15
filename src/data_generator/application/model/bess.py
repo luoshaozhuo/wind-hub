@@ -6,12 +6,12 @@ import math
 from collections.abc import Mapping
 
 from data_generator.application.model.common import (
-    apparent,
+    calculate_apparent_quantities,
     clamp,
-    finite_outputs,
-    number,
-    optional_number,
-    positive,
+    validate_finite_outputs,
+    require_number,
+    get_optional_number,
+    validate_positive_parameters,
 )
 from data_generator.application.model.weather import Weather
 from data_generator.domain.model import GeneratorError
@@ -22,7 +22,7 @@ class BESS:
 
     def __init__(self, params: Mapping[str, object]) -> None:
         self.p = params
-        positive(
+        validate_positive_parameters(
             params,
             "rated_energy_wh",
             "pcs_rated_active_power_w",
@@ -32,19 +32,19 @@ class BESS:
             "max_battery_current_a",
             "soc_control_gain_w",
         )
-        self.soc_low = number(params, "soc_min", minimum=0)
-        self.soc_high = number(params, "soc_max")
-        initial = number(params, "initial_soc")
+        self.soc_low = require_number(params, "soc_min", minimum=0)
+        self.soc_high = require_number(params, "soc_max")
+        initial = require_number(params, "initial_soc")
         if not 0 <= self.soc_low < initial < self.soc_high <= 1:
             raise GeneratorError("invalid BESS SOC interval")
-        if number(params, "pcs_rated_apparent_power_va") < number(
+        if require_number(params, "pcs_rated_apparent_power_va") < require_number(
             params, "pcs_rated_active_power_w"
         ):
             raise GeneratorError("BESS PCS apparent rating too small")
         for name in ("charge_efficiency", "discharge_efficiency"):
-            if number(params, name) > 1:
+            if require_number(params, name) > 1:
                 raise GeneratorError("BESS PCS efficiency exceeds one")
-        self.resistance = number(params, "internal_resistance_ohm", minimum=0)
+        self.resistance = require_number(params, "internal_resistance_ohm", minimum=0)
         strategy = params.get("control_strategy")
         if strategy not in {"soc_target", "power_demand"}:
             raise GeneratorError("unknown BESS control strategy")
@@ -57,23 +57,23 @@ class BESS:
         for raw in raw_curve:
             if not isinstance(raw, dict):
                 raise GeneratorError("invalid BESS OCV curve entry")
-            soc = number(raw, "soc", minimum=0)
-            voltage = number(raw, "voltage_v")
+            soc = require_number(raw, "soc", minimum=0)
+            voltage = require_number(raw, "voltage_v")
             if soc > 1 or voltage <= 0 or (self.ocv_curve and soc <= self.ocv_curve[-1][0]):
                 raise GeneratorError("invalid BESS OCV curve ordering")
             self.ocv_curve.append((soc, voltage))
         if self.ocv_curve[0][0] > self.soc_low or self.ocv_curve[-1][0] < self.soc_high:
             raise GeneratorError("OCV curve must cover the full allowed SOC interval")
-        self.energy = initial * number(params, "rated_energy_wh") * 3600
-        self.soh = optional_number(params, "initial_soh", 1.0)
+        self.energy = initial * require_number(params, "rated_energy_wh") * 3600
+        self.soh = get_optional_number(params, "initial_soh", 1.0)
         if not 0 < self.soh <= 1:
             raise GeneratorError("invalid initial SOH")
-        self.temperature = number(params, "initial_battery_temperature_c")
+        self.temperature = require_number(params, "initial_battery_temperature_c")
         thermal = params.get("thermal_parameters")
         if not isinstance(thermal, dict):
             raise GeneratorError("BESS thermal_parameters required")
-        self.heat_capacity = number(thermal, "thermal_capacity_j_per_k")
-        self.cooling = number(thermal, "cooling_w_per_k", minimum=0)
+        self.heat_capacity = require_number(thermal, "thermal_capacity_j_per_k")
+        self.cooling = require_number(thermal, "cooling_w_per_k", minimum=0)
         if self.heat_capacity <= 0:
             raise GeneratorError("BESS thermal capacity must be positive")
 
@@ -86,10 +86,10 @@ class BESS:
 
     def _candidate(self, ac_power: float, dt: float) -> tuple[float, float, float] | None:
         p = self.p
-        eta_dis = number(p, "discharge_efficiency")
-        eta_ch = number(p, "charge_efficiency")
+        eta_dis = require_number(p, "discharge_efficiency")
+        eta_ch = require_number(p, "charge_efficiency")
         dc_power = ac_power / eta_dis if ac_power >= 0 else ac_power * eta_ch
-        rated = number(p, "rated_energy_wh") * 3600
+        rated = require_number(p, "rated_energy_wh") * 3600
         ocv = self._ocv(self.energy / rated)
         discriminant = ocv**2 - 4 * self.resistance * dc_power
         if discriminant < 0:
@@ -102,7 +102,7 @@ class BESS:
         next_energy = self.energy - dt * ocv * current
         if (
             terminal_voltage <= 0
-            or abs(current) > number(p, "max_battery_current_a")
+            or abs(current) > require_number(p, "max_battery_current_a")
             or next_energy < self.soc_low * rated - 1e-7
             or next_energy > self.soc_high * rated + 1e-7
         ):
@@ -131,20 +131,20 @@ class BESS:
         if not math.isfinite(dt) or dt <= 0.0:
             raise GeneratorError("BESS time step must be finite and positive")
         p = self.p
-        rated = number(p, "rated_energy_wh") * 3600
+        rated = require_number(p, "rated_energy_wh") * 3600
         soc = self.energy / rated
-        deadband = optional_number(p, "soc_deadband", 0)
+        deadband = get_optional_number(p, "soc_deadband", 0)
         if deadband < 0:
             raise GeneratorError("invalid BESS SOC deadband")
         target_soc = clamp(float(controls.get("soc_target", 50)) / 100, self.soc_low, self.soc_high)
         demand = float(controls.get("active_power_setpoint", 0))
         if p["control_strategy"] == "soc_target":
-            requested = (soc - target_soc) * number(p, "soc_control_gain_w")
+            requested = (soc - target_soc) * require_number(p, "soc_control_gain_w")
             if abs(soc - target_soc) <= deadband:
                 requested = 0.0
         else:
             requested = demand
-        power_cap = number(p, "pcs_rated_active_power_w")
+        power_cap = require_number(p, "pcs_rated_active_power_w")
         requested = clamp(requested, -power_cap, power_cap)
         if not bool(controls.get("_grid_connected", 1)):
             requested = 0.0
@@ -156,19 +156,19 @@ class BESS:
             * (loss - self.cooling * (self.temperature - weather.ambient_temperature))
             / self.heat_capacity
         )
-        aging = optional_number(p, "aging_coefficient_per_ampere_second", 0.0)
+        aging = get_optional_number(p, "aging_coefficient_per_ampere_second", 0.0)
         if aging < 0:
             raise GeneratorError("invalid aging coefficient")
         self.soh = clamp(self.soh - aging * abs(current) * dt, 0, 1)
-        s_cap = number(p, "pcs_rated_apparent_power_va")
+        s_cap = require_number(p, "pcs_rated_apparent_power_va")
         q_cap = math.sqrt(max(0, s_cap**2 - power**2))
         reactive = (
             clamp(float(controls.get("reactive_power_setpoint", 0)), -q_cap, q_cap)
             if p["reactive_support_enabled"] and bool(controls.get("_grid_connected", 1))
             else 0.0
         )
-        _, pcs_current, pf = apparent(power, reactive, voltage)
-        return finite_outputs(
+        _, pcs_current, pf = calculate_apparent_quantities(power, reactive, voltage)
+        return validate_finite_outputs(
             {
                 "soc": 100 * self.energy / rated,
                 "soh": 100 * self.soh,
