@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import uuid4
@@ -67,7 +68,6 @@ class SnapshotApplyPort(Protocol):
 
     def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None: ...
 
-
     async def validate_files(self, files: dict[str, bytes]) -> None: ...
 
     async def commit_files(self, changed: dict[str, bytes]) -> None: ...
@@ -75,8 +75,6 @@ class SnapshotApplyPort(Protocol):
 
 def snapshot_revision(files: dict[str, bytes]) -> str:
     """Canonical digest shared by optimistic concurrency checks."""
-    import hashlib
-
     digest = hashlib.sha256()
     for key, content in sorted(files.items()):
         digest.update(key.encode("utf-8"))
