@@ -486,7 +486,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 modbus.port,
                 device_id=device,
                 site_id=farm,
-                desired_state="STOP",
                 nats_url=stack.nats,
             )
             protocol_source = root / "templates" / "protocols" / "protocol_modbus_tcp_v1.1.0.yaml"
@@ -506,7 +505,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             modbus.port,
             device_id="WT01",
             site_id=farm,
-            desired_state="STOP",
             nats_url=stack.nats,
         )
         commander_protocol = (

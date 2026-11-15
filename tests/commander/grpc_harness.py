@@ -100,8 +100,6 @@ def _device_block(device_id: str, modbus_port: int, label: str) -> str:
       host: 127.0.0.1
       port: {modbus_port}
     overrides:
-      task:
-        desired_state: STOP
       protocol_options:
         word_order: big_endian
 """

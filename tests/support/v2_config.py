@@ -56,14 +56,15 @@ def write_v2_modbus_tree(
     *,
     device_id: str = "modbus-1",
     site_id: str = "test",
-    desired_state: str = "STOP",
     nats_url: str = "nats://127.0.0.1:4222",
     slave_id: int = 1,
 ) -> Path:
     """单 Modbus 设备的 v2 三路径树（复用出厂 modbus_wtg 1.0.0 模板）。
 
-    采集点为出厂模板 ``active_power``（holding@0, int32）；system 控制面
-    round-trip 不断言寄存器语义，数据面验证由 acquisition 套件负责。
+    任务期望态由出厂任务模板承载（turbine_all: STOP）；设备级 override
+    仅 protocol_options（未知键 fail-closed）。采集点为出厂模板
+    ``active_power``（holding@0, int32）；system 控制面 round-trip
+    不断言寄存器语义，数据面验证由 acquisition 套件负责。
     """
     root = _empty_tree(base)
     # 出厂 business_points 目录不含 gen_power/temp_int，且 rotor_speed 绑定
@@ -162,9 +163,10 @@ def write_v2_modbus_tree(
                 device_id: {
                     "model": {"id": "modbus_wtg", "version": "1.0.0"},
                     "endpoint": {"host": "127.0.0.1", "port": port},
+                    # 设备 override 仅允许 protocol_options（未知键 fail-closed）；
+                    # 任务期望态由任务模板（turbine_all: STOP）承载。
                     "overrides": {
                         "protocol_options": {"slave_id": slave_id},
-                        "task": {"desired_state": desired_state},
                     },
                 }
             },

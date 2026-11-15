@@ -187,8 +187,6 @@ def write_service_config(
       host: 127.0.0.1
       port: {modbus_port}
     overrides:
-      task:
-        desired_state: STOP
       protocol_options:
         word_order: big_endian
 """

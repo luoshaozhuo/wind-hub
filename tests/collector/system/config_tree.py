@@ -85,19 +85,19 @@ def write_config_tree(
         device_doc["devices"]["modbus-1"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": modbus_port},
-            "overrides": {"task": {"desired_state": desired_state}},
+            "overrides": {},
         }
     if "iec104-1" in devices:
         device_doc["devices"]["iec104-1"] = {
             "model": {"id": "iec104_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": iec104_port},
-            "overrides": {"task": {"desired_state": desired_state}},
+            "overrides": {},
         }
     if blackhole_port is not None:
         device_doc["devices"]["modbus-hold"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": blackhole_port},
-            "overrides": {"task": {"desired_state": hold_desired_state}},
+            "overrides": {},
         }
     devices_path = root / devices_ref
     devices_path.parent.mkdir(parents=True, exist_ok=True)
