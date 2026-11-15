@@ -216,7 +216,8 @@ class ConfigSnapshots:
                 files = self._runtime_files()
                 revision = self._service.config_manager.revision
             else:
-                files = self._collect()
+                # File hashing and reference closure validation may block on I/O.
+                files = await asyncio.to_thread(self._collect)
                 revision = snapshot_revision(files)
             response = common_pb2.GetConfigSnapshotResponse(
                 snapshot_id=str(uuid4()),
