@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sink_service.application.config import template_path
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
+from sink_service.application.config_sources import config_sources
+from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
 
 @dataclass(frozen=True, slots=True)
