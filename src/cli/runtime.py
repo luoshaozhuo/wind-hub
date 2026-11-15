@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -296,12 +297,27 @@ class Runtime:
             self._channels[target.service_id] = channel
         return self._channels[target.service_id]
 
+    @staticmethod
+    def collector_admin_metadata() -> tuple[tuple[str, str], ...]:
+        """Load the Collector management credential only from the process environment."""
+        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
+        if not token:
+            raise PermissionError("Collector management RPC requires admin credentials")
+        return (("x-windhub-admin-token", token),)
+
     async def call_common(self, name: str, method: str) -> dict[str, Any]:
         target = self.target(name)
         from contracts import common_pb2, common_pb2_grpc
 
         stub = common_pb2_grpc.CommonServiceStub(self.channel(name))
-        result = await getattr(stub, method)(common_pb2.Empty(), timeout=target.timeout)
+        metadata = (
+            self.collector_admin_metadata()
+            if name == "collector" and method in {"GetEvents", "GetConfigSnapshot"}
+            else None
+        )
+        result = await getattr(stub, method)(
+            common_pb2.Empty(), timeout=target.timeout, metadata=metadata
+        )
         return MessageToDict(
             result,
             preserving_proto_field_name=True,
