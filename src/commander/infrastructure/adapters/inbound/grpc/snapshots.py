@@ -8,12 +8,16 @@ import hashlib
 import os
 import ssl
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 import yaml
 
+from commander.application.config_apply import (
+    CommanderConfigApply,
+    SnapshotCandidate,
+    snapshot_revision,
+)
 from commander.application.config_manager import _validate_unique_connections
 from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.config.config_commit import commit_config_files, recover_config_commit
@@ -23,24 +27,6 @@ from core.application.errors import ConfigError
 from core.configuration.immutable import plain_document
 from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from core.configuration.shared_snapshot import build_shared_snapshot
-
-
-@dataclass(frozen=True, slots=True)
-class _Candidate:
-    base_revision: str
-    files: dict[str, bytes]
-    revision: str
-
-
-def _digest(files: dict[str, bytes]) -> str:
-    digest = hashlib.sha256()
-    for key, content in sorted(files.items()):
-        digest.update(key.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(len(content)).encode("ascii"))
-        digest.update(b"\0")
-        digest.update(content)
-    return digest.hexdigest()
 
 
 class ConfigSnapshots:
@@ -57,7 +43,8 @@ class ConfigSnapshots:
         self._root = self._service_config.parent.parent
         recover_config_commit(self._root)
         self._lock = asyncio.Lock()
-        self._candidate: dict[str, _Candidate] = {}
+        self._candidate: dict[str, SnapshotCandidate] = {}
+        self._apply_use_case = CommanderConfigApply(service, self, self._lock)
 
     def _relative(self, path: Path) -> str:
         target = path.resolve()
@@ -231,7 +218,7 @@ class ConfigSnapshots:
                 revision = self._service.config_manager.revision
             else:
                 files = self._collect()
-                revision = _digest(files)
+                revision = snapshot_revision(files)
             response = common_pb2.GetConfigSnapshotResponse(
                 snapshot_id=str(uuid4()),
                 revision=revision,
@@ -338,7 +325,7 @@ class ConfigSnapshots:
     ) -> common_pb2.PushConfigSnapshotResponse:
         async with self._lock:
             current = self._collect()
-            revision = _digest(current)
+            revision = snapshot_revision(current)
             if request.expected_revision != revision:
                 raise RuntimeError("expected_revision does not match disk revision")
             # Verify integrity before inspecting any untrusted candidate YAML.
@@ -433,80 +420,46 @@ class ConfigSnapshots:
                 )
             candidate_id = str(uuid4())
             self._candidate.clear()
-            self._candidate[candidate_id] = _Candidate(revision, candidate, _digest(candidate))
+            self._candidate[candidate_id] = SnapshotCandidate(revision, candidate, snapshot_revision(candidate))
             return common_pb2.PushConfigSnapshotResponse(
                 candidate_id=candidate_id,
                 valid=True,
                 base_revision=revision,
             )
 
+    def candidate(self, candidate_id: str) -> SnapshotCandidate | None:
+        return self._candidate.get(candidate_id)
+
+    def collect_files(self) -> dict[str, bytes]:
+        return self._collect()
+
+    def forget_candidate(self, candidate_id: str) -> None:
+        self._candidate.pop(candidate_id, None)
+
+    async def validate_files(self, files: dict[str, bytes]) -> None:
+        await asyncio.to_thread(self._validate, files)
+
+    async def commit_files(self, changed: dict[str, bytes]) -> None:
+        await asyncio.to_thread(commit_config_files, self._root, changed)
+
     async def apply(
         self, request: common_pb2.ApplyConfigSnapshotRequest
     ) -> common_pb2.ApplyConfigSnapshotResponse:
-        async with self._lock:
-            operation = asyncio.create_task(self._apply_locked(request))
-            try:
-                result = await asyncio.shield(operation)
-            except asyncio.CancelledError:
-                # Never release the snapshot lock during a file commit/reload.
-                await operation
-                raise
-            except Exception:
-                self._service.metrics.config_failed()
-                raise
-            if any(item.status in {"FAILED", "BLOCKED"} for item in result.apply_results):
-                self._service.metrics.config_failed()
-            return result
-
-    async def _apply_locked(
-        self, request: common_pb2.ApplyConfigSnapshotRequest
-    ) -> common_pb2.ApplyConfigSnapshotResponse:
-        candidate = self._candidate.get(request.candidate_id)
-        if candidate is None:
-            raise KeyError(request.candidate_id)
-        current = self._collect()
-        revision = _digest(current)
-        if (
-            request.expected_revision != candidate.base_revision
-            or revision != candidate.base_revision
-        ):
-            raise RuntimeError("configuration revision conflict")
-        await asyncio.to_thread(self._validate, candidate.files)
-        changed = {
-            name: content
-            for name, content in candidate.files.items()
-            if name not in current or current[name] != content
-        }
-        # Durable multi-file transaction; interrupted updates recover on startup.
-        await asyncio.to_thread(commit_config_files, self._root, changed)
-        self._candidate.pop(request.candidate_id, None)
-        try:
-            report = await self._service.reload()
-        except Exception as exc:
-            return common_pb2.ApplyConfigSnapshotResponse(
-                file_commit=_digest(self._collect()),
-                effective_revision=self._service.config_manager.revision,
-                restart_required=True,
-                application_id=str(uuid4()),
-                apply_results=[
-                    common_pb2.ApplicationResult(
-                        object_id="commander",
-                        status="FAILED",
-                        error_code="RELOAD_FAILED",
-                        message=str(exc),
-                    )
-                ],
-            )
+        outcome = await self._apply_use_case.apply(
+            request.candidate_id, request.expected_revision
+        )
         return common_pb2.ApplyConfigSnapshotResponse(
-            file_commit=_digest(self._collect()),
-            effective_revision=report.revision,
-            restart_required=report.restart_required,
-            application_id=str(uuid4()),
+            file_commit=outcome.file_commit,
+            effective_revision=outcome.effective_revision,
+            restart_required=outcome.restart_required,
+            application_id=outcome.application_id,
             apply_results=[
                 common_pb2.ApplicationResult(
-                    object_id=device,
-                    status="BLOCKED" if device in report.blocked else "APPLIED",
+                    object_id=item.object_id,
+                    status=item.status,
+                    error_code=item.error_code,
+                    message=item.message,
                 )
-                for device in (*report.changed, *report.blocked)
+                for item in outcome.apply_results
             ],
         )
