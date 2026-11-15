@@ -9,8 +9,6 @@ from typing import Any
 import yaml
 
 from core.infrastructure.config.generic_yaml import ConfigOperationError, parse_yaml
-from sink_service.application.config_sources import config_sources
-from sink_service.application.service_policy import validate_service
 from sink_service.application.config import (
     _instances,
     template_path,
@@ -18,6 +16,8 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
+from sink_service.application.config_sources import config_sources
+from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
