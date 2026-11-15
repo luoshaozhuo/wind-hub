@@ -66,4 +66,3 @@ class GatewayRuntime(GatewayApplicationRuntime):
                 interval_ms=config.service.metrics.collect_interval_ms,
             ),
         )
-

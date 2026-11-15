@@ -17,6 +17,7 @@ from contracts import industrial_gateway_pb2_grpc as rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
 from industrial_gateway.application.ports.simulation import SimulationInputPort
+from industrial_gateway.application.runtime import GatewayInstance
 from industrial_gateway.application.simulation import (
     SimulationCommand,
     SimulationController,
@@ -29,7 +30,6 @@ from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client i
 )
 from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
-from industrial_gateway.application.runtime import GatewayInstance
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _PAGE_LIMIT = 500
