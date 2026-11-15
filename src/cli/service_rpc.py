@@ -46,7 +46,15 @@ async def invoke(
     request_cls = message_factory.GetMessageClass(method_descriptor.input_type)
     request = ParseDict(values, request_cls(), ignore_unknown_fields=False)
     stub = getattr(grpc_module, f"{service_name}Stub")(runtime.channel(service))
-    response = await getattr(stub, method)(request, timeout=runtime.target(service).timeout)
+    metadata = (
+        runtime.collector_admin_metadata()
+        if service == "collector"
+        and method in {"StartTask", "StopTask", "ReadPoints", "InterrogateDevice"}
+        else None
+    )
+    response = await getattr(stub, method)(
+        request, timeout=runtime.target(service).timeout, metadata=metadata
+    )
     return MessageToDict(
         response,
         preserving_proto_field_name=True,
