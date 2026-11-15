@@ -14,6 +14,7 @@ def config_dir_digest(config_dir: str | Path) -> str:
         raise ValueError(f"configuration root must be a real directory: {directory}")
 
     files: list[Path] = []
+
     def raise_walk_error(error: OSError) -> None:
         raise error
 
