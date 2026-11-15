@@ -7,16 +7,16 @@ import re
 from typing import Any
 
 from contracts.sample_batch import validate_subject_token
+from sink_service.application.config_sources import config_sources
+from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
     ValidatedSnapshot,
-    config_sources,
     expect_mapping,
     expect_nonempty_str,
     expect_positive_int,
     require_keys,
-    validate_service,
 )
 
 
