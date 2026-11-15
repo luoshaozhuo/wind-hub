@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 
 from data_generator.application.model.common import (
     calculate_apparent_quantities,
-    validate_finite_outputs,
     require_number,
+    validate_finite_outputs,
     validate_positive_parameters,
 )
 from data_generator.domain.model import GeneratorError
