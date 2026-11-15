@@ -155,7 +155,9 @@ async def _poll_workers(
             for identifier, delivery_state in current_deliveries.items():
                 if previous_deliveries.get(identifier) != delivery_state:
                     telemetry.event(
-                        "ERROR" if delivery_state[0] in {"UNKNOWN", "FAILED", "DEGRADED"} else "INFO",
+                        "ERROR"
+                        if delivery_state[0] in {"UNKNOWN", "FAILED", "DEGRADED"}
+                        else "INFO",
                         identifier,
                         "DELIVERY_STATE",
                         f"{delivery_state[0]}: {delivery_state[1]}",

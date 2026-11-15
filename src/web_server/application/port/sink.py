@@ -12,8 +12,6 @@ class SinkDirectoryPort(Protocol):
         """Return Delivery states, rejecting duplicate active owners."""
         ...
 
-    async def control_delivery(
-        self, delivery_id: str, *, start: bool
-    ) -> dict[str, Any]:
+    async def control_delivery(self, delivery_id: str, *, start: bool) -> dict[str, Any]:
         """Persist a revision-checked Delivery START or STOP intent."""
         ...

@@ -319,7 +319,9 @@ class ConfigSnapshots:
                 )
             ).load()
             snapshot = build_shared_snapshot(docs)
-            _validate_unique_conn    async def push(
+            _validate_unique_connections(snapshot)
+
+    async def push(
         self, request: common_pb2.PushConfigSnapshotRequest
     ) -> common_pb2.PushConfigSnapshotResponse:
         files = tuple(
@@ -454,9 +456,7 @@ class ConfigSnapshots:
     async def apply(
         self, request: common_pb2.ApplyConfigSnapshotRequest
     ) -> common_pb2.ApplyConfigSnapshotResponse:
-        outcome = await self._apply_use_case.apply(
-            request.candidate_id, request.expected_revision
-        )
+        outcome = await self._apply_use_case.apply(request.candidate_id, request.expected_revision)
         return common_pb2.ApplyConfigSnapshotResponse(
             file_commit=outcome.file_commit,
             effective_revision=outcome.effective_revision,

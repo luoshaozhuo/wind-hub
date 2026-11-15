@@ -102,9 +102,7 @@ class SinkService:
                     for row in members
                 )
             )
-            state = ", ".join(
-                sorted({str(row.get("actual_state", "UNKNOWN")) for row in members})
-            )
+            state = ", ".join(sorted({str(row.get("actual_state", "UNKNOWN")) for row in members}))
             return SinkTestResult(
                 success=healthy,
                 latency_ms=(time.monotonic() - started) * 1000,
@@ -133,9 +131,7 @@ class SinkService:
         for row in members:
             identifier = str(row["delivery_id"])
             results.append(
-                await self._sink_directory.control_delivery(
-                    identifier, start=operation != "stop"
-                )
+                await self._sink_directory.control_delivery(identifier, start=operation != "stop")
             )
         return {"sink_id": name, "operation": operation, "results": results}
 

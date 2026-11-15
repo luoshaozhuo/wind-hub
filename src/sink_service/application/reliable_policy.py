@@ -48,9 +48,7 @@ def select_reliable(
         )
         key = ":".join((batch.wind_farm_id, batch.collector_id, batch.device_id)).encode("utf-8")
         stripe = hash((batch.wind_farm_id, batch.collector_id, batch.device_id)) % 128
-        return ReliableSelection(
-            items, (), key, stripe, "" if items else "point_filter_no_match"
-        )
+        return ReliableSelection(items, (), key, stripe, "" if items else "point_filter_no_match")
     points = select_delivery_points(batch, point_ids)
     return ReliableSelection((), points, b"", 0, "" if points else "point_filter_no_match")
 

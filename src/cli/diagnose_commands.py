@@ -110,9 +110,7 @@ def pipeline_diagnose(
                 ),
                 timeout=runtime().target(rpc_target).timeout,
                 metadata=(
-                    runtime().collector_admin_metadata()
-                    if svc_name == "collector"
-                    else None
+                    runtime().collector_admin_metadata() if svc_name == "collector" else None
                 ),
             )
             reports[svc_name] = MessageToDict(

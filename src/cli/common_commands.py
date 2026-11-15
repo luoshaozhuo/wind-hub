@@ -27,7 +27,8 @@ async def request_common(service: str, method: str, values: dict[str, Any]) -> d
     metadata = (
         runtime().collector_admin_metadata()
         if service == "collector"
-        and method in {
+        and method
+        in {
             "GetConfigSnapshot",
             "PushConfigSnapshot",
             "ApplyConfigSnapshot",

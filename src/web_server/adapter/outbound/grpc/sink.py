@@ -46,9 +46,7 @@ class SinkGrpcClient:
             stub = sink_service_pb2_grpc.SinkServiceStub(channel)
             for _ in range(100):
                 response = await stub.ListDeliveries(
-                    sink_service_pb2.ListDeliveriesRequest(
-                        page_size=500, page_token=token
-                    ),
+                    sink_service_pb2.ListDeliveriesRequest(page_size=500, page_token=token),
                     timeout=self._timeout,
                 )
                 rows.extend(
@@ -123,9 +121,7 @@ class SinkGrpcDirectory:
         owners = await self._owned_deliveries()
         return [item for _, item in owners.values()]
 
-    async def control_delivery(
-        self, delivery_id: str, *, start: bool
-    ) -> dict[str, Any]:
+    async def control_delivery(self, delivery_id: str, *, start: bool) -> dict[str, Any]:
         owners = await self._owned_deliveries()
         if delivery_id not in owners:
             raise KeyError(delivery_id)

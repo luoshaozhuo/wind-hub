@@ -98,9 +98,7 @@ class CommanderConfigApply:
         self._repository = repository
         self._lock = lock
 
-    async def push(
-        self, files: tuple[SnapshotInput, ...], expected_revision: str
-    ) -> PushOutcome:
+    async def push(self, files: tuple[SnapshotInput, ...], expected_revision: str) -> PushOutcome:
         async with self._lock:
             current = self._repository.collect_files()
             revision = snapshot_revision(current)
@@ -128,9 +126,7 @@ class CommanderConfigApply:
 
     async def apply(self, candidate_id: str, expected_revision: str) -> ApplyOutcome:
         async with self._lock:
-            operation = asyncio.create_task(
-                self._apply_locked(candidate_id, expected_revision)
-            )
+            operation = asyncio.create_task(self._apply_locked(candidate_id, expected_revision))
             try:
                 result = await asyncio.shield(operation)
             except asyncio.CancelledError:
@@ -140,24 +136,17 @@ class CommanderConfigApply:
             except Exception:
                 self._service.metrics.config_failed()
                 raise
-            if any(
-                item.status in {"FAILED", "BLOCKED"} for item in result.apply_results
-            ):
+            if any(item.status in {"FAILED", "BLOCKED"} for item in result.apply_results):
                 self._service.metrics.config_failed()
             return result
 
-    async def _apply_locked(
-        self, candidate_id: str, expected_revision: str
-    ) -> ApplyOutcome:
+    async def _apply_locked(self, candidate_id: str, expected_revision: str) -> ApplyOutcome:
         candidate = self._repository.candidate(candidate_id)
         if candidate is None:
             raise KeyError(candidate_id)
         current = self._repository.collect_files()
         revision = snapshot_revision(current)
-        if (
-            expected_revision != candidate.base_revision
-            or revision != candidate.base_revision
-        ):
+        if expected_revision != candidate.base_revision or revision != candidate.base_revision:
             raise RuntimeError("configuration revision conflict")
         await self._repository.validate_files(candidate.files)
         changed = {
