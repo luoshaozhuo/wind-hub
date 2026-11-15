@@ -14,6 +14,7 @@ from sink_service.domain.config import (
     require_version,
 )
 
+
 def validate_service(service: dict[str, Any]) -> None:
     require_version(service, "service")
     for field in ("service_id", "wind_farm_id", "deployment_id"):
