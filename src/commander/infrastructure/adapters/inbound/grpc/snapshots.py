@@ -318,7 +318,9 @@ class ConfigSnapshots:
                 )
             ).load()
             snapshot = build_shared_snapshot(docs)
-            _validate_unique_conn    async def push(
+            _validate_unique_connections(snapshot)
+
+    async def push(
         self, request: common_pb2.PushConfigSnapshotRequest
     ) -> common_pb2.PushConfigSnapshotResponse:
         files = tuple(
