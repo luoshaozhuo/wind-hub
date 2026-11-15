@@ -18,7 +18,7 @@ from pymodbus.client import AsyncModbusTcpClient
 
 from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     COMMAND_COIL,
     COMMAND_COIL_B,
     COMMAND_FLOAT,
@@ -39,7 +39,7 @@ from tests.support.gateway_v1 import (
     claim_for_injection,
     float_words,
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -88,7 +88,7 @@ async def _seed(harness, server_id: str, values: dict[str, object]) -> None:
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         yield gateway
     finally:
@@ -175,7 +175,7 @@ async def test_fc05_single_coil_write_updates_store_and_reads_back(
     tmp_path: Path,
 ) -> None:
     # c387e0b81 后仅受控点接受 Modbus 写：FC05 写机制改用受控线圈 COMMAND_COIL。
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         client = await _client(gateway, "gw1")
         try:
@@ -217,7 +217,7 @@ async def test_fc15_multiple_coils_crosses_word_boundary(tmp_path: Path) -> None
             command_mappings=owned,
         ),
     ]
-    gateway = await start_gateway_v1(tmp_path / "root", specs)
+    gateway = await start_gateway(tmp_path / "root", specs)
     try:
         client = await _client(gateway, "gw1")
         try:
@@ -463,7 +463,7 @@ async def test_control_disabled_rejects_every_write_and_never_forwards(
     # c387e0b81：control 禁用（target kind=none）时 allowed_writes 为空集，
     # 任何 Modbus 写都在协议 ACK 前拒绝，存储无副作用且零转发。
     specs = two_server_specs(control_enabled=False)
-    gateway = await start_gateway_v1(tmp_path / "root", specs)
+    gateway = await start_gateway(tmp_path / "root", specs)
     try:
         client = gateway.modbus_client("gw1")
         await client.connect()

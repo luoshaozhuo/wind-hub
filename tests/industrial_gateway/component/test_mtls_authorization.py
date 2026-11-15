@@ -18,11 +18,11 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import encode_scalar
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
-from tests.support.gateway_v1 import (
+from industrial_gateway.infrastructure.config.resolution import load_gateway
+from tests.support.gateway import (
     FEEDBACK_UINT,
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
     write_config_tree,
 )
@@ -49,7 +49,7 @@ STRANGER = "gw-stranger"
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(
+    gateway = await start_gateway(
         tmp_path / "root",
         two_server_specs(control_enabled=False),
         mtls=RIGHTS,
@@ -202,4 +202,4 @@ async def test_non_loopback_listener_without_tls_rejected_at_load(
     document["grpc"]["listen_host"] = "0.0.0.0"
     service_path.write_text(yaml.safe_dump(document))
     with pytest.raises(ValueError):
-        load_gateway_v1(service_path, project_root=root)
+        load_gateway(service_path, project_root=root)

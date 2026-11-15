@@ -81,6 +81,17 @@ message UpdateVariablesResponse {
   string request_id = 5;
 }
 
+// Read-only request-scoped physical-step completion evidence.
+message GetInputExecutionRequest {
+  string generation_id = 1;
+  string request_id = 2;
+}
+message GetInputExecutionResponse {
+  string request_id = 1;
+  string state = 2; // PENDING, APPLIED or UNKNOWN.
+  uint64 effective_step = 3;
+}
+
 service DataGeneratorService {
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc GetDevice(windhub.common.v1.ObjectId) returns (GetDeviceResponse);
@@ -90,4 +101,5 @@ service DataGeneratorService {
   rpc StopGeneration(StopGenerationRequest) returns (StopGenerationResponse);
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
   rpc UpdateVariables(UpdateVariablesRequest) returns (UpdateVariablesResponse);
+  rpc GetInputExecution(GetInputExecutionRequest) returns (GetInputExecutionResponse);
 }

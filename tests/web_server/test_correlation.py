@@ -50,7 +50,13 @@ async def test_grpc_interceptor_appends_metadata() -> None:
 
     token = request_id_var.set("trace-99")
     try:
-        details = SimpleNamespace(metadata=None, _replace=lambda **kw: SimpleNamespace(**kw))
+        details = SimpleNamespace(
+            method="/svc/Method",
+            timeout=None,
+            metadata=None,
+            credentials=None,
+            wait_for_ready=None,
+        )
         result = await interceptor.intercept_unary_unary(continuation, details, object())
     finally:
         request_id_var.reset(token)

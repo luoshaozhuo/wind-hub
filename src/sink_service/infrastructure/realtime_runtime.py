@@ -2,289 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
-import logging
-from collections import OrderedDict
-from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 from typing import Any
 
-import nats
-from nats.aio.client import Client
-from nats.aio.msg import Msg
-from nats.aio.subscription import Subscription
-
-from contracts.sample_batch import SampleBatch
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
-from sink_service.application.realtime import BatchOutcome, RealtimeEngine
+from sink_service.application.output_pool import SharedSinkOutputPool
+from sink_service.application.realtime_delivery import RealtimeDeliveryPort
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
-from sink_service.infrastructure.realtime_adapters import (
+from sink_service.infrastructure.adapters.inbound.nats_consumer import NatsRealtimeIngress
+from sink_service.infrastructure.adapters.outbound.gateway import GatewayOutput
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import (
     KafkaOutput,
     ModbusOutput,
     RedisOutput,
 )
 
-logger = logging.getLogger(__name__)
 
-
-class NatsRealtimeIngress:
-    """One NATS Core subscriber for all running realtime Deliveries in a process."""
-
-    def __init__(
-        self,
-        *,
-        servers: list[str],
-        subject_prefix: str,
-        max_samples: int,
-        max_bytes: int,
-    ) -> None:
-        self._servers = servers
-        self._subject_prefix = subject_prefix.rstrip(".")
-        self._max_samples = max_samples
-        self._max_bytes = max_bytes
-        self._client: Client | None = None
-        self._subscriptions: dict[tuple[str, str], Subscription] = {}
-        self._engines: dict[str, RealtimeEngine] = {}
-        self._routes: dict[tuple[str, str], dict[str, RealtimeEngine]] = {}
-        self._target_cache: OrderedDict[tuple[str, str, str, str], tuple[RealtimeEngine, ...]] = (
-            OrderedDict()
-        )
-        self._lock = asyncio.Lock()
-        self.last_error = ""
-        self.received_batches_total = 0
-        self.received_values_total = 0
-        self.rejected_batches_total = 0
-        self.routed_values_total = 0
-
-    def counters(self) -> dict[str, float]:
-        """Return process-local ingress counts, not Delivery fan-out counts."""
-        return {
-            "input_batches_total": float(self.received_batches_total),
-            "input_values_total": float(self.received_values_total),
-            "rejected_batches_total": float(self.rejected_batches_total),
-            "routed_values_total": float(self.routed_values_total),
-        }
-
-    @property
-    def connected(self) -> bool:
-        return self._client is not None and self._client.is_connected
-
-    async def add(self, delivery_id: str, engine: RealtimeEngine) -> None:
-        async with self._lock:
-            if delivery_id in self._engines:
-                raise ConfigurationError(f"duplicate NATS subscriber: {delivery_id}")
-            if self._client is None:
-                client = await nats.connect(
-                    servers=self._servers,
-                    allow_reconnect=True,
-                    max_reconnect_attempts=-1,
-                    connect_timeout=2,
-                    reconnect_time_wait=1,
-                    pending_size=1024 * 1024,
-                )
-                self._client = client
-            source = engine.source_identity
-            if source not in self._subscriptions:
-                assert self._client is not None
-                subject = f"{self._subject_prefix}.{source[0]}.{source[1]}.>"
-                try:
-                    subscription = await self._client.subscribe(
-                        subject,
-                        cb=self._on_message,
-                        pending_msgs_limit=8192,
-                        pending_bytes_limit=4 * 1024 * 1024,
-                    )
-                except BaseException:
-                    if not self._engines:
-                        orphan, self._client = self._client, None
-                        if orphan is not None:
-                            await orphan.close()
-                    raise
-                self._subscriptions[source] = subscription
-            self._engines[delivery_id] = engine
-            self._routes.setdefault(engine.source_identity, {})[delivery_id] = engine
-            self._target_cache.clear()
-
-    async def remove(self, delivery_id: str) -> None:
-        async with self._lock:
-            engine = self._engines.pop(delivery_id, None)
-            if engine is not None:
-                route = self._routes[engine.source_identity]
-                route.pop(delivery_id)
-                if not route:
-                    del self._routes[engine.source_identity]
-                    subscription = self._subscriptions.pop(engine.source_identity)
-                    await subscription.unsubscribe()
-                self._target_cache.clear()
-            if self._engines:
-                return
-            client, self._client = self._client, None
-            if client is not None:
-                try:
-                    await asyncio.wait_for(client.drain(), timeout=3)
-                finally:
-                    await client.close()
-
-    async def _on_message(self, msg: Msg) -> None:
-        """Decode one source batch, then route only matching measurement points."""
-        try:
-            batch = SampleBatch.decode(
-                msg.data,
-                mode="realtime",
-                subject=msg.subject,
-                max_samples=self._max_samples,
-                max_bytes=self._max_bytes,
-            )
-        except (ValueError, UnicodeError) as exc:
-            self.last_error = str(exc)
-            self.rejected_batches_total += 1
-            logger.warning("Sink realtime batch rejected: %s", exc)
-            return
-
-        self.received_batches_total += 1
-        self.received_values_total += len(batch.samples)
-        source = (batch.wind_farm_id, batch.collector_id)
-        routes = self._routes.get(source)
-        if not routes:
-            return
-        now = datetime.now(UTC)
-        cache_limit = max(16384, len(self._engines) * 4096)
-        for item in batch.samples:
-            identity = (
-                batch.wind_farm_id,
-                batch.collector_id,
-                batch.device_id,
-                item.point_id,
-            )
-            targets = self._target_cache.get(identity)
-            if targets is None:
-                targets = tuple(
-                    engine
-                    for engine in routes.values()
-                    if engine.accepts(batch.device_id, item.point_id)
-                )
-                if len(self._target_cache) >= cache_limit:
-                    self._target_cache.popitem(last=False)
-                self._target_cache[identity] = targets
-            else:
-                self._target_cache.move_to_end(identity)
-            if targets:
-                sample = DeliveryPoint.from_batch(batch, item)
-                for engine in targets:
-                    if engine.offer(sample, now=now, routed=True):
-                        self.routed_values_total += 1
-
-
-class _SinkOutput:
-    """Shared adapter, ownership count, and a physical Sink concurrency cap."""
-
-    def __init__(self, adapter: Any, signature: str, capacity: int) -> None:
-        self.adapter = adapter
-        self.signature = signature
-        self.references = 0
-        self.quota = asyncio.Semaphore(capacity)
-
-
-class _QuotaWriter:
-    """Keep the global/Sink quota while native I/O is not settled."""
-
-    def __init__(
-        self,
-        adapter: Any,
-        global_quota: asyncio.Semaphore,
-        sink_quota: asyncio.Semaphore,
-        timeout_ms: int,
-    ) -> None:
-        self._adapter = adapter
-        self._global_quota = global_quota
-        self._sink_quota = sink_quota
-        self._timeout = timeout_ms / 1000
-        self._pending: asyncio.Task[BatchOutcome] | None = None
-
-    def _finish(self, task: asyncio.Task[BatchOutcome]) -> None:
-        if not task.cancelled():
-            task.exception()
-        self._sink_quota.release()
-        self._global_quota.release()
-
-    @property
-    def io_inflight(self) -> bool:
-        task = self._pending
-        return task is not None and not task.done()
-
-    async def write_batch(self, samples: tuple[DeliveryPoint, ...]) -> BatchOutcome:
-        return await self._start_write(lambda: self._adapter.write_batch(samples))
-
-    async def write_encoded_batch(
-        self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int
-    ) -> BatchOutcome:
-        """Apply the same Sink/global quotas to pre-encoded Kafka records."""
-        return await self._start_write(
-            lambda: self._adapter.write_encoded_batch(payloads, key=key, stripe=stripe)
-        )
-
-    async def _start_write(self, operation: Callable[[], Awaitable[BatchOutcome]]) -> BatchOutcome:
-        pending = self._pending
-        if pending is not None and not pending.done():
-            return BatchOutcome((), (), "previous Sink I/O remains unsettled")
-        try:
-            await asyncio.wait_for(self._global_quota.acquire(), timeout=self._timeout)
-        except TimeoutError:
-            return BatchOutcome((), (), "global I/O quota exhausted")
-        try:
-            await asyncio.wait_for(self._sink_quota.acquire(), timeout=self._timeout)
-        except BaseException:
-            self._global_quota.release()
-            raise
-
-        async def run_operation() -> BatchOutcome:
-            return await operation()
-
-        try:
-            task = asyncio.create_task(run_operation())
-        except BaseException:
-            self._sink_quota.release()
-            self._global_quota.release()
-            raise
-        self._pending = task
-        task.add_done_callback(self._finish)
-        try:
-            return await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout)
-        except TimeoutError:
-            return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")
-
-    async def settle(self) -> BatchOutcome | None:
-        """Wait for native settlement even after the caller's observation timeout."""
-        task = self._pending
-        if task is None:
-            return None
-        try:
-            return await asyncio.shield(task)
-        except Exception as exc:
-            return BatchOutcome((), (), f"underlying I/O failed: {exc}")
-
-
-def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
-    sink = snapshot.sinks[sink_id]
-    template = _template(snapshot, "sinks", sink["template_id"], sink["template_version"])
-    capabilities = template["capabilities"]
-    if not isinstance(capabilities, dict):
-        raise ConfigurationError("Sink capabilities must be a mapping")
-    return capabilities
-
-
-class SinkOutputPool:
-    """Share one physical Sink between multiple Delivery owners in one process."""
+class SinkOutputPool(SharedSinkOutputPool):
+    """Infrastructure composition of the concrete output adapter factory."""
 
     def __init__(self) -> None:
-        self._entries: dict[str, _SinkOutput] = {}
-        self._lock = asyncio.Lock()
-        self._quota: asyncio.Semaphore | None = None
+        super().__init__(self._build)
 
     @staticmethod
     def _build(sink_id: str, snapshot: ValidatedSnapshot) -> tuple[Any, str]:
@@ -297,7 +37,7 @@ class SinkOutputPool:
             "sink": sink,
             "template": template,
         }
-        adapter: RedisOutput | KafkaOutput | ModbusOutput
+        adapter: RedisOutput | KafkaOutput | ModbusOutput | GatewayOutput
         if kind == "redis":
             adapter = RedisOutput(
                 host=connection["host"],
@@ -315,6 +55,33 @@ class SinkOutputPool:
                 linger_ms=output.get("linger_ms", 0),
                 max_batch_size=output.get("max_batch_size", 131072),
             )
+        elif kind == "gateway":
+            mapping: dict[tuple[str, str], list[str]] = {}
+            seen_targets: set[str] = set()
+            for delivery in snapshot.deliveries.values():
+                if delivery["sink_id"] != sink_id:
+                    continue
+                for item in delivery["target_mappings"]:
+                    variable_id = item["variable_id"]
+                    if variable_id in seen_targets:
+                        raise ConfigurationError(f"duplicate Gateway variable: {variable_id}")
+                    seen_targets.add(variable_id)
+                    key = (item["source_device_id"], item["source_point_id"])
+                    mapping.setdefault(key, []).append(variable_id)
+            fixed_mapping = {key: tuple(values) for key, values in mapping.items()}
+            config_signature["gateway_mappings"] = [
+                (key, values) for key, values in sorted(fixed_mapping.items())
+            ]
+            adapter = GatewayOutput(
+                endpoint=connection["endpoint"],
+                credential_ref=connection["credential_ref"],
+                gateway_id=connection["gateway_id"],
+                owner_id=f"{snapshot.service['deployment_id']}:{sink_id}",
+                mappings=fixed_mapping,
+                timeout_ms=int(output["write_timeout_ms"]),
+                lease_ms=int(output["lease_ms"]),
+                max_batch_size=int(output["max_batch_size"]),
+            )
         elif kind == "modbus_tcp":
             points: set[tuple[str, str, str, str]] = set()
             for delivery in snapshot.deliveries.values():
@@ -326,15 +93,15 @@ class SinkOutputPool:
                     raise ConfigurationError("Modbus requires explicit finite point mapping")
                 for device_id in devices:
                     for point_id in names:
-                        key = (
+                        point_key = (
                             source["wind_farm_id"],
                             source["collector_id"],
                             device_id,
                             point_id,
                         )
-                        if key in points:
-                            raise ConfigurationError(f"duplicate Modbus point {key}")
-                        points.add(key)
+                        if point_key in points:
+                            raise ConfigurationError(f"duplicate Modbus point {point_key}")
+                        points.add(point_key)
             sorted_points = tuple(sorted(points))
             config_signature["points"] = sorted_points
             adapter = ModbusOutput(
@@ -346,192 +113,11 @@ class SinkOutputPool:
                 quality_start=int(output["quality_register_start"]),
             )
         else:
-            raise ConfigurationError(f"unsupported realtime Sink type: {kind}")
+            raise ConfigurationError(f"unsupported Sink type: {kind}")
         signature = hashlib.sha256(
             json.dumps(config_signature, sort_keys=True).encode("utf-8")
         ).hexdigest()
         return adapter, signature
-
-    async def acquire(self, sink_id: str, snapshot: ValidatedSnapshot) -> Any:
-        async with self._lock:
-            adapter, signature = self._build(sink_id, snapshot)
-            current = self._entries.get(sink_id)
-            if current is None:
-                await adapter.open()
-                capabilities = template_capabilities(snapshot, sink_id)
-                limit = min(
-                    snapshot.service["runtime"]["max_inflight_per_sink"],
-                    capabilities["max_safe_inflight"],
-                )
-                if not capabilities["supports_concurrent_write"]:
-                    limit = 1
-                current = _SinkOutput(adapter, signature, limit)
-                self._entries[sink_id] = current
-            elif current.signature != signature:
-                raise ConfigurationError(f"Sink {sink_id} still in use with a different binding")
-            current.references += 1
-            if self._quota is None:
-                self._quota = asyncio.Semaphore(snapshot.service["runtime"]["max_inflight_global"])
-            return _QuotaWriter(
-                current.adapter,
-                self._quota,
-                current.quota,
-                snapshot.service["runtime"]["io_wait_timeout_ms"],
-            )
-
-    async def release(self, sink_id: str) -> None:
-        async with self._lock:
-            current = self._entries[sink_id]
-            if current.references > 1:
-                current.references -= 1
-                return
-            await current.adapter.close()
-            del self._entries[sink_id]
-
-
-class RealtimeDeliveryPort:
-    """A real Delivery owns NATS registration and latest-value output scheduling."""
-
-    def __init__(
-        self,
-        definition: DeliveryDefinition,
-        snapshot: ValidatedSnapshot,
-        pool: SinkOutputPool,
-        ingress: NatsRealtimeIngress,
-    ) -> None:
-        self._id = definition.delivery_id
-        self._sink_id = definition.sink_id
-        self._snapshot = snapshot
-        self._pool = pool
-        self._ingress = ingress
-        self._engine: RealtimeEngine | None = None
-        self._writer: _QuotaWriter | None = None
-        self._stopping = False
-        self._retained: dict[str, float] = {}
-        self._retained_latency = LatencyWindow(
-            window_ms=snapshot.service["metrics"]["metrics_window_ms"]
-        )
-
-    def inspect(self) -> dict[str, str]:
-        """Return cached, non-invasive transport and ownership evidence."""
-        return {
-            "source": "CONNECTED" if self._ingress.connected else "DISCONNECTED",
-            "delivery": "RUNNING" if self._engine is not None else "STOPPED",
-            "sink": "OWNED" if self._writer is not None else "NOT_ATTACHED",
-            "io_inflight": str(self._writer.io_inflight if self._writer is not None else False),
-            "target": "NOT_PROBED",
-        }
-
-    @property
-    def metrics(self) -> dict[str, float]:
-        totals = dict(self._retained)
-        engine = self._engine
-        if engine is not None:
-            for name, value in (
-                ("received_total", engine.received_total),
-                ("dropped_total", engine.dropped_total),
-                ("delivered_total", engine.delivered_total),
-                ("failed_total", engine.failed_total),
-                ("write_success_total", engine.write_success_total),
-            ):
-                totals[name] = totals.get(name, 0.0) + float(value)
-        totals["io_inflight"] = float(
-            self._writer.io_inflight if self._writer is not None else False
-        )
-        return totals
-
-    @property
-    def latency_histograms(self) -> tuple[HistogramSnapshot, ...]:
-        active = self._engine
-        snapshots = [self._retained_latency.snapshot()]
-        if active is not None:
-            snapshots.append(active.latency_window.snapshot())
-        return tuple(snapshots)
-
-    @property
-    def last_error(self) -> str:
-        if self._engine is None:
-            return ""
-        if not self._ingress.connected:
-            return "NATS realtime source disconnected"
-        return self._engine.last_error
-
-    async def start(self) -> None:
-        if self._stopping:
-            raise ConfigurationError("previous Delivery stop has not safely settled")
-        if self._engine is not None:
-            return
-        sink = await self._pool.acquire(self._sink_id, self._snapshot)
-        engine: RealtimeEngine | None = None
-        try:
-            instance = self._snapshot.deliveries[self._id]
-            template = _template(
-                self._snapshot,
-                "deliveries",
-                instance["template_id"],
-                instance["template_version"],
-            )
-            output = template["output"]
-            staleness = template.get("staleness", {})
-            source = instance["source"]
-            engine = RealtimeEngine(
-                writer=sink,
-                wind_farm_id=source["wind_farm_id"],
-                collector_id=source["collector_id"],
-                devices=frozenset(source["devices"]),
-                points=frozenset(source["points"]),
-                policy=output["policy"],
-                period_ms=output["period_ms"],
-                max_points=self._snapshot.service["runtime"]["max_pending_points"],
-                max_age_ms=staleness.get("max_age_ms"),
-                absolute_threshold=output.get("absolute_threshold", 0.0),
-                relative_threshold=output.get("relative_threshold", 0.0),
-                metrics_window_ms=self._snapshot.service["metrics"]["metrics_window_ms"],
-                preserve_upstream_sample=(
-                    _template(
-                        self._snapshot,
-                        "sinks",
-                        self._snapshot.sinks[self._sink_id]["template_id"],
-                        self._snapshot.sinks[self._sink_id]["template_version"],
-                    )["kind"]
-                    == "kafka"
-                ),
-            )
-            await engine.start()
-            await self._ingress.add(self._id, engine)
-        except BaseException:
-            try:
-                if engine is not None:
-                    await engine.stop()
-            finally:
-                await self._pool.release(self._sink_id)
-            raise
-        self._engine = engine
-        self._writer = sink
-
-    async def stop(self) -> None:
-        engine = self._engine
-        if engine is None:
-            return
-        self._stopping = True
-        # Keep ownership until all work and the physical connection are settled.
-        await self._ingress.remove(self._id)
-        await engine.stop()
-        if self._writer is not None:
-            await self._writer.settle()
-        await self._pool.release(self._sink_id)
-        for name, value in (
-            ("received_total", engine.received_total),
-            ("dropped_total", engine.dropped_total),
-            ("delivered_total", engine.delivered_total),
-            ("failed_total", engine.failed_total),
-            ("write_success_total", engine.write_success_total),
-        ):
-            self._retained[name] = self._retained.get(name, 0.0) + float(value)
-        self._retained_latency.absorb(engine.latency_window)
-        self._engine = None
-        self._writer = None
-        self._stopping = False
 
 
 class RealtimeFactory:

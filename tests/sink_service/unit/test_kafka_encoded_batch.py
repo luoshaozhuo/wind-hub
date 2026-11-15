@@ -11,8 +11,8 @@
 - send_batch 失败 fail-closed break，确认拒绝 UNKNOWN 不当成功；未 open 报错；
 - stripe 映射到 128 把设备锁：同 stripe 串行、异 stripe 可并行。
 
-R8 八项守卫的完整正式化在 tests/src/unit/test_b2_batch_builder.py，
-本文件保留 B1 时代的历史测试名与业务意图，二者共享同一套 fake 基建。
+R8 八项守卫的进程内回归保留在本文件与 test_kafka_attempt_counters.py，
+二者共享同一套 fake 基建。
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from typing import Any
 
 import pytest
 
-from sink_service.infrastructure.realtime_adapters import KafkaOutput
-from tests.src.unit.test_b2_batch_builder import (
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
+from tests.sink_service.unit.kafka_producer_fake import (
     KEY,
     STRIPE,
     TOPIC,

@@ -21,7 +21,7 @@ from commander.domain.command import (
     CommandSpec,
     CommandState,
 )
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 
 from ..seed_events import seed_accept, seed_transition
 

@@ -1,0 +1,20 @@
+# Gateway Realtime output. No Reliable delivery and no direct industrial command.
+# The Sink instance supplies endpoint, gateway_id and credential_ref.
+# credential_ref must be env:VARIABLE containing a JSON object with
+# ca_pem, client_cert_pem and client_key_pem as PEM strings.
+# The corresponding Delivery supplies explicit target_mappings.
+schema_version: 1
+file_version: "1.0.0"
+template_id: gateway_realtime
+kind: gateway
+capabilities:
+  realtime: true
+  reliable: false
+  idempotent: false
+  supports_concurrent_write: false
+  max_safe_inflight: 1
+connection: {}
+output:
+  write_timeout_ms: 2000
+  lease_ms: 15000
+  max_batch_size: 500

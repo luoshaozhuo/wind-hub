@@ -15,8 +15,8 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.grpc.snapshots import ConfigSnapshots
+from commander.assembly import build_commander
+from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
 from contracts import commander_pb2, common_pb2
 from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -74,7 +74,7 @@ shutdown:
     # pathname 本身存在（绕过 build 期 fail-fast），但引用闭包断裂：
     # 删除被 devices.yaml 实际引用的版本化设备模型（当前引用 1.1.0），
     # start 期共享配置加载必须拒绝 READY。
-    referenced = root / "templates" / "device_models" / "wtg_tz2mw_1.1.0.yaml"
+    referenced = root / "templates" / "device_models" / "device_model_wtg_tz2mw_v1.1.0.yaml"
     assert referenced.exists()
     referenced.unlink()
     registry = ProtocolRegistry()

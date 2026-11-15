@@ -18,13 +18,13 @@ import pytest
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_FLOAT,
     POINT_TABLE,
     ServerSpec,
     claim_for_injection,
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
     write_config_tree,
 )
 
@@ -68,7 +68,7 @@ async def _fc03_float(port: int, unit: int) -> float:
 
 async def test_fifty_independent_servers_in_process(tmp_path: Path) -> None:
     specs = _specs()
-    gateway = await start_gateway_v1(tmp_path / "root", specs)
+    gateway = await start_gateway(tmp_path / "root", specs)
     try:
         listed = await gateway.gateway_stub().ListGateways(pb.ListGatewaysRequest(page_size=100))
         assert len(listed.gateways) == DEVICE_COUNT

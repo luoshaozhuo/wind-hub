@@ -64,8 +64,8 @@ def _collect_files(tree: Path) -> dict[str, bytes]:
         "services/collector.yaml",
         "instances/site.yaml",
         "instances/devices.yaml",
-        "templates/units.yaml",
-        "templates/business_points.yaml",
+        "templates/units_standard.yaml",
+        "templates/business_points_standard.yaml",
     ):
         files[relative] = (tree / relative).read_bytes()
     for category in ("protocols", "device_models", "point_tables", "tasks"):

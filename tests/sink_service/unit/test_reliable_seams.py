@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import (
     SERVICE_FILE,
@@ -24,7 +24,7 @@ from tests.sink_service._stage1_fixtures import (
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
-KAFKA_TEMPLATE = "configs/templates/sinks/kafka_history_1.0.0.yaml"
+KAFKA_TEMPLATE = "configs/templates/sinks/sink_kafka_history_v1.0.0.yaml"
 _DEFINITION = DeliveryDefinition("power_history", "history_kafka", "reliable", "START")
 
 
@@ -49,6 +49,7 @@ def _unchecked_port(mutate) -> ReliableDeliveryPort:
         service=valid.service,
         sinks=valid.sinks,
         deliveries=valid.deliveries,
+        documents=docs,
     )
     return ReliableDeliveryPort(_DEFINITION, snapshot, pool=object())
 

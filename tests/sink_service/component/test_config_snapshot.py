@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from sink_service.application.config import validate_snapshot
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_registry import DeliveryPort, DeliveryRegistry
@@ -18,7 +17,8 @@ from sink_service.domain.config import (
     ValidatedSnapshot,
     WriterRequiredError,
 )
-from sink_service.infrastructure.config_repository import GenerationStore
+from sink_service.infrastructure.config_io import validate_snapshot
+from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,
@@ -236,13 +236,15 @@ async def test_apply_with_failed_convergence_keeps_old_runtime(tmp_path: Path) -
     docs = snapshot_docs(config_root=str(tmp_path))
     import copy
 
-    new_template = copy.deepcopy(docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml"])
+    new_template = copy.deepcopy(
+        docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml"]
+    )
     new_template["file_version"] = "1.1.0"
     new_template["output"]["period_ms"] = 200
     # Exact-closure rule: the repointed 1.0.0 template becomes unreferenced
     # and must leave the snapshot together with the instance repoint.
-    docs.pop(f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.0.0.yaml")
-    docs[f"{TEMPLATE_ROOT}/deliveries/realtime_power_1.1.0.yaml"] = new_template
+    docs.pop(f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.0.0.yaml")
+    docs[f"{TEMPLATE_ROOT}/deliveries/delivery_realtime_power_v1.1.0.yaml"] = new_template
     docs[DELIVERIES_INSTANCE]["deliveries"]["ems_power"]["template_version"] = "1.1.0"
     candidate_id, committed = await manager.push(wire_files(snapshot_files(docs)), initial.revision)
     application = await manager.apply(candidate_id, initial.revision)

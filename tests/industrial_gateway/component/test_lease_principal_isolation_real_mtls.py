@@ -2,7 +2,7 @@
 
 两个由同一测试 CA 真实签发的客户端身份（gw-injector-a / gw-injector-b）都持有
 ``inject`` RPC 权限，证明"有 RPC 权限但不是租约认证主体"时服务端仍然拒止。
-服务端是生产 ``GatewayGrpcService`` + ``GatewayRuntime``（start_gateway_v1
+服务端是生产 ``GatewayGrpcService`` + ``GatewayRuntime``（start_gateway
 不替换任何生产对象），认证主体取自证书 CN，客户端自报 owner_id 只是业务标识。
 
 覆盖任务书 P1-03 的 1/2/3/4/5/6/7/8/9 项；进程重启失效由
@@ -21,9 +21,9 @@ import pytest
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_UINT,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -45,7 +45,7 @@ RIGHTS: dict[str, list[str]] = {
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(
+    gateway = await start_gateway(
         tmp_path / "root",
         two_server_specs(control_enabled=False),
         mtls=RIGHTS,

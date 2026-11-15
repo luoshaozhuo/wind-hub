@@ -1,4 +1,4 @@
-"""§14.3 test_grpc.py：正式 Proto 下 16 RPC 真实注册/调用、真实 mTLS 与授权拒绝。
+"""§14.3 test_grpc.py：正式 Proto 下 17 RPC 真实注册/调用、真实 mTLS 与授权拒绝。
 
 所有用例经过 TCP 回环上的真实 TLS 1.3 握手（require_client_auth），不使用
 任何 gRPC 替身；服务端由 build_commander 组合根构造（真实配置树/SQLite/
@@ -34,6 +34,7 @@ ALL_RPC_NAMES = (
     "CommonService.GetMetrics",
     "CommonService.GetEvents",
     "CommonService.Diagnose",
+    "CommanderService.RecoverDeviceControl",
     "CommanderService.ListDevices",
     "CommanderService.GetDevice",
     "CommanderService.ListPoints",
@@ -147,18 +148,18 @@ async def test_reload_caller_cannot_submit_command(pki, grpc_stack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 16 RPC 全注册、可调用（ops/deployer 组合覆盖全部权限域）
+# 17 RPC 全注册、可调用（ops/deployer 组合覆盖全部权限域）
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.normal
-async def test_all_sixteen_rpcs_registered_and_callable(pki, grpc_stack) -> None:
+async def test_all_seventeen_rpcs_registered_and_callable(pki, grpc_stack) -> None:
     common_ops, commander_ops = grpc_stack.stubs(pki, client="ops")
     common_dep, _commander_dep = grpc_stack.stubs(pki, client="deployer")
 
     caps = await common_ops.GetCapabilities(common_pb2.Empty(), timeout=5)
     assert tuple(caps.rpc_names) == ALL_RPC_NAMES
-    assert len(caps.rpc_names) == 16
+    assert len(caps.rpc_names) == 17
     assert "modbus" in tuple(caps.protocols)
     assert "single_point_control" in tuple(caps.features)
     # v1_22：批次控制与请求级幂等能力必须随契约一起宣告。
@@ -588,5 +589,5 @@ async def test_diagnose_device_tcp_stage_reports_unreachable_port(pki, grpc_stac
 def test_callers_config_matches_permission_design() -> None:
     """§9.3.1：身份→caller_id→授权域的夹具配置本身可审计。"""
     assert IDENTITIES["viewer"][2] == ("query",)
-    assert set(IDENTITIES["ops"][2]) == {"query", "control"}
-    assert set(IDENTITIES["deployer"][2]) == {"query", "reload"}
+    assert set(IDENTITIES["ops"][2]) == {"query", "control", "recover"}
+    assert set(IDENTITIES["deployer"][2]) == {"query", "reload", "recover"}

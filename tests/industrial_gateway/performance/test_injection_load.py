@@ -18,11 +18,11 @@ import pytest
 
 from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     ServerSpec,
     claim_for_injection,
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
 )
 
 pytestmark = [pytest.mark.performance, pytest.mark.real_service]
@@ -67,7 +67,7 @@ def _percentile(sorted_values: list[float], percentile: float) -> float:
 async def test_10hz_500point_batches_multi_server(tmp_path: Path) -> None:
     points = _large_point_table()
     point_ids = list(points)
-    harness = await start_gateway_v1(
+    harness = await start_gateway(
         tmp_path / "root",
         _specs(),
         point_table=points,

@@ -12,14 +12,15 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import Any
 
 import pytest
 
-from sink_service.application.config import validate_snapshot
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ValidatedSnapshot
 from sink_service.infrastructure import realtime_runtime
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
@@ -32,8 +33,8 @@ from tests.sink_service._stage1_fixtures import (
 
 pytestmark = [pytest.mark.component, pytest.mark.reliability]
 
-KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.1.0.yaml"
-KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"
+KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.1.0.yaml"
+KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"
 
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:
@@ -168,7 +169,7 @@ async def test_concurrent_sink_quota_is_intersection_and_adapter_shared(
     writer_b = await pool.acquire("history_kafka", snapshot)
     try:
         entry = pool._entries["history_kafka"]  # noqa: SLF001
-        assert entry.quota._value == 4  # noqa: SLF001  min(8, max_safe_inflight=4)
+        assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001  min(8, max_safe_inflight=4)
         assert entry.references == 2
         assert entry.adapter is writer_a._adapter is writer_b._adapter  # noqa: SLF001
         assert fake_kafka.instances[0].opened == 1
@@ -179,13 +180,96 @@ async def test_concurrent_sink_quota_is_intersection_and_adapter_shared(
     assert fake_kafka.instances[0].closed == 1
 
 
+async def test_distinct_sink_ids_share_one_physical_target_quota(
+    fake_kafka: type[FakeKafkaAdapter],
+) -> None:
+    snapshot = _snapshot(inflight=2)
+    snapshot.sinks["history_kafka_b"] = copy.deepcopy(snapshot.sinks["history_kafka"])
+    pool = SinkOutputPool()
+    writer_a = await pool.acquire("history_kafka", snapshot)
+    writer_b = await pool.acquire("history_kafka_b", snapshot)
+    entry_a = pool._entries["history_kafka"]  # noqa: SLF001
+    entry_b = pool._entries["history_kafka_b"]  # noqa: SLF001
+    try:
+        assert entry_a.physical is entry_b.physical
+        assert entry_a.physical.references == 2
+        assert len(pool._physical_quotas) == 1  # noqa: SLF001
+        assert writer_a._sink_quota is writer_b._sink_quota  # noqa: SLF001
+    finally:
+        await pool.release("history_kafka")
+        assert entry_a.physical.references == 1
+        await pool.release("history_kafka_b")
+    assert pool._physical_quotas == {}  # noqa: SLF001
+
+
+async def test_dynamic_minimum_physical_quota_shrinks_and_restores(
+    fake_kafka: type[FakeKafkaAdapter],
+) -> None:
+    """Cross-Sink caps shrink below in-flight work without revoking that work."""
+    snapshot = _snapshot(inflight=4)
+    pool = SinkOutputPool()
+    writer_a1 = await pool.acquire("history_kafka", snapshot)
+    writer_a2 = await pool.acquire("history_kafka", snapshot)
+    adapter_a = fake_kafka.instances[0]
+    gate = adapter_a.block_next_write()
+    first = asyncio.create_task(writer_a1.write_batch(("a1",)))
+    second = asyncio.create_task(writer_a2.write_batch(("a2",)))
+    while adapter_a.inflight < 2:
+        await asyncio.sleep(0.005)
+
+    snapshot.sinks["history_kafka_b"] = copy.deepcopy(snapshot.sinks["history_kafka"])
+    snapshot.documents[KAFKA_110]["capabilities"]["max_safe_inflight"] = 1
+    await pool.acquire("history_kafka_b", snapshot)
+    snapshot.sinks["history_kafka_c"] = copy.deepcopy(snapshot.sinks["history_kafka"])
+    snapshot.documents[KAFKA_110]["capabilities"]["max_safe_inflight"] = 2
+    writer_c = await pool.acquire("history_kafka_c", snapshot)
+    physical = pool._entries["history_kafka"].physical  # noqa: SLF001
+    assert physical.limit == physical.quota.limit == 1
+    assert physical.quota.inflight == 2
+
+    waiting = asyncio.create_task(writer_c.write_batch(("c",)))
+    await asyncio.sleep(0.05)
+    assert not waiting.done()
+    assert fake_kafka.instances[-1].writes == 0
+
+    gate.set()
+    await asyncio.gather(first, second, waiting)
+    assert fake_kafka.instances[-1].writes == 1
+
+    await pool.release("history_kafka_b")
+    assert physical.limit == 2
+    await pool.release("history_kafka_c")
+    assert physical.limit == 4
+    await pool.release("history_kafka")
+    await pool.release("history_kafka")
+
+
+async def test_distinct_physical_targets_have_independent_quotas(
+    fake_kafka: type[FakeKafkaAdapter],
+) -> None:
+    snapshot = _snapshot()
+    snapshot.sinks["history_kafka_b"] = copy.deepcopy(snapshot.sinks["history_kafka"])
+    snapshot.sinks["history_kafka_b"]["connection"]["bootstrap_servers"] = ["192.168.1.21:9092"]
+    pool = SinkOutputPool()
+    await pool.acquire("history_kafka", snapshot)
+    await pool.acquire("history_kafka_b", snapshot)
+    try:
+        entry_a = pool._entries["history_kafka"]  # noqa: SLF001
+        entry_b = pool._entries["history_kafka_b"]  # noqa: SLF001
+        assert entry_a.physical is not entry_b.physical
+        assert len(pool._physical_quotas) == 2  # noqa: SLF001
+    finally:
+        await pool.release("history_kafka")
+        await pool.release("history_kafka_b")
+
+
 async def test_legacy_template_forces_serial_quota(fake_kafka: type[FakeKafkaAdapter]) -> None:
     snapshot = _snapshot(version="1.0.0", concurrent=False, inflight=1, per_sink=8)
     pool = SinkOutputPool()
     await pool.acquire("history_kafka", snapshot)
     try:
         entry = pool._entries["history_kafka"]  # noqa: SLF001
-        assert entry.quota._value == 1  # noqa: SLF001
+        assert entry.quota.limit - entry.quota.inflight == 1  # noqa: SLF001
     finally:
         await pool.release("history_kafka")
 
@@ -263,12 +347,12 @@ async def test_quota_released_after_uncertain_timeout_and_settlement(
         assert "uncertain" in outcome.error
         entry = pool._entries["history_kafka"]  # noqa: SLF001
         # UNKNOWN 未收敛期间 Sink 额度仍被占用。
-        assert entry.quota._value == 3  # noqa: SLF001  容量 4，占 1
+        assert entry.quota.limit - entry.quota.inflight == 3  # noqa: SLF001  容量 4，占 1
         gate.set()
         settled = await writer.settle()
         assert settled is not None and settled.delivered == (0,)
         # 收敛回调释放额度。
-        assert entry.quota._value == 4  # noqa: SLF001
+        assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001
     finally:
         await pool.release("history_kafka")
 
@@ -295,11 +379,11 @@ async def test_encoded_batch_keeps_quota_through_uncertain_timeout(
         assert adapter.encoded_last[1] == b"farm-a:collector-1:WT001"
         assert adapter.encoded_last[2] == 7
         entry = pool._entries["history_kafka"]  # noqa: SLF001
-        assert entry.quota._value == 3  # noqa: SLF001  UNKNOWN 期间额度不释放
+        assert entry.quota.limit - entry.quota.inflight == 3  # noqa: SLF001  UNKNOWN 期间额度不释放
         gate.set()
         settled = await writer.settle()
         assert settled is not None and settled.delivered == (0,)
-        assert entry.quota._value == 4  # noqa: SLF001  终局回调释放
+        assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001  终局回调释放
     finally:
         await pool.release("history_kafka")
 
@@ -326,11 +410,11 @@ async def test_encoded_batch_caller_cancel_does_not_leak_quota(
         cancelled.cancel()
         with pytest.raises(asyncio.CancelledError):
             await cancelled
-        assert entry.quota._value == 3  # noqa: SLF001  底层任务仍持有额度
+        assert entry.quota.limit - entry.quota.inflight == 3  # noqa: SLF001  底层任务仍持有额度
         gate.set()
         settled = await writer.settle()
         assert settled is not None and settled.delivered == (0,)
-        assert entry.quota._value == 4  # noqa: SLF001
+        assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001
         assert writer._pending is not None and writer._pending.done()  # noqa: SLF001
     finally:
         await pool.release("history_kafka")

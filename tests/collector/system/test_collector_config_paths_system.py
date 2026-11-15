@@ -47,7 +47,7 @@ async def test_cfg_path_01_custom_source_paths(
     files = await snapshot_files(client)
     assert "instances/site.yaml" in files
     assert "instances/devices.yaml" in files
-    assert "templates/units.yaml" in files
+    assert "templates/units_standard.yaml" in files
 
 
 @pytest.mark.parametrize(
@@ -142,7 +142,7 @@ async def test_cfg_path_06_restart_uses_committed_generation(
     assert await disk_revision(second_client) == first_revision
     files = await snapshot_files(second_client)
     assert "instances/site.yaml" in files
-    assert "templates/units.yaml" in files
+    assert "templates/units_standard.yaml" in files
 
 
 async def test_cfg_path_04_push_apply_custom_named_source_snapshot(
@@ -186,10 +186,10 @@ async def test_cfg_path_07_two_template_roots_never_fall_back(
     handle = await collector(templates_ref="releases/approved")
     root = handle.process.config_root
     alternate = root / "releases" / "approved"
-    assert (alternate / "units.yaml").is_file()
+    assert (alternate / "units_standard.yaml").is_file()
     default = root / "templates"
     default.mkdir()
     # A broken default repository must not affect the explicitly selected one.
-    (default / "units.yaml").write_bytes(b"invalid: [\n")
+    (default / "units_standard.yaml").write_bytes(b"invalid: [\n")
     result = _check(handle.services / "collector.yaml")
     assert result.returncode == 0, result.stdout + result.stderr

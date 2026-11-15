@@ -11,12 +11,13 @@ import asyncio
 import statistics
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
-from collector.infrastructure import publisher as publisher_module
-from collector.infrastructure.publisher import CollectorPublisher
+from collector.application.batch_builder import BatchBuilder
+from collector.infrastructure.adapters.outbound import publisher as publisher_module
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
 
@@ -69,23 +70,23 @@ def _percentiles(values: list[float]) -> dict[str, float]:
     [("realtime", 100, 300), ("reliable", 500, 60)],
 )
 def test_batch_encode_decode_throughput_baseline(
-    mode: str, points_per_batch: int, batches: int
+    mode: Literal["realtime", "reliable"], points_per_batch: int, batches: int
 ) -> None:
     samples = _samples(points_per_batch)
-    publisher = CollectorPublisher(
-        servers=["nats://127.0.0.1:4222"],
+    builder = BatchBuilder(
         site_id="farm-a",
         collector_id="collector-1",
         delivery=mode,
-        capacity=4096,
+        max_staleness_ms=500,
         max_samples_per_batch=points_per_batch,
+        max_batch_bytes=1024 * 1024,
     )
     encoded: list[bytes] = []
     encode_latency_ms: list[float] = []
     decode_latency_ms: list[float] = []
     started = time.perf_counter()
     for i in range(batches):
-        batch = publisher._pack(f"wtg-{i % 30:02d}", tuple(publisher._item(s) for s in samples))
+        batch = builder.pack(f"wtg-{i % 30:02d}", samples)
         assert len(batch) == 1
         t0 = time.perf_counter()
         payload = batch[0].encode()

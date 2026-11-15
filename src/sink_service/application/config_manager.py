@@ -9,9 +9,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-import yaml
-
-from sink_service.application.config import snapshot_from_wire, validate_snapshot
 from sink_service.application.delivery_definition import delivery_definitions
 from sink_service.domain.config import (
     CandidateNotFoundError,
@@ -26,6 +23,14 @@ from sink_service.domain.config import (
 
 
 class SnapshotCommitPort(Protocol):
+    """Persistent generation store and its configuration encoding boundary."""
+
+    def validate_snapshot(self, files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot: ...
+    def snapshot_from_wire(self, files: list[tuple[str, bytes, int, str]]) -> ValidatedSnapshot: ...
+    def mutate_delivery(
+        self, file: SnapshotFile, delivery_id: str, *, running: bool, revision: str
+    ) -> SnapshotFile: ...
+
     """Atomic persistent commit port implemented by infrastructure."""
 
     def commit(
@@ -118,7 +123,7 @@ class ConfigManager:
             if expected_revision != self._disk.revision:
                 raise RevisionConflictError("configuration revision conflict")
             try:
-                snapshot = snapshot_from_wire(files)
+                snapshot = self._store.snapshot_from_wire(files)
             except ConfigurationError as exc:
                 raise InvalidConfigurationError(str(exc)) from exc
             # Historical Durable ownership is not transferable by merely
@@ -275,28 +280,16 @@ class ConfigManager:
                 if item.path != source_paths["deliveries"]:
                     updated.append(item)
                     continue
-                doc = yaml.safe_load(item.content)
-                if not isinstance(doc, dict):
-                    raise ConfigurationError("invalid Delivery instances file")
-                deliveries = doc.get("deliveries")
-                if not isinstance(deliveries, dict):
-                    raise ConfigurationError("invalid Deliveries mapping")
-                delivery = deliveries.get(delivery_id)
-                if not isinstance(delivery, dict):
-                    raise ConfigurationError("Delivery is missing in current snapshot")
                 found = True
-                delivery["desired_state"] = "START" if running else "STOP"
-                doc["revision"] = secrets.token_hex(16)
                 updated.append(
-                    SnapshotFile(
-                        item.path,
-                        yaml.safe_dump(doc, allow_unicode=True, sort_keys=False).encode("utf-8"),
+                    self._store.mutate_delivery(
+                        item, delivery_id, running=running, revision=secrets.token_hex(16)
                     )
                 )
             if not found:
                 raise ConfigurationError("Delivery instance pathname missing from snapshot")
             try:
-                snapshot = validate_snapshot(tuple(updated))
+                snapshot = self._store.validate_snapshot(tuple(updated))
             except ConfigurationError as exc:
                 raise InvalidConfigurationError(str(exc)) from exc
             committed = self._store.commit(snapshot, expected_revision, old=self._disk)

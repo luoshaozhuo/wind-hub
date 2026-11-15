@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     COMMAND_UINT,
     COMMAND_UINT2,
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -71,7 +71,7 @@ async def _read_response(reader: asyncio.StreamReader) -> tuple[int, int, bytes]
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         yield gateway
     finally:

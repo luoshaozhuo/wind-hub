@@ -16,9 +16,7 @@ class BlockedError(RuntimeError):
 def run(*args: str) -> str:
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode:
-        raise BlockedError(
-            f"{' '.join(args)}: {result.stderr.strip() or result.stdout.strip()}"
-        )
+        raise BlockedError(f"{' '.join(args)}: {result.stderr.strip() or result.stdout.strip()}")
     return result.stdout.strip()
 
 
@@ -48,8 +46,13 @@ def merge() -> dict[str, str]:
 
     tree = run("git", "rev-parse", f"{head}^{{tree}}")
     squash = run(
-        "git", "commit-tree", tree, "-p", base,
-        "-m", f"feat: squash merge {branch} into main",
+        "git",
+        "commit-tree",
+        tree,
+        "-p",
+        base,
+        "-m",
+        f"feat: squash merge {branch} into main",
     )
     # 非强制推送；若服务端分支保护拒绝，源分支保持不变。
     run("git", "push", "origin", f"{squash}:refs/heads/main")
@@ -104,5 +107,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except BlockedError as exc:
-        print(json.dumps({"state": "BLOCKED", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        print(
+            json.dumps({"state": "BLOCKED", "error": str(exc)}, ensure_ascii=False), file=sys.stderr
+        )
         sys.exit(1)

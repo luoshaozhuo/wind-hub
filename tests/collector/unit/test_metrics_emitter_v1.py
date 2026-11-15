@@ -8,7 +8,7 @@ import time
 import pytest
 
 from collector.application.telemetry import CollectorTelemetry
-from collector.infrastructure.metrics_emitter import CollectorMetricsEmitter
+from collector.infrastructure.adapters.outbound.metrics_emitter import CollectorMetricsEmitter
 
 pytestmark = pytest.mark.unit
 

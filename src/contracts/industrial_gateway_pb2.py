@@ -23,45 +23,52 @@ _sym_db = _symbol_database.Default()
 
 
 from contracts import common_pb2 as contracts_dot_common__pb2
+from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"contracts/industrial_gateway.proto\x12\x12windhub.gateway.v1\x1a\x16\x63ontracts/common.proto\"L\n\x13ListGatewaysRequest\x12\x0e\n\x06\x66ilter\x18\x01 \x01(\t\x12\x11\n\tpage_size\x18\x02 \x01(\r\x12\x12\n\npage_token\x18\x03 \x01(\t\"\x9b\x01\n\x07Gateway\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x10\n\x08\x65ndpoint\x18\x02 \x01(\t\x12\x17\n\x0fmapping_summary\x18\x03 \x01(\t\x12\x15\n\rdesired_state\x18\x04 \x01(\t\x12\x14\n\x0c\x61\x63tual_state\x18\x05 \x01(\t\x12\x10\n\x08revision\x18\x06 \x01(\t\x12\x12\n\nlast_error\x18\x07 \x01(\t\"^\n\x14ListGatewaysResponse\x12-\n\x08gateways\x18\x01 \x03(\x0b\x32\x1b.windhub.gateway.v1.Gateway\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\t\"B\n\x12GetGatewayResponse\x12,\n\x07gateway\x18\x01 \x01(\x0b\x32\x1b.windhub.gateway.v1.Gateway\"a\n\x14ListVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x0e\n\x06\x66ilter\x18\x02 \x01(\t\x12\x11\n\tpage_size\x18\x03 \x01(\r\x12\x12\n\npage_token\x18\x04 \x01(\t\"\x96\x01\n\x08Variable\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x11\n\tdata_type\x18\x03 \x01(\t\x12\x10\n\x08readable\x18\x04 \x01(\x08\x12\x10\n\x08writable\x18\x05 \x01(\x08\x12\x30\n\x07\x61\x64\x64ress\x18\x06 \x03(\x0b\x32\x1f.windhub.common.v1.AddressField\"a\n\x15ListVariablesResponse\x12/\n\tvariables\x18\x01 \x03(\x0b\x32\x1c.windhub.gateway.v1.Variable\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\t\"@\n\x14ReadVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x14\n\x0cvariable_ids\x18\x02 \x03(\t\"V\n\x15ReadVariablesResponse\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12)\n\x06values\x18\x02 \x03(\x0b\x32\x19.windhub.common.v1.Sample\"T\n\x0eVariableUpdate\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12-\n\x05value\x18\x02 \x01(\x0b\x32\x1e.windhub.common.v1.ScalarValue\"u\n\x16UpdateVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x32\n\x06values\x18\x02 \x03(\x0b\x32\".windhub.gateway.v1.VariableUpdate\x12\x13\n\x0blease_token\x18\x03 \x01(\t\"\x88\x01\n\x13\x43laimTargetsRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x10\n\x08owner_id\x18\x02 \x01(\t\x12\x14\n\x0cvariable_ids\x18\x03 \x03(\t\x12\x0e\n\x06\x61\x63tion\x18\x04 \x01(\t\x12\x13\n\x0blease_token\x18\x05 \x01(\t\x12\x10\n\x08lease_ms\x18\x06 \x01(\r\"b\n\x14\x43laimTargetsResponse\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08\x12\x13\n\x0blease_token\x18\x02 \x01(\t\x12\x12\n\nerror_code\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\"a\n\x14VariableUpdateResult\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x12\n\nerror_code\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\"T\n\x17UpdateVariablesResponse\x12\x39\n\x07results\x18\x01 \x03(\x0b\x32(.windhub.gateway.v1.VariableUpdateResult2\x9c\x06\n\x18IndustrialGatewayService\x12\x61\n\x0cListGateways\x12\'.windhub.gateway.v1.ListGatewaysRequest\x1a(.windhub.gateway.v1.ListGatewaysResponse\x12Q\n\nGetGateway\x12\x1b.windhub.common.v1.ObjectId\x1a&.windhub.gateway.v1.GetGatewayResponse\x12W\n\x0cStartGateway\x12#.windhub.common.v1.OperationRequest\x1a\".windhub.common.v1.OperationResult\x12V\n\x0bStopGateway\x12#.windhub.common.v1.OperationRequest\x1a\".windhub.common.v1.OperationResult\x12\x64\n\rListVariables\x12(.windhub.gateway.v1.ListVariablesRequest\x1a).windhub.gateway.v1.ListVariablesResponse\x12\x64\n\rReadVariables\x12(.windhub.gateway.v1.ReadVariablesRequest\x1a).windhub.gateway.v1.ReadVariablesResponse\x12j\n\x0fUpdateVariables\x12*.windhub.gateway.v1.UpdateVariablesRequest\x1a+.windhub.gateway.v1.UpdateVariablesResponse\x12\x61\n\x0c\x43laimTargets\x12\'.windhub.gateway.v1.ClaimTargetsRequest\x1a(.windhub.gateway.v1.ClaimTargetsResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"contracts/industrial_gateway.proto\x12\x12windhub.gateway.v1\x1a\x16\x63ontracts/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"L\n\x13ListGatewaysRequest\x12\x0e\n\x06\x66ilter\x18\x01 \x01(\t\x12\x11\n\tpage_size\x18\x02 \x01(\r\x12\x12\n\npage_token\x18\x03 \x01(\t\"\x9b\x01\n\x07Gateway\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x10\n\x08\x65ndpoint\x18\x02 \x01(\t\x12\x17\n\x0fmapping_summary\x18\x03 \x01(\t\x12\x15\n\rdesired_state\x18\x04 \x01(\t\x12\x14\n\x0c\x61\x63tual_state\x18\x05 \x01(\t\x12\x10\n\x08revision\x18\x06 \x01(\t\x12\x12\n\nlast_error\x18\x07 \x01(\t\"^\n\x14ListGatewaysResponse\x12-\n\x08gateways\x18\x01 \x03(\x0b\x32\x1b.windhub.gateway.v1.Gateway\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\t\"B\n\x12GetGatewayResponse\x12,\n\x07gateway\x18\x01 \x01(\x0b\x32\x1b.windhub.gateway.v1.Gateway\"a\n\x14ListVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x0e\n\x06\x66ilter\x18\x02 \x01(\t\x12\x11\n\tpage_size\x18\x03 \x01(\r\x12\x12\n\npage_token\x18\x04 \x01(\t\"\x96\x01\n\x08Variable\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x11\n\tdata_type\x18\x03 \x01(\t\x12\x10\n\x08readable\x18\x04 \x01(\x08\x12\x10\n\x08writable\x18\x05 \x01(\x08\x12\x30\n\x07\x61\x64\x64ress\x18\x06 \x03(\x0b\x32\x1f.windhub.common.v1.AddressField\"a\n\x15ListVariablesResponse\x12/\n\tvariables\x18\x01 \x03(\x0b\x32\x1c.windhub.gateway.v1.Variable\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\t\"@\n\x14ReadVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x14\n\x0cvariable_ids\x18\x02 \x03(\t\"V\n\x15ReadVariablesResponse\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12)\n\x06values\x18\x02 \x03(\x0b\x32\x19.windhub.common.v1.Sample\"T\n\x0eVariableUpdate\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12-\n\x05value\x18\x02 \x01(\x0b\x32\x1e.windhub.common.v1.ScalarValue\"u\n\x16UpdateVariablesRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x32\n\x06values\x18\x02 \x03(\x0b\x32\".windhub.gateway.v1.VariableUpdate\x12\x13\n\x0blease_token\x18\x03 \x01(\t\"\x88\x01\n\x13\x43laimTargetsRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x10\n\x08owner_id\x18\x02 \x01(\t\x12\x14\n\x0cvariable_ids\x18\x03 \x03(\t\x12\x0e\n\x06\x61\x63tion\x18\x04 \x01(\t\x12\x13\n\x0blease_token\x18\x05 \x01(\t\x12\x10\n\x08lease_ms\x18\x06 \x01(\r\"b\n\x14\x43laimTargetsResponse\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08\x12\x13\n\x0blease_token\x18\x02 \x01(\t\x12\x12\n\nerror_code\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\"a\n\x14VariableUpdateResult\x12\x13\n\x0bvariable_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x12\n\nerror_code\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\"T\n\x17UpdateVariablesResponse\x12\x39\n\x07results\x18\x01 \x03(\x0b\x32(.windhub.gateway.v1.VariableUpdateResult\"\xe1\x01\n\x18SimulationCommandRequest\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x11\n\tdevice_id\x18\x02 \x01(\t\x12\x10\n\x08point_id\x18\x03 \x01(\t\x12-\n\x05value\x18\x04 \x01(\x0b\x32\x1e.windhub.common.v1.ScalarValue\x12\x12\n\nrequest_id\x18\x05 \x01(\t\x12\x19\n\x11\x65xpected_revision\x18\x06 \x01(\t\x12.\n\nexpires_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xa3\x01\n\x19SimulationCommandResponse\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x02 \x01(\x08\x12\x14\n\x0c\x65xecution_id\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x12\n\nerror_code\x18\x05 \x01(\t\x12\x0f\n\x07message\x18\x06 \x01(\t\x12\x16\n\x0e\x65\x66\x66\x65\x63tive_step\x18\x07 \x01(\x04\"B\n\x18SimulationExecutionQuery\x12\x12\n\ngateway_id\x18\x01 \x01(\t\x12\x12\n\nrequest_id\x18\x02 \x01(\t2\x92\x08\n\x18IndustrialGatewayService\x12\x61\n\x0cListGateways\x12\'.windhub.gateway.v1.ListGatewaysRequest\x1a(.windhub.gateway.v1.ListGatewaysResponse\x12Q\n\nGetGateway\x12\x1b.windhub.common.v1.ObjectId\x1a&.windhub.gateway.v1.GetGatewayResponse\x12W\n\x0cStartGateway\x12#.windhub.common.v1.OperationRequest\x1a\".windhub.common.v1.OperationResult\x12V\n\x0bStopGateway\x12#.windhub.common.v1.OperationRequest\x1a\".windhub.common.v1.OperationResult\x12\x64\n\rListVariables\x12(.windhub.gateway.v1.ListVariablesRequest\x1a).windhub.gateway.v1.ListVariablesResponse\x12\x64\n\rReadVariables\x12(.windhub.gateway.v1.ReadVariablesRequest\x1a).windhub.gateway.v1.ReadVariablesResponse\x12j\n\x0fUpdateVariables\x12*.windhub.gateway.v1.UpdateVariablesRequest\x1a+.windhub.gateway.v1.UpdateVariablesResponse\x12\x61\n\x0c\x43laimTargets\x12\'.windhub.gateway.v1.ClaimTargetsRequest\x1a(.windhub.gateway.v1.ClaimTargetsResponse\x12w\n\x18\x45xecuteSimulationCommand\x12,.windhub.gateway.v1.SimulationCommandRequest\x1a-.windhub.gateway.v1.SimulationCommandResponse\x12{\n\x1cGetSimulationExecutionResult\x12,.windhub.gateway.v1.SimulationExecutionQuery\x1a-.windhub.gateway.v1.SimulationCommandResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'contracts.industrial_gateway_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_LISTGATEWAYSREQUEST']._serialized_start=82
-  _globals['_LISTGATEWAYSREQUEST']._serialized_end=158
-  _globals['_GATEWAY']._serialized_start=161
-  _globals['_GATEWAY']._serialized_end=316
-  _globals['_LISTGATEWAYSRESPONSE']._serialized_start=318
-  _globals['_LISTGATEWAYSRESPONSE']._serialized_end=412
-  _globals['_GETGATEWAYRESPONSE']._serialized_start=414
-  _globals['_GETGATEWAYRESPONSE']._serialized_end=480
-  _globals['_LISTVARIABLESREQUEST']._serialized_start=482
-  _globals['_LISTVARIABLESREQUEST']._serialized_end=579
-  _globals['_VARIABLE']._serialized_start=582
-  _globals['_VARIABLE']._serialized_end=732
-  _globals['_LISTVARIABLESRESPONSE']._serialized_start=734
-  _globals['_LISTVARIABLESRESPONSE']._serialized_end=831
-  _globals['_READVARIABLESREQUEST']._serialized_start=833
-  _globals['_READVARIABLESREQUEST']._serialized_end=897
-  _globals['_READVARIABLESRESPONSE']._serialized_start=899
-  _globals['_READVARIABLESRESPONSE']._serialized_end=985
-  _globals['_VARIABLEUPDATE']._serialized_start=987
-  _globals['_VARIABLEUPDATE']._serialized_end=1071
-  _globals['_UPDATEVARIABLESREQUEST']._serialized_start=1073
-  _globals['_UPDATEVARIABLESREQUEST']._serialized_end=1190
-  _globals['_CLAIMTARGETSREQUEST']._serialized_start=1193
-  _globals['_CLAIMTARGETSREQUEST']._serialized_end=1329
-  _globals['_CLAIMTARGETSRESPONSE']._serialized_start=1331
-  _globals['_CLAIMTARGETSRESPONSE']._serialized_end=1429
-  _globals['_VARIABLEUPDATERESULT']._serialized_start=1431
-  _globals['_VARIABLEUPDATERESULT']._serialized_end=1528
-  _globals['_UPDATEVARIABLESRESPONSE']._serialized_start=1530
-  _globals['_UPDATEVARIABLESRESPONSE']._serialized_end=1614
-  _globals['_INDUSTRIALGATEWAYSERVICE']._serialized_start=1617
-  _globals['_INDUSTRIALGATEWAYSERVICE']._serialized_end=2413
+  _globals['_LISTGATEWAYSREQUEST']._serialized_start=115
+  _globals['_LISTGATEWAYSREQUEST']._serialized_end=191
+  _globals['_GATEWAY']._serialized_start=194
+  _globals['_GATEWAY']._serialized_end=349
+  _globals['_LISTGATEWAYSRESPONSE']._serialized_start=351
+  _globals['_LISTGATEWAYSRESPONSE']._serialized_end=445
+  _globals['_GETGATEWAYRESPONSE']._serialized_start=447
+  _globals['_GETGATEWAYRESPONSE']._serialized_end=513
+  _globals['_LISTVARIABLESREQUEST']._serialized_start=515
+  _globals['_LISTVARIABLESREQUEST']._serialized_end=612
+  _globals['_VARIABLE']._serialized_start=615
+  _globals['_VARIABLE']._serialized_end=765
+  _globals['_LISTVARIABLESRESPONSE']._serialized_start=767
+  _globals['_LISTVARIABLESRESPONSE']._serialized_end=864
+  _globals['_READVARIABLESREQUEST']._serialized_start=866
+  _globals['_READVARIABLESREQUEST']._serialized_end=930
+  _globals['_READVARIABLESRESPONSE']._serialized_start=932
+  _globals['_READVARIABLESRESPONSE']._serialized_end=1018
+  _globals['_VARIABLEUPDATE']._serialized_start=1020
+  _globals['_VARIABLEUPDATE']._serialized_end=1104
+  _globals['_UPDATEVARIABLESREQUEST']._serialized_start=1106
+  _globals['_UPDATEVARIABLESREQUEST']._serialized_end=1223
+  _globals['_CLAIMTARGETSREQUEST']._serialized_start=1226
+  _globals['_CLAIMTARGETSREQUEST']._serialized_end=1362
+  _globals['_CLAIMTARGETSRESPONSE']._serialized_start=1364
+  _globals['_CLAIMTARGETSRESPONSE']._serialized_end=1462
+  _globals['_VARIABLEUPDATERESULT']._serialized_start=1464
+  _globals['_VARIABLEUPDATERESULT']._serialized_end=1561
+  _globals['_UPDATEVARIABLESRESPONSE']._serialized_start=1563
+  _globals['_UPDATEVARIABLESRESPONSE']._serialized_end=1647
+  _globals['_SIMULATIONCOMMANDREQUEST']._serialized_start=1650
+  _globals['_SIMULATIONCOMMANDREQUEST']._serialized_end=1875
+  _globals['_SIMULATIONCOMMANDRESPONSE']._serialized_start=1878
+  _globals['_SIMULATIONCOMMANDRESPONSE']._serialized_end=2041
+  _globals['_SIMULATIONEXECUTIONQUERY']._serialized_start=2043
+  _globals['_SIMULATIONEXECUTIONQUERY']._serialized_end=2109
+  _globals['_INDUSTRIALGATEWAYSERVICE']._serialized_start=2112
+  _globals['_INDUSTRIALGATEWAYSERVICE']._serialized_end=3154
 # @@protoc_insertion_point(module_scope)

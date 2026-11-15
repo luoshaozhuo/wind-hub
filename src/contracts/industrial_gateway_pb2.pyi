@@ -7,6 +7,7 @@ from collections import abc as _abc
 from contracts import common_pb2 as _common_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
+from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf.internal import containers as _containers
 import builtins as _builtins
 import sys
@@ -425,3 +426,105 @@ class UpdateVariablesResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___UpdateVariablesResponse: _TypeAlias = UpdateVariablesResponse  # noqa: Y015
+
+@_typing.final
+class SimulationCommandRequest(_message.Message):
+    """Commander-only execution path for simulation control.
+    It never replaces Gateway UpdateVariables, which only updates Gateway-owned values.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    GATEWAY_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    EXPECTED_REVISION_FIELD_NUMBER: _builtins.int
+    EXPIRES_AT_FIELD_NUMBER: _builtins.int
+    gateway_id: _builtins.str
+    device_id: _builtins.str
+    point_id: _builtins.str
+    request_id: _builtins.str
+    expected_revision: _builtins.str
+    @_builtins.property
+    def value(self) -> _common_pb2.ScalarValue: ...
+    @_builtins.property
+    def expires_at(self) -> _timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        gateway_id: _builtins.str = ...,
+        device_id: _builtins.str = ...,
+        point_id: _builtins.str = ...,
+        value: _common_pb2.ScalarValue | None = ...,
+        request_id: _builtins.str = ...,
+        expected_revision: _builtins.str = ...,
+        expires_at: _timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["expires_at", b"expires_at", "value", b"value"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "expected_revision", b"expected_revision", "expires_at", b"expires_at", "gateway_id", b"gateway_id", "point_id", b"point_id", "request_id", b"request_id", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SimulationCommandRequest: _TypeAlias = SimulationCommandRequest  # noqa: Y015
+
+@_typing.final
+class SimulationCommandResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    ACCEPTED_FIELD_NUMBER: _builtins.int
+    EXECUTION_ID_FIELD_NUMBER: _builtins.int
+    STATE_FIELD_NUMBER: _builtins.int
+    ERROR_CODE_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    EFFECTIVE_STEP_FIELD_NUMBER: _builtins.int
+    request_id: _builtins.str
+    accepted: _builtins.bool
+    execution_id: _builtins.str
+    state: _builtins.str
+    error_code: _builtins.str
+    message: _builtins.str
+    effective_step: _builtins.int
+    def __init__(
+        self,
+        *,
+        request_id: _builtins.str = ...,
+        accepted: _builtins.bool = ...,
+        execution_id: _builtins.str = ...,
+        state: _builtins.str = ...,
+        error_code: _builtins.str = ...,
+        message: _builtins.str = ...,
+        effective_step: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "effective_step", b"effective_step", "error_code", b"error_code", "execution_id", b"execution_id", "message", b"message", "request_id", b"request_id", "state", b"state"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SimulationCommandResponse: _TypeAlias = SimulationCommandResponse  # noqa: Y015
+
+@_typing.final
+class SimulationExecutionQuery(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    GATEWAY_ID_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    gateway_id: _builtins.str
+    request_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        gateway_id: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["gateway_id", b"gateway_id", "request_id", b"request_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SimulationExecutionQuery: _TypeAlias = SimulationExecutionQuery  # noqa: Y015

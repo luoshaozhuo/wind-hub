@@ -29,7 +29,6 @@ from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,
     SINKS_INSTANCE,
-    TEMPLATE_ROOT,
     service_document,
     template_doc,
     template_path,
@@ -140,7 +139,7 @@ def _write_concurrent_root(
         deliveries = {delivery_ids[0]: _delivery(delivery_ids[0], devices)}
     docs = {
         SERVICE_FILE: service,
-        f"{TEMPLATE_ROOT}/sinks/kafka_history_{version}.yaml": kafka_template,
+        template_path("kafka_history", version): kafka_template,
         template_path("reliable_history"): reliable_template,
         SINKS_INSTANCE: {
             "schema_version": 1,

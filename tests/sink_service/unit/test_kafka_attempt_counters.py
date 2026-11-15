@@ -6,8 +6,7 @@
 - ``failed_attempts`` 对未排队（send_batch 拒绝）与未确认（Future 拒绝）的
   每次尝试各计一次；UNKNOWN/未收敛绝不能计为成功。
 
-fake 基建复用 tests/src/unit/test_b2_batch_builder.py，与
-test_kafka_encoded_batch.py 同一套 producer 表面，不引入第二套 mock。
+fake 基建与 test_kafka_encoded_batch.py 共用同一套 producer 表面。
 """
 
 from __future__ import annotations
@@ -16,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from sink_service.infrastructure.realtime_adapters import KafkaOutput
-from tests.src.unit.test_b2_batch_builder import (
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
+from tests.sink_service.unit.kafka_producer_fake import (
     KEY,
     STRIPE,
     _output,

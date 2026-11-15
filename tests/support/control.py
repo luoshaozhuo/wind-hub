@@ -81,7 +81,7 @@ def _selector_path(selector: common_pb.SnapshotFile | Any) -> str:
         # （units/business_points）→ templates/<name>.yaml。
         version = getattr(selector, "version", "")
         if version:
-            return f"templates/{name}_{version}.yaml"
+            return f"templates/{name}_v{version}.yaml"
         return f"templates/{name}.yaml"
     raise ValueError(f"unsupported selector: {selector}")
 
@@ -435,7 +435,7 @@ async def replace_catalog(
     token: str | None = None,
     timeout: float = 20.0,
 ) -> ConfigMutationResult:
-    """替换无版本目录模板（``templates/units.yaml`` / ``business_points.yaml``）。"""
+    """替换无版本目录模板（``units_standard.yaml`` / ``business_points_standard.yaml``）。"""
     del request_id, timeout
     selector = _CatalogSelector(name)
     return await replace_config(

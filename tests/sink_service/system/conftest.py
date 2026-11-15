@@ -46,7 +46,7 @@ from tests.sink_service._stage1_fixtures import (
     write_tree,
 )
 from tests.sink_service._stage1_tls import write_mtls_bundle
-from tests.support.process import CollectorProcess, start_sink_service
+from tests.support.process import CollectorProcess, start_sink_service_from_root
 from tests.support.wait import wait_tcp_port
 
 #: 系统测试固定身份（与 §14 追溯矩阵中的 farm-a / collector-1 对齐）。
@@ -280,7 +280,7 @@ class SinkSystemHarness:
     async def start(self) -> CollectorProcess:
         if self.process is not None:
             raise RuntimeError("harness already started")
-        proc = start_sink_service(self.root, grpc_port=self.grpc_port, log_dir=self.root)
+        proc = start_sink_service_from_root(self.root, grpc_port=self.grpc_port, log_dir=self.root)
         self.process = proc
         await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
         await self.wait_grpc_ready()

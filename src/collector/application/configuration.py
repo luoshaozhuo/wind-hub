@@ -12,46 +12,14 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
-
-import yaml
 
 from .config_models import (
-    Candidate,
-    CommitResult,
     SnapshotConflictError,
     SnapshotPaths,
     snapshot_digest,
 )
+from .ports.configuration import RuntimeConfigurationPort, SnapshotRepositoryPort
 from .telemetry import CollectorTelemetry
-
-
-class SnapshotRepositoryPort(Protocol):
-    def active_revision(self) -> str | None: ...
-    def active_paths(self) -> SnapshotPaths: ...
-    def read_generation(self, revision: str | None = None) -> dict[str, bytes]: ...
-    def get(self, candidate_id: str) -> Candidate: ...
-    def committed_revision(self, candidate_id: str, expected_revision: str) -> str | None: ...
-    def stage(
-        self,
-        files: dict[str, bytes],
-        *,
-        expected_revision: str,
-        validate: Callable[[SnapshotPaths], None],
-    ) -> Candidate: ...
-    async def commit(
-        self,
-        candidate_id: str,
-        *,
-        expected_revision: str,
-        validate: Callable[[SnapshotPaths], None],
-    ) -> CommitResult: ...
-
-
-class RuntimeConfigurationPort(Protocol):
-    async def converge(self, paths: SnapshotPaths, revision: str) -> dict[str, str]:
-        """Apply changed Collector runtime objects; return failures by object ID."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +48,14 @@ class CollectorConfigurationManager:
         validate: Callable[[SnapshotPaths], None],
         runtime: RuntimeConfigurationPort,
         restart_required: Callable[[bytes, bytes], bool],
+        source_changed: Callable[[bytes, bytes], bool],
         telemetry: CollectorTelemetry | None = None,
     ) -> None:
         self._repository = repository
         self._validate = validate
         self._runtime = runtime
         self._restart_required = restart_required
+        self._source_changed = source_changed
         self._telemetry = telemetry
         self._apply_lock = asyncio.Lock()
         self._runtime_revision = ""
@@ -158,9 +128,7 @@ class CollectorConfigurationManager:
             # Instance/Template tree must never leak into the live runtime
             # before its Service source selection takes effect on restart.
             source_changed = bool(
-                current_service is not None
-                and yaml.safe_load(current_service).get("config_sources")
-                != yaml.safe_load(next_service).get("config_sources")
+                current_service is not None and self._source_changed(current_service, next_service)
             )
             if source_changed:
                 self._restart_pending = True

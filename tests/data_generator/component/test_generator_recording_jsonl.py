@@ -19,8 +19,10 @@ import pytest
 
 from data_generator.application.runtime import Runtime
 from data_generator.domain.model import DataBatch, DataPoint, DeliveryResult, OutputTarget
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.adapters.outbound.csv_history import CsvHistoryReader
+from data_generator.infrastructure.adapters.outbound.recording import JsonlRecordWriter
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 from ..conftest import ship_scenarios_document
 
@@ -77,7 +79,15 @@ def _runtime(configs_root, **service_kwargs) -> tuple[Runtime, Path]:  # noqa: A
         **service_kwargs,
     )
     recover_transaction(service_path.absolute().parent.parent)
-    return Runtime(load_settings(service_path), FakeWriter()), service_path
+    return (
+        Runtime(
+            load_settings(service_path),
+            FakeWriter(),
+            recorder=JsonlRecordWriter(),
+            history_reader=CsvHistoryReader(),
+        ),
+        service_path,
+    )
 
 
 async def test_recording_disabled_by_default_writes_no_file(configs_root) -> None:  # noqa: ANN001

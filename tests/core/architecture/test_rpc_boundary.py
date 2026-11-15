@@ -28,12 +28,16 @@ _ALLOWED_PB2_PREFIXES = (
     "data_generator/infrastructure/",
     "cli/",
     "web_server/",
-    "collector/infrastructure/grpc/",
-    "commander/infrastructure/grpc/",
-    "industrial_gateway/infrastructure/grpc/",
+    "collector/infrastructure/adapters/inbound/grpc/",
+    "commander/infrastructure/adapters/inbound/grpc/",
+    "commander/infrastructure/adapters/outbound/gateway.py",
+    "industrial_gateway/infrastructure/adapters/inbound/grpc/",
+    "industrial_gateway/infrastructure/adapters/outbound/grpc/",
     "sink_service/management_cli.py",
     "sink_service/infrastructure/grpc_management.py",
     "sink_service/infrastructure/adapters/grpc_sink.py",
+    "sink_service/infrastructure/adapters/inbound/grpc_server.py",
+    "sink_service/infrastructure/adapters/outbound/gateway.py",
 )
 
 # application/domain 一律不感知 wire 形态。

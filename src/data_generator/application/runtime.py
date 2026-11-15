@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import json
 import logging
 import math
 import time
@@ -14,7 +13,6 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 
 from data_generator.application.model.inputs import (
     WEATHER_INPUTS,
@@ -22,11 +20,12 @@ from data_generator.application.model.inputs import (
     validate_weather_input,
     writable_inputs,
 )
-from data_generator.application.model.random import generate as generate_configured_random
-from data_generator.application.models import generate_values
 from data_generator.application.physical_engine import PhysicalEngine
-from data_generator.application.port.output import OutputPort
-from data_generator.application.replay import decode_value, iter_records, replay_deadline
+from data_generator.application.ports.history import HistoryReaderPort
+from data_generator.application.ports.output import OutputPort
+from data_generator.application.ports.recording import RecordingPort
+from data_generator.application.replay import decode_value, replay_deadline
+from data_generator.application.simulation import SimulationCoordinator
 from data_generator.domain.model import (
     DataBatch,
     DataPoint,
@@ -52,6 +51,7 @@ class GenerationState:
     terminal_state: str | None = None
     physical_engine: PhysicalEngine | None = None
     current_step: int = 0
+    completed_step: int = 0
     pending_inputs: list[tuple[int, str, dict[str, float | int]]] = field(default_factory=list)
     request_history: dict[tuple[str, str], tuple[bytes, int]] = field(default_factory=dict)
 
@@ -69,9 +69,18 @@ class RuntimeEvent:
 class Runtime:
     """State transitions and ownership changes share one serialized control lock."""
 
-    def __init__(self, settings: Settings, writer: OutputPort) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        writer: OutputPort,
+        recorder: RecordingPort | None = None,
+        *,
+        history_reader: HistoryReaderPort,
+    ) -> None:
         self.settings = settings
         self.writer = writer
+        self._recorder = recorder
+        self._history_reader = history_reader
         self.generations: dict[str, GenerationState] = {}
         self.events: deque[RuntimeEvent] = deque(maxlen=1000)
         self._active: str | None = None
@@ -169,6 +178,24 @@ class Runtime:
         async with self._lock:
             self._reconcile_locked()
             return self.generations.get(generation_id)
+
+    async def get_input_execution(
+        self, generation_id: str, caller: str, request_id: str
+    ) -> tuple[str, int]:
+        """Report only request-specific evidence after a physical step completed."""
+        async with self._lock:
+            generation = self.generations.get(generation_id)
+            if generation is None:
+                return "UNKNOWN", 0
+            history = generation.request_history.get((caller, request_id))
+            if history is None:
+                return "UNKNOWN", 0
+            effective_step = history[1]
+            if generation.completed_step >= effective_step:
+                return "APPLIED", effective_step
+            if generation.actual_state == "RUNNING" and generation.desired_state == "RUNNING":
+                return "PENDING", effective_step
+            return "UNKNOWN", effective_step
 
     async def update_inputs(
         self,
@@ -412,14 +439,8 @@ class Runtime:
         seed = int(scenario.source.get("seed", 0))
         sequence = 0
         epoch = time.monotonic()
-        has_physical = any(model.get("kind") == "physical" for model in scenario.models.values())
-        physical = PhysicalEngine(scenario) if has_physical else None
-        generation.physical_engine = physical
-        random_points = {
-            key: value
-            for key, value in scenario.points.items()
-            if isinstance(value.get("model"), dict)
-        }
+        models = SimulationCoordinator(scenario)
+        generation.physical_engine = models.physical
         while generation.desired_state == "RUNNING":
             now = time.monotonic()
             next_step = max(
@@ -443,20 +464,15 @@ class Runtime:
             began = time.monotonic()
             lag = max(0.0, began - planned)
             try:
-                if physical is None:
-                    values = (
-                        generate_configured_random(sequence, random_points)
-                        if scenario.models
-                        else generate_values(seed, sequence, scenario.points)
-                    )
-                else:
-                    values = {}
-                    # Reconcile skipped fixed steps without dropping physical state evolution.
-                    for index in range(sequence - skipped, sequence + 1):
-                        self._install_inputs(generation, index)
-                        values = physical.advance(interval, index)
-                    if random_points:
-                        values.update(generate_configured_random(sequence, random_points))
+                values, last_step = models.advance(
+                    step=sequence,
+                    skipped=skipped,
+                    interval=interval,
+                    seed=seed,
+                    install_inputs=lambda index: self._install_inputs(generation, index),
+                )
+                if last_step is not None:
+                    generation.completed_step = last_step
                 await self._emit(
                     generation,
                     sequence,
@@ -485,7 +501,7 @@ class Runtime:
         sequence = 0
         first_time: datetime | None = None
         epoch = 0.0
-        async for record in iter_records(
+        async for record in self._history_reader.iter_records(
             resolve_history(bound.root, source["file"]),
             start,
             end,
@@ -529,22 +545,13 @@ class Runtime:
         if sequence == 0:
             raise GeneratorError("EMPTY_REPLAY_WINDOW: no source records in time range")
 
-    @staticmethod
-    def _append_record(path: Path, payload: dict[str, object]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
-
     async def _record(self, generation: GenerationState, batch: DataBatch) -> None:
         """Capture generated source values before delivery; never use Gateway ACK as truth."""
         options = generation.bound_settings.service.get("recording", {})
         if not options.get("enabled", False):
             return
-        base = generation.bound_settings.root.parent.resolve()
-        directory = (base / options["directory"]).resolve()
-        if not directory.is_relative_to(base):
-            raise GeneratorError("recording directory escapes project root")
-        path = directory / f"{generation.generation_id}.jsonl"
+        if self._recorder is None:
+            raise GeneratorError("recording adapter is not configured")
 
         def encode(value: Scalar) -> Scalar | dict[str, str]:
             if isinstance(value, bytes):
@@ -568,7 +575,7 @@ class Runtime:
                 for point in batch.points
             ],
         }
-        await asyncio.to_thread(self._append_record, path, payload)
+        await self._recorder.append(generation.bound_settings, generation.generation_id, payload)
 
     async def _emit(
         self,

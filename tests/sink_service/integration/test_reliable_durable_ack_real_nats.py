@@ -34,10 +34,10 @@ import nats
 import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ValidatedSnapshot
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import (
     SERVICE_FILE,

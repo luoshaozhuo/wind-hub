@@ -20,10 +20,10 @@ import yaml
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_UINT,
     claim_for_injection,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -77,7 +77,7 @@ async def _apply_state(harness, state: str) -> str:
 async def test_repeated_apply_churn_preserves_sibling_and_clears_claims(
     tmp_path: Path,
 ) -> None:
-    harness = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    harness = await start_gateway(tmp_path / "root", two_server_specs())
     stop_writes: list[bool] = []
     try:
         gw_stub = harness.gateway_stub()

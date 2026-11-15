@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from industrial_gateway.infrastructure.config.v1_resolution import ResolvedGateway
+from industrial_gateway.infrastructure.config.resolution import ResolvedGateway
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 

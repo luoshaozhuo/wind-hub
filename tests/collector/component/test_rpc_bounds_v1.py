@@ -10,7 +10,7 @@ from typing import Any, cast
 import grpc
 import pytest
 
-from collector.infrastructure.grpc.collector_service import CollectorDeviceRpc
+from collector.infrastructure.adapters.inbound.grpc.collector_service import CollectorDeviceRpc
 from contracts import collector_pb2 as pb
 from core.application.errors import ProtocolError
 from core.domain import PointAccess

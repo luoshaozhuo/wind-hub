@@ -3,8 +3,8 @@
 B3（``encode_kafka_points``）把 5 个共享身份字段编码为一次公共前缀，再与
 逐点 8 字段做字节拼接。本文件的参考实现完全独立于 B3：按线格式规范用
 **单个 13 字段 dict 一次 json.dumps** 重建权威字节（结构上与 B3 的
-「前缀 + 切片拼接」不同），并同时以生产 Sink 私有 ``DeliveryPoint.encode()`` 作为
-第二权威。判定一律比较 UTF-8 原始字节，不接受 JSON 语义相等。
+「前缀 + 切片拼接」不同），并同时以正式 Outbound Adapter 的
+``encode_delivery_point()`` 作为第二权威。判定一律比较 UTF-8 原始字节，不接受 JSON 语义相等。
 
 覆盖 B3-01/B3-02 要求：指数浮点、Unicode/emoji/转义、时间精度与时区、
 null、布尔、整型、字符串、500/1024 点拆批与切片边界、空子集、确定性、
@@ -20,7 +20,8 @@ import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.kafka_wire import (
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
+    encode_delivery_point,
     encode_kafka_point,
     encode_kafka_points,
 )
@@ -184,7 +185,7 @@ def test_batch_encoder_byte_identical_to_two_independent_authorities(
 
     b3_bytes = encode_kafka_points(batch, (item,))[0]
     reference_bytes = reference_wire_bytes(batch, item)
-    production_bytes = DeliveryPoint.from_batch(batch, item).encode()
+    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(batch, item))
 
     # 三重字节相等：B3 拼接 == 测试内单 dict 参考 == 生产 DeliveryPoint
     assert b3_bytes == reference_bytes
@@ -254,7 +255,9 @@ def test_full_sized_chunks_every_record_byte_identical(size: int) -> None:
     batch = _varied_batch(size)
     encoded = encode_kafka_points(batch, batch.samples)
     assert len(encoded) == size
-    production = tuple(DeliveryPoint.from_batch(batch, point).encode() for point in batch.samples)
+    production = tuple(
+        encode_delivery_point(DeliveryPoint.from_batch(batch, point)) for point in batch.samples
+    )
     for idx in range(size):
         assert encoded[idx] == reference_wire_bytes(batch, batch.samples[idx])
         assert encoded[idx] == production[idx]
@@ -268,7 +271,9 @@ def test_runtime_chunk_slicing_500_500_24_keeps_indices_and_bytes() -> None:
     flattened: list[bytes] = []
     for part in slices:
         flattened.extend(encode_kafka_points(batch, part))
-    production = tuple(DeliveryPoint.from_batch(batch, point).encode() for point in batch.samples)
+    production = tuple(
+        encode_delivery_point(DeliveryPoint.from_batch(batch, point)) for point in batch.samples
+    )
     assert len(flattened) == 1024
     for idx in range(1024):
         assert flattened[idx] == production[idx]

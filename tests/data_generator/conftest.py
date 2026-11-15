@@ -1,8 +1,9 @@
 """Data Generator 验收测试共享 fixture。
 
 铁律：成功路径一律走真实组件——真实 Core configs 树（site/devices/模板）、
-真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（8 个 RPC，
-含 ``UpdateVariables`` 与 ``ClaimTargets`` 租约围栏）、真实 gRPC Server/Client、
+真实 ``assemble_gateway`` 协议栈与正式 ``IndustrialGatewayService``（10 个 RPC，
+含 ``UpdateVariables`` 与 ``ClaimTargets`` 租约围栏；2 个仿真执行 RPC 业务未实现，
+由生成 Servicer 基类返回 UNIMPLEMENTED）、真实 gRPC Server/Client、
 真实 CSV+SQLite。
 故障注入仅用于无法用真实环境稳定构造的超时/挂起，且实现冻结的正式 Proto，
 不得替代正式接口。
@@ -31,16 +32,19 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.application.runtime import Runtime
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.gateway import GatewayWriter
-from data_generator.infrastructure.server import make_server
-from data_generator.infrastructure.snapshots import file_sha256, recover_transaction
+from data_generator.infrastructure.adapters.inbound.server import make_server
+from data_generator.infrastructure.adapters.outbound.csv_history import CsvHistoryReader
+from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.persistence.snapshots import file_sha256, recover_transaction
 from industrial_gateway.application.target_leases import TargetLeaseRegistry
 from industrial_gateway.assembly import assemble_gateway
+from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
+    create_gateway_grpc_server,
+)
+from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from industrial_gateway.infrastructure.config.v1_resolution import load_gateway_v1
-from industrial_gateway.infrastructure.grpc.data_server import create_gateway_grpc_server
-from tests.support.gateway_v1 import FakeCommanderService, write_mtls_pki
+from tests.support.gateway import FakeCommanderService, write_mtls_pki
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -194,11 +198,12 @@ def simulation_document(
     """通用模拟场景构造器（新归属：随机规则在 scenario models，路由按设备展开）。
 
     specs: [(device_id, point_id, model(None=random 3..15), [(gateway_id, variable_id)])]
-    variable_id 仅保留调用方语义；正式 Schema 的目标变量由 point_id 一一派生。
+    每个显式目标都通过正式 variable_mapping 表达，支持同一源点一对多输出。
     """
     point_order: dict[str, list[str]] = {}
     rules: dict[str, dict[str, dict[str, Any]]] = {}
     route_devices: dict[str, list[str]] = {gateway_id: [] for gateway_id in gateways}
+    variable_mappings: dict[tuple[str, str], dict[str, list[str]]] = {}
     for device_id, point_id, model, mappings in specs:
         point_order.setdefault(device_id, []).append(point_id)
         rules.setdefault(device_id, {})[point_id] = model or {
@@ -207,9 +212,11 @@ def simulation_document(
             "minimum": 3.0,
             "maximum": 15.0,
         }
-        for gateway_id, _variable_id in mappings:
+        for gateway_id, variable_id in mappings:
             if device_id not in route_devices[gateway_id]:
                 route_devices[gateway_id].append(device_id)
+            targets = variable_mappings.setdefault((gateway_id, device_id), {})
+            targets.setdefault(point_id, []).append(variable_id)
     device_ids = sorted(point_order)
     scenario = {
         "scenario_id": scenario_id,
@@ -244,11 +251,26 @@ def simulation_document(
                     ),
                     "endpoint": gateways[gateway_id],
                     "device_id": device_id,
+                    "variable_mapping": variable_mappings.get((gateway_id, device_id), {}),
                 }
                 for device_id in route_devices[gateway_id]
             )
         ],
     }
+    # 静态插值仍由逐点 model Schema 校验；把它包装成 random model_ref
+    # 会让静态规则误走 random distribution 校验，掩盖真正被测行为。
+    if any(
+        model is not None and model.get("kind") == "static"
+        for _device, _point, model, _mappings in specs
+    ):
+        scenario.pop("models")
+        for device in scenario["devices"]:
+            device_id = device["device_id"]
+            device.pop("model_ref")
+            device["points"] = [
+                {"point_id": point_id, "model": rules[device_id][point_id]}
+                for point_id in point_order[device_id]
+            ]
     return {
         "schema_version": 1,
         "file_version": "1.0.0",
@@ -328,6 +350,13 @@ def replay_document(
                         "gateway_id": gateway_id,
                         "endpoint": endpoint,
                         "device_id": device,
+                        "variable_mapping": {
+                            point: [
+                                variable_id
+                                for mapped_gateway, variable_id in mappings
+                                if mapped_gateway == gateway_id
+                            ]
+                        },
                     }
                     for gateway_id, endpoint in sorted(gateways.items())
                 ],
@@ -337,7 +366,8 @@ def replay_document(
 
 
 # --------------------------------------------------------------------------- #
-# 正式 Proto 故障注入网关（实现冻结的 IndustrialGatewayService 八 RPC 契约；
+# 正式 Proto 故障注入网关（实现 IndustrialGatewayService 既有八 RPC 契约，
+# 新增两个仿真执行 RPC 不在此替身实现、沿用生成基类 UNIMPLEMENTED；
 # 仅用于超时/挂起/拒绝等真实 Gateway 无法稳定构造的故障，成功路径禁止使用）
 # --------------------------------------------------------------------------- #
 
@@ -562,7 +592,7 @@ async def start_fault_gateway() -> AsyncIterator[Callable[..., Awaitable[FaultGa
 # --------------------------------------------------------------------------- #
 
 
-def _v1_gateway_tree(
+def _gateway_tree(
     root: Path,
     *,
     endpoint_id: str,
@@ -593,7 +623,7 @@ def _v1_gateway_tree(
                 holding_cursor += 2 if data_type == "float32" else 1
             point_table[variable_id] = {"data_type": data_type, "address": address}
         _dump(
-            root / "templates" / "point_tables" / f"{table_id}_1.0.0.yaml",
+            root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": table_id,
@@ -603,7 +633,7 @@ def _v1_gateway_tree(
             },
         )
         _dump(
-            root / "templates" / "device_models" / f"{model_id}_1.0.0.yaml",
+            root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": model_id,
@@ -650,7 +680,7 @@ def _v1_gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "units.yaml",
+        root / "templates" / "units_standard.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -659,11 +689,11 @@ def _v1_gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points.yaml",
+        root / "templates" / "business_points_standard.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(
-        root / "templates" / "protocols" / "dg_modbus_1.0.0.yaml",
+        root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "dg_modbus",
@@ -783,7 +813,7 @@ async def start_real_gateway(
         if mtls_enabled:
             names = set(permissions or ()) | set(client_names)
             pki = write_mtls_pki(root, tuple(names))
-        service_path = _v1_gateway_tree(
+        service_path = _gateway_tree(
             root,
             endpoint_id=endpoint_id,
             devices=devices,
@@ -791,7 +821,7 @@ async def start_real_gateway(
             permissions=permissions,
             mtls_enabled=mtls_enabled,
         )
-        config = load_gateway_v1(service_path, project_root=root)
+        config = load_gateway(service_path, project_root=root)
         runtime = assemble_gateway(config)
         snapshots = ConfigSnapshots(runtime, service_path, root)
         gateway_server = create_gateway_grpc_server(runtime, snapshots)
@@ -842,7 +872,7 @@ async def dg_server(
             max_points=int(settings.service.get("buffer", {}).get("max_points_per_batch", 1000)),
             max_inflight=int(output.get("max_inflight", 1)),
         )
-        runtime = Runtime(settings, writer)
+        runtime = Runtime(settings, writer, history_reader=CsvHistoryReader())
         bind = settings.service.get("service", {}).get("grpc_bind", f"127.0.0.1:{reserve_port()}")
         server = make_server(runtime, bind)
         await server.start()

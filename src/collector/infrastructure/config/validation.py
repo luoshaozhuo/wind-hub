@@ -10,19 +10,21 @@ from pathlib import Path
 from collector.application.acquisition import AcquisitionPlan, DevicePlan
 from collector.application.config_models import SnapshotPaths
 from collector.application.lifecycle import ConfiguredRuntime
-from configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
-from configuration.document_version import validate_document_version
-from configuration.effective import resolve_effective_device
-from configuration.template_graph import (
+from contracts.sample_batch import validate_subject_token
+from core.application.errors import ConfigError
+from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
+from core.configuration.document_version import validate_document_version
+from core.configuration.effective import resolve_effective_device
+from core.configuration.template_graph import (
+    resolve_device_templates,
     resolve_model_templates,
     validate_point_table_chain,
 )
-from configuration.versioned_templates import (
+from core.configuration.versioned_templates import (
+    TEMPLATE_FILE_PREFIXES,
     TemplateRef,
     VersionedTemplateRepository,
 )
-from contracts.sample_batch import validate_subject_token
-from core.application.errors import ConfigError
 from core.domain import DeviceId
 from core.infrastructure.config import read_yaml
 
@@ -217,26 +219,23 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
 
 
 _FLAT_TEMPLATE_NAME = re.compile(
-    r"^(?P<template_id>.+)_(?P<file_version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$"
+    r"^(?P<template_id>.+)_v(?P<file_version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$"
 )
 
 
 def _template_references(category: str, folder: Path) -> Iterator[tuple[Path, TemplateRef]]:
     """Yield every versioned template under a category.
 
-    The shared layout is flat (``<id>_<version>.yaml``) for all four
-    Collector categories including tasks; a nested ``<id>/<version>.yaml``
-    form is accepted only for older committed generations. A flat file that
-    does not parse as a versioned name is rejected rather than skipped, so a
-    structural drift can never silently disable template validation.
+    Only the flat ``<category-prefix><id>_vMAJOR.MINOR.PATCH.yaml`` layout is supported.
+    Unexpected names are rejected rather than silently skipped.
     """
     for path in sorted(folder.glob("*.yaml")):
         match = _FLAT_TEMPLATE_NAME.match(path.name)
-        if match is None:
-            raise ConfigError(f"{path}: template file must be named <id>_<version>.yaml")
-        yield path, TemplateRef(category, match["template_id"], match["file_version"])
-    for path in sorted(folder.glob("*/*.yaml")):
-        yield path, TemplateRef(category, path.parent.name, path.stem)
+        prefix = TEMPLATE_FILE_PREFIXES[category]
+        if match is None or not match["template_id"].startswith(prefix):
+            raise ConfigError(f"{path}: invalid {category} filename or version")
+        template_id = match["template_id"][len(prefix) :]
+        yield path, TemplateRef(category, template_id, match["file_version"])
 
 
 def _validate_all_templates(root: Path) -> None:
@@ -252,7 +251,12 @@ def _validate_all_templates(root: Path) -> None:
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: unsupported protocol")
             elif category == "device_models":
-                resolve_model_templates(repository, template)
+                # Shared device models need not define Collector task scheduling.
+                # Explicit task references remain strictly checked.
+                if "task" in document:
+                    resolve_model_templates(repository, template)
+                else:
+                    resolve_device_templates(repository, template)
             elif category == "point_tables":
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: point table protocol missing")

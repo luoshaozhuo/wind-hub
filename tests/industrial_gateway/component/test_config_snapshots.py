@@ -14,9 +14,9 @@ import yaml
 
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gwpb
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -34,7 +34,7 @@ def _snapshot_file(relative_path: str, content: bytes) -> common.SnapshotFile:
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         yield gateway
     finally:
@@ -313,6 +313,58 @@ async def test_apply_port_swap_hot_rebinds_listeners(harness) -> None:
     body_gw1 = await fc03(ports["gw2"], 1)
     body_gw2 = await fc03(ports["gw1"], 2)
     assert body_gw1[0] == 0x03 and body_gw2[0] == 0x03
+
+
+async def test_apply_bind_failure_is_partial_and_does_not_fake_runtime_revision(
+    harness,
+) -> None:
+    """A failed replacement is reported; committed disk and effective runtime differ."""
+    import socket
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    occupied_port = blocker.getsockname()[1]
+    try:
+        stub = harness.common_stub()
+        revision, content, relative_path = await _disk_revision(stub)
+
+        def occupy_gw1(server):
+            if server["server_id"] == "gw1":
+                server["listen_port"] = occupied_port
+            return server
+
+        candidate = await _push(
+            stub,
+            _server_content(content, occupy_gw1),
+            relative_path,
+            revision,
+        )
+        applied = await stub.ApplyConfigSnapshot(
+            common.ApplyConfigSnapshotRequest(
+                candidate_id=candidate.candidate_id,
+                expected_revision=revision,
+            )
+        )
+        statuses = {result.object_id: result.status for result in applied.apply_results}
+        assert statuses["gw1"] == "FAILED"
+        assert statuses["gw2"] == "UNCHANGED"
+        assert statuses["service"] == "RESTART_REQUIRED"
+        assert applied.restart_required
+        assert applied.effective_revision == revision
+
+        disk = await stub.GetConfigSnapshot(
+            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
+        )
+        runtime = await stub.GetConfigSnapshot(
+            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_RUNTIME)
+        )
+        assert disk.revision != revision
+        assert runtime.revision == revision
+        gateway = await harness.gateway_stub().GetGateway(common.ObjectId(id="gw1"))
+        assert gateway.gateway.actual_state == "FAILED"
+    finally:
+        blocker.close()
 
 
 async def test_listener_state_visible_in_gateway_status(harness) -> None:

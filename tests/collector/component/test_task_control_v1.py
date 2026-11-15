@@ -9,8 +9,10 @@ import yaml
 
 from collector.application.config_models import SnapshotConflictError, SnapshotPaths
 from collector.application.configuration import CollectorConfigurationManager
+from collector.application.task_control import CollectorTaskControl
+from collector.infrastructure.config.service_identity import sources_changed
 from collector.infrastructure.config.snapshot_repository import CollectorSnapshotRepository
-from collector.infrastructure.config.task_control import CollectorTaskControl
+from collector.infrastructure.config.task_control import mutate_device_intent
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
@@ -41,8 +43,8 @@ def _files() -> dict[str, bytes]:
                 },
             }
         ).encode(),
-        "templates/units.yaml": b"schema_version: 1\n",
-        "templates/business_points.yaml": b"schema_version: 1\n",
+        "templates/units_standard.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard.yaml": b"schema_version: 1\n",
     }
 
 
@@ -54,11 +56,12 @@ async def test_start_stop_persist_only_instance_override(tmp_path: Path) -> None
         validate=_read_service,
         runtime=Runtime(),
         restart_required=lambda old, new: old != new,
+        source_changed=sources_changed,
     )
     candidate, _ = manager.push(_files(), expected_revision="")
     initial = await manager.apply(candidate, expected_revision="")
     manager.mark_started()
-    control = CollectorTaskControl(manager)
+    control = CollectorTaskControl(manager, mutate_device_intent)
     started = await control.set_desired("d1", "START", expected_revision=initial.disk_revision)
     assert started.converged
     disk, files = manager.get_disk()
@@ -80,10 +83,11 @@ async def test_stale_start_stop_revision_rejected(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=Runtime(),
         restart_required=lambda old, new: old != new,
+        source_changed=sources_changed,
     )
     candidate, _ = manager.push(_files(), expected_revision="")
     initial = await manager.apply(candidate, expected_revision="")
-    control = CollectorTaskControl(manager)
+    control = CollectorTaskControl(manager, mutate_device_intent)
     await control.set_desired("d1", "START", expected_revision=initial.disk_revision)
     with pytest.raises(SnapshotConflictError):
         await control.set_desired("d1", "STOP", expected_revision=initial.disk_revision)

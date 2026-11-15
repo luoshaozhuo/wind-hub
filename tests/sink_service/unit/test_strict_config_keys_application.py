@@ -15,8 +15,8 @@ import copy
 
 import pytest
 
-from sink_service.application.config import validate_snapshot
 from sink_service.domain.config import ConfigurationError
+from sink_service.infrastructure.config_io import validate_snapshot
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,

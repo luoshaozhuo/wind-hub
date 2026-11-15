@@ -26,7 +26,7 @@ from tests.sink_service.system.conftest import (
     RELIABLE_DELIVERY,
     SinkSystemHarness,
 )
-from tests.support.process import start_sink_service
+from tests.support.process import start_sink_service_from_root
 from tests.support.wait import wait_tcp_port
 
 pytestmark = [
@@ -106,7 +106,7 @@ class TestUC09S03:
         doc["reliable"]["ack_wait_seconds"] = 0
         service_path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
-        proc = start_sink_service(
+        proc = start_sink_service_from_root(
             sink_harness.root, grpc_port=sink_harness.grpc_port, log_dir=sink_harness.root
         )
         try:
@@ -156,7 +156,9 @@ class TestUC09S03:
             shutil.rmtree(root_b / ".generations")
             (root_b / "CURRENT").unlink()
 
-            proc_b = start_sink_service(root_b, grpc_port=sink_harness.grpc_port, log_dir=root_b)
+            proc_b = start_sink_service_from_root(
+                root_b, grpc_port=sink_harness.grpc_port, log_dir=root_b
+            )
             try:
                 code = await _wait_process_exit(proc_b)
                 assert code != 0, "second instance on a busy port must fail"

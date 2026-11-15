@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import namedtuple
 from typing import Any
 
 import grpc
@@ -24,6 +25,11 @@ from core.infrastructure.crosscutting.correlation import (
     get_request_id,
     normalize_request_id,
     request_id_var,
+)
+
+_CallDetails = namedtuple(
+    "_CallDetails",
+    ("method", "timeout", "metadata", "credentials", "wait_for_ready"),
 )
 
 __all__ = [
@@ -85,5 +91,13 @@ class RequestIdInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
         if request_id:
             metadata = list(client_call_details.metadata or [])
             metadata.append((REQUEST_ID_HEADER, request_id))
-            client_call_details = client_call_details._replace(metadata=metadata)
-        return await continuation(client_call_details, request)
+            details: Any = _CallDetails(
+                client_call_details.method,
+                client_call_details.timeout,
+                metadata,
+                client_call_details.credentials,
+                client_call_details.wait_for_ready,
+            )
+        else:
+            details = client_call_details
+        return await continuation(details, request)

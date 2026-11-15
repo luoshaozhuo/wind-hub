@@ -18,7 +18,7 @@ import grpc
 import nats
 import pytest
 
-from commander.infrastructure.audit_publisher import AuditPublisher
+from commander.infrastructure.adapters.outbound.audit_publisher import AuditPublisher
 from contracts import commander_pb2 as pb
 from contracts import common_pb2
 

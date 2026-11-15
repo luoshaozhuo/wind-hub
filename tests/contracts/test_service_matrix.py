@@ -1,11 +1,11 @@
-"""47 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/7/4/8/8 个 Unary。"""
+"""51 个 RPC 的 Service Descriptor 矩阵：6 个 Service 各含 9/11/8/4/10/9 个 Unary。"""
 
 from __future__ import annotations
 
 from types import ModuleType
 
 import pytest
-from google.protobuf.descriptor import MethodDescriptor
+from google.protobuf.descriptor import FieldDescriptor, MethodDescriptor
 
 from contracts import (
     collector_pb2,
@@ -103,6 +103,11 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
         "CommanderService",
         [
             (
+                "RecoverDeviceControl",
+                "windhub.commander.v1.RecoverDeviceControlRequest",
+                "windhub.commander.v1.RecoverDeviceControlResponse",
+            ),
+            (
                 "ListDevices",
                 "windhub.commander.v1.ListDevicesRequest",
                 "windhub.commander.v1.ListDevicesResponse",
@@ -181,6 +186,16 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.gateway.v1.ClaimTargetsRequest",
                 "windhub.gateway.v1.ClaimTargetsResponse",
             ),
+            (
+                "ExecuteSimulationCommand",
+                "windhub.gateway.v1.SimulationCommandRequest",
+                "windhub.gateway.v1.SimulationCommandResponse",
+            ),
+            (
+                "GetSimulationExecutionResult",
+                "windhub.gateway.v1.SimulationExecutionQuery",
+                "windhub.gateway.v1.SimulationCommandResponse",
+            ),
         ],
     ),
     data_generator_pb2: (
@@ -227,6 +242,11 @@ EXPECTED: dict[ModuleType, tuple[str, str, list[tuple[str, str, str]]]] = {
                 "windhub.data_generator.v1.UpdateVariablesRequest",
                 "windhub.data_generator.v1.UpdateVariablesResponse",
             ),
+            (
+                "GetInputExecution",
+                "windhub.data_generator.v1.GetInputExecutionRequest",
+                "windhub.data_generator.v1.GetInputExecutionResponse",
+            ),
         ],
     ),
 }
@@ -255,21 +275,63 @@ def test_each_proto_declares_exactly_one_service_with_expected_package() -> None
         assert set(descriptor.services_by_name) == {service_name}
 
 
-def test_rpc_total_is_47() -> None:
-    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 47
-    assert len(_all_methods()) == 47
+def test_rpc_total_is_51() -> None:
+    assert sum(len(rpcs) for _, _, rpcs in EXPECTED.values()) == 51
+    assert len(_all_methods()) == 51
 
 
-def test_commander_rpc_count_is_seven() -> None:
+def test_data_generator_rpc_count_is_nine() -> None:
+    _, _, rpcs = EXPECTED[data_generator_pb2]
+    assert len(rpcs) == 9
+
+
+def test_input_execution_message_field_numbers_frozen() -> None:
+    # Contracts v1_27：请求级执行证据消息字段编号不可重排。
+    messages = data_generator_pb2.DESCRIPTOR.message_types_by_name
+    request = messages["GetInputExecutionRequest"]
+    response = messages["GetInputExecutionResponse"]
+    assert [field.number for field in request.fields] == [1, 2]
+    assert [field.name for field in request.fields] == ["generation_id", "request_id"]
+    assert [field.number for field in response.fields] == [1, 2, 3]
+    assert [field.name for field in response.fields] == [
+        "request_id",
+        "state",
+        "effective_step",
+    ]
+    assert response.fields_by_name["effective_step"].type == FieldDescriptor.TYPE_UINT64
+
+
+def test_commander_rpc_count_is_eight() -> None:
     _, _, rpcs = EXPECTED[commander_pb2]
-    assert len(rpcs) == 7
+    assert len(rpcs) == 8
 
 
 def test_commander_message_and_field_counts() -> None:
-    # Contracts v1_16 §12.2：Commander 15 种消息、58 个字段，逐 Descriptor 核验。
+    # Contracts v1_28：新增恢复请求/响应各 4 字段，旧消息与字段保持不变。
     messages = commander_pb2.DESCRIPTOR.message_types_by_name
-    assert len(messages) == 15
-    assert sum(len(message.fields) for message in messages.values()) == 58
+    assert len(messages) == 17
+    assert sum(len(message.fields) for message in messages.values()) == 66
+
+
+def test_commander_recovery_message_contract() -> None:
+    messages = commander_pb2.DESCRIPTOR.message_types_by_name
+    request = messages["RecoverDeviceControlRequest"]
+    response = messages["RecoverDeviceControlResponse"]
+    assert [field.name for field in request.fields] == [
+        "device_id",
+        "expected_revision",
+        "request_id",
+        "isolation_attestation",
+    ]
+    assert [field.number for field in request.fields] == [1, 2, 3, 4]
+    assert request.fields_by_name["isolation_attestation"].type == FieldDescriptor.TYPE_BYTES
+    assert [field.name for field in response.fields] == [
+        "device_id",
+        "state",
+        "decision_id",
+        "evidence_digest",
+    ]
+    assert [field.number for field in response.fields] == [1, 2, 3, 4]
 
 
 def test_commander_request_id_field_numbers_frozen() -> None:
@@ -289,7 +351,7 @@ def test_rpc_name_io_types_and_unary(method: MethodDescriptor) -> None:
     input_name, output_name = EXPECTED_RPCS[method.full_name]
     assert method.input_type.full_name == input_name
     assert method.output_type.full_name == output_name
-    # 47 个接口全部为 Unary，无 streaming。
+    # 51 个接口全部为 Unary，无 streaming。
     assert method.client_streaming is False
     assert method.server_streaming is False
 

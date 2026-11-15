@@ -13,8 +13,8 @@ import pytest
 import yaml
 
 from data_generator.domain.model import GeneratorError
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.snapshots import (
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.persistence.snapshots import (
     FileContent,
     SnapshotManager,
     recover_transaction,
@@ -77,7 +77,9 @@ def test_core_shared_files_are_read_only(configs_root) -> None:  # noqa: ANN001
         ),
     )
     manager, disk = _manager(service_path)
-    core_path = next(path for path in disk if path.startswith("templates/business_points.yaml"))
+    core_path = next(
+        path for path in disk if path.startswith("templates/business_points_standard.yaml")
+    )
     tampered = tuple(
         FileContent(
             path,

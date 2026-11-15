@@ -15,7 +15,7 @@ import pytest
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_FLOAT,
     ServerSpec,
     reserve_port,

@@ -218,6 +218,25 @@ def start_commander(
     )
 
 
+def start_sink_service_from_root(
+    config_root: Path,
+    *,
+    grpc_port: int,
+    log_dir: Path,
+    env_extra: dict[str, str] | None = None,
+) -> CollectorProcess:
+    """Start the current three-process Sink Service from its canonical config root."""
+    return _start_service(
+        "wind-hub-sink-service",
+        ["--config-root", str(config_root)],
+        service="sink-service",
+        port=grpc_port,
+        log_dir=log_dir,
+        env_extra=env_extra,
+        cwd=config_root,
+    )
+
+
 def start_sink_service(
     config_dir: Path,
     *,
@@ -315,6 +334,7 @@ def _start_service(
     port: int,
     log_dir: Path,
     env_extra: dict[str, str] | None,
+    cwd: Path | None = None,
 ) -> CollectorProcess:
     """以独立进程组启动 console script，stdout/stderr 合并落盘。"""
     log_path = log_dir / f"{service}-{port}.log"
@@ -329,6 +349,7 @@ def _start_service(
         text=True,
         start_new_session=True,
         env=env,
+        cwd=cwd,
     )
     return CollectorProcess(
         proc=proc,

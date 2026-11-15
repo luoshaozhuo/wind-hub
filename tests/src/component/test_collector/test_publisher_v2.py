@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from collector.infrastructure import publisher as publisher_module
-from collector.infrastructure.publisher import CollectorPublisher
+from collector.infrastructure.adapters.outbound import publisher as publisher_module
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolSample
 
 pytestmark = [pytest.mark.component, pytest.mark.mock_service, pytest.mark.overload]
@@ -145,6 +145,8 @@ async def test_reliable_retry_keeps_original_batch_identity(fake_nats: FakeNatsC
     assert len(fake_nats.jetstream_calls) == 3
     msg_ids = {call["headers"]["Nats-Msg-Id"] for call in fake_nats.jetstream_calls}
     assert msg_ids == {fake_nats.jetstream_calls[0]["headers"]["Nats-Msg-Id"]}
+    payloads = {call["payload"] for call in fake_nats.jetstream_calls}
+    assert payloads == {fake_nats.jetstream_calls[0]["payload"]}
     assert publisher.pubacked == 1
     assert publisher.unconfirmed >= 1
 
@@ -173,6 +175,81 @@ async def test_reliable_enqueue_timeout_is_failure_not_silent_drop(
         await publisher.publish("wtg-01", (_sample("p2"),))
     assert publisher.not_attempted >= 1
     assert publisher.failed >= 1
+
+
+@pytest.mark.asyncio
+async def test_reliable_split_rejection_never_publishes_accepted_prefix(
+    fake_nats: FakeNatsClient,
+) -> None:
+    """A rejected acquisition event must not leave a publishable queued prefix."""
+    publisher = _publisher("reliable", capacity=1, max_samples_per_batch=1, enqueue_timeout_s=0.01)
+    with pytest.raises(RuntimeError, match="exceeds bounded queue capacity"):
+        await publisher.publish("wtg-01", (_sample("p0"), _sample("p1")))
+
+    await publisher.start()
+    await publisher.stop()
+    assert fake_nats.jetstream_calls == [], "rejected source event published its queued prefix"
+
+
+@pytest.mark.asyncio
+async def test_reliable_oversized_rejection_preserves_other_queued_events(
+    fake_nats: FakeNatsClient,
+) -> None:
+    publisher = _publisher("reliable", capacity=2, max_samples_per_batch=1)
+    await publisher.publish("wtg-existing", (_sample("existing"),))
+    with pytest.raises(RuntimeError, match="exceeds bounded queue capacity"):
+        await publisher.publish("wtg-rejected", tuple(_sample(f"p{i}") for i in range(3)))
+
+    await publisher.start()
+    await publisher.stop()
+    assert len(fake_nats.jetstream_calls) == 1
+    assert fake_nats.jetstream_calls[0]["subject"].endswith(".wtg-existing")
+    assert publisher.not_attempted == 3
+    assert publisher.failed == 1
+
+
+@pytest.mark.asyncio
+async def test_reliable_split_waits_for_space_for_the_complete_event(
+    fake_nats: FakeNatsClient,
+) -> None:
+    publisher = _publisher("reliable", capacity=3, max_samples_per_batch=1, enqueue_timeout_s=1.0)
+    await publisher.publish("wtg-existing", (_sample("e0"), _sample("e1")))
+    accepted = asyncio.create_task(publisher.publish("wtg-split", (_sample("p0"), _sample("p1"))))
+    await asyncio.sleep(0)
+    assert not accepted.done(), "two fragments were admitted into one free queue slot"
+
+    await publisher.start()
+    await asyncio.wait_for(accepted, timeout=1)
+    await publisher.stop()
+    assert len(fake_nats.jetstream_calls) == 4
+    assert [call["subject"].rsplit(".", 1)[-1] for call in fake_nats.jetstream_calls] == [
+        "wtg-existing",
+        "wtg-existing",
+        "wtg-split",
+        "wtg-split",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reliable_concurrent_publishers_and_stop_drain_complete_events(
+    fake_nats: FakeNatsClient,
+) -> None:
+    publisher = _publisher("reliable", capacity=2, max_samples_per_batch=1, enqueue_timeout_s=1.0)
+    publications = [
+        asyncio.create_task(
+            publisher.publish(f"wtg-{index}", (_sample(f"p{index}-0"), _sample(f"p{index}-1")))
+        )
+        for index in range(4)
+    ]
+    await asyncio.sleep(0)
+    await publisher.start()
+    await asyncio.wait_for(asyncio.gather(*publications), timeout=1)
+    await publisher.stop()
+
+    assert len(fake_nats.jetstream_calls) == 8
+    assert publisher.pubacked_samples == 8
+    assert publisher._queue.empty()
+    assert publisher._queue._unfinished_tasks == 0
 
 
 @pytest.mark.asyncio

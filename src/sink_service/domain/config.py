@@ -65,6 +65,7 @@ class ValidatedSnapshot:
     service: dict[str, Any]
     sinks: dict[str, Any]
     deliveries: dict[str, Any]
+    documents: dict[str, dict[str, Any]]
 
 
 def expect_mapping(value: object, location: str) -> dict[str, Any]:

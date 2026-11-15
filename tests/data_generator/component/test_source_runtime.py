@@ -13,8 +13,9 @@ import pytest
 
 from data_generator.application.runtime import Runtime
 from data_generator.domain.model import DataBatch, DeliveryResult, OutputTarget
-from data_generator.infrastructure.config import load_settings
-from data_generator.infrastructure.snapshots import recover_transaction
+from data_generator.infrastructure.adapters.outbound.csv_history import CsvHistoryReader
+from data_generator.infrastructure.config.service_settings import load_settings
+from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 from ..conftest import ship_scenarios_document
 
@@ -78,7 +79,7 @@ async def test_start_unknown_scenario_and_version_mismatch(configs_root) -> None
         ),
         bind="127.0.0.1:0",
     )
-    runtime = Runtime(_settings(service_path), FakeWriter())
+    runtime = Runtime(_settings(service_path), FakeWriter(), history_reader=CsvHistoryReader())
     with pytest.raises(Exception, match="scenario not found"):
         await runtime.start("missing", None, runtime.settings.revision)
     with pytest.raises(Exception, match="version unavailable"):
@@ -92,7 +93,7 @@ async def test_revision_mismatch_rejects_start(configs_root) -> None:  # noqa: A
         ),
         bind="127.0.0.1:0",
     )
-    runtime = Runtime(_settings(service_path), FakeWriter())
+    runtime = Runtime(_settings(service_path), FakeWriter(), history_reader=CsvHistoryReader())
     with pytest.raises(Exception, match="expected_revision"):
         await runtime.start("demo-random", None, "deadbeef")
 
@@ -140,7 +141,7 @@ async def test_single_active_generation_and_completion(configs_root) -> None:  #
         output_timeout=1.0,
     )
     writer = FakeWriter()
-    runtime = Runtime(_settings(service_path), writer)
+    runtime = Runtime(_settings(service_path), writer, history_reader=CsvHistoryReader())
     first = await runtime.start("replay-finish", None, runtime.settings.revision)
     await asyncio.sleep(0)
     state = await runtime.get_generation(first.generation_id)
@@ -173,7 +174,9 @@ async def test_failed_output_marks_generation_failed(configs_root) -> None:  # n
         ),
         bind="127.0.0.1:0",
     )
-    runtime = Runtime(_settings(service_path), FakeWriter(fail=True))
+    runtime = Runtime(
+        _settings(service_path), FakeWriter(fail=True), history_reader=CsvHistoryReader()
+    )
     generation = await runtime.start("demo-random", None, runtime.settings.revision)
     for _ in range(50):
         await asyncio.sleep(0.02)
@@ -196,7 +199,7 @@ async def test_overrun_skips_periods_without_reentrant_emits(configs_root) -> No
         bind="127.0.0.1:0",
     )
     writer = FakeWriter(block=0.18)
-    runtime = Runtime(_settings(service_path), writer)
+    runtime = Runtime(_settings(service_path), writer, history_reader=CsvHistoryReader())
     generation = await runtime.start("demo-random", None, runtime.settings.revision)
     await asyncio.sleep(0.55)
     await runtime.stop(generation.generation_id, "")

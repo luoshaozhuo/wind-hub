@@ -75,6 +75,16 @@ class IndustrialGatewayServiceStub:
                 request_serializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsRequest.SerializeToString,
                 response_deserializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsResponse.FromString,
                 _registered_method=True)
+        self.ExecuteSimulationCommand = channel.unary_unary(
+                '/windhub.gateway.v1.IndustrialGatewayService/ExecuteSimulationCommand',
+                request_serializer=contracts_dot_industrial__gateway__pb2.SimulationCommandRequest.SerializeToString,
+                response_deserializer=contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.FromString,
+                _registered_method=True)
+        self.GetSimulationExecutionResult = channel.unary_unary(
+                '/windhub.gateway.v1.IndustrialGatewayService/GetSimulationExecutionResult',
+                request_serializer=contracts_dot_industrial__gateway__pb2.SimulationExecutionQuery.SerializeToString,
+                response_deserializer=contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.FromString,
+                _registered_method=True)
 
 
 class IndustrialGatewayServiceServicer:
@@ -128,6 +138,18 @@ class IndustrialGatewayServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ExecuteSimulationCommand(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSimulationExecutionResult(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_IndustrialGatewayServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -170,6 +192,16 @@ def add_IndustrialGatewayServiceServicer_to_server(servicer, server):
                     servicer.ClaimTargets,
                     request_deserializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsRequest.FromString,
                     response_serializer=contracts_dot_industrial__gateway__pb2.ClaimTargetsResponse.SerializeToString,
+            ),
+            'ExecuteSimulationCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteSimulationCommand,
+                    request_deserializer=contracts_dot_industrial__gateway__pb2.SimulationCommandRequest.FromString,
+                    response_serializer=contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.SerializeToString,
+            ),
+            'GetSimulationExecutionResult': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSimulationExecutionResult,
+                    request_deserializer=contracts_dot_industrial__gateway__pb2.SimulationExecutionQuery.FromString,
+                    response_serializer=contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -388,6 +420,60 @@ class IndustrialGatewayService:
             '/windhub.gateway.v1.IndustrialGatewayService/ClaimTargets',
             contracts_dot_industrial__gateway__pb2.ClaimTargetsRequest.SerializeToString,
             contracts_dot_industrial__gateway__pb2.ClaimTargetsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExecuteSimulationCommand(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.gateway.v1.IndustrialGatewayService/ExecuteSimulationCommand',
+            contracts_dot_industrial__gateway__pb2.SimulationCommandRequest.SerializeToString,
+            contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSimulationExecutionResult(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.gateway.v1.IndustrialGatewayService/GetSimulationExecutionResult',
+            contracts_dot_industrial__gateway__pb2.SimulationExecutionQuery.SerializeToString,
+            contracts_dot_industrial__gateway__pb2.SimulationCommandResponse.FromString,
             options,
             channel_credentials,
             insecure,

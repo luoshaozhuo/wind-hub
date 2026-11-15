@@ -1,4 +1,4 @@
-"""UpdateVariables / ClaimTargets 真实 grpc.aio 契约（8 RPC 中的注入面）。
+"""UpdateVariables / ClaimTargets 真实 grpc.aio 契约（Gateway RPC 契约中的注入面）。
 
 租约机制已纳入冻结 Contracts v1_18 与 industrial_gateway 设计 v1_23：
 UpdateVariables 必须携带覆盖全部目标变量的有效 lease_token，否则整请求拒绝。
@@ -14,14 +14,14 @@ import pytest
 
 from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_COIL_0,
     FEEDBACK_FLOAT,
     FEEDBACK_PAIR,
     FEEDBACK_UINT,
     POINT_TABLE,
     claim_for_injection,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -34,7 +34,7 @@ def _update(variable_id: str, value: object) -> pb.VariableUpdate:
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs(control_enabled=False))
+    gateway = await start_gateway(tmp_path / "root", two_server_specs(control_enabled=False))
     try:
         yield gateway
     finally:

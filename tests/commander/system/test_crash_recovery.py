@@ -19,7 +19,7 @@ from uuid import uuid4
 import pytest
 
 from commander.domain.command import CommandState
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 from contracts import commander_pb2 as pb
 from contracts import common_pb2
 

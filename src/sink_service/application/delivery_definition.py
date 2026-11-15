@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import yaml
-
 from sink_service.application.config import template_path
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
 
@@ -21,14 +19,7 @@ class DeliveryDefinition:
 def delivery_definitions(snapshot: ValidatedSnapshot) -> tuple[DeliveryDefinition, ...]:
     """Resolve stable channel identities without importing an Adapter."""
     _, template_root = config_sources(snapshot.service)
-    templates: dict[str, dict[str, object]] = {}
-    for item in snapshot.files:
-        if not item.path.startswith(f"{template_root}/deliveries/"):
-            continue
-        parsed = yaml.safe_load(item.content)
-        if not isinstance(parsed, dict):
-            raise ConfigurationError(f"{item.path}: invalid Delivery template")
-        templates[item.path] = parsed
+    templates = snapshot.documents
 
     definitions: list[DeliveryDefinition] = []
     for delivery_id, value in sorted(snapshot.deliveries.items()):

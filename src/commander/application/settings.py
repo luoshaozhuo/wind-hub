@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationGatewayTarget:
+    """A deployment-pinned Gateway endpoint for an authorized simulated device."""
+
+    gateway_id: str
+    endpoint: str
+    ca_cert: Path
+    client_cert: Path
+    client_key: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,3 +49,4 @@ class ServiceSettings:
     coordination_root: Path | None = None
     max_request_id_bytes: int = 128
     accept_commit_timeout: float = 10.0
+    simulation_targets: dict[str, SimulationGatewayTarget] = field(default_factory=dict)

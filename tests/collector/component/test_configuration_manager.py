@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from collector.application.configuration import CollectorConfigurationManager
+from collector.infrastructure.config.service_identity import sources_changed
 from collector.infrastructure.config.snapshot_repository import (
     CollectorSnapshotRepository,
     SnapshotConflictError,
@@ -26,8 +27,8 @@ def _files() -> dict[str, bytes]:
         "services/collector.yaml": b"schema_version: 1\n",
         "instances/site.yaml": b"schema_version: 1\n",
         "instances/devices.yaml": b"schema_version: 1\n",
-        "templates/units.yaml": b"schema_version: 1\n",
-        "templates/business_points.yaml": b"schema_version: 1\n",
+        "templates/units_standard.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard.yaml": b"schema_version: 1\n",
     }
 
 
@@ -53,6 +54,7 @@ async def test_push_is_inert_and_apply_activates(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: False,
+        source_changed=sources_changed,
     )
     identifier, base = manager.push(_files(), expected_revision="")
     assert base == ""
@@ -72,6 +74,7 @@ async def test_failed_runtime_convergence_is_reported(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: False,
+        source_changed=sources_changed,
     )
     identifier, _ = manager.push(_files(), expected_revision="")
     result = await manager.apply(identifier, expected_revision="")
@@ -89,6 +92,7 @@ async def test_restart_required_does_not_claim_runtime_activation(tmp_path: Path
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: before != after,
+        source_changed=sources_changed,
     )
     identifier, _ = manager.push(_files(), expected_revision="")
     first = await manager.apply(identifier, expected_revision="")
@@ -116,6 +120,7 @@ async def test_stale_apply_rejected_without_overwrite(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: False,
+        source_changed=sources_changed,
     )
     first, _ = manager.push(_files(), expected_revision="")
     stale, _ = manager.push(_files(), expected_revision="")
@@ -132,6 +137,7 @@ async def test_repeated_apply_reuses_original_result(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: False,
+        source_changed=sources_changed,
     )
     identifier, _ = manager.push(_files(), expected_revision="")
     first = await manager.apply(identifier, expected_revision="")
@@ -151,6 +157,7 @@ async def test_failed_apply_converges_later_without_recommitting(tmp_path: Path)
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda old, new: old != new,
+        source_changed=sources_changed,
     )
     candidate, _ = manager.push(_files(), expected_revision="")
     failed = await manager.apply(candidate, expected_revision="")
@@ -173,6 +180,7 @@ async def test_service_source_change_waits_for_restart(tmp_path: Path) -> None:
         validate=_read_service,
         runtime=runtime,
         restart_required=lambda before, after: before != after,
+        source_changed=sources_changed,
     )
     original = _files()
     original["services/collector.yaml"] = (

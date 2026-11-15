@@ -13,11 +13,11 @@ import pytest
 
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as pb
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_FLOAT,
     ServerSpec,
     reserve_port,
-    start_gateway_v1,
+    start_gateway,
 )
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
@@ -37,7 +37,7 @@ def _spec(server_id: str, device: str, *, state: str = "START") -> ServerSpec:
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(
+    gateway = await start_gateway(
         tmp_path / "root",
         [_spec("gw1", "D01"), _spec("gw2", "D02"), _spec("gw3", "D03")],
     )
@@ -170,7 +170,8 @@ async def test_service_info_capabilities_and_status(harness) -> None:
     info = await common_stub.GetServiceInfo(common.Empty())
     assert info.service_id == "industrial_gateway"
     caps = await common_stub.GetCapabilities(common.Empty())
-    assert len(caps.rpc_names) == 17
+    # Common 9 个 RPC + IndustrialGateway 10 个 RPC（含两个仿真执行 RPC）。
+    assert len(caps.rpc_names) == 19
     assert "CommonService.Diagnose" in caps.rpc_names
     assert "IndustrialGatewayService.ClaimTargets" in caps.rpc_names
     assert "modbus_tcp" in caps.protocols

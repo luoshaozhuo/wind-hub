@@ -25,14 +25,14 @@ from queue import Empty
 
 import pytest
 
-from commander.infrastructure.config_commit import (
+from commander.infrastructure.config.config_commit import (
     _MARKER,
     _STORE,
     commit_config_files,
     recover_config_commit,
 )
-from configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from core.application.errors import ConfigError
+from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 
 pytestmark = [
     pytest.mark.reliability,
@@ -46,7 +46,7 @@ pytestmark = [
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 _DEVICES_REL = "instances/devices.yaml"
-_UNITS_REL = "templates/units.yaml"
+_UNITS_REL = "templates/units_standard.yaml"
 
 
 def _copy_tree(base: Path) -> Path:
@@ -85,13 +85,13 @@ def _hold_exclusive_lock(root_str: str, hold_seconds: float) -> None:
         os.close(descriptor)
 
 
-def _commit_generations(root_str: str, generations: int) -> None:
+def _commit_generations(root_str: str, generations: int, *, start: int = 1) -> None:
     root = Path(root_str)
     devices_path = root / _DEVICES_REL
     units_path = root / _UNITS_REL
     import yaml
 
-    for generation in range(1, generations + 1):
+    for generation in range(start, generations + 1):
         devices = yaml.safe_load(devices_path.read_text(encoding="utf-8"))
         units = yaml.safe_load(units_path.read_text(encoding="utf-8"))
         devices["file_version"] = f"1.0.{generation}"
@@ -228,12 +228,15 @@ def test_reader_loader_blocks_behind_foreign_exclusive_lock(tmp_path: Path) -> N
 def test_concurrent_reader_never_observes_partial_multifile_commit(tmp_path: Path) -> None:
     ctx = mp.get_context("fork")
     root = _copy_tree(tmp_path)
+    # 出厂文件各自独立演进，版本原本不同；先提交明确的共同测试代际，
+    # 再把任何旧代/新代混读归为真实事务缺陷。
+    _commit_generations(str(root), generations=1)
     queue: mp.Queue[tuple[str, object]] = ctx.Queue()
     reader = ctx.Process(target=_reader_loop, args=(str(root), 6.0, queue))
     reader.start()
     time.sleep(0.5)
     try:
-        _commit_generations(str(root), generations=40)
+        _commit_generations(str(root), generations=40, start=2)
     finally:
         reader.join(timeout=20)
     assert not reader.is_alive(), "reader process did not converge"

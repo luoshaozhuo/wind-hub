@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from configuration.validation import validate_core_config
+from core.configuration.validation import validate_core_config
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,

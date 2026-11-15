@@ -16,9 +16,9 @@ import pytest
 
 from commander.application.config_manager import CommanderConfigManager
 from commander.application.service_lifecycle import CommanderService
+from commander.assembly import build_commander
 from commander.domain.command import CommandSpec
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.service_settings import load_service_settings
+from commander.infrastructure.config.service_settings import load_service_settings
 from core.application.protocol_contract import ProtocolWrite
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -71,12 +71,14 @@ def _build_tree(
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
-    model_file = root / "templates/device_models/modbus_wtg_1.0.0.yaml"
+    model_file = root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
     model_file.write_text(model_yaml, encoding="utf-8")
-    (root / "templates/point_tables/modbus_wtg_1.0.0.yaml").write_text(
+    (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points.yaml").write_text(_BUSINESS_POINTS, encoding="utf-8")
+    (root / "templates/business_points_standard.yaml").write_text(
+        _BUSINESS_POINTS, encoding="utf-8"
+    )
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     service_yaml = tmp_root / "commander.yaml"
@@ -97,7 +99,7 @@ def _model_yaml(*, port: int | None, word_order: str = "big_endian") -> str:
         "file_version: 1.0.0\n"
         "name: B1 turbine\n"
         "device_type_id: turbine\n"
-        "protocol:\n  id: modbus_tcp\n  version: 1.0.0\n"
+        "protocol:\n  id: modbus_tcp\n  version: 1.1.0\n"
         "point_table:\n  id: modbus_wtg\n  version: 1.0.0\n"
         "task:\n  id: turbine_all\n  version: 1.0.0\n"
         "protocol_options:\n"
@@ -237,7 +239,7 @@ async def test_device_override_wins_over_model_default_real_modbus(tmp_path) -> 
             model_yaml=_model_yaml(port=port, word_order="big_endian"),
         )
         manager = _manager(config_root, service_yaml)
-        driver = manager.create_session("WT-B1", _registry())
+        driver = _registry().create(*manager.device_connection("WT-B1"))
         assert isinstance(driver, ModbusDriver)
         assert driver._config.word_order == "little_endian"  # noqa: SLF001
         assert driver._config.port == port  # noqa: SLF001
@@ -275,7 +277,7 @@ async def test_port_falls_back_to_protocol_default_502(tmp_path) -> None:
         model_yaml=_model_yaml(port=None, word_order="big_endian"),
     )
     manager = _manager(config_root, service_yaml)
-    driver = manager.create_session("WT-B1", _registry())
+    driver = _registry().create(*manager.device_connection("WT-B1"))
     assert isinstance(driver, ModbusDriver)
     assert driver._config.port == 502  # noqa: SLF001
     assert driver._config.word_order == "big_endian"  # noqa: SLF001
@@ -306,7 +308,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             assert first is not None and first.state.value == "SUCCEEDED"
 
             # 修改型号模板：默认端口 A → B。
-            model_file = config_root / "templates/device_models/modbus_wtg_1.0.0.yaml"
+            model_file = config_root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
             model_file.write_text(
                 _model_yaml(port=port_b, word_order="big_endian"),
                 encoding="utf-8",

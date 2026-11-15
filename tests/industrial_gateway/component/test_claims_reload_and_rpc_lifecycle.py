@@ -20,9 +20,9 @@ import yaml
 from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as pb
 from contracts.scalar_codec import encode_scalar
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_FLOAT,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -35,7 +35,7 @@ def _update(variable_id: str, value: object) -> pb.VariableUpdate:
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         yield gateway
     finally:

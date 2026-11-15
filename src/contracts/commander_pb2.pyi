@@ -451,3 +451,61 @@ class GetRequestResultResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GetRequestResultResponse: _TypeAlias = GetRequestResultResponse  # noqa: Y015
+
+@_typing.final
+class RecoverDeviceControlRequest(_message.Message):
+    """Recovery authority is external to this service; an unattested request must fail closed."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    EXPECTED_REVISION_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    ISOLATION_ATTESTATION_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    expected_revision: _builtins.str
+    request_id: _builtins.str
+    isolation_attestation: _builtins.bytes
+    def __init__(
+        self,
+        *,
+        device_id: _builtins.str = ...,
+        expected_revision: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+        isolation_attestation: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "expected_revision", b"expected_revision", "isolation_attestation", b"isolation_attestation", "request_id", b"request_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RecoverDeviceControlRequest: _TypeAlias = RecoverDeviceControlRequest  # noqa: Y015
+
+@_typing.final
+class RecoverDeviceControlResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    STATE_FIELD_NUMBER: _builtins.int
+    DECISION_ID_FIELD_NUMBER: _builtins.int
+    EVIDENCE_DIGEST_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    state: _builtins.str
+    decision_id: _builtins.str
+    evidence_digest: _builtins.str
+    def __init__(
+        self,
+        *,
+        device_id: _builtins.str = ...,
+        state: _builtins.str = ...,
+        decision_id: _builtins.str = ...,
+        evidence_digest: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["decision_id", b"decision_id", "device_id", b"device_id", "evidence_digest", b"evidence_digest", "state", b"state"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RecoverDeviceControlResponse: _TypeAlias = RecoverDeviceControlResponse  # noqa: Y015

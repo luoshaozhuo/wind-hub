@@ -18,13 +18,13 @@ from pathlib import Path
 import pytest
 
 from contracts import industrial_gateway_pb2 as pb
-from industrial_gateway.infrastructure.commander.forwarder import ForwardState
-from tests.support.gateway_v1 import (
+from industrial_gateway.application.forwarding import ForwardState
+from tests.support.gateway import (
     COMMAND_COIL,
     COMMAND_UINT,
     FEEDBACK_FLOAT,
     POINT_TABLE,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -86,7 +86,7 @@ async def _write_command(harness, server: str, address: int, value: int) -> None
 
 @pytest.fixture
 async def harness(tmp_path: Path):
-    gateway = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    gateway = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         yield gateway
     finally:

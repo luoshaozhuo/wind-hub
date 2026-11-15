@@ -19,8 +19,8 @@ from typing import Any
 
 import pytest
 
-from collector.infrastructure import publisher as publisher_module
-from collector.infrastructure.publisher import CollectorPublisher
+from collector.infrastructure.adapters.outbound import publisher as publisher_module
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolSample
 
 pytestmark = [pytest.mark.reliability, pytest.mark.soak, pytest.mark.load]

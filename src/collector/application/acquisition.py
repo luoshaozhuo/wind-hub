@@ -9,7 +9,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Protocol, TypeVar
+from typing import Any, TypeVar
 
 from core.application import (
     InterrogationRequest,
@@ -23,22 +23,12 @@ from core.application import (
 )
 from core.domain import Device, PointAccess, PointTable, engineering_value
 
+from .ports.acquisition import MetricsSubjectPort, SampleSink
 from .telemetry import CollectorTelemetry
 
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
-
-
-class MetricsSubjectPort(Protocol):
-    def update_site(self, site_id: str) -> None: ...
-
-
-class SampleSink(Protocol):
-    async def publish(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> None: ...
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    def update_site(self, site_id: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

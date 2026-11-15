@@ -106,7 +106,7 @@ async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_configuration_redaction_handles_nested_credentials() -> None:
-    from collector.infrastructure.grpc.config_service import _redact_yaml
+    from collector.infrastructure.adapters.inbound.grpc.config_service import _redact_yaml
 
     raw = (
         b"messaging:\n"
@@ -123,7 +123,7 @@ def test_configuration_redaction_handles_nested_credentials() -> None:
 
 
 def test_non_secret_snapshot_is_byte_identical() -> None:
-    from collector.infrastructure.grpc.config_service import _redact_yaml
+    from collector.infrastructure.adapters.inbound.grpc.config_service import _redact_yaml
 
     raw = b"# retain original formatting\nvalue: [1, 2, 3]\n"
     assert _redact_yaml(raw) == raw
@@ -133,7 +133,7 @@ def test_empty_secret_placeholder_is_byte_identical() -> None:
     # A template that only declares an empty password placeholder must survive
     # a DISK read/rewrite unchanged, while the secret-bearing case is still
     # scrubbed (see test_configuration_redaction_handles_nested_credentials).
-    from collector.infrastructure.grpc.config_service import _redact_yaml
+    from collector.infrastructure.adapters.inbound.grpc.config_service import _redact_yaml
 
     raw = (
         b"# leading comment must survive\n"

@@ -16,17 +16,17 @@ from collector.application.acquisition import (
     DevicePlan,
     DeviceWorker,
 )
-from configuration import (
-    SharedConfigPaths,
-    SharedDocumentLoader,
-    build_shared_snapshot,
-)
 from core.application import (
     ConnectionHealth,
     InterrogationRequest,
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
+)
+from core.configuration import (
+    SharedConfigPaths,
+    SharedDocumentLoader,
+    build_shared_snapshot,
 )
 from core.domain import Device, DeviceId, PointTable
 

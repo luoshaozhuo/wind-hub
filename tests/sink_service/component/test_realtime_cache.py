@@ -25,7 +25,7 @@ import pytest
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.realtime import BatchOutcome, RealtimeEngine
-from sink_service.infrastructure.realtime_runtime import NatsRealtimeIngress
+from sink_service.infrastructure.adapters.inbound.nats_consumer import NatsRealtimeIngress
 
 pytestmark = [pytest.mark.component, pytest.mark.performance]
 

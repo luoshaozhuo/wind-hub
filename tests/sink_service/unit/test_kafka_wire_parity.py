@@ -18,10 +18,13 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.kafka_wire import encode_kafka_point
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
+    encode_delivery_point,
+    encode_kafka_point,
+)
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 
@@ -109,7 +112,7 @@ def test_b1_bytes_identical_to_production_and_semantically_equal(
     decoded = SampleBatch.decode(batch.encode(), "reliable", subject=batch.subject())
     item = decoded.samples[0]
 
-    production_bytes = DeliveryPoint.from_batch(decoded, item).encode()
+    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(decoded, item))
     b1_bytes = encode_kafka_point(decoded, item)
 
     # 第一层：UTF-8 字节逐字节相等（字段顺序与 JSON 渲染都被钉死）

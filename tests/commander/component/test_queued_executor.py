@@ -407,7 +407,7 @@ async def test_accept_after_close_is_rejected(control) -> None:
         await executor.accept([make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op")
 
 
-async def test_connect_timeout_is_failed_not_unknown(control) -> None:
+async def test_unconverged_connect_timeout_is_unknown(control) -> None:
     release = asyncio.Event()
 
     class SlowConnect(FakeSession):
@@ -421,8 +421,9 @@ async def test_connect_timeout_is_failed_not_unknown(control) -> None:
         [make_spec()], request_id=f"req-qe-{uuid4().hex}", caller_id="op"
     )
     result = await wait_for_result(executor, accepted[0], timeout=2.0)
-    # 连接超时现场未写：可确证 NOT_SENT 语义走 FAILED/CONNECT_TIMEOUT。
-    assert result.state is CommandState.FAILED
+    # 原生连接任务尚未收敛时不能证明物理连接未建立，保守保持 UNKNOWN。
+    assert result.state is CommandState.UNKNOWN
+    assert result.outcome is CommandOutcome.UNKNOWN
     assert result.error_code == "CONNECT_TIMEOUT"
     blocked = await executor.close(grace_seconds=0.2)
     assert "WT01" in blocked

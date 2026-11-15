@@ -19,7 +19,7 @@ import grpc
 import pytest
 import yaml
 
-from commander.infrastructure.config_commit import (
+from commander.infrastructure.config.config_commit import (
     _MARKER,
     _STORE,
     commit_config_files,

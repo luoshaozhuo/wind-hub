@@ -1,7 +1,8 @@
-"""设计 §13.2 / §9：17 个 Server RPC 逐方法 Descriptor 断言。
+"""设计 §13.2 / §9：28 个 Server RPC 逐方法 Descriptor 断言。
 
-DataGeneratorService 8 + CommonService 9，全部 Unary；校验真实入参/出参
-消息类型、optional 字段、oneof 与枚举存在性。仅 Descriptor，不调用服务。
+DataGeneratorService 9 + CommonService 9 + IndustrialGatewayService 10，
+全部 Unary；校验真实入参/出参消息类型、optional 字段、oneof 与枚举存在性。
+仅 Descriptor，不调用服务。
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ DG_METHODS: dict[str, tuple[Any, Any]] = {
     "StopGeneration": (dg.StopGenerationRequest, dg.StopGenerationResponse),
     "ListVariables": (dg.ListVariablesRequest, dg.ListVariablesResponse),
     "UpdateVariables": (dg.UpdateVariablesRequest, dg.UpdateVariablesResponse),
+    "GetInputExecution": (dg.GetInputExecutionRequest, dg.GetInputExecutionResponse),
 }
 COMMON_METHODS: dict[str, tuple[Any, Any]] = {
     "GetServiceInfo": (common.Empty, common.GetServiceInfoResponse),
@@ -39,10 +41,10 @@ COMMON_METHODS: dict[str, tuple[Any, Any]] = {
 }
 
 
-def test_data_generator_service_has_eight_unary_methods() -> None:
+def test_data_generator_service_has_nine_unary_methods() -> None:
     service = dg.DESCRIPTOR.services_by_name["DataGeneratorService"]
     assert {method.name for method in service.methods} == set(DG_METHODS)
-    assert len(service.methods) == 8
+    assert len(service.methods) == 9
     for method in service.methods:
         request_type, response_type = DG_METHODS[method.name]
         assert not method.client_streaming and not method.server_streaming
@@ -189,19 +191,27 @@ def test_claim_targets_contract_fields() -> None:
     }
 
 
-def test_industrial_gateway_service_has_eight_unary_methods() -> None:
+def test_industrial_gateway_service_has_ten_unary_methods() -> None:
     service = gw.DESCRIPTOR.services_by_name["IndustrialGatewayService"]
-    assert {method.name for method in service.methods} == {
-        "ListGateways",
-        "GetGateway",
-        "StartGateway",
-        "StopGateway",
-        "ListVariables",
-        "ReadVariables",
-        "UpdateVariables",
-        "ClaimTargets",
+    expected: dict[str, tuple[Any, Any]] = {
+        "ListGateways": (gw.ListGatewaysRequest, gw.ListGatewaysResponse),
+        "GetGateway": (common.ObjectId, gw.GetGatewayResponse),
+        "StartGateway": (common.OperationRequest, common.OperationResult),
+        "StopGateway": (common.OperationRequest, common.OperationResult),
+        "ListVariables": (gw.ListVariablesRequest, gw.ListVariablesResponse),
+        "ReadVariables": (gw.ReadVariablesRequest, gw.ReadVariablesResponse),
+        "UpdateVariables": (gw.UpdateVariablesRequest, gw.UpdateVariablesResponse),
+        "ClaimTargets": (gw.ClaimTargetsRequest, gw.ClaimTargetsResponse),
+        "ExecuteSimulationCommand": (gw.SimulationCommandRequest, gw.SimulationCommandResponse),
+        "GetSimulationExecutionResult": (
+            gw.SimulationExecutionQuery,
+            gw.SimulationCommandResponse,
+        ),
     }
-    assert len(service.methods) == 8
-    assert all(
-        not method.client_streaming and not method.server_streaming for method in service.methods
-    )
+    assert {method.name for method in service.methods} == set(expected)
+    assert len(service.methods) == 10
+    for method in service.methods:
+        request_type, response_type = expected[method.name]
+        assert not method.client_streaming and not method.server_streaming
+        assert method.input_type.full_name == request_type.DESCRIPTOR.full_name
+        assert method.output_type.full_name == response_type.DESCRIPTOR.full_name

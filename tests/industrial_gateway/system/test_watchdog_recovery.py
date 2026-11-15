@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from contracts import common_pb2 as common
-from tests.support.gateway_v1 import start_gateway_v1, two_server_specs
+from tests.support.gateway import start_gateway, two_server_specs
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.modbus]
 
@@ -59,7 +59,7 @@ async def _wait_state(harness, server_id: str, actual: str, timeout: float = 8.0
 
 
 async def test_watchdog_recovers_failed_listener_without_reconfig(tmp_path: Path) -> None:
-    harness = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    harness = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         port = harness.specs["gw1"].modbus_port
         await _fc03_read_zero(port, 1)  # 崩溃前真实可读。
@@ -86,7 +86,7 @@ async def test_watchdog_recovers_failed_listener_without_reconfig(tmp_path: Path
 
 
 async def test_explicit_stop_is_not_revived_by_watchdog(tmp_path: Path) -> None:
-    harness = await start_gateway_v1(tmp_path / "root", two_server_specs())
+    harness = await start_gateway(tmp_path / "root", two_server_specs())
     try:
         stub = harness.gateway_stub()
         port = harness.specs["gw1"].modbus_port

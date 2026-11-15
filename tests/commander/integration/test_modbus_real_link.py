@@ -366,6 +366,18 @@ async def test_real_modbus_write_timeout_but_applied_stays_unknown_no_overwrite(
         connect_timeout=3.0,
         write_timeout=0.4,
     )
+    # R1-F1 M-P1-01：记录 p2 初值，超时后未开始后缀绝不下发，寄存器必须保持初值。
+    pre = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", modbus_server.port),
+        table,
+        {"word_order": "big_endian", "timeout": 2.0},
+    )
+    await pre.connect()
+    try:
+        original_p2 = (await pre.read_one("p2")).value
+    finally:
+        await pre.close()
+
     accepted = await executor.accept(
         [
             CommandSpec("WT01", "p0", 111.25, "ref-v1"),
@@ -388,18 +400,21 @@ async def test_real_modbus_write_timeout_but_applied_stays_unknown_no_overwrite(
         assert states_at_timeout == {
             "p0": CommandState.SUCCEEDED,
             "p1": CommandState.UNKNOWN,
-            "p2": CommandState.UNKNOWN,
+            "p2": CommandState.INTERRUPTED,
         }
-        # 等被 shield 的底层任务把 p1/p2 真正写完（最多约 3s）。
+        # 等被 shield 的底层任务把 p1 的迟到 ACK 收完（最多约 3s）；p2 绝不下发。
         deadline = asyncio.get_running_loop().time() + 5.0
-        while modbus_server.write_count < 3 and asyncio.get_running_loop().time() < deadline:
+        while modbus_server.write_count < 2 and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.05)
-        assert modbus_server.write_count == 3
-        # 收敛后终态仍为 UNKNOWN：物理成功不得覆盖安全裁决。
+        assert modbus_server.write_count == 2
+        # 收敛后终态不变：物理成功不得覆盖 UNKNOWN，后缀保持 NOT_SENT。
         states_after = {
             c.spec.point_id: (await control.get_command(c.command_id)).state for c in accepted
         }
         assert states_after == states_at_timeout
+        suffix = await control.get_command(accepted[2].command_id)
+        assert suffix is not None and suffix.outcome is not None
+        assert suffix.outcome.value == "NOT_SENT"
     finally:
         await executor.close(grace_seconds=10.0)
 
@@ -412,6 +427,6 @@ async def test_real_modbus_write_timeout_but_applied_stays_unknown_no_overwrite(
     try:
         assert (await verifier.read_one("p0")).value == pytest.approx(111.25)
         assert (await verifier.read_one("p1")).value == pytest.approx(222.5)
-        assert (await verifier.read_one("p2")).value == pytest.approx(333.75)
+        assert (await verifier.read_one("p2")).value == pytest.approx(original_p2)
     finally:
         await verifier.close()

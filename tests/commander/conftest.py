@@ -22,7 +22,7 @@ import pytest
 
 from commander.application.control import CommandControl
 from commander.application.persistence import BufferedJournal, PersistenceWorker
-from commander.infrastructure.event_repository import EventRepository
+from commander.infrastructure.persistence.event_repository import EventRepository
 
 # 专题 marker 的文件名归属（不含目录前缀与 .py 后缀）。
 _RELIABILITY_FILES = {

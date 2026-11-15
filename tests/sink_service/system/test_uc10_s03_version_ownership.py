@@ -21,7 +21,7 @@ import yaml
 
 from tests.sink_service._stage1_fixtures import SERVICE_FILE
 from tests.sink_service.system.conftest import RELIABLE_DELIVERY, SinkSystemHarness
-from tests.support.process import start_sink_service
+from tests.support.process import start_sink_service_from_root
 
 pytestmark = [
     pytest.mark.system,
@@ -85,7 +85,7 @@ class TestUC10S03:
         doc["schema_version"] = 2
         service_path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
-        proc = start_sink_service(
+        proc = start_sink_service_from_root(
             sink_harness.root, grpc_port=sink_harness.grpc_port, log_dir=sink_harness.root
         )
         try:

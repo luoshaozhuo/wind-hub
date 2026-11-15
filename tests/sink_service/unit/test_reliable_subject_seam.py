@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 
-from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure import reliable_runtime
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
@@ -33,9 +33,9 @@ from tests.sink_service._stage1_fixtures import (
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
-KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.1.0.yaml"
-KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"
-DELIVERY_TEMPLATE = f"{TEMPLATE_ROOT}/deliveries/reliable_history_1.0.0.yaml"
+KAFKA_110 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.1.0.yaml"
+KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"
+DELIVERY_TEMPLATE = f"{TEMPLATE_ROOT}/deliveries/delivery_reliable_history_v1.0.0.yaml"
 
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:

@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from data_generator.application.replay import iter_records
 from data_generator.domain.model import GeneratorError
 from data_generator.domain.scenario import resolve_history
+from data_generator.infrastructure.adapters.outbound.csv_history import iter_records
 
 from ..conftest import REPO_CONFIGS
 

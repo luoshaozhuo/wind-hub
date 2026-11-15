@@ -88,9 +88,21 @@ def _scenario_path(snapshot: Any) -> str:  # noqa: ANN401
         next(
             item.relative_path
             for item in snapshot.files
-            if item.relative_path.endswith("instances/data-generator.yaml")
+            if item.relative_path.endswith("services/data-generator.yaml")
         )
     )
+
+
+def _scenario_snapshot_file(
+    snapshot: common.GetConfigSnapshotResponse, document: dict[str, Any]
+) -> bytes:
+    """Replace only embedded scenarios, retaining the service and config_sources."""
+    path = _scenario_path(snapshot)
+    service = yaml.safe_load(
+        next(item.content for item in snapshot.files if item.relative_path == path)
+    )
+    service["scenarios"] = document["scenarios"]
+    return yaml.safe_dump(service, sort_keys=False).encode()
 
 
 @pytest.mark.reliability
@@ -275,13 +287,23 @@ async def test_invalid_model_and_runtime_failure(
                     },
                     [("gw-a", "GW01.pitch_angle")],
                 ),
-                ("GW01", RATE, None, []),
+                (
+                    "GW01",
+                    RATE,
+                    {
+                        "kind": "static",
+                        "function": "linear_table",
+                        "input_point": PITCH,
+                        "values": [[0.0, 0.0], [1.0, 1.0]],
+                    },
+                    [],
+                ),
             ],
             version="1.0.1",
         )
         files = replace_snapshot_files(
             disk,
-            {_scenario_path(disk): yaml.safe_dump(bad_document, sort_keys=False).encode()},
+            {_scenario_path(disk): _scenario_snapshot_file(disk, bad_document)},
         )
         pushed = await common_stub.PushConfigSnapshot(
             common.PushConfigSnapshotRequest(expected_revision=revision, files=files)
@@ -418,7 +440,13 @@ async def test_fanout_multiple_gateways_and_variables(
     gateway_a = await start_real_gateway(endpoint_id="gw-a", devices=TWO_FLOAT_DEVICE)
     gateway_b = await start_real_gateway(
         endpoint_id="gw-b",
-        devices={"GW01": [("pitch_angle", "float32", "feedback")]},
+        devices={
+            "GW01": [
+                ("pitch_angle", "float32", "feedback"),
+                # 同一 device route 默认承载其余未显式映射源点。
+                ("a03_dm_pitchratedemand1", "float32", "feedback"),
+            ]
+        },
     )
     specs: list[tuple[str, str, dict[str, Any] | None, list[tuple[str, str]]]] = [
         (
@@ -577,7 +605,7 @@ async def test_duplicate_target_mapping_rejected(
         )
         files = replace_snapshot_files(
             disk,
-            {_scenario_path(disk): yaml.safe_dump(duplicate, sort_keys=False).encode()},
+            {_scenario_path(disk): _scenario_snapshot_file(disk, duplicate)},
         )
         pushed = await common_stub.PushConfigSnapshot(
             common.PushConfigSnapshotRequest(expected_revision=revision, files=files)

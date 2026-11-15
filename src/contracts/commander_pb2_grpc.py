@@ -35,6 +35,11 @@ class CommanderServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.RecoverDeviceControl = channel.unary_unary(
+                '/windhub.commander.v1.CommanderService/RecoverDeviceControl',
+                request_serializer=contracts_dot_commander__pb2.RecoverDeviceControlRequest.SerializeToString,
+                response_deserializer=contracts_dot_commander__pb2.RecoverDeviceControlResponse.FromString,
+                _registered_method=True)
         self.ListDevices = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ListDevices',
                 request_serializer=contracts_dot_commander__pb2.ListDevicesRequest.SerializeToString,
@@ -74,6 +79,12 @@ class CommanderServiceStub:
 
 class CommanderServiceServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def RecoverDeviceControl(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def ListDevices(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -120,6 +131,11 @@ class CommanderServiceServicer:
 
 def add_CommanderServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'RecoverDeviceControl': grpc.unary_unary_rpc_method_handler(
+                    servicer.RecoverDeviceControl,
+                    request_deserializer=contracts_dot_commander__pb2.RecoverDeviceControlRequest.FromString,
+                    response_serializer=contracts_dot_commander__pb2.RecoverDeviceControlResponse.SerializeToString,
+            ),
             'ListDevices': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDevices,
                     request_deserializer=contracts_dot_commander__pb2.ListDevicesRequest.FromString,
@@ -165,6 +181,33 @@ def add_CommanderServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class CommanderService:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def RecoverDeviceControl(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.commander.v1.CommanderService/RecoverDeviceControl',
+            contracts_dot_commander__pb2.RecoverDeviceControlRequest.SerializeToString,
+            contracts_dot_commander__pb2.RecoverDeviceControlResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def ListDevices(request,

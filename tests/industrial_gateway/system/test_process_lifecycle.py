@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     ServerSpec,
     reserve_port,
     write_config_tree,

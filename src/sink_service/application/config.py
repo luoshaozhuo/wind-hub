@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from pathlib import Path
 from typing import Any
 
 from contracts.sample_batch import validate_subject_token
-from core.infrastructure.config.generic_yaml import ConfigOperationError, parse_yaml
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
@@ -18,51 +16,8 @@ from sink_service.domain.config import (
     expect_nonempty_str,
     expect_positive_int,
     require_keys,
-    require_version,
     validate_service,
 )
-
-
-def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
-    try:
-        decoded = item.content.decode("utf-8", errors="strict")
-        raw = parse_yaml(decoded)
-    except (UnicodeError, ConfigOperationError) as exc:
-        raise ConfigurationError(f"{item.path}: invalid YAML") from exc
-    doc = expect_mapping(raw, item.path)
-    require_version(doc, item.path)
-    if item.path.startswith("configs/templates/sinks/"):
-        require_keys(
-            doc,
-            item.path,
-            frozenset(
-                {
-                    "schema_version",
-                    "file_version",
-                    "template_id",
-                    "kind",
-                    "capabilities",
-                    "connection",
-                    "output",
-                }
-            ),
-        )
-    elif item.path.startswith("configs/templates/deliveries/"):
-        require_keys(
-            doc,
-            item.path,
-            frozenset(
-                {
-                    "schema_version",
-                    "file_version",
-                    "template_id",
-                    "delivery_mode",
-                    "source_filter",
-                }
-            ),
-            frozenset({"output", "staleness", "reliable"}),
-        )
-    return doc
 
 
 def template_path(template_root: str, family: str, name: str, version: str) -> str:
@@ -73,22 +28,22 @@ def template_path(template_root: str, family: str, name: str, version: str) -> s
         raise ConfigurationError(f"invalid template_id: {name!r}")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
         raise ConfigurationError(f"invalid template_version: {version!r}")
-    return f"{template_root}/{family}/{name}_{version}.yaml"
+    prefix = "sink_" if family == "sinks" else "delivery_"
+    return f"{template_root}/{family}/{prefix}{name}_v{version}.yaml"
 
 
 def template_document(
     snapshot: ValidatedSnapshot, family: str, name: str, version: str
 ) -> dict[str, Any]:
-    """Load one validated snapshot template by exact identity and version."""
+    """Return one prevalidated template without reopening YAML in Application."""
     _, template_root = config_sources(snapshot.service)
     path = template_path(template_root, family, name, version)
-    for item in snapshot.files:
-        if item.path == path:
-            document = _yaml_doc(item)
-            if document.get("template_id") != name or document.get("file_version") != version:
-                raise ConfigurationError(f"{path}: template identity mismatch")
-            return document
-    raise ConfigurationError(f"missing referenced template: {path}")
+    document = snapshot.documents.get(path)
+    if document is None:
+        raise ConfigurationError(f"missing referenced template: {path}")
+    if document.get("template_id") != name or document.get("file_version") != version:
+        raise ConfigurationError(f"{path}: template identity mismatch")
+    return document
 
 
 def _template(
@@ -137,7 +92,7 @@ def _validate_sink(
         frozenset({"template_id", "template_version", "connection", "overrides"}),
     )
     kind = template.get("kind")
-    if kind not in ("redis", "kafka", "modbus_tcp"):
+    if kind not in ("redis", "kafka", "modbus_tcp", "gateway"):
         raise ConfigurationError(f"sinks.{sink_id}: unsupported Adapter {kind!r}")
     caps = expect_mapping(template.get("capabilities"), f"sinks.{sink_id}.capabilities")
     require_keys(
@@ -163,8 +118,11 @@ def _validate_sink(
     )
     if not caps["supports_concurrent_write"] and maximum != 1:
         raise ConfigurationError(f"sinks.{sink_id}: unsafe parallel write declaration")
-    if kind == "modbus_tcp" and caps["reliable"]:
-        raise ConfigurationError(f"sinks.{sink_id}: Modbus Server cannot be reliable")
+    if kind == "kafka":
+        if caps["realtime"] or not caps["reliable"]:
+            raise ConfigurationError(f"sinks.{sink_id}: Kafka must be Reliable-only")
+    elif not caps["realtime"] or caps["reliable"]:
+        raise ConfigurationError(f"sinks.{sink_id}: {kind} must be Realtime-only")
     if kind == "kafka" and caps["reliable"]:
         output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
         policy = output.get("business_duplicate_policy")
@@ -187,6 +145,7 @@ def _validate_sink(
         "redis": {"host", "port"},
         "kafka": {"bootstrap_servers"},
         "modbus_tcp": {"listen_host", "port"},
+        "gateway": {"endpoint", "gateway_id", "credential_ref"},
     }
     require_keys(
         connection,
@@ -206,6 +165,7 @@ def _validate_sink(
             "acks",
             "write_timeout_ms",
         },
+        "gateway": {"write_timeout_ms", "lease_ms", "max_batch_size"},
         "modbus_tcp": {
             "unit_id",
             "register_start",
@@ -249,6 +209,18 @@ def _validate_sink(
         if type(linger_ms) is not int or linger_ms != 0:
             raise ConfigurationError(f"sinks.{sink_id}: Kafka linger_ms must be 0")
         expect_positive_int(output.get("max_batch_size", 131072), f"sinks.{sink_id}.max_batch_size")
+    elif kind == "gateway":
+        endpoint = expect_nonempty_str(connection.get("endpoint"), f"sinks.{sink_id}.endpoint")
+        host, delimiter, port = endpoint.rpartition(":")
+        if not delimiter or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
+            raise ConfigurationError(f"sinks.{sink_id}: Gateway endpoint must be host:port")
+        expect_nonempty_str(connection.get("gateway_id"), f"sinks.{sink_id}.gateway_id")
+        if not reference:
+            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires mTLS credential_ref")
+        expect_positive_int(output.get("lease_ms"), f"sinks.{sink_id}.lease_ms", 60000)
+        if output["lease_ms"] < 1000:
+            raise ConfigurationError(f"sinks.{sink_id}: lease_ms below 1000")
+        expect_positive_int(output.get("max_batch_size"), f"sinks.{sink_id}.max_batch_size", 500)
     elif kind == "modbus_tcp":
         expect_nonempty_str(connection.get("listen_host"), f"sinks.{sink_id}.listen_host")
         expect_positive_int(connection.get("port"), f"sinks.{sink_id}.port", 65535)
@@ -284,6 +256,7 @@ def _validate_delivery(
                 "overrides",
             }
         ),
+        frozenset({"target_mappings"}),
     )
     source_filter = expect_mapping(
         template.get("source_filter"), f"deliveries.{delivery_id}.source_filter"
@@ -320,6 +293,35 @@ def _validate_delivery(
             or len(values) != len(set(values))
         ):
             raise ConfigurationError(f"deliveries.{delivery_id}: invalid {field}")
+    if kind == "gateway":
+        if mode != "realtime":
+            raise ConfigurationError(f"deliveries.{delivery_id}: Gateway requires Realtime")
+        if not source["devices"] or not source["points"]:
+            raise ConfigurationError(f"deliveries.{delivery_id}: Gateway needs bounded sources")
+        mappings = delivery.get("target_mappings")
+        if not isinstance(mappings, list) or not mappings:
+            raise ConfigurationError(f"deliveries.{delivery_id}: missing Gateway mappings")
+        target_ids: set[str] = set()
+        for index, raw_mapping in enumerate(mappings):
+            mapping = expect_mapping(raw_mapping, f"deliveries.{delivery_id}.mapping[{index}]")
+            require_keys(
+                mapping,
+                f"deliveries.{delivery_id}.mapping[{index}]",
+                frozenset({"source_device_id", "source_point_id", "variable_id"}),
+            )
+            for field in ("source_device_id", "source_point_id", "variable_id"):
+                expect_nonempty_str(mapping.get(field), f"deliveries.{delivery_id}.{field}")
+            if (
+                mapping["source_device_id"] not in source["devices"]
+                or mapping["source_point_id"] not in source["points"]
+            ):
+                raise ConfigurationError(f"deliveries.{delivery_id}: mapping outside source")
+            variable_id = mapping["variable_id"]
+            if variable_id in target_ids:
+                raise ConfigurationError(f"deliveries.{delivery_id}: duplicate Gateway variable")
+            target_ids.add(variable_id)
+    elif "target_mappings" in delivery:
+        raise ConfigurationError(f"deliveries.{delivery_id}: unexpected target_mappings")
     for device in source["devices"]:
         try:
             validate_subject_token(device)
@@ -430,7 +432,9 @@ def _source_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return True
 
 
-def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
+def validate_snapshot(
+    files: tuple[SnapshotFile, ...], documents: dict[str, dict[str, Any]]
+) -> ValidatedSnapshot:
     """Resolve all cross-file template references before accepting a snapshot."""
     if not files:
         raise ConfigurationError("empty configuration snapshot")
@@ -443,7 +447,9 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         if item.path in by_path:
             raise ConfigurationError(f"duplicate file: {item.path}")
         by_path[item.path] = item
-    docs = {path: _yaml_doc(item) for path, item in by_path.items()}
+    docs = documents
+    if set(docs) != set(by_path):
+        raise ConfigurationError("parsed snapshot document closure mismatch")
     service_files = [path for path in docs if path.startswith("configs/services/")]
     if service_files != ["configs/services/sink_service.yaml"]:
         raise ConfigurationError("expected one sink_service.yaml")
@@ -491,6 +497,8 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         output = template["output"]
         if kind == "redis":
             address: tuple[object, ...] = (kind, conn["host"], conn["port"], output["namespace"])
+        elif kind == "gateway":
+            address = (kind, conn["endpoint"], conn["gateway_id"])
         else:
             address = (kind, tuple(sorted(conn["bootstrap_servers"])), output["topic"])
         existing = outputs.setdefault(address, [])
@@ -601,64 +609,5 @@ def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
         service=service,
         sinks=sink_instances,
         deliveries=delivery_instances,
+        documents=docs,
     )
-
-
-def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
-    """Load the canonical Main Service and its referenced configuration closure."""
-    root = root.resolve(strict=True)
-    selected: list[str] = []
-    for path in (service_path,):
-        resolved = path.resolve(strict=True)
-        if not resolved.is_relative_to(root):
-            raise ConfigurationError("Service path escapes configuration root")
-        relative = resolved.relative_to(root).as_posix()
-        if not relative.startswith("configs/services/") or not relative.endswith(".yaml"):
-            raise ConfigurationError("Service must be an explicit Service pathname")
-        selected.append(relative)
-    if selected != ["configs/services/sink_service.yaml"]:
-        raise ConfigurationError("canonical Service pathname required")
-
-    def safe_file(pathname: str) -> SnapshotFile:
-        target = root / pathname
-        if target.is_symlink() or any(
-            parent.is_symlink() for parent in target.parents if parent != root
-        ):
-            raise ConfigurationError(f"symbolic-link configuration path: {pathname}")
-        resolved = target.resolve(strict=True)
-        if not resolved.is_relative_to(root) or not resolved.is_file():
-            raise ConfigurationError(f"unsafe configuration file: {pathname}")
-        return SnapshotFile(pathname, resolved.read_bytes())
-
-    service_paths = tuple(selected)
-    files = [safe_file(path) for path in service_paths]
-    service = _yaml_doc(files[0])
-    validate_service(service)
-    instance_paths, template_root = config_sources(service)
-    files.extend(safe_file(path) for path in instance_paths.values())
-    docs = {item.path: _yaml_doc(item) for item in files}
-    required: set[str] = set()
-    for family, pathname in instance_paths.items():
-        entries = _instances(docs, family, pathname)
-        for identifier, value in entries.items():
-            name = expect_nonempty_str(
-                value.get("template_id"), f"{family}.{identifier}.template_id"
-            )
-            version = expect_nonempty_str(
-                value.get("template_version"), f"{family}.{identifier}.template_version"
-            )
-            required.add(template_path(template_root, family, name, version))
-    files.extend(safe_file(path) for path in sorted(required))
-    return validate_snapshot(tuple(files))
-
-
-def snapshot_from_wire(files: list[tuple[str, bytes, int, str]]) -> ValidatedSnapshot:
-    """Validate transport file metadata before parsing any YAML payload."""
-    items: list[SnapshotFile] = []
-    for path, content, size, expected_hash in files:
-        if size != len(content):
-            raise ConfigurationError(f"{path}: size_bytes mismatch")
-        if hashlib.sha256(content).hexdigest() != expected_hash:
-            raise ConfigurationError(f"{path}: sha256 mismatch")
-        items.append(SnapshotFile(path, content))
-    return validate_snapshot(tuple(items))

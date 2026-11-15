@@ -12,8 +12,8 @@ import copy
 
 import pytest
 
-from sink_service.application.config import snapshot_from_wire, validate_snapshot
 from sink_service.domain.config import ConfigurationError, SnapshotFile
+from sink_service.infrastructure.config_io import snapshot_from_wire, validate_snapshot
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,
@@ -69,7 +69,9 @@ def test_empty_and_oversized_snapshots_rejected() -> None:
     with pytest.raises(ConfigurationError):
         validate_snapshot(())
     files = list(_valid_files())
-    big = SnapshotFile(f"{TEMPLATE_ROOT}/sinks/big_1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024))
+    big = SnapshotFile(
+        f"{TEMPLATE_ROOT}/sinks/sink_big_v1.0.0.yaml", b"x: " + b"a" * (2 * 1024 * 1024)
+    )
     with pytest.raises(ConfigurationError):
         validate_snapshot(tuple(files + [big]))
 
@@ -147,14 +149,14 @@ def test_service_value_ranges_enforced(section: str, field: str, bad: int) -> No
 
 
 def test_missing_template_reference_rejected() -> None:
-    docs = _docs_without(f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml")
+    docs = _docs_without(f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml")
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
 
 def test_template_identity_must_match_reference() -> None:
     docs = snapshot_docs()
-    docs[f"{TEMPLATE_ROOT}/sinks/redis_realtime_1.0.0.yaml"]["template_id"] = "other"
+    docs[f"{TEMPLATE_ROOT}/sinks/sink_redis_realtime_v1.0.0.yaml"]["template_id"] = "other"
     with pytest.raises(ConfigurationError):
         validate_snapshot(snapshot_files(docs))
 
@@ -176,7 +178,7 @@ def test_incompatible_sink_capability_rejected() -> None:
 
 def test_kafka_reliable_requires_duplicate_policy() -> None:
     docs = snapshot_docs()
-    del docs[f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"]["output"][
+    del docs[f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"]["output"][
         "business_duplicate_policy"
     ]
     with pytest.raises(ConfigurationError):
@@ -185,7 +187,7 @@ def test_kafka_reliable_requires_duplicate_policy() -> None:
 
 def test_non_concurrent_adapter_requires_inflight_one() -> None:
     docs = snapshot_docs()
-    caps = docs[f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"]["capabilities"]
+    caps = docs[f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"]["capabilities"]
     caps["supports_concurrent_write"] = False
     caps["max_safe_inflight"] = 2
     with pytest.raises(ConfigurationError):
@@ -249,7 +251,7 @@ def test_copy_helper_is_deep() -> None:
 
 # ---- 第六轮：Kafka producer L3 调参配置边界 -------------------------------
 
-_KAFKA_TEMPLATE_KEY = f"{TEMPLATE_ROOT}/sinks/kafka_history_1.0.0.yaml"
+_KAFKA_TEMPLATE_KEY = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"
 
 
 def _kafka_output() -> dict:

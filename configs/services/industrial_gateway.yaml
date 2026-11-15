@@ -4,14 +4,15 @@
 # grpc: Gateway management listener, separate from industrial protocol Server ports.
 # servers[]: one device per protocol listener; IDs and ports must be unique.
 # servers[].control.enabled: false by default in this safe example.
-# servers[].control.target.kind: none | commander | data_generator.
+# servers[].control.target.kind: none | commander.
 #   none has no outbound command execution; disable control and leave mappings empty.
 #   commander: specify endpoint, optional loopback plaintext TLS configuration,
 #     request_timeout_ms (1..60000), queue_capacity (1..65536), max_inflight (1..256).
-#   data_generator: requires mTLS client cert/key/CA and generation_binding.scenario_id;
-#     current running Generation is resolved dynamically, never hard-coded.
+# servers[].control.simulation: optional dedicated Generator INPUT binding; usable
+#   only through Commander-authorized ExecuteSimulationCommand with mTLS.
+#   Direct protocol-write forwarding to Generator is prohibited.
 # servers[].control.mappings: variable_id is a writable industrial protocol point;
-#   target_point_id is authorized by Commander or Generator target; IDs unique.
+#   target_point_id must be authorized by Commander; IDs unique.
 #   Normal Gateway gRPC variable injection never invokes protocol-write callbacks.
 # A successful industrial protocol ACK does not mean outbound command accepted.
 # Forwarding is best-effort, bounded and non-persistent; no retry on unknown result.

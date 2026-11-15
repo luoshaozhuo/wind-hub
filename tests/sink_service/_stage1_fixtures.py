@@ -213,14 +213,15 @@ def template_doc(name: str) -> dict[str, Any]:
 
 
 def template_path(name: str, version: str = "1.0.0") -> str:
-    """Production layout: ``configs/templates/<family>/<name>_<version>.yaml``."""
+    """Production layout: ``configs/templates/<family>/<type>_<name>_v<version>.yaml``."""
     family = {
         "redis_realtime": "sinks",
         "kafka_history": "sinks",
         "realtime_power": "deliveries",
         "reliable_history": "deliveries",
     }[name]
-    return f"{TEMPLATE_ROOT}/{family}/{name}_{version}.yaml"
+    prefix = "sink" if family == "sinks" else "delivery"
+    return f"{TEMPLATE_ROOT}/{family}/{prefix}_{name}_v{version}.yaml"
 
 
 def _delivery_instance(

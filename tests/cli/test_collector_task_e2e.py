@@ -50,6 +50,27 @@ def test_start_stop_task_with_revision_prefetch_and_confirm(cli_env: Any) -> Non
     assert all(not c.path.endswith("/GetTask") for c in server.calls[calls_before:])
 
 
+def test_accepted_apply_failed_is_failure_not_success(cli_env: Any) -> None:
+    """An accepted intent with failed physical apply must return a failing CLI status."""
+    server = cli_env.server
+    server.respond_value(
+        _p(server, "GetTask"),
+        col.GetTaskResponse(task=col.Task(task_id="t1", revision="rev-9")),
+    )
+    server.respond_value(
+        _p(server, "StartTask"),
+        common_pb2.OperationResult(
+            accepted=True,
+            actual_state="FAULTED",
+            error_code="APPLY_FAILED",
+            message="device apply failed",
+        ),
+    )
+    result = cli_env.subprocess_invoke("collector", "start", "t1", "--yes")
+    assert result.exit_code == 1, result.stdout
+    assert '"status": "FAILURE"' in result.stdout
+
+
 def test_start_requires_confirmation(cli_env: Any) -> None:
     """无 --yes 非 TTY：退出 2，且无任何 RPC。"""
     result = cli_env.subprocess_invoke("collector", "start", "t1")

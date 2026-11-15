@@ -11,7 +11,7 @@ from typing import Any
 import grpc
 import pytest
 
-from commander.infrastructure.grpc.server import _Authorized, _page, _scalar
+from commander.infrastructure.adapters.inbound.grpc.server import _Authorized, _page, _scalar
 from contracts import common_pb2
 from core.application.errors import ConfigError
 

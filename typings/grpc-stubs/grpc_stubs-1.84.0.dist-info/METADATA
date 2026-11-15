@@ -1,5 +1,0 @@
-Metadata-Version: 2.1
-Name: grpc-stubs
-Version: 1.84.0
-Summary: Project-local partial type stubs for the grpcio interceptor API
-Partial-Type-Stub-Package: true

@@ -18,9 +18,9 @@ from typing import Any
 import aiokafka
 import pytest
 
-import sink_service.infrastructure.realtime_adapters as adapters
+import sink_service.infrastructure.adapters.outbound.realtime_adapters as adapters
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.realtime_adapters import KafkaOutput
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
 
 pytestmark = [pytest.mark.unit, pytest.mark.reliability]
 

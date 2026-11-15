@@ -11,7 +11,7 @@ import pytest
 from data_generator.application.model.inputs import writable_inputs
 from data_generator.application.physical_engine import PhysicalEngine
 from data_generator.domain.model import validate_scalar
-from data_generator.infrastructure.config import load_settings
+from data_generator.infrastructure.config.service_settings import load_settings
 
 pytestmark = [pytest.mark.unit]
 

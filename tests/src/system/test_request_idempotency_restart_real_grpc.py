@@ -31,9 +31,9 @@ import grpc
 import pytest
 
 from commander.application.service_lifecycle import CommanderService
-from commander.infrastructure.assembly import build_commander
-from commander.infrastructure.grpc.server import register_services
-from commander.infrastructure.grpc.snapshots import ConfigSnapshots
+from commander.assembly import build_commander
+from commander.infrastructure.adapters.inbound.grpc.server import register_services
+from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
 from contracts import commander_pb2 as pb
 from contracts import common_pb2
 from core.application.protocol_registry import ProtocolRegistry

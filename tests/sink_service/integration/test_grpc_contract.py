@@ -12,7 +12,6 @@ import grpc
 import pytest
 
 from contracts import common_pb2, sink_service_pb2
-from sink_service.application.config import validate_snapshot
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.delivery_registry import DeliveryRegistry
 from sink_service.application.observability import Observability
@@ -23,11 +22,12 @@ from sink_service.domain.config import (
     RevisionConflictError,
     WriterRequiredError,
 )
-from sink_service.infrastructure.grpc_server import (
+from sink_service.infrastructure.adapters.inbound.grpc_server import (
     CommonServiceServer,
     SinkServiceServer,
     _status_for,
 )
+from sink_service.infrastructure.config_io import validate_snapshot
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 
 pytestmark = [pytest.mark.integration, pytest.mark.contract]

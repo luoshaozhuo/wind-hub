@@ -82,7 +82,7 @@ async def test_get_push_apply(
         )
         assert started.accepted, started.message
 
-        scenario_rel = _by_suffix(disk, "instances/data-generator.yaml")
+        scenario_rel = _by_suffix(disk, "services/data-generator.yaml")
         new_doc = yaml.safe_load(
             next(item.content for item in disk.files if item.relative_path == scenario_rel)
         )
@@ -282,13 +282,13 @@ async def test_apply_failure_recovery(
         )
     )
     root = service_path.parent.parent
-    scenario_rel = "instances/data-generator.yaml"
+    scenario_rel = "services/data-generator.yaml"
     original = (root / scenario_rel).read_bytes()
     tampered = original.replace(b"version: 1.0.0", b"version: 9.9.9", 1)
     assert tampered != original
     journal = root / ".dg_transaction"
-    (journal / "backup" / "instances").mkdir(parents=True)
-    (journal / "new" / "instances").mkdir(parents=True)
+    (journal / "backup" / "services").mkdir(parents=True)
+    (journal / "new" / "services").mkdir(parents=True)
     (journal / "backup" / scenario_rel).write_bytes(original)
     (journal / "new" / scenario_rel).write_bytes(tampered)
     (journal / "active.json").write_text(

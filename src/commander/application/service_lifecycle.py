@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections import deque
 from collections.abc import Callable
@@ -19,12 +20,14 @@ from commander.application.config_manager import (
     ReloadReport,
 )
 from commander.application.control import CommandControl
-from commander.application.journal_port import JournalMetrics, JournalPort
 from commander.application.metrics import CommandMetrics
 from commander.application.persistence import BufferedJournal, PersistenceWorker
-from commander.application.queued_executor import QueuedExecutor
-from commander.application.settings import ServiceSettings
+from commander.application.ports.journal import JournalMetrics, JournalPort
+from commander.application.ports.recovery import RecoveryAuthority
+from commander.application.queued_executor import QueuedExecutor, WriteSession
+from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.application.protocol_registry import ProtocolRegistry
+from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +88,18 @@ class CommanderService:
         audit_transport: AuditTransport,
         settings_loader: Callable[[], ServiceSettings],
         journal_factory: Callable[[ServiceSettings], JournalPort],
+        simulation_factory: Callable[[str, SimulationGatewayTarget], WriteSession] | None = None,
+        native_session_factory: Callable[
+            [ConnectionEndpoint, PointTable, ProtocolOptions], WriteSession
+        ]
+        | None = None,
     ) -> None:
         self._registry = protocol_registry
         self._audit_transport = audit_transport
         self._settings_loader = settings_loader
         self._journal_factory = journal_factory
+        self._simulation_factory = simulation_factory
+        self._native_session_factory = native_session_factory
         self._audit: AuditDelivery | None = None
         self._state = ServiceState.STOPPED
         self._started_at: datetime | None = None
@@ -181,6 +191,20 @@ class CommanderService:
             settings: ServiceSettings = manager.start()
             journal = await loop.run_in_executor(writer, partial(self._journal_factory, settings))
             recovered = await loop.run_in_executor(writer, journal.recover)
+
+            def recovered_device_ids() -> frozenset[str]:
+                devices: set[str] = set()
+                for command_id in recovered:
+                    result = journal.get(command_id)
+                    if result is None:
+                        raise RuntimeError("recovered command is missing from durable journal")
+                    devices.add(result.command.spec.device_id)
+                return frozenset(devices)
+
+            recovered_devices = await loop.run_in_executor(writer, recovered_device_ids)
+            recovered_devices |= await loop.run_in_executor(
+                writer, journal.recovery_blocked_devices
+            )
             initial_sequence = await loop.run_in_executor(writer, journal.latest_receive_seq)
             buffer = BufferedJournal(
                 initial_sequence=initial_sequence,
@@ -197,9 +221,20 @@ class CommanderService:
             control = CommandControl(
                 journal, writer, buffer, accept_timeout=settings.accept_commit_timeout
             )
+
+            def create_session(device_id: str) -> WriteSession:
+                target = settings.simulation_targets.get(device_id)
+                if target is None:
+                    if self._native_session_factory is None:
+                        raise RuntimeError("native protocol adapter is not registered")
+                    return self._native_session_factory(*manager.device_connection(device_id))
+                if self._simulation_factory is None:
+                    raise RuntimeError("simulation execution Adapter is not registered")
+                return self._simulation_factory(device_id, target)
+
             executor = QueuedExecutor(
                 control,
-                lambda device_id: manager.create_session(device_id, self._registry),
+                create_session,
                 manager.authorized,
                 manager.prepare_write,
                 global_capacity=settings.global_capacity,
@@ -211,6 +246,7 @@ class CommanderService:
                 max_queued_batches_global=settings.max_queued_batches_global,
                 max_batch_points=settings.max_batch_points,
                 max_request_id_bytes=settings.max_request_id_bytes,
+                initially_blocked=recovered_devices,
             )
             audit = AuditDelivery(
                 journal,
@@ -239,9 +275,14 @@ class CommanderService:
             )
             self._cleanup_interval = settings.cleanup_interval_seconds
             self._shutdown_grace = settings.shutdown_grace_seconds
-            self._state = ServiceState.READY
+            # Recovered UNKNOWN commands may have reached the field. Refuse
+            # fresh writes to those devices until isolation is explicitly resolved.
+            self._state = ServiceState.DEGRADED if recovered_devices else ServiceState.READY
             self._started_at = datetime.now(UTC)
-            self._event("INFO", "Commander ready")
+            if recovered_devices:
+                self._event("WARNING", "Commander recovered uncertain devices", "RECOVERY_BLOCKED")
+            else:
+                self._event("INFO", "Commander ready")
             self._watchdog = asyncio.create_task(
                 self._run_watchdog(settings.watchdog_interval),
                 name="commander:watchdog",
@@ -270,6 +311,125 @@ class CommanderService:
         if self._executor is None:
             raise RuntimeError("no active executor")
         return await self._executor.quiesce_devices(devices)
+
+    async def recover_device_control(
+        self,
+        *,
+        authority: RecoveryAuthority | None,
+        caller_id: str,
+        device_id: str,
+        expected_revision: str,
+        request_id: str,
+        attestation: bytes,
+    ) -> tuple[str, str]:
+        """Fence externally, commit durable audit, then release one recovered block."""
+        if authority is None:
+            raise RuntimeError("independent isolation attestation verifier is not configured")
+        async with self._lifecycle_lock:
+            if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
+                raise RuntimeError("Commander not ready for recovery")
+            manager = self.config_manager
+            executor = self.executor
+            revision = manager.device_revision(device_id)
+            if revision is None or revision != expected_revision:
+                raise RuntimeError("device configuration revision conflict")
+            journal = self._journal
+            writer = self._writer
+            if (
+                journal is None
+                or writer is None
+                or not journal.operational
+                or self._audit is None
+                or not self._audit.operational
+            ):
+                raise RuntimeError("durable recovery audit unavailable")
+            digest = hashlib.sha256(attestation).hexdigest()
+            loop = asyncio.get_running_loop()
+            previous = await loop.run_in_executor(
+                writer, journal.recovery_decision, caller_id, request_id
+            )
+            if previous is not None and (
+                previous[1] != device_id or previous[2] != revision or previous[3] != digest
+            ):
+                raise FileExistsError("recovery request_id conflict")
+            blocked = device_id in executor.blocked_devices()
+            if not blocked and previous is None:
+                raise RuntimeError("device does not require recovery")
+            # Even an idempotent retry must confirm that fencing remains live.
+            proof = await authority.verify_and_fence(
+                device_id=device_id,
+                revision=revision,
+                caller_id=caller_id,
+                request_id=request_id,
+                attestation=attestation,
+            )
+            if self._state not in (ServiceState.READY, ServiceState.DEGRADED):
+                raise RuntimeError("Commander stopped during recovery")
+            if not blocked:
+                # A past idempotent decision cannot authorize an older owner
+                # after a newer fencing epoch has been durably committed.
+                latest_epoch = await loop.run_in_executor(
+                    writer, journal.latest_recovery_epoch, device_id
+                )
+                if (
+                    previous is None
+                    or previous[4] < latest_epoch
+                    or previous[5] != proof.token_id
+                    or proof.fencing_epoch < latest_epoch
+                    or proof.expires_at <= datetime.now(UTC)
+                    or self._audit is None
+                    or not self._audit.operational
+                ):
+                    raise RuntimeError("no valid current recovery decision")
+                return previous[0], digest
+            if manager.device_revision(device_id) != revision:
+                raise RuntimeError("device revision changed during recovery")
+            if self._audit is None or not self._audit.operational:
+                raise RuntimeError("recovery audit worker stopped")
+            decision_id = await loop.run_in_executor(
+                writer,
+                partial(
+                    journal.commit_recovery,
+                    caller_id=caller_id,
+                    request_id=request_id,
+                    device_id=device_id,
+                    revision=revision,
+                    evidence_digest=digest,
+                    token_id=proof.token_id,
+                    fencing_epoch=proof.fencing_epoch,
+                    old_instance=proof.old_instance,
+                    new_instance=proof.new_instance,
+                ),
+            )
+            # The SQLite commit is not evidence that physical fencing remains
+            # effective. Re-check the live authority *after* commit, while the
+            # lifecycle lock prevents an overlapping reload or stop.
+            current_proof = await authority.verify_and_fence(
+                device_id=device_id,
+                revision=revision,
+                caller_id=caller_id,
+                request_id=request_id,
+                attestation=attestation,
+            )
+            if (
+                current_proof.device_id != proof.device_id
+                or current_proof.revision != proof.revision
+                or current_proof.old_instance != proof.old_instance
+                or current_proof.new_instance != proof.new_instance
+                or current_proof.token_id != proof.token_id
+                or current_proof.fencing_epoch < proof.fencing_epoch
+                or current_proof.expires_at <= datetime.now(UTC)
+                or self._audit is None
+                or not self._audit.operational
+                or not journal.operational
+                or manager.device_revision(device_id) != revision
+            ):
+                raise RuntimeError("recovery fencing or audit changed before release")
+            # A persisted decision followed by a failed verification remains
+            # blocked; repeat recovery requires fresh external fencing proof.
+            executor.release_recovered_device(device_id)
+            self._event("INFO", "Commander device recovery committed", "RECOVERY_UNBLOCKED")
+            return decision_id, digest
 
     async def reload(self) -> ReloadReport:
         async with self._lifecycle_lock:

@@ -40,6 +40,8 @@ class IndustrialGatewayServiceStub:
     ReadVariables: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ReadVariablesRequest, _industrial_gateway_pb2.ReadVariablesResponse]
     UpdateVariables: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.UpdateVariablesRequest, _industrial_gateway_pb2.UpdateVariablesResponse]
     ClaimTargets: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ClaimTargetsRequest, _industrial_gateway_pb2.ClaimTargetsResponse]
+    ExecuteSimulationCommand: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.SimulationCommandRequest, _industrial_gateway_pb2.SimulationCommandResponse]
+    GetSimulationExecutionResult: _grpc.UnaryUnaryMultiCallable[_industrial_gateway_pb2.SimulationExecutionQuery, _industrial_gateway_pb2.SimulationCommandResponse]
 
 @_typing.type_check_only
 class IndustrialGatewayServiceAsyncStub(IndustrialGatewayServiceStub):
@@ -52,6 +54,8 @@ class IndustrialGatewayServiceAsyncStub(IndustrialGatewayServiceStub):
     ReadVariables: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ReadVariablesRequest, _industrial_gateway_pb2.ReadVariablesResponse]  # type: ignore[assignment]
     UpdateVariables: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.UpdateVariablesRequest, _industrial_gateway_pb2.UpdateVariablesResponse]  # type: ignore[assignment]
     ClaimTargets: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.ClaimTargetsRequest, _industrial_gateway_pb2.ClaimTargetsResponse]  # type: ignore[assignment]
+    ExecuteSimulationCommand: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.SimulationCommandRequest, _industrial_gateway_pb2.SimulationCommandResponse]  # type: ignore[assignment]
+    GetSimulationExecutionResult: _aio.UnaryUnaryMultiCallable[_industrial_gateway_pb2.SimulationExecutionQuery, _industrial_gateway_pb2.SimulationCommandResponse]  # type: ignore[assignment]
 
 class IndustrialGatewayServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -109,5 +113,19 @@ class IndustrialGatewayServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _industrial_gateway_pb2.ClaimTargetsRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_industrial_gateway_pb2.ClaimTargetsResponse, _abc.Awaitable[_industrial_gateway_pb2.ClaimTargetsResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ExecuteSimulationCommand(
+        self,
+        request: _industrial_gateway_pb2.SimulationCommandRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_industrial_gateway_pb2.SimulationCommandResponse, _abc.Awaitable[_industrial_gateway_pb2.SimulationCommandResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetSimulationExecutionResult(
+        self,
+        request: _industrial_gateway_pb2.SimulationExecutionQuery,
+        context: _ServicerContext,
+    ) -> _typing.Union[_industrial_gateway_pb2.SimulationCommandResponse, _abc.Awaitable[_industrial_gateway_pb2.SimulationCommandResponse]]: ...
 
 def add_IndustrialGatewayServiceServicer_to_server(servicer: IndustrialGatewayServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

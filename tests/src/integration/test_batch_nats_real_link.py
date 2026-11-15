@@ -16,6 +16,7 @@ Mock 结果冒充真实链路。
 from __future__ import annotations
 
 import asyncio
+import base64
 import subprocess
 import uuid
 from collections.abc import Iterator
@@ -24,11 +25,19 @@ from datetime import UTC, datetime
 import nats
 import pytest
 
-from collector.infrastructure.publisher import CollectorPublisher
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
-from sink_service.infrastructure.nats_consumer import NatsSinkConsumer
-from sink_service.nats_init import ensure_dlq_stream, ensure_history_stream
+from tests.sink_service.integration.test_reliable_durable_ack_real_nats import (
+    FakeKafkaAdapter,
+    FakePool,
+    _delivery_instance,
+    _dlq_records,
+    _kafka_sink,
+    _port,
+    _recreate_streams,
+    _snapshot,
+)
 from tests.support.process import free_port
 from tests.support.wait import wait_tcp_port
 
@@ -57,7 +66,7 @@ def nats_url() -> Iterator[str]:
                 name,
                 "-p",
                 f"127.0.0.1:{port}:4222",
-                "nats:latest",
+                "nats:2.10-alpine",
                 "-js",
             ],
             capture_output=True,
@@ -123,21 +132,17 @@ async def test_realtime_each_source_batch_is_one_independent_nats_message(
 
 @pytest.mark.asyncio
 async def test_reliable_puback_durable_delivery_and_dlq_routing(nats_url: str) -> None:
-    await ensure_history_stream((nats_url,))
-    await ensure_dlq_stream((nats_url,))
+    stream_client = await _recreate_streams(nats_url)
     subject = "wh.hist.batch.farm-a.collector-1.wtg-02"
-    durable = f"sink-{uuid.uuid4().hex[:8]}"
-    delivered: list[SampleBatch] = []
-    got_batch = asyncio.Event()
-
-    async def handler(batch: SampleBatch) -> None:
-        delivered.append(batch)
-        got_batch.set()
-
-    consumer = NatsSinkConsumer(
-        [nats_url], subject, durable=durable, stream="WH_HISTORY", handler=handler
+    adapter = FakeKafkaAdapter()
+    snapshot = _snapshot(
+        nats_url,
+        deployment_id=f"dep-batch-link-{uuid.uuid4().hex[:8]}",
+        deliveries={"main": _delivery_instance(sink="sink", devices=["wtg-02"], points=["p1"])},
+        sinks={"sink": _kafka_sink()},
     )
-    await consumer.open()
+    consumer = _port(snapshot, FakePool({"sink": adapter}), "main", "sink")
+    await consumer.start()
     try:
         publisher = CollectorPublisher(
             servers=[nats_url],
@@ -148,42 +153,45 @@ async def test_reliable_puback_durable_delivery_and_dlq_routing(nats_url: str) -
         )
         await publisher.start()
         await publisher.publish("wtg-02", (_sample("p1"),))
-        await asyncio.wait_for(got_batch.wait(), timeout=10)
+        deadline = asyncio.get_running_loop().time() + 10
+        while adapter.calls < 1 and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.02)
         await publisher.stop()
-        assert publisher.pubacked == 1  # PubAck：broker 接收确认
-        assert len(delivered) == 1  # 交付确认：下游 handler 独立成立
+        assert publisher.pubacked == 1
+        assert adapter.calls == 1
 
-        # 直接向历史 Stream 注入永久不可解码消息，必须进 DLQ 后 ACK。
         producer = await nats.connect(servers=[nats_url])
         await producer.jetstream().publish(subject, b"{broken json")
-        dlq_subscription = await producer.jetstream().subscribe(
-            "wh.dlq.batch.>", durable=f"dlq-check-{uuid.uuid4().hex[:8]}", stream="WH_DLQ"
-        )
-        dlq_msg = await dlq_subscription.next_msg(timeout=10)
-        assert dlq_msg.data == b"{broken json"
-        assert dlq_msg.headers["Wh-Source-Subject"] == subject
-        assert dlq_msg.headers["Wh-Failure-Type"] == "ValueError"
-        await dlq_msg.ack()
+        deadline = asyncio.get_running_loop().time() + 10
+        records = []
+        while not records and asyncio.get_running_loop().time() < deadline:
+            records = await _dlq_records(nats_url)
+            if not records:
+                await asyncio.sleep(0.1)
+        assert len(records) == 1
+        assert base64.b64decode(records[0]["payload_base64"]) == b"{broken json"
+        assert records[0]["subject"] == subject
+        assert records[0]["classification"] == "PERMANENT"
         await producer.drain()
         await producer.close()
     finally:
-        await consumer.close()
+        await consumer.stop()
+        await stream_client.drain()
 
 
 @pytest.mark.asyncio
 async def test_duplicate_nats_msg_id_does_not_duplicate_delivery(nats_url: str) -> None:
-    await ensure_history_stream((nats_url,))
+    stream_client = await _recreate_streams(nats_url)
     subject = "wh.hist.batch.farm-a.collector-1.wtg-03"
-    durable = f"sink-{uuid.uuid4().hex[:8]}"
-    delivered: list[SampleBatch] = []
-
-    async def handler(batch: SampleBatch) -> None:
-        delivered.append(batch)
-
-    consumer = NatsSinkConsumer(
-        [nats_url], subject, durable=durable, stream="WH_HISTORY", handler=handler
+    adapter = FakeKafkaAdapter()
+    snapshot = _snapshot(
+        nats_url,
+        deployment_id=f"dep-batch-dedup-{uuid.uuid4().hex[:8]}",
+        deliveries={"main": _delivery_instance(sink="sink", devices=["wtg-03"], points=["p1"])},
+        sinks={"sink": _kafka_sink()},
     )
-    await consumer.open()
+    consumer = _port(snapshot, FakePool({"sink": adapter}), "main", "sink")
+    await consumer.start()
     try:
         publisher = CollectorPublisher(
             servers=[nats_url],
@@ -204,22 +212,24 @@ async def test_duplicate_nats_msg_id_does_not_duplicate_delivery(nats_url: str) 
             task_id="wtg-03",
             device_id="wtg-03",
             publish_time=datetime.now(UTC),
-            samples=(
-                # reliable 模式禁止 staleness
-                _build_reliable_item("p1"),
-            ),
+            samples=(_build_reliable_item("p1"),),
         )
         js = client.jetstream()
         payload = batch.encode()
-        await js.publish(subject, payload, headers={"Nats-Msg-Id": "fixed-id"})
-        await js.publish(subject, payload, headers={"Nats-Msg-Id": "fixed-id"})
-        # publisher 的首批 + 去重后的 fixed-id 批，共两次投递。
-        await _drain_event(delivered, 2)
-        assert [b.batch_id for b in delivered].count("fixed-id") == 1
+        first = await js.publish(subject, payload, headers={"Nats-Msg-Id": "fixed-id"})
+        second = await js.publish(subject, payload, headers={"Nats-Msg-Id": "fixed-id"})
+        assert not first.duplicate
+        assert second.duplicate
+        deadline = asyncio.get_running_loop().time() + 10
+        while adapter.calls < 2 and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.02)
+        await asyncio.sleep(0.5)
+        assert adapter.calls == 2
         await client.drain()
         await client.close()
     finally:
-        await consumer.close()
+        await consumer.stop()
+        await stream_client.drain()
 
 
 def _build_reliable_item(point: str):

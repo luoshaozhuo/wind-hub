@@ -14,7 +14,7 @@ import pytest
 
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
-from data_generator.infrastructure.snapshots import file_sha256
+from data_generator.infrastructure.persistence.snapshots import file_sha256
 
 from ..conftest import ship_scenarios_document
 

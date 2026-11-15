@@ -14,12 +14,10 @@ import grpc
 import pytest
 
 from contracts import commander_pb2_grpc as crpc
-from industrial_gateway.infrastructure.commander.forwarder import (
-    CommandForwarder,
-    ForwardState,
-)
-from industrial_gateway.infrastructure.config.v1_schema import ControlTarget
-from tests.support.gateway_v1 import FakeCommanderService
+from industrial_gateway.application.forwarding import ForwardState
+from industrial_gateway.infrastructure.adapters.outbound.forwarder import CommandForwarder
+from industrial_gateway.infrastructure.config.schema import ControlTarget
+from tests.support.gateway import FakeCommanderService
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
 
@@ -151,6 +149,7 @@ async def test_submission_rpc_error_is_unknown_not_success(tmp_path: Path) -> No
         grpc.StatusCode.NOT_FOUND,
         grpc.StatusCode.OUT_OF_RANGE,
         grpc.StatusCode.UNIMPLEMENTED,
+        grpc.StatusCode.ALREADY_EXISTS,
     ],
 )
 async def test_authoritative_rpc_refusal_is_rejected_not_unknown(
@@ -336,7 +335,7 @@ async def test_pre_submit_failure_is_rejected_not_unknown(tmp_path: Path) -> Non
         )
         record = await _terminal(forwarder, "evt-pre")
         assert record.state is ForwardState.REJECTED
-        assert "revision unavailable" in record.error
+        assert "unknown device" in record.error
         assert commander.calls == []  # 从未提交
     finally:
         await forwarder.stop()
@@ -462,7 +461,7 @@ async def test_lookup_timeout_before_submit_is_rejected(tmp_path: Path) -> None:
         )
         record = await _terminal(forwarder, "evt-lookup")
         assert record.state is ForwardState.REJECTED
-        assert "device revision unavailable" in record.error
+        assert "Deadline Exceeded" in record.error
         assert commander.calls == []  # 从未提交，不得误判 UNKNOWN
     finally:
         await forwarder.stop()

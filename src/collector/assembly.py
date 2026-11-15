@@ -14,6 +14,11 @@ from pathlib import Path
 import grpc
 import yaml
 
+from collector.infrastructure.adapters.inbound.grpc.collector_service import CollectorDeviceRpc
+from collector.infrastructure.adapters.inbound.grpc.config_service import CollectorConfigRpc
+from collector.infrastructure.adapters.inbound.grpc.registration import register_collector_rpc
+from collector.infrastructure.adapters.outbound.metrics_emitter import CollectorMetricsEmitter
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
 from core.domain import Device, PointTable
@@ -24,21 +29,18 @@ from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 from .application.acquisition import CollectorAcquisition
 from .application.configuration import CollectorConfigurationManager
 from .application.lifecycle import CollectorLifecycle
+from .application.task_control import CollectorTaskControl
 from .application.telemetry import CollectorTelemetry
+from .infrastructure.config.service_identity import sources_changed
 from .infrastructure.config.snapshot_repository import (
     CollectorSnapshotRepository,
 )
-from .infrastructure.config.task_control import CollectorTaskControl
+from .infrastructure.config.task_control import mutate_device_intent
 from .infrastructure.config.validation import (
     parse_collector_runtime,
     resolve_source_paths,
     validate_collector_snapshot,
 )
-from .infrastructure.grpc.collector_service import CollectorDeviceRpc
-from .infrastructure.grpc.config_service import CollectorConfigRpc
-from .infrastructure.grpc.registration import register_collector_rpc
-from .infrastructure.metrics_emitter import CollectorMetricsEmitter
-from .infrastructure.publisher import CollectorPublisher
 from .infrastructure.resource_sampler import CollectorResourceSampler
 
 logger = logging.getLogger(__name__)
@@ -246,6 +248,7 @@ async def assemble_collector(
         validate=validate_snapshot,
         runtime=lifecycle,
         restart_required=requires_restart,
+        source_changed=sources_changed,
         telemetry=telemetry,
     )
     if not 0 <= grpc_port <= 65535:
@@ -265,7 +268,7 @@ async def assemble_collector(
         ),
         maximum_concurrent_rpcs=32,
     )
-    task_control = CollectorTaskControl(configuration)
+    task_control = CollectorTaskControl(configuration, mutate_device_intent)
     register_collector_rpc(
         server,
         common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher),
@@ -277,7 +280,7 @@ async def assemble_collector(
         assert key_path is not None
         assert ca_path is not None
         credentials = grpc.ssl_server_credentials(
-            ((Path(key_path).read_bytes(), Path(certificate_path).read_bytes()),),
+            [(Path(key_path).read_bytes(), Path(certificate_path).read_bytes())],
             root_certificates=Path(ca_path).read_bytes(),
             require_client_auth=True,
         )

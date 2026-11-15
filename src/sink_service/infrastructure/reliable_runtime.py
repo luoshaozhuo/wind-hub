@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import hashlib
 import json
 import logging
@@ -21,11 +20,13 @@ from nats.js.errors import NotFoundError
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.delivery_point import DeliveryPoint, select_delivery_points
+from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.latency_window import LatencyWindow
-from sink_service.application.realtime import BatchOutcome
+from sink_service.application.ports.reliable import ReliableMessagePort
+from sink_service.application.reliable_engine import ReliableDeliveryEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
-from sink_service.infrastructure.kafka_wire import encode_kafka_points
+from sink_service.infrastructure.adapters.inbound.reliable_message import JetStreamMessage
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def _js_name(value: Any) -> str:
     raise ConfigurationError("unrecognized JetStream configuration value")
 
 
-class ReliableDeliveryPort:
+class ReliableDeliveryPort(ReliableDeliveryEngine):
     """One durable JetStream Consumer and one in-flight target write per Delivery."""
 
     def __init__(
@@ -345,6 +346,22 @@ class ReliableDeliveryPort:
             await self._pool.release(self._definition.sink_id)
             self._adapter = None
 
+    async def _fetch_messages(self) -> list[ReliableMessagePort]:
+        if self._subscription is None:
+            raise RuntimeError("JetStream Durable is not bound")
+        try:
+            return [
+                JetStreamMessage(item)
+                for item in await self._subscription.fetch(batch=1, timeout=1.0)
+            ]
+        except (NatsTimeoutError, TimeoutError) as exc:
+            raise TimeoutError from exc
+
+    def _encode_kafka_points(
+        self, batch: SampleBatch, items: tuple[SampleItem, ...]
+    ) -> tuple[bytes, ...]:
+        return encode_kafka_points(batch, items)
+
     async def _dead_letter(
         self,
         message: Any,
@@ -364,7 +381,8 @@ class ReliableDeliveryPort:
             raise ConfigurationError("DLQ Stream must use file storage")
         if _js_name(stream.config.discard) != "new":
             raise ConfigurationError("DLQ Stream must reject overflow")
-        metadata = message.metadata
+        native = message.raw
+        metadata = native.metadata
         identity = (
             f'{self._definition.delivery_id}:{metadata.stream}:'
             f'{metadata.consumer}:{metadata.sequence.stream}:'
@@ -373,14 +391,14 @@ class ReliableDeliveryPort:
         dead_letter_id = hashlib.sha256(identity).hexdigest()
         source: Any = None
         try:
-            source = json.loads(message.data)
+            source = json.loads(native.data)
             sample_id = source.get("sample_id", "") if isinstance(source, dict) else ""
         except (UnicodeError, ValueError):
             sample_id = ""
         batch_id = source.get("batch_id", "") if isinstance(source, dict) else ""
         if sample is not None:
             sample_id = sample.sample_id
-        payload = message.data
+        payload = native.data
         if sample is not None:
             payload = SampleBatch(
                 batch_id=(batch_id if isinstance(batch_id, str) and batch_id else sample.sample_id),
@@ -421,7 +439,7 @@ class ReliableDeliveryPort:
                 "batch_id": batch_id[:128] if isinstance(batch_id, str) else "",
                 "payload_sha256": hashlib.sha256(payload).hexdigest(),
                 "config_revision": self._snapshot.revision,
-                "subject": message.subject,
+                "subject": native.subject,
                 "source_stream": metadata.stream,
                 "consumer": metadata.consumer,
                 "source_sequence": metadata.sequence.stream,
@@ -451,76 +469,6 @@ class ReliableDeliveryPort:
             else:
                 self.dlq_total += 1
 
-    async def _dlq_with_heartbeat(
-        self,
-        message: Any,
-        reason: str,
-        *,
-        sample: DeliveryPoint | None = None,
-    ) -> None:
-        """Keep the source consumer lease alive during slow durable DLQ transfer."""
-        transfer = asyncio.create_task(self._dead_letter(message, reason, sample=sample))
-        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
-        while not transfer.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(transfer), timeout=interval)
-            except TimeoutError:
-                try:
-                    await message.in_progress()
-                except Exception:
-                    logger.warning("DLQ source ACK extension failed", exc_info=True)
-        await asyncio.shield(transfer)
-
-    async def _write_with_heartbeat(
-        self,
-        message: Any,
-        samples: tuple[DeliveryPoint, ...] | tuple[bytes, ...],
-        *,
-        key: bytes | None = None,
-        stripe: int = 0,
-    ) -> BatchOutcome:
-        """Keep native target I/O owned even if the AckWait renewal fails."""
-        assert self._adapter is not None
-
-        async def native_write() -> BatchOutcome:
-            if key is None:
-                result: BatchOutcome = await self._adapter.write_batch(samples)
-            else:
-                result = await self._adapter.write_encoded_batch(samples, key=key, stripe=stripe)
-            if result.error == "Sink I/O result uncertain; waiting for settlement":
-                settled = await self._adapter.settle()
-                return settled if settled is not None else result
-            return result
-
-        task = asyncio.create_task(native_write())
-        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
-        progress_error: Exception | None = None
-        while not task.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=interval)
-            except TimeoutError:
-                try:
-                    await message.in_progress()
-                except Exception as exc:
-                    progress_error = exc
-                continue
-        result: BatchOutcome = await asyncio.shield(task)
-        if progress_error is not None:
-            # A failed InProgress signal does not invalidate a settled target
-            # write. Attempt the source ACK using that actual result; Broker
-            # redelivery remains possible if the consumer lease was lost.
-            logger.warning(
-                "JetStream ACK extension failed for Delivery %s: %s",
-                self._definition.delivery_id,
-                progress_error,
-            )
-        return result
-
-    async def _retry_pause(self, seconds: float) -> None:
-        """A STOP must not wait for the full transient backoff."""
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-
     async def _check_capacity(self) -> None:
         """Poll Broker-owned capacity every 10 s; never mutate Streams."""
         client = self._client
@@ -542,207 +490,6 @@ class ReliableDeliveryPort:
             self._capacity_alarm = "; ".join(alarms)
         except Exception as exc:
             self._capacity_alarm = f"SOURCE_CAPACITY_UNKNOWN: {exc}"
-
-    async def _deliver_batch(self, message: Any, batch: SampleBatch) -> bool:
-        """Return true only after all matched points reach a durable terminal state."""
-        selector = self._snapshot.deliveries[self._definition.delivery_id]["source"]
-        if (
-            batch.wind_farm_id != selector["wind_farm_id"]
-            or batch.collector_id != selector["collector_id"]
-            or (selector["devices"] and batch.device_id not in selector["devices"])
-        ):
-            return True
-        point_ids = frozenset(selector["points"]) if selector["points"] else None
-        selected: tuple[SampleItem, ...] = ()
-        samples: tuple[DeliveryPoint, ...] = ()
-        key = b""
-        stripe = 0
-        if self._kafka_target:
-            # The source batch has already passed the strict v2 validation.
-            # Avoid constructing 500 intermediate DeliveryPoint objects.
-            selected = tuple(
-                item for item in batch.samples if point_ids is None or item.point_id in point_ids
-            )
-            count = len(selected)
-            key = ":".join((batch.wind_farm_id, batch.collector_id, batch.device_id)).encode(
-                "utf-8"
-            )
-            stripe = hash((batch.wind_farm_id, batch.collector_id, batch.device_id)) % 128
-        else:
-            samples = select_delivery_points(batch, point_ids=point_ids)
-            count = len(samples)
-        if not count:
-            return True
-        self.received_total += count
-        assert self._adapter is not None
-        unresolved = False
-        for start in range(0, count, 500):
-            if start:
-                try:
-                    await message.in_progress()
-                except Exception:
-                    logger.warning("source ACK extension between subbatches failed", exc_info=True)
-            if self._stop.is_set():
-                return False
-            payloads: tuple[bytes, ...] = ()
-            chunk: tuple[DeliveryPoint, ...] = ()
-            if self._kafka_target:
-                chunk_items = selected[start : start + 500]
-                payloads = encode_kafka_points(batch, chunk_items)
-                chunk_length = len(chunk_items)
-            else:
-                chunk = samples[start : start + 500]
-                chunk_length = len(chunk)
-            self._active_io = True
-            try:
-                if self._kafka_target:
-                    outcome = await self._write_with_heartbeat(
-                        message, payloads, key=key, stripe=stripe
-                    )
-                else:
-                    outcome = await self._write_with_heartbeat(message, chunk)
-            finally:
-                self._active_io = False
-            settled = set(outcome.settled)
-            delivered = set(outcome.delivered)
-            if (
-                not delivered.issubset(settled)
-                or len(settled) != len(outcome.settled)
-                or any(not 0 <= i < chunk_length for i in settled)
-            ):
-                raise RuntimeError("Adapter returned invalid batch indexes")
-            self.write_success_total += outcome.successful_attempts
-            self.failed_total += outcome.failed_attempts
-            self.delivered_total += len(delivered)
-            timestamp = datetime.now(UTC)
-            for latency in outcome.successful_latencies_ms:
-                self.latency_window.add(timestamp, latency)
-            for latency, count in outcome.successful_latency_weights:
-                self.latency_window.add(timestamp, latency, count=count)
-            # Adapter-owned, index-based permanent evidence only. An
-            # arbitrary error string or an unresolved I/O must never
-            # classify a point as DLQ-safe.
-            permanent = set(outcome.permanent)
-            if len(permanent) != len(outcome.permanent) or not permanent.issubset(
-                settled - delivered
-            ):
-                raise RuntimeError("Adapter returned invalid permanent indexes")
-            if permanent and self._kafka_target:
-                raise RuntimeError("Kafka output cannot classify permanent point failures")
-            for index in sorted(permanent):
-                await self._dlq_with_heartbeat(
-                    message,
-                    outcome.error or "permanent target business rejection",
-                    sample=samples[start + index],
-                )
-            if len(delivered | permanent) != chunk_length:
-                unresolved = True
-            if outcome.error and not permanent:
-                unresolved = True
-            if unresolved:
-                break
-        return not unresolved
-
-    async def _run(self) -> None:
-        """Process one durable source batch at a time; never ACK partial results."""
-        assert self._subscription is not None
-        config = self._snapshot.service["reliable"]
-        base_backoff = config["retry_base_ms"] / 1000
-        max_backoff = config["retry_max_ms"] / 1000
-        backoff = base_backoff
-        while not self._stop.is_set():
-            now = time.monotonic()
-            if now - self._last_capacity_check >= 10:
-                self._last_capacity_check = now
-                await self._check_capacity()
-            try:
-                messages = await self._subscription.fetch(batch=1, timeout=1.0)
-            except (TimeoutError, NatsTimeoutError):
-                continue
-            except Exception as exc:
-                self.last_error = str(exc)
-                self.retry_total += 1
-                await self._retry_pause(min(backoff, max_backoff))
-                backoff = min(backoff * 2, max_backoff)
-                continue
-
-            for message in messages:
-                if self._stop.is_set():
-                    return
-                metadata = message.metadata
-                self._backlog = metadata.num_pending + 1
-                self.received_batches_total += 1
-                try:
-                    batch = SampleBatch.decode(
-                        message.data,
-                        mode="reliable",
-                        subject=message.subject,
-                        max_samples=self._snapshot.service["nats"]["max_samples_per_batch"],
-                        max_bytes=self._snapshot.service["nats"]["max_batch_bytes"],
-                    )
-                except (ValueError, UnicodeError) as exc:
-                    self.rejected_batches_total += 1
-                    try:
-                        await self._dlq_with_heartbeat(message, str(exc))
-                        await message.ack_sync(timeout=5)
-                        self.acknowledged_batches_total += 1
-                        self._backlog = metadata.num_pending
-                        self._last_backlog_progress = time.monotonic()
-                    except Exception as failure:
-                        self.last_error = f"DLQ_BLOCKED: {failure}"
-                        self.retry_total += 1
-                        try:
-                            await message.nak(delay=min(backoff, max_backoff))
-                        except Exception:
-                            logger.warning("NAK after blocked DLQ failed", exc_info=True)
-                            await self._retry_pause(min(backoff, max_backoff))
-                        backoff = min(backoff * 2, max_backoff)
-                    continue
-
-                self.input_values_total += len(batch.samples)
-                historical = (
-                    metadata.num_delivered > 1
-                    or (datetime.now(UTC) - metadata.timestamp).total_seconds() > 5
-                )
-                if historical:
-                    rate = config["replay_max_rate_per_second"]
-                    now = asyncio.get_running_loop().time()
-                    delay = self._last_backlog_output + 1 / rate - now
-                    if delay > 0:
-                        await self._retry_pause(delay)
-                    self._last_backlog_output = asyncio.get_running_loop().time()
-                if self._stop.is_set():
-                    return
-                try:
-                    # Message headers do not establish Delivery ownership.
-                    # Only the validated source selector may skip a source batch.
-                    terminal = await self._deliver_batch(message, batch)
-                    if not terminal:
-                        raise RuntimeError("source batch contains unconfirmed points")
-                    await message.ack_sync(timeout=5)
-                    self.acknowledged_batches_total += 1
-                    self._backlog = metadata.num_pending
-                    self._last_backlog_progress = time.monotonic()
-                    self.last_error = ""
-                    backoff = base_backoff
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    # Durable redelivery is the only recovery path. Confirmed
-                    # subsets must be idempotent downstream on replay.
-                    self.retry_total += 1
-                    self.last_error = str(exc)
-                    logger.warning(
-                        "Reliable Delivery %s failed; source batch remains unacknowledged: %s",
-                        self._definition.delivery_id,
-                        type(exc).__name__,
-                    )
-                    try:
-                        await message.nak(delay=min(backoff, max_backoff))
-                    except Exception as nak_error:
-                        self.last_error = f"{exc}; NAK unresolved: {nak_error}"
-                        await self._retry_pause(min(backoff, max_backoff))
-                    backoff = min(backoff * 2, max_backoff)
 
 
 class ReliableFactory:

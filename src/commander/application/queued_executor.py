@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from commander.application.control import CommandControl
 from commander.domain.command import (
@@ -45,6 +45,13 @@ class WriteSession(Protocol):
     ) -> tuple[ProtocolWriteResult, ...]: ...
 
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class AuthorizedWriteSession(Protocol):
+    """Optional command-aware Port preserving the durable per-command identity."""
+
+    async def write_authorized(self, command: AcceptedCommand) -> ProtocolWriteResult: ...
 
 
 SessionFactory = Callable[[str], WriteSession]
@@ -102,6 +109,7 @@ class QueuedExecutor:
         idle_timeout: float = 30.0,
         max_batch_points: int = 10,
         max_request_id_bytes: int = 128,
+        initially_blocked: frozenset[str] = frozenset(),
     ) -> None:
         if (
             global_capacity < 1
@@ -135,7 +143,8 @@ class QueuedExecutor:
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._entries: dict[str, _Entry] = {}
         self._sessions: dict[str, WriteSession] = {}
-        self._blocked: set[str] = set()
+        self._blocked: set[str] = set(initially_blocked)
+        self._recovered_blocked: set[str] = set(initially_blocked)
         self._reloading: set[str] = set()
         self._native: set[asyncio.Task[Any]] = set()
         self._native_by_device: dict[str, set[asyncio.Task[Any]]] = defaultdict(set)
@@ -224,6 +233,21 @@ class QueuedExecutor:
             accepted = await self._control.accept(
                 commands, caller_id=caller_id, request_id=request_id
             )
+            if self._closed:
+                # Shutdown may start while durable T1 admission is pending.
+                # Never enqueue fresh commands after the dispatcher closes.
+                await self._control.complete_many(
+                    tuple(
+                        (
+                            command.command_id,
+                            CommandState.INTERRUPTED,
+                            CommandOutcome.NOT_SENT,
+                            "SERVICE_STOPPING",
+                        )
+                        for command in accepted
+                    )
+                )
+                return accepted
             for command in accepted:
                 entry = _Entry(
                     command=command,
@@ -600,16 +624,40 @@ class QueuedExecutor:
                     batch_completed = True
                     return
                 progress: list[ProtocolWriteResult] = []
-                native = asyncio.create_task(self._write_group(session, writes, progress))
+                # Enforce the deadline inside serial execution as well: a fast
+                # adapter may return after the deadline before the waiter's
+                # timeout callback gets scheduled on the event loop.
+                write_deadline = time.monotonic() + self._write_timeout
+                stop_unstarted = asyncio.Event()
+                started_count = [0]
+                native = asyncio.create_task(
+                    self._write_group(
+                        session,
+                        writes,
+                        progress,
+                        tuple(member.command for member in group),
+                        stop_unstarted,
+                        started_count,
+                        write_deadline,
+                    )
+                )
                 try:
                     result = await asyncio.wait_for(
                         asyncio.shield(native), timeout=self._write_timeout
                     )
                 except (TimeoutError, asyncio.CancelledError):
+                    # Prevent any not-yet-started serial writes after the caller
+                    # has observed a terminal result. The active write remains
+                    # owned until native completion and physical isolation.
+                    stop_unstarted.set()
                     self._block_late(device_id, native)
                     owns_gate = False
                     changes = self._serial_terminal_changes(
-                        group, tuple(progress), "WRITE_TIMEOUT", unsettled=True
+                        group,
+                        tuple(progress),
+                        "WRITE_TIMEOUT",
+                        unsettled=True,
+                        started_count=started_count[0],
                     )
                     self._track_unknown(device_id, changes)
                     await self._control.complete_many(changes)
@@ -728,6 +776,7 @@ class QueuedExecutor:
         *,
         unsettled: bool,
         current_unconfirmed: bool = True,
+        started_count: int | None = None,
     ) -> tuple[tuple[str, CommandState, CommandOutcome, str | None], ...]:
         changes: list[tuple[str, CommandState, CommandOutcome, str | None]] = []
         for index, member in enumerate(group):
@@ -751,8 +800,18 @@ class QueuedExecutor:
                         CommandOutcome.UNKNOWN,
                         "WRITE_UNKNOWN",
                     )
+            elif started_count is not None and index >= started_count:
+                state, outcome, code = (
+                    CommandState.INTERRUPTED,
+                    CommandOutcome.NOT_SENT,
+                    "BATCH_ABORTED_NOT_SENT",
+                )
             elif unsettled or (current_unconfirmed and index == len(confirmed)):
-                state, outcome, code = (CommandState.UNKNOWN, CommandOutcome.UNKNOWN, error_code)
+                state, outcome, code = (
+                    CommandState.UNKNOWN,
+                    CommandOutcome.UNKNOWN,
+                    error_code,
+                )
             else:
                 state, outcome, code = (
                     CommandState.INTERRUPTED,
@@ -767,13 +826,35 @@ class QueuedExecutor:
         session: WriteSession,
         writes: tuple[ProtocolWrite, ...],
         progress: list[ProtocolWriteResult],
+        commands: tuple[AcceptedCommand, ...],
+        stop_unstarted: asyncio.Event,
+        started_count: list[int],
+        write_deadline: float,
     ) -> tuple[ProtocolWriteResult, ...]:
-        """One logical batch: native batch when supported, else serial writes."""
-        if len(writes) > 1 and ProtocolCapability.WRITE_MANY in session.capabilities():
+        """Native batch for real devices; command-aware calls retain idempotent identity."""
+        authorized = isinstance(session, AuthorizedWriteSession)
+        if (
+            not authorized
+            and len(writes) > 1
+            and ProtocolCapability.WRITE_MANY in session.capabilities()
+        ):
+            started_count[0] = len(writes)
             return await session.write_many(writes)
-        for write in writes:
+        for write, command in zip(writes, commands, strict=True):
+            if stop_unstarted.is_set() or time.monotonic() >= write_deadline:
+                # Only completed writes can be confirmed. Unstarted suffix
+                # must not be sent even if asyncio.wait_for has not resumed.
+                raise _SerialWriteError(
+                    tuple(progress),
+                    TimeoutError("serial write deadline exceeded"),
+                    current_unconfirmed=False,
+                )
+            started_count[0] += 1
             try:
-                result = await session.write_one(write)
+                if isinstance(session, AuthorizedWriteSession):
+                    result = await session.write_authorized(command)
+                else:
+                    result = await session.write_one(write)
             except Exception as exc:
                 raise _SerialWriteError(tuple(progress), exc, current_unconfirmed=True) from exc
             progress.append(result)
@@ -820,7 +901,7 @@ class QueuedExecutor:
         except (TimeoutError, asyncio.CancelledError):
             self._pending_unknown[device_id].add(command_id)
             self._block_late(device_id, task)
-            await self._unsent(command_id, CommandState.FAILED, "CONNECT_TIMEOUT")
+            await self._unknown(command_id, "CONNECT_TIMEOUT")
             return False, False
         except Exception:
             await self._unsent(command_id, CommandState.FAILED, "CONNECT_FAILED")
@@ -890,18 +971,37 @@ class QueuedExecutor:
 
         task.add_done_callback(settled)
 
+    def release_recovered_device(self, device_id: str) -> None:
+        """Only call after external fencing and durable recovery audit commit."""
+        if (
+            self._closed
+            or self._fatal
+            or device_id not in self._recovered_blocked
+            or device_id not in self._blocked
+            or self._native_by_device[device_id]
+            or self._sessions.get(device_id) is not None
+            or self._queues.get(device_id)
+        ):
+            raise RuntimeError("recovered device is not safe to release")
+        self._recovered_blocked.remove(device_id)
+        self._blocked.remove(device_id)
+
     async def isolate_device(self, device_id: str) -> bool:
         """Clear blocking only after native work settles and physical close succeeds."""
-        if device_id not in self._blocked or self._native_by_device[device_id]:
+        if (
+            device_id not in self._blocked
+            or device_id in self._recovered_blocked
+            or self._native_by_device[device_id]
+        ):
             return False
         existing = self._isolation_tasks.get(device_id)
         if existing is None:
             session = self._sessions.get(device_id)
             if session is None:
-                self._blocked.discard(device_id)
-                self._release_retained(device_id)
-                self._confirm_unknown_settled(device_id)
-                return True
+                # A recovered command has no local transport to close. Absence
+                # of a session is not evidence that the previous process and
+                # the field device have safely settled; keep the device blocked.
+                return False
             existing = asyncio.create_task(session.close())
             self._isolation_tasks[device_id] = existing
         try:
@@ -944,15 +1044,24 @@ class QueuedExecutor:
         if grace_seconds <= 0:
             raise ValueError("grace_seconds must be positive")
         self._closed = True
+        admission_pending = False
         try:
             await asyncio.wait_for(self._admission_lock.acquire(), timeout=grace_seconds)
         except TimeoutError:
-            return frozenset({"__admission__"})
+            # Preserve the failure signal, but still terminate all already
+            # queued commands before returning from shutdown.
+            admission_pending = True
         else:
             self._admission_lock.release()
         for entry in tuple(self._entries.values()):
             if entry.deadline_handle is not None:
                 entry.deadline_handle.cancel()
+        # A hung FIFO head must never strand later accepted commands. Finalize
+        # entries that have not acquired the I/O gate before waiting on workers;
+        # the active native operation retains its original ownership.
+        for entry in tuple(self._entries.values()):
+            if not entry.gate_acquired and not entry.finished.done():
+                await self._terminate_queued(entry, CommandState.INTERRUPTED, "SERVICE_STOPPING")
         if self._deadline_tasks:
             _, pending_deadlines = await asyncio.wait(
                 tuple(self._deadline_tasks), timeout=grace_seconds
@@ -993,4 +1102,5 @@ class QueuedExecutor:
             else:
                 self._isolation_tasks.pop(device_id, None)
                 self._sessions.pop(device_id, None)
-        return self.blocked_devices()
+        blocked = self.blocked_devices()
+        return blocked | frozenset({"__admission__"}) if admission_pending else blocked

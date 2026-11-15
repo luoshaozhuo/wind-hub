@@ -7,7 +7,7 @@
   不需要/不暴露预编码接口；
 - 500 点边界与超 500 点拆批、子批间 InProgress 续租、选择器筛选后的
   索引与 received/delivered 记账；
-- 预编码 payload 与生产 DeliveryPoint.encode 逐字节相等，key/stripe
+- 预编码 payload 与正式 Outbound Kafka Adapter 编码逐字节相等，key/stripe
   与 KafkaOutput 的设备锁语义一致；
 - UNKNOWN settle、permanent 拒绝、adapter 失败均不伪造成功。
 """
@@ -21,10 +21,11 @@ from typing import Any
 import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.config import validate_snapshot
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.delivery_point import select_delivery_points
 from sink_service.application.realtime import BatchOutcome
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_delivery_point
+from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
@@ -44,7 +45,7 @@ class _FakeJetStreamMessage:
     def __init__(self) -> None:
         self.in_progress_calls = 0
 
-    async def in_progress(self) -> None:
+    async def extend(self) -> None:
         self.in_progress_calls += 1
 
 
@@ -169,7 +170,7 @@ def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payload
     # 与权威 DeliveryPoint 编码逐字节相等
     legacy = select_delivery_points(batch)
     assert len(payloads) == 500
-    assert all(payloads[i] == legacy[i].encode() for i in range(500))
+    assert all(payloads[i] == encode_delivery_point(legacy[i]) for i in range(500))
     assert port.received_total == 500
     assert port.delivered_total == 500
     assert port.write_success_total == 500
@@ -190,8 +191,12 @@ def test_more_than_500_points_split_with_heartbeat_between_subbatches() -> None:
     assert port.delivered_total == 1024
     assert port.write_success_total == 1024
     # 第二批首个 payload 仍是正确的第 500 点（子批索引不错位）
-    assert adapter.encoded_calls[1][0][0] == select_delivery_points(batch)[500].encode()
-    assert adapter.encoded_calls[2][0][-1] == select_delivery_points(batch)[1023].encode()
+    assert adapter.encoded_calls[1][0][0] == encode_delivery_point(
+        select_delivery_points(batch)[500]
+    )
+    assert adapter.encoded_calls[2][0][-1] == encode_delivery_point(
+        select_delivery_points(batch)[1023]
+    )
 
 
 def test_non_kafka_target_never_calls_preencoded_interface() -> None:
@@ -216,7 +221,7 @@ def test_point_selector_filters_before_encoding_and_accounting() -> None:
     payloads, _key, _stripe = adapter.encoded_calls[0]
     assert len(payloads) == 2
     legacy = select_delivery_points(batch, frozenset({"p001", "p002"}))
-    assert list(payloads) == [sample.encode() for sample in legacy]
+    assert list(payloads) == [encode_delivery_point(sample) for sample in legacy]
     assert port.received_total == 2
     assert port.delivered_total == 2
 

@@ -277,47 +277,42 @@ async def test_blank_request_id_rejected_invalid_argument(
 
 async def test_rpc_deadline_does_not_duplicate_field_write(
     modbus_grpc_stack: tuple[GrpcStack, Any, Pki, ModbusMockServer],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """语义⑥：客户端极短截止期丢失响应，shield 受理不中止；每请求至多一次现场写。
-
-    截止期可能在请求送达前到期（此时服务端无受理，换新 ID 重试），也可能在
-    受理窗口内到期（此时 shield 保护的受理继续落定）。只有后一种情形提供
-    取消语义证据；若连续三次都未送达，本测试显式失败，绝不静默放过。
-    """
+    """受理已持久化后确定性扣住响应，客户端 deadline 不得取消现场写或造成重发。"""
     stack, _server, pki, modbus = modbus_grpc_stack
     _common, commander = stack.stubs(pki, client="ops")
     revision = await _revision(commander)
+    request_id = f"req-rc-deadline-{uuid4().hex}"
+    accepted = asyncio.Event()
+    release_response = asyncio.Event()
+    original_get_request = stack.service.control.get_request
 
-    demonstrated = False
-    for attempt in range(3):
-        request_id = f"req-rc-deadline-{uuid4().hex}"
-        before = modbus.write_count
-        with pytest.raises(grpc.aio.AioRpcError) as exc_info:
-            await commander.SubmitCommand(
-                _single_request(revision, request_id, value=50.0 + attempt),
-                timeout=0.05,
-            )
-        assert exc_info.value.code() in (
-            grpc.StatusCode.DEADLINE_EXCEEDED,
-            grpc.StatusCode.CANCELLED,
+    async def hold_accepted_response(request: str, caller: str) -> Any:
+        results = await original_get_request(request, caller)
+        if request == request_id:
+            accepted.set()
+            await release_response.wait()
+        return results
+
+    monkeypatch.setattr(stack.service.control, "get_request", hold_accepted_response)
+    before = modbus.write_count
+    with pytest.raises(grpc.aio.AioRpcError) as exc_info:
+        await commander.SubmitCommand(
+            _single_request(revision, request_id, value=50.0), timeout=0.05
         )
-        view = await _poll_request(commander, request_id, timeout=5.0)
-        if view is None:
-            # 截止期先于请求送达：本试次无受理、无现场写，换新 ID 重试。
-            assert modbus.write_count == before
-            continue
+    assert exc_info.value.code() in (
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.CANCELLED,
+    )
+    await asyncio.wait_for(accepted.wait(), timeout=5)
+    release_response.set()
 
-        demonstrated = True
-        terminal = await _poll_request_terminal(commander, request_id)
-        assert terminal.state == "SUCCEEDED"
-        # 核心不变量：一次请求只允许一次现场写入，客户端超时不触发重发。
-        assert modbus.write_count - before == 1
-        # 同 ID 重放拿回同一 command_id，且不产生第二次写入。
-        replay = await commander.SubmitCommand(
-            _single_request(revision, request_id, value=50.0 + attempt), timeout=5
-        )
-        assert replay.command_id == terminal.commands[0].command_id
-        assert modbus.write_count - before == 1
-        break
-
-    assert demonstrated, "三个试次均在请求送达前超时，未取得取消语义证据"
+    terminal = await _poll_request_terminal(commander, request_id)
+    assert terminal.state == "SUCCEEDED"
+    assert modbus.write_count - before == 1
+    replay = await commander.SubmitCommand(
+        _single_request(revision, request_id, value=50.0), timeout=5
+    )
+    assert replay.command_id == terminal.commands[0].command_id
+    assert modbus.write_count - before == 1

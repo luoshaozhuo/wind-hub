@@ -418,7 +418,13 @@ class Runtime:
                 return "FAILURE", 1
             if overall not in ("PASS", "SUCCESS"):
                 return "UNKNOWN", 3
-        if data.get("accepted") is False or data.get("valid") is False:
+        if command == "commander recover-device" and data.get("state") != "UNBLOCKED":
+            return "FAILURE", 1
+        if (
+            data.get("accepted") is False
+            or data.get("valid") is False
+            or data.get("error_code") == "APPLY_FAILED"
+        ):
             return "FAILURE", 1
         if command.startswith("commander ") and (
             data.get("state") == "UNKNOWN" or data.get("outcome") == "UNKNOWN"

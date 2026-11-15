@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from data_generator.application.physical_engine import PhysicalEngine
-from data_generator.infrastructure.config import load_settings
+from data_generator.infrastructure.config.service_settings import load_settings
 
 pytestmark = [pytest.mark.performance, pytest.mark.load]
 

@@ -1,0 +1,221 @@
+"""Commander-authorized simulation execution with bounded in-process deduplication."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from industrial_gateway.application.ports.simulation import SimulationInputPort
+from industrial_gateway.application.variable_store import Scalar
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationCommand:
+    caller: str
+    gateway_id: str
+    device_id: str
+    point_id: str
+    value: Scalar
+    request_id: str
+    expected_revision: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationOutcome:
+    request_id: str
+    accepted: bool
+    execution_id: str
+    state: str
+    error_code: str = ""
+    message: str = ""
+    effective_step: int = 0
+    generation_id: str = ""
+
+
+class SimulationController:
+    """Keep active request identity stable even when a gRPC caller disconnects."""
+
+    def __init__(
+        self,
+        input_factory: Callable[[str], SimulationInputPort],
+        *,
+        capacity: int = 16384,
+    ) -> None:
+        self._input_factory = input_factory
+        self._capacity = capacity
+        self._requests: dict[
+            tuple[str, str, str], tuple[SimulationCommand, str, asyncio.Task[SimulationOutcome]]
+        ] = {}
+        self._mutex = asyncio.Lock()
+        self._target_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+    async def execute(self, command: SimulationCommand) -> SimulationOutcome:
+        key = (command.caller, command.gateway_id, command.request_id)
+        async with self._mutex:
+            self._prune_expired()
+            previous = self._requests.get(key)
+            if previous is not None:
+                original, execution_id, task = previous
+                if original != command:
+                    return SimulationOutcome(
+                        request_id=command.request_id,
+                        accepted=False,
+                        execution_id="",
+                        state="REJECTED",
+                        error_code="IDEMPOTENCY_CONFLICT",
+                    )
+            else:
+                if len(self._requests) >= self._capacity:
+                    return SimulationOutcome(
+                        request_id=command.request_id,
+                        accepted=False,
+                        execution_id="",
+                        state="REJECTED",
+                        error_code="EXECUTION_CAPACITY_EXCEEDED",
+                    )
+                target = (command.gateway_id, command.device_id)
+                lock = self._target_locks.setdefault(target, asyncio.Lock())
+                execution_id = uuid4().hex
+                task = asyncio.create_task(self._apply(command, execution_id, lock))
+                self._requests[key] = (command, execution_id, task)
+        # Transport cancellation cannot cancel a possibly submitted Generator input.
+        return await asyncio.shield(task)
+
+    async def result(self, *, caller: str, gateway_id: str, request_id: str) -> SimulationOutcome:
+        key = (caller, gateway_id, request_id)
+        async with self._mutex:
+            existing = self._requests.get(key)
+        if existing is None:
+            return SimulationOutcome(
+                request_id=request_id,
+                accepted=False,
+                execution_id="",
+                state="UNKNOWN",
+                error_code="EXECUTION_NOT_OBSERVED",
+            )
+        execution_id, task = existing[1], existing[2]
+        if not task.done():
+            return SimulationOutcome(
+                request_id=request_id,
+                accepted=True,
+                execution_id=execution_id,
+                state="PENDING",
+            )
+        if task.cancelled():
+            return SimulationOutcome(request_id, True, "", "UNKNOWN", "EXECUTION_CANCELLED")
+        try:
+            outcome = task.result()
+        except Exception as exc:
+            return SimulationOutcome(request_id, True, execution_id, "UNKNOWN", type(exc).__name__)
+        if outcome.state != "ACCEPTED" or not outcome.generation_id:
+            return outcome
+        client: SimulationInputPort | None = None
+        try:
+            client = self._input_factory(gateway_id)
+            client.start()
+            state = await client.get_execution(
+                generation_id=outcome.generation_id,
+                request_id=request_id,
+                timeout=2.0,
+            )
+            return replace(
+                outcome,
+                state=state,
+                error_code="EXECUTION_NOT_CONFIRMED" if state == "UNKNOWN" else "",
+            )
+        except Exception as exc:
+            logger.warning("simulation execution query failed: %s", type(exc).__name__)
+            return replace(outcome, state="UNKNOWN", error_code="EXECUTION_QUERY_FAILED")
+        finally:
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception:
+                    logger.exception("simulation query channel could not close")
+
+    def _prune_expired(self) -> None:
+        """Retire only expired settled identities after the bounded replay window."""
+        threshold = datetime.now(UTC) - timedelta(minutes=10)
+        expired = [
+            key
+            for key, (command, _execution_id, task) in self._requests.items()
+            if task.done() and command.expires_at < threshold
+        ]
+        for key in expired:
+            del self._requests[key]
+
+    async def _apply(
+        self, command: SimulationCommand, execution_id: str, lock: asyncio.Lock
+    ) -> SimulationOutcome:
+        async with lock:
+            remaining = (command.expires_at - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                return SimulationOutcome(
+                    command.request_id, False, execution_id, "REJECTED", "EXPIRED"
+                )
+            client: SimulationInputPort | None = None
+            try:
+                client = self._input_factory(command.gateway_id)
+                client.start()
+                receipt = await client.submit(
+                    device_id=command.device_id,
+                    point_id=command.point_id,
+                    value=command.value,
+                    request_id=command.request_id,
+                    timeout=remaining,
+                )
+                if not receipt.accepted:
+                    return SimulationOutcome(
+                        command.request_id,
+                        False,
+                        execution_id,
+                        "REJECTED",
+                        receipt.error_code,
+                        receipt.message,
+                    )
+                if receipt.effective_step <= 0:
+                    return SimulationOutcome(
+                        command.request_id,
+                        True,
+                        execution_id,
+                        "UNKNOWN",
+                        "NO_EFFECTIVE_STEP",
+                    )
+                return SimulationOutcome(
+                    command.request_id,
+                    True,
+                    execution_id,
+                    "ACCEPTED",
+                    effective_step=receipt.effective_step,
+                    generation_id=receipt.generation_id,
+                )
+            except (ValueError, PermissionError) as exc:
+                return SimulationOutcome(
+                    command.request_id,
+                    False,
+                    execution_id,
+                    "REJECTED",
+                    type(exc).__name__,
+                )
+            except Exception as exc:
+                # The transport may have delivered the input before failing.
+                return SimulationOutcome(
+                    command.request_id,
+                    True,
+                    execution_id,
+                    "UNKNOWN",
+                    type(exc).__name__,
+                )
+            finally:
+                if client is not None:
+                    try:
+                        await client.close()
+                    except Exception:
+                        logger.exception("simulation input channel could not close")

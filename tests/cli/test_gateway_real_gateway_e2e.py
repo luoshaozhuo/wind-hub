@@ -1,7 +1,7 @@
 """R1 P1-02：真实 CLI 子进程 × 真实生产 Gateway gRPC/mTLS 系统测试。
 
 与 tests/cli/test_gateway_e2e.py 的 FakeRpcServer 互补：本文件对端是生产
-``GatewayGrpcService`` + ``GatewayRuntime``（start_gateway_v1 不替换生产对象），
+``GatewayGrpcService`` + ``GatewayRuntime``（start_gateway 不替换生产对象），
 CLI 以独立解释器子进程（``python -m cli.main``）运行，验证：
 
 - 帮助/参数解析与 CLI v1_26 冻结接口一致（位置参数 ID=JSON_VALUE、必填
@@ -30,10 +30,10 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import decode_scalar
 from tests.cli.e2e_util import SRC, last_json, write_cli_yaml
-from tests.support.gateway_v1 import (
+from tests.support.gateway import (
     FEEDBACK_FLOAT,
     FEEDBACK_UINT,
-    start_gateway_v1,
+    start_gateway,
     two_server_specs,
 )
 
@@ -61,7 +61,7 @@ class CliResult:
 
 @pytest.fixture
 async def stack(tmp_path: Path):
-    harness = await start_gateway_v1(
+    harness = await start_gateway(
         tmp_path / "root",
         two_server_specs(control_enabled=False),
         mtls=RIGHTS,
