@@ -74,6 +74,10 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
 
 def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     docs = {item.path: _yaml_doc(item) for item in files}
+    service = docs.get("configs/services/sink_service.yaml")
+    if service is None:
+        raise ConfigurationError("missing canonical Sink Service configuration")
+    validate_service_technology(service)
     return validate_semantics(files, docs)
 
 
@@ -107,7 +111,6 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     files = [safe_file(path) for path in service_paths]
     service = _yaml_doc(files[0])
     validate_service(service)
-    validate_service_technology(service)
     instance_paths, template_root = config_sources(service)
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}
