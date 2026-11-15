@@ -16,6 +16,7 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
+from sink_service.infrastructure.config_schema import validate_service_technology
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
@@ -106,6 +107,7 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     files = [safe_file(path) for path in service_paths]
     service = _yaml_doc(files[0])
     validate_service(service)
+    validate_service_technology(service)
     instance_paths, template_root = config_sources(service)
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}
