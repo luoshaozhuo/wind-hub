@@ -35,10 +35,8 @@ from collector.application.config_models import (
     SnapshotPaths as SnapshotPaths,
 )
 
-# Versioned templates are immutable once published. They are matched by
-# category prefix rather than path depth: the shared flat layout
-# (templates/<category>/<id>_<version>.yaml) has only two separators, while
-# the legacy nested layout has three.
+# Versioned templates are immutable once published.
+# Each template resides directly in its canonical category directory.
 _PUBLISHED_TEMPLATE_PREFIXES = (
     "templates/protocols/",
     "templates/device_models/",
@@ -52,7 +50,6 @@ class CollectorSnapshotRepository:
 
     The repository lives in an isolated storage root. The active generation is
     read through CURRENT, never through partially replaced source YAML files.
-    External legacy paths may be imported once by the caller but are not edited.
     """
 
     def __init__(
@@ -105,18 +102,13 @@ class CollectorSnapshotRepository:
             ("templates", "business_points_standard.yaml"),
         }:
             return relative_path
-        # Template files live in a fixed category directory. Both the flat
-        # shared-config layout (templates/<category>/<name>.yaml) and the
-        # versioned nested layout (templates/<category>/<group>/<name>.yaml)
-        # are owned; the category whitelist and suffix checks still bound the
-        # snapshot to Collector-owned files.
+        # Only the current flat Template structure is supported.
         if (
-            parts[0] == "templates"
+            len(parts) == 3
+            and parts[0] == "templates"
             and parts[1] in {"protocols", "device_models", "point_tables", "tasks"}
-            and len(parts) in {3, 4}
-            and parts[-1].endswith(".yaml")
-            and parts[-1] != ".yaml"
-            and (len(parts) == 3 or parts[2])
+            and parts[2].endswith(".yaml")
+            and parts[2] != ".yaml"
         ):
             return relative_path
         raise SnapshotError("file outside Collector configuration ownership")
@@ -572,7 +564,7 @@ class CollectorSnapshotRepository:
         for category in ("protocols", "device_models", "point_tables", "tasks"):
             directory = paths.templates / category
             if directory.is_dir():
-                for template_file in directory.rglob("*.yaml"):
+                for template_file in directory.glob("*.yaml"):
                     if template_file.is_symlink() or not template_file.resolve().is_relative_to(
                         paths.templates
                     ):
