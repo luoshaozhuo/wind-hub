@@ -64,7 +64,9 @@ class SnapshotApplyPort(Protocol):
 
     async def validate_files(self, files: dict[str, bytes]) -> None: ...
 
-    async def commit_files(self, changed: dict[str, bytes]) -> None: ...
+    async def commit_files(
+        self, changed: dict[str, bytes], *, expected_files: dict[str, bytes]
+    ) -> None: ...
 
 
 def snapshot_revision(files: dict[str, bytes]) -> str:
@@ -165,7 +167,7 @@ class CommanderConfigApply:
             if name not in current or current[name] != content
         }
         # Durable commit must finish before reload; a reload failure is partial success.
-        await self._repository.commit_files(changed)
+        await self._repository.commit_files(changed, expected_files=current)
         self._candidates.pop(candidate_id, None)
         try:
             report = await self._service.reload()
