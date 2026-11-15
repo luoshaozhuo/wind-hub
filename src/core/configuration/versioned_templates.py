@@ -85,13 +85,22 @@ class VersionedTemplateRepository:
     """仅访问预定义类别下的精确版本文件，绝不回退到最新版。"""
 
     def __init__(self, root: str | Path) -> None:
-        self._root = Path(root).resolve()
+        template_root = Path(root)
+        if template_root.is_symlink() or not template_root.is_dir():
+            raise ConfigError(f"invalid template root: {template_root}")
+        self._root = template_root.resolve()
 
     def path_for(self, reference: TemplateRef) -> Path:
+        category = self._root / reference.category
+        if category.is_symlink():
+            raise ConfigError(f"template category is a symlink: {category}")
         prefix = TEMPLATE_FILE_PREFIXES[reference.category]
         filename = f"{prefix}{reference.template_id}_v{reference.file_version}.yaml"
-        candidate = (self._root / reference.category / filename).resolve()
-        if not candidate.is_relative_to(self._root):
+        candidate = category / filename
+        if candidate.is_symlink():
+            raise ConfigError(f"template file is a symlink: {candidate}")
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to(self._root):
             raise ConfigError("template reference escapes configured root")
         return candidate
 
