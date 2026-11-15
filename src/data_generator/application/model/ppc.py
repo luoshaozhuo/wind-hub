@@ -7,9 +7,9 @@ from collections.abc import Mapping
 
 from data_generator.application.model.common import (
     clamp,
-    validate_finite_outputs,
     is_real_number,
     require_number,
+    validate_finite_outputs,
 )
 from data_generator.domain.model import GeneratorError
 
