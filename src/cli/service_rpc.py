@@ -49,7 +49,8 @@ async def invoke(
     metadata = (
         runtime.collector_admin_metadata()
         if service == "collector"
-        and method in {
+        and method
+        in {
             "GetConfigSnapshot",
             "PushConfigSnapshot",
             "ApplyConfigSnapshot",
