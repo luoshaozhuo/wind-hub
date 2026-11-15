@@ -54,9 +54,13 @@ class Turbine:
             < require_number(params, "cut_out_speed_m_s")
         ):
             raise GeneratorError("invalid turbine wind speed protection thresholds")
-        if require_number(params, "rated_apparent_power_va") < require_number(params, "rated_power_w"):
+        if require_number(params, "rated_apparent_power_va") < require_number(
+            params, "rated_power_w"
+        ):
             raise GeneratorError("turbine apparent capacity below active rating")
-        if require_number(params, "rated_rotor_speed_rad_s") >= require_number(params, "max_rotor_speed_rad_s"):
+        if require_number(params, "rated_rotor_speed_rad_s") >= require_number(
+            params, "max_rotor_speed_rad_s"
+        ):
             raise GeneratorError("turbine rated rotor speed must be less than maximum")
         require_number(params, "pitch_power_gain_rad_w", minimum=0)
         require_number(params, "shaft_damping_nm_s_rad", minimum=0)
@@ -139,7 +143,9 @@ class Turbine:
         cp = self._cp(lam, sum(self.pitch) / 3)
         pa = 0.5 * weather.air_density * math.pi * radius**2 * cp * wind**3
         wind_ok = (
-            require_number(p, "cut_in_speed_m_s") <= weather.wind_speed < require_number(p, "cut_out_speed_m_s")
+            require_number(p, "cut_in_speed_m_s")
+            <= weather.wind_speed
+            < require_number(p, "cut_out_speed_m_s")
         )
         # A cut-out or overspeed trip is latched for the Generation's lifetime.
         if weather.wind_speed >= require_number(p, "cut_out_speed_m_s") or self.omega > rotor_max:
@@ -171,7 +177,10 @@ class Turbine:
             torque_target = 0.0
         self.torque = clamp(
             calculate_first_order_response(
-                self.torque, clamp(torque_target, 0, torque_cap), dt, require_number(p, "torque_tau_s")
+                self.torque,
+                clamp(torque_target, 0, torque_cap),
+                dt,
+                require_number(p, "torque_tau_s"),
             ),
             0,
             torque_cap,
@@ -196,7 +205,9 @@ class Turbine:
             self.pitch[i] = clamp(beta + dt * rate, self.min_pitch, self.feather)
             rates.append(rate)
         ta = pa / self.omega if self.omega > 0.01 and active else 0.0
-        inertia = require_number(p, "rotor_inertia_kg_m2") + n**2 * require_number(p, "generator_inertia_kg_m2")
+        inertia = require_number(p, "rotor_inertia_kg_m2") + n**2 * require_number(
+            p, "generator_inertia_kg_m2"
+        )
         damping = require_number(p, "shaft_damping_nm_s_rad", minimum=0)
         old_omega = self.omega
         # A stopped rotor cannot be driven into negative speed by numerical torque lag.
@@ -232,7 +243,9 @@ class Turbine:
         q_bound = math.sqrt(max(0, require_number(p, "rated_apparent_power_va") ** 2 - power**2))
         q_target = clamp(float(controls.get("reactive_power_setpoint", 0)), -q_bound, q_bound)
         self.reactive = clamp(
-            calculate_first_order_response(self.reactive, q_target, dt, get_optional_number(p, "reactive_tau_s", 0.5)),
+            calculate_first_order_response(
+                self.reactive, q_target, dt, get_optional_number(p, "reactive_tau_s", 0.5)
+            ),
             -q_bound,
             q_bound,
         )
