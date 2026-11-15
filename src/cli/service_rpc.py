@@ -54,6 +54,7 @@ async def invoke(
             "PushConfigSnapshot",
             "ApplyConfigSnapshot",
             "GetEvents",
+            "Diagnose",
             "StartTask",
             "StopTask",
             "ReadPoints",
