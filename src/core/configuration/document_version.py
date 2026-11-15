@@ -83,6 +83,8 @@ def read_stable_document(path: Path) -> dict[str, Any]:
     A cooperative shared configuration lock must still cover the entire
     multi-file reference closure; this per-file guard is not a transaction.
     """
+    if path.is_symlink():
+        raise ConfigError(f"{path}: INVALID_PATH symlinked configuration document")
     try:
         original = path.read_bytes()
         document = parse_yaml(original.decode("utf-8"))
