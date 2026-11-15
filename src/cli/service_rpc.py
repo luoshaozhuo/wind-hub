@@ -46,7 +46,7 @@ async def invoke(
     request_cls = message_factory.GetMessageClass(method_descriptor.input_type)
     request = ParseDict(values, request_cls(), ignore_unknown_fields=False)
     stub = getattr(grpc_module, f"{service_name}Stub")(runtime.channel(service))
-    metadata = runtime.rpc_metadata(service, method)
+    metadata = runtime.get_rpc_metadata(service, method)
     response = await getattr(stub, method)(
         request, timeout=runtime.target(service).timeout, metadata=metadata
     )
