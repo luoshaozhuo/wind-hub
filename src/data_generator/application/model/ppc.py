@@ -7,9 +7,9 @@ from collections.abc import Mapping
 
 from data_generator.application.model.common import (
     clamp,
-    finite_outputs,
+    validate_finite_outputs,
     is_real_number,
-    number,
+    require_number,
 )
 from data_generator.domain.model import GeneratorError
 
@@ -28,16 +28,16 @@ class PPC:
         if not isinstance(weights, dict) or set(weights) != set(ids):
             raise GeneratorError("invalid PPC allocation weights")
         self.devices = tuple(sorted(ids))
-        self.weights = {key: number(weights, key, minimum=0) for key in self.devices}
+        self.weights = {key: require_number(weights, key, minimum=0) for key in self.devices}
         if not any(self.weights.values()):
             raise GeneratorError("PPC requires positive allocation weights")
         if params.get("avc_mode") not in {"reactive_power", "voltage"}:
             raise GeneratorError("unknown PPC AVC mode")
-        if params["avc_mode"] == "voltage" and number(params, "avc_voltage_gain_var_v") <= 0:
+        if params["avc_mode"] == "voltage" and require_number(params, "avc_voltage_gain_var_v") <= 0:
             raise GeneratorError("voltage AVC requires positive gain")
-        number(params, "agc_ramp_w_s", minimum=0)
-        number(params, "ffr_deadband_hz", minimum=0)
-        number(params, "ffr_droop_w_hz", minimum=0)
+        require_number(params, "agc_ramp_w_s", minimum=0)
+        require_number(params, "ffr_deadband_hz", minimum=0)
+        require_number(params, "ffr_droop_w_hz", minimum=0)
         self.last_dispatch = {device_id: 0.0 for device_id in self.devices}
 
     def _allocate(
@@ -89,8 +89,8 @@ class PPC:
         frequency = float(grid.get("grid_frequency", 50.0))
         nominal = float(grid.get("frequency_nominal", 50.0))
         deviation = frequency - nominal
-        deadband = number(self.p, "ffr_deadband_hz")
-        droop = number(self.p, "ffr_droop_w_hz")
+        deadband = require_number(self.p, "ffr_deadband_hz")
+        droop = require_number(self.p, "ffr_droop_w_hz")
         ffr = (
             -droop * (deviation - math.copysign(deadband, deviation))
             if ffr_on and abs(deviation) > deadband
@@ -100,7 +100,7 @@ class PPC:
         command += ffr
         lower = {}
         upper = {}
-        ramp = number(self.p, "agc_ramp_w_s") * dt
+        ramp = require_number(self.p, "agc_ramp_w_s") * dt
         for device in self.devices:
             low, high = limits[device]
             prior = float(previous[device].get("active_power", 0))
@@ -142,7 +142,7 @@ class PPC:
             }
             for k in self.devices
         }
-        return dispatch, finite_outputs(
+        return dispatch, validate_finite_outputs(
             {
                 "active_power_feedback": power,
                 "agc_allocated_power": sum(allocation.values()),
