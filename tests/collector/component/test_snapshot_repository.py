@@ -116,16 +116,18 @@ def test_candidate_size_is_bounded(tmp_path: Path) -> None:
 async def test_published_template_version_cannot_change(tmp_path: Path) -> None:
     repository = CollectorSnapshotRepository(tmp_path / "config")
     original = _files()
-    original["templates/tasks/demo/1.0.0.yaml"] = b"interval: 1\n"
+    # 当前扁平模板布局：templates/<category>/<prefix>_<id>_v<version>.yaml。
+    template = "templates/tasks/task_demo_v1.0.0.yaml"
+    original[template] = b"interval: 1\n"
     first = repository.stage(original, expected_revision="", validate=_validate)
     committed = await repository.commit(
         first.candidate_id, expected_revision="", validate=_validate
     )
     modified = dict(original)
-    modified["templates/tasks/demo/1.0.0.yaml"] = b"interval: 2\n"
+    modified[template] = b"interval: 2\n"
     with pytest.raises(SnapshotError, match="published template"):
         repository.stage(modified, expected_revision=committed.revision, validate=_validate)
-    modified.pop("templates/tasks/demo/1.0.0.yaml")
+    modified.pop(template)
     with pytest.raises(SnapshotError, match="published template"):
         repository.stage(modified, expected_revision=committed.revision, validate=_validate)
 
