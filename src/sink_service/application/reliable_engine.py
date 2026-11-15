@@ -46,6 +46,9 @@ class ReliableDeliveryEngine:
     retry_total: int
     dlq_total: int
     dlq_invalid_batches_total: int
+    filtered_ack_batches_total: int
+    filtered_ack_values_total: int
+    _pending_filter_reason: str
     latency_window: LatencyWindow
     last_error: str
 
@@ -148,6 +151,7 @@ class ReliableDeliveryEngine:
         key = selection.key
         stripe = selection.stripe
         count = selection.count
+        self._pending_filter_reason = selection.filter_reason
         if not count:
             return True
         self.received_total += count
@@ -278,6 +282,18 @@ class ReliableDeliveryEngine:
                         raise RuntimeError("source batch contains unconfirmed points")
                     await message.ack(timeout=5)
                     self.acknowledged_batches_total += 1
+                    if self._pending_filter_reason:
+                        self.filtered_ack_batches_total += 1
+                        self.filtered_ack_values_total += len(batch.samples)
+                        logger.info(
+                            "Reliable zero-match ACK delivery=%s revision=%s reason=%s "
+                            "batch_values=%d",
+                            self._definition.delivery_id,
+                            self._snapshot.revision,
+                            self._pending_filter_reason,
+                            len(batch.samples),
+                        )
+                    self._pending_filter_reason = ""
                     self._backlog = metadata.num_pending
                     self._last_backlog_progress = time.monotonic()
                     self.last_error = ""
