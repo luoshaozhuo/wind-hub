@@ -156,30 +156,7 @@ def config_sources(service: dict[str, Any]) -> tuple[dict[str, str], str]:
 
 def validate_service(service: dict[str, Any]) -> None:
     require_version(service, "service")
-    require_keys(
-        service,
-        "service",
-        frozenset(
-            {
-                "schema_version",
-                "file_version",
-                "service_id",
-                "wind_farm_id",
-                "deployment_id",
-                "config_root",
-                "config_sources",
-                "grpc",
-                "security",
-                "nats",
-                "runtime",
-                "reliable",
-                "metrics",
-                "config_sync",
-                "shutdown",
-            }
-        ),
-    )
-    for field in ("service_id", "wind_farm_id", "deployment_id", "config_root"):
+    for field in ("service_id", "wind_farm_id", "deployment_id"):
         expect_nonempty_str(service.get(field), f"service.{field}")
     config_sources(service)
     if "process_role" in service or "config_writer" in service:
