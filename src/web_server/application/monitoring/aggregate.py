@@ -183,38 +183,50 @@ class CollectorStatusAggregator:
         return rows
 
     async def _aggregate_sinks(self) -> list[SinkRuntimeSnapshot]:
-        """Get Sink status from the independent Sink Service, not Collectors."""
+        """Aggregate official Delivery states by configured physical Sink ID."""
         try:
-            items = await self._sink_directory.list_sinks()
-            statuses = {item["name"]: item for item in items}
+            deliveries = await self._sink_directory.list_deliveries()
         except Exception:
-            statuses = {}
+            deliveries = []
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in deliveries:
+            sink_id = item.get("sink_id")
+            if isinstance(sink_id, str):
+                grouped.setdefault(sink_id, []).append(item)
 
-        return [
-            SinkRuntimeSnapshot(
-                name=cfg.sink_id,
-                healthy=bool(
-                    cfg.enabled
-                    and statuses.get(cfg.sink_id, {}).get("state") == "running"
-                    and statuses.get(cfg.sink_id, {}).get("nats_connected") is True
-                    and statuses.get(cfg.sink_id, {}).get("config_pending_restart") is not True
-                    and not statuses.get(cfg.sink_id, {}).get("failure")
-                ),
-                message=(
-                    "Sink Service configuration changed; process restart required"
-                    if statuses.get(cfg.sink_id, {}).get("config_pending_restart") is True
-                    else str(statuses[cfg.sink_id].get("failure") or statuses[cfg.sink_id]["state"])
-                    if cfg.sink_id in statuses
-                    else "Sink Service unavailable"
-                ),
-                queue_depth=(
-                    int(statuses[cfg.sink_id]["pending"])
-                    if isinstance(statuses.get(cfg.sink_id, {}).get("pending"), int)
-                    else 0
-                ),
+        rows: list[SinkRuntimeSnapshot] = []
+        for cfg in self._config.current_config.sinks.values():
+            members = grouped.get(cfg.sink_id, [])
+            healthy = bool(
+                cfg.enabled
+                and members
+                and all(
+                    item.get("desired_state") == "START"
+                    and item.get("actual_state") == "RUNNING"
+                    and not item.get("last_error")
+                    for item in members
+                )
             )
-            for cfg in self._config.current_config.sinks.values()
-        ]
+            failure = next(
+                (str(item["last_error"]) for item in members if item.get("last_error")),
+                "",
+            )
+            rows.append(
+                SinkRuntimeSnapshot(
+                    name=cfg.sink_id,
+                    healthy=healthy,
+                    message=(
+                        failure
+                        or ", ".join(
+                            sorted({str(item.get("actual_state", "UNKNOWN")) for item in members})
+                        )
+                        if members
+                        else "Sink Delivery status unavailable"
+                    ),
+                    queue_depth=0,
+                )
+            )
+        return rows
 
     def _aggregate_tasks(
         self,
