@@ -163,7 +163,10 @@ class PhysicalEngine:
             return 0.0, require_number(p, "rated_power_w")
         if kind == "pv":
             return 0.0, require_number(p, "inverter_rated_power_w")
-        return -require_number(p, "pcs_rated_active_power_w"), require_number(p, "pcs_rated_active_power_w")
+        return (
+            -require_number(p, "pcs_rated_active_power_w"),
+            require_number(p, "pcs_rated_active_power_w"),
+        )
 
     def advance(self, dt: float, step: int) -> dict[tuple[str, str], Scalar]:
         """Weather once, PPC from previous feedback, devices, then present-step grid."""
