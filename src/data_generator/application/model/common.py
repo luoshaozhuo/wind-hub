@@ -14,7 +14,9 @@ def is_real_number(value: object) -> TypeGuard[int | float]:
     return type(value) in (int, float)
 
 
-def require_number(params: Mapping[str, object], key: str, *, minimum: float | None = None) -> float:
+def require_number(
+    params: Mapping[str, object], key: str, *, minimum: float | None = None
+) -> float:
     value = params.get(key)
     if not is_real_number(value) or not math.isfinite(value):
         raise GeneratorError(f"invalid or missing physical parameter: {key}")
