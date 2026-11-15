@@ -12,6 +12,7 @@ from web_server.application.task.placement import TaskPlacementState
 class TaskInstanceState(str, Enum):
     RUNNING = "running"
     STOPPED = "stopped"
+    FAILED = "failed"
 
 
 class TaskInstanceDetail(BaseModel):
