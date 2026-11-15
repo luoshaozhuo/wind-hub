@@ -17,6 +17,7 @@ class ReliableSelection:
     points: tuple[DeliveryPoint, ...]
     key: bytes
     stripe: int
+    filter_reason: str = ""
 
     @property
     def count(self) -> int:
@@ -34,12 +35,12 @@ def select_reliable(
     batch: SampleBatch, source: Mapping[str, Any], *, kafka: bool
 ) -> ReliableSelection:
     """Apply the authoritative source selector, never untrusted NATS headers."""
-    if (
-        batch.wind_farm_id != source["wind_farm_id"]
-        or batch.collector_id != source["collector_id"]
-        or (source["devices"] and batch.device_id not in source["devices"])
-    ):
-        return ReliableSelection((), (), b"", 0)
+    if batch.wind_farm_id != source["wind_farm_id"]:
+        return ReliableSelection((), (), b"", 0, "wind_farm_mismatch")
+    if batch.collector_id != source["collector_id"]:
+        return ReliableSelection((), (), b"", 0, "collector_mismatch")
+    if source["devices"] and batch.device_id not in source["devices"]:
+        return ReliableSelection((), (), b"", 0, "device_mismatch")
     point_ids = frozenset(source["points"]) if source["points"] else None
     if kafka:
         items = tuple(
@@ -47,8 +48,11 @@ def select_reliable(
         )
         key = ":".join((batch.wind_farm_id, batch.collector_id, batch.device_id)).encode("utf-8")
         stripe = hash((batch.wind_farm_id, batch.collector_id, batch.device_id)) % 128
-        return ReliableSelection(items, (), key, stripe)
-    return ReliableSelection((), select_delivery_points(batch, point_ids), b"", 0)
+        return ReliableSelection(
+            items, (), key, stripe, "" if items else "point_filter_no_match"
+        )
+    points = select_delivery_points(batch, point_ids)
+    return ReliableSelection((), points, b"", 0, "" if points else "point_filter_no_match")
 
 
 def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
