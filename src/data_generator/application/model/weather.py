@@ -9,10 +9,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from data_generator.application.model.common import (
-    as_mapping,
+    require_mapping,
     clamp,
-    number,
-    optional_number,
+    require_number,
+    get_optional_number,
 )
 from data_generator.domain.model import GeneratorError
 
@@ -31,42 +31,42 @@ class WeatherModel:
 
     def __init__(self, weather_id: str, config: Mapping[str, object]) -> None:
         self.id = weather_id
-        self.wind = as_mapping(config.get("wind"), "weather.wind")
-        self.sun = as_mapping(config.get("irradiance"), "weather.irradiance")
-        self.heat = as_mapping(config.get("ambient_temperature"), "weather.temperature")
-        self.mean = number(self.wind, "wind_speed_mean", minimum=0)
-        self.direction = math.radians(number(self.wind, "wind_direction"))
-        self.turbulence = number(self.wind, "turbulence_intensity", minimum=0)
-        self.tau_wind = number(self.wind, "wind_correlation_time_s", minimum=0)
-        self.density = number(self.wind, "air_density", minimum=0)
+        self.wind = require_mapping(config.get("wind"), "weather.wind")
+        self.sun = require_mapping(config.get("irradiance"), "weather.irradiance")
+        self.heat = require_mapping(config.get("ambient_temperature"), "weather.temperature")
+        self.mean = require_number(self.wind, "wind_speed_mean", minimum=0)
+        self.direction = math.radians(require_number(self.wind, "wind_direction"))
+        self.turbulence = require_number(self.wind, "turbulence_intensity", minimum=0)
+        self.tau_wind = require_number(self.wind, "wind_correlation_time_s", minimum=0)
+        self.density = require_number(self.wind, "air_density", minimum=0)
         if self.tau_wind == 0 or self.density == 0:
             raise GeneratorError("invalid weather wind correlation or air density")
-        sunrise = number(self.sun, "sunrise_s", minimum=0)
-        sunset = number(self.sun, "sunset_s", minimum=0)
+        sunrise = require_number(self.sun, "sunrise_s", minimum=0)
+        sunset = require_number(self.sun, "sunset_s", minimum=0)
         if not sunrise < sunset <= 86400:
             raise GeneratorError("invalid sunrise and sunset")
         self.sunrise, self.sunset = sunrise, sunset
-        self.clear = number(self.sun, "irradiance_clear_w_m2", minimum=0)
-        self.cloud = number(self.sun, "cloud_factor_target", minimum=0)
+        self.clear = require_number(self.sun, "irradiance_clear_w_m2", minimum=0)
+        self.cloud = require_number(self.sun, "cloud_factor_target", minimum=0)
         if self.cloud > 1:
             raise GeneratorError("cloud factor must not exceed one")
         self.cloud_mode = str(self.sun.get("cloud_mode", "constant"))
         if self.cloud_mode not in {"constant", "correlated"}:
             raise GeneratorError("unknown cloud mode")
-        self.cloud_tau = optional_number(self.sun, "cloud_tau_s", 10.0)
-        self.cloud_sigma = optional_number(self.sun, "cloud_sigma", 0.0)
+        self.cloud_tau = get_optional_number(self.sun, "cloud_tau_s", 10.0)
+        self.cloud_sigma = get_optional_number(self.sun, "cloud_sigma", 0.0)
         if self.cloud_tau <= 0 or self.cloud_sigma < 0:
             raise GeneratorError("invalid cloud correlation")
-        self.temperature_mean = number(self.heat, "temperature_mean_c")
-        self.temperature_amplitude = number(self.heat, "diurnal_amplitude_k", minimum=0)
-        self.temperature_tau = number(self.heat, "temperature_tau_s", minimum=0)
-        self.temperature_sigma = number(self.heat, "temperature_sigma_k", minimum=0)
-        self.temperature_phase = number(self.heat, "phase_rad")
+        self.temperature_mean = require_number(self.heat, "temperature_mean_c")
+        self.temperature_amplitude = require_number(self.heat, "diurnal_amplitude_k", minimum=0)
+        self.temperature_tau = require_number(self.heat, "temperature_tau_s", minimum=0)
+        self.temperature_sigma = require_number(self.heat, "temperature_sigma_k", minimum=0)
+        self.temperature_phase = require_number(self.heat, "phase_rad")
         if self.temperature_tau == 0:
             raise GeneratorError("temperature time constant must be positive")
-        self.wind_z = optional_number(self.wind, "z_initial", 0.0)
-        self.temperature_z = optional_number(self.heat, "temperature_initial", 0.0)
-        self.cloud_state = optional_number(self.sun, "cloud_initial", self.cloud)
+        self.wind_z = get_optional_number(self.wind, "z_initial", 0.0)
+        self.temperature_z = get_optional_number(self.heat, "temperature_initial", 0.0)
+        self.cloud_state = get_optional_number(self.sun, "cloud_initial", self.cloud)
         if not 0 <= self.cloud_state <= 1:
             raise GeneratorError("invalid initial cloud")
         self.wind_rng = self._random("wind", self.wind, "wind_seed")
