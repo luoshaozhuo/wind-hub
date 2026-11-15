@@ -418,7 +418,7 @@ class ConfigSnapshots:
             candidate[name] = content
         return candidate
 
-    async def candidate_error(self, files: dict[str, bytes]) -> str | None:
+    async def get_candidate_validation_error(self, files: dict[str, bytes]) -> str | None:
         try:
             await asyncio.to_thread(self._validate, files)
         except (
@@ -436,7 +436,7 @@ class ConfigSnapshots:
         self._candidate.clear()
         self._candidate[candidate_id] = candidate
 
-    def candidate(self, candidate_id: str) -> SnapshotCandidate | None:
+    def get_candidate(self, candidate_id: str) -> SnapshotCandidate | None:
         return self._candidate.get(candidate_id)
 
     def collect_files(self) -> dict[str, bytes]:
