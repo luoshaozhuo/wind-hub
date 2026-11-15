@@ -74,7 +74,7 @@ async def manage_sink(
     ctx: AppContext = Depends(get_ctx),
 ) -> dict[str, object]:
     """Forward lifecycle changes only to independent Sink Service."""
-    if operation not in {"start", "stop", "restart", "clear"}:
+    if operation not in {"start", "stop"}:
         raise APIError("NOT_FOUND", f"unknown operation '{operation}'", 404)
     try:
         result = await common.sinks(ctx).manage(name, operation)
