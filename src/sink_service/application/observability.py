@@ -201,13 +201,22 @@ class Observability:
         """Read the last process snapshot, without recalculating metrics."""
         if window_ms != self._window_ms:
             raise ValueError("unsupported metrics window")
-        return dict(self._computed)
+        values = dict(self._computed)
+        if values.get("metrics_snapshot_stale"):
+            values.pop("backlog_messages", None)
+            values.pop("io_inflight", None)
+        return values
 
     def delivery_snapshot(self, window_ms: int) -> dict[str, dict[str, float]]:
         """Read the last atomically sampled per-Delivery metric collection."""
         if window_ms != self._window_ms:
             raise ValueError("unsupported metrics window")
-        return {key: dict(value) for key, value in self._delivery_computed.items()}
+        results = {key: dict(value) for key, value in self._delivery_computed.items()}
+        for values in results.values():
+            if values.get("metrics_snapshot_stale"):
+                values.pop("backlog_messages", None)
+                values.pop("io_inflight", None)
+        return results
 
     def list_events(
         self,
