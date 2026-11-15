@@ -21,6 +21,7 @@ from web_server.application.port.worker import (
 )
 from web_server.application.task.collector import TaskWorkerUnavailableError
 from web_server.application.task.control import TaskControlService
+from web_server.application.task.model import TaskInstanceDetail, TaskInstanceState
 from web_server.application.task.placement import (
     TaskPlacementRegistry,
     TaskPlacementState,
@@ -621,8 +622,6 @@ async def test_stop_task_and_stop_instance_allowed_when_task_disabled(tmp_path) 
 
 def test_failed_collector_instance_is_representable() -> None:
     """A failed Collector task must be observable, not trigger an HTTP 500."""
-    from web_server.application.task.model import TaskInstanceDetail, TaskInstanceState
-
     detail = TaskInstanceDetail(
         instance_id="task:device",
         assigned_worker_id="collector",
