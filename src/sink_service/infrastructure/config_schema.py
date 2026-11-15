@@ -15,6 +15,30 @@ from sink_service.domain.config import (
 
 def validate_service_technology(service: dict[str, Any]) -> None:
     """Check deployment-specific transports, credentials and metrics configuration."""
+    require_keys(
+        service,
+        "service",
+        frozenset(
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "wind_farm_id",
+                "deployment_id",
+                "config_root",
+                "config_sources",
+                "grpc",
+                "security",
+                "nats",
+                "runtime",
+                "reliable",
+                "metrics",
+                "config_sync",
+                "shutdown",
+            }
+        ),
+    )
+    expect_nonempty_str(service.get("config_root"), "service.config_root")
     grpc = expect_mapping(service.get("grpc"), "service.grpc")
     require_keys(
         grpc,
