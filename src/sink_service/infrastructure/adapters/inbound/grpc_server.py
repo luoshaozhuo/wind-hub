@@ -386,6 +386,7 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             "backlog_messages": "messages",
             "io_inflight": "operations",
             "metrics_snapshot_ready": "bool",
+            "metrics_snapshot_stale": "bool",
             "metrics_covered_ms": "ms",
         }
         return common_pb2.GetMetricsResponse(
