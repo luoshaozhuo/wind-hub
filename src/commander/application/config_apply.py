@@ -171,7 +171,9 @@ class CommanderConfigApply:
             report = await self._service.reload()
         except Exception as exc:
             return ApplyOutcome(
-                file_commit=snapshot_revision(await asyncio.to_thread(self._repository.collect_files)),
+                file_commit=snapshot_revision(
+                    await asyncio.to_thread(self._repository.collect_files)
+                ),
                 effective_revision=self._service.config_manager.revision,
                 restart_required=True,
                 application_id=str(uuid4()),
