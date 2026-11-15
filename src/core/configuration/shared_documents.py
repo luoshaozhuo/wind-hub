@@ -236,11 +236,22 @@ class SharedDocumentLoader:
                 raw.get("overrides", {}),
                 f"device {device_id}.overrides",
             )
+            # ``task`` 是 Collector 拥有的设备任务意图（Start/Stop RPC 经
+            # ``task_control.mutate_device_intent`` 持久化于此，重启后自收敛），
+            # 形状约束与 Collector 自身校验（validation.py）一致；其余未知键
+            # 仍 fail-closed 拒绝。
             _keys(
                 overrides,
-                frozenset({"protocol_options"}),
+                frozenset({"protocol_options", "task"}),
                 f"device {device_id}.overrides",
             )
+            task_override = overrides.get("task")
+            if task_override is not None and (
+                not isinstance(task_override, dict)
+                or set(task_override) - {"desired_state"}
+                or task_override.get("desired_state", "STOP") not in ("START", "STOP")
+            ):
+                raise ConfigError(f"device {device_id}.overrides.task: invalid desired_state")
             options = _mapping(
                 overrides.get("protocol_options", {}),
                 f"device {device_id}.overrides.protocol_options",
