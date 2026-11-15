@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.util
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -42,6 +43,21 @@ _LEVEL_MARKERS = (
     "performance",
 )
 _PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "influxdb", "file")
+
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Reject tests accidentally importing production code from another checkout."""
+    del session
+    expected = (_TESTS_ROOT.parent / "src" / "collector" / "__init__.py").resolve()
+    spec = importlib.util.find_spec("collector")
+    actual = Path(spec.origin).resolve() if spec is not None and spec.origin else None
+    if actual != expected:
+        pytest.exit(
+            f"wrong Collector source checkout: expected {expected}, got {actual}. "
+            "Run with PYTHONPATH=<worktree>/src.",
+            returncode=2,
+        )
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
