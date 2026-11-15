@@ -54,7 +54,7 @@ class ApplyOutcome:
 class SnapshotApplyPort(Protocol):
     """Durable storage operations; the application owns the transaction decision."""
 
-    def candidate(self, candidate_id: str) -> SnapshotCandidate | None: ...
+    def get_candidate(self, candidate_id: str) -> SnapshotCandidate | None: ...
 
     def collect_files(self) -> dict[str, bytes]: ...
 
@@ -64,7 +64,7 @@ class SnapshotApplyPort(Protocol):
         self, current: dict[str, bytes], files: tuple[SnapshotInput, ...]
     ) -> dict[str, bytes]: ...
 
-    async def candidate_error(self, files: dict[str, bytes]) -> str | None: ...
+    async def get_candidate_validation_error(self, files: dict[str, bytes]) -> str | None: ...
 
     def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None: ...
 
@@ -107,7 +107,7 @@ class CommanderConfigApply:
             if expected_revision != revision:
                 raise RuntimeError("expected_revision does not match disk revision")
             candidate = self._repository.prepare_candidate(current, files)
-            error = await self._repository.candidate_error(candidate)
+            error = await self._repository.get_candidate_validation_error(candidate)
             if error is not None:
                 return PushOutcome(
                     candidate_id="",
@@ -149,7 +149,7 @@ class CommanderConfigApply:
     async def _apply_locked(
         self, candidate_id: str, expected_revision: str
     ) -> ApplyOutcome:
-        candidate = self._repository.candidate(candidate_id)
+        candidate = self._repository.get_candidate(candidate_id)
         if candidate is None:
             raise KeyError(candidate_id)
         current = self._repository.collect_files()
