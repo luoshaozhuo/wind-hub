@@ -12,9 +12,10 @@ from enum import StrEnum
 from typing import Protocol, cast
 
 from sink_service.application.config import template_document, template_path
+from sink_service.application.config_sources import config_sources
 from sink_service.application.delivery_definition import DeliveryDefinition, delivery_definitions
 from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
-from sink_service.domain.config import ConfigurationError, ValidatedSnapshot, config_sources
+from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
 
 class ActualState(StrEnum):
