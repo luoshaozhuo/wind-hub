@@ -84,12 +84,12 @@ class PhysicalEngine:
                 "active_power": 0.0,
                 "reactive_power": 0.0,
                 "rated_apparent_power": (
-                    get_optional_require_number(params, "rated_apparent_power_va", 0.0)
+                    get_optional_number(params, "rated_apparent_power_va", 0.0)
                     if kind == "wtg"
-                    else get_optional_require_number(params, "inverter_rated_apparent_power_va", 0.0)
+                    else get_optional_number(params, "inverter_rated_apparent_power_va", 0.0)
                     if kind == "pv"
                     else (
-                        get_optional_require_number(params, "pcs_rated_apparent_power_va", 0.0)
+                        get_optional_number(params, "pcs_rated_apparent_power_va", 0.0)
                         if params.get("reactive_support_enabled")
                         else 0.0
                     )
