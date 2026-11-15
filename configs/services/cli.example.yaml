@@ -1,3 +1,5 @@
+# Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
+# in the CLI process environment. Never put the token value in this YAML.
 schema_version: 1
 file_version: "1.0.0"
 cli:
