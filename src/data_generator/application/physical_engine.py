@@ -6,7 +6,11 @@ import math
 from collections.abc import Mapping
 
 from data_generator.application.model.bess import BESS
-from data_generator.application.model.common import as_mapping, number, optional_number
+from data_generator.application.model.common import (
+    get_optional_number,
+    require_mapping,
+    require_number,
+)
 from data_generator.application.model.grid import Grid
 from data_generator.application.model.ppc import PPC
 from data_generator.application.model.pv import PV
@@ -22,7 +26,7 @@ class PhysicalEngine:
     def __init__(self, scenario: Scenario) -> None:
         self.scenario = scenario
         self.weather = {
-            name: WeatherModel(name, as_mapping(raw, f"weather.{name}"))
+            name: WeatherModel(name, require_mapping(raw, f"weather.{name}"))
             for name, raw in scenario.weather.items()
         }
         self.models: dict[str, Turbine | PV | BESS | Grid | PPC] = {}
@@ -49,7 +53,7 @@ class PhysicalEngine:
             raw = scenario.models.get(str(model_ref))
             if raw is None:
                 raise GeneratorError(f"physical model reference missing: {model_ref}")
-            definition = as_mapping(raw, f"models.{model_ref}")
+            definition = require_mapping(raw, f"models.{model_ref}")
             if definition.get("kind") == "random":
                 continue
             if definition.get("kind") != "physical":
@@ -58,7 +62,7 @@ class PhysicalEngine:
             factory = factories.get(kind)
             if factory is None:
                 raise GeneratorError(f"unsupported physical model kind: {kind}")
-            params = as_mapping(definition.get("parameters"), f"models.{model_ref}.parameters")
+            params = require_mapping(definition.get("parameters"), f"models.{model_ref}.parameters")
             instance = factory(params)
             self.models[device] = instance
             self.kinds[device] = kind
@@ -80,12 +84,12 @@ class PhysicalEngine:
                 "active_power": 0.0,
                 "reactive_power": 0.0,
                 "rated_apparent_power": (
-                    optional_number(params, "rated_apparent_power_va", 0.0)
+                    get_optional_require_number(params, "rated_apparent_power_va", 0.0)
                     if kind == "wtg"
-                    else optional_number(params, "inverter_rated_apparent_power_va", 0.0)
+                    else get_optional_require_number(params, "inverter_rated_apparent_power_va", 0.0)
                     if kind == "pv"
                     else (
-                        optional_number(params, "pcs_rated_apparent_power_va", 0.0)
+                        get_optional_require_number(params, "pcs_rated_apparent_power_va", 0.0)
                         if params.get("reactive_support_enabled")
                         else 0.0
                     )
@@ -124,9 +128,9 @@ class PhysicalEngine:
         if self._grid_ids:
             grid = self.params[self._grid_ids[0]]
             self.last_grid = {
-                "grid_frequency": number(grid, "nominal_frequency_hz"),
-                "grid_voltage": number(grid, "nominal_voltage_v"),
-                "frequency_nominal": number(grid, "nominal_frequency_hz"),
+                "grid_frequency": require_number(grid, "nominal_frequency_hz"),
+                "grid_voltage": require_number(grid, "nominal_voltage_v"),
+                "frequency_nominal": require_number(grid, "nominal_frequency_hz"),
             }
 
     def set_inputs(self, device: str, values: Mapping[str, float]) -> None:
@@ -156,10 +160,10 @@ class PhysicalEngine:
         p = self.params[device]
         kind = self.kinds[device]
         if kind == "wtg":
-            return 0.0, number(p, "rated_power_w")
+            return 0.0, require_number(p, "rated_power_w")
         if kind == "pv":
-            return 0.0, number(p, "inverter_rated_power_w")
-        return -number(p, "pcs_rated_active_power_w"), number(p, "pcs_rated_active_power_w")
+            return 0.0, require_number(p, "inverter_rated_power_w")
+        return -require_number(p, "pcs_rated_active_power_w"), require_number(p, "pcs_rated_active_power_w")
 
     def advance(self, dt: float, step: int) -> dict[tuple[str, str], Scalar]:
         """Weather once, PPC from previous feedback, devices, then present-step grid."""
@@ -210,7 +214,7 @@ class PhysicalEngine:
             results[device] = grid.advance(dt, participants, self.inputs[device])
             self.last_grid = {
                 **results[device],
-                "frequency_nominal": number(self.params[device], "nominal_frequency_hz"),
+                "frequency_nominal": require_number(self.params[device], "nominal_frequency_hz"),
             }
         for device, result in results.items():
             self.last[device] = {**self.last.get(device, {}), **result}
