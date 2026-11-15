@@ -69,6 +69,15 @@ class ConfigMutationResult:
     errors: list[Any] = field(default_factory=list)
 
 
+#: 版本化模板的类别文件前缀（与生产 VersionedTemplateRepository 命名一致）。
+_TEMPLATE_FILE_PREFIXES: dict[str, str] = {
+    "protocols": "protocol_",
+    "device_models": "device_model_",
+    "point_tables": "point_table_",
+    "tasks": "task_",
+}
+
+
 def _selector_path(selector: common_pb.SnapshotFile | Any) -> str:
     """v2 风格 ConfigSelector → v1 快照树内的 relative_path。"""
     scope = getattr(selector, "scope", None)
@@ -77,11 +86,14 @@ def _selector_path(selector: common_pb.SnapshotFile | Any) -> str:
         return f"instances/{name}.yaml"
     if scope == collector_selector_template():
         # v1 版本化模板统一扁平命名："category/id" + version →
-        # templates/category/id_version.yaml；无版本的目录模板
+        # templates/category/<prefix><id>_v<version>.yaml（前缀与生产
+        # VersionedTemplateRepository.path_for 一致）；无版本的目录模板
         # （units/business_points）→ templates/<name>.yaml。
         version = getattr(selector, "version", "")
+        category, _, template_id = name.partition("/")
+        prefix = _TEMPLATE_FILE_PREFIXES.get(category, "")
         if version:
-            return f"templates/{name}_v{version}.yaml"
+            return f"templates/{category}/{prefix}{template_id}_v{version}.yaml"
         return f"templates/{name}.yaml"
     raise ValueError(f"unsupported selector: {selector}")
 
@@ -113,15 +125,20 @@ async def _swap_one_file(
     *,
     token: str | None,
     expected_revision: str | None,
+    allow_new: bool = False,
 ) -> tuple[common_pb.PushConfigSnapshotResponse, str]:
-    """取整盘快照并替换单个文档，返回 Push 响应与基准 revision。"""
+    """取整盘快照并替换单个文档，返回 Push 响应与基准 revision。
+
+    ``allow_new`` 供版本化模板的新版本发布：新文件随整盘快照一并提交
+    （v1 快照事务无 CREATE 哨兵）；既有多文档替换仍要求目标在盘中存在。
+    """
     async with _channel(target) as channel:
         current = await _disk_snapshot(channel, token)
         revision = expected_revision or current.revision
         files: dict[str, bytes] = {
             item.relative_path: bytes(item.content) for item in current.files
         }
-        if relative_path not in files:
+        if relative_path not in files and not allow_new:
             raise FileNotFoundError(f"{relative_path} not present in DISK snapshot")
         files[relative_path] = yaml_content.encode("utf-8")
         pushed = await common_grpc.CommonServiceStub(channel).PushConfigSnapshot(
@@ -384,8 +401,18 @@ async def replace_config(
 ) -> ConfigMutationResult:
     """整文档替换：快照内换一个文件 → Push → Apply（原子落盘 + 运行时收敛）。"""
     path = _selector_path(selector) if selector is not None else "instances/devices.yaml"
+    # 版本化模板的新版本文件随整盘快照一并提交（v1 无 CREATE 哨兵）；
+    # 既有文档（devices.yaml 等实例文档）仍要求盘中存在，不放松断言。
+    allow_new = getattr(selector, "scope", None) == collector_selector_template() and bool(
+        getattr(selector, "version", "")
+    )
     pushed, revision = await _swap_one_file(
-        target, path, yaml_content, token=token, expected_revision=expected_revision
+        target,
+        path,
+        yaml_content,
+        token=token,
+        expected_revision=expected_revision,
+        allow_new=allow_new,
     )
     if not pushed.valid:
         return ConfigMutationResult(False, revision, list(pushed.validation))

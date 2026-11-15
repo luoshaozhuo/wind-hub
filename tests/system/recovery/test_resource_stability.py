@@ -1,15 +1,17 @@
 """Recovery：短周期故障/重载循环的资源稳定性——不得单调泄漏。
 
 与 soak 的长时资源采样的区别：这里针对的是故障注入路径本身
-（reconnect 循环、配置收敛循环、Sink 消费协程重建）——这些路径涉及
+（reconnect 循环、配置收敛循环、Delivery 消费协程重建）——这些路径涉及
 连接重建、协议实例替换、acquisition handle 重启、sink consumer 重建，
 是句柄泄漏的高发区。循环次数有限（10 次），断言的是「不单调增长」
 而非长时平稳。
 
 v2 拓扑：Collector 与 Sink Service 是两个独立进程，因此 RES-02 分别
 在两个进程边界采样 FD——Collector 侧通过新版本 task/model 模板 +
-devices 文档替换驱动采集句柄重建，Sink 侧通过 RestartSink 管理面
-驱动 consumer 协程重建。
+devices 文档替换驱动采集句柄重建，Sink 侧通过正式 Delivery 生命周期
+（StopDelivery/StartDelivery，mTLS 管理面）驱动 consumer 协程重建
+（旧 Sink 级 RestartSink 管理面已随 v0 运行时移除，且不存在安全
+RPC，不得回退）。
 
 观测点（全部在进程边界）：
 - ``/proc/<pid>/fd`` 采样（含 socket/文件/管道）；
@@ -23,10 +25,12 @@ import copy
 from pathlib import Path
 from typing import Any
 
+import grpc
 import pytest
 import yaml
 
-from sink_service.management_cli import request as sink_mgmt
+from contracts import common_pb2 as common_pbx
+from contracts import sink_service_pb2_grpc
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
     instance_states,
@@ -36,15 +40,16 @@ from tests.support.control import (
     start_task_instance,
 )
 from tests.support.functional_config import write_functional_config
-from tests.support.process import CollectorProcess
+from tests.support.gateway import reserve_port
+from tests.support.process import CollectorProcess, start_sink_service_from_root
 from tests.support.recovery_helpers import (
     DEVICE_ID,
     recovery_collector_tree,
     wait_status,
 )
-from tests.support.redis_client import point_key
+from tests.support.sink_harness import DELIVERY_ID, write_sink_root
 from tests.support.v2_config import emit_v2_tree_from_flat_site
-from tests.support.wait import wait_redis_value, wait_until
+from tests.support.wait import wait_redis_value, wait_tcp_port, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
 
@@ -56,22 +61,64 @@ CYCLES = 10
 #: 10 次循环后仍落在基线 +3 以内即不成立。
 FD_SLACK = 3
 
-KEY_PREFIX = "wind-hub-resources"
+#: 身份契约：v2 站点 site_id / 默认 collector_id 必须与 Sink Delivery 的
+#: source 过滤器一致，否则批次按零匹配被过滤 ACK（无法出数）。
+SITE_ID = "test"
+COLLECTOR_ID = "system-test"
+#: 新架构 Redis 键契约：{namespace}:{farm}:{collector}:{device}:{point}。
+SINK_NAMESPACE = "wind-hub-resources"
+REDIS_KEY = ":".join((SINK_NAMESPACE, SITE_ID, COLLECTOR_ID, DEVICE_ID, "rotor_speed"))
+
+
+@pytest.fixture
+async def sink_factory(tmp_path: Path, nats_service: str, redis_service: str):
+    """canonical Sink Service 子进程（--config-root + mTLS Delivery 管理面）。"""
+    started: list[CollectorProcess] = []
+
+    async def _start() -> tuple[Path, CollectorProcess]:
+        grpc_port = reserve_port()
+        root = write_sink_root(
+            tmp_path / f"sink-{grpc_port}",
+            nats_url=nats_service,
+            redis_address=redis_service,
+            wind_farm_id=SITE_ID,
+            collector_id=COLLECTOR_ID,
+            grpc_port=grpc_port,
+            namespace=SINK_NAMESPACE,
+            deployment_id=f"res-{grpc_port}",
+        )
+        proc = start_sink_service_from_root(root, grpc_port=grpc_port, log_dir=tmp_path)
+        started.append(proc)
+        try:
+            # 管理面无就绪 RPC；gRPC 端口可连即装配完成，端到端就绪由
+            # 后续 Redis 出数轮询保证。
+            await wait_tcp_port("127.0.0.1", grpc_port)
+            if not proc.is_running():
+                raise RuntimeError(f"sink_service exited early; see {proc.log_path}")
+        except BaseException:
+            proc.kill_tree()
+            proc.close_log()
+            started.remove(proc)
+            raise
+        return root, proc
+
+    yield _start
+
+    for proc in started:
+        try:
+            if proc.is_running():
+                proc.terminate()
+        except BaseException:
+            proc.kill_tree()
+        finally:
+            proc.close_log()
 
 
 def _flat_config(base: Path, device_port: int, redis_address: str, nats_url: str) -> Path:
-    host, _, port = redis_address.rpartition(":")
     return write_functional_config(
         base,
         device_port,
         nats_url=nats_url,
-        sinks={
-            "redis_sink": {
-                "type": "redis",
-                "connection": {"host": host, "port": int(port)},
-                "outputs": {TASK_ID: {"key_prefix": KEY_PREFIX}},
-            }
-        },
         tasks={
             TASK_ID: {
                 "device_group_id": DEVICE_ID,
@@ -83,13 +130,12 @@ def _flat_config(base: Path, device_port: int, redis_address: str, nats_url: str
 
 
 async def _wait_data(address: str, *, after: str | None = None) -> str:
-    key = point_key(DEVICE_ID, "rotor_speed", prefix=KEY_PREFIX)
     value = await wait_redis_value(
         address,
-        key,
-        match=(lambda payload: str(payload["timestamp"]) > after) if after else None,
+        REDIS_KEY,
+        match=(lambda payload: str(payload["sample_time"]) > after) if after else None,
     )
-    return str(value["timestamp"])
+    return str(value["sample_time"])
 
 
 async def _single_running_instance(proc: CollectorProcess) -> None:
@@ -107,15 +153,48 @@ async def _single_running_instance(proc: CollectorProcess) -> None:
     await wait_until(_probe, timeout=20.0, description="single RUNNING instance after recovery")
 
 
+async def _delivery_restart_cycle(root: Path, grpc_port: int) -> None:
+    """正式 Delivery 生命周期重建 consumer：Stop → Start（mTLS 管理面）。
+
+    旧 Sink 级 RestartSink 管理面不存在安全 RPC；S-7 裁定只能以
+    StopDelivery/StartDelivery 组合表达同等 consumer 协程重建。
+    """
+    credentials = grpc.ssl_channel_credentials(
+        root_certificates=(root / "tls" / "ca.crt").read_bytes(),
+        private_key=(root / "tls" / "admin.key").read_bytes(),
+        certificate_chain=(root / "tls" / "admin.crt").read_bytes(),
+    )
+    async with grpc.aio.secure_channel(f"127.0.0.1:{grpc_port}", credentials) as channel:
+        stub = sink_service_pb2_grpc.SinkServiceStub(channel)
+        detail = await stub.GetDelivery(common_pbx.ObjectId(id=DELIVERY_ID))
+        stopped = await stub.StopDelivery(
+            common_pbx.OperationRequest(id=DELIVERY_ID, expected_revision=detail.delivery.revision)
+        )
+        assert stopped.accepted, stopped.message
+        detail = await stub.GetDelivery(common_pbx.ObjectId(id=DELIVERY_ID))
+        restarted = await stub.StartDelivery(
+            common_pbx.OperationRequest(id=DELIVERY_ID, expected_revision=detail.delivery.revision)
+        )
+        assert restarted.accepted, restarted.message
+
+
 def _load(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _model_ref(v2_tree: Path) -> tuple[str, str, str, str]:
-    """返回 (model_id, model_version, task_id, task_version) 当前引用链。"""
+    """返回 (model_id, model_version, task_id, task_version) 当前引用链。
+
+    版本化模板为扁平命名：``templates/<category>/<prefix>_<id>_v<ver>.yaml``。
+    """
     devices = _load(v2_tree / "instances" / "devices.yaml")
     model = devices["devices"][DEVICE_ID]["model"]
-    model_path = v2_tree / "templates" / "device_models" / model["id"] / f"{model['version']}.yaml"
+    model_path = (
+        v2_tree
+        / "templates"
+        / "device_models"
+        / f"device_model_{model['id']}_v{model['version']}.yaml"
+    )
     model_doc = _load(model_path)
     return model["id"], model["version"], model_doc["task"]["id"], model_doc["task"]["version"]
 
@@ -132,22 +211,26 @@ async def _bump_task_interval(
     v2 模板不可变：节拍变更必须发布新版本，不能覆盖旧版本文件。
     """
     model_id, _, task_template_id, task_version = _model_ref(v2_tree)
-    task_path = v2_tree / "templates" / "tasks" / task_template_id / f"{task_version}.yaml"
+    task_path = v2_tree / "templates" / "tasks" / f"task_{task_template_id}_v{task_version}.yaml"
     task_doc = _load(task_path)
     new_task_version = f"1.0.{cycle + 1}"
     new_task_doc = copy.deepcopy(task_doc)
     new_task_doc["template_version"] = new_task_version
+    new_task_doc["file_version"] = new_task_version
     new_task_doc["interval"] = interval
     await replace_template(
         proc.grpc_target, "tasks", task_template_id, new_task_version, new_task_doc
     )
 
     model_version = _model_ref(v2_tree)[1]
-    model_path = v2_tree / "templates" / "device_models" / model_id / f"{model_version}.yaml"
+    model_path = (
+        v2_tree / "templates" / "device_models" / f"device_model_{model_id}_v{model_version}.yaml"
+    )
     model_doc = _load(model_path)
     new_model_version = f"1.0.{cycle + 1}"
     new_model_doc = copy.deepcopy(model_doc)
     new_model_doc["template_version"] = new_model_version
+    new_model_doc["file_version"] = new_model_version
     new_model_doc["task"] = {"id": task_template_id, "version": new_task_version}
     await replace_template(
         proc.grpc_target, "device_models", model_id, new_model_version, new_model_doc
@@ -168,14 +251,14 @@ class TestReconnectFlapStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
-        sink_service_factory,
+        sink_factory,
         redis_service: str,
         nats_service: str,
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
+        await sink_factory()
         flat_dir = _flat_config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
         v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(v2_tree)
         await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
@@ -222,15 +305,16 @@ class TestReloadStability:
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
-        sink_service_factory,
+        sink_factory,
         redis_service: str,
         nats_service: str,
         tmp_path: Path,
     ) -> None:
-        """RES-02：10 轮配置收敛（Collector 采集句柄重建）+ Sink 重启
-        （consumer 协程重建）后，两侧实例/句柄唯一、FD 不增长。"""
+        """RES-02：10 轮配置收敛（Collector 采集句柄重建）+ Delivery
+        生命周期重建（Sink consumer 协程重建）后，两侧实例/句柄唯一、FD 不增长。"""
+        sink_root, sink = await sink_factory()
+        sink_port = int(sink.grpc_target.rpartition(":")[2])
         flat_dir = _flat_config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
-        sink = await sink_service_factory(flat_dir)
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
         # 模板新版本发布须显式开启发布闸门（生产 fail-closed 开关）。
         proc: CollectorProcess = await collector_factory(
@@ -248,9 +332,8 @@ class TestReloadStability:
             # 强制采集句柄按新节拍重建。
             await _bump_task_interval(proc, v2_tree, cycle=cycle, interval=interval)
 
-            # Sink 侧：管理面重启 Redis Sink，consumer 协程整体替换。
-            restarted = await sink_mgmt(sink.grpc_target, "RestartSink", "redis_sink")
-            assert restarted.get("state") == "running", restarted
+            # Sink 侧：正式 Delivery Stop→Start 重建 consumer 协程整体替换。
+            await _delivery_restart_cycle(sink_root, sink_port)
 
             await _single_running_instance(proc)
 
@@ -266,4 +349,4 @@ class TestReloadStability:
         final_sink_fd = sink.fd_count()
         assert (
             final_sink_fd <= sink_fd + FD_SLACK
-        ), f"sink fd grew from {sink_fd} to {final_sink_fd} over {CYCLES} sink restarts"
+        ), f"sink fd grew from {sink_fd} to {final_sink_fd} over {CYCLES} delivery cycles"
