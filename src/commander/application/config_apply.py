@@ -54,19 +54,13 @@ class ApplyOutcome:
 class SnapshotApplyPort(Protocol):
     """Durable storage operations; the application owns the transaction decision."""
 
-    def get_candidate(self, candidate_id: str) -> SnapshotCandidate | None: ...
-
     def collect_files(self) -> dict[str, bytes]: ...
-
-    def forget_candidate(self, candidate_id: str) -> None: ...
 
     def prepare_candidate(
         self, current: dict[str, bytes], files: tuple[SnapshotInput, ...]
     ) -> dict[str, bytes]: ...
 
     async def get_candidate_validation_error(self, files: dict[str, bytes]) -> str | None: ...
-
-    def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None: ...
 
     async def validate_files(self, files: dict[str, bytes]) -> None: ...
 
@@ -97,6 +91,11 @@ class CommanderConfigApply:
         self._service = service
         self._repository = repository
         self._lock = lock
+        self._candidates: dict[str, SnapshotCandidate] = {}
+
+    def get_candidate(self, candidate_id: str) -> SnapshotCandidate | None:
+        """Return the currently accepted candidate under the caller's lock."""
+        return self._candidates.get(candidate_id)
 
     async def push(
         self, files: tuple[SnapshotInput, ...], expected_revision: str
@@ -116,9 +115,9 @@ class CommanderConfigApply:
                     validation_message=error,
                 )
             candidate_id = str(uuid4())
-            self._repository.save_candidate(
-                candidate_id,
-                SnapshotCandidate(revision, candidate, snapshot_revision(candidate)),
+            self._candidates.clear()
+            self._candidates[candidate_id] = SnapshotCandidate(
+                revision, candidate, snapshot_revision(candidate)
             )
             return PushOutcome(
                 candidate_id=candidate_id,
@@ -149,7 +148,7 @@ class CommanderConfigApply:
     async def _apply_locked(
         self, candidate_id: str, expected_revision: str
     ) -> ApplyOutcome:
-        candidate = self._repository.get_candidate(candidate_id)
+        candidate = self._candidates.get(candidate_id)
         if candidate is None:
             raise KeyError(candidate_id)
         current = self._repository.collect_files()
@@ -167,7 +166,7 @@ class CommanderConfigApply:
         }
         # Durable commit must finish before reload; a reload failure is partial success.
         await self._repository.commit_files(changed)
-        self._repository.forget_candidate(candidate_id)
+        self._candidates.pop(candidate_id, None)
         try:
             report = await self._service.reload()
         except Exception as exc:
