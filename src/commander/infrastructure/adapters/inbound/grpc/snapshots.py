@@ -63,6 +63,12 @@ class ConfigSnapshots:
         ):
             raise ValueError(f"unsafe snapshot relative_path: {name!r}")
         target = self._root.joinpath(*relative.parts)
+        if any(
+            parent.is_symlink()
+            for parent in (target, *target.parents)
+            if parent != self._root and parent.is_relative_to(self._root)
+        ):
+            raise ValueError(f"snapshot path contains a symlink: {name}")
         if not target.resolve().is_relative_to(self._root):
             raise ValueError(f"snapshot path escapes configuration root: {name}")
         return target

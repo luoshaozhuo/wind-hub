@@ -6,7 +6,7 @@
 # Provision /etc/wind-hub/certs in deployment or test setup; no keys ship in the repository.
 # Configure trusted mTLS certificates and CN permissions before enabling control.
 schema_version: 1
-file_version: "1.1.1"
+file_version: "1.1.2"
 config_sources:
   instances:
     devices: configs/instances/devices_sim.yaml
@@ -76,7 +76,7 @@ servers:
       enabled: true
       target:
         kind: commander
-        endpoint: "127.0.0.1:50072"
+        endpoint: "127.0.0.1:50052"
         tls:
           enabled: true
           ca_file: /etc/wind-hub/certs/ca.pem

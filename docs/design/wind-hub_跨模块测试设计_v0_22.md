@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_21 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_22 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -187,10 +187,10 @@ $$
 | 领域 | 本分支最新版 | 验收重点 |
 |---|---|---|
 | 总体 / Core | `wind-hub_总体逻辑架构设计_v1_17.md`、`Core_软件设计_v1_36.md` | DFD 归属、共享配置归 Core、业务专属配置归业务包 |
-| Contracts | `Contracts_软件设计_v1_29.md` | 六份 Proto、50 个唯一 Unary RPC、生成绑定 |
+| Contracts | `Contracts_软件设计_v1_29.md` | 六份 Proto、51 个服务限定 RPC 声明、生成绑定 |
 | Data Generator | `Data_Generator_软件设计_v1_50.md` | 9 个业务 RPC、模型、录制与执行步证据 |
 | Industrial Gateway | `industrial_gateway_软件设计_v1_42.md` | 10 个业务 RPC、租约注入与仿真执行分离 |
-| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_47.md` | 11 个采集 RPC、7 个控制 RPC、批次与子命令身份 |
+| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_48.md` | 11 个采集 RPC、8 个控制 RPC、批次与子命令身份 |
 | Sink / CLI | `Sink_Service_软件设计_v1_64.md`、`CLI_软件设计_v1_40.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
@@ -307,7 +307,7 @@ configs/
 | CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/systemd；测试须准备所有业务服务由同一可用 Linux 原生管理器接管的有效配置 |
 | 外部 | NATS/JetStream、Redis、Kafka | 独立测试命名空间及清理所有权 |
 
-**已知端口冲突**：Generator 模拟示例和 Sink Service 都使用 50061。必须在真实测试 Service 中明确调整其中一个端口，并同步 CLI 端点、Gateway 控制/Generator 路由、证书和测试断言。`.example.yaml` 不等于已具备同机启动条件。
+**端口核对**：现行参考配置已将 Sink Main 设为 `50053`、Generator 模拟服务设为 `50061`，CLI 参考端点相应为 `50053` 和 `50061`。完整 E2E 使用隔离服务配置与动态端口，仍须按实际运行时逐一核对 Gateway、Commander、双 Collector、Sink 和 Generator 的监听地址、mTLS 身份及路由。`.example.yaml` 不等于通过启动或证书验收。
 
 ## 5.3 最少配置原则
 
@@ -357,10 +357,10 @@ sequenceDiagram
 | I-03 NATS 双通道 | Collector/Gateway + NATS/JetStream | 订阅实际 Subject → 启 Task → 抓双批 → stop | SampleBatch、设备/点身份、源时间、Realtime/Reliable 语义 |
 | I-04 Sink 四目标 | Sink 测试 Service、隔离 Sink/Delivery + Gateway/Redis/Kafka；Sink、目标 Gateway | 固定标准 SampleBatch 注入真实 NATS → Delivery start → 四目标读回 → stop | Gateway 更新、Modbus 寄存器、Redis 最新值、Kafka 历史分别断言 |
 | I-05 工业仿真控制 | Gateway/Commander/Generator 仿真配置；三进程 | 工业 Client FC06/FC16 → Commander → Gateway 执行 → Generator 查询 → 重复/无权测试 | 同 command_id、不直接转发、PENDING→APPLIED/UNKNOWN，受理非成功 |
-| I-06 CLI 生命周期 | CLI 有效 Service + 五业务进程 | start → status/READY → restart → stop | Unit/PID/业务状态和 Sink Worker 退出 |
+| I-06 CLI 生命周期 | CLI 有效 Service + 六业务服务身份 | start → status/READY → restart → stop | Unit/PID/业务状态和 Sink Worker 退出 |
 | I-07 Gateway Realtime | Sink Gateway 模板/映射 + 独立目标 Gateway；两进程 | mTLS ACQUIRE → UpdateVariables → ReadVariables → RELEASE/过期 | 值与映射正确，租约及回环隔离 |
 | I-08 配置治理 | Core 配置、各业务 Service | 版本冲突、无效路径、旧结构、非法实例键 → Load/Apply | 拒绝错误配置，快照不可变，归属不混乱 |
-| I-09 全 RPC | 六 Proto 和全部服务 | 自动枚举 → 真实 RPC 调用及拒绝路径 → 检查 Descriptor | 50/50 唯一接口与各服务 Common 注册，证据完整 |
+| I-09 全 RPC | 六 Proto 和全部服务 | 自动枚举 → 真实 RPC 调用及拒绝路径 → 检查 Descriptor | 51/51 服务限定 RPC 声明及各服务 Common 注册，证据完整 |
 
 I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 Generator→Collector→Sink 路径，才能确认全链路结果。
 
@@ -378,7 +378,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 | 用例 | 配置与必需进程 | 激励与执行 | 独立输出判据 |
 |---|---|---|---|
-| E2E-01 WTG | 五设备仿真、WTG 物理 Scenario、五业务服务及四目标 | 平均风速 10→12 m/s，湍流度 0；多步运行 | 四目标和源记录可追溯，不假定阶跃立即稳态 |
+| E2E-01 WTG | 五设备仿真、WTG 物理 Scenario、六业务服务身份及四目标 | 平均风速 10→12 m/s，湍流度 0；多步运行 | 四目标和源记录可追溯，不假定阶跃立即稳态 |
 | E2E-02 PV | 同上 PV Scenario | 辐照 0→800→1000 W/m²，温度条件固定 | PV 容量边界、单位与四出口一致 |
 | E2E-03 BESS | BESS Scenario | 充电/放电阶跃、SOC 边界、越界请求 | 状态连续、非法输入拒绝、正负号/缩放正确 |
 | E2E-04 GRID/PPC | GRID/PPC、Commander、Gateway、Generator | 频率/电压激励、AGC/AVC/FFR 合法命令、重放/无权 | 真正 APPLIED 才为控制成功，失败/未知不冒充；测量反馈一致 |
@@ -412,9 +412,11 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 ## 8.1 自动枚举并生成测试矩阵
 
-六份正式 Proto 当前有 **50 个唯一 Unary RPC**：Common 9、Collector 11、Commander 7、Sink 4、Gateway 10、Generator 9。Common 在多个服务实例中分别注册，唯一方法总数与逐服务注册总数不能混用。Gateway 的 `ExecuteSimulationCommand/GetSimulationExecutionResult`、Generator 的 `GetInputExecution` 必须进入 RPC 覆盖清单。除真实调用外还要验证 Descriptor 请求/响应、字段号、标量 oneof、认证与拒绝语义。
+六份正式 Proto 当前有 **51 个服务限定 Unary RPC 声明**：Common 9、Collector 11、Commander 8、Sink 4、Gateway 10、Generator 9。Commander 包括 `GetRequestResult`，不得漏计。Common 在多个服务实例中分别注册，唯一方法总数与逐服务注册总数不能混用。Gateway 的 `ExecuteSimulationCommand/GetSimulationExecutionResult`、Generator 的 `GetInputExecution` 必须进入 RPC 覆盖清单。除真实调用外还要验证 Descriptor 请求/响应、字段号、标量 oneof、认证与拒绝语义。
 
 CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**并逐条真实执行，所有业务操作必须通过 CLI；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
+
+当前严格 CLI 全链用例 `tests/cli/test_r1f3_strict_cli_e2e.py` 仅能作为 E2E-07/E2E-09 等场景的部分共享证据：它不等于 E2E-01～10、I-01～09 全覆盖。当前测试装配未显式提供 `WIND_HUB_COLLECTOR_ADMIN_TOKEN` 给 Collector 进程及 CLI 子进程；集中测试必须在隔离环境中配置一致的真实管理令牌，验证已授权和未授权路径，不关闭认证或记录令牌。`tests/system/e2e/full_chain/` 仅有包初始化文件，完整场景证据仍应按本设计逐项补齐。
 
 ~~~text
 cli_command_id,syntax,service,rpc_methods,case_id,config,expected_exit,observed_exit,status
@@ -527,12 +529,12 @@ reason: "template only; not executed"
 
 ## 12.1 完整 E2E 运行前置
 
-1. 各模拟 Service 配置合法且同机端口不冲突；特别解决 Generator 与 Sink 示例均占 50061，并核验 CLI、mTLS、Gateway/Commander 路由。
+1. 各模拟 Service 配置合法且同机端口不冲突；核对现行 Sink `50053`、Generator `50061`、CLI 端点、mTLS 身份、Gateway/Commander 路由及测试动态端口。
 2. Collector 模拟任务、Sink 四目标实例和 Delivery 与 `devices_sim.yaml` 使用同一套正式模板/点表；不覆盖真实现场设备或另设非法 Generator Instance。
 3. Sink GatewayOutput 的租约/权限/目标映射已可测试，独立 Modbus 客户端可读 Sink Server；四出口逐项证明。
 4. Generator 现有 Recording 的源批和文件完整性可验证；缺证据必须 INCONCLUSIVE 而不是假设源值。
 5. 全部业务进程可被当前 CLI 经真实 Linux 进程管理器启停；Realtime 与 Reliable 分别使用独立 Collector 身份，Sink Main 管理其内部 Worker。业务状态及下游副作用不得以单进程集成测试冒充。
-6. Proto 生成物与正式六 Proto 一致，完整枚举当前 50 RPC 和 CLI 叶子命令，结构归属符合总体/Core 设计。
+6. Proto 生成物与正式六 Proto 一致，完整枚举当前 51 个服务限定 RPC 声明和全部 CLI 叶子命令，结构归属符合总体/Core 设计；当前 CLI 源码有 73 处命令装饰器声明，须以真实 `--help` 枚举、注册关系及实际执行生成最终分母。
 
 7. CLI 对 Collector 控制面的认证应使用正式配置/环境来源提供管理令牌，按服务契约发送 `x-windhub-admin-token` metadata；不存在明文回退、鉴权关闭或测试专用绕过。必须分别证明已授权与拒绝路径，测试证据不得泄露令牌。
 8. CLI 严格 E2E 依次验证全部业务进程 READY、Collector Task 启动、Generation 运行、四出口读回、Commander 写控制、服务重启恢复与关闭收敛；任一步失败不得将其后续步骤计为 PASS。

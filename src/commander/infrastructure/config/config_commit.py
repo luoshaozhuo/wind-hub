@@ -69,6 +69,12 @@ def _target(root: Path, name: str) -> Path:
     ):
         raise ValueError(f"invalid configuration relative path: {name!r}")
     target = root.joinpath(*relative.parts)
+    if any(
+        parent.is_symlink()
+        for parent in (target, *target.parents)
+        if parent != root and parent.is_relative_to(root)
+    ):
+        raise ValueError(f"configuration path contains a symlink: {name!r}")
     if not target.resolve().is_relative_to(root):
         raise ValueError(f"configuration path escapes root: {name!r}")
     return target
