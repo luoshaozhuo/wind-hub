@@ -1,10 +1,10 @@
 """Sink Service 分层严格配置校验（R13 v1_47 → R1 v1_63 分层迁移）。
 
 覆盖设计 v1_47 §11/§14 的未知字段拒绝与 caller 准入规则，以及 R1 S-4
-拆层后的归属：
+拆层后的归属（含第二轮：业务策略上收 Application）：
 
 - 业务不变量（runtime 并发预算、reliable 交付策略、双进程字段禁用、
-  config_sources 结构）钉在 ``domain.config.validate_service``；
+  config_sources 结构）钉在 ``application.service_policy.validate_service``；
 - 技术部署 Schema（顶层完整键集、grpc/metrics/shutdown/security 传输与
   凭据节、callers 准入）钉在 ``infrastructure.config_schema.validate_
   service_technology``（Infrastructure 摄入边界）；
@@ -19,10 +19,10 @@ import copy
 
 import pytest
 
+from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
     require_keys,
-    validate_service,
 )
 from sink_service.infrastructure.config_schema import validate_service_technology
 from tests.sink_service._stage1_fixtures import service_document
