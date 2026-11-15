@@ -173,6 +173,7 @@ class Observability:
                 del self._delivery_samples[identifier]
                 self._delivery_started_at.pop(identifier, None)
         self._delivery_computed = details
+        process["metrics_snapshot_stale"] = 0.0
         self._computed = process
         self.computed_at = now
 
@@ -187,10 +188,12 @@ class Observability:
         self.computed_at = None
 
     def mark_unavailable(self) -> None:
-        """Do not expose stale or fabricated values when a worker is unreachable."""
-        self._computed = {"metrics_snapshot_ready": 0.0}
-        self._delivery_computed = {}
-        self.computed_at = datetime.now(UTC)
+        """Retain the last measured values, explicitly marking them unavailable."""
+        self._computed["metrics_snapshot_ready"] = 0.0
+        self._computed["metrics_snapshot_stale"] = 1.0
+        for metrics in self._delivery_computed.values():
+            metrics["metrics_snapshot_stale"] = 1.0
+        # computed_at is the timestamp of the last successful measurement.
 
     def snapshot(self, window_ms: int) -> dict[str, float]:
         """Read the last process snapshot, without recalculating metrics."""
