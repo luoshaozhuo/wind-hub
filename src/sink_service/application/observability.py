@@ -169,6 +169,7 @@ class Observability:
                 result.pop("write_latency_ms_p99", None)
                 if identifier in delivery_p99:
                     result["write_latency_ms_p99"] = delivery_p99[identifier]
+            result["metrics_snapshot_stale"] = 0.0
             details[identifier] = result
         for identifier in tuple(self._delivery_samples):
             if identifier not in details:
