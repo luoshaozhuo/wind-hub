@@ -11,6 +11,7 @@ from sink_service.domain.config import (
     expect_nonempty_str,
 )
 
+
 def managed_path(value: object, location: str, *, directory: bool = False) -> str:
     """Accept a single config-root-relative pathname; never infer a default."""
     path = expect_nonempty_str(value, location)
