@@ -17,7 +17,7 @@ _CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 def test_shared_instance_and_catalog_versions() -> None:
     expected_versions = {
         "instances/site.yaml": "1.0.0",
-        "instances/devices.yaml": "1.1.0",
+        "instances/devices.yaml": "1.2.0",
         "templates/units_standard.yaml": "1.1.0",
         "templates/business_points_standard.yaml": "1.3.0",
     }
