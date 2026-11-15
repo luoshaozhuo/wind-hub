@@ -24,18 +24,7 @@ async def request_common(service: str, method: str, values: dict[str, Any]) -> d
     info = descriptor.methods_by_name[method]
     request = ParseDict(values, message_factory.GetMessageClass(info.input_type)())
     stub = common_pb2_grpc.CommonServiceStub(runtime().channel(service))
-    metadata = (
-        runtime().collector_admin_metadata()
-        if service == "collector"
-        and method in {
-            "GetConfigSnapshot",
-            "PushConfigSnapshot",
-            "ApplyConfigSnapshot",
-            "GetEvents",
-            "Diagnose",
-        }
-        else None
-    )
+    metadata = runtime().rpc_metadata(service, method)
     response = await getattr(stub, method)(
         request,
         timeout=runtime().target(service).timeout,
