@@ -87,25 +87,28 @@ class SinkService:
         raise KeyError(name)
 
     async def verify(self, name: str) -> SinkTestResult:
-        """Query the independent Sink Service instead of a Collector."""
+        """Verify live Deliveries; a physical Sink has no independent status RPC."""
         self._config_for(name)
         started = time.monotonic()
         try:
-            row = await self._sink_directory.call("GetSinkStatus", name)
-            healthy = (
-                row.get("state") == "running"
-                and row.get("nats_connected") is True
-                and row.get("config_pending_restart") is not True
-                and row.get("failure") is None
+            rows = await self._sink_directory.list_deliveries()
+            members = [row for row in rows if row.get("sink_id") == name]
+            healthy = bool(
+                members
+                and all(
+                    row.get("desired_state") == "START"
+                    and row.get("actual_state") == "RUNNING"
+                    and not row.get("last_error")
+                    for row in members
+                )
+            )
+            state = ", ".join(
+                sorted({str(row.get("actual_state", "UNKNOWN")) for row in members})
             )
             return SinkTestResult(
                 success=healthy,
                 latency_ms=(time.monotonic() - started) * 1000,
-                message=(
-                    "Sink configuration changed; restart Sink Service process"
-                    if row.get("config_pending_restart")
-                    else str(row.get("failure") or row.get("state"))
-                ),
+                message=state if members else "No active Delivery references this Sink",
             )
         except Exception as exc:
             return SinkTestResult(
@@ -115,15 +118,30 @@ class SinkService:
             )
 
     async def manage(self, name: str, operation: str) -> dict[str, Any]:
-        """Execute a Sink-specific management RPC."""
+        """Control each Delivery through the official revision-checked RPC."""
         self._config_for(name)
-        methods = {
-            "start": "StartSink",
-            "stop": "StopSink",
-            "restart": "RestartSink",
-            "clear": "ClearSink",
-        }
-        return await self._sink_directory.call(methods[operation], name)
+        if operation not in {"start", "stop", "restart"}:
+            raise ValueError("unsupported Sink operation; ClearSink has no official RPC")
+        rows = await self._sink_directory.list_deliveries()
+        members = sorted(
+            (row for row in rows if row.get("sink_id") == name),
+            key=lambda row: str(row["delivery_id"]),
+        )
+        if not members:
+            raise RuntimeError(f"no Delivery references Sink {name}")
+        results: list[dict[str, Any]] = []
+        for row in members:
+            identifier = str(row["delivery_id"])
+            if operation == "restart":
+                results.append(
+                    await self._sink_directory.control_delivery(identifier, start=False)
+                )
+            results.append(
+                await self._sink_directory.control_delivery(
+                    identifier, start=operation != "stop"
+                )
+            )
+        return {"sink_id": name, "operation": operation, "results": results}
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
         """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
