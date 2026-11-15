@@ -109,6 +109,11 @@ def pipeline_diagnose(
                     target_id=target, stages=stages, correlation_id=correlation_id
                 ),
                 timeout=runtime().target(rpc_target).timeout,
+                metadata=(
+                    runtime().collector_admin_metadata()
+                    if svc_name == "collector"
+                    else None
+                ),
             )
             reports[svc_name] = MessageToDict(
                 response,
