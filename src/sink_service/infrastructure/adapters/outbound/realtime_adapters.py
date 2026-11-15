@@ -9,6 +9,7 @@ import asyncio
 import json
 import struct
 import time
+from zlib import crc32
 from collections import OrderedDict
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
@@ -344,7 +345,11 @@ class KafkaOutput:
         stripes = tuple(
             sorted(
                 {
-                    hash((sample.wind_farm_id, sample.collector_id, sample.device_id))
+                    crc32(
+                        ":".join(
+                            (sample.wind_farm_id, sample.collector_id, sample.device_id)
+                        ).encode("utf-8")
+                    )
                     % len(self._device_locks)
                     for sample in samples
                 }
