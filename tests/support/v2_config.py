@@ -131,7 +131,9 @@ def write_v2_modbus_tree(
             "template_id": "modbus_wtg",
             "name": "Harness Modbus Turbine",
             "device_type_id": "turbine",
-            "protocol": {"id": "modbus_tcp", "version": "1.0.0"},
+            # 出厂 modbus_tcp 协议模板已演进到 1.1.0（v1.0.0 随模板扁平
+            # 命名合并移除）；引用必须跟版本，绝不回退到最新版解析。
+            "protocol": {"id": "modbus_tcp", "version": "1.1.0"},
             "point_table": {"id": "modbus_wtg", "version": "1.0.0"},
             "task": {"id": "turbine_all", "version": "1.0.0"},
             # ModbusMockServer 的寄存器布局是 big-endian float32；出厂协议
