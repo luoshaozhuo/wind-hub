@@ -101,7 +101,7 @@ class CommanderConfigApply:
         self, files: tuple[SnapshotInput, ...], expected_revision: str
     ) -> PushOutcome:
         async with self._lock:
-            current = self._repository.collect_files()
+            current = await asyncio.to_thread(self._repository.collect_files)
             revision = snapshot_revision(current)
             if expected_revision != revision:
                 raise RuntimeError("expected_revision does not match disk revision")
@@ -151,7 +151,7 @@ class CommanderConfigApply:
         candidate = self._candidates.get(candidate_id)
         if candidate is None:
             raise KeyError(candidate_id)
-        current = self._repository.collect_files()
+        current = await asyncio.to_thread(self._repository.collect_files)
         revision = snapshot_revision(current)
         if (
             expected_revision != candidate.base_revision
@@ -171,7 +171,7 @@ class CommanderConfigApply:
             report = await self._service.reload()
         except Exception as exc:
             return ApplyOutcome(
-                file_commit=snapshot_revision(self._repository.collect_files()),
+                file_commit=snapshot_revision(await asyncio.to_thread(self._repository.collect_files)),
                 effective_revision=self._service.config_manager.revision,
                 restart_required=True,
                 application_id=str(uuid4()),
@@ -185,7 +185,7 @@ class CommanderConfigApply:
                 ),
             )
         return ApplyOutcome(
-            file_commit=snapshot_revision(self._repository.collect_files()),
+            file_commit=snapshot_revision(await asyncio.to_thread(self._repository.collect_files)),
             effective_revision=report.revision,
             restart_required=report.restart_required,
             application_id=str(uuid4()),
