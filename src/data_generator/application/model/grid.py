@@ -16,7 +16,9 @@ from data_generator.domain.model import GeneratorError
 class Grid:
     def __init__(self, params: Mapping[str, object]) -> None:
         self.p = params
-        validate_positive_parameters(params, "nominal_voltage_v", "source_voltage_v", "nominal_frequency_hz")
+        validate_positive_parameters(
+            params, "nominal_voltage_v", "source_voltage_v", "nominal_frequency_hz"
+        )
         self.r = require_number(params, "grid_r_ohm", minimum=0)
         self.x = require_number(params, "grid_x_ohm", minimum=0)
         self.mode = str(params.get("frequency_mode", "external"))
@@ -52,7 +54,8 @@ class Grid:
             nominal_frequency = require_number(self.p, "nominal_frequency_hz")
             frequency = self.frequency + dt * nominal_frequency * (
                 imbalance
-                - require_number(self.p, "frequency_damping_w_hz") * (self.frequency - nominal_frequency)
+                - require_number(self.p, "frequency_damping_w_hz")
+                * (self.frequency - nominal_frequency)
             ) / (
                 2
                 * require_number(self.p, "equivalent_inertia_s")
