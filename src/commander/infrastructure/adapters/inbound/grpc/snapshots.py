@@ -16,6 +16,7 @@ import yaml
 from commander.application.config_apply import (
     CommanderConfigApply,
     SnapshotCandidate,
+    SnapshotInput,
     snapshot_revision,
 )
 from commander.application.config_manager import _validate_unique_connections
@@ -318,113 +319,124 @@ class ConfigSnapshots:
                 )
             ).load()
             snapshot = build_shared_snapshot(docs)
-            _validate_unique_connections(snapshot)
-
-    async def push(
+            _validate_unique_conn    async def push(
         self, request: common_pb2.PushConfigSnapshotRequest
     ) -> common_pb2.PushConfigSnapshotResponse:
-        async with self._lock:
-            current = self._collect()
-            revision = snapshot_revision(current)
-            if request.expected_revision != revision:
-                raise RuntimeError("expected_revision does not match disk revision")
-            # Verify integrity before inspecting any untrusted candidate YAML.
-            seen_paths: set[str] = set()
-            for item in request.files:
-                name = item.relative_path
-                self._target(name)
-                if name in seen_paths:
-                    raise ValueError("duplicate SnapshotFile relative_path")
-                seen_paths.add(name)
-                content = bytes(item.content)
-                if item.size_bytes != len(content):
-                    raise ValueError(f"SnapshotFile size_bytes mismatch: {name}")
-                if item.sha256 != hashlib.sha256(content).hexdigest():
-                    raise ValueError(f"SnapshotFile sha256 mismatch: {name}")
-            service_name = self._relative(self._service_config)
-            settings = load_service_settings(self._service_config)
-            devices_name = self._relative(settings.devices_path)
-            additional_devices: set[str] = set()
-            additional_template_roots: list[Path] = []
-            service_update = next(
-                (item for item in request.files if item.relative_path == service_name),
-                None,
-            )
-            if service_update is not None:
-                try:
-                    preview = yaml.safe_load(bytes(service_update.content))
-                except yaml.YAMLError as exc:
-                    raise ValueError("invalid candidate service YAML") from exc
-                if not isinstance(preview, dict):
-                    raise ValueError("invalid candidate service document")
-                config_sources = preview.get("config_sources")
-                if not isinstance(config_sources, dict):
-                    raise ValueError("candidate config_sources is required")
-                instances = config_sources.get("instances")
-                templates = config_sources.get("templates")
-                if not isinstance(instances, dict) or not isinstance(templates, dict):
-                    raise ValueError("invalid candidate config source sections")
-                device_pathname = instances.get("devices")
-                templates_pathname = templates.get("root")
-                if not isinstance(device_pathname, str) or not device_pathname.strip():
-                    raise ValueError("candidate devices pathname is required")
-                if not isinstance(templates_pathname, str) or not templates_pathname.strip():
-                    raise ValueError("candidate templates pathname is required")
-                next_devices = Path(device_pathname)
-                next_templates = Path(templates_pathname)
-                if not next_devices.is_absolute():
-                    next_devices = self._service_config.parent / next_devices
-                if not next_templates.is_absolute():
-                    next_templates = self._service_config.parent / next_templates
-                additional_devices.add(self._relative(next_devices))
-                additional_template_roots.append(next_templates.resolve())
-            candidate = dict(current)
-            for item in request.files:
-                name = item.relative_path
-                target = self._target(name)
-                candidate_source = name in additional_devices or any(
-                    target.suffix == ".yaml" and target.is_relative_to(root)
-                    for root in additional_template_roots
-                )
-                if (
-                    not self._allowed(name, devices_name, service_name, settings.templates_root)
-                    and not candidate_source
-                ):
-                    raise ValueError(f"file is not part of Commander config sources: {name}")
-                content = bytes(item.content)
-                is_versioned_template = (
-                    target.is_relative_to(settings.templates_root)
-                    or any(target.is_relative_to(root) for root in additional_template_roots)
-                ) and target.name not in {"units_standard.yaml", "business_points_standard.yaml"}
-                if is_versioned_template and target.is_file() and target.read_bytes() != content:
-                    raise ValueError(f"versioned template is immutable: {name}")
-                candidate[name] = content
+        files = tuple(
+            SnapshotInput(item.relative_path, bytes(item.content), item.size_bytes, item.sha256)
+            for item in request.files
+        )
+        result = await self._apply_use_case.push(files, request.expected_revision)
+        return common_pb2.PushConfigSnapshotResponse(
+            candidate_id=result.candidate_id,
+            valid=result.valid,
+            base_revision=result.base_revision,
+            validation=(
+                [
+                    common_pb2.ValidationIssue(
+                        path="candidate", code="INVALID_CONFIG", message=result.validation_message
+                    )
+                ]
+                if result.validation_message
+                else []
+            ),
+        )
+
+    def prepare_candidate(
+        self, current: dict[str, bytes], files: tuple[SnapshotInput, ...]
+    ) -> dict[str, bytes]:
+        # Verify integrity before inspecting any untrusted candidate YAML.
+        seen_paths: set[str] = set()
+        for item in files:
+            name = item.relative_path
+            self._target(name)
+            if name in seen_paths:
+                raise ValueError("duplicate SnapshotFile relative_path")
+            seen_paths.add(name)
+            content = bytes(item.content)
+            if item.size_bytes != len(content):
+                raise ValueError(f"SnapshotFile size_bytes mismatch: {name}")
+            if item.sha256 != hashlib.sha256(content).hexdigest():
+                raise ValueError(f"SnapshotFile sha256 mismatch: {name}")
+        service_name = self._relative(self._service_config)
+        settings = load_service_settings(self._service_config)
+        devices_name = self._relative(settings.devices_path)
+        additional_devices: set[str] = set()
+        additional_template_roots: list[Path] = []
+        service_update = next(
+            (item for item in files if item.relative_path == service_name),
+            None,
+        )
+        if service_update is not None:
             try:
-                await asyncio.to_thread(self._validate, candidate)
-            except (
-                ConfigError,
-                OSError,
-                RuntimeError,
-                ValueError,
-                yaml.YAMLError,
-                ssl.SSLError,
-            ) as exc:
-                return common_pb2.PushConfigSnapshotResponse(
-                    valid=False,
-                    base_revision=revision,
-                    validation=[
-                        common_pb2.ValidationIssue(
-                            path="candidate", code="INVALID_CONFIG", message=str(exc)
-                        )
-                    ],
-                )
-            candidate_id = str(uuid4())
-            self._candidate.clear()
-            self._candidate[candidate_id] = SnapshotCandidate(revision, candidate, snapshot_revision(candidate))
-            return common_pb2.PushConfigSnapshotResponse(
-                candidate_id=candidate_id,
-                valid=True,
-                base_revision=revision,
+                preview = yaml.safe_load(bytes(service_update.content))
+            except yaml.YAMLError as exc:
+                raise ValueError("invalid candidate service YAML") from exc
+            if not isinstance(preview, dict):
+                raise ValueError("invalid candidate service document")
+            config_sources = preview.get("config_sources")
+            if not isinstance(config_sources, dict):
+                raise ValueError("candidate config_sources is required")
+            instances = config_sources.get("instances")
+            templates = config_sources.get("templates")
+            if not isinstance(instances, dict) or not isinstance(templates, dict):
+                raise ValueError("invalid candidate config source sections")
+            device_pathname = instances.get("devices")
+            templates_pathname = templates.get("root")
+            if not isinstance(device_pathname, str) or not device_pathname.strip():
+                raise ValueError("candidate devices pathname is required")
+            if not isinstance(templates_pathname, str) or not templates_pathname.strip():
+                raise ValueError("candidate templates pathname is required")
+            next_devices = Path(device_pathname)
+            next_templates = Path(templates_pathname)
+            if not next_devices.is_absolute():
+                next_devices = self._service_config.parent / next_devices
+            if not next_templates.is_absolute():
+                next_templates = self._service_config.parent / next_templates
+            additional_devices.add(self._relative(next_devices))
+            additional_template_roots.append(next_templates.resolve())
+        candidate = dict(current)
+        for item in files:
+            name = item.relative_path
+            target = self._target(name)
+            candidate_source = name in additional_devices or any(
+                target.suffix == ".yaml" and target.is_relative_to(root)
+                for root in additional_template_roots
+            )
+            if (
+                not self._allowed(name, devices_name, service_name, settings.templates_root)
+                and not candidate_source
+            ):
+                raise ValueError(f"file is not part of Commander config sources: {name}")
+            content = bytes(item.content)
+            is_versioned_template = (
+                target.is_relative_to(settings.templates_root)
+                or any(target.is_relative_to(root) for root in additional_template_roots)
+            ) and target.name not in {"units_standard.yaml", "business_points_standard.yaml"}
+            if is_versioned_template and target.is_file() and target.read_bytes() != content:
+                raise ValueError(f"versioned template is immutable: {name}")
+            candidate[name] = content
+        return candidate
+
+    async def candidate_error(self, files: dict[str, bytes]) -> str | None:
+        try:
+            await asyncio.to_thread(self._validate, files)
+        except (
+            ConfigError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            yaml.YAMLError,
+            ssl.SSLError,
+        ) as exc:
+            return str(exc)
+        return None
+
+    def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None:
+        self._candidate.clear()
+        self._candidate[candidate_id] = candidate
+
+on,
             )
 
     def candidate(self, candidate_id: str) -> SnapshotCandidate | None:
