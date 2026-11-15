@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_46 · 20261115</p>
+<p class="subtitle">v1_48 · 20261115</p>
 
 <style>
 body {
@@ -1827,9 +1827,9 @@ sequenceDiagram
 
 ## 5.1 逻辑组件、职责与依赖
 
-配置快照写入由 Application 中的 `CommanderConfigApply` 统一编排：`PushConfigSnapshot` 持有事务锁、检查预期 DISK revision、协调候选校验及登记；`ApplyConfigSnapshot` 在同一锁内进行候选基线 CAS、候选再验证、计算差量、执行持久提交并触发运行态 reload。提交后 reload 失败必须保留已落盘修订，返回 `restart_required` 和逐对象失败结果，不得伪造回滚。取消 RPC 不释放仍在执行的提交或重载任务。
+配置快照写入由 Application 中的 `CommanderConfigApply` 统一编排：`PushConfigSnapshot` 持有事务锁、检查预期 DISK revision、协调候选校验及登记；`ApplyConfigSnapshot` 在同一锁内进行候选基线 CAS、候选再验证、计算差量、执行持久提交并触发运行态 reload。提交后 reload 失败必须保留已落盘修订，返回 `restart_required` 和逐对象失败结果，不得伪造回滚。取消 RPC 不释放仍在执行的提交或重载任务。跨进程 CAS 必须在持久化写入的同一排他配置锁中，对本次读取的全部配置闭包文件字节及新增文件存在性执行提交前复核；任一不一致拒绝覆盖。提交后的 `file_commit` 采用已校验候选的确定修订值，不在 reload 失败路径上再次读盘推断事务结果。
 
-Infrastructure 中的 `ConfigSnapshots` 仅进行 Proto 映射、配置文件路径/安全检查、候选内容解析、持久化提交及读取，所有技术 I/O 通过 Application 声明的 `SnapshotApplyPort` 调用；应用层不得依赖 YAML、gRPC、文件锁及具体路径实现。
+`CommanderConfigApply` 持有候选快照的保存、替换、查询与提交后失效状态，并负责 revision CAS、候选重验、变更计算、持久提交和运行态 reload 裁决。Infrastructure `ConfigSnapshots` 仅进行 Proto 映射、磁盘文件读取、路径安全检查、候选 YAML 编解码及持久化操作，通过 Application 声明的 `SnapshotApplyPort` 提供 I/O；不独立持有候选生命周期或重复业务策略。Application 不依赖 YAML、gRPC 或具体文件锁实现。候选查询在与 Push/Apply 相同的事务锁下调用 Application `get_candidate()`，不越过业务状态所有者。
 
 
 <p class="figure-caption">图 5-1 内存优先的 Commander 逻辑分层</p>

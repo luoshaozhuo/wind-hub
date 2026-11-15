@@ -33,7 +33,7 @@
 #
 # [gRPC 管理面]
 # listen_host — Main 的 gRPC 监听地址；非空字符串，如 0.0.0.0。
-# listen_port — Main 的 gRPC 监听端口；整数 1..65535，如 50061。
+# listen_port — Main 的 gRPC 监听端口；整数 1..65535，如 50053。
 # max_active_rpcs — 同时受理的 RPC 数量上限；整数 1..64，如 64。
 # max_request_bytes — 单次 RPC 请求最大字节数；整数 1..2097152，如 2097152。
 # default_deadline_ms — RPC 默认截止时间；整数 1..5000 ms，如 5000。
@@ -127,7 +127,7 @@
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.0.1
 service_id: sink-west
 wind_farm_id: farm-a
 deployment_id: prod-a
@@ -141,7 +141,7 @@ config_sources:
 
 grpc:
   listen_host: 0.0.0.0
-  listen_port: 50061
+  listen_port: 50053
   max_active_rpcs: 64
   max_request_bytes: 2097152
   default_deadline_ms: 5000

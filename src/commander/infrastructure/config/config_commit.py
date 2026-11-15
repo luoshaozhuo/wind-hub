@@ -11,7 +11,7 @@ import json
 import os
 import shutil
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
@@ -125,17 +125,35 @@ def recover_config_commit(root: Path) -> None:
         _recover_unlocked(root)
 
 
-def commit_config_files(root: Path, changed: dict[str, bytes]) -> None:
-    """Prevent cooperative readers from observing intermediate file replacements."""
+def commit_config_files(
+    root: Path,
+    changed: dict[str, bytes],
+    *,
+    expected_files: Mapping[str, bytes] | None = None,
+) -> None:
+    """Commit atomically, optionally checking the complete read snapshot under the lock."""
     root = root.resolve(strict=True)
     with _exclusive_config_lock(root):
-        _commit_unlocked(root, changed)
+        _commit_unlocked(root, changed, expected_files=expected_files)
 
 
-def _commit_unlocked(root: Path, changed: dict[str, bytes]) -> None:
-    """Commit with an fsynced undo log; a crash before marker removal rolls back."""
+def _commit_unlocked(
+    root: Path,
+    changed: dict[str, bytes],
+    *,
+    expected_files: Mapping[str, bytes] | None = None,
+) -> None:
+    """Recover, compare the prior closure, and commit under one exclusive lock."""
     root = root.resolve(strict=True)
     _recover_unlocked(root)
+    if expected_files is not None:
+        for name, content in expected_files.items():
+            target = _target(root, name)
+            if not target.is_file() or target.read_bytes() != content:
+                raise RuntimeError(f"configuration revision conflict: {name}")
+        for name in changed:
+            if name not in expected_files and _target(root, name).exists():
+                raise RuntimeError(f"configuration revision conflict: {name}")
     if not changed:
         return
     identifier = uuid4().hex

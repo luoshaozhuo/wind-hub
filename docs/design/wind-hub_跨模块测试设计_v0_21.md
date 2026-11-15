@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_20 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_21 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -190,7 +190,7 @@ $$
 | Contracts | `Contracts_软件设计_v1_29.md` | 六份 Proto、50 个唯一 Unary RPC、生成绑定 |
 | Data Generator | `Data_Generator_软件设计_v1_50.md` | 9 个业务 RPC、模型、录制与执行步证据 |
 | Industrial Gateway | `industrial_gateway_软件设计_v1_42.md` | 10 个业务 RPC、租约注入与仿真执行分离 |
-| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_46.md` | 11 个采集 RPC、7 个控制 RPC、批次与子命令身份 |
+| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_47.md` | 11 个采集 RPC、7 个控制 RPC、批次与子命令身份 |
 | Sink / CLI | `Sink_Service_软件设计_v1_64.md`、`CLI_软件设计_v1_40.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。

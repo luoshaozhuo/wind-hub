@@ -15,7 +15,6 @@ import yaml
 
 from commander.application.config_apply import (
     CommanderConfigApply,
-    SnapshotCandidate,
     SnapshotInput,
     snapshot_revision,
 )
@@ -44,7 +43,6 @@ class ConfigSnapshots:
         self._root = self._service_config.parent.parent
         recover_config_commit(self._root)
         self._lock = asyncio.Lock()
-        self._candidate: dict[str, SnapshotCandidate] = {}
         self._apply_use_case = CommanderConfigApply(service, self, self._lock)
 
     def _relative(self, path: Path) -> str:
@@ -198,7 +196,7 @@ class ConfigSnapshots:
     ) -> common_pb2.GetConfigSnapshotResponse:
         async with self._lock:
             if request.scope == common_pb2.SNAPSHOT_SCOPE_CANDIDATE:
-                candidate = self._candidate.get(request.candidate_id)
+                candidate = self._apply_use_case.get_candidate(request.candidate_id)
                 if candidate is None:
                     raise KeyError(request.candidate_id)
                 return common_pb2.GetConfigSnapshotResponse(
@@ -218,7 +216,8 @@ class ConfigSnapshots:
                 files = self._runtime_files()
                 revision = self._service.config_manager.revision
             else:
-                files = self._collect()
+                # File hashing and reference closure validation may block on I/O.
+                files = await asyncio.to_thread(self._collect)
                 revision = snapshot_revision(files)
             response = common_pb2.GetConfigSnapshotResponse(
                 snapshot_id=str(uuid4()),
@@ -434,24 +433,18 @@ class ConfigSnapshots:
             return str(exc)
         return None
 
-    def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None:
-        self._candidate.clear()
-        self._candidate[candidate_id] = candidate
-
-    def get_candidate(self, candidate_id: str) -> SnapshotCandidate | None:
-        return self._candidate.get(candidate_id)
-
     def collect_files(self) -> dict[str, bytes]:
         return self._collect()
-
-    def forget_candidate(self, candidate_id: str) -> None:
-        self._candidate.pop(candidate_id, None)
 
     async def validate_files(self, files: dict[str, bytes]) -> None:
         await asyncio.to_thread(self._validate, files)
 
-    async def commit_files(self, changed: dict[str, bytes]) -> None:
-        await asyncio.to_thread(commit_config_files, self._root, changed)
+    async def commit_files(
+        self, changed: dict[str, bytes], *, expected_files: dict[str, bytes]
+    ) -> None:
+        await asyncio.to_thread(
+            commit_config_files, self._root, changed, expected_files=expected_files
+        )
 
     async def apply(
         self, request: common_pb2.ApplyConfigSnapshotRequest

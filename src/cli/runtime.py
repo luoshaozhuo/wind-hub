@@ -305,16 +305,29 @@ class Runtime:
             raise PermissionError("Collector management RPC requires admin credentials")
         return (("x-windhub-admin-token", token),)
 
+    def get_rpc_metadata(self, service: str, method: str) -> tuple[tuple[str, str], ...] | None:
+        """Apply Collector's protected RPC policy to every CLI call path."""
+        protected = {
+            "GetConfigSnapshot",
+            "PushConfigSnapshot",
+            "ApplyConfigSnapshot",
+            "GetEvents",
+            "Diagnose",
+            "StartTask",
+            "StopTask",
+            "ReadPoints",
+            "InterrogateDevice",
+        }
+        if service == "collector" and method in protected:
+            return self.collector_admin_metadata()
+        return None
+
     async def call_common(self, name: str, method: str) -> dict[str, Any]:
         target = self.target(name)
         from contracts import common_pb2, common_pb2_grpc
 
         stub = common_pb2_grpc.CommonServiceStub(self.channel(name))
-        metadata = (
-            self.collector_admin_metadata()
-            if name == "collector" and method in {"GetEvents", "GetConfigSnapshot"}
-            else None
-        )
+        metadata = self.get_rpc_metadata(name, method)
         result = await getattr(stub, method)(
             common_pb2.Empty(), timeout=target.timeout, metadata=metadata
         )

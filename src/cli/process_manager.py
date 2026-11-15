@@ -188,7 +188,7 @@ async def _systemd(target: ServiceTarget, action: str) -> dict[str, Any]:
         bus.disconnect()
 
 
-async def manage(target: ServiceTarget, action: str) -> dict[str, Any]:
+async def manage_service_process(target: ServiceTarget, action: str) -> dict[str, Any]:
     """Run only explicit manager operations on configured targets."""
     if action not in {"start", "stop", "restart", "status"}:
         raise ValueError("unsupported process operation")
