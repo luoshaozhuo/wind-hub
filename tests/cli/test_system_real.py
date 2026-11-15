@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from cli.process_manager import manage
+from cli.process_manager import manage_service_process
 from cli.runtime import ServiceTarget
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service]
@@ -46,7 +46,7 @@ def _target(manager: str, target_name: str) -> ServiceTarget:
 async def test_systemd_status_real_dbus_unit() -> None:
     if not _systemd_real_dbus_available():
         pytest.skip("NOT_RUN: 本机无 system D-Bus 或 dbus-next 绑定")
-    result = await manage(_target("systemd", "dbus.service"), "status")
+    result = await manage_service_process(_target("systemd", "dbus.service"), "status")
     assert result["manager"] == "systemd"
     assert result["active_state"] == "active"
     assert result["status"] == "ACTIVE"
@@ -58,7 +58,7 @@ async def test_systemd_start_permission_denied_is_real_error() -> None:
     if os.geteuid() == 0:
         pytest.skip("root 环境下不会触发 Polkit 拒绝路径")
     with pytest.raises(Exception, match="[Aa]ccess denied|auth"):
-        await manage(_target("systemd", "dbus.service"), "start")
+        await manage_service_process(_target("systemd", "dbus.service"), "start")
 
 
 async def test_systemd_without_dbus_binding_fails_closed() -> None:
@@ -71,14 +71,16 @@ async def test_systemd_without_dbus_binding_fails_closed() -> None:
     if find_spec("dbus_next") is not None:
         pytest.skip("NOT_RUN: dbus-next 已安装，缺绑定 fail-closed 路径不适用")
     with pytest.raises(RuntimeError, match="dbus-next"):
-        await manage(_target("systemd", "dbus.service"), "status")
+        await manage_service_process(_target("systemd", "dbus.service"), "status")
 
 
 async def test_containerd_native_grpc_or_not_run() -> None:
     socket = Path("/run/containerd/containerd.sock")
     if not socket.exists() or shutil.which("ctr") is None:
         pytest.skip("NOT_RUN: 本机无 containerd socket/CLI，UC-02 containerd 9 宫格未执行")
-    result = await manage(_target("containerd", "wind-hub-acceptance-absent"), "status")
+    result = await manage_service_process(
+        _target("containerd", "wind-hub-acceptance-absent"), "status"
+    )
     raise AssertionError(f"unexpected status from absent task: {result}")  # pragma: no cover
 
 
