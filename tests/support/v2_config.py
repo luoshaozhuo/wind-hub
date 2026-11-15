@@ -56,6 +56,7 @@ def write_v2_modbus_tree(
     *,
     device_id: str = "modbus-1",
     site_id: str = "test",
+    desired_state: str = "STOP",
     nats_url: str = "nats://127.0.0.1:4222",
     slave_id: int = 1,
 ) -> Path:
@@ -163,10 +164,11 @@ def write_v2_modbus_tree(
                 device_id: {
                     "model": {"id": "modbus_wtg", "version": "1.0.0"},
                     "endpoint": {"host": "127.0.0.1", "port": port},
-                    # 设备 override 仅允许 protocol_options（未知键 fail-closed）；
-                    # 任务期望态由任务模板（turbine_all: STOP）承载。
+                    # ``task`` 为 Collector 持有的设备任务意图（core 加载器
+                    # 已按 Collector 契约放行）；protocol_options 同级生效。
                     "overrides": {
                         "protocol_options": {"slave_id": slave_id},
+                        "task": {"desired_state": desired_state},
                     },
                 }
             },
