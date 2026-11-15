@@ -16,7 +16,6 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
-from sink_service.infrastructure.config_schema import validate_service_technology
 from sink_service.domain.config import (
     ConfigurationError,
     SnapshotFile,
@@ -28,6 +27,7 @@ from sink_service.domain.config import (
     require_version,
     validate_service,
 )
+from sink_service.infrastructure.config_schema import validate_service_technology
 
 
 def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
