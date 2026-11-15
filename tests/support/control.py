@@ -118,6 +118,24 @@ async def _disk_snapshot(
     )
 
 
+async def get_disk_yaml(
+    target: str,
+    relative_path: str,
+    *,
+    token: str | None = None,
+) -> dict[str, Any]:
+    """Read a document from the current committed DISK snapshot, not startup files."""
+    async with _channel(target) as channel:
+        snapshot = await _disk_snapshot(channel, token)
+    for entry in snapshot.files:
+        if entry.relative_path == relative_path:
+            document = yaml.safe_load(bytes(entry.content))
+            if not isinstance(document, dict):
+                raise ValueError(f"{relative_path} must be a mapping")
+            return document
+    raise KeyError(f"{relative_path} is missing from DISK snapshot")
+
+
 async def _swap_one_file(
     target: str,
     relative_path: str,
