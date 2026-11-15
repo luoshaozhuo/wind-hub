@@ -49,7 +49,16 @@ async def invoke(
     metadata = (
         runtime.collector_admin_metadata()
         if service == "collector"
-        and method in {"StartTask", "StopTask", "ReadPoints", "InterrogateDevice"}
+        and method in {
+            "GetConfigSnapshot",
+            "PushConfigSnapshot",
+            "ApplyConfigSnapshot",
+            "GetEvents",
+            "StartTask",
+            "StopTask",
+            "ReadPoints",
+            "InterrogateDevice",
+        }
         else None
     )
     response = await getattr(stub, method)(
