@@ -26,7 +26,9 @@ pytestmark = [pytest.mark.component, pytest.mark.contract]
 
 WINDOW_MS = 60000
 # The exact process metric vocabulary: twelve R04 names (design R04 / 9.3.2)
-# plus the eight batch-series counters emitted by the Realtime/Reliable workers.
+# plus the eight batch-series counters emitted by the Realtime/Reliable workers,
+# the R1 zero-match filtered ACK counters (S-P2-1) and the explicit
+# snapshot-staleness flag (S-P2-2).
 R04_METRICS = {
     "received_total",
     "delivered_total",
@@ -39,10 +41,13 @@ R04_METRICS = {
     "backlog_messages",
     "io_inflight",
     "metrics_snapshot_ready",
+    "metrics_snapshot_stale",
     "metrics_covered_ms",
     "input_batches_total",
     "input_values_total",
     "acknowledged_batches_total",
+    "filtered_ack_batches_total",
+    "filtered_ack_values_total",
     "rejected_batches_total",
     "routed_values_total",
     "retry_total",
