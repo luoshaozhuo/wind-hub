@@ -9,10 +9,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from data_generator.application.model.common import (
-    require_mapping,
     clamp,
-    require_number,
     get_optional_number,
+    require_mapping,
+    require_number,
 )
 from data_generator.domain.model import GeneratorError
 
