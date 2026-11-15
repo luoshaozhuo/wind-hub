@@ -18,6 +18,22 @@ class SnapshotCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class SnapshotInput:
+    relative_path: str
+    content: bytes
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PushOutcome:
+    candidate_id: str
+    valid: bool
+    base_revision: str
+    validation_message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ApplyObjectResult:
     object_id: str
     status: str
@@ -42,6 +58,15 @@ class SnapshotApplyPort(Protocol):
     def collect_files(self) -> dict[str, bytes]: ...
 
     def forget_candidate(self, candidate_id: str) -> None: ...
+
+    def prepare_candidate(
+        self, current: dict[str, bytes], files: tuple[SnapshotInput, ...]
+    ) -> dict[str, bytes]: ...
+
+    async def candidate_error(self, files: dict[str, bytes]) -> str | None: ...
+
+    def save_candidate(self, candidate_id: str, candidate: SnapshotCandidate) -> None: ...
+
 
     async def validate_files(self, files: dict[str, bytes]) -> None: ...
 
@@ -74,6 +99,34 @@ class CommanderConfigApply:
         self._service = service
         self._repository = repository
         self._lock = lock
+
+    async def push(
+        self, files: tuple[SnapshotInput, ...], expected_revision: str
+    ) -> PushOutcome:
+        async with self._lock:
+            current = self._repository.collect_files()
+            revision = snapshot_revision(current)
+            if expected_revision != revision:
+                raise RuntimeError("expected_revision does not match disk revision")
+            candidate = self._repository.prepare_candidate(current, files)
+            error = await self._repository.candidate_error(candidate)
+            if error is not None:
+                return PushOutcome(
+                    candidate_id="",
+                    valid=False,
+                    base_revision=revision,
+                    validation_message=error,
+                )
+            candidate_id = str(uuid4())
+            self._repository.save_candidate(
+                candidate_id,
+                SnapshotCandidate(revision, candidate, snapshot_revision(candidate)),
+            )
+            return PushOutcome(
+                candidate_id=candidate_id,
+                valid=True,
+                base_revision=revision,
+            )
 
     async def apply(self, candidate_id: str, expected_revision: str) -> ApplyOutcome:
         async with self._lock:
