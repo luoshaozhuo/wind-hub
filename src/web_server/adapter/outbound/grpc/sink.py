@@ -1,87 +1,138 @@
-"""Web Server outbound client for independent Sink Service gRPC."""
+"""Authenticated typed gRPC adapter for the current Sink Delivery contract."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
+from pathlib import Path
 from typing import Any
 
 import grpc
-from google.protobuf import wrappers_pb2
+from google.protobuf.json_format import MessageToDict
+
+from contracts import common_pb2, sink_service_pb2, sink_service_pb2_grpc
 
 
 class SinkGrpcClient:
-    """Call Sink Service methods over the versioned BytesValue JSON contract."""
+    """One independently authenticated Sink Service endpoint."""
 
     def __init__(self, endpoint: str, timeout: float = 3.0) -> None:
         self._endpoint = endpoint
         self._timeout = timeout
 
-    async def call(self, method: str, name: str | None = None) -> dict[str, Any]:
-        """Use an independent channel, never a Collector worker RPC."""
-        payload: dict[str, Any] = {"schema_version": 1}
-        if name is not None:
-            payload["name"] = name
-        async with grpc.aio.insecure_channel(self._endpoint) as channel:
-            rpc: grpc.aio.UnaryUnaryMultiCallable[Any, Any] = channel.unary_unary(
-                f"/windhub.sink.v1.SinkService/{method}",
-                request_serializer=lambda value: value.SerializeToString(),
-                response_deserializer=wrappers_pb2.BytesValue.FromString,
-            )
-            result = await rpc(
-                wrappers_pb2.BytesValue(value=json.dumps(payload).encode("utf-8")),
+    @staticmethod
+    def _credentials() -> grpc.ChannelCredentials:
+        names = (
+            "WIND_HUB_SINK_CA_CERT",
+            "WIND_HUB_SINK_CLIENT_CERT",
+            "WIND_HUB_SINK_CLIENT_KEY",
+        )
+        paths = tuple(os.environ.get(name) for name in names)
+        if any(not path for path in paths):
+            raise PermissionError("Sink mTLS client credentials are required")
+        ca, cert, key = (Path(path) for path in paths if path is not None)
+        return grpc.ssl_channel_credentials(
+            root_certificates=ca.read_bytes(),
+            private_key=key.read_bytes(),
+            certificate_chain=cert.read_bytes(),
+        )
+
+    async def list_deliveries(self) -> list[dict[str, Any]]:
+        """Read complete paginated Delivery states from the official protobuf API."""
+        rows: list[dict[str, Any]] = []
+        token = ""
+        seen: set[str] = set()
+        async with grpc.aio.secure_channel(self._endpoint, self._credentials()) as channel:
+            stub = sink_service_pb2_grpc.SinkServiceStub(channel)
+            for _ in range(100):
+                response = await stub.ListDeliveries(
+                    sink_service_pb2.ListDeliveriesRequest(
+                        page_size=500, page_token=token
+                    ),
+                    timeout=self._timeout,
+                )
+                rows.extend(
+                    MessageToDict(
+                        item,
+                        preserving_proto_field_name=True,
+                        always_print_fields_with_no_presence=True,
+                    )
+                    for item in response.deliveries
+                )
+                next_token = response.next_page_token
+                if not next_token:
+                    return rows
+                if next_token in seen:
+                    raise RuntimeError("Sink repeated a Delivery page token")
+                seen.add(next_token)
+                token = next_token
+        raise RuntimeError("Sink Delivery listing exceeded 100 pages")
+
+    async def control_delivery(
+        self, delivery_id: str, revision: str, *, start: bool
+    ) -> dict[str, Any]:
+        """Persist an optimistic-concurrency-checked operator intent."""
+        if not revision:
+            raise ValueError("Delivery revision is required for a control operation")
+        async with grpc.aio.secure_channel(self._endpoint, self._credentials()) as channel:
+            stub = sink_service_pb2_grpc.SinkServiceStub(channel)
+            operation = stub.StartDelivery if start else stub.StopDelivery
+            result = await operation(
+                common_pb2.OperationRequest(
+                    id=delivery_id,
+                    expected_revision=revision,
+                ),
                 timeout=self._timeout,
             )
-        output = json.loads(result.value)
-        if not isinstance(output, dict):
-            raise ValueError("Sink Service returned non-object response")
-        return output
+            return MessageToDict(
+                result,
+                preserving_proto_field_name=True,
+                always_print_fields_with_no_presence=True,
+            )
 
 
 class SinkGrpcDirectory:
-    """Locate independent Sink instances across one or two service processes."""
+    """Reject ambiguous Delivery ownership, including unavailable endpoints."""
 
     def __init__(self) -> None:
         raw = os.environ.get("WIND_HUB_SINK_GRPC_TARGETS", "127.0.0.1:50074")
         targets = [item.strip() for item in raw.split(",") if item.strip()]
-        if not targets:
-            raise ValueError("WIND_HUB_SINK_GRPC_TARGETS cannot be empty")
+        if not targets or len(targets) != len(set(targets)):
+            raise ValueError("Sink targets must be unique and non-empty")
         self._clients = [SinkGrpcClient(target) for target in targets]
 
-    async def list_sinks(self) -> list[dict[str, Any]]:
-        """Return one consistent set of Sink states, rejecting duplicate ownership."""
-        responses = await asyncio.gather(
-            *(client.call("ListSinks") for client in self._clients),
+    async def _owned_deliveries(self) -> dict[str, tuple[SinkGrpcClient, dict[str, Any]]]:
+        results = await asyncio.gather(
+            *(client.list_deliveries() for client in self._clients),
             return_exceptions=True,
         )
-        rows: dict[str, dict[str, Any]] = {}
-        succeeded = False
-        for result in responses:
+        owners: dict[str, tuple[SinkGrpcClient, dict[str, Any]]] = {}
+        for client, result in zip(self._clients, results, strict=True):
             if isinstance(result, BaseException):
-                continue
-            succeeded = True
-            for item in result.get("items", []):
-                if not isinstance(item, dict) or not isinstance(item.get("name"), str):
-                    raise ValueError("invalid Sink status response")
-                name = item["name"]
-                if name in rows:
-                    raise ValueError(f"Sink {name} is owned by multiple service processes")
-                rows[name] = item
-        if not succeeded:
-            raise RuntimeError("all Sink Service endpoints are unavailable")
-        return list(rows.values())
+                raise RuntimeError("Sink Delivery ownership cannot be verified") from result
+            for item in result:
+                identifier = item.get("delivery_id")
+                if not isinstance(identifier, str) or not identifier:
+                    raise ValueError("Sink returned an invalid Delivery identity")
+                if identifier in owners:
+                    raise RuntimeError(f"Delivery {identifier} has multiple active owners")
+                owners[identifier] = (client, item)
+        return owners
 
-    async def call(self, method: str, name: str) -> dict[str, Any]:
-        """Route one Sink request to exactly one process."""
-        owners: list[SinkGrpcClient] = []
-        for client in self._clients:
-            try:
-                response = await client.call("ListSinks")
-            except grpc.RpcError:
-                continue
-            if any(item.get("name") == name for item in response.get("items", [])):
-                owners.append(client)
-        if len(owners) != 1:
-            raise RuntimeError(f"Sink {name} has {len(owners)} available owners")
-        return await owners[0].call(method, name)
+    async def list_deliveries(self) -> list[dict[str, Any]]:
+        owners = await self._owned_deliveries()
+        return [item for _, item in owners.values()]
+
+    async def control_delivery(
+        self, delivery_id: str, *, start: bool
+    ) -> dict[str, Any]:
+        owners = await self._owned_deliveries()
+        if delivery_id not in owners:
+            raise KeyError(delivery_id)
+        client, item = owners[delivery_id]
+        outcome = await client.control_delivery(
+            delivery_id, str(item.get("revision", "")), start=start
+        )
+        if outcome.get("accepted") is not True:
+            raise RuntimeError(f"Delivery {delivery_id} control not accepted")
+        return outcome
