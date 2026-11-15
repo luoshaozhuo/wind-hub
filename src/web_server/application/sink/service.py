@@ -120,8 +120,8 @@ class SinkService:
     async def manage(self, name: str, operation: str) -> dict[str, Any]:
         """Control each Delivery through the official revision-checked RPC."""
         self._config_for(name)
-        if operation not in {"start", "stop", "restart"}:
-            raise ValueError("unsupported Sink operation; ClearSink has no official RPC")
+        if operation not in {"start", "stop"}:
+            raise ValueError("only start and stop have a safe official Delivery RPC")
         rows = await self._sink_directory.list_deliveries()
         members = sorted(
             (row for row in rows if row.get("sink_id") == name),
@@ -132,10 +132,6 @@ class SinkService:
         results: list[dict[str, Any]] = []
         for row in members:
             identifier = str(row["delivery_id"])
-            if operation == "restart":
-                results.append(
-                    await self._sink_directory.control_delivery(identifier, start=False)
-                )
             results.append(
                 await self._sink_directory.control_delivery(
                     identifier, start=operation != "stop"
