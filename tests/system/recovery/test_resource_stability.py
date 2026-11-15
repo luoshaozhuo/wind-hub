@@ -33,6 +33,7 @@ from contracts import common_pb2 as common_pbx
 from contracts import sink_service_pb2_grpc
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
+    get_disk_yaml,
     instance_states,
     metrics_snapshot,
     replace_config,
@@ -236,8 +237,10 @@ async def _bump_task_interval(
         proc.grpc_target, "device_models", model_id, new_model_version, new_model_doc
     )
 
-    devices_path = v2_tree / "instances" / "devices.yaml"
-    devices_doc = _load(devices_path)
+    # Use the current committed snapshot: startup YAML predates the durable START
+    # intent written by StartTask, and replacing it would silently reset to STOP.
+    devices_doc = await get_disk_yaml(proc.grpc_target, "instances/devices.yaml")
+    assert devices_doc["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "START"
     devices_doc["devices"][DEVICE_ID]["model"]["version"] = new_model_version
     result = await replace_config(
         proc.grpc_target,
