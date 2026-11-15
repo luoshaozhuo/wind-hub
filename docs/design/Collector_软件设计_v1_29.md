@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_28 · 20261115</p>
+<p class="subtitle">v1_29 · 20261115</p>
 
 <style>
 body {
@@ -2808,7 +2808,7 @@ flowchart TB
 
 <p class="figure-caption">图 7-1 Collector 目标代码依赖方向</p>
 
-现有 `infrastructure/grpc/`、`infrastructure/nats_publisher.py` 等为**待迁移的实现路径**；重构到 `adapters/inbound`、`adapters/outbound` 时保证 gRPC 方法名、NATS 线格式和可靠性语义不变。Application 不构造 protobuf、NATS 客户端或具体协议 Driver；不创建平行的采样状态和额外 Publisher。
+Collector gRPC 入站与 Publisher 出站统一通过 `infrastructure/adapters/inbound/`、`infrastructure/adapters/outbound/` 装配；不得重新建立历史平铺路径或兼容导出。Application 不构造 protobuf、NATS 客户端或具体协议 Driver；不创建平行的采样状态和额外 Publisher。
 
 ## 7.2 模块责任与依赖约束
 
@@ -2846,7 +2846,7 @@ flowchart TB
 
 **DFD 与 Adapter 对应关系**：设备/协议 Server → Core `ProtocolPort` 的 ADS、Modbus TCP、IEC104 Driver → Collector Application 采集和批次组织 → PublisherPort → Infrastructure NATS Core/JetStream Publisher → Sink。采集业务调度属于 Collector，协议 Driver 不承担采集周期、发布确认或 Sink 交付责任。Realtime Publish 表示发往 NATS Core，Reliable Publish 表示 JetStream PubAck，均不等于 Sink 下游交付确认。
 
-实际代码中的 `application/acquisition.py` 内联采集输出契约 `SampleSink` 等可整理至 `application/ports/`；现有 `assembly.py` 应继续负责驱动装配。不得把协议 SDK 实现复制进 Collector Application，也不强制改变已可复用的 Core Driver。
+Collector 的配置快照仅接受 `templates/{protocols,device_models,point_tables,tasks}/<文件名>.yaml` 扁平模板路径；旧嵌套模板目录不再属于有效配置闭包。`assembly.py` 负责驱动装配，不得把协议 SDK 实现复制进 Collector Application，也不改变已可复用的 Core Driver。
 
 ## 7.3 静态依赖与公共能力复用
 

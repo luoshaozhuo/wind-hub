@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_15 · 20261113 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_17 · 20261115 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -640,3 +640,152 @@ src/<module>/
 4. 安全认证、权限和审计在可信服务边界执行；前端禁用按钮不构成权限约束。
 5. 设计变更若修改公共 API、配置或数据契约，须同步核对调用方、测试、配置与文档；不保留无依据的旧接口及兼容实现。
 6. 逻辑模块、静态代码依赖和运行部署是不同视图；不强制全部业务模块在同一进程或容器内运行。
+
+## 7.3 Python 标识符、接口与文件命名规范
+
+本节适用于全部手写 Python 生产代码、测试和工具脚本。依据 Python 官方 PEP 8（命名与公开 API）、PEP 257（文档字符串）以及 Google Python Style Guide（描述性命名、缩写、文件与测试）。这些是通用规范；下列动词选择、业务术语、接口后缀是 wind-hub 的工程补充，并非声称国际标准规定了特定业务动词。
+
+规范依据：
+- PEP 8 — Style Guide for Python Code：https://peps.python.org/pep-0008/
+- PEP 257 — Docstring Conventions：https://peps.python.org/pep-0257/
+- Google Python Style Guide：https://google.github.io/styleguide/pyguide.html
+
+总体原则：**类型是名词，动作默认动词加宾语，变量是名词，状态是可判断的语义。** 公开 API 优先描述使用意图而非内部实现。禁止在内部 Python 包、目录、文件、类、函数、方法、变量和接口名中添加设计版本号、日期、迁移阶段或历史代际标记。正式 Proto package、HTTP API 路由、持久化迁移文件和配置版本字段按照各自外部契约管理，不受该内部禁令约束。
+
+### 7.3.1 命名形式与可见性
+
+<p class="table-caption">表 7-1 Python 标识符命名形式</p>
+
+| 对象 | 形式 | 示例 | 要求 |
+|---|---|---|---|
+| 包名 | 简短全小写，必要时使用下划线 | collector、sink_service | 用职责划分，不因技术栈或开发阶段命名 |
+| 模块和 Python 文件 | snake_case.py | delivery_registry.py、shared_snapshot.py | 具体职责、全小写、不用连字符 |
+| 类、数据类、抽象类型 | PascalCase | DeviceWorker、SnapshotCandidate | 单数名词或名词短语 |
+| 异常 | PascalCase，实际错误以 Error 结尾 | ConfigurationError、RevisionConflictError | 与外部状态码解耦 |
+| 函数、方法、参数、局部变量 | snake_case | validate_snapshot、expected_revision | 动作与数据有别，见下节 |
+| 实例属性、领域字段 | snake_case | delivery_id、actual_state | 与业务术语保持一致 |
+| 非公开成员 | 单前导下划线 | _reconcile、_pending | 不利用名称伪装安全隔离 |
+| 全局、类级常量 | UPPER_SNAKE_CASE | COMMIT_MARKER、_PAGE_LIMIT | 私有常量加前导下划线，运行期不可重绑定 |
+| 模块级可变状态 | _snake_case | _active_sessions | 原则上禁止；确需时说明所有权、同步和关闭 |
+| 枚举类与成员 | PascalCase 类、UPPER_SNAKE_CASE 成员 | ActualState.RUNNING | 字符串值遵守协议契约 |
+| 类型别名、类型变量 | PascalCase，泛型允许简短类型参数 | ScalarMap、ResultT | 不与运行变量混用 |
+
+禁止自行制造双前后下划线名称；保留标准特殊方法（如 __init__、__post_init__）。双前导下划线只在继承名称冲突确有需要时使用。禁止单字符 l、O、I；普通变量优先完整名称。已有公开 API 若语义清晰，不因拼写偏好机械改名。
+
+### 7.3.2 方法命名：动宾、选择动词与确认边界
+
+**一般使用动词 + 宾语**：validate_snapshot()、resolve_device_templates()、publish_batch()、commit_configuration()、record_event()。类的对象已经由接收者唯一确定时，允许 start()、stop()、close()、connect()、reload()、ack() 等单动词。属性及只读状态不强制动宾。禁止 do_work、handle_data、process_item 这类没有具体责任的公开方法名。
+
+<p class="table-caption">表 7-2 函数动词选择及使用条件</p>
+
+| 动词 | 使用条件 | 推荐示例 | 不可混淆的语义 |
+|---|---|---|---|
+| get | 已知 ID 查询单一对象 | get_delivery | 缺失由公开契约决定 None 或异常，不用于列表 |
+| list | 查询对象集合，可分页过滤 | list_deliveries | 用复数宾语，不用 get_all_delivery |
+| find | 条件查找，结果可能为空或不唯一 | find_candidate | 不暗示唯一性 |
+| read | 真正读取文件、设备、流、持久存储 | read_points、read_snapshot | 不用于单纯内存字段 |
+| load | 读取并解析、校验或装配成可用对象 | load_service_settings | 不表示仅返回字节 |
+| parse | 将字节或文本转为结构 | parse_yaml | 不代表业务校验完成 |
+| validate | 校验不变量，无对外副作用 | validate_snapshot | 不隐含修复或提交 |
+| resolve | 解析引用、继承和默认参数 | resolve_effective_device | 不暗中启动设备 |
+| build / create | build 组装无持久身份的值；create 创建具有身份或所有权的对象 | build_shared_snapshot、create_session | 创建不等于提交 |
+| register / unregister | 对受控登记表的增删 | register_delivery | 不等于外部持久写入 |
+| set / update | 设置目标值 / 更新已有对象字段 | set_desired_state、update_variables | 不暗示已持久化 |
+| apply | 将配置或意图作用于明确对象 | apply_configuration | 不等于保存候选 |
+| commit | 完成确定的持久提交或事务 | commit_configuration | 不等于物理执行完成 |
+| start / stop / restart | 业务生命周期变更 | start_delivery、stop_server | 区分受理与安全收敛 |
+| connect / disconnect / close | 外部连接及资源释放 | connect、close | 不与业务 STOP 混用 |
+| send / publish / deliver | 向端点发送 / 向消息服务发布 / 实现业务交付 | send_request、publish_batch、deliver_samples | 各自确认条件不同 |
+| ack / nak | 消息协议确认及拒绝 | ack、nak | 不等于目标 I/O 成功 |
+| record / emit | 记录业务事实 / 发出事件或指标 | record_event、emit_metric | 输出日志不等于审计持久化 |
+| calculate / compute / convert | 数值计算、派生结果、类型或单位转换 | calculate_rate、compute_revision、convert_unit | 不应隐含外部副作用 |
+| is / has / can / should | 布尔状态、存在性、能力和策略谓词 | is_ready、has_pending_io、can_retry、should_reconcile | 优先正向判断，避免双重否定 |
+
+命名先检查真实副作用及完成条件，再选择动词；同一公开能力不同时提供 get、fetch、retrieve 三套同义入口。query、fetch 只在数据库查询或外部 SDK 的正式语境中使用。handle、process、manage、ensure、run、sync 不作为新公开接口的默认前缀；协议事件回调可使用 _on_<event> 形式。同步与异步方法命名原则一致，不统一加 async_ 后缀。
+
+### 7.3.3 数据变量、全局与局部、量纲
+
+数据对象用名词短语；布尔值以 is、has、can、should 或既有明确状态属性开头。标识符采用 <业务对象>_id，避免跨对象上下文中的孤立 id、key、name。集合使用复数（devices、deliveries）；按键索引的字典说明键（devices_by_id）；数量用 count，字节容量用 bytes，时间长度使用 ms、seconds 等后缀。
+
+<p class="table-caption">表 7-3 业务数据命名示例</p>
+
+| 语义 | 推荐名称 | 避免 |
+|---|---|---|
+| 身份 | device_id、delivery_id、request_id | 在同一过程内泛用 id |
+| 版本与修订 | schema_version、file_version、revision、expected_revision | 含义不明的 version |
+| 目标与实况 | desired_state、actual_state | 一个 state 同时表达两个权威 |
+| 集合和索引 | devices、deliveries_by_id | 不说明键的 map |
+| 计数与容量 | pending_count、max_batch_bytes | size、count 同时表示字节 |
+| 事件时刻与历时 | created_at、sampled_at、elapsed_ms | time 不区分时间点和时长 |
+| 周期和速率 | interval_seconds、rate_per_second | 无量纲说明的 interval、rate |
+| 布尔 | is_ready、has_pending_io、enabled | ready_flag、双重否定 |
+| 配置层次 | raw_options、effective_options、resolved_config | 全程仅使用 config |
+| 错误和状态 | error_code、last_error、actual_state | 把 UNKNOWN 伪装为 FAILED |
+
+作用域规则：可局部定义的不提升为对象属性；需要跨任务共享的运行态由生命周期明确的实例持有，禁止成为隐式全局单例。函数局部不随意用全大写；类和模块的真正固定常量使用大写。简短循环索引 i、j、k，捕获异常 exc 及占位符 _ 属于允许例外；多行跨作用域变量不得用 tmp、obj、val、cnt、dev 等含混缩写。
+
+### 7.3.4 类、接口及组件后缀
+
+<p class="table-caption">表 7-4 类型命名与职责</p>
+
+| 后缀 | 适用责任 | 示例 |
+|---|---|---|
+| Port | Application 所拥有的外部依赖契约 | DeliveryPort、SnapshotRepositoryPort |
+| Adapter | 将技术实现转换为应用能力 | GatewayOutputAdapter |
+| Client / Server | 对外通信客户端或服务端 | GrpcClient、ModbusServer |
+| Repository | 持久化或配置仓储边界 | SnapshotRepository |
+| Registry | 受控对象登记、定位和索引 | DeliveryRegistry |
+| Factory | 有明确创建策略的对象生产 | SessionFactory |
+| Runtime | 持有运行态、任务及资源生命周期 | GatewayApplicationRuntime |
+| Coordinator | 协调多个对象或事务，不重复持有权威状态 | WorkerCoordinator |
+| Service | 定义清晰的业务服务或正式入站服务 | ConfigService |
+| Policy | 无外部 I/O 的业务规则 | RetryPolicy |
+| Request / Result / State / View | 输入、结果、状态值、只读投影 | ApplyRequest、ApplyResult、DeliveryView |
+
+Port 以业务能力命名，不随外部存储供应商变更；Adapter 可含协议名称。禁止凭目录机械添加 Service、Manager、Handler，也不要求每个抽象都有独立文件。必要的 Application Runtime 和 Infrastructure 装配类型要用职责限定，而非重复导出同名类。
+
+### 7.3.5 文件、目录及测试命名规则
+
+PEP 8 规定模块名短小、全小写且可用下划线；Google Python Style Guide 明确要求描述性文件名、Python 源文件采用 .py 扩展名并禁止连字符。模块按单一内聚责任组织，既不强制一个类一个文件，也不将所有职责堆入 common、utils、helpers。
+
+<p class="table-caption">表 7-5 文件名及职责对照</p>
+
+| 文件类型 | 正式命名方式 | 示例 |
+|---|---|---|
+| Domain 实体与规则 | 单数业务名词或名词加职责 | device.py、delivery_policy.py |
+| Application 用例与协调 | 业务对象加动作/职责 | config_apply.py、delivery_registry.py |
+| Port | 用能力或资源命名 | output.py、snapshot_repository.py |
+| Infrastructure 入站/出站 | 协议名加角色，优先由目录提供方向 | grpc_server.py、gateway_client.py |
+| 配置 | 区分配置 Schema、解析和 I/O | config_schema.py、config_io.py |
+| 执行入口 | 遵守包现有约定 | main.py、__main__.py |
+| 单元测试 | test_<subject>.py | test_delivery_registry.py |
+| 场景测试 | test_<subject>_<condition>.py | test_snapshot_revision_conflict.py |
+| 性能测试 | <subject>_benchmark.py | read_pipeline_benchmark.py |
+| Fixture | conftest.py 或按测试资源命名 | conftest.py、gateway_fixtures.py |
+| 生成代码 | 保持生成器指定文件名 | 不手动修改、重命名生成文件 |
+
+测试函数采用 test_<behavior>_<condition>_<expected_outcome> 的可读形式，例如 test_apply_snapshot_revision_conflict_rejected；简单场景可适当缩短。Fixture 名称表达提供的资源，不统一追加 fixture。文件名禁止日期、阶段词、设计版本号、new_、old_、temp_、utils2；不得使用连字符、空格、随机缩写。保留标准 __init__.py、__main__.py、conftest.py。正式 Proto package、HTTP API 路由和数据库迁移文件是外部契约例外，遵守其自身规则。
+
+### 7.3.6 缩写与专有名词
+
+Google Python Style Guide 要求使用可理解的描述性命名，避免自造缩写；PEP 8 对 PascalCase 中的缩略词通常要求首字母保持大写。内部统一优先使用完整英文单词；已有稳定公开类名若语义明确，为避免无收益破坏可以保留，但不能同时新增同义类型别名。
+
+<p class="table-caption">表 7-6 缩写规范</p>
+
+| 类别 | 规则 | 示例 |
+|---|---|---|
+| 常用技术词 | 采用标准拼写、snake_case 中整体小写 | id、url、http、rpc、grpc、io |
+| 工业协议及消息系统 | 使用行业正式名称 | ads、modbus、iec104、nats、kafka |
+| 格式及传输 | 使用广泛认同的缩写 | json、yaml、tcp、tls |
+| 单位 | 使用清晰的后缀并遵守统一约定 | _ms、_seconds、_bytes、_count |
+| 消息确认 | 使用协议既有术语 | ack、nak、dlq |
+| 自造短写 | 不允许进入新增公共接口 | cfg、msg、resp、dev、cnt、mgr |
+| PascalCase 缩略词 | 默认遵循 PEP 8；既有公开名可稳定沿用 | HTTPServer、RPCClient；已有 GrpcClient 可保留 |
+
+不得在同一公开接口体系中混用 config/cfg、request/req、count/cnt。外部公开 SDK、正式协议字段及生成类型的大小写不改变。业务缩写第一次出现在设计书时应说明英文全称；专业物理符号遵循相应符号体系，不套用一般业务变量规则。
+
+### 7.3.7 Docstring、例外及验收
+
+公开模块、类、函数及复杂方法遵守 PEP 257，使用三重双引号的 Docstring；摘要应清楚陈述行为，必要时说明副作用、状态转换、异常及返回的确认语义，不重复逐字解释名称。内部简短方法可根据复杂度省略文档字符串。
+
+外部已发布 RPC/Proto、HTTP、CLI、数据库字段、配置字段、第三方 SDK 函数签名、自动生成代码以及 Python 特殊方法保持其正式命名，内部差异在边界转换。任何公开重命名必须在同一变更中核对静态与动态导入、装配、打包、类型声明、配置、测试、Fixture、文档及调用方；不保留无依据的旧别名和兼容转发。稳定且含义清晰的既有名称不做纯形式批量更名。只有最终 HEAD 上 Ruff、Mypy、import-linter 和相关测试实际通过，方可声明代码命名整改完成。

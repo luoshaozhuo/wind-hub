@@ -21,7 +21,8 @@ from industrial_gateway.infrastructure.config.resolution import (
     load_gateway,
 )
 from industrial_gateway.infrastructure.config.schema import service_path
-from industrial_gateway.infrastructure.runtime import ApplicationResult, GatewayRuntime
+from industrial_gateway.application.runtime import ApplicationResult
+from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _MAX_FILE_SIZE = 2097152
 

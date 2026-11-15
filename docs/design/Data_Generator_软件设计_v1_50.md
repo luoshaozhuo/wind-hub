@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_49 · 20261115</p>
+<p class="subtitle">v1_50 · 20261115</p>
 
 <style>
 body {
@@ -1827,7 +1827,7 @@ flowchart TB
 
 <p class="figure-caption">图 7-1 Data Generator 目标代码依赖方向</p>
 
-模型算法在 Infrastructure 的模型 Adapter 中实现，物理参数和模型不变量由 Domain 定义；Application 编排多设备 Generation、时间步与批次归属，不直接 import Protobuf 或 Gateway gRPC Stub。现行 `application/port/output.py` 是旧路径，统一迁移至 `application/ports/` 并同步所有引用；禁止保留顶级 ports、旧兼容导出或两套输出调度。历史数据源、随机源、物理模型分别按真实能力实现 Port，不为同一职责建立重复抽象。
+模型算法在 Infrastructure 的模型 Adapter 中实现，物理参数和模型不变量由 Domain 定义；Application 编排多设备 Generation、时间步与批次归属，不直接 import Protobuf 或 Gateway gRPC Stub。输出 Port 统一位于 `application/ports/output.py`，不保留原 `application/port/output.py`；调用方必须引用正式 Ports 模块，禁止同一输出路径同时存在两套协调逻辑。历史数据源、随机源、物理模型分别按真实能力实现 Port，不为同一职责建立重复抽象。
 
 **仿真执行的输入边界**：现有 DataGeneratorService.UpdateVariables 是可写模型 INPUT 变更接口，保持 `generation_id,device_id,request_id,values[]` 与原有原子/幂等语义。不新增 Generator 控制 RPC。Gateway 接受来自 Commander 专用仿真执行接口后，才允许代为调用本接口；旧 `control.target.kind=data_generator` 直连路径必须在编码阶段删除。对于模型已受理但尚未越过 `effective_step` 的响应只能报告已接受，不得伪报最终执行。Data Generator 的领域模型、生成和回放仍与协议 Server 和 Commander 审计隔离。
 

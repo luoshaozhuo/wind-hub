@@ -249,9 +249,8 @@ class ReliableDeliveryPort(ReliableDeliveryEngine):
             source = self._snapshot.deliveries[self._definition.delivery_id]["source"]
             prefix = nats_config["reliable_subject"]
             subject = f"{prefix}.{source['wind_farm_id']}.{source['collector_id']}.>"
-            # One explicit device can use an exact server-side filter.
-            # Multiple-device legacy consumers keep their stable Durable
-            # filter until a controlled migration has drained the old backlog.
+            # A single device permits an exact filter. Multi-device Deliveries
+            # use the stable source prefix; rebind only after backlog migration.
             devices = source["devices"]
             if len(devices) == 1:
                 subject = (
