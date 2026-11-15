@@ -35,7 +35,8 @@ class PV:
         if (
             require_number(params, "inverter_rated_power_w")
             > require_number(params, "inverter_rated_apparent_power_va")
-            or require_number(params, "mppt_voltage_v") >= require_number(params, "open_circuit_voltage_v")
+            or require_number(params, "mppt_voltage_v")
+            >= require_number(params, "open_circuit_voltage_v")
             or require_number(params, "inverter_efficiency") > 1
         ):
             raise GeneratorError("invalid PV nominal capacity or MPPT voltage")
@@ -78,7 +79,9 @@ class PV:
         )
         mp = require_number(p, "mppt_voltage_v")
         oc = require_number(p, "open_circuit_voltage_v")
-        self.dc_voltage = calculate_first_order_response(self.dc_voltage, self.dc_target, dt, require_number(p, "mppt_tau_s"))
+        self.dc_voltage = calculate_first_order_response(
+            self.dc_voltage, self.dc_target, dt, require_number(p, "mppt_tau_s")
+        )
         if self.dc_voltage < mp:
             shape = max(0, self.dc_voltage) / mp
         else:
@@ -95,7 +98,9 @@ class PV:
         # Curtail upstream extraction; unused irradiance is not inverter heat.
         dc_power = power / eta
         dc_current = dc_power / self.dc_voltage if self.dc_voltage > 0 else 0.0
-        qcap = math.sqrt(max(0, require_number(p, "inverter_rated_apparent_power_va") ** 2 - power**2))
+        qcap = math.sqrt(
+            max(0, require_number(p, "inverter_rated_apparent_power_va") ** 2 - power**2)
+        )
         reactive = (
             clamp(float(controls.get("reactive_power_setpoint", 0)), -qcap, qcap)
             if g > 0 and bool(controls.get("_grid_connected", 1))
