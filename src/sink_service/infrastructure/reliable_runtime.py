@@ -64,6 +64,9 @@ class ReliableDeliveryPort(ReliableDeliveryEngine):
         self.received_total = 0
         self.received_batches_total = 0
         self.acknowledged_batches_total = 0
+        self.filtered_ack_batches_total = 0
+        self.filtered_ack_values_total = 0
+        self._pending_filter_reason = ""
         self.rejected_batches_total = 0
         self.input_values_total = 0
         self.delivered_total = 0
@@ -137,6 +140,8 @@ class ReliableDeliveryPort(ReliableDeliveryEngine):
             "input_batches_total": float(self.received_batches_total),
             "input_values_total": float(self.input_values_total),
             "acknowledged_batches_total": float(self.acknowledged_batches_total),
+            "filtered_ack_batches_total": float(self.filtered_ack_batches_total),
+            "filtered_ack_values_total": float(self.filtered_ack_values_total),
             "rejected_batches_total": float(self.rejected_batches_total),
             "delivered_total": float(self.delivered_total),
             "failed_total": float(self.failed_total),
