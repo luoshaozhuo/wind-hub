@@ -9,12 +9,12 @@ import asyncio
 import json
 import struct
 import time
-from zlib import crc32
 from collections import OrderedDict
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol, cast
+from zlib import crc32
 
 from pymodbus.datastore import ModbusServerContext
 
