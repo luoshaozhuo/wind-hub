@@ -168,7 +168,8 @@ async def test_distinct_devices_overlap_and_per_device_order_holds(
 async def test_stripe_hash_collision_serializes_without_corruption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(adapters, "hash", lambda _key: 0, raising=False)
+    # crc32 设备锁亲和（进程重启稳定）；碰撞注入改打 crc32 而非随机化 hash。
+    monkeypatch.setattr(adapters, "crc32", lambda _key: 0, raising=False)
     gate = asyncio.Event()
     producer = _GatedProducer(gate=gate)
     _patch_producer(monkeypatch, producer)

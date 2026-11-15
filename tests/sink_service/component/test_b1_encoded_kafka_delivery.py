@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
+from zlib import crc32
 
 import pytest
 
@@ -166,7 +167,8 @@ def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payload
     assert adapter.legacy_calls == []
     assert message.in_progress_calls == 0  # 单批无需续租
     assert key == f"{FARM}:{COLLECTOR}:{DEVICE}".encode()
-    assert stripe == hash((FARM, COLLECTOR, DEVICE)) % 128
+    # 进程重启稳定的设备锁亲和：crc32（非随机化 hash）。
+    assert stripe == crc32(key) % 128
     # 与权威 DeliveryPoint 编码逐字节相等
     legacy = select_delivery_points(batch)
     assert len(payloads) == 500
