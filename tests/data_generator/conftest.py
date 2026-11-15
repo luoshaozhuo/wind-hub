@@ -37,7 +37,7 @@ from data_generator.infrastructure.adapters.outbound.csv_history import CsvHisto
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import file_sha256, recover_transaction
-from industrial_gateway.application.target_leases import TargetLeaseRegistry
+from industrial_gateway.application.variable_leases import ClaimRequest, LeaseError, VariableLeases
 from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
     create_gateway_grpc_server,
@@ -372,6 +372,17 @@ def replay_document(
 # --------------------------------------------------------------------------- #
 
 
+class _DiscardStore:
+    """丢弃式存储：VariableLeases.update 围栏通过后不落任何值。
+
+    Fake 自有的 self.store 记录原样保留；本替身仅满足生产围栏调用的
+    store 参数形状（值恒传 None，生产语义中该分支不会触达 store）。
+    """
+
+    async def update(self, variable_id: str, value: object) -> None:  # noqa: ANN001
+        del variable_id, value
+
+
 class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
     """按 gateway_id 注入行为的正式契约服务；UpdateVariables 是唯一数据入口。"""
 
@@ -394,8 +405,10 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self._behaviors = behaviors or {}
         self.update_calls: dict[str, list[list[str]]] = {gateway_id: [] for gateway_id in catalog}
         self.list_calls: dict[str, int] = {gateway_id: 0 for gateway_id in catalog}
-        # 复用生产租约注册表：故障服务的所有权判定与正式 IndustrialGatewayService 同源。
-        self.leases = TargetLeaseRegistry()
+        # 复用生产 VariableLeases：故障服务的所有权判定与正式 IndustrialGatewayService
+        # 同源。Fake 通道无 mTLS 对端身份，全部调用方共享同一测试主体。
+        self.leases = VariableLeases()
+        self._principal = "fault-gateway-test"
         self.claim_calls: dict[str, list[dict[str, Any]]] = {
             gateway_id: [] for gateway_id in catalog
         }
@@ -441,7 +454,7 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         )
 
     async def ClaimTargets(self, request, context):  # noqa: ANN001, ANN202, N802
-        """与正式 data_server.ClaimTargets 同语义：复用生产 TargetLeaseRegistry。"""
+        """与正式 data_server.ClaimTargets 同语义：复用生产 VariableLeases 权威。"""
         behavior = self._behaviors.get(request.gateway_id, {})
         ids = list(request.variable_ids)
         self.claim_calls.setdefault(request.gateway_id, []).append(
@@ -474,30 +487,44 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         catalog_ids = {
             name for name, _dtype, writable in self._catalog.get(request.gateway_id, ()) if writable
         }
-        # 与 v1 variable_leases 词表对齐：空批/重复为 INVALID_CLAIM，目录外目标为 INVALID_TARGET。
-        if not ids or len(set(ids)) != len(ids):
-            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_CLAIM")
-        if any(name not in catalog_ids for name in ids):
-            return gw.ClaimTargetsResponse(accepted=False, error_code="INVALID_TARGET")
-        async with self.leases.lock:
-            accepted, token, error = self.leases.claim(
-                request.gateway_id,
-                request.owner_id,
-                set(ids),
-                request.action,
-                request.lease_token,
-                request.lease_ms,
-            )
-        self.claim_calls[request.gateway_id][-1]["response_token"] = token
-        return gw.ClaimTargetsResponse(accepted=accepted, lease_token=token, error_code=error)
+        # 生产 VariableLeases 权威裁决：空批/重复/空主体为 INVALID_CLAIM，
+        # 目录外目标为 INVALID_TARGET，与 v1 variable_leases 词表一致。
+        result = await self.leases.claim(
+            ClaimRequest(
+                gateway_id=request.gateway_id,
+                owner_id=request.owner_id,
+                principal=self._principal,
+                variable_ids=tuple(ids),
+                action=request.action,
+                lease_token=request.lease_token,
+                lease_ms=request.lease_ms,
+            ),
+            frozenset(catalog_ids),
+        )
+        self.claim_calls[request.gateway_id][-1]["response_token"] = result.lease_token
+        return gw.ClaimTargetsResponse(
+            accepted=result.accepted,
+            lease_token=result.lease_token,
+            error_code=result.error_code,
+        )
 
     async def UpdateVariables(self, request, context):  # noqa: ANN001, ANN202, N802
         behavior = self._behaviors.get(request.gateway_id, {})
         ids = [item.variable_id for item in request.values]
-        # 服务端强制租约围栏：无令牌/过期/他主令牌在写入前一律 FAILED_PRECONDITION。
-        async with self.leases.lock:
-            if not self.leases.authorize(request.gateway_id, set(ids), request.lease_token):
-                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        # 服务端强制租约围栏（复用生产 VariableLeases.update）：
+        # 无令牌/过期/他主令牌/目录越界在写入前一律 LeaseError → FAILED_PRECONDITION。
+        try:
+            await self.leases.update(
+                request.gateway_id,
+                _DiscardStore(),
+                [(item.variable_id, None) for item in request.values],
+                request.lease_token,
+                self._principal,
+            )
+        except LeaseError:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "duplicate variable_id")
         self.update_calls.setdefault(request.gateway_id, []).append(ids)
         FaultGatewayService.global_active += 1
         FaultGatewayService.global_max_active = max(

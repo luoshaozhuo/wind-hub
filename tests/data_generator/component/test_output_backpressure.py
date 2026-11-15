@@ -17,7 +17,7 @@ from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from data_generator.domain.model import DataBatch, DataPoint, OutputTarget
 from data_generator.domain.scenario import Scenario
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
-from industrial_gateway.application.target_leases import TargetLeaseRegistry
+from industrial_gateway.application.variable_leases import ClaimRequest, LeaseError, VariableLeases
 
 pytestmark = [
     pytest.mark.component,
@@ -25,6 +25,13 @@ pytestmark = [
     pytest.mark.overload,
     pytest.mark.mock_service,
 ]
+
+
+class _DiscardStore:
+    """丢弃式存储：VariableLeases.update 围栏通过后不落任何值。"""
+
+    async def update(self, variable_id: str, value: object) -> None:  # noqa: ANN001
+        del variable_id, value
 
 
 class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
@@ -43,7 +50,11 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self.omit = omit
         self.abort = abort
         self.calls: list[list[str]] = []
-        self.leases = TargetLeaseRegistry()
+        # 复用生产 VariableLeases 权威；Fake 通道无 mTLS 对端身份，
+        # 全部调用方共享同一测试主体。
+        self.leases = VariableLeases()
+        self._principal = "fault-gateway-test"
+        self._writable = frozenset({"GW01.a", "GW01.b"})
 
     async def GetGateway(self, request, context):  # noqa: ANN001, ANN202, N802
         await context.abort(grpc.StatusCode.UNIMPLEMENTED, "not used by data generator")
@@ -61,16 +72,23 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
 
     async def ClaimTargets(self, request, context):  # noqa: ANN001, ANN202, N802
         ids = list(request.variable_ids)
-        async with self.leases.lock:
-            accepted, token, error = self.leases.claim(
-                request.gateway_id,
-                request.owner_id,
-                set(ids),
-                request.action,
-                request.lease_token,
-                request.lease_ms,
-            )
-        return gw.ClaimTargetsResponse(accepted=accepted, lease_token=token, error_code=error)
+        result = await self.leases.claim(
+            ClaimRequest(
+                gateway_id=request.gateway_id,
+                owner_id=request.owner_id,
+                principal=self._principal,
+                variable_ids=tuple(ids),
+                action=request.action,
+                lease_token=request.lease_token,
+                lease_ms=request.lease_ms,
+            ),
+            self._writable,
+        )
+        return gw.ClaimTargetsResponse(
+            accepted=result.accepted,
+            lease_token=result.lease_token,
+            error_code=result.error_code,
+        )
 
     async def ListVariables(self, request, context):  # noqa: ANN001, N802
         return gw.ListVariablesResponse(
@@ -86,9 +104,18 @@ class FaultGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
 
     async def UpdateVariables(self, request, context):  # noqa: ANN001, N802
         ids = [item.variable_id for item in request.values]
-        async with self.leases.lock:
-            if not self.leases.authorize(request.gateway_id, set(ids), request.lease_token):
-                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        try:
+            await self.leases.update(
+                request.gateway_id,
+                _DiscardStore(),
+                [(item.variable_id, None) for item in request.values],
+                request.lease_token,
+                self._principal,
+            )
+        except LeaseError:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "LEASE_LOST")
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "duplicate variable_id")
         self.calls.append(ids)
         if self.abort is not None:
             await context.abort(self.abort, "injected")
