@@ -21,6 +21,7 @@ class ActualState(StrEnum):
     STOPPED = "STOPPED"
     STARTING = "STARTING"
     RUNNING = "RUNNING"
+    DEGRADED = "DEGRADED"
     STOPPING = "STOPPING"
     FAILED = "FAILED"
 
@@ -298,7 +299,7 @@ class DeliveryRegistry:
                 sink_id=view.sink_id,
                 process_role=view.process_role,
                 desired_state=view.desired_state,
-                actual_state=ActualState.FAILED,
+                actual_state=ActualState.DEGRADED,
                 revision=view.revision,
                 last_error=error,
             )
