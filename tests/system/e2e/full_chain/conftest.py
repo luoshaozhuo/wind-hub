@@ -1,4 +1,4 @@
-"""Full-chain E2E（跨模块测试设计 v0_26 §7）：真实六服务 × 真实中间件 × 全程 CLI 生命周期。
+"""Full-chain E2E（跨模块测试设计 v0_27 §7）：真实六服务 × 真实中间件 × 全程 CLI 生命周期。
 
 统一约束（设计 §5.4 / §7.4）：
 
@@ -9,14 +9,15 @@
   对应的正式 RPC（如 Generator ``GetInputExecution``、Gateway
   ``ExecuteSimulationCommand``）由真实 mTLS 客户端补齐并在矩阵注明；
 - 完整物理链路：DG 五设备物理模型 → Gateway 变量存储（授权 inject）→
-  Gateway 下行 Modbus Server（devices_sim 端口）→ 双 Collector（Realtime/
+  Gateway 下行 Modbus Server（隔离的 E2E 设备端口）→ 双 Collector（Realtime/
   Reliable）→ NATS 双通道 → Sink 四出口（Gateway/Modbus/Redis/Kafka）；
 - 源真值来自 DG Recording JSONL（逐 generation 落盘），下游读回全部独立
   客户端（pymodbus、RESP2、aiokafka、Gateway gRPC），不读被测进程内部状态。
 
-设备清单双轨：DG 沿用出厂 ``devices_sim.yaml``（物理仿真参数）；
-Collector/Commander 使用派生的 ``devices_e2e.yaml``（同端点同点表、型号补
-任务引用），两侧寄存器布局由同一份共享点表保证一致。
+设备清单双轨：DG 使用出厂 ``devices_sim.yaml`` 与原始物理点表；
+Gateway/Collector/Commander 使用派生的 ``devices_e2e.yaml`` 与 E2E 型号。
+其中 WTG E2E 点表单独追加 Sink 回写目标，物理输出点仍沿用出厂地址，
+避免将测试回写点误作为 DG 必须生成的物理量。
 """
 
 from __future__ import annotations
