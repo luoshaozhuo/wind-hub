@@ -387,7 +387,9 @@ class FullChainHarness:
         self.sink: SinkSystemHarness | None = None
         self.pki: dict[str, Any] = {}
         self.plant: Path = root / "plant-configs"
-        self.recording_dir = self.plant / "recording"
+        # Data Generator resolves recording.directory against its service root,
+        # which is the Full-chain temporary root rather than plant-configs.
+        self.recording_dir = root / "recording"
         self.generation_id: str | None = None
         self.evidence_path = root / "evidence.jsonl"
         self.sink_modbus_port = 0

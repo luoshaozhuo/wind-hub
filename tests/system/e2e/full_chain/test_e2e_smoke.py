@@ -13,8 +13,9 @@ async def test_full_chain_physical_first_value(full_chain) -> None:  # noqa: ANN
     """E2E 冒烟：Generation 运行 → Gateway 变量 → 双 Collector → Redis。"""
     harness = full_chain
     # 双 Collector 五设备任务全部经 CLI 启动（N-CLI-1 令牌链）。
-    for device_id in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01"):
-        await harness.cli_call(harness.cli_rt, "collector", "start", device_id, "--yes")
+    for config in (harness.cli_rt, harness.cli_rel):
+        for device_id in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01"):
+            await harness.cli_call(config, "collector", "start", device_id, "--yes")
 
     started = await harness.cli_call(
         harness.cli_rt,
@@ -83,8 +84,9 @@ async def test_full_chain_physical_first_value(full_chain) -> None:  # noqa: ANN
     # 停止 Generation 与任务（业务面全部经 CLI）。
     await harness.cli_call(harness.cli_rt, "data-generator", "stop", generation_id, "--yes")
     harness.generation_id = None
-    for device_id in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01"):
-        await harness.cli_call(harness.cli_rt, "collector", "stop", device_id, "--yes")
+    for config in (harness.cli_rt, harness.cli_rel):
+        for device_id in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01"):
+            await harness.cli_call(config, "collector", "stop", device_id, "--yes")
 
 
 def _number(raw: object) -> float:
