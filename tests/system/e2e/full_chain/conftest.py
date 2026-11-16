@@ -23,6 +23,7 @@ Gateway/Collector/Commander 使用派生的 ``devices_e2e.yaml`` 与 E2E 型号�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shutil
 import struct
@@ -84,9 +85,9 @@ def _factory_variable_mappings() -> dict[str, dict[str, str]]:
     mappings: dict[str, dict[str, str]] = {}
     for route in routes:
         device_id = route["device_id"]
-        assert device_id in SIM_DEVICES and device_id not in mappings, (
-            f"unexpected or duplicate factory Gateway route: {device_id}"
-        )
+        assert (
+            device_id in SIM_DEVICES and device_id not in mappings
+        ), f"unexpected or duplicate factory Gateway route: {device_id}"
         raw_mapping = route["variable_mapping"]
         assert isinstance(raw_mapping, dict), f"{device_id}: missing explicit variable_mapping"
         mapping = dict(raw_mapping)
@@ -110,12 +111,12 @@ def _factory_variable_mappings() -> dict[str, dict[str, str]]:
             / f"point_table_{table_ref['id']}_v{table_ref['version']}.yaml"
         )
         declared_points = set(table["points"])
-        assert set(mapping) == declared_points, (
-            f"{device_id}: factory source-point mapping differs from shared table"
-        )
-        assert set(mapping.values()) <= declared_points, (
-            f"{device_id}: factory Gateway target is absent from shared table"
-        )
+        assert (
+            set(mapping) == declared_points
+        ), f"{device_id}: factory source-point mapping differs from shared table"
+        assert (
+            set(mapping.values()) <= declared_points
+        ), f"{device_id}: factory Gateway target is absent from shared table"
         mappings[device_id] = mapping
 
     assert set(mappings) == set(SIM_DEVICES), "factory scenario does not cover five devices"
@@ -563,6 +564,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
         bundle=bundle,
     )
     harness.sink = sink
+    asyncio.run(_provision_kafka_topic(stack.kafka, sink.kafka_topic))
     sink.write_dual_channel_root(
         kafka_bootstrap=stack.kafka, redis_address=stack.redis, nats_url=stack.nats
     )
@@ -770,6 +772,20 @@ def _build_and_start(root: Path) -> FullChainHarness:
 
 async def _up_stack_async() -> r5_stack.R5Stack:
     return await asyncio.to_thread(r5_stack.up_stack)
+
+
+async def _provision_kafka_topic(bootstrap: str, topic: str) -> None:
+    """Create the isolated reliable-output Topic before Sink workers start."""
+    from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+    from aiokafka.errors import TopicAlreadyExistsError
+
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+    await admin.start()
+    try:
+        with contextlib.suppress(TopicAlreadyExistsError):
+            await admin.create_topics([NewTopic(topic, num_partitions=1, replication_factor=1)])
+    finally:
+        await admin.close()
 
 
 async def _wait_stack_ready(harness: FullChainHarness, sink: SinkSystemHarness) -> None:
