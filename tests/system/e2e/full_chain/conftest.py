@@ -14,7 +14,7 @@
 - 源真值来自 DG Recording JSONL（逐 generation 落盘），下游读回全部独立
   客户端（pymodbus、RESP2、aiokafka、Gateway gRPC），不读被测进程内部状态。
 
-设备清单双轨：Gateway/DG 沿用出厂 ``devices_sim.yaml``（物理仿真参数）；
+设备清单双轨：DG 沿用出厂 ``devices_sim.yaml``（物理仿真参数）；
 Collector/Commander 使用派生的 ``devices_e2e.yaml``（同端点同点表、型号补
 任务引用），两侧寄存器布局由同一份共享点表保证一致。
 """
@@ -60,36 +60,6 @@ FARM = "example_site"
 ADMIN_TOKEN = ADMIN_TOKEN
 SIM_DEVICES = ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01")
 
-#: 每设备场景变量映射（源点 → Gateway 变量；寄存器布局来自出厂 sim 点表）。
-SCENARIO_VARIABLES: dict[str, dict[str, str]] = {
-    "WTG_SIM01": {
-        "wind_speed": "wind_speed",
-        "active_power": "active_power",
-        "available_power": "available_power",
-        "effective_wind_speed": "effective_wind_speed",
-    },
-    "PV_SIM01": {
-        "active_power": "active_power",
-        "cell_temperature": "cell_temperature",
-        "pv_available_power": "pv_available_power",
-    },
-    "BESS_SIM01": {
-        "soc": "soc",
-        "active_power": "active_power",
-        "stored_energy": "stored_energy",
-    },
-    "GRID_SIM01": {
-        "grid_frequency": "grid_frequency",
-        "grid_voltage": "grid_voltage",
-        "active_power": "active_power",
-    },
-    "PPC_SIM01": {
-        "agc_allocated_power": "agc_allocated_power",
-        "ffr_active": "ffr_active",
-        "plant_active_power": "plant_active_power",
-    },
-}
-
 #: Sink GatewayOutput 的专用目标变量（寄存器随出厂 sim WTG 点表副本追加，
 #: 不与 DG 注入变量冲突）。
 SINK_TARGET_POINT = "e2e_sink_target"
@@ -99,6 +69,56 @@ def _load(path: Path) -> dict[str, Any]:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert isinstance(document, dict), f"{path}: expected mapping"
     return document
+
+
+def _factory_variable_mappings() -> dict[str, dict[str, str]]:
+    """Load all source-to-Gateway point identities from the shipped scenario."""
+    shipped = _load(REPO_CONFIGS / "services" / "data-generator-sim.example.yaml")
+    scenarios = shipped.get("scenarios")
+    assert isinstance(scenarios, list) and scenarios, "factory simulation scenario is missing"
+    routes = scenarios[0].get("gateways")
+    assert isinstance(routes, list), "factory Gateway routes are missing"
+
+    devices = _load(REPO_CONFIGS / "instances" / "devices_sim.yaml")["devices"]
+    mappings: dict[str, dict[str, str]] = {}
+    for route in routes:
+        device_id = route["device_id"]
+        assert device_id in SIM_DEVICES and device_id not in mappings, (
+            f"unexpected or duplicate factory Gateway route: {device_id}"
+        )
+        raw_mapping = route["variable_mapping"]
+        assert isinstance(raw_mapping, dict), f"{device_id}: missing explicit variable_mapping"
+        mapping = dict(raw_mapping)
+        assert all(
+            isinstance(point, str) and isinstance(target, str) and target
+            for point, target in mapping.items()
+        ), f"{device_id}: invalid Gateway variable mapping"
+
+        model_ref = devices[device_id]["model"]
+        model = _load(
+            REPO_CONFIGS
+            / "templates"
+            / "device_models"
+            / f"device_model_{model_ref['id']}_v{model_ref['version']}.yaml"
+        )
+        table_ref = model["point_table"]
+        table = _load(
+            REPO_CONFIGS
+            / "templates"
+            / "point_tables"
+            / f"point_table_{table_ref['id']}_v{table_ref['version']}.yaml"
+        )
+        declared_points = set(table["points"])
+        assert set(mapping) == declared_points, (
+            f"{device_id}: factory source-point mapping differs from shared table"
+        )
+        assert set(mapping.values()) <= declared_points, (
+            f"{device_id}: factory Gateway target is absent from shared table"
+        )
+        mappings[device_id] = mapping
+
+    assert set(mappings) == set(SIM_DEVICES), "factory scenario does not cover five devices"
+    return mappings
 
 
 def _weather_block(*, turbulence: float = 0.0, mean: float = 10.0) -> dict[str, Any]:
@@ -141,12 +161,13 @@ def _physical_scenario(
     weather: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """五设备物理场景（wind-plant-physical 契约，天气与步长参数化）。"""
+    factory_mappings = _factory_variable_mappings()
     gateways = [
         {
             "gateway_id": f"gw-{device_id.lower()}",
             "endpoint": gateway_endpoint,
             "device_id": device_id,
-            "variable_mapping": dict(SCENARIO_VARIABLES[device_id]),
+            "variable_mapping": factory_mappings[device_id],
         }
         for device_id in SIM_DEVICES
     ]
@@ -215,6 +236,10 @@ def _write_e2e_models_and_tasks(root: Path) -> None:
             REPO_CONFIGS / "templates" / "device_models" / f"device_model_{sim_model}_v1.0.0.yaml"
         )
         document["template_id"] = f"e2e_{device_id.lower()}"
+        if device_id == "WTG_SIM01":
+            # Sink's independent write-back point is not a physical DG output.
+            # Only the Gateway/Collector E2E model uses the extended point table.
+            document["point_table"]["id"] = "modbus_wtg_sim_e2e"
         document["task"] = {"id": f"e2e_task_{device_id.lower()}", "version": "1.0.0"}
         _dump(
             root
@@ -240,6 +265,7 @@ def _write_e2e_models_and_tasks(root: Path) -> None:
         REPO_CONFIGS / "templates" / "point_tables" / "point_table_modbus_wtg_sim_v1.0.0.yaml"
     )
     document = _load(point_table)
+    document["template_id"] = "modbus_wtg_sim_e2e"
     document["points"][SINK_TARGET_POINT] = {
         "business_point_id": SINK_TARGET_POINT,
         "point_groups": ["all"],
@@ -254,7 +280,7 @@ def _write_e2e_models_and_tasks(root: Path) -> None:
     business["business_points"][SINK_TARGET_POINT] = {"data_type": "float32", "unit": "none"}
     _dump(root / "templates" / "business_points_standard.yaml", business)
     _dump(
-        root / "templates" / "point_tables" / "point_table_modbus_wtg_sim_v1.0.0.yaml",
+        root / "templates" / "point_tables" / "point_table_modbus_wtg_sim_e2e_v1.0.0.yaml",
         document,
     )
 
@@ -282,7 +308,7 @@ def _write_collector_service(root: Path, filename: str, *, nats_url: str, delive
 def _write_gateway_service(root: Path, *, grpc_port: int, pki: dict[str, Any]) -> Path:
     document = _load(REPO_CONFIGS / "services" / "industrial_gateway-sim.example.yaml")
     document["config_sources"] = {
-        "instances": {"devices": "instances/devices_sim.yaml"},
+        "instances": {"devices": "instances/devices_e2e.yaml"},
         "templates": {"root": "templates"},
     }
     document["grpc"]["listen_port"] = grpc_port
