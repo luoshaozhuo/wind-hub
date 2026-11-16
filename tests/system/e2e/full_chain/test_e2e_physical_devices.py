@@ -75,6 +75,11 @@ async def test_physical_device_reaches_gateway_and_redis(
         redis_value = await harness.sink.wait_redis_value(
             harness.redis_key(device_id, point_id),
             timeout=90,
+            match=(
+                (lambda value: abs(_scalar(value["value"]) - 10.0) < 1e-3)
+                if case_id == "E2E-01"
+                else None
+            ),
         )
         observed = _scalar(redis_value["value"])
         assert redis_value["device_id"] == device_id
