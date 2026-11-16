@@ -88,13 +88,13 @@ def _selector_path(selector: common_pb.SnapshotFile | Any) -> str:
         # v1 版本化模板统一扁平命名："category/id" + version →
         # templates/category/<prefix><id>_v<version>.yaml（前缀与生产
         # VersionedTemplateRepository.path_for 一致）；无版本的目录模板
-        # （units/business_points）→ templates/<name>.yaml。
+        # （units/business_points）→ templates/<name>_standard.yaml。
         version = getattr(selector, "version", "")
         category, _, template_id = name.partition("/")
         prefix = _TEMPLATE_FILE_PREFIXES.get(category, "")
         if version:
             return f"templates/{category}/{prefix}{template_id}_v{version}.yaml"
-        return f"templates/{name}.yaml"
+        return f"templates/{name}_standard.yaml"
     raise ValueError(f"unsupported selector: {selector}")
 
 
@@ -291,9 +291,7 @@ async def stop_task(
 async def start_task_instance(
     target: str,
     *,
-    task_id: str = "",  # v1 设备粒度，task_id 仅保留签名兼容
     instance_id: str,
-    placement_generation: int = 1,  # placement 栅栏已移除，参数仅为签名兼容
     token: str | None = None,
 ) -> common_pb.OperationResult:
     """``instance_id="{task}:{device}"`` → 设备级 StartTask。"""
@@ -377,14 +375,12 @@ async def validate_config(
     selector: Any = None,
     expected_revision: str | None = None,
     token: str | None = None,
-    timeout: float = 10.0,
 ) -> ConfigCheckResult:
     """快照式校验（不落盘）：替换单文档后只 Push 不 Apply。
 
     默认校验 ``instances/devices.yaml``。expected_revision 不传时使用磁盘
     当前 revision（Push 的乐观锁字段不可省空串）。
     """
-    del timeout  # 超时由 RPC 调用固定值控制
     path = _selector_path(selector) if selector is not None else "instances/devices.yaml"
     pushed, _ = await _swap_one_file(
         target, path, yaml_content, token=token, expected_revision=expected_revision
@@ -413,9 +409,7 @@ async def replace_config(
     *,
     selector: Any = None,
     expected_revision: str | None = None,
-    request_id: str | None = None,  # v1 快照事务无单请求 ID，仅保留签名兼容
     token: str | None = None,
-    timeout: float = 15.0,  # 透传默认 RPC 超时，保留旧 helper 签名
 ) -> ConfigMutationResult:
     """整文档替换：快照内换一个文件 → Push → Apply（原子落盘 + 运行时收敛）。"""
     path = _selector_path(selector) if selector is not None else "instances/devices.yaml"
@@ -455,13 +449,9 @@ async def replace_template(
     version: str,
     document: dict[str, Any],
     *,
-    create: bool = True,
-    request_id: str | None = None,
     token: str | None = None,
-    timeout: float = 20.0,
 ) -> ConfigMutationResult:
     """发布不可变版本化模板（快照事务替换 ``templates/<category>/<id>/<ver>.yaml``）。"""
-    del create, request_id, timeout  # v1 无 CREATE 哨兵：新文件随整盘快照一并提交
     selector = _TemplateSelector(category, template_id, version)
     return await replace_config(
         target,
@@ -476,12 +466,9 @@ async def replace_catalog(
     name: str,
     document: dict[str, Any],
     *,
-    request_id: str | None = None,
     token: str | None = None,
-    timeout: float = 20.0,
 ) -> ConfigMutationResult:
     """替换无版本目录模板（``units_standard.yaml`` / ``business_points_standard.yaml``）。"""
-    del request_id, timeout
     selector = _CatalogSelector(name)
     return await replace_config(
         target,
@@ -513,28 +500,11 @@ class _CatalogSelector:
         return self.file_name
 
 
-async def prepare_config(*args: Any, **kwargs: Any) -> ConfigCheckResult:
-    """已退役：v1 无两段事务，「不落盘校验」由 validate_config 承担。"""
-    raise AttributeError(
-        "prepare_config 已迁移为 validate_config(target, yaml_content, ...)；"
-        "v1 config_dir/revision_id 两段事务已移除"
-    )
-
-
-async def reload_config(*args: Any, **kwargs: Any) -> ConfigMutationResult:
-    """已退役：热重载由快照事务 replace_config 承担。"""
-    raise AttributeError(
-        "reload_config 已迁移为 replace_config(target, yaml_content, ...)；"
-        "v1 config_dir/revision_id 两段事务已移除"
-    )
-
-
 async def metrics(
     target: str,
     *,
     device_ids: tuple[str, ...] = (),
     metric_names: tuple[str, ...] = (),
-    window_seconds: int = 0,  # v1 窗口单位为 window_ms，service 累计口径默认
     timeout: float = 5.0,
 ) -> dict[str, Any]:
     """service 作用域累计计数 dict（GetMetrics）。

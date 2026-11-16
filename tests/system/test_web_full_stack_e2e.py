@@ -21,6 +21,7 @@ from contracts import collector_pb2_grpc, common_pb2
 from scripts.generate_virtual_site import generate_site
 from scripts.protocol_servers import run_fleet
 from tests.commander.grpc_harness import build_pki
+from tests.support.collector_config_tree import SYSTEM_ADMIN_TOKEN, build_collector_tree_from_site
 from tests.support.commander_mtls import commander_client_env, write_commander_service
 from tests.support.process import (
     CollectorProcess,
@@ -30,7 +31,6 @@ from tests.support.process import (
     start_commander,
     start_web_server,
 )
-from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, emit_v2_tree_from_flat_site
 from tests.support.wait import wait_commander_ready, wait_grpc_ready, wait_until
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.asyncio]
@@ -66,7 +66,7 @@ async def full_stack(tmp_path: Path) -> AsyncIterator[LiveStack]:
         modbus_base_port=modbus_port,
         iec104_base_port=iec104_port,
     )
-    v2_tree = emit_v2_tree_from_flat_site(tmp_path / "collector", config)
+    v2_tree = build_collector_tree_from_site(tmp_path / "collector", config)
     processes: list[CollectorProcess] = []
     async with run_fleet(config, interval=0.25, seed=123):
         try:

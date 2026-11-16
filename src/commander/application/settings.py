@@ -19,7 +19,7 @@ class SimulationGatewayTarget:
 
 @dataclass(frozen=True, slots=True)
 class ServiceSettings:
-    file_version: str | None
+    file_version: str
     devices_path: Path
     templates_root: Path
     queue_timeout: float

@@ -67,6 +67,23 @@ class IEC104MockServer:
         self._server = None
         await asyncio.get_running_loop().run_in_executor(None, server.stop)
 
+    async def add_point(self, ioa: int, value: float, *, common_address: int | None = None) -> None:
+        """动态注册新数据点（停机时更新基线，重启后随站点装配）。
+
+        模拟现场设备固件升级后新增测点：调用方随后可用 ``set_value`` 上送。
+        """
+        ca = common_address if common_address is not None else self._common_addr
+        self._stations.setdefault(ca, {})[ioa] = float(value)
+        server = self._server
+        if server is not None:
+            station = server.get_station(ca)
+            if station is None:
+                station = server.add_station(common_address=ca)
+                assert station is not None
+            point = station.add_point(io_address=ioa, type=self._point_type)
+            assert point is not None
+            point.value = float(value)
+
     async def set_value(
         self,
         ioa: int,

@@ -19,7 +19,7 @@ from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure import reliable_runtime
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     SERVICE_FILE,
@@ -217,11 +217,11 @@ def _patch_nats(monkeypatch: pytest.MonkeyPatch, js: _FakeJS) -> _FakeClient:
     return client
 
 
-def _port(snapshot: Any, pool: _FakePool) -> ReliableDeliveryPort:
+def _port(snapshot: Any, pool: _FakePool) -> ReliableDeliveryRuntime:
     definition = DeliveryDefinition(
         delivery_id="d1", sink_id="history_kafka", channel="reliable", desired_state="START"
     )
-    return ReliableDeliveryPort(definition, snapshot, pool)  # type: ignore[arg-type]
+    return ReliableDeliveryRuntime(definition, snapshot, pool)  # type: ignore[arg-type]
 
 
 async def test_concurrent_template_uses_exact_device_subject(

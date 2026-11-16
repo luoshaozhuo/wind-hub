@@ -1,4 +1,4 @@
-"""Pure, broker-free seams of ReliableDeliveryPort.
+"""Pure, broker-free seams of ReliableDeliveryRuntime.
 
 The durable ACK / NAK / InProgress / DLQ / restart state machine is only
 exercised against a real JetStream broker in the Gate-4 system suite (mocks are
@@ -15,7 +15,7 @@ from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import (
     SERVICE_FILE,
     snapshot_docs,
@@ -28,12 +28,12 @@ KAFKA_TEMPLATE = "configs/templates/sinks/sink_kafka_history_v1.0.0.yaml"
 _DEFINITION = DeliveryDefinition("power_history", "history_kafka", "reliable", "START")
 
 
-def _port() -> ReliableDeliveryPort:
+def _port() -> ReliableDeliveryRuntime:
     snapshot = validate_snapshot(snapshot_files(snapshot_docs()))
-    return ReliableDeliveryPort(_DEFINITION, snapshot, pool=object())
+    return ReliableDeliveryRuntime(_DEFINITION, snapshot, pool=object())
 
 
-def _unchecked_port(mutate) -> ReliableDeliveryPort:
+def _unchecked_port(mutate) -> ReliableDeliveryRuntime:
     """Build a port whose template bytes were altered after config validation.
 
     The negative cases are deliberately rejected earlier by ``validate_snapshot``;
@@ -51,7 +51,7 @@ def _unchecked_port(mutate) -> ReliableDeliveryPort:
         deliveries=valid.deliveries,
         documents=docs,
     )
-    return ReliableDeliveryPort(_DEFINITION, snapshot, pool=object())
+    return ReliableDeliveryRuntime(_DEFINITION, snapshot, pool=object())
 
 
 def _kafka_doc(docs: dict) -> dict:
@@ -125,21 +125,21 @@ def test_non_reliable_sink_and_unknown_kind_are_rejected() -> None:
 def test_durable_identity_is_deterministic_and_deployment_scoped() -> None:
     port = _port()
     snapshot = port._snapshot
-    first = ReliableDeliveryPort._durable_id(snapshot, "power_history")
-    second = ReliableDeliveryPort._durable_id(snapshot, "power_history")
+    first = ReliableDeliveryRuntime._durable_id(snapshot, "power_history")
+    second = ReliableDeliveryRuntime._durable_id(snapshot, "power_history")
     assert first == second and first.startswith("WH_SINK_")
     suffix = first.removeprefix("WH_SINK_")
     assert len(suffix) == 24 and all(char in "0123456789abcdef" for char in suffix)
     # A different delivery or deployment yields an isolated durable consumer.
-    assert ReliableDeliveryPort._durable_id(snapshot, "other_delivery") != first
+    assert ReliableDeliveryRuntime._durable_id(snapshot, "other_delivery") != first
     renamed = snapshot_docs()
     renamed[SERVICE_FILE]["deployment_id"] = "prod-b"
     other_snapshot = validate_snapshot(snapshot_files(renamed))
-    assert ReliableDeliveryPort._durable_id(other_snapshot, "power_history") != first
+    assert ReliableDeliveryRuntime._durable_id(other_snapshot, "power_history") != first
 
 
 def test_source_selector_honours_declared_filter() -> None:
-    # Per-point source selection moved out of ReliableDeliveryPort: reliable
+    # Per-point source selection moved out of ReliableDeliveryRuntime: reliable
     # routing is JetStream subject-scoped and the point selector lives in
     # RealtimeEngine.accepts (design 6.x source closure).
     engine = RealtimeEngine(

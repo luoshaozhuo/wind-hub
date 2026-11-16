@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_48 · 20261115</p>
+<p class="subtitle">v1_49 · 20261116</p>
 
 <style>
 body {
@@ -2552,13 +2552,16 @@ Commander 专属服务配置为 `configs/services/commander.yaml`。服务配置
 
 **直接配置入口封闭原则：**当前 Commander 对设备控制需要 `devices` 和模板根目录；未实际使用的 `site.yaml` 不列入。新增直接依赖必须先修改服务配置契约和实现，再增加对应测试。相对 pathname 均以部署工作根 `config_root`（包含 `configs/` 子目录）解析，必须以 `configs/` 开头；绝对配置源及任何 `..` 段一律拒绝；不依赖进程工作目录，禁止越过声明的模板根目录解析版本化模板。服务启动命令必须显式给定服务配置 pathname，不隐式读取 `configs/services/commander.yaml`。
 
+服务配置必须同时包含 `schema_version` 与 `file_version`，缺失、非法类型或非 `MAJOR.MINOR.PATCH` 格式均拒绝启动；文件版本不等于快照并发 `revision`。
+
 控制请求级参数追加在 `dispatcher` 下的 `max_request_id_bytes`、`repository` 下的 `accept_commit_timeout_ms`，具体示例以 `configs/services/commander.yaml` 为准，不复制一套过期默认值。\n\n## 11.2 完整配置示例
 
 以下是拟实施的 Commander 服务配置结构。`config_sources` 指明直接依赖；间接依赖从共享配置中的版本引用解析，不另行列出。示例相对路径以部署工作根 `config_root` 为基准，不包含 `..`。
 
 ```yaml
 # Commander 服务专属配置；服务字段变更后重启生效
-schema_version: 1                      # 整数；当前版本为 1
+schema_version: 1                      # 必填；整数；当前结构版本 1
+file_version: "1.0.0"                  # 必填；MAJOR.MINOR.PATCH 字符串
 
 config_sources:
   instances:

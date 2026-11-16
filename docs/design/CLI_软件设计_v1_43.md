@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_40 · 20261113</p>
+<p class="subtitle">v1_43 · 20261116</p>
 
 <style>
 body {
@@ -1286,7 +1286,7 @@ flowchart TD
 | 后置条件 | 正确记录期望及实际状态，只有指定 Delivery 受影响 |
 | 关联需求 | UR-06、UR-07、UR-09 |
 | UC-09-S01 主流程 | 查询和启停 |
-| UC-09-S02 关键边界 | 双进程；部分故障 |
+| UC-09-S02 关键边界 | Main/Worker 生命周期；单 Worker 部分故障 |
 | UC-09-S03 异常与恢复 | 版本冲突；手动停止 |
 
 ## 4.11 UC-10 查询和控制 Industrial Gateway
@@ -2381,6 +2381,7 @@ CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容�
 
 ```yaml
 schema_version: 1
+file_version: "1.0.0"
 cli:
   prompt: "wind-hub> "
   output_format: table  # table | json
@@ -2406,18 +2407,12 @@ services:
     manager: isulad
     isula_binary: "/usr/bin/isula"  # 固定绝对路径，不调用 Shell
     target: commander
-  sink_realtime:
+  sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
     manager: systemd
     systemd_scope: system
-    target: wind-hub-sink-realtime.service
-  sink_reliable:
-    tls_profile: local
-    manager: systemd
-    systemd_scope: system
-    target: wind-hub-sink-reliable.service
-    rpc_via: sink_realtime  # 唯一配置写入/管理端点示例
+    target: wind-hub-sink.service
   gateway:
     grpc_endpoint: "127.0.0.1:50054"
     tls_profile: local
@@ -2444,39 +2439,32 @@ network_probe:
 
 以上 Endpoint、证书路径、运行目标和上限全为**配置格式示例**，不代表项目真实端口或出厂值。iSulad 固定以本机 isula CLI 适配；containerd 使用实际 Namespace 与 Socket 配置；敏感凭据不可嵌入命令历史。
 
-### 11.2.1 配置字段与双进程部署约束
+### 11.2.1 配置字段与 Sink Main/Worker 部署约束
 
 | 字段 | 必填条件 | 语义与校验 |
 |---|---|---|
 | `schema_version` | 总是 | 固定已支持 Schema 版本，未知版本拒绝加载 |
-| `services.<id>.grpc_endpoint` | 独立提供 gRPC Server 时 | `host:port` 或明确 URI；若配置 `rpc_via` 则可省略，不能用管理器 Socket 替代 gRPC Endpoint |
+| `file_version` | 总是 | 必须是 `MAJOR.MINOR.PATCH` 字符串，不允许缺省或使用 `v` 前缀 |
+| `services.<id>.grpc_endpoint` | 独立提供 gRPC Server 时 | `host:port` 或明确 URI；不提供业务 RPC 的进程仅通过进程管理器管理 |
 | `services.<id>.tls_profile` | 启用远程 gRPC 时 | 引用 `tls_profiles` 中已存在条目；证书在使用前校验可读 |
 | `services.<id>.manager` | 执行服务启停时 | `containerd`、`isulad`、`systemd` 三选一 |
-| `rpc_via` | 某进程不独立提供业务管理 RPC 时 | 引用其他已定义 Service ID，目标必须有 grpc_endpoint，不允许循环引用；仅代理业务 RPC，进程状态仍查询自身管理器 |
 | `target`、`namespace` | 使用对应管理器时 | target 为固定白名单 ID；containerd 必填 namespace；systemd target 是 Unit |
 | `manager_socket` | containerd | 本地 Unix Socket，权限严格限制 |
 | `isula_binary` | iSulad | 固定的 `isula` 可执行文件绝对路径；调用时禁止 shell=True |
 | `network_probe.*` | 使用本地探测时 | 非负、有界，非法端口或超大网段须拒绝 |
 
-Sink Service 的 Realtime 与 Reliable 默认可部署为两个进程；若 CLI 同时管理两者，配置必须分别声明两个**进程管理目标**及各自服务端点（如果它们实际提供独立 gRPC），不能用一个 `sink` 目标冒充两个进程的生命周期。聚合视图允许显示逻辑服务名 `sink`，但每一操作必须明确进程 ID 和通道，且不能依据某一通道健康推断另一通道正常。
-
-双进程管理必须分别配置独立 target；只有暴露 gRPC 的进程才配置 grpc_endpoint。以下示例进一步说明端点归属（非额外必需配置）：
+Sink Service 采用单一 Main 进程和 Main 管理的 Realtime、Reliable 两个 Worker。CLI 服务生命周期只面向 Main 的一个 `sink` 管理目标；Main 通过内部 IPC 启停、监督两个 Worker。业务 RPC 只面向 Main 的唯一 gRPC 端点，Sink 命令不保留多余的 `--service` 选择参数；不得把 Worker 伪装成可独立管理的 Sink Service。
 
 ```yaml
 services:
-  sink_realtime:
+  sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
     manager: systemd
-    target: wind-hub-sink-realtime.service
-  sink_reliable:
-    rpc_via: sink_realtime  # 业务管理 RPC 经唯一写入端点
-    tls_profile: local
-    manager: systemd
-    target: wind-hub-sink-reliable.service
+    target: wind-hub-sink.service
 ```
 
-以上是两进程配置规则的示例，不表示 Sink 已实现两个独立管理 gRPC Server；如仅单一写入/管理端提供 RPC，另一进程仅提供运行管理时，应在目标配置中明确管理端归属，不允许 CLI 对未暴露的 RPC 端点进行猜测调用。
+Realtime 与 Reliable 的运行状态及独立故障需经 Main 的正式状态/指标接口分别查询；Main READY 不能替代两 Worker 的业务就绪证明。
 
 
 ### 11.2.2 运行参数与上限
@@ -2624,7 +2612,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | UR-07 | UC-08-S02 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s02` | `system` | `contract` | `exception` | 跨模块边界：Collector/Gateway 的过期、逐项缺测及慢响应；Commander/Sink/Generator 不伪造实时值，轮询不重入 |
 | UR-07 | UC-08-S03 | 9.2、12.3；10 | `test_cross_module_monitor_e2e.py` / `test_uc_08_s03` | `system` | `reliability` | `exception` | 五模块断连、接口缺失、超时和中断；断言来源明确，Ctrl+C 仅停止轮询并返回 Shell |
 | UR-06、UR-07、UR-09 | UC-09-S01 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s01` | `system` | `contract` | `normal` | 查询和启停；断言查询Delivery配置与状态；启停只改变目标Delivery |
-| UR-06、UR-07、UR-09 | UC-09-S02 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `exception` | 双进程、部分故障；断言Realtime/Reliable状态互不混淆，单侧故障不假报另一侧 |
+| UR-06、UR-07、UR-09 | UC-09-S02 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s02` | `system` | `contract` | `exception` | Main/Worker、部分故障；断言 Realtime/Reliable 状态互不混淆，单侧故障不假报另一侧 |
 | UR-06、UR-07、UR-09 | UC-09-S03 | 9.2；10 | `test_sink_e2e.py` / `test_uc_09_s03` | `system` | `reliability` | `exception` | 版本冲突、手动停止；断言冲突不更新配置；手动停止不被自动恢复 |
 | UR-06、UR-07、UR-09 | UC-10-S01 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s01` | `system` | `contract` | `normal` | 分页获取变量→经授权的 CLI 身份执行 ClaimTargets 领取目标→持有效 lease_token 调用 UpdateVariables→释放租约→ReadVariables 读回；断言变量 ID 一致、存储值可见、无现场 PLC 读写或 Commander 下发 |
 | UR-06、UR-07、UR-09 | UC-10-S02 | 9.2～9.3；10 | `test_gateway_e2e.py` / `test_uc_10_s02` | `system` | `contract` | `exception` | 租约占用冲突、重复申请/释放、租约期限边界、批量更新多个变量、工业协议写权限与 gRPC 更新权限独立；断言响应按请求顺序一一对应，读回仍含质量/时间戳，写操作不触发现场控制 |

@@ -176,7 +176,7 @@ class WorkerRegistry:
             last_error=None,
             runtime_running=status.running,
             active_revision=_optional_text(status.active_revision),
-            active_config_hash=_optional_text(status.active_config_hash),
+            active_config_hash=None,
             boot_id=None,
         )
 

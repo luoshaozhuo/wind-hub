@@ -13,11 +13,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from tests.support.collector_config_tree import build_collector_tree_from_site
 from tests.support.control import runtime_status_snapshot
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
-from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.sink_harness import (
+    DEFAULT_COLLECTOR_ID,
+    DEFAULT_NAMESPACE,
+    latest_value_key,
+)
 from tests.support.wait import (
     WaitTimeoutError,
     read_redis_value,
@@ -50,28 +54,18 @@ def write_modbus_redis_config(
     *,
     nats_url: str = "nats://127.0.0.1:4222",
 ) -> Path:
-    """单 Modbus 设备和 Redis 最新值输出，用于进程级恢复测试。
+    """单 Modbus 设备采集配置，用于进程级恢复测试。
 
-    新架构下 Redis 由独立 sink_service 经 NATS 消费写入；调用方需另行
-    启动 sink_service（见 tests.system.conftest.sink_service_factory）。
+    新架构下 Collector 只向 NATS 发布，Redis 最新值由独立 sink_service 经
+    canonical 配置根消费写入（见 ``tests.system.conftest.sink_service_factory``）；
+    扁平 sinks 段已退役，不再参与任何进程的装配。
     """
-    host, _, redis_port = redis_address.rpartition(":")
-    flat_dir = write_functional_config(
+    return write_functional_config(
         base,
         port,
-        sinks={
-            "redis_sink": {
-                "type": "redis",
-                "connection": {"host": host, "port": int(redis_port)},
-                # v2 采集 task_id == device_id；Sink 按 task_id 授权，
-                # 输出必须绑定设备身份 DEVICE_ID，而非扁平任务名。
-                "outputs": {DEVICE_ID: {"key_prefix": "wind-hub-recovery"}},
-            }
-        },
         tasks=telemetry_task(),
         nats_url=nats_url,
     )
-    return flat_dir
 
 
 def recovery_collector_tree(
@@ -80,22 +74,30 @@ def recovery_collector_tree(
     *,
     nats_url: str = "nats://127.0.0.1:4222",
 ) -> Path:
-    """从扁平 recovery 站点派生 Collector v2 三路径树（Sink 仍读扁平目录）。"""
-    return emit_v2_tree_from_flat_site(tree_base, flat_dir, nats_url=nats_url)
+    """从扁平 recovery 站点派生 Collector v2 三路径树（Sink 独立消费 NATS）。"""
+    return build_collector_tree_from_site(tree_base, flat_dir, nats_url=nats_url)
 
 
 async def wait_telemetry_value(
     redis_address: str,
     *,
     point_id: str = "rotor_speed",
+    collector_id: str = DEFAULT_COLLECTOR_ID,
     after: str | None = None,
     match: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
-    """等待 Redis 最新值；after 仅判断严格更新，不表示历史行数。"""
-    key = point_key(DEVICE_ID, point_id, prefix="wind-hub-recovery")
+    """等待 Redis 最新值；after 仅判断严格更新，不表示历史行数。
+
+    键契约为 ``{namespace}:{farm}:{collector}:{device}:{point}``，与
+    ``tests.system.conftest.sink_service_factory`` 缺省 namespace 对齐；
+    ``collector_id`` 须与采集进程身份一致（payload 字段为 ``sample_time``）。
+    """
+    key = latest_value_key(
+        DEFAULT_NAMESPACE, collector_id=collector_id, device_id=DEVICE_ID, point_id=point_id
+    )
 
     def _matches(value: dict[str, Any]) -> bool:
-        return (after is None or str(value["timestamp"]) > after) and (
+        return (after is None or str(value["sample_time"]) > after) and (
             match is None or match(value)
         )
 

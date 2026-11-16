@@ -26,8 +26,8 @@ def test_ads_protocol_selects_integration() -> None:
     assert "integration-protocol" in result["backend_pr_targets"]
 
 
-def test_sink_core_layout_selects_integration() -> None:
-    result = _classify("src/core/infrastructure/sink/file.py")
+def test_sink_service_layout_selects_integration() -> None:
+    result = _classify("src/sink_service/infrastructure/reliable_runtime.py")
     assert "integration-sinks" in result["backend_pr_targets"]
 
 

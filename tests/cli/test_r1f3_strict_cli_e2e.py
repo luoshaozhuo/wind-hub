@@ -27,9 +27,9 @@ from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
 from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.support.collector_config_tree import write_collector_modbus_tree
 from tests.support.commander_mtls import write_commander_service
 from tests.support.gateway import ServerSpec, reserve_port, write_config_tree, write_mtls_pki
-from tests.support.v2_config import write_v2_modbus_tree
 
 pytestmark = [
     pytest.mark.system,
@@ -49,9 +49,43 @@ SERVICES = (
     "data-generator",
     "collector_realtime",
     "collector_reliable",
-    "sink_realtime",
+    "sink",
     "commander",
 )
+
+
+def require_systemd_scope() -> str:
+    """Select a reachable real systemd manager; never substitute mock processes."""
+    requested = os.getenv("WIND_HUB_E2E_SYSTEMD_SCOPE", "auto")
+    if requested not in {"auto", "user", "system"}:
+        raise ValueError("WIND_HUB_E2E_SYSTEMD_SCOPE must be auto, user or system")
+    # Do not write to the host system manager without an explicit opt-in.
+    scopes = ("user",) if requested == "auto" else (requested,)
+    errors: list[str] = []
+    for scope in scopes:
+        if scope == "system" and os.geteuid() != 0:
+            errors.append("system manager requires uid 0")
+            continue
+        command = ["systemctl", "--user"] if scope == "user" else ["systemctl"]
+        try:
+            result = subprocess.run(
+                [*command, "show", "--property=Version", "--value"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"{scope}: {exc}")
+            continue
+        if result.returncode == 0:
+            return scope
+        errors.append(f"{scope}: {result.stderr.strip()}")
+    pytest.skip(
+        "NOT_RUN: CLI lifecycle needs an accessible real user/system systemd manager; "
+        "enable user systemd/DBus or run in a disposable root-owned systemd "
+        f"test environment ({'; '.join(errors)})"
+    )
 
 
 def _dump(path: Path, document: dict[str, Any]) -> None:
@@ -68,6 +102,7 @@ def _write_cli(
     gateway_pki: dict[str, object],
     commander_pki: Any,
     sink_bundle: dict[str, Path],
+    systemd_scope: str = "user",
 ) -> Path:
     clients = cast(dict[str, tuple[Path, Path]], gateway_pki["clients"])
     gateway_crt, gateway_key = clients["cli"]
@@ -90,23 +125,19 @@ def _write_cli(
     }
     services: dict[str, dict[str, Any]] = {}
     for name in SERVICES:
-        profile = "sink" if name == "sink_realtime" else name
+        profile = "sink" if name == "sink" else name
         if name == "data-generator" or name.startswith("collector_"):
             profile = "gateway"
         services[name] = {
             "grpc_endpoint": endpoints[name],
             "tls_profile": profile,
             "manager": "systemd",
-            "systemd_scope": "user",
+            "systemd_scope": systemd_scope,
             "target": units[name],
         }
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
         "tls_profile": "gateway",
-    }
-    services["sink_reliable"] = {
-        "rpc_via": "sink_realtime",
-        "tls_profile": "sink",
     }
     _dump(
         path,
@@ -145,7 +176,13 @@ class StrictCliE2E:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.log = root / "cli-calls.jsonl"
-        self.units_dir = Path.home() / ".config" / "systemd" / "user"
+        self.systemd_scope = require_systemd_scope()
+        self.systemctl = ["systemctl", "--user"] if self.systemd_scope == "user" else ["systemctl"]
+        self.units_dir = (
+            Path.home() / ".config" / "systemd" / "user"
+            if self.systemd_scope == "user"
+            else Path("/etc/systemd/system")
+        )
         self.units: dict[str, str] = {}
         self.cli_realtime = root / "cli-realtime.yaml"
         self.cli_reliable = root / "cli-reliable.yaml"
@@ -180,7 +217,7 @@ class StrictCliE2E:
         return unit
 
     def reload(self) -> None:
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, timeout=20)
+        subprocess.run([*self.systemctl, "daemon-reload"], check=True, timeout=20)
 
     def cli_env(self, *, token: str | None = ADMIN_TOKEN) -> dict[str, str]:
         """CLI 子进程环境：默认注入管理令牌；None 表示删除（fail-closed 路径）。"""
@@ -274,12 +311,12 @@ class StrictCliE2E:
         for unit in self.units.values():
             (self.units_dir / unit).unlink(missing_ok=True)
             subprocess.run(
-                ["systemctl", "--user", "reset-failed", unit],
+                [*self.systemctl, "reset-failed", unit],
                 capture_output=True,
                 check=False,
                 timeout=10,
             )
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
+        subprocess.run([*self.systemctl, "daemon-reload"], check=False, timeout=20)
 
 
 async def _provision_commander_audit(url: str, stream: str, subject: str) -> None:
@@ -342,6 +379,7 @@ async def _wait_sink_modbus(port: int, value: float) -> None:
 @pytest.mark.asyncio
 async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -> None:
     """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
+    require_systemd_scope()
     token = uuid4().hex[:8]
     farm = "farm-a"
     rt_collector = f"collector-rt-{token}"
@@ -481,7 +519,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             ("collector_realtime", "realtime"),
             ("collector_reliable", "reliable"),
         ):
-            root = write_v2_modbus_tree(
+            root = write_collector_modbus_tree(
                 tmp_path / name,
                 modbus.port,
                 device_id=device,
@@ -500,7 +538,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         (tmp_path / "commander-pki").mkdir(parents=True)
         commander_pki = build_pki(tmp_path / "commander-pki")
-        commander_tree = write_v2_modbus_tree(
+        commander_tree = write_collector_modbus_tree(
             tmp_path / "commander" / "config-tree",
             modbus.port,
             device_id="WT01",
@@ -535,7 +573,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         sink = SinkSystemHarness(
             root=tmp_path / "sink",
             stack=stack,
-            grpc_port=ports["sink_realtime"],
+            grpc_port=ports["sink"],
             namespace=f"strict-cli-{token}",
             kafka_topic=f"strict-cli-{token}",
             history_stream=f"WH_HISTORY_STRICT_{token.upper()}",
@@ -674,7 +712,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             }
         )
         harness.install_unit(
-            "sink_realtime",
+            "sink",
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             cwd=sink.root,
             env={"WH_STRICT_GATEWAY_TLS": gateway_credentials},
@@ -693,6 +731,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             gateway_pki=pki,
             commander_pki=commander_pki,
             sink_bundle=bundle,
+            systemd_scope=harness.systemd_scope,
         )
         _write_cli(
             harness.cli_reliable,
@@ -702,6 +741,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             gateway_pki=pki,
             commander_pki=commander_pki,
             sink_bundle=bundle,
+            systemd_scope=harness.systemd_scope,
         )
 
         for name in SERVICES:
@@ -738,17 +778,14 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             assert "admin credentials" in (missing.get("message") or ""), missing
             assert ADMIN_TOKEN not in json.dumps(wrong) + json.dumps(missing)
             await harness.cli(config, "collector", "start", device, "--yes")
-        for service in ("sink_realtime", "sink_reliable"):
-            await harness.poll_cli(
-                harness.cli_realtime,
-                "sink",
-                "deliveries",
-                "--service",
-                service,
-                predicate=lambda data: bool(data.get("deliveries"))
-                and all(item.get("actual_state") == "RUNNING" for item in data["deliveries"]),
-                timeout=90,
-            )
+        await harness.poll_cli(
+            harness.cli_realtime,
+            "sink",
+            "deliveries",
+            predicate=lambda data: bool(data.get("deliveries"))
+            and all(item.get("actual_state") == "RUNNING" for item in data["deliveries"]),
+            timeout=90,
+        )
 
         started = await harness.cli(
             harness.cli_realtime,
@@ -860,15 +897,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         for config in (harness.cli_realtime, harness.cli_reliable):
             await harness.cli(config, "collector", "stop", device, "--yes")
-        for service, delivery in (
-            ("sink_realtime", "ems_power"),
-            ("sink_realtime", "gateway_output"),
-            ("sink_realtime", "modbus_output"),
-            ("sink_reliable", "power_history"),
-        ):
-            await harness.cli(
-                harness.cli_realtime, "sink", "stop", delivery, "--service", service, "--yes"
-            )
+        for delivery in ("ems_power", "gateway_output", "modbus_output", "power_history"):
+            await harness.cli(harness.cli_realtime, "sink", "stop", delivery, "--yes")
         for name in reversed(SERVICES):
             await harness.service(harness.cli_realtime, "stop", name)
 

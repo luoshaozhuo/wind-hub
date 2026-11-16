@@ -154,6 +154,7 @@ def _write_config(tmp_path: Path, name: str, *, timeout: float = 10.0, socket: s
     config = tmp_path / "cli.yaml"
     config.write_text(
         f"""schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: {timeout}
   output_format: json
@@ -455,6 +456,7 @@ def _systemd_config(tmp_path: Path, unit: str, *, timeout: float = 10.0) -> Path
     config = tmp_path / "cli.yaml"
     config.write_text(
         f"""schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: {timeout}
   output_format: json

@@ -15,6 +15,7 @@ import yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
     disk_snapshot_files,
+    get_disk_yaml,
     replace_config,
     replace_template,
     start_task_instance,
@@ -54,16 +55,18 @@ class TestReloadFailureResilience:
         flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(
             v2_tree, env_extra=dict(TEMPLATE_PUBLISH_ENV)
         )
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         initial = await wait_telemetry_value(redis_service)
 
         # ---- 无效候选：devices 文档引用不存在的型号版本，校验拒绝、不落盘 ----
-        devices_doc = _load(v2_tree / "instances" / "devices.yaml")
+        # 候选从已提交代际派生（携带 StartTask 持久化 START 意图，RES-02）。
+        devices_doc = await get_disk_yaml(proc.grpc_target, "instances/devices.yaml")
+        assert devices_doc["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "START"
         broken_doc = copy.deepcopy(devices_doc)
         broken_doc["devices"][DEVICE_ID]["model"] = {"id": "ghost-model", "version": "9.9.9"}
         checked = await validate_config(
@@ -75,19 +78,20 @@ class TestReloadFailureResilience:
 
         # 进程存活，旧配置下采集与出数持续。
         assert proc.is_running()
-        continued = await wait_telemetry_value(redis_service, after=str(initial["timestamp"]))
+        continued = await wait_telemetry_value(redis_service, after=str(initial["sample_time"]))
 
         # ---- 有效变更：task 节拍 0.2 → 0.5（新版本模板链 + devices 切换）----
-        devices_path = v2_tree / "instances" / "devices.yaml"
-        current = _load(devices_path)
-        model_id = current["devices"][DEVICE_ID]["model"]["id"]
-        model_version = current["devices"][DEVICE_ID]["model"]["version"]
+        model_id = devices_doc["devices"][DEVICE_ID]["model"]["id"]
+        model_version = devices_doc["devices"][DEVICE_ID]["model"]["version"]
         model_doc = _load(
-            v2_tree / "templates" / "device_models" / f"{model_id}_{model_version}.yaml"
+            v2_tree
+            / "templates"
+            / "device_models"
+            / f"device_model_{model_id}_v{model_version}.yaml"
         )
         task_ref = model_doc["task"]
         task_doc = _load(
-            v2_tree / "templates" / "tasks" / f"{task_ref['id']}_{task_ref['version']}.yaml"
+            v2_tree / "templates" / "tasks" / f"task_{task_ref['id']}_v{task_ref['version']}.yaml"
         )
         new_task = copy.deepcopy(task_doc)
         new_task["template_version"] = "1.0.1"
@@ -117,7 +121,9 @@ class TestReloadFailureResilience:
         # v1 Task 消息不再携带调度节拍（interval 属于任务模板）；节拍收敛
         # 以已提交快照中的 1.0.1 任务模板为系统边界事实来源（0.5s == 500ms）。
         committed = await disk_snapshot_files(proc.grpc_target)
-        applied_task = yaml.safe_load(committed[f"templates/tasks/{task_ref['id']}_1.0.1.yaml"])
+        applied_task = yaml.safe_load(
+            committed[f"templates/tasks/task_{task_ref['id']}_v1.0.1.yaml"]
+        )
         assert applied_task["interval"] == 0.5
-        final = await wait_telemetry_value(redis_service, after=str(continued["timestamp"]))
+        final = await wait_telemetry_value(redis_service, after=str(continued["sample_time"]))
         assert final["quality"] == "good"

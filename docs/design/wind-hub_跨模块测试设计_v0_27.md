@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_22 · 20261115 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_27 · 20261116 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -190,8 +190,8 @@ $$
 | Contracts | `Contracts_软件设计_v1_29.md` | 六份 Proto、51 个服务限定 RPC 声明、生成绑定 |
 | Data Generator | `Data_Generator_软件设计_v1_50.md` | 9 个业务 RPC、模型、录制与执行步证据 |
 | Industrial Gateway | `industrial_gateway_软件设计_v1_42.md` | 10 个业务 RPC、租约注入与仿真执行分离 |
-| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_48.md` | 11 个采集 RPC、8 个控制 RPC、批次与子命令身份 |
-| Sink / CLI | `Sink_Service_软件设计_v1_64.md`、`CLI_软件设计_v1_40.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
+| Collector / Commander | `Collector_软件设计_v1_29.md`、`Commander_软件设计_v1_49.md` | 11 个采集 RPC、8 个控制 RPC、批次与子命令身份 |
+| Sink / CLI | `Sink_Service_软件设计_v1_64.md`、`CLI_软件设计_v1_43.md` | 三进程双通道、四种下游、CLI 真实进程管理 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
@@ -346,6 +346,16 @@ sequenceDiagram
 
 <p class="figure-caption">图 5-2 CLI 进程管理、业务就绪及中间件所有权</p>
 
+## 5.5 环境自举、端口分配与硬件边界
+
+**软件仿真 E2E 不需要外部真实风机、TwinCAT PLC、现场 IEC104 装置或工业网关实体。** 这些设备均由仓库内 Data Generator、Industrial Gateway（含仿真 Modbus 从站）、测试用 Modbus TCP Server 和 CLI 管理的业务进程提供；仅 NATS/JetStream、Redis、Kafka 属独立测试基础设施。TDengine 只在声明依赖的验证中启动。真实 TwinCAT/现场硬件验证单列为部署/现场验收，不能作为 E2E-01～10 的执行前置，也不得因为缺少硬件将仿真 E2E 标记 NOT_RUN。
+
+1. **端口先检测再分配。** 普通 System Redis Fixture 使用独立 Compose Project 和随机 loopback 宿主端口，返回真实端点给测试；R5 完整栈对 NATS、Redis、Kafka、TDengine 分别使用动态宿主端口。所有生成的 Service YAML、CLI YAML、Sink 连接及测试读回均引用分配的端点，禁止硬编码 6379/4222/9092。
+2. **冲突处理。** Compose 绑定冲突时仅销毁本用例创建的 Project，重新分配端口并有界重试；不执行 docker prune、不停止其他用户的容器。显式 `WIND_HUB_TEST_REDIS` 可使用外部 Redis，但必须标记为外部依赖，不能在结束时停机。端口重试后仍失败记为 SETUP_ERROR 并保留日志，不属于生产模块 FAIL。
+3. **进程管理。** CLI 启动/停止/restart 通过真实 systemd user 服务管理器；其不可达但运行环境为 uid 0 且 systemd system 管理器可用时，可使用 system scope，测试用临时单元并在 finally 中删除。没有任何可用 manager 时记录 NOT_RUN 与具体 DBus 错误及修复办法，不得用 Mock 伪造 PASS。现场执行环境须在测试前备好可运行的 systemd，或另行提供经正式 CLI 支持的 Linux 进程管理实现。
+4. **隔离与清理。** 每个测试使用独立 tmp_path、动态端口、临时 systemd Unit 名称、唯一 NATS Stream / Kafka Topic / Redis Namespace；即使断言失败也依次 CLI 停止业务进程、清理专属 Unit、中间件 Project、文件和流。任何端口占用必须先归属识别，不得无条件删除非本测试容器。
+5. **前置检查与裁决。** 校验当前 HEAD、Python/CLI 执行路径、Docker daemon、可用 systemd 管理器、证书生成、compose 健康、服务 gRPC READY 和 Sink 双 Worker 状态；缺 Docker/systemd 的场景标 NOT_RUN，缺少真实现场硬件对软件仿真场景**不构成** NOT_RUN 理由。不得把准备阶段的端口竞争记作软件功能缺陷。
+
 # 6. Integration 分段测试
 
 所有分段沿用第 5 章正式配置和 CLI 进程管理，不复制配置树；若某前置配置尚未落地，则该行保留为 NOT_RUN/NOT_IMPLEMENTED。每行执行前置检查→CLI 启服务→注入激励→独立读回→关闭并清理。
@@ -408,6 +418,27 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 安全场景必须采用正式 mTLS 与权限约束，验证 Collector 管理令牌、Gateway/Generator 证书身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每一个 E2E ID 都必须有实际命令、日志、配置哈希、源值、目标读回和 PASS/FAIL/NOT_RUN 证据。
 
+## 7.5 各完整场景的配置、激励、独立读回与步骤
+
+本节所有场景**共用第 5 章生成的实例、点表、型号、Service、Sink 与 CLI 配置**，仅每个场景的激励/运行时参数变化。物理设备均为软件仿真实例 `WTG_SIM01`、`PV_SIM01`、`BESS_SIM01`、`GRID_SIM01`、`PPC_SIM01`，不引用现场硬件。启动过程统一为：独立 Docker 中间件 → CLI 启 Gateway、DG、双 Collector、Sink Main、Commander → CLI 验证各自 READY → CLI 启动 Collector Task、Generation、Sink Delivery → 独立客户端读回 → CLI 停止与回收。每个场景至少有一份 E2E 专用测试，不得借模块测试替代。
+
+| ID | 配置 / 进程 | CLI 激励与顺序 | 独立输出与裁决断言 |
+|---|---|---|---|
+| E2E-01 WTG | WTG physical Scenario、`devices_sim.yaml`、WTG 点表；上述六服务 | 平均风速 10→12 m/s、TI=0，各段采集多步；CLI Start/Stop Generation | DG Recording JSONL 风速及功率、Gateway 变量、Collector 原始值、四出口。风速恒定段误差按编码精度比较；功率按物理模型且允许动态过渡 |
+| E2E-02 PV | PV physical Scenario、`pv_sim_physical` 型号 | 固定气温，辐照 0→800→1000 W/m²；每段新 Scenario/Generation，独立录制 | 组件温度、直流/交流功率边界，Gateway/Collector/OUT-01～04 与真值同身份、同单位、同合理时间窗 |
+| E2E-03 BESS | `bess_sim_physical`、BESS 点表及限值 | 通过 CLI 更新允许的充放电指令，跨多个步长至 SOC 边界，再拒绝越限输入 | SOC 单调性、储能变化与功率符号、无越界、拒绝请求不改变状态；四出口同一有效控制步 |
+| E2E-04 GRID/PPC | GRID/PPC 两物理模型；Commander 权限和 Gateway 控制路由 | CLI 频率/电压扰动、AGC/AVC/FFR 合法与非法控制，查询请求完成状态 | `request_id`、`effective_step`、执行反馈；只有 APPLIED 才视为闭环成功，UNKNOWN 不冒充成功 |
+| E2E-05 随机/CSV | `history/demo.csv`、Replay Scenario、固定种子 Scenario | 两轮同 seed 运行并比对，同一 CSV 按 1x/2x 顺序重放；停止重启后再取值 | DG 真值逐点序列与 replay 顺序一致；Reliable 已提交批次顺序不逆转；不同运行 ID 不混淆 |
+| E2E-06 多速率 | DG `interval_seconds`=0.05/0.1，Collector Task `interval`=0.05/0.1/0.2/1.0 | CLI 分别应用合法版本配置并重启/生效，固定同一确定性激励 | 统计实际时间戳、容许抖动、样本数量与丢弃/覆盖语义；不得假设 Collector 每个生成步必采 |
+| E2E-07 四出口 | 同一个全链批次，`gateway_output` / `modbus_output` / `ems_power` / `power_history` | CLI 启/停四 Delivery，正常运行、断连恢复各一次 | OUT-01 Gateway 变量与模拟 Modbus；OUT-02 真实 Modbus 目标寄存器；OUT-03 Redis 键/值；OUT-04 Kafka topic/分区及可靠 ACK，分别独立 PASS |
+| E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实 mTLS 凭据 | 枚举 73 个 CLI 叶子并逐项实际执行/合法拒绝；51 个 RPC 逐服务调用与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
+| E2E-09 生命周期 | CLI service manager 对六进程的合法 unit；Sink Main 管理双 Worker | start→status/READY→restart→status→stop；重复启停和服务单侧失败 | 每个 PID、READY、退出码、Worker 清退、无残留连接/僵尸进程；进程状态不代替业务就绪 |
+| E2E-10 故障恢复 | 隔离 R5 中间件、故障代理、Gateway/DG/Collector/Sink | 先建立正常基线，再逐项断 NATS/Redis/Kafka/Gateway、注入过期 generation 与重复请求、恢复服务 | Reliable 重投/DLQ、Realtime 覆盖、配置/控制幂等、租约隔离、恢复时间、FD/RSS/CPU；修复后双通道持续出数 |
+
+**比较规则：** 每条数据必须带有设备 ID、点 ID、时间戳、质量与采集/生成身份。对不断变化的物理量，按已保存真值的时间窗匹配而不是将最新采集值与录制文件最后一步直接相减；对 TI=0 固定风速可以进行确定性绝对误差判定。误差阈值由点表的 scale、数据类型与协议编码精度确定并在用例中显式记录；不允许为使测试通过而临时调大阈值。
+
+**证据规则：** 每个 case 保存 HEAD、配置哈希、CLI 指令与退出码、PID、真值路径、独立 Gateway/Modbus/Redis/Kafka 读回、断言及 finally 清理结果。单条 Redis 成功只证明 OUT-03，不证明四出口；WTG/PV/BESS 模块测试成功只可标注 MODULE_PASS，不得升级为 FULL_CHAIN_PASS。
+
 # 8. CLI 与 gRPC 全功能覆盖
 
 ## 8.1 自动枚举并生成测试矩阵
@@ -416,7 +447,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**并逐条真实执行，所有业务操作必须通过 CLI；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
 
-当前严格 CLI 全链用例 `tests/cli/test_r1f3_strict_cli_e2e.py` 仅能作为 E2E-07/E2E-09 等场景的部分共享证据：它不等于 E2E-01～10、I-01～09 全覆盖。当前测试装配未显式提供 `WIND_HUB_COLLECTOR_ADMIN_TOKEN` 给 Collector 进程及 CLI 子进程；集中测试必须在隔离环境中配置一致的真实管理令牌，验证已授权和未授权路径，不关闭认证或记录令牌。`tests/system/e2e/full_chain/` 仅有包初始化文件，完整场景证据仍应按本设计逐项补齐。
+当前严格 CLI 全链用例 `tests/cli/test_r1f3_strict_cli_e2e.py` 仅能作为 E2E-07/E2E-09 等场景的部分共享证据：它不等于 E2E-01～10、I-01～09 全覆盖。当前严格 CLI 测试已向 Collector 进程及 CLI 子进程配置一致的真实管理令牌，并验证正确、错误和缺失令牌；仍须在最终 HEAD 上复测，不关闭认证或记录令牌。`tests/system/e2e/full_chain/` 仅有包初始化文件，完整场景证据仍应按本设计逐项补齐。
 
 ~~~text
 cli_command_id,syntax,service,rpc_methods,case_id,config,expected_exit,observed_exit,status

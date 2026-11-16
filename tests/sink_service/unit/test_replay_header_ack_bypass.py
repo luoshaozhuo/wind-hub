@@ -5,7 +5,7 @@
 Durable 对未实际交付的消息提前 ACK。生产修复删除该分支后，terminal 只能
 来自 ``_deliver_batch`` 的真实交付结果。
 
-本测试用 fake subscription/message 驱动 ``ReliableDeliveryPort._run`` 单轮，
+本测试用 fake subscription/message 驱动 ``ReliableDeliveryRuntime._run`` 单轮，
 钉死三条契约（真实 JetStream 端到端证据由 system 层同名用例补充）：
 
 1. 伪造他人 Delivery 的 replay 头：消息仍进入真实交付，成功后才 ACK；
@@ -25,7 +25,7 @@ from nats.errors import TimeoutError as NatsTimeoutError
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 
 pytestmark = [pytest.mark.unit, pytest.mark.reliability]
@@ -59,7 +59,7 @@ class _FakeMessage:
 
 
 class _FakeSubscription:
-    def __init__(self, message: _FakeMessage, port: ReliableDeliveryPort) -> None:
+    def __init__(self, message: _FakeMessage, port: ReliableDeliveryRuntime) -> None:
         self._message = message
         self._port = port
         self._served = False
@@ -95,9 +95,9 @@ def _reliable_batch() -> SampleBatch:
     )
 
 
-def _port() -> ReliableDeliveryPort:
+def _port() -> ReliableDeliveryRuntime:
     snapshot = validate_snapshot(snapshot_files(snapshot_docs()))
-    return ReliableDeliveryPort(_DEFINITION, snapshot, pool=object())
+    return ReliableDeliveryRuntime(_DEFINITION, snapshot, pool=object())
 
 
 async def _run_one_cycle(
@@ -105,7 +105,7 @@ async def _run_one_cycle(
     *,
     headers: dict[str, str] | None,
     terminal: bool,
-) -> tuple[_FakeMessage, ReliableDeliveryPort]:
+) -> tuple[_FakeMessage, ReliableDeliveryRuntime]:
     port = _port()
     message = _FakeMessage(_reliable_batch(), headers)
     port._subscription = _FakeSubscription(message, port)

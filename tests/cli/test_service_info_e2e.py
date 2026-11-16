@@ -63,8 +63,7 @@ def test_service_status_partial_degradation_is_independent(cli_env: Any, tmp_pat
         {
             "collector": good,
             "commander": "localhost:1",
-            "sink_realtime": "localhost:1",
-            "sink_reliable": "localhost:1",
+            "sink": "localhost:1",
             "gateway": "localhost:1",
             "data_generator": "localhost:1",
         },

@@ -25,7 +25,7 @@ from sink_service.infrastructure.adapters.outbound.kafka_wire import (
     encode_kafka_point,
 )
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import snapshot_docs, snapshot_files
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
@@ -178,7 +178,7 @@ def test_kafka_target_flag_only_set_for_kafka_templates() -> None:
     """非 Kafka Reliable 模板不得误开预编码分支（_validate_target 守门）。"""
     snapshot = validate_snapshot(snapshot_files(snapshot_docs()))
     definition = DeliveryDefinition("power_history", "history_kafka", "reliable", "START")
-    port = ReliableDeliveryPort(definition, snapshot, pool=object())
+    port = ReliableDeliveryRuntime(definition, snapshot, pool=object())
     # start() 之外手动触发模板校验，覆盖 _kafka_target 赋值
     port._validate_target()
     assert port._kafka_target is True

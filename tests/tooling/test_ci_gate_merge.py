@@ -269,3 +269,23 @@ def test_overlapping_paths_collect_siblings_and_duplicate_module_names(
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "2 tests collected" in result.stdout
+
+
+def test_data_generator_change_selects_its_suite_and_static_gates(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    selected, labels, _ = _selected_paths(
+        monkeypatch, capsys, "src/data_generator/application/output_coordinator.py"
+    )
+    assert "tests/data_generator" in selected
+    assert {"ruff", "mypy", "import-linter", "affected-tests"}.issubset(set(labels))
+
+
+def test_dependency_change_selects_only_existing_backend_suites(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    selected, _, _ = _selected_paths(monkeypatch, capsys, "poetry.lock")
+    assert "tests/data_generator" in selected
+    assert "tests/contracts" in selected
+    assert "tests/src" in selected
+    assert "tests/seahorse" not in selected

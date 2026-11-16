@@ -39,10 +39,10 @@ class TestProtocolDisconnectRecovery:
         flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
 
         first = await wait_telemetry_value(redis_service)
         assert first["quality"] == "good"
@@ -58,7 +58,7 @@ class TestProtocolDisconnectRecovery:
         await asyncio.sleep(1.0)
         settled = await wait_telemetry_value(redis_service)
         await asyncio.sleep(0.8)
-        assert (await wait_telemetry_value(redis_service))["timestamp"] == settled["timestamp"]
+        assert (await wait_telemetry_value(redis_service))["sample_time"] == settled["sample_time"]
 
         assert proc.is_running()
         status = await status_snapshot(proc)
@@ -71,6 +71,6 @@ class TestProtocolDisconnectRecovery:
             lambda status: status["device_connected"] == 1,
             description="device reconnected",
         )
-        rotor = await wait_telemetry_value(redis_service, after=str(settled["timestamp"]))
+        rotor = await wait_telemetry_value(redis_service, after=str(settled["sample_time"]))
         assert rotor["value"] == pytest.approx(1200.5)
         assert rotor["quality"] == "good"

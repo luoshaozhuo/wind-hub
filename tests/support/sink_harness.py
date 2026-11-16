@@ -27,11 +27,33 @@ from tests.sink_service._stage1_tls import write_mtls_bundle
 #: 恢复测试的固定 Sink/Delivery 身份。
 SINK_ID = "redis_sink"
 DELIVERY_ID = "realtime_power"
+#: 系统测试缺省 Redis 命名空间（等价旧扁平配置的 key_prefix 角色）。
+DEFAULT_NAMESPACE = "wind-hub"
+#: 与 ``write_functional_config`` 缺省站点及 ``start_collector`` 缺省身份对齐，
+#: Delivery source 过滤器必须与此一致，否则批次零匹配被过滤 ACK（不出数）。
+DEFAULT_WIND_FARM_ID = "test"
+DEFAULT_COLLECTOR_ID = "system-test"
 MAINTENANCE_CALLER = {
     "caller_id": "maintenance",
     "certificate_identity": "spiffe://wind-hub/maintenance",
     "permissions": ["query", "control", "config"],
 }
+
+
+def latest_value_key(
+    namespace: str,
+    *,
+    wind_farm_id: str = DEFAULT_WIND_FARM_ID,
+    collector_id: str = DEFAULT_COLLECTOR_ID,
+    device_id: str,
+    point_id: str,
+) -> str:
+    """新架构 Redis 最新值键：``{namespace}:{farm}:{collector}:{device}:{point}``。
+
+    对应 ``sink_service.infrastructure.adapters.outbound.realtime_adapters``
+    的键契约；替代已退役的长度前缀键（``tests.support.redis_client.point_key``）。
+    """
+    return ":".join((namespace, wind_farm_id, collector_id, device_id, point_id))
 
 
 def write_sink_root(

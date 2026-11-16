@@ -186,7 +186,6 @@ def service_list() -> None:
                 {
                     "service": name,
                     "endpoint": target.grpc_endpoint,
-                    "rpc_via": target.rpc_via,
                     "manager": target.manager,
                     "target": target.target,
                 }
@@ -211,8 +210,8 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
     if operation == "stop":
         result["business"] = {"health": "UNAVAILABLE", "reason": "process stopped"}
         return result
-    if target.grpc_endpoint is None or target.rpc_via is not None:
-        result["business"] = {"health": "UNKNOWN", "reason": "no exclusive gRPC endpoint"}
+    if target.grpc_endpoint is None:
+        result["business"] = {"health": "UNKNOWN", "reason": "no gRPC endpoint"}
         return result
     deadline = asyncio.get_running_loop().time() + target.timeout
     while True:
@@ -277,13 +276,7 @@ def service_status(name: Annotated[str | None, typer.Argument()] = None) -> None
                     result["process"] = {"status": "UNKNOWN", "error": str(exc)}
             else:
                 result["process"] = {"status": "UNMANAGED"}
-            if target.rpc_via is not None:
-                result["business"] = {
-                    "status": "UNKNOWN",
-                    "reason": "RPC uses shared manager endpoint",
-                    "rpc_via": target.rpc_via,
-                }
-            elif target.grpc_endpoint is None:
+            if target.grpc_endpoint is None:
                 result["business"] = {"status": "UNAVAILABLE", "reason": "no gRPC endpoint"}
             else:
                 try:

@@ -1,6 +1,6 @@
 """R1 P1-01：真实 NATS JetStream 下多 Delivery 独立 Durable ACK 责任。
 
-生产 ``ReliableDeliveryPort`` 对接真实 ``nats-server``（JetStream file 存储），
+生产 ``ReliableDeliveryRuntime`` 对接真实 ``nats-server``（JetStream file 存储），
 目标 Sink 使用测试内 FakePool/FakeKafkaAdapter 接缝注入成功/失败，**Broker 侧
 观察全部走独立 nats 连接的 ConsumerInfo/Stream State/DLQ 记录**，不检查 Mock
 调用次数。覆盖任务书 P1-01 的：
@@ -38,7 +38,7 @@ from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ValidatedSnapshot
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import (
     SERVICE_FILE,
     snapshot_docs,
@@ -291,18 +291,18 @@ class FakePool:
 
 def _port(
     snapshot: ValidatedSnapshot, pool: FakePool, delivery_id: str, sink_id: str
-) -> ReliableDeliveryPort:
+) -> ReliableDeliveryRuntime:
     definition = DeliveryDefinition(
         delivery_id=delivery_id,
         sink_id=sink_id,
         channel="reliable",
         desired_state="START",
     )
-    return ReliableDeliveryPort(definition, snapshot, pool)
+    return ReliableDeliveryRuntime(definition, snapshot, pool)
 
 
 def _durable(snapshot: ValidatedSnapshot, delivery_id: str) -> str:
-    return ReliableDeliveryPort._durable_id(snapshot, delivery_id)
+    return ReliableDeliveryRuntime._durable_id(snapshot, delivery_id)
 
 
 def make_batch(*, device: str = DEVICE, point: str = "active_power") -> SampleBatch:

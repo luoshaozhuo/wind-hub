@@ -14,7 +14,7 @@ BACKEND_PREFIXES = (
     "src/cli/",
     "src/web_server/",
     "src/industrial_gateway/",
-    "src/seahorse/",
+    "src/data_generator/",
 )
 
 TOOLING_PREFIXES = (
@@ -34,6 +34,8 @@ FAST_TEST_ORDER = ("unit", "component", "contract")
 # 两张表必须保持一致，否则 PR Gate 会以 unknown targets 失败。
 PR_TARGET_ORDER = (
     "integration-protocol",
+    "integration-generator",
+    "integration-gateway",
     "integration-rpc",
     "integration-sinks",
     "system-acquisition",
@@ -48,7 +50,7 @@ def _starts(path: str, *prefixes: str) -> bool:
 
 
 def _backend_pr_targets(path: str) -> set[str]:
-    """根据稳定架构边界映射后端 PR 目标。"""
+    """Select integration and system suites from current production ownership."""
     targets: set[str] = set()
 
     if _starts(
@@ -59,33 +61,40 @@ def _backend_pr_targets(path: str) -> set[str]:
     ):
         targets.add("integration-protocol")
 
+    if _starts(
+        path,
+        "src/data_generator/",
+        "tests/data_generator/integration/",
+        "tests/data_generator/system/",
+    ):
+        targets.add("integration-generator")
+
+    if _starts(path, "src/industrial_gateway/", "tests/industrial_gateway/integration/"):
+        targets.add("integration-gateway")
+
     if (
         _starts(
             path,
             "src/core/infrastructure/rpc/",
+            "src/collector/infrastructure/adapters/inbound/grpc/",
+            "src/commander/infrastructure/adapters/inbound/grpc/",
+            "src/sink_service/infrastructure/adapters/inbound/grpc",
             "tests/system/rpc/",
             "tests/collector/component/",
             "tests/collector/system/",
             "tests/commander/rpc/",
         )
         or "/grpc/" in path
-        or path
-        in {
-            # Collector 只读查询 / Sink 控制面的应用服务——直接塑造 RPC 响应。
-            "src/collector/application/services.py",
-            "src/collector/application/sink_runtime.py",
-        }
     ):
         targets.add("integration-rpc")
 
-    if (
-        _starts(
-            path,
-            "src/core/infrastructure/sink/",
-            "tests/core/sink/",
-            "tests/collector/integration/",
-        )
-        or path == "src/collector/application/sink_runtime.py"
+    if _starts(
+        path,
+        "src/sink_service/",
+        "src/collector/infrastructure/adapters/outbound/publisher.py",
+        "src/collector/application/batch_builder.py",
+        "tests/sink_service/",
+        "tests/collector/integration/",
     ):
         targets.add("integration-sinks")
 
@@ -95,20 +104,15 @@ def _backend_pr_targets(path: str) -> set[str]:
         "tests/system/acquisition/",
         "tests/collector/system/",
         "tests/collector/integration/",
-    ) or path in {
-        "src/collector/assembly.py",
-        "src/collector/main.py",
-        "src/collector/application/task_runtime.py",
-        "src/collector/application/config_service.py",
-    }:
+    ) or path in {"src/collector/assembly.py", "src/collector/main.py"}:
         targets.add("system-acquisition")
 
-    if _starts(path, "tests/system/command/") or path in {
-        "src/commander/application/dispatcher.py",
-        "src/commander/application/runtime.py",
-        "src/commander/application/command.py",
-        "src/commander/application/config.py",
-    }:
+    if _starts(
+        path,
+        "src/commander/application/",
+        "tests/system/command/",
+        "tests/commander/system/",
+    ) or path in {"src/commander/assembly.py", "src/commander/main.py"}:
         targets.add("system-command")
 
     if _starts(path, "tests/system/e2e/"):

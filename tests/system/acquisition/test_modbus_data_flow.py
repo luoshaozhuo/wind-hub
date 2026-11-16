@@ -23,11 +23,11 @@ from typing import Any
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.collector_config_tree import build_collector_tree_from_site
 from tests.support.control import start_task_instance, stop_task
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
-from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.sink_harness import latest_value_key
 from tests.support.wait import read_redis_value, wait_redis_value
 
 pytestmark = [pytest.mark.redis, pytest.mark.real_service]
@@ -37,24 +37,16 @@ TASK_ID = "modbus-1"
 DEVICE_ID = "modbus-1"
 INSTANCE_ID = DEVICE_ID
 
-#: 本文件 Redis sink 的 key_prefix（键规则见 tests.support.redis_client.point_key）。
-REDIS_KEY_PREFIX = "wind-hub-sys"
-SINK_ID = "redis_sink"
+#: 本文件 Redis 命名空间（新架构键契约 ``{namespace}:{farm}:{collector}:{device}:{point}``）。
+NAMESPACE = "wind-hub-sys"
+#: 采集身份须与 Sink Delivery source 过滤器一致。
+COLLECTOR_ID = "collector"
 
 
-def _redis_sink(host: str, port: int) -> dict[str, Any]:
-    """绑定采集 Task 的 Redis Sink；空 outputs 映射=该 Task 全量点组。"""
-    return {
-        SINK_ID: {
-            "type": "redis",
-            "connection": {
-                "host": host,
-                "port": port,
-                "key_prefix": REDIS_KEY_PREFIX,
-            },
-            "outputs": {TASK_ID: {}},
-        }
-    }
+def _sys_key(point_id: str) -> str:
+    return latest_value_key(
+        NAMESPACE, collector_id=COLLECTOR_ID, device_id=DEVICE_ID, point_id=point_id
+    )
 
 
 def _flat_task() -> dict[str, Any]:
@@ -80,41 +72,37 @@ class TestModbusToNatsToRedis:
         nats_service: str,
         tmp_path: Path,
     ) -> None:
-        redis_host, _, redis_port = redis_service.rpartition(":")
         flat_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sinks=_redis_sink(redis_host, int(redis_port)),
             tasks=_flat_task(),
             nats_url=nats_service,
         )
-        # 先起消费侧（sink_service），再起生产侧（Collector），避免首拍丢失。
-        sink_proc = await sink_service_factory(flat_dir)
+        # 先起消费侧（sink_service，canonical 配置根），再起生产侧（Collector）。
+        sink_proc = await sink_service_factory(namespace=NAMESPACE, collector_id=COLLECTOR_ID)
         assert sink_proc.is_running()
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        v2_tree = build_collector_tree_from_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         collector = await collector_factory(v2_tree, collector_id="collector")
 
-        await start_task_instance(collector.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(collector.grpc_target, instance_id=INSTANCE_ID)
 
         # Redis sink 每点一个 key 覆盖最新值——验证值内容、时间戳在推进、
         # 且同组其余点位同样经 NATS 出数。
-        key = point_key(DEVICE_ID, "rotor_speed", prefix=REDIS_KEY_PREFIX)
+        key = _sys_key("rotor_speed")
         first = await wait_redis_value(redis_service, key)
         assert first["value"] == pytest.approx(1200.5)
         assert first["quality"] == "good"
-        first_ts = first["timestamp"]
+        first_ts = first["sample_time"]
 
         later = await wait_redis_value(
-            redis_service, key, match=lambda v: v["timestamp"] > first_ts
+            redis_service, key, match=lambda v: v["sample_time"] > first_ts
         )
         assert later["value"] == pytest.approx(1200.5)
 
         for point_id in ("gen_power", "temp_int", "setpoint_power"):
-            value = await wait_redis_value(
-                redis_service, point_key(DEVICE_ID, point_id, prefix=REDIS_KEY_PREFIX)
-            )
+            value = await wait_redis_value(redis_service, _sys_key(point_id))
             assert value["quality"] == "good"
-            assert value["timestamp"]
+            assert value["sample_time"]
 
     async def test_stop_task_prevents_further_redis_updates(
         self,
@@ -126,24 +114,22 @@ class TestModbusToNatsToRedis:
         tmp_path: Path,
     ) -> None:
         """任务停止后，经 NATS 到 Redis 的最新值时间戳必须保持稳定。"""
-        redis_host, _, redis_port = redis_service.rpartition(":")
         flat_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
-            sinks=_redis_sink(redis_host, int(redis_port)),
             tasks=_flat_task(),
             nats_url=nats_service,
         )
-        await sink_service_factory(flat_dir)
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        await sink_service_factory(namespace=NAMESPACE, collector_id=COLLECTOR_ID)
+        v2_tree = build_collector_tree_from_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         collector = await collector_factory(v2_tree, collector_id="collector")
-        await start_task_instance(collector.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
-        key = point_key(DEVICE_ID, "rotor_speed", prefix=REDIS_KEY_PREFIX)
+        await start_task_instance(collector.grpc_target, instance_id=INSTANCE_ID)
+        key = _sys_key("rotor_speed")
         initial = await wait_redis_value(redis_service, key)
         await wait_redis_value(
             redis_service,
             key,
-            match=lambda item: item["timestamp"] > initial["timestamp"],
+            match=lambda item: item["sample_time"] > initial["sample_time"],
         )
 
         await stop_task(collector.grpc_target, DEVICE_ID)
@@ -154,4 +140,4 @@ class TestModbusToNatsToRedis:
         await asyncio.sleep(1.0)
         after = await read_redis_value(redis_service, key)
         assert after is not None
-        assert after["timestamp"] == settled["timestamp"]
+        assert after["sample_time"] == settled["sample_time"]

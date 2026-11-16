@@ -1,4 +1,4 @@
-"""跨服务诊断关联门与双 Sink 进程身份（UC-14/UC-07）。"""
+"""跨服务诊断关联与单 Main Sink 管理身份（UC-14/UC-07）。"""
 
 from __future__ import annotations
 
@@ -72,12 +72,14 @@ def test_diagnose_pipeline_failure_is_exit1(cli_env: Any) -> None:
     assert result.json()["status"] == "FAILURE"
 
 
-def test_dual_sink_identities_remain_distinct(cli_env: Any) -> None:
+def test_sink_uses_single_service_identity(cli_env: Any) -> None:
     runtime = Runtime(cli_env.config_path, "json")
     try:
-        assert runtime.target("sink").service_id == "sink_realtime"
-        assert runtime.target("sink_realtime").service_id == "sink_realtime"
-        assert runtime.target("sink_reliable").service_id == "sink_reliable"
+        assert runtime.target("sink").service_id == "sink"
+        with pytest.raises(ValueError, match="not configured"):
+            runtime.target("sink_realtime")
+        with pytest.raises(ValueError, match="not configured"):
+            runtime.target("sink_reliable")
     finally:
         import asyncio
 

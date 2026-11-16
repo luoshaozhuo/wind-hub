@@ -27,7 +27,7 @@ from sink_service.application.delivery_point import select_delivery_points
 from sink_service.application.realtime import BatchOutcome
 from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_delivery_point
 from sink_service.infrastructure.config_io import validate_snapshot
-from sink_service.infrastructure.reliable_runtime import ReliableDeliveryPort
+from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     snapshot_docs,
@@ -122,9 +122,9 @@ def _docs(*, points: list[str] | None = None) -> dict[str, dict]:
     return docs
 
 
-def _port(*, kafka_target: bool, adapter: Any) -> ReliableDeliveryPort:
+def _port(*, kafka_target: bool, adapter: Any) -> ReliableDeliveryRuntime:
     snapshot = validate_snapshot(snapshot_files(_docs()))
-    port = ReliableDeliveryPort(DEFINITION, snapshot, pool=object())
+    port = ReliableDeliveryRuntime(DEFINITION, snapshot, pool=object())
     port._adapter = adapter
     port._kafka_target = kafka_target
     return port
@@ -214,7 +214,7 @@ def test_non_kafka_target_never_calls_preencoded_interface() -> None:
 def test_point_selector_filters_before_encoding_and_accounting() -> None:
     snapshot = validate_snapshot(snapshot_files(_docs(points=["p001", "p002"])))
     adapter = _RecordingAdapter()
-    port = ReliableDeliveryPort(DEFINITION, snapshot, pool=object())
+    port = ReliableDeliveryRuntime(DEFINITION, snapshot, pool=object())
     port._adapter = adapter
     port._kafka_target = True
 

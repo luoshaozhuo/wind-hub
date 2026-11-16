@@ -21,6 +21,7 @@ import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import (
+    get_disk_yaml,
     instance_states,
     replace_config,
     replace_template,
@@ -56,12 +57,19 @@ def _load(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+async def _committed_devices(proc: CollectorProcess) -> dict[str, Any]:
+    """已提交代际 devices 文档（携带 StartTask 持久化 START 意图，RES-02）。"""
+    devices_doc = await get_disk_yaml(proc.grpc_target, "instances/devices.yaml")
+    assert devices_doc["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "START"
+    return devices_doc
+
+
 async def _publish_raw_power_table(proc: CollectorProcess, v2_tree: Path) -> None:
     """掉线期间发布去掉 scale/offset 的点表 1.0.1 + 型号 1.0.1 并切换引用。"""
-    devices_doc = _load(v2_tree / "instances" / "devices.yaml")
+    devices_doc = await _committed_devices(proc)
     model_id = devices_doc["devices"][DEVICE_ID]["model"]["id"]
 
-    table_doc = _load(v2_tree / "templates" / "point_tables" / "modbus_v1.0.0.yaml")
+    table_doc = _load(v2_tree / "templates" / "point_tables" / "point_table_modbus_v1.0.0.yaml")
     new_table = copy.deepcopy(table_doc)
     new_table["template_version"] = "1.0.1"
     new_table["file_version"] = "1.0.1"
@@ -73,7 +81,9 @@ async def _publish_raw_power_table(proc: CollectorProcess, v2_tree: Path) -> Non
     )
     assert table_result.success, list(table_result.errors)
 
-    model_doc = _load(v2_tree / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml")
+    model_doc = _load(
+        v2_tree / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml"
+    )
     new_model = copy.deepcopy(model_doc)
     new_model["template_version"] = "1.0.1"
     new_model["file_version"] = "1.0.1"
@@ -105,12 +115,12 @@ class TestPointTableChangeWhileOffline:
         flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(
             v2_tree, env_extra=dict(TEMPLATE_PUBLISH_ENV)
         )
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await wait_telemetry_value(
             redis_service,
             point_id="gen_power",
@@ -142,7 +152,7 @@ class TestPointTableChangeWhileOffline:
         )
         await asyncio.sleep(1.0)
         latest = await wait_telemetry_value(
-            redis_service, point_id="gen_power", after=str(observed["timestamp"])
+            redis_service, point_id="gen_power", after=str(observed["sample_time"])
         )
         assert latest["value"] == pytest.approx(RAW_POWER)
 
@@ -161,10 +171,10 @@ class TestStopTaskDuringReconnect:
         flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
@@ -197,4 +207,4 @@ class TestStopTaskDuringReconnect:
         settled = await wait_telemetry_value(redis_service)
         await asyncio.sleep(1.0)
         final = await wait_telemetry_value(redis_service)
-        assert final["timestamp"] == settled["timestamp"]
+        assert final["sample_time"] == settled["sample_time"]

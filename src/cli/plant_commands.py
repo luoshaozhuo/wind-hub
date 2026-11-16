@@ -15,34 +15,24 @@ data_generator = typer.Typer(help="Data Generator scenarios and generations.")
 data_generator.add_typer(generator_variables, name="variables")
 
 
-def _call(
-    service: str, method: str, fields: dict[str, Any], *, validate_sink: bool = False
-) -> None:
+def _call(service: str, method: str, fields: dict[str, Any]) -> None:
     from .main import _run, runtime
 
     async def task() -> dict[str, Any]:
-        # 参数校验必须在 _run 协程内抛出，才能走统一信封/退出码 2，而非裸 traceback。
-        target = _sink_target(service) if validate_sink else service
-        return await invoke(runtime(), target, method, fields)
+        return await invoke(runtime(), service, method, fields)
 
     _run(f"{service} {method}", task())
 
 
-def _sink_target(service: str) -> str:
-    if service not in {"sink_realtime", "sink_reliable"}:
-        raise ValueError("--service must be sink_realtime or sink_reliable")
-    return service
-
-
-def _run_sink_common(service: str, method: str, fields: dict[str, Any]) -> None:
-    """CommonService call whose sink service selection must stay inside the envelope."""
+def _run_sink_common(method: str, fields: dict[str, Any]) -> None:
+    """Call the Main-owned CommonService for the logical Sink service."""
     from .common_commands import request_common
     from .main import _run
 
     async def task() -> dict[str, Any]:
-        return await request_common(_sink_target(service), method, fields)
+        return await request_common("sink", method, fields)
 
-    _run(f"{service} {method}", task())
+    _run(f"sink {method}", task())
 
 
 @sink.command("deliveries")
@@ -50,25 +40,20 @@ def sink_deliveries(
     channel: str = "",
     page_size: int = 100,
     page_token: str = "",
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
     _call(
-        service,
+        "sink",
         "ListDeliveries",
         {"channel": channel, "page_size": page_size, "page_token": page_token},
-        validate_sink=True,
     )
 
 
 @sink.command("delivery")
-def sink_delivery(
-    delivery_id: str, service: str = typer.Option("sink_realtime", "--service")
-) -> None:
-    _call(service, "GetDelivery", {"id": delivery_id}, validate_sink=True)
+def sink_delivery(delivery_id: str) -> None:
+    _call("sink", "GetDelivery", {"id": delivery_id})
 
 
 async def _delivery_action(
-    service: str,
     delivery_id: str,
     method: str,
     revision: str | None,
@@ -76,14 +61,14 @@ async def _delivery_action(
     from .main import runtime
 
     if revision is None:
-        result = await invoke(runtime(), service, "GetDelivery", {"id": delivery_id})
+        result = await invoke(runtime(), "sink", "GetDelivery", {"id": delivery_id})
         delivery = result.get("delivery", {})
         revision = delivery.get("revision") if isinstance(delivery, dict) else None
     if not isinstance(revision, str) or not revision:
         raise ValueError("delivery revision unavailable; pass --expected-revision")
     return await invoke(
         runtime(),
-        service,
+        "sink",
         method,
         {
             "id": delivery_id,
@@ -97,7 +82,6 @@ def sink_start(
     delivery_id: str,
     expected_revision: str | None = typer.Option(None, "--expected-revision"),
     yes: bool = typer.Option(False, "--yes"),
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
     from .main import _run
     from .safety import confirm_mutation
@@ -105,9 +89,7 @@ def sink_start(
     confirm_mutation(f"Start delivery {delivery_id}?", yes, command="sink start")
 
     async def action() -> dict[str, Any]:
-        return await _delivery_action(
-            _sink_target(service), delivery_id, "StartDelivery", expected_revision
-        )
+        return await _delivery_action(delivery_id, "StartDelivery", expected_revision)
 
     _run("sink start", action())
 
@@ -117,7 +99,6 @@ def sink_stop(
     delivery_id: str,
     expected_revision: str | None = typer.Option(None, "--expected-revision"),
     yes: bool = typer.Option(False, "--yes"),
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
     from .main import _run
     from .safety import confirm_mutation
@@ -125,9 +106,7 @@ def sink_stop(
     confirm_mutation(f"Stop delivery {delivery_id}?", yes, command="sink stop")
 
     async def action() -> dict[str, Any]:
-        return await _delivery_action(
-            _sink_target(service), delivery_id, "StopDelivery", expected_revision
-        )
+        return await _delivery_action(delivery_id, "StopDelivery", expected_revision)
 
     _run("sink stop", action())
 
@@ -421,19 +400,16 @@ def generator_status(generation_id: str) -> None:
 def sink_metrics(
     scope: str = "",
     window_ms: int = 60000,
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
-    _run_sink_common(service, "GetMetrics", {"scope": scope, "window_ms": window_ms})
+    _run_sink_common("GetMetrics", {"scope": scope, "window_ms": window_ms})
 
 
 @sink.command("events")
 def sink_events(
     page_size: int = 100,
     page_token: str = "",
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
     _run_sink_common(
-        service,
         "GetEvents",
         {
             "page_size": page_size,

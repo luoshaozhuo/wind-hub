@@ -60,8 +60,6 @@ class CommanderStatus:
     running: bool
     device_count: int
     active_revision: str
-    active_config_hash: str
-    prepared_revision: str | None
 
 
 @dataclass(frozen=True)

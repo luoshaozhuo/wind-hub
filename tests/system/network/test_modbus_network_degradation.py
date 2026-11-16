@@ -35,7 +35,7 @@ from tests.support.recovery_helpers import (
     telemetry_task,
     wait_status,
 )
-from tests.support.redis_client import point_key
+from tests.support.sink_harness import latest_value_key
 from tests.support.wait import wait_redis_value
 from tests.system.network.conftest import NetemLink
 
@@ -90,10 +90,10 @@ async def _start_stack(
 ) -> tuple[CollectorProcess, str]:
     """起 sink_service + Collector 并确认故障前基线：设备已连接、数据在出。"""
     flat_dir = _write_config(tmp_path / "cfg", link, redis_address, nats_url)
-    await sink_service_factory(flat_dir)
+    await sink_service_factory(namespace="wind-hub-netem")
     v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_url)
     proc: CollectorProcess = await collector_factory(v2_tree)
-    await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+    await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
     await wait_status(
         proc,
         lambda p: p["device_connected"] == 1,
@@ -110,14 +110,14 @@ async def _reconnects(proc: CollectorProcess) -> int:
 
 
 async def _wait_flow(redis_address: str, *, after: str | None = None) -> str:
-    key = point_key(DEVICE_ID, "rotor_speed", prefix="wind-hub-netem")
+    key = latest_value_key("wind-hub-netem", device_id=DEVICE_ID, point_id="rotor_speed")
     value = await wait_redis_value(
         redis_address,
         key,
         timeout=20.0,
-        match=(lambda item: str(item["timestamp"]) > after) if after else None,
+        match=(lambda item: str(item["sample_time"]) > after) if after else None,
     )
-    return str(value["timestamp"])
+    return str(value["sample_time"])
 
 
 async def _assert_link_healthy(proc: CollectorProcess, redis_address: str, duration: float) -> None:

@@ -60,12 +60,10 @@ def commander_diagnose(device_id: str) -> None:
 
 
 @diagnose.command("sink")
-def sink_diagnose(
-    delivery_id: str, service: str = typer.Option("sink_realtime", "--service")
-) -> None:
+def sink_diagnose(delivery_id: str) -> None:
     from .plant_commands import _run_sink_common
 
-    _run_sink_common(service, "Diagnose", {"target_id": delivery_id})
+    _run_sink_common("Diagnose", {"target_id": delivery_id})
 
 
 @diagnose.command("gateway")
@@ -82,15 +80,11 @@ def generator_diagnose(generation_id: str) -> None:
 def pipeline_diagnose(
     device_id: str,
     sink_id: str | None = typer.Option(None, "--sink-id"),
-    service: str = typer.Option("sink_realtime", "--service"),
 ) -> None:
     """Never claim end-to-end PASS without correlated evidence from both services."""
     from .main import _run, runtime
-    from .plant_commands import _sink_target
 
     async def probe() -> dict[str, Any]:
-        # 非法 --service 在协程内失败，走统一信封而非裸 traceback。
-        sink_target = _sink_target(service)
         from google.protobuf.json_format import MessageToDict
 
         from contracts import common_pb2, common_pb2_grpc
@@ -102,7 +96,7 @@ def pipeline_diagnose(
             ("sink", ["consume", "dispatch"]),
         ):
             target = device_id if svc_name == "collector" else (sink_id or device_id)
-            rpc_target = sink_target if svc_name == "sink" else svc_name
+            rpc_target = svc_name
             stub = common_pb2_grpc.CommonServiceStub(runtime().channel(rpc_target))
             response = await stub.Diagnose(
                 common_pb2.DiagnoseRequest(

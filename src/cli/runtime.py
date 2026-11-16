@@ -5,36 +5,23 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import grpc
-import yaml
 from google.protobuf.json_format import MessageToDict
 from rich.console import Console
 from rich.table import Table
 
-
-class UniqueKeyLoader(yaml.SafeLoader):
-    """Reject duplicate YAML keys before interpreting service endpoints."""
-
-    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
-        seen: set[object] = set()
-        for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=deep)
-            if not isinstance(key, str) or key in seen:
-                raise ValueError(f"non-string or duplicate YAML key: {key!r}")
-            seen.add(key)
-        mapping: dict[Any, Any] = super().construct_mapping(node, deep=deep)
-        return mapping
+from core.infrastructure.config import ConfigOperationError, parse_yaml
 
 
 @dataclass(frozen=True, slots=True)
 class ServiceTarget:
     service_id: str
     grpc_endpoint: str | None
-    rpc_via: str | None
     tls_profile: str | None
     manager: str | None
     target: str | None
@@ -98,15 +85,21 @@ def load_config(path: Path) -> CLIConfig:
     if not path.is_file():
         raise ValueError(f"CLI configuration not found: {path}")
     try:
-        raw = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueKeyLoader)
-    except yaml.YAMLError as exc:
-        raise ValueError(f"invalid CLI YAML: {exc}") from exc
+        raw = parse_yaml(path.read_text(encoding="utf-8"))
+    except ConfigOperationError as exc:
+        raise ValueError(f"invalid CLI YAML: {exc.__cause__ or exc}") from exc
     if (
         not isinstance(raw, dict)
         or type(raw.get("schema_version")) is not int
         or raw["schema_version"] != 1
     ):
         raise ValueError("CLI schema_version must be 1")
+    file_version = raw.get("file_version")
+    if (
+        not isinstance(file_version, str)
+        or re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", file_version) is None
+    ):
+        raise ValueError("CLI file_version must be MAJOR.MINOR.PATCH")
     cli = raw.get("cli", {})
     probes = raw.get("network_probe", {})
     services = raw.get("services", {})
@@ -150,13 +143,11 @@ def load_config(path: Path) -> CLIConfig:
     for name, item in services.items():
         if not isinstance(name, str) or not name or not isinstance(item, dict):
             raise ValueError("service definition must be a named mapping")
-        endpoint, rpc_via = item.get("grpc_endpoint"), item.get("rpc_via")
+        endpoint = item.get("grpc_endpoint")
+        if "rpc_via" in item:
+            raise ValueError(f"{name}.rpc_via is not supported")
         if endpoint is not None and (not isinstance(endpoint, str) or not endpoint):
             raise ValueError(f"{name}.grpc_endpoint must be non-empty")
-        if rpc_via is not None and (not isinstance(rpc_via, str) or not rpc_via):
-            raise ValueError(f"{name}.rpc_via must be non-empty")
-        if endpoint is not None and rpc_via is not None:
-            raise ValueError(f"{name} cannot define grpc_endpoint and rpc_via together")
         profile = item.get("tls_profile")
         if profile is not None and profile not in profiles:
             raise ValueError(f"{name} references unknown tls_profile {profile}")
@@ -188,7 +179,6 @@ def load_config(path: Path) -> CLIConfig:
         targets[name] = ServiceTarget(
             name,
             endpoint,
-            rpc_via,
             profile,
             manager,
             target,
@@ -199,17 +189,8 @@ def load_config(path: Path) -> CLIConfig:
             timeout,
         )
     for name, target in targets.items():
-        visited = {name}
-        while target.rpc_via is not None:
-            alias = target.rpc_via
-            if alias not in targets or alias in visited:
-                raise ValueError(f"invalid or cyclic rpc_via for {name}")
-            visited.add(alias)
-            target = targets[alias]
-        if target.grpc_endpoint is None and (
-            targets[name].rpc_via is not None or targets[name].manager is None
-        ):
-            raise ValueError(f"{name} has no valid gRPC target or process manager")
+        if target.grpc_endpoint is None and target.manager is None:
+            raise ValueError(f"{name} has no gRPC target or process manager")
     raw_ports = probes.get("industrial_tcp_ports", [102, 502, 2404, 4840, 44818, 48898])
     if (
         not isinstance(raw_ports, list)
@@ -257,7 +238,7 @@ class Runtime:
         return self._config
 
     def target(self, name: str) -> ServiceTarget:
-        aliases = {"sink": "sink_realtime", "data-generator": "data_generator"}
+        aliases = {"data-generator": "data_generator"}
         targets = self.config().services
         resolved = name if name in targets else aliases.get(name, name)
         try:
@@ -265,14 +246,8 @@ class Runtime:
         except KeyError as exc:
             raise ValueError(f"service not configured: {name}") from exc
 
-    def _resolve(self, name: str) -> ServiceTarget:
-        target = self.target(name)
-        while target.rpc_via is not None:
-            target = self.target(target.rpc_via)
-        return target
-
     def channel(self, name: str) -> grpc.aio.Channel:
-        target = self._resolve(name)
+        target = self.target(name)
         if target.service_id not in self._channels:
             endpoint = target.grpc_endpoint
             if endpoint is None:

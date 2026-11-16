@@ -89,3 +89,91 @@ def test_generator_start_rejected_exit1(cli_env: Any) -> None:
     )
     result = cli_env.subprocess_invoke("data-generator", "start", "sc1", "--yes")
     assert result.exit_code == 1, result.stdout
+
+
+def test_generator_variables_list_and_update(cli_env: Any) -> None:
+    """模型输入目录与受控更新：list 分页读回、update 受理与非可写拒绝。"""
+    server = cli_env.server
+    writable = dg.ModelVariable(
+        point_id="wind_speed_setpoint",
+        business_point_id="wind_speed",
+        # 可写输入支持的编码类型（float32/float64/bool/str/int）。
+        data_type="float64",
+        unit="meter_per_second",
+        role="input",
+        writable=True,
+        minimum=0.0,
+        maximum=25.0,
+    )
+    frozen = dg.ModelVariable(
+        point_id="rotor_speed",
+        data_type="float64",
+        unit="rpm",
+        role="output",
+        writable=False,
+    )
+    server.respond_value(
+        _p(server, "ListVariables"),
+        dg.ListVariablesResponse(
+            variables=[writable, frozen],
+            point_table_version="1.0.0",
+            generation_state="RUNNING",
+        ),
+    )
+    listed = cli_env.subprocess_invoke(
+        "data-generator", "variables", "list", "--generation-id", "g1", "--device-id", "gen1"
+    )
+    assert listed.exit_code == 0, listed.stdout
+    data = listed.json()["data"]
+    assert [item["point_id"] for item in data["variables"]] == [
+        "wind_speed_setpoint",
+        "rotor_speed",
+    ]
+    assert data["point_table_version"] == "1.0.0"
+
+    server.respond_value(
+        _p(server, "UpdateVariables"),
+        dg.UpdateVariablesResponse(accepted=True, effective_step=7, request_id="req-1"),
+    )
+    updated = cli_env.subprocess_invoke(
+        "data-generator",
+        "variables",
+        "update",
+        "--generation-id",
+        "g1",
+        "--device-id",
+        "gen1",
+        "--request-id",
+        "req-1",
+        "--point-id",
+        "wind_speed_setpoint",
+        "--value",
+        "11.5",
+        "--yes",
+    )
+    assert updated.exit_code == 0, updated.stdout
+    update_data = updated.json()["data"]
+    assert update_data["accepted"] is True
+    assert int(update_data["effective_step"]) == 7
+
+    # 非 writable 输入：统一信封失败（2），且不发出 UpdateVariables。
+    rejected = cli_env.subprocess_invoke(
+        "data-generator",
+        "variables",
+        "update",
+        "--generation-id",
+        "g1",
+        "--device-id",
+        "gen1",
+        "--request-id",
+        "req-2",
+        "--point-id",
+        "rotor_speed",
+        "--value",
+        "12.0",
+        "--yes",
+    )
+    assert rejected.exit_code == 2, rejected.stdout
+    assert rejected.json()["status"] == "FAILURE"
+    update_calls = [c for c in server.calls if c.path.endswith("/UpdateVariables")]
+    assert len(update_calls) == 1, "non-writable input must not reach UpdateVariables"

@@ -42,7 +42,7 @@ async def _trees_and_sink(
     flat_dir = write_modbus_redis_config(
         tmp_path / "cfg", port, redis_service, nats_url=nats_service
     )
-    await sink_service_factory(flat_dir, deployment_id="runtime-restore-sink")
+    await sink_service_factory(collector_id=COLLECTOR_ID, deployment_id="runtime-restore-sink")
     v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
     return v2_tree
 
@@ -77,8 +77,8 @@ class TestDesiredStateColdRestore:
         )
 
         proc_a: CollectorProcess = await collector_factory(v2_tree, collector_id=COLLECTOR_ID)
-        await start_task_instance(proc_a.grpc_target, task_id=DEVICE_ID, instance_id=DEVICE_ID)
-        first = await wait_telemetry_value(redis_service)
+        await start_task_instance(proc_a.grpc_target, instance_id=DEVICE_ID)
+        first = await wait_telemetry_value(redis_service, collector_id=COLLECTOR_ID)
         assert first["quality"] == "good"
         assert proc_a.terminate(timeout=30.0) == 0
 
@@ -87,7 +87,9 @@ class TestDesiredStateColdRestore:
         await wait_until(
             lambda: _task_running(proc_b), timeout=20.0, description="auto RUNNING on cold start"
         )
-        later = await wait_telemetry_value(redis_service, after=str(first["timestamp"]))
+        later = await wait_telemetry_value(
+            redis_service, collector_id=COLLECTOR_ID, after=str(first["sample_time"])
+        )
         assert later["quality"] == "good"
 
     async def test_manual_stop_survives_restart_and_never_resurrects(
@@ -105,17 +107,19 @@ class TestDesiredStateColdRestore:
         )
 
         proc_a: CollectorProcess = await collector_factory(v2_tree, collector_id=COLLECTOR_ID)
-        await start_task_instance(proc_a.grpc_target, task_id=DEVICE_ID, instance_id=DEVICE_ID)
-        await wait_telemetry_value(redis_service)
+        await start_task_instance(proc_a.grpc_target, instance_id=DEVICE_ID)
+        await wait_telemetry_value(redis_service, collector_id=COLLECTOR_ID)
 
         await stop_task(proc_a.grpc_target, DEVICE_ID)
         await wait_until(
             lambda: _task_stopped(proc_a), timeout=15.0, description="STOPPED after manual STOP"
         )
         # 停机后数据静默（覆盖若干采集周期）。
-        settled = await wait_telemetry_value(redis_service)
+        settled = await wait_telemetry_value(redis_service, collector_id=COLLECTOR_ID)
         await asyncio.sleep(1.5)
-        assert (await wait_telemetry_value(redis_service))["timestamp"] == settled["timestamp"]
+        assert (await wait_telemetry_value(redis_service, collector_id=COLLECTOR_ID))[
+            "sample_time"
+        ] == settled["sample_time"]
         assert proc_a.terminate(timeout=30.0) == 0
 
         # ---- 同配置冷启动：持久 STOP 意图不得被解释成默认/待启动 ----
@@ -127,7 +131,7 @@ class TestDesiredStateColdRestore:
         # 进程已稳定后再观察多个采集周期，确认无迟到复活与数据刷新。
         await asyncio.sleep(2.0)
         assert await _task_stopped(proc_b)
-        latest = await wait_telemetry_value(redis_service)
+        latest = await wait_telemetry_value(redis_service, collector_id=COLLECTOR_ID)
         assert (
-            latest["timestamp"] == settled["timestamp"]
+            latest["sample_time"] == settled["sample_time"]
         ), "manual STOP was resurrected across process restart"

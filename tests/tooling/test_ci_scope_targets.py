@@ -30,22 +30,23 @@ def _pr_targets(*paths: str) -> set[str]:
     return set(filter(None, result["backend_pr_targets"].split(",")))
 
 
-def test_collector_config_service_triggers_system_acquisition() -> None:
-    assert "system-acquisition" in _pr_targets("src/collector/application/config_service.py")
+def test_collector_configuration_triggers_system_acquisition() -> None:
+    assert "system-acquisition" in _pr_targets("src/collector/application/configuration.py")
 
 
 def test_commander_config_triggers_system_command() -> None:
-    assert "system-command" in _pr_targets("src/commander/application/config.py")
+    assert "system-command" in _pr_targets("src/commander/application/config_apply.py")
 
 
-def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:
-    targets = _pr_targets("src/collector/application/sink_runtime.py")
-    assert "integration-rpc" in targets
+def test_collector_publisher_triggers_sink_gate() -> None:
+    targets = _pr_targets("src/collector/infrastructure/adapters/outbound/publisher.py")
     assert "integration-sinks" in targets
 
 
-def test_collector_query_service_triggers_rpc_gate() -> None:
-    assert "integration-rpc" in _pr_targets("src/collector/application/services.py")
+def test_collector_grpc_service_triggers_rpc_gate() -> None:
+    assert "integration-rpc" in _pr_targets(
+        "src/collector/infrastructure/adapters/inbound/grpc/collector_service.py"
+    )
 
 
 def test_playwright_spec_changes_trigger_frontend_e2e() -> None:
@@ -72,3 +73,23 @@ def test_pr_targets_stay_consumable_by_ci_gate() -> None:
     scope = _load_ci_scope()
     unknown = set(scope.PR_TARGET_ORDER) - set(ci_gate.PR_TARGETS)
     assert unknown == set()
+
+
+def test_data_generator_is_known_backend_source() -> None:
+    result = _load_ci_scope().classify(["src/data_generator/application/runtime.py"])
+    assert result["backend_static"] == "true"
+    assert result["backend_fast_targets"] == "unit"
+
+
+def test_data_generator_changes_trigger_own_integration() -> None:
+    assert "integration-generator" in _pr_targets("src/data_generator/application/runtime.py")
+
+
+def test_gateway_changes_trigger_own_integration() -> None:
+    assert "integration-gateway" in _pr_targets(
+        "src/industrial_gateway/application/variable_leases.py"
+    )
+
+
+def test_sink_changes_trigger_sink_integration() -> None:
+    assert "integration-sinks" in _pr_targets("src/sink_service/application/reliable_engine.py")

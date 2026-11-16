@@ -145,10 +145,7 @@ class TestQueryRoundTrip:
         assert status.running is True
         # 共享配置树自带基线实例，WT01 由 harness 追加，至少一台可见。
         assert status.device_count >= 1
-        # CommonService 不承诺旧版 active_config_hash：适配器不得伪造非空值。
-        assert status.active_config_hash == ""
         assert status.active_revision
-        assert status.prepared_revision is None
 
     async def test_verify_device_diagnoses_real_modbus_link(
         self,

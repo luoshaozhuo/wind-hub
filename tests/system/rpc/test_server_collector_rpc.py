@@ -20,8 +20,8 @@ import yaml
 from collector.application.config_models import snapshot_digest
 from contracts import collector_pb2_grpc, common_pb2, common_pb2_grpc
 from tests.support import control
+from tests.support.collector_config_tree import SYSTEM_ADMIN_TOKEN, write_collector_modbus_tree
 from tests.support.process import CollectorProcess
-from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, write_v2_modbus_tree
 from tests.support.wait import wait_until
 from web_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 
@@ -39,7 +39,7 @@ async def stack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[CollectorGrpcClient, Path, CollectorProcess]:
-    tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
+    tree = write_collector_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
     proc: CollectorProcess = await collector_factory(tree, collector_id=WORKER_ID)
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", SYSTEM_ADMIN_TOKEN)
     client = CollectorGrpcClient(proc.grpc_target)

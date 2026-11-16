@@ -24,6 +24,7 @@ import yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.support.control import (
     ConfigMutationResult,
+    get_disk_yaml,
     replace_config,
     start_task_instance,
 )
@@ -58,16 +59,18 @@ async def _switch_endpoint(
 ) -> ConfigMutationResult:
     """改写 devices 文档中唯一设备的 endpoint 并经 v1 快照事务收敛。
 
-    源树同步改写（保持与已提交代际一致，供同树重启场景使用）；实际下发
-    走 Push+Apply 整盘快照，不复活任何单文档替换 RPC。
+    候选必须从当前已提交代际派生：启动源 YAML 早于 StartTask 写入的
+    持久 START 意图，直接替换会把期望态静默重置为 STOP（RES-02）。
+    源树同步写回改后的已提交文档（保持一致，供同树重启场景使用）；
+    实际下发走 Push+Apply 整盘快照，不复活任何单文档替换 RPC。
     """
-    devices_path = v2_tree / "instances" / "devices.yaml"
-    devices_doc: dict[str, Any] = yaml.safe_load(devices_path.read_text(encoding="utf-8"))
+    devices_doc = await get_disk_yaml(proc.grpc_target, "instances/devices.yaml")
+    assert devices_doc["devices"][DEVICE_ID]["overrides"]["task"]["desired_state"] == "START"
     endpoint = devices_doc["devices"][DEVICE_ID]["endpoint"]
     endpoint["host"] = host
     endpoint["port"] = port
     content = yaml.safe_dump(devices_doc, allow_unicode=True, sort_keys=False)
-    devices_path.write_text(content, encoding="utf-8")
+    (v2_tree / "instances" / "devices.yaml").write_text(content, encoding="utf-8")
 
     return await replace_config(proc.grpc_target, content)
 
@@ -81,7 +84,7 @@ async def _wait_value(redis_address: str, expected: float) -> dict[str, Any]:
 
 async def _assert_stays_on_b(redis_address: str) -> None:
     observed = await _wait_value(redis_address, VALUE_B)
-    latest = await wait_telemetry_value(redis_address, after=str(observed["timestamp"]))
+    latest = await wait_telemetry_value(redis_address, after=str(observed["sample_time"]))
     assert latest["value"] == pytest.approx(VALUE_B)
 
 
@@ -113,9 +116,9 @@ class TestEndpointMigration:
     ) -> None:
         """DEV-03a：在线迁移 port——Sink 出现 B 值后不再读到 A，连接数保持 1。"""
         flat_dir, v2_tree = _trees(tmp_path, modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await _wait_value(redis_service, VALUE_A)
 
         server_b = await _start_server_b()
@@ -143,9 +146,9 @@ class TestEndpointMigration:
     ) -> None:
         """DEV-03b：在线迁移 host（127.0.0.1 → 127.0.0.2）——真实修改 host 字段。"""
         flat_dir, v2_tree = _trees(tmp_path, modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await _wait_value(redis_service, VALUE_A)
 
         server_b = await _start_server_b(host="127.0.0.2")
@@ -169,9 +172,9 @@ class TestEndpointMigration:
     ) -> None:
         """DEV-04：掉线期间迁移 endpoint——A 不恢复，替换后直连 B 并出数。"""
         flat_dir, v2_tree = _trees(tmp_path, modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()
@@ -202,9 +205,9 @@ class TestEndpointMigration:
     ) -> None:
         """DEV-05：迁移到不可达 endpoint——不得残留假 healthy，修正后恢复。"""
         flat_dir, v2_tree = _trees(tmp_path, modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)
 
         # ---- 切到无监听者的地址（connect 立即被拒绝） ----
@@ -249,9 +252,9 @@ class TestReloadDuringReconnect:
         协议实例不会复活（不再出现 A 值）。
         """
         flat_dir, v2_tree = _trees(tmp_path, modbus_server.port, redis_service, nats_service)
-        await sink_service_factory(flat_dir)
+        await sink_service_factory()
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await wait_telemetry_value(redis_service)
 
         await modbus_server.stop()

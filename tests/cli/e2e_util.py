@@ -49,6 +49,7 @@ def write_cli_yaml(
         blocks.append(block)
     path.write_text(
         f"""schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: {timeout}
   output_format: json

@@ -4,13 +4,13 @@
 # 不进入本 Compose。生命周期由 pytest session fixture
 # （tests/fixtures/services/compose.py）管理：up -d → 等 health → down -v。
 #
-# 端口映射与 tests/test.env.example 默认值一致；与本机既有服务冲突时，
-# 改用 WIND_HUB_TEST_REDIS 指向外部实例，fixture 将不再管理 Compose。
+# 动态宿主端口由 compose.py 自动分配，支持与既有 Redis 容器并存。
+# WIND_HUB_TEST_REDIS 可显式指定外部 Redis，fixture 不会管理该实例。
 services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${WIND_HUB_TEST_REDIS_PORT}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s

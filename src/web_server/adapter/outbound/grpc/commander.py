@@ -163,8 +163,6 @@ class CommanderGrpcClient(GrpcClientBase):
             running=health.health in {"HEALTHY", "DEGRADED"},
             device_count=len(devices),
             active_revision=runtime.revision,
-            active_config_hash="",  # CommonService 不承诺旧版 active_config_hash
-            prepared_revision=None,
         )
 
     async def verify_device(self, device_id: str, timeout: float = 1.0) -> DeviceVerifyResult:

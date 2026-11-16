@@ -50,22 +50,6 @@ async def test_channel_reused_per_resolved_service(
     finally:
         await runtime.close()
 
-    # rpc_via 别名解析到底层独占端点；代理身份与进程身份不混用 channel。
-    alias_yaml = tmp_path / "alias.yaml"
-    alias_yaml.write_text(
-        cli_env.config_path.read_text(encoding="utf-8").replace(
-            "tls_profiles:\n",
-            "  sink_proxy:\n    rpc_via: sink_realtime\ntls_profiles:\n",
-        ),
-        encoding="utf-8",
-    )
-    aliased = Runtime(alias_yaml, "json")
-    try:
-        assert aliased.channel("sink_proxy") is aliased.channel("sink_realtime")
-        assert aliased.target("sink_proxy").grpc_endpoint is None
-    finally:
-        await aliased.close()
-
 
 def test_rpc_whitelist_rejects_undeclared_method(cli_env: Any) -> None:
     async def scenario() -> None:

@@ -98,14 +98,14 @@ def _config(tmp_path: Path, certs: dict[str, Path], port: int) -> Path:
         for name in (
             "collector",
             "commander",
-            "sink_realtime",
-            "sink_reliable",
+            "sink",
             "gateway",
             "data_generator",
         )
     )
     cfg.write_text(
         f"""schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: 5
   output_format: json

@@ -9,18 +9,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import time
 from pathlib import Path
 from typing import Any
 
+import grpc
 import pytest
 import yaml
 
+from contracts import collector_pb2, collector_pb2_grpc
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.collector_config_tree import build_collector_tree_from_site
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
     collector_info,
+    get_disk_yaml,
     get_task,
     replace_catalog,
     replace_config,
@@ -35,8 +41,7 @@ from tests.support.recovery_helpers import (
     wait_telemetry_value,
     write_modbus_redis_config,
 )
-from tests.support.redis_client import point_key
-from tests.support.v2_config import emit_v2_tree_from_flat_site
+from tests.support.sink_harness import latest_value_key
 from tests.support.wait import wait_redis_value
 
 pytestmark = [pytest.mark.redis, pytest.mark.real_service]
@@ -63,6 +68,27 @@ IEC104_POINTS: dict[str, dict[str, Any]] = {
 TEMPLATE_PUBLISH_ENV = {"WIND_HUB_COLLECTOR_TEMPLATE_PUBLISH": "enabled"}
 
 
+async def _wait_device_state(
+    proc: CollectorProcess, device_id: str, expected: set[str], *, timeout: float = 15.0
+) -> str:
+    """轮询 ListDevices 直到设备 actual_state 进入期望集合。"""
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        last = str((await _device_states(proc)).get(device_id, ""))
+        if last in expected:
+            return last
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"{device_id} never reached {expected}; last={last}")
+
+
+async def _device_states(proc: CollectorProcess) -> dict[str, str]:
+    async with grpc.aio.insecure_channel(proc.grpc_target) as channel:
+        stub = collector_pb2_grpc.CollectorServiceStub(channel)
+        response = await stub.ListDevices(collector_pb2.ListDevicesRequest(), timeout=5.0)
+    return {device.device_id: str(device.actual_state) for device in response.devices}
+
+
 def _iec104_flat_config(base: Path, port: int, redis_address: str, nats_url: str) -> Path:
     """单 IEC104 设备 + Redis 最新值的扁平现场配置（订阅型采集）。"""
     return write_config_tree(
@@ -86,17 +112,6 @@ def _iec104_flat_config(base: Path, port: int, redis_address: str, nats_url: str
             }
         },
         point_tables={"iec104": {"points": copy.deepcopy(IEC104_POINTS)}},
-        sinks={
-            "redis_sink": {
-                "type": "redis",
-                "connection": {
-                    "host": redis_address.rpartition(":")[0],
-                    "port": int(redis_address.rpartition(":")[2]),
-                },
-                # v2 task_id == device_id。
-                "outputs": {IEC104_DEVICE_ID: {"key_prefix": "wind-hub-iec-restart"}},
-            }
-        },
         tasks={
             IEC104_DEVICE_ID: {
                 "device_group_id": IEC104_DEVICE_ID,
@@ -134,20 +149,18 @@ class TestCollectorRestart:
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
         )
         # sink_service 跨 Collector 重启独立存活，数据面恢复由它持续消费保证。
-        await sink_service_factory(flat_dir, deployment_id="restart-modbus-sink")
+        await sink_service_factory(
+            collector_id="recovery-restart", deployment_id="restart-modbus-sink"
+        )
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
 
         # ---- 第一个实例：正常采集后优雅停机 ----
         proc_a: CollectorProcess = await collector_factory(v2_tree, collector_id="recovery-restart")
-        await start_task_instance(
-            proc_a.grpc_target,
-            task_id=MODBUS_DEVICE_ID,
-            instance_id=MODBUS_DEVICE_ID,
-        )
-        first = await wait_telemetry_value(redis_service)
+        await start_task_instance(proc_a.grpc_target, instance_id=MODBUS_DEVICE_ID)
+        first = await wait_telemetry_value(redis_service, collector_id="recovery-restart")
         exit_code = proc_a.terminate()
         assert exit_code == 0
-        baseline = str(first["timestamp"])
+        baseline = str(first["sample_time"])
 
         # ---- 同配置重启：控制面恢复、读可用、采集可重新启动 ----
         proc_b: CollectorProcess = await collector_factory(v2_tree, collector_id="recovery-restart")
@@ -155,12 +168,8 @@ class TestCollectorRestart:
         assert info.process_role == "collector"
         assert info.service_id == "recovery-restart"
 
-        await start_task_instance(
-            proc_b.grpc_target,
-            task_id=MODBUS_DEVICE_ID,
-            instance_id=MODBUS_DEVICE_ID,
-        )
-        await wait_telemetry_value(redis_service, after=baseline)
+        await start_task_instance(proc_b.grpc_target, instance_id=MODBUS_DEVICE_ID)
+        await wait_telemetry_value(redis_service, collector_id="recovery-restart", after=baseline)
 
 
 @pytest.mark.iec104
@@ -177,22 +186,26 @@ class TestPointTablePublishedWhileDisconnected:
         flat_dir = _iec104_flat_config(
             tmp_path / "cfg", iec104_server.port, redis_service, nats_service
         )
-        await sink_service_factory(flat_dir, deployment_id="restart-iec104-sink")
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        await sink_service_factory(
+            namespace="wind-hub-iec-restart", deployment_id="restart-iec104-sink"
+        )
+        v2_tree = build_collector_tree_from_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(
             v2_tree, env_extra=dict(TEMPLATE_PUBLISH_ENV)
         )
 
-        # ---- 正常：订阅建立，总召数据写入 Redis ----
-        await start_task_instance(
-            proc.grpc_target, task_id=IEC104_DEVICE_ID, instance_id=IEC104_INSTANCE_ID
+        # ---- 正常：LISTEN 会话建立，自发上送写入 Redis ----
+        # v1 契约：总招是显式 InterrogateDevice RPC，其 COT 只归当次请求，
+        # 不进 LISTEN 采集；后台采集数据来自从站自发/周期上送（COT 1/2/3）。
+        # 因此用 fixture 的 spontaneous 上送驱动初始数据。
+        await start_task_instance(proc.grpc_target, instance_id=IEC104_INSTANCE_ID)
+        key = latest_value_key(
+            "wind-hub-iec-restart", device_id=IEC104_DEVICE_ID, point_id="meas_active_power"
         )
-        key = point_key(IEC104_DEVICE_ID, "meas_active_power", prefix="wind-hub-iec-restart")
+        await _wait_device_state(proc, IEC104_DEVICE_ID, {"STARTING", "RUNNING"})
+        await iec104_server.set_value(100, 1500.5, spontaneous=True)
         initial = await wait_redis_value(redis_service, key)
-        # 恢复性总召可能在 device_connected 翻 1 的同一探测窗口内就已把新值
-        # 写入 Redis（watchdog 恢复在观测到状态翻转前完成），因此基线必须在
-        # 断连之前取，否则会采到恢复后的值而永远等不到更新。
-        initial_ts = str(initial["timestamp"])
+        initial_ts = str(initial["sample_time"])
 
         # ---- 故障：从站停止，设备断连在边界可见 ----
         await iec104_server.stop()
@@ -207,7 +220,7 @@ class TestPointTablePublishedWhileDisconnected:
         # devices 文档再把 model 引用切到 1.0.1；设备不可达不得使替换失败
         # （G-2 契约）。
         catalog = yaml.safe_load(
-            (v2_tree / "templates" / "business_points.yaml").read_text(encoding="utf-8")
+            (v2_tree / "templates" / "business_points_standard.yaml").read_text(encoding="utf-8")
         )
         catalog["business_points"]["meas_reactive_power"] = {
             "data_type": "float32",
@@ -217,7 +230,7 @@ class TestPointTablePublishedWhileDisconnected:
         assert catalog_result.success, list(catalog_result.errors)
 
         old_table = yaml.safe_load(
-            (v2_tree / "templates" / "point_tables" / "iec104_v1.0.0.yaml").read_text()
+            (v2_tree / "templates" / "point_tables" / "point_table_iec104_v1.0.0.yaml").read_text()
         )
         new_table = copy.deepcopy(old_table)
         new_table["template_version"] = "1.0.1"
@@ -233,12 +246,18 @@ class TestPointTablePublishedWhileDisconnected:
         )
         assert table_result.success, list(table_result.errors)
 
-        devices_doc = yaml.safe_load(
-            (v2_tree / "instances" / "devices.yaml").read_text(encoding="utf-8")
+        # 候选从已提交代际派生：启动源 YAML 早于 StartTask 的持久 START
+        # 意图，直接替换会静默重置为 STOP（RES-02）。
+        devices_doc = await get_disk_yaml(proc.grpc_target, "instances/devices.yaml")
+        assert (
+            devices_doc["devices"][IEC104_DEVICE_ID]["overrides"]["task"]["desired_state"]
+            == "START"
         )
         model_id = devices_doc["devices"][IEC104_DEVICE_ID]["model"]["id"]
         old_model = yaml.safe_load(
-            (v2_tree / "templates" / "device_models" / f"{model_id}_v1.0.0.yaml").read_text()
+            (
+                v2_tree / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml"
+            ).read_text()
         )
         new_model = copy.deepcopy(old_model)
         new_model["template_version"] = "1.0.1"
@@ -256,6 +275,9 @@ class TestPointTablePublishedWhileDisconnected:
         )
         assert devices_result.success, list(devices_result.errors)
 
+        # 现场配套：从站固件升级新增 IOA 300 测点（停机期注册，重启装配）。
+        await iec104_server.add_point(300, 77.5)
+
         # 配置已持久化收敛不改变连接事实：设备仍离线，进程存活、任务仍登记。
         await wait_status(
             proc, lambda p: p["device_connected"] == 0, description="still disconnected"
@@ -266,19 +288,20 @@ class TestPointTablePublishedWhileDisconnected:
 
         # ---- 恢复：从站重启，驱动自动重连，stored 代际在新连接上生效 ----
         await iec104_server.start()
-        await wait_status(
-            proc,
-            lambda p: p["device_connected"] == 1,
-            timeout=60.0,
-            description="iec104 device reconnected",
-        )
-
-        # 新点表无需第二次 reload：新点在重连后自动出数（mock 从站对未知
-        # IOA 的总召行为由 fixture 保证；等待既有点恢复即证明订阅重建）。
-        # 与断连前的初始值比较：恢复性总召产生的必然是更新的时间戳。
+        # IEC104 无总招自动数据：自发上送驱动新值（新点表会话按 1.0.1 生效，
+        # meas_reactive_power 已进入 LISTEN 点集）。
+        await _wait_device_state(proc, IEC104_DEVICE_ID, {"STARTING", "RUNNING"}, timeout=60.0)
+        await iec104_server.set_value(100, 1600.5, spontaneous=True)
         await wait_redis_value(
             redis_service,
             key,
             timeout=30.0,
-            match=lambda value: str(value["timestamp"]) > initial_ts,
+            match=lambda value: str(value["sample_time"]) > initial_ts,
         )
+        # 新点表无需第二次 reload：新点在重连后同样经 LISTEN 出数。
+        await iec104_server.set_value(300, 77.5, spontaneous=True)
+        new_key = latest_value_key(
+            "wind-hub-iec-restart", device_id=IEC104_DEVICE_ID, point_id="meas_reactive_power"
+        )
+        new_value = await wait_redis_value(redis_service, new_key, timeout=30.0)
+        assert new_value["value"] == pytest.approx(77.5)

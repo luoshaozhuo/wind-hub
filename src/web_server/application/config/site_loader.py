@@ -624,7 +624,7 @@ def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
     return sinks
 
 
-def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapshot:
+def load_domain(config_dir: Path) -> ConfigSnapshot:
     """一次性解析完整 YAML 集合，构建并验证领域快照。"""
     base = Path(config_dir)
     system = _read_document(base / "system.yaml")
@@ -633,7 +633,7 @@ def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapsh
     device_document = _read_document(base / "devices.yaml")
     point_document = _read_document(base / "points.yaml")
     task_document = _read_document(base / "tasks.yaml")
-    sink_document = _read_document(base / "sinks.yaml") if include_sinks else {}
+    sink_document = _read_document(base / "sinks.yaml")
     business_document = _read_document(base / "business_points.yaml")
     try:
         site_id, site_name, settings = _system(system)
@@ -650,7 +650,7 @@ def load_domain(config_dir: Path, *, include_sinks: bool = True) -> ConfigSnapsh
             point_tables,
         )
         tasks = _tasks(task_document)
-        sinks = _sinks(sink_document) if include_sinks else {}
+        sinks = _sinks(sink_document)
         for sink in sinks.values():
             for task_id, output in sink.outputs.items():
                 task = tasks.get(task_id)

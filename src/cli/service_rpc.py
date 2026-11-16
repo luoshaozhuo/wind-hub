@@ -17,8 +17,6 @@ SERVICE_MODULES = {
     "collector": ("collector", "CollectorService"),
     "commander": ("commander", "CommanderService"),
     "sink": ("sink_service", "SinkService"),
-    "sink_realtime": ("sink_service", "SinkService"),
-    "sink_reliable": ("sink_service", "SinkService"),
     "gateway": ("industrial_gateway", "IndustrialGatewayService"),
     "data-generator": ("data_generator", "DataGeneratorService"),
 }

@@ -17,6 +17,7 @@ def _write(tmp_path: Path, body: str) -> Path:
 
 _BASE_HEADER = """
 schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: 2
 """
@@ -50,31 +51,25 @@ def test_schema_version_must_be_integer_1(tmp_path: Path, body: str) -> None:
 def test_duplicate_yaml_keys_rejected(tmp_path: Path) -> None:
     body = """
 schema_version: 1
+file_version: "1.0.0"
 cli:
   timeout_seconds: 1
   timeout_seconds: 2
 """
-    with pytest.raises(ValueError, match="duplicate YAML key"):
+    with pytest.raises(ValueError, match="duplicate mapping key"):
         load_config(_write(tmp_path, body))
 
 
-def test_endpoint_and_rpc_via_are_mutually_exclusive(tmp_path: Path) -> None:
+def test_rpc_via_is_not_supported(tmp_path: Path) -> None:
     body = (
         _BASE_HEADER
         + """
 services:
-  collector:
-    grpc_endpoint: "localhost:5000"
-    rpc_via: gateway
-    tls_profile: mtls
-tls_profiles:
-  mtls:
-    ca_cert: ca.crt
-    client_cert: client.crt
-    client_key: client.key
+  sink_proxy:
+    rpc_via: sink
 """
     )
-    with pytest.raises(ValueError, match="together"):
+    with pytest.raises(ValueError, match="rpc_via is not supported"):
         load_config(_write(tmp_path, body))
 
 
@@ -102,34 +97,6 @@ services:
 """
     )
     with pytest.raises(ValueError, match="unknown tls_profile"):
-        load_config(_write(tmp_path, body))
-
-
-def test_rpc_via_cycle_rejected(tmp_path: Path) -> None:
-    body = (
-        _BASE_HEADER
-        + """
-services:
-  a:
-    rpc_via: b
-  b:
-    rpc_via: a
-"""
-    )
-    with pytest.raises(ValueError, match="cyclic rpc_via"):
-        load_config(_write(tmp_path, body))
-
-
-def test_rpc_via_dangling_rejected(tmp_path: Path) -> None:
-    body = (
-        _BASE_HEADER
-        + """
-services:
-  a:
-    rpc_via: ghost
-"""
-    )
-    with pytest.raises(ValueError, match="invalid or cyclic rpc_via"):
         load_config(_write(tmp_path, body))
 
 
@@ -185,3 +152,15 @@ def test_max_hosts_hard_bounds(tmp_path: Path, hosts: int) -> None:
     body = _BASE_HEADER + f"network_probe:\n  max_hosts: {hosts}\n"
     with pytest.raises(ValueError, match="max_hosts"):
         load_config(_write(tmp_path, body))
+
+
+@pytest.mark.parametrize(
+    "file_version",
+    [None, 1, "1", "v1.0.0", "1.0", "1.0.0-beta", "1..0"],
+)
+def test_file_version_is_required_semver_string(tmp_path: Path, file_version: object) -> None:
+    document = "schema_version: 1\n"
+    if file_version is not None:
+        document += f"file_version: {file_version!r}\n"
+    with pytest.raises(ValueError, match="file_version"):
+        load_config(_write(tmp_path, document))

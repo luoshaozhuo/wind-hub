@@ -20,15 +20,16 @@ import pytest
 
 from tests.commander.grpc_harness import build_pki
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.collector_config_tree import SYSTEM_ADMIN_TOKEN, write_collector_modbus_tree
 from tests.support.commander_mtls import commander_client_env, write_commander_service
 from tests.support.functional_config import write_functional_config
 from tests.support.process import (
     CollectorProcess,
     free_port,
-    start_sink_service,
+    start_sink_service_from_root,
     start_web_server,
 )
-from tests.support.v2_config import SYSTEM_ADMIN_TOKEN, write_v2_modbus_tree
+from tests.support.sink_harness import DEFAULT_COLLECTOR_ID, DEFAULT_NAMESPACE, write_sink_root
 from tests.support.wait import wait_tcp_port, wait_until
 
 #: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
@@ -61,39 +62,43 @@ SITE_ID = "test"
 async def sink_service_factory(
     tmp_path: Path,
     nats_service: str,
+    redis_service: str,
 ) -> AsyncIterator[Callable[..., Awaitable[CollectorProcess]]]:
     """启动真实 ``wind-hub-sink-service`` 子进程（消费侧），结束时优雅回收。
 
-    新架构下 Collector 只向 NATS 发布；断言 Redis 边界的系统测试必须同时
-    拉起独立 sink_service。先于 Collector 启动以避免首拍丢失；跨
-    Collector 重启的用例复用同一个 sink 句柄即可（消费侧独立存活）。
+    新架构下 Collector 只向 NATS 发布，Sink Service 只接受 ``--config-root``
+    的 canonical 单 Main 文档树（mTLS 管理面 + Delivery 过滤全部来自配置根，
+    不再有 ``--delivery`` / ``--realtime-sink`` 服务选择参数）；连接地址取自
+    真实 Redis/NATS fixture，采集身份与 ``start_collector`` 缺省值对齐。
+    先于 Collector 启动以避免首拍丢失；跨 Collector 重启的用例复用同一个
+    sink 句柄即可（消费侧独立存活）。
     """
     started: list[CollectorProcess] = []
 
     async def _start(
-        config_dir: Path,
         *,
-        realtime_sinks: tuple[str, ...] = ("redis_sink",),
-        reliable_sinks: tuple[str, ...] = (),
+        namespace: str = DEFAULT_NAMESPACE,
+        collector_id: str = DEFAULT_COLLECTOR_ID,
         deployment_id: str | None = None,
     ) -> CollectorProcess:
-        state_dir = tmp_path / f"sink-state-{free_port()}"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        proc = start_sink_service(
-            config_dir,
-            nats_servers=(nats_service,),
+        """启动一个 Sink Service；``collector_id`` 须与 Collector 进程身份一致。"""
+        grpc_port = free_port()
+        root = write_sink_root(
+            tmp_path / f"sink-root-{grpc_port}",
+            nats_url=nats_service,
+            redis_address=redis_service,
             wind_farm_id=SITE_ID,
-            deployment_id=deployment_id or f"sys-{free_port()}",
-            realtime_sinks=realtime_sinks,
-            reliable_sinks=reliable_sinks,
-            state_dir=state_dir,
-            log_dir=tmp_path,
+            collector_id=collector_id,
+            grpc_port=grpc_port,
+            namespace=namespace,
+            deployment_id=deployment_id or f"sys-{grpc_port}",
         )
+        proc = start_sink_service_from_root(root, grpc_port=grpc_port, log_dir=tmp_path)
         started.append(proc)
         try:
             # 管理面无健康 RPC；gRPC 端口可连即装配完成，端到端就绪由
             # 后续 Redis 出数轮询保证。
-            await wait_tcp_port("127.0.0.1", int(proc.grpc_target.rpartition(":")[2]))
+            await wait_tcp_port("127.0.0.1", grpc_port)
             if not proc.is_running():
                 raise RuntimeError(f"sink_service exited early; see {proc.log_path}")
         except BaseException:
@@ -144,7 +149,7 @@ async def full_stack(
     HTTP 端口启动，REST 客户端确认就绪；结束后先关客户端再优雅停机。
     """
     config_dir = write_functional_config(tmp_path / "cfg", modbus_server.port)
-    v2_tree = write_v2_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
+    v2_tree = write_collector_modbus_tree(tmp_path / "v2cfg", modbus_server.port)
     collector = await collector_factory(v2_tree, collector_id="collector")
     pki_dir = tmp_path / "pki"
     pki_dir.mkdir()

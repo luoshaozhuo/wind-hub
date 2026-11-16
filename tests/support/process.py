@@ -133,6 +133,25 @@ class CollectorProcess:
         """
         return len(os.listdir(f"/proc/{self.proc.pid}/fd"))
 
+    def memory_rss_kb(self) -> int:
+        """主进程常驻内存（KB，/proc/<pid>/statm 第 2 列 × 页大小）。
+
+        稳定性测试的内存泄漏观测点：循环前后对比允许小幅波动，持续
+        增长即泄漏。仅 Linux（测试执行环境）可用。
+        """
+        pages = int(Path(f"/proc/{self.proc.pid}/statm").read_text().split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE") // 1024
+
+    def cpu_seconds(self) -> float:
+        """主进程累计 CPU 时间（秒，utime+stime，/proc/<pid>/stat）。
+
+        稳定性测试的 CPU 观测点：配合墙钟时间计算平均占用率，循环前后
+        对比判断无失控循环。仅 Linux（测试执行环境）可用。
+        """
+        fields = Path(f"/proc/{self.proc.pid}/stat").read_text().rsplit(")", 1)[1].split()
+        ticks = int(fields[11]) + int(fields[12])  # utime, stime（自 state 字段后起算）
+        return ticks / os.sysconf("SC_CLK_TCK")
+
 
 def start_collector(
     config_tree: Path,
@@ -148,7 +167,7 @@ def start_collector(
 
     Args:
         config_tree: 配置树根，须含 ``services/collector.yaml``、
-            ``instances/``、``templates/``（见 tests.support.v2_config）；
+            ``instances/``、``templates/``（见 tests.support.collector_config_tree）；
             v1 CLI 只接收服务文件，其余根目录按相对布局推导。
         grpc_port: gRPC 端口；None 时自动分配空闲端口。
         collector_id: Collector 标识。
@@ -234,56 +253,6 @@ def start_sink_service_from_root(
         log_dir=log_dir,
         env_extra=env_extra,
         cwd=config_root,
-    )
-
-
-def start_sink_service(
-    config_dir: Path,
-    *,
-    nats_servers: tuple[str, ...],
-    wind_farm_id: str,
-    deployment_id: str,
-    delivery: str = "realtime",
-    realtime_sinks: tuple[str, ...] = (),
-    reliable_sinks: tuple[str, ...] = (),
-    grpc_port: int | None = None,
-    state_dir: Path | None = None,
-    log_dir: Path,
-    env_extra: dict[str, str] | None = None,
-) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-sink-service``。
-
-    管理面 gRPC（``--grpc-listen``）用作就绪探针，端口自动分配；
-    ``state_dir`` 存放每 Sink 的 operator stop 意图标记。
-    """
-    port = grpc_port if grpc_port is not None else free_port()
-    argv = [
-        "--config",
-        str(config_dir),
-        "--delivery",
-        delivery,
-        "--wind-farm-id",
-        wind_farm_id,
-        "--deployment-id",
-        deployment_id,
-        "--grpc-listen",
-        f"127.0.0.1:{port}",
-    ]
-    for server in nats_servers:
-        argv.extend(["--nats", server])
-    for sink_id in realtime_sinks:
-        argv.extend(["--realtime-sink", sink_id])
-    for sink_id in reliable_sinks:
-        argv.extend(["--reliable-sink", sink_id])
-    if state_dir is not None:
-        argv.extend(["--state-dir", str(state_dir)])
-    return _start_service(
-        "wind-hub-sink-service",
-        argv,
-        service="sink-service",
-        port=port,
-        log_dir=log_dir,
-        env_extra=env_extra,
     )
 
 

@@ -55,9 +55,14 @@ def test_diagnose_gi_invalid_argument_envelope_exit2(cli_env: object) -> None:
     assert not [c for c in cli_env.server.calls if c.path.endswith("/InterrogateDevice")]
 
 
-def test_diagnose_sink_bad_service_envelope_exit2(cli_env: object) -> None:
-    """参数：非法 --service 在统一信封内失败（2），且不发出任何 RPC。"""
+def test_diagnose_sink_retired_service_selector_rejected(cli_env: object) -> None:
+    """参数：已退役的 --service 服务选择参数必须被拒绝（2），且不发出任何 RPC。
+
+    Sink 只经单一 Main 服务管理（v1_64 契约）；旧 Realtime/Reliable 选择
+    参数不得被静默接受或忽略。未知选项由参数解析层拒绝（退出码 2、
+    usage 输出），不属于业务统一信封路径——信封语义由
+    ``test_diagnose_gi_invalid_argument_envelope_exit2`` 单独覆盖。
+    """
     result = cli_env.subprocess_invoke("sink", "deliveries", "--service", "bogus")
     assert result.exit_code == 2, result.stdout
-    assert result.json()["error_code"] == "ValueError"
     assert not [c for c in cli_env.server.calls if "/Deliveries" in c.path]

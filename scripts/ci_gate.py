@@ -19,6 +19,8 @@ PR_TARGETS: dict[str, tuple[str, ...]] = {
         "tests/core/protocol",
         "tests/industrial_gateway",
     ),
+    "integration-generator": ("tests/data_generator/integration", "tests/src/integration"),
+    "integration-gateway": ("tests/industrial_gateway/integration", "tests/src/integration"),
     "integration-rpc": ("tests/system/rpc",),
     "integration-sinks": ("tests/sink_service",),
     "system-acquisition": ("tests/system/acquisition",),
@@ -34,7 +36,7 @@ BACKEND_PREFIXES = (
     "src/cli/",
     "src/web_server/",
     "src/industrial_gateway/",
-    "src/seahorse/",
+    "src/data_generator/",
     "src/sink_service/",
 )
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
@@ -335,15 +337,17 @@ def merge_gate(paths: list[str]) -> bool:
     # 未知后端生产路径的保守回退：全部业务包 + system + tooling。
     broad_tests = [
         "tests/core",
+        "tests/contracts",
         "tests/collector",
         "tests/commander",
         "tests/industrial_gateway",
-        "tests/seahorse",
+        "tests/data_generator",
         "tests/sink_service",
         "tests/web_server",
         "tests/cli",
         "tests/tooling",
         "tests/system",
+        "tests/src",
     ]
     candidates: list[str] = []
     for p in changed:
@@ -372,8 +376,8 @@ def merge_gate(paths: list[str]) -> bool:
                 candidates.append("tests/web_server")
             elif p.startswith("src/industrial_gateway/"):
                 candidates.append("tests/industrial_gateway")
-            elif p.startswith("src/seahorse/"):
-                candidates.append("tests/seahorse")
+            elif p.startswith("src/data_generator/"):
+                candidates.append("tests/data_generator")
         elif p.startswith("src/collector/"):
             candidates.append("tests/collector")
             if p.startswith("src/collector/application/") or p in {
@@ -397,8 +401,8 @@ def merge_gate(paths: list[str]) -> bool:
             candidates.append("tests/core")
         elif p.startswith("src/industrial_gateway/"):
             candidates.append("tests/industrial_gateway")
-        elif p.startswith("src/seahorse/"):
-            candidates.append("tests/seahorse")
+        elif p.startswith("src/data_generator/"):
+            candidates.append("tests/data_generator")
         elif p.startswith("src/contracts/"):
             candidates.extend(["tests/core/rpc", "tests/collector", "tests/commander"])
         elif p.startswith("src/"):

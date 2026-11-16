@@ -113,7 +113,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
     if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
         raise ValueError("unsupported Commander service schema_version")
     file_version = raw.get("file_version")
-    if file_version is not None and (
+    if (
         not isinstance(file_version, str)
         or re.fullmatch(r"(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)", file_version)
         is None

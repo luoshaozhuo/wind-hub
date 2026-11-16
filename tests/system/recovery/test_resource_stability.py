@@ -32,6 +32,7 @@ import yaml
 from contracts import common_pb2 as common_pbx
 from contracts import sink_service_pb2_grpc
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.collector_config_tree import build_collector_tree_from_site
 from tests.support.control import (
     get_disk_yaml,
     instance_states,
@@ -49,7 +50,6 @@ from tests.support.recovery_helpers import (
     wait_status,
 )
 from tests.support.sink_harness import DELIVERY_ID, write_sink_root
-from tests.support.v2_config import emit_v2_tree_from_flat_site
 from tests.support.wait import wait_redis_value, wait_tcp_port, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
@@ -61,6 +61,12 @@ CYCLES = 10
 #: FD 采样容忍的瞬时波动（日志 flush、metrics 连接等）；泄漏是单调增长，
 #: 10 次循环后仍落在基线 +3 以内即不成立。
 FD_SLACK = 3
+#: 内存采样容忍的瞬时波动（Python 分配器高位页与 GC 窗口）；持续增长
+#: 是泄漏，10 轮后仍落在基线 + 每轮 1MB 内即不成立。
+MEMORY_SLACK_KB = 10 * 1024
+#: 逐轮 CPU 增长因子与绝对余量：后半程均值不得显著高于前半程。
+CPU_GROWTH_FACTOR = 1.5
+CPU_ABS_SLACK_S = 0.5
 
 #: 身份契约：v2 站点 site_id / 默认 collector_id 必须与 Sink Delivery 的
 #: source 过滤器一致，否则批次按零匹配被过滤 ACK（无法出数）。
@@ -262,15 +268,16 @@ class TestReconnectFlapStability:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
         await sink_factory()
         flat_dir = _flat_config(tmp_path / "cfg", modbus_server.port, redis_service, nats_service)
-        v2_tree = emit_v2_tree_from_flat_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
+        v2_tree = build_collector_tree_from_site(tmp_path / "v2", flat_dir, nats_url=nats_service)
         proc: CollectorProcess = await collector_factory(v2_tree)
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await _wait_data(redis_service)
 
         baseline_reconnects = int(
             (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(DEVICE_ID, 0)
         )
         baseline_fd = proc.fd_count()
+        baseline_rss = proc.memory_rss_kb()
 
         for cycle in range(CYCLES):
             await modbus_server.stop()
@@ -301,6 +308,10 @@ class TestReconnectFlapStability:
         assert (
             final_fd <= baseline_fd + FD_SLACK
         ), f"fd count grew from {baseline_fd} to {final_fd} over {CYCLES} flap cycles"
+        final_rss = proc.memory_rss_kb()
+        assert (
+            final_rss <= baseline_rss + MEMORY_SLACK_KB
+        ), f"rss grew from {baseline_rss}KB to {final_rss}KB over {CYCLES} flap cycles"
 
 
 class TestReloadStability:
@@ -323,10 +334,14 @@ class TestReloadStability:
         proc: CollectorProcess = await collector_factory(
             v2_tree, env_extra={"WIND_HUB_COLLECTOR_TEMPLATE_PUBLISH": "enabled"}
         )
-        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
+        await start_task_instance(proc.grpc_target, instance_id=INSTANCE_ID)
         await _wait_data(redis_service)
         collector_fd = proc.fd_count()
         sink_fd = sink.fd_count()
+        collector_rss = proc.memory_rss_kb()
+        sink_rss = sink.memory_rss_kb()
+        per_cycle_cpu: list[float] = []
+        collector_cpu = proc.cpu_seconds()
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
@@ -339,6 +354,8 @@ class TestReloadStability:
             await _delivery_restart_cycle(sink_root, sink_port)
 
             await _single_running_instance(proc)
+            per_cycle_cpu.append(proc.cpu_seconds() - collector_cpu)
+            collector_cpu = proc.cpu_seconds()
 
         # 采集在最后一轮配置下继续出数。
         previous = await _wait_data(redis_service)
@@ -353,3 +370,24 @@ class TestReloadStability:
         assert (
             final_sink_fd <= sink_fd + FD_SLACK
         ), f"sink fd grew from {sink_fd} to {final_sink_fd} over {CYCLES} delivery cycles"
+
+        final_collector_rss = proc.memory_rss_kb()
+        assert final_collector_rss <= collector_rss + MEMORY_SLACK_KB, (
+            f"collector rss grew from {collector_rss}KB to {final_collector_rss}KB "
+            f"over {CYCLES} reloads"
+        )
+        final_sink_rss = sink.memory_rss_kb()
+        assert (
+            final_sink_rss <= sink_rss + MEMORY_SLACK_KB
+        ), f"sink rss grew from {sink_rss}KB to {final_sink_rss}KB over {CYCLES} delivery cycles"
+
+        # CPU：每轮收敛为有界重复工作——前半程均值与后半程均值对比，
+        # 后半程显著高于前半程即重复工作在逐轮放大（持续增长即异常）；
+        # 单轮收敛瞬时接近单核属正常（快照哈希 + 句柄重建 + 首拍补采）。
+        half = CYCLES // 2
+        early = sum(per_cycle_cpu[:half]) / half
+        late = sum(per_cycle_cpu[half:]) / (CYCLES - half)
+        assert late <= early * CPU_GROWTH_FACTOR + CPU_ABS_SLACK_S, (
+            f"per-cycle collector CPU grew: first-half {early:.2f}s/cycle vs "
+            f"second-half {late:.2f}s/cycle ({per_cycle_cpu})"
+        )

@@ -45,7 +45,6 @@ _LEVEL_MARKERS = (
 _PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "influxdb", "file")
 
 
-
 def pytest_sessionstart(session: pytest.Session) -> None:
     """Reject tests accidentally importing production code from another checkout."""
     del session
@@ -106,7 +105,7 @@ async def iec104_server() -> AsyncGenerator[IEC104MockServer, None]:
 
 
 @pytest.fixture(scope="session")
-def _compose_stack() -> Iterator[None]:
+def _compose_stack() -> Iterator[str]:
     """本机 Docker Compose 测试服务栈（按需启动，session 结束销毁）。"""
     from tests.fixtures.services import compose
 
@@ -115,9 +114,9 @@ def _compose_stack() -> Iterator[None]:
             "SKIPPED: real service environment not configured "
             "(env vars unset and docker unavailable)"
         )
-    compose.compose_up()
+    port = compose.compose_up()
     try:
-        yield
+        yield f"127.0.0.1:{port}"
     finally:
         compose.compose_down()
 
@@ -134,9 +133,9 @@ def redis_service(request: pytest.FixtureRequest) -> str:
     external = redis_address_from_env()
     if external is not None:
         return external
-    request.getfixturevalue("_compose_stack")
+    address = request.getfixturevalue("_compose_stack")
     compose.wait_services_healthy(["redis"])
-    return "127.0.0.1:6379"
+    return str(address)
 
 
 @pytest.fixture(scope="session")

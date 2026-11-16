@@ -95,9 +95,6 @@ class _FakeCommander:
             running=self.running,
             device_count=0,
             active_revision=self.runtime_revision,
-            # CommonService 不承诺旧版 active_config_hash；正式适配器恒为 ""。
-            active_config_hash="",
-            prepared_revision=None,
         )
 
     async def get_config_snapshot(self, scope: str) -> RemoteConfigSnapshot:

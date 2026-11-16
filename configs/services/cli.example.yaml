@@ -27,18 +27,12 @@ services:
     manager: isulad
     isula_binary: "/usr/bin/isula"
     target: commander
-  sink_realtime:
+  sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
     manager: systemd
     systemd_scope: system
-    target: wind-hub-sink-realtime.service
-  sink_reliable:
-    rpc_via: sink_realtime
-    tls_profile: local
-    manager: systemd
-    systemd_scope: system
-    target: wind-hub-sink-reliable.service
+    target: wind-hub-sink.service
   gateway:
     grpc_endpoint: "127.0.0.1:50073"
     tls_profile: local

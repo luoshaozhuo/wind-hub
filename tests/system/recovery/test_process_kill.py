@@ -48,17 +48,13 @@ class TestProcessKillRecovery:
         )
         # 消费侧独立存活：Collector 被 SIGKILL 期间 sink_service 不动，
         # 重启后数据面经同一 NATS 总线恢复。
-        await sink_service_factory(flat_dir, deployment_id="kill-test-sink")
+        await sink_service_factory(collector_id=WORKER_ID, deployment_id="kill-test-sink")
         v2_tree = recovery_collector_tree(flat_dir, tmp_path / "v2", nats_url=nats_service)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
         proc_a: CollectorProcess = await collector_factory(v2_tree, collector_id=WORKER_ID)
-        await start_task_instance(
-            proc_a.grpc_target,
-            task_id=TASK_ID,
-            instance_id=INSTANCE_ID,
-        )
-        first = await wait_telemetry_value(redis_service)
+        await start_task_instance(proc_a.grpc_target, instance_id=INSTANCE_ID)
+        first = await wait_telemetry_value(redis_service, collector_id=WORKER_ID)
         proc_a.kill_tree()
         assert not proc_a.is_running()
 
@@ -68,10 +64,6 @@ class TestProcessKillRecovery:
         assert info.process_role == "collector"
         assert info.service_id == WORKER_ID
 
-        baseline = str(first["timestamp"])
-        await start_task_instance(
-            proc_b.grpc_target,
-            task_id=TASK_ID,
-            instance_id=INSTANCE_ID,
-        )
-        await wait_telemetry_value(redis_service, after=baseline)
+        baseline = str(first["sample_time"])
+        await start_task_instance(proc_b.grpc_target, instance_id=INSTANCE_ID)
+        await wait_telemetry_value(redis_service, collector_id=WORKER_ID, after=baseline)
