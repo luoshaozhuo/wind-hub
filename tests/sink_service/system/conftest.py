@@ -598,7 +598,7 @@ class SinkSystemHarness:
         return infos[0].name if infos else None
 
     async def wait_kafka_messages(
-        self, *, min_messages: int = 1, timeout: float = 45.0
+        self, *, min_messages: int = 1, timeout: float = 45.0, offset_reset: str = "earliest"
     ) -> list[Any]:
         from aiokafka import AIOKafkaConsumer
         from aiokafka.errors import KafkaError
@@ -611,7 +611,7 @@ class SinkSystemHarness:
             candidate = AIOKafkaConsumer(
                 self.kafka_topic,
                 bootstrap_servers=self.stack.kafka,
-                auto_offset_reset="earliest",
+                auto_offset_reset=offset_reset,
                 group_id=f"qa-probe-{self.token}",
                 enable_auto_commit=False,
             )

@@ -871,3 +871,31 @@ async def wait_gateway_modbus_float(
             latest = error
         await asyncio.sleep(0.4)
     raise AssertionError(f"gateway modbus value not observed on port {port}: {latest}")
+
+
+async def wait_sink_modbus_float(
+    port: int, expected: float, timeout: float = 60
+) -> tuple[float, int]:
+    """Read Sink's own Modbus output server with an independent client."""
+    from pymodbus.client import AsyncModbusTcpClient
+
+    deadline = time.monotonic() + timeout
+    latest: Exception | None = None
+    while time.monotonic() < deadline:
+        client = AsyncModbusTcpClient("127.0.0.1", port=port)
+        try:
+            await client.connect()
+            values = await client.read_holding_registers(1000, count=2, device_id=1)
+            quality = await client.read_holding_registers(2000, count=1, device_id=1)
+            if values.isError() or quality.isError():
+                raise RuntimeError(f"sink modbus read failed: {values!r}, {quality!r}")
+            value = struct.unpack(">f", struct.pack(">HH", *values.registers))[0]
+            code = int(quality.registers[0])
+            if abs(value - expected) < 1e-3 and code == 0:
+                return value, code
+        except (OSError, RuntimeError) as error:
+            latest = error
+        finally:
+            client.close()
+        await asyncio.sleep(0.4)
+    raise AssertionError(f"sink modbus output not observed on port {port}: {latest}")
