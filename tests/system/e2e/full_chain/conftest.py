@@ -210,11 +210,14 @@ def _write_e2e_devices(root: Path) -> None:
     document = _load(root / "instances" / "devices_sim.yaml")
     devices = {}
     for device_id in SIM_DEVICES:
+        source = document["devices"][device_id]
         devices[device_id] = {
+            "name": source["name"],
+            "enabled": source["enabled"],
             "model": {"id": f"e2e_{device_id.lower()}", "version": "1.0.0"},
             "endpoint": {
                 "host": "127.0.0.1",
-                "port": int(document["devices"][device_id]["endpoint"]["port"]),
+                "port": int(source["endpoint"]["port"]),
             },
             "overrides": {},
         }
@@ -473,7 +476,9 @@ def _build_and_start(root: Path) -> FullChainHarness:
     _write_e2e_models_and_tasks(plant)
     _write_e2e_devices(plant)
 
-    pki = write_mtls_pki(plant / "gateway-pki", ("cli", "generator", "sink", "commander"))
+    pki = write_mtls_pki(
+        plant / "gateway-pki", ("cli", "gateway", "generator", "sink", "commander")
+    )
     harness.pki = pki
     clients = pki["clients"]
 
@@ -487,6 +492,17 @@ def _build_and_start(root: Path) -> FullChainHarness:
         server["listen_port"] = harness.modbus_ports[server["device_id"]]
     ppc = servers[4]
     assert ppc["server_id"] == "gw-ppc_sim01"
+    ppc["control"]["mappings"] = [
+        {"variable_id": point_id, "target_point_id": point_id}
+        for point_id in (
+            "agc_enable",
+            "agc_power_setpoint",
+            "avc_enable",
+            "avc_voltage_setpoint",
+            "avc_reactive_setpoint",
+            "ffr_enable",
+        )
+    ]
     ppc["control"]["target"]["endpoint"] = harness.endpoints["commander"]
     ppc["control"]["target"]["tls"] = {
         "enabled": True,
@@ -494,13 +510,14 @@ def _build_and_start(root: Path) -> FullChainHarness:
         "cert_file": str(pki["server_crt"]),
         "key_file": str(pki["server_key"]),
     }
+    gateway_crt, gateway_key = clients["gateway"]
     ppc["control"]["simulation"] = {
         "endpoint": harness.endpoints["data-generator"],
         "tls": {
             "enabled": True,
             "ca_file": str(pki["ca"]),
-            "cert_file": str(pki["server_crt"]),
-            "key_file": str(pki["server_key"]),
+            "cert_file": str(gateway_crt),
+            "key_file": str(gateway_key),
         },
         "scenario_id": "wind-plant-physical",
     }
@@ -540,7 +557,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
     document["audit"]["subject"] = audit_subject
     document["simulation_targets"] = {
         "PPC_SIM01": {
-            "gateway_id": "gw-ppc-sim01",
+            "gateway_id": "gw-ppc_sim01",
             "endpoint": harness.gw_grpc_endpoint,
             "ca_cert": str(pki["ca"]),
             "client_cert": str(clients["commander"][0]),
