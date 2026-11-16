@@ -131,6 +131,32 @@ services:
         load_config(_write(tmp_path, body))
 
 
+@pytest.mark.parametrize("field", ["cwd", "state_dir", "log_file"])
+def test_process_paths_reject_traversal(tmp_path: Path, field: str) -> None:
+    process = {
+        "cwd": "/opt/wind-hub/src",
+        "state_dir": "/var/lib/wind-hub/state",
+        "log_file": "/var/log/wind-hub/service.log",
+    }
+    process[field] = "/tmp/../unsafe"
+    body = (
+        _BASE_HEADER
+        + f"""
+services:
+  native:
+    manager: process
+    target: native
+    process:
+      argv: ["/usr/bin/python3", "-V"]
+      cwd: {process["cwd"]}
+      state_dir: {process["state_dir"]}
+      log_file: {process["log_file"]}
+"""
+    )
+    with pytest.raises(ValueError, match=field):
+        load_config(_write(tmp_path, body))
+
+
 @pytest.mark.parametrize(
     "ports",
     [

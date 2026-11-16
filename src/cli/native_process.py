@@ -7,11 +7,13 @@ import fcntl
 import json
 import os
 import signal
+import stat
 import subprocess
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from .runtime import ServiceTarget
 
@@ -46,6 +48,23 @@ def _group_active(pgid: int) -> bool:
     return False
 
 
+def _private_owned(metadata: os.stat_result) -> bool:
+    return metadata.st_uid == os.geteuid() and not metadata.st_mode & 0o077
+
+
+def _terminate_untracked_group(pgid: int, deadline: float) -> None:
+    """Ensure a just-started, unrecorded process group cannot escape management."""
+    os.killpg(pgid, signal.SIGTERM)
+    while _group_active(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if _group_active(pgid):
+        os.killpg(pgid, signal.SIGKILL)
+        while _group_active(pgid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    if _group_active(pgid):
+        raise RuntimeError("could not clean up untracked process group")
+
+
 def _load_state(path: Path) -> dict[str, Any] | None:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -61,10 +80,16 @@ def _load_state(path: Path) -> dict[str, Any] | None:
 
 
 def _running(state: dict[str, Any] | None) -> bool:
-    if state is None or _identity(state["pid"]) != state["start_tick"]:
+    if state is None:
+        return False
+    pid = state["pid"]
+    start_tick = state["start_tick"]
+    if not isinstance(pid, int) or not isinstance(start_tick, str):
+        return False
+    if _identity(pid) != start_tick:
         return False
     try:
-        return os.getpgid(state["pid"]) == state["pid"]
+        return os.getpgid(pid) == pid
     except ProcessLookupError:
         return False
 
@@ -100,11 +125,17 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
     state_dir = spec.state_dir
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     metadata = state_dir.stat()
-    if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+    if not _private_owned(metadata):
         raise RuntimeError("process state directory must be private to the CLI user")
     state_file = state_dir / f"{target.service_id}.json"
     lock_file = state_dir / f"{target.service_id}.lock"
     deadline = time.monotonic() + target.timeout
+
+    if (
+        not target.service_id.isascii()
+        or not target.service_id.replace("-", "").replace("_", "").isalnum()
+    ):
+        raise ValueError("invalid process service identity")
 
     def current_state() -> dict[str, Any]:
         saved = _load_state(state_file)
@@ -129,6 +160,13 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             0o600,
         )
         try:
+            log_metadata = os.fstat(log_fd)
+            if not _private_owned(log_metadata) or not stat.S_ISREG(log_metadata.st_mode):
+                raise RuntimeError("process log file must be a private regular file")
+        except BaseException:
+            os.close(log_fd)
+            raise
+        try:
             with os.fdopen(log_fd, "ab", buffering=0) as logfile:
                 child = subprocess.Popen(
                     list(spec.argv),
@@ -148,7 +186,7 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
         try:
             _save_state(state_file, {"pid": child.pid, "start_tick": tick})
         except OSError:
-            os.killpg(child.pid, signal.SIGTERM)
+            _terminate_untracked_group(child.pid, deadline)
             raise
         state = current_state()
         if not state["running"]:
@@ -162,12 +200,10 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
     def stop() -> dict[str, Any]:
         saved = _load_state(state_file)
         if not _running(saved):
-            if (
-                saved is not None
-                and _identity(saved["pid"]) is None
-                and _group_active(saved["pid"])
-            ):
-                raise RuntimeError("orphaned worker group requires explicit recovery")
+            if saved is not None and _group_active(saved["pid"]):
+                raise RuntimeError(
+                    "orphaned or conflicting worker group requires explicit recovery"
+                )
             state_file.unlink(missing_ok=True)
             return {**current_state(), "confirmed": True, "already_stopped": True}
         assert saved is not None

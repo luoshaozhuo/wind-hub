@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -55,7 +56,7 @@ async def test_native_lifecycle_and_idempotence(tmp_path: Path) -> None:
 async def test_stale_pid_identity_never_signals_unowned_pid(tmp_path: Path) -> None:
     target = _target(tmp_path, "import time", "time.sleep(120)")
     state_dir = target.process.state_dir if target.process else tmp_path
-    state_dir.mkdir()
+    state_dir.mkdir(mode=0o700)
     (state_dir / "native-demo.json").write_text(
         json.dumps({"pid": os.getpid(), "start_tick": "invalid-stale-identity"}),
         encoding="utf-8",
@@ -77,3 +78,44 @@ async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> No
         assert result["state"] == "STOPPED"
     finally:
         await manage_native_process(target, "stop")
+
+
+async def test_process_group_workers_are_reaped(tmp_path: Path) -> None:
+    target = _target(
+        tmp_path,
+        "import subprocess, time",
+        "subprocess.Popen(['sleep', '120'])",
+        "time.sleep(120)",
+    )
+    try:
+        started = await manage_native_process(target, "start")
+        assert started["running"]
+        stopped = await manage_native_process(target, "stop")
+        assert stopped["confirmed"] and stopped["state"] == "STOPPED"
+    finally:
+        await manage_native_process(target, "stop")
+
+
+async def test_concurrent_starts_create_one_process(tmp_path: Path) -> None:
+    target = _target(tmp_path, "import time", "time.sleep(120)")
+    try:
+        import asyncio
+
+        first, second = await asyncio.gather(
+            manage_native_process(target, "start"), manage_native_process(target, "start")
+        )
+        assert first["pid"] == second["pid"]
+        assert first["running"] and second["running"]
+        assert first.get("already_running") or second.get("already_running")
+    finally:
+        await manage_native_process(target, "stop")
+
+
+async def test_state_save_failure_reaps_started_group(tmp_path: Path) -> None:
+    target = _target(tmp_path, "import time", "time.sleep(120)")
+    with (
+        patch("cli.native_process._save_state", side_effect=OSError("disk full")),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        await manage_native_process(target, "start")
+    assert (await manage_native_process(target, "status"))["state"] == "STOPPED"

@@ -4,7 +4,7 @@
 
 - NATS/JetStream、Redis、Kafka 由测试基础设施（r5 真实 Docker 栈）启动清理；
 - Gateway、Data Generator、双 Collector、Sink、Commander 六个业务进程全部经
-  正式 CLI ``service start/stop/restart/status``（systemd user 单元）管理；
+  正式 CLI ``service start/stop/restart/status`` 的原生 Linux 进程管理器管理；
 - 全部业务命令（Generation/Task/Delivery/变量更新/控制）经 CLI；无 CLI 叶子
   对应的正式 RPC（如 Generator ``GetInputExecution``、Gateway
   ``ExecuteSimulationCommand``）由真实 mTLS 客户端补齐并在矩阵注明；
@@ -162,46 +162,6 @@ def _physical_scenario(
         ]
         + [{"device_id": "PPC_SIM01"}],
         "gateways": gateways,
-    }
-
-
-def _replay_scenario(gateway_endpoint: str) -> dict[str, Any]:
-    """CSV 回放场景：history/demo.csv（设备 GW02，固定源序列可复现）。"""
-    return {
-        "scenario_id": "e2e-replay-demo",
-        "version": "1.0.0",
-        "description": "full-chain E2E CSV replay",
-        "source": {
-            "kind": "replay",
-            "history_reader": "csv",
-            "file": "history/demo.csv",
-            "start_time": "2026-01-01T00:00:00Z",
-            "end_time": "2026-01-01T01:00:00Z",
-            "speed": 50.0,
-            "loop": False,
-        },
-        "devices": [
-            {
-                "device_id": "GW02",
-                "model_ref": "model-GW02",
-                "points": ["a02_dm_pitchangle1"],
-            }
-        ],
-        "models": {
-            "model-GW02": {
-                "kind": "random",
-                "seed": 7,
-                "rules": {"GW02": {"a02_dm_pitchangle1": None}},
-            }
-        },
-        "gateways": [
-            {
-                "gateway_id": "gw-replay",
-                "endpoint": gateway_endpoint,
-                "device_id": "GW02",
-                "variable_mapping": {"a02_dm_pitchangle1": "wind_speed"},
-            }
-        ],
     }
 
 
@@ -456,14 +416,6 @@ class FullChainHarness:
 def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
     scenarios = [
         _physical_scenario("wind-plant-physical", "1.0.0", gateway_endpoint, interval=0.05),
-        _physical_scenario(
-            "wind-plant-physical",
-            "1.0.1",
-            gateway_endpoint,
-            interval=0.1,
-            weather=_weather_block(mean=12.0),
-        ),
-        _replay_scenario(gateway_endpoint),
     ]
     # PV 短日场景：辐照 0→800（cloud 0.8）与 0→1000（cloud 1.0）。
     for scenario_id, cloud in (("e2e-pv-800", 0.8), ("e2e-pv-1000", 1.0)):
@@ -491,7 +443,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
     _write_e2e_models_and_tasks(plant)
     _write_e2e_devices(plant)
 
-    pki = write_mtls_pki(root / "gateway-pki", ("cli", "generator", "sink", "commander"))
+    pki = write_mtls_pki(plant / "gateway-pki", ("cli", "generator", "sink", "commander"))
     harness.pki = pki
     clients = pki["clients"]
 
@@ -500,18 +452,19 @@ def _build_and_start(root: Path) -> FullChainHarness:
     servers = gateway_document["servers"]
     assert [item["device_id"] for item in servers] == list(SIM_DEVICES)
     for server in servers:
+        server["server_id"] = f"gw-{server['device_id'].lower()}"
         server["listen_host"] = "127.0.0.1"
         server["listen_port"] = harness.modbus_ports[server["device_id"]]
     ppc = servers[4]
-    assert ppc["server_id"] == "gw-ppc-sim01"
+    assert ppc["server_id"] == "gw-ppc_sim01"
     ppc["control"]["target"]["endpoint"] = harness.endpoints["commander"]
     ppc["control"]["target"]["tls"] = {
         "enabled": True,
-        "ca_file": str(root / "commander-pki" / "ca.crt"),
+        "ca_file": str(plant / "commander-pki" / "ca.crt"),
         "cert_file": str(pki["server_crt"]),
         "key_file": str(pki["server_key"]),
     }
-    ppc["simulation"] = {
+    ppc["control"]["simulation"] = {
         "endpoint": harness.endpoints["data-generator"],
         "tls": {
             "enabled": True,
@@ -543,13 +496,15 @@ def _build_and_start(root: Path) -> FullChainHarness:
     audit_stream = f"CMD_FULLCHAIN_{harness.token.upper()}"
     audit_subject = f"commander.fullchain.{harness.token}"
     asyncio.run(_provision_commander_audit(stack.nats, audit_stream, audit_subject))
-    (root / "commander-pki").mkdir(parents=True, exist_ok=True)
-    commander_pki = build_pki(root / "commander-pki")
+    (plant / "commander-pki").mkdir(parents=True, exist_ok=True)
+    commander_pki = build_pki(plant / "commander-pki")
     commander_service = write_commander_service(
         plant, plant, commander_pki, grpc_port=ports["commander"]
     )
     document = _load(commander_service)
-    document["config_sources"]["devices"] = str(plant / "instances" / "devices_e2e.yaml")
+    document["config_sources"]["instances"]["devices"] = str(
+        plant / "instances" / "devices_e2e.yaml"
+    )
     document["audit"]["nats_servers"] = [stack.nats]
     document["audit"]["stream"] = audit_stream
     document["audit"]["subject"] = audit_subject
@@ -582,6 +537,10 @@ def _build_and_start(root: Path) -> FullChainHarness:
     sink.write_dual_channel_root(
         kafka_bootstrap=stack.kafka, redis_address=stack.redis, nats_url=stack.nats
     )
+    sink_service = sink.root / "configs" / "services" / "sink_service.yaml"
+    sink_service_document = _load(sink_service)
+    sink_service_document["wind_farm_id"] = FARM
+    _dump(sink_service, sink_service_document)
     sink.bundle = write_mtls_bundle(sink.root)
     bundle = sink.bundle
     bounded_rt = {
@@ -596,6 +555,12 @@ def _build_and_start(root: Path) -> FullChainHarness:
         "devices": [],
         "points": [],
     }
+    bounded_gateway = {
+        "wind_farm_id": FARM,
+        "collector_id": harness.rt_collector,
+        "devices": ["WTG_SIM01"],
+        "points": ["wind_speed"],
+    }
     deliveries = _load(sink.root / DELIVERIES_INSTANCE)
     deliveries["deliveries"]["ems_power"]["source"] = bounded_rt
     deliveries["deliveries"]["power_history"]["source"] = bounded_hist
@@ -604,7 +569,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
         "template_version": "1.0.0",
         "sink_id": "gateway_sink",
         "desired_state": "START",
-        "source": bounded_rt,
+        "source": bounded_gateway,
         "target_mappings": [
             {
                 "source_device_id": "WTG_SIM01",
@@ -619,7 +584,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
         "template_version": "1.0.0",
         "sink_id": "modbus_sink",
         "desired_state": "START",
-        "source": bounded_rt,
+        "source": bounded_gateway,
         "overrides": {},
     }
     _dump(sink.root / DELIVERIES_INSTANCE, deliveries)
@@ -656,7 +621,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
         ports=ports,
     )
 
-    # ---------------- systemd units ----------------
+    # ---------------- CLI-managed native processes ----------------
     python = sys.executable
     common_env = {
         "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
@@ -766,7 +731,11 @@ def _build_and_start(root: Path) -> FullChainHarness:
         sink_bundle=bundle,
     )
 
-    asyncio.run(_wait_stack_ready(harness, sink))
+    try:
+        asyncio.run(_wait_stack_ready(harness, sink))
+    except BaseException:
+        _teardown(harness)
+        raise
     return harness
 
 

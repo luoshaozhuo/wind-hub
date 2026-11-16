@@ -22,6 +22,7 @@ import socket as socket_mod
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 

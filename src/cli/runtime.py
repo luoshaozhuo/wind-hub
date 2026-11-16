@@ -187,22 +187,18 @@ def load_config(path: Path) -> CLIConfig:
             ):
                 raise ValueError(f"{name}.process.argv must start with an absolute executable")
             environment = process_config.get("env", {})
-            if (
-                not isinstance(environment, dict)
-                or any(
-                    not isinstance(key, str)
-                    or not key.isidentifier()
-                    or not isinstance(value, str)
-                    for key, value in environment.items()
-                )
+            if not isinstance(environment, dict) or any(
+                not isinstance(key, str) or not key.isidentifier() or not isinstance(value, str)
+                for key, value in environment.items()
             ):
                 raise ValueError(f"{name}.process.env must map names to strings")
             paths = {}
             for key in ("cwd", "state_dir", "log_file"):
                 raw_path = process_config.get(key)
-                if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+                candidate = Path(raw_path) if isinstance(raw_path, str) else None
+                if candidate is None or not candidate.is_absolute() or ".." in candidate.parts:
                     raise ValueError(f"{name}.process.{key} must be an absolute path")
-                paths[key] = Path(raw_path)
+                paths[key] = candidate
             process_spec = ProcessSpec(
                 argv=tuple(argv),
                 cwd=paths["cwd"],
