@@ -449,6 +449,13 @@ class FullChainHarness:
 def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
     scenarios = [
         _physical_scenario("wind-plant-physical", "1.0.0", gateway_endpoint, interval=0.05),
+        _physical_scenario(
+            "e2e-wind-seeded",
+            "1.0.0",
+            gateway_endpoint,
+            interval=0.05,
+            weather=_weather_block(turbulence=0.12),
+        ),
     ]
     # PV 短日场景：辐照 0→800（cloud 0.8）与 0→1000（cloud 1.0）。
     for scenario_id, cloud in (("e2e-pv-800", 0.8), ("e2e-pv-1000", 1.0)):
