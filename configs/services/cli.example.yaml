@@ -30,9 +30,13 @@ services:
   sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
-    manager: systemd
-    systemd_scope: system
-    target: wind-hub-sink.service
+    manager: process
+    target: sink
+    process:
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/etc/wind-hub/sink"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/sink.log"
   gateway:
     grpc_endpoint: "127.0.0.1:50073"
     tls_profile: local
@@ -43,9 +47,13 @@ services:
   data-generator:
     grpc_endpoint: "127.0.0.1:50061"
     tls_profile: local
-    manager: systemd
-    systemd_scope: system
-    target: wind-hub-data_generator.service
+    manager: process
+    target: data-generator
+    process:
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/services/data-generator.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/data-generator.log"
 tls_profiles:
   local:
     ca_cert: "/etc/wind-hub/certs/ca.crt"

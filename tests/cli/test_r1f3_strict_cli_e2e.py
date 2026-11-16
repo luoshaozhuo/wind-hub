@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shlex
 import struct
 import subprocess
 import sys
@@ -54,40 +53,6 @@ SERVICES = (
 )
 
 
-def require_systemd_scope() -> str:
-    """Select a reachable real systemd manager; never substitute mock processes."""
-    requested = os.getenv("WIND_HUB_E2E_SYSTEMD_SCOPE", "auto")
-    if requested not in {"auto", "user", "system"}:
-        raise ValueError("WIND_HUB_E2E_SYSTEMD_SCOPE must be auto, user or system")
-    # Do not write to the host system manager without an explicit opt-in.
-    scopes = ("user",) if requested == "auto" else (requested,)
-    errors: list[str] = []
-    for scope in scopes:
-        if scope == "system" and os.geteuid() != 0:
-            errors.append("system manager requires uid 0")
-            continue
-        command = ["systemctl", "--user"] if scope == "user" else ["systemctl"]
-        try:
-            result = subprocess.run(
-                [*command, "show", "--property=Version", "--value"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            errors.append(f"{scope}: {exc}")
-            continue
-        if result.returncode == 0:
-            return scope
-        errors.append(f"{scope}: {result.stderr.strip()}")
-    pytest.skip(
-        "NOT_RUN: CLI lifecycle needs an accessible real user/system systemd manager; "
-        "enable user systemd/DBus or run in a disposable root-owned systemd "
-        f"test environment ({'; '.join(errors)})"
-    )
-
-
 def _dump(path: Path, document: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
@@ -98,11 +63,10 @@ def _write_cli(
     *,
     collector: str,
     endpoints: dict[str, str],
-    units: dict[str, str],
+    processes: dict[str, dict[str, Any]],
     gateway_pki: dict[str, object],
     commander_pki: Any,
     sink_bundle: dict[str, Path],
-    systemd_scope: str = "user",
 ) -> Path:
     clients = cast(dict[str, tuple[Path, Path]], gateway_pki["clients"])
     gateway_crt, gateway_key = clients["cli"]
@@ -131,9 +95,9 @@ def _write_cli(
         services[name] = {
             "grpc_endpoint": endpoints[name],
             "tls_profile": profile,
-            "manager": "systemd",
-            "systemd_scope": systemd_scope,
-            "target": units[name],
+            "manager": "process",
+            "target": name,
+            "process": processes[name],
         }
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
@@ -154,6 +118,7 @@ def _write_cli(
             "tls_profiles": profiles,
         },
     )
+    path.chmod(0o600)
     return path
 
 
@@ -171,53 +136,25 @@ def _scalar_number(raw: object) -> float | None:
 
 
 class StrictCliE2E:
-    """只暴露 CLI 业务操作；systemctl 仅用于安装和最终清理测试单元。"""
+    """Run every business process through the production CLI."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
         self.log = root / "cli-calls.jsonl"
-        self.systemd_scope = require_systemd_scope()
-        self.systemctl = ["systemctl", "--user"] if self.systemd_scope == "user" else ["systemctl"]
-        self.units_dir = (
-            Path.home() / ".config" / "systemd" / "user"
-            if self.systemd_scope == "user"
-            else Path("/etc/systemd/system")
-        )
-        self.units: dict[str, str] = {}
+        self.processes: dict[str, dict[str, Any]] = {}
         self.cli_realtime = root / "cli-realtime.yaml"
         self.cli_reliable = root / "cli-reliable.yaml"
 
-    def install_unit(
+    def register_process(
         self, name: str, argv: list[str], *, cwd: Path, env: dict[str, str] | None = None
-    ) -> str:
-        unit = f"wh-r1f3-{name.replace('_', '-')}-{uuid4().hex[:8]}.service"
-        self.units[name] = unit
-        environment = {"PYTHONPATH": str(SRC), **(env or {})}
-        lines = [
-            "[Unit]",
-            f"Description=strict CLI E2E {name}",
-            "[Service]",
-            "Type=simple",
-            f"WorkingDirectory={cwd}",
-            f"ExecStart={shlex.join(argv)}",
-            # systemd 对 Environment= 值做 C 风格转义：JSON 载荷中的
-            # 反斜杠必须双写，否则 "\n" 被解释成真实换行、Secret 解析失败。
-            *(
-                f"Environment={shlex.quote(f'{key}={value.replace(chr(92), chr(92) * 2)}')}"
-                for key, value in environment.items()
-            ),
-            f"StandardOutput=append:{self.root / (name + '.log')}",
-            f"StandardError=append:{self.root / (name + '.log')}",
-            "Restart=no",
-            "[Install]",
-            "WantedBy=default.target",
-        ]
-        self.units_dir.mkdir(parents=True, exist_ok=True)
-        (self.units_dir / unit).write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return unit
-
-    def reload(self) -> None:
-        subprocess.run([*self.systemctl, "daemon-reload"], check=True, timeout=20)
+    ) -> None:
+        self.processes[name] = {
+            "argv": argv,
+            "cwd": str(cwd),
+            "env": {"PYTHONPATH": str(SRC), **(env or {})},
+            "state_dir": str(self.root / "process-state"),
+            "log_file": str(self.root / f"{name}.log"),
+        }
 
     def cli_env(self, *, token: str | None = ADMIN_TOKEN) -> dict[str, str]:
         """CLI 子进程环境：默认注入管理令牌；None 表示删除（fail-closed 路径）。"""
@@ -306,17 +243,8 @@ class StrictCliE2E:
 
     async def stop_all(self, config: Path) -> None:
         for name in reversed(SERVICES):
-            if name in self.units:
+            if name in self.processes:
                 await self.cli(config, "service", "stop", name, "--yes", timeout=20, check=False)
-        for unit in self.units.values():
-            (self.units_dir / unit).unlink(missing_ok=True)
-            subprocess.run(
-                [*self.systemctl, "reset-failed", unit],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
-        subprocess.run([*self.systemctl, "daemon-reload"], check=False, timeout=20)
 
 
 async def _provision_commander_audit(url: str, stream: str, subject: str) -> None:
@@ -379,7 +307,6 @@ async def _wait_sink_modbus(port: int, value: float) -> None:
 @pytest.mark.asyncio
 async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -> None:
     """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
-    require_systemd_scope()
     token = uuid4().hex[:8]
     farm = "farm-a"
     rt_collector = f"collector-rt-{token}"
@@ -659,7 +586,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
             "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
         }
-        harness.install_unit(
+        harness.register_process(
             "gateway",
             [
                 python,
@@ -672,7 +599,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             ],
             cwd=SRC,
         )
-        harness.install_unit(
+        harness.register_process(
             "data-generator",
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
             cwd=SRC,
@@ -681,7 +608,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             ("collector_realtime", rt_collector),
             ("collector_reliable", reliable_collector),
         ):
-            harness.install_unit(
+            harness.register_process(
                 name,
                 [
                     python,
@@ -711,37 +638,34 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 "client_key_pem": sink_key.read_text(encoding="utf-8"),
             }
         )
-        harness.install_unit(
+        harness.register_process(
             "sink",
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             cwd=sink.root,
             env={"WH_STRICT_GATEWAY_TLS": gateway_credentials},
         )
-        harness.install_unit(
+        harness.register_process(
             "commander",
             [python, "-m", "commander", "--config", str(commander_service)],
             cwd=SRC,
         )
-        harness.reload()
         _write_cli(
             harness.cli_realtime,
             collector="collector_realtime",
             endpoints=endpoints,
-            units=harness.units,
+            processes=harness.processes,
             gateway_pki=pki,
             commander_pki=commander_pki,
             sink_bundle=bundle,
-            systemd_scope=harness.systemd_scope,
         )
         _write_cli(
             harness.cli_reliable,
             collector="collector_reliable",
             endpoints=endpoints,
-            units=harness.units,
+            processes=harness.processes,
             gateway_pki=pki,
             commander_pki=commander_pki,
             sink_bundle=bundle,
-            systemd_scope=harness.systemd_scope,
         )
 
         for name in SERVICES:

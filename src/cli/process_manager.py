@@ -100,94 +100,6 @@ async def _isula(target: ServiceTarget, action: str) -> dict[str, Any]:
     return {"manager": "isulad", "target": target.target, "stages": completed}
 
 
-async def _systemd(target: ServiceTarget, action: str) -> dict[str, Any]:
-    try:
-        from dbus_next import BusType
-        from dbus_next.aio import MessageBus
-    except ImportError as exc:
-        raise RuntimeError("systemd requires dbus-next") from exc
-    if not target.target or not target.target.endswith(".service"):
-        raise ValueError("systemd target must be a configured .service unit")
-    if target.systemd_scope == "user":
-        bus = await MessageBus().connect()
-    else:
-        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-
-    def as_runtime_error(exc: Exception, action: str) -> RuntimeError:
-        # D-Bus 错误（单元消失、权限拒绝等）是进程管理业务失败，由调用方映射 FAILURE/1，
-        # 不允许以未翻译异常落到参数错误（2）。
-        return RuntimeError(f"systemd {action} failed: {exc}")
-
-    try:
-        obj = await bus.introspect("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
-        proxy = bus.get_proxy_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1", obj)
-        manager = proxy.get_interface("org.freedesktop.systemd1.Manager")
-
-        async def state() -> str:
-            try:
-                unit_path = await manager.call_get_unit(target.target)
-            except Exception as exc:
-                # 停止后 systemd 可立即回收未加载单元（停止与重启之间的真实竞态）；
-                # 对被配置的 .service 目标，未加载等价于 inactive。
-                if "not loaded" in str(exc) or "not found" in str(exc):
-                    return "inactive"
-                raise as_runtime_error(exc, "get-unit") from exc
-            description = await bus.introspect("org.freedesktop.systemd1", unit_path)
-            unit = bus.get_proxy_object("org.freedesktop.systemd1", unit_path, description)
-            properties = unit.get_interface("org.freedesktop.DBus.Properties")
-            value = await properties.call_get("org.freedesktop.systemd1.Unit", "ActiveState")
-            return str(value.value)
-
-        if action == "status":
-            current = await asyncio.wait_for(state(), target.timeout)
-            return {
-                "manager": "systemd",
-                "target": target.target,
-                "active_state": current,
-                "status": "ACTIVE" if current == "active" else "INACTIVE",
-            }
-
-        operations = ("stop", "start") if action == "restart" else (action,)
-        deadline = asyncio.get_running_loop().time() + target.timeout
-        stages: list[dict[str, Any]] = []
-        for operation in operations:
-            method = manager.call_start_unit if operation == "start" else manager.call_stop_unit
-            try:
-                job = await asyncio.wait_for(
-                    method(target.target, "replace"),
-                    max(0.1, deadline - asyncio.get_running_loop().time()),
-                )
-            except Exception as exc:
-                raise as_runtime_error(exc, operation) from exc
-            expected = "active" if operation == "start" else "inactive"
-            while True:
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    raise TimeoutError(f"systemd {operation} not confirmed")
-                current = await asyncio.wait_for(state(), remaining)
-                if current == expected:
-                    stages.append(
-                        {
-                            "operation": operation,
-                            "job": str(job),
-                            "active_state": current,
-                            "confirmed": True,
-                        }
-                    )
-                    break
-                if current == "failed":
-                    raise RuntimeError(f"systemd unit entered failed state during {operation}")
-                await asyncio.sleep(min(0.2, remaining))
-        return {
-            "manager": "systemd",
-            "target": target.target,
-            "stages": stages,
-            "confirmed": True,
-        }
-    finally:
-        bus.disconnect()
-
-
 async def manage_service_process(target: ServiceTarget, action: str) -> dict[str, Any]:
     """Run only explicit manager operations on configured targets."""
     if action not in {"start", "stop", "restart", "status"}:
@@ -196,8 +108,10 @@ async def manage_service_process(target: ServiceTarget, action: str) -> dict[str
         raise ValueError("service has no configured process manager")
     if target.manager == "isulad":
         return await _isula(target, action)
-    if target.manager == "systemd":
-        return await _systemd(target, action)
+    if target.manager == "process":
+        from .native_process import manage_native_process
+
+        return await manage_native_process(target, action)
     from .containerd_client import containerd_manage
 
     return await containerd_manage(target, action)

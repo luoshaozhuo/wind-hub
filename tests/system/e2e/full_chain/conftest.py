@@ -41,7 +41,6 @@ from tests.cli.test_r1f3_strict_cli_e2e import (
     StrictCliE2E,
     _provision_commander_audit,
     _write_cli,
-    require_systemd_scope,
 )
 from tests.commander.grpc_harness import build_pki
 from tests.fixtures.services import r5_stack
@@ -747,27 +746,24 @@ def _build_and_start(root: Path) -> FullChainHarness:
     }
     for name in SERVICES:
         argv, cwd, env = argv_by_service[name]
-        cli.install_unit(name, argv, cwd=cwd, env=env)
-    cli.reload()
+        cli.register_process(name, argv, cwd=cwd, env=env)
     _write_cli(
         harness.cli_rt,
         collector="collector_realtime",
         endpoints=harness.endpoints,
-        units=cli.units,
+        processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
         sink_bundle=bundle,
-        systemd_scope=cli.systemd_scope,
     )
     _write_cli(
         harness.cli_rel,
         collector="collector_reliable",
         endpoints=harness.endpoints,
-        units=cli.units,
+        processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
         sink_bundle=bundle,
-        systemd_scope=cli.systemd_scope,
     )
 
     asyncio.run(_wait_stack_ready(harness, sink))
@@ -822,7 +818,6 @@ def full_chain(tmp_path_factory: pytest.TempPathFactory) -> FullChainHarness:
     tmp_path = tmp_path_factory.mktemp("full-chain")
     if not r5_stack.docker_available():
         pytest.skip("NOT_RUN: docker daemon unavailable for real middleware stack")
-    require_systemd_scope()
     harness = _build_and_start(tmp_path)
     try:
         yield harness

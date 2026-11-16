@@ -19,6 +19,15 @@ from core.infrastructure.config import ConfigOperationError, parse_yaml
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessSpec:
+    argv: tuple[str, ...]
+    cwd: Path
+    env: dict[str, str]
+    state_dir: Path
+    log_file: Path
+
+
+@dataclass(frozen=True, slots=True)
 class ServiceTarget:
     service_id: str
     grpc_endpoint: str | None
@@ -28,7 +37,7 @@ class ServiceTarget:
     namespace: str | None
     manager_socket: str | None
     isula_binary: str | None
-    systemd_scope: str | None
+    process: ProcessSpec | None
     timeout: float
 
 
@@ -152,7 +161,7 @@ def load_config(path: Path) -> CLIConfig:
         if profile is not None and profile not in profiles:
             raise ValueError(f"{name} references unknown tls_profile {profile}")
         manager = item.get("manager")
-        if manager is not None and manager not in ("containerd", "isulad", "systemd"):
+        if manager is not None and manager not in ("containerd", "isulad", "process"):
             raise ValueError(f"{name}.manager is unsupported")
         target = item.get("target")
         if manager is not None and (not isinstance(target, str) or not target):
@@ -160,7 +169,49 @@ def load_config(path: Path) -> CLIConfig:
         namespace = item.get("namespace")
         manager_socket = item.get("manager_socket")
         isula_binary = item.get("isula_binary")
-        systemd_scope = item.get("systemd_scope")
+        if "systemd_scope" in item:
+            raise ValueError(f"{name}.systemd_scope is not supported")
+        process_config = item.get("process")
+        process_spec: ProcessSpec | None = None
+        if manager == "process":
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name) is None:
+                raise ValueError(f"{name}: invalid process service name")
+            if not isinstance(process_config, dict):
+                raise ValueError(f"{name}.process must be a mapping")
+            argv = process_config.get("argv")
+            if (
+                not isinstance(argv, list)
+                or not argv
+                or any(not isinstance(arg, str) or not arg for arg in argv)
+                or not Path(argv[0]).is_absolute()
+            ):
+                raise ValueError(f"{name}.process.argv must start with an absolute executable")
+            environment = process_config.get("env", {})
+            if (
+                not isinstance(environment, dict)
+                or any(
+                    not isinstance(key, str)
+                    or not key.isidentifier()
+                    or not isinstance(value, str)
+                    for key, value in environment.items()
+                )
+            ):
+                raise ValueError(f"{name}.process.env must map names to strings")
+            paths = {}
+            for key in ("cwd", "state_dir", "log_file"):
+                raw_path = process_config.get(key)
+                if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+                    raise ValueError(f"{name}.process.{key} must be an absolute path")
+                paths[key] = Path(raw_path)
+            process_spec = ProcessSpec(
+                argv=tuple(argv),
+                cwd=paths["cwd"],
+                env=dict(environment),
+                state_dir=paths["state_dir"],
+                log_file=paths["log_file"],
+            )
+        elif process_config is not None:
+            raise ValueError(f"{name}.process is supported only by manager=process")
         if manager == "containerd":
             if not isinstance(namespace, str) or not namespace:
                 raise ValueError(f"{name}.namespace is required")
@@ -172,8 +223,6 @@ def load_config(path: Path) -> CLIConfig:
             and (not isinstance(isula_binary, str) or not Path(isula_binary).is_absolute())
         ):
             raise ValueError(f"{name}.isula_binary must be absolute")
-        if systemd_scope is not None and systemd_scope not in ("system", "user"):
-            raise ValueError(f"{name}.systemd_scope must be system or user")
         if endpoint is not None and profile is None:
             raise ValueError(f"{name}.tls_profile is required for mTLS")
         targets[name] = ServiceTarget(
@@ -185,7 +234,7 @@ def load_config(path: Path) -> CLIConfig:
             namespace,
             manager_socket,
             isula_binary,
-            systemd_scope,
+            process_spec,
             timeout,
         )
     for name, target in targets.items():
@@ -371,8 +420,8 @@ class Runtime:
                 process = item.get("process", {})
                 business = item.get("business", {})
                 if isinstance(process, dict):
-                    # systemd 用 active_state/status；containerd/iSulad 用 state。
-                    manager_state = process.get("state") or process.get("active_state")
+                    # Native process and container managers expose a process state.
+                    manager_state = process.get("state")
                     if process.get("status") == "UNKNOWN" or manager_state in {
                         "STOPPED",
                         "UNKNOWN",
