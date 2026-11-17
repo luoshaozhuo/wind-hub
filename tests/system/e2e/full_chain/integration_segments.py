@@ -274,7 +274,10 @@ async def _push_apply_sink_snapshot(
         check=False,
     )
     assert applied["status"] in {"SUCCESS", "PARTIAL"}, applied
-    assert applied["data"]["file_commit"] == "COMMITTED", applied
+    assert applied["data"]["file_commit"] == applied["data"]["effective_revision"], applied
+    assert all(
+        item["status"] in {"APPLIED", "SUCCESS"} for item in applied["data"]["apply_results"]
+    ), applied
     return str(applied["data"]["effective_revision"])
 
 
