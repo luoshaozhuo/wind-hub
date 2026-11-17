@@ -92,7 +92,7 @@ def pipeline_diagnose(
         reports: dict[str, Any] = {}
         correlation_id = str(uuid4())
         for svc_name, stages in (
-            ("collector", ["connect", "protocol", "sample", "publish"]),
+            ("collector", ["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"]),
             ("sink", ["consumer", "delivery"]),
         ):
             target = device_id if svc_name == "collector" else (sink_id or device_id)

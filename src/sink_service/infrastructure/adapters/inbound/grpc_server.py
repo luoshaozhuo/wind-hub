@@ -503,6 +503,11 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                             observations.append((view.delivery_id, state))
                         elif stage in evidence:
                             observations.append((view.delivery_id, evidence[stage]))
+                        observations.extend(
+                            ("sample_id", sample_id)
+                            for sample_id in evidence.get("sample_id", "").split(",")
+                            if sample_id
+                        )
                     if not observations:
                         status = "UNKNOWN"
                         message = "No authoritative process-owned evidence"

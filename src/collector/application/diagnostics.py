@@ -90,6 +90,10 @@ class CollectorDiagnostics:
                         "NATS transport is not currently connected",
                     )
                 evidence.append(("delivery", self._publisher.delivery_mode))
+                evidence.extend(
+                    ("sample_id", sample_id)
+                    for sample_id in getattr(self._publisher, "last_sample_ids", ())
+                )
                 limitations.append(
                     "NATS stage verifies the client transport only; no isolated "
                     "publish, JetStream PubAck or Sink persistence is verified"

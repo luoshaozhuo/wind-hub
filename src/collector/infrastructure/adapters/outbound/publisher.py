@@ -85,6 +85,12 @@ class CollectorPublisher:
         self.attempted_samples = 0
         self.published_samples = 0
         self.pubacked_samples = 0
+        self._last_sample_ids: tuple[str, ...] = ()
+
+    @property
+    def last_sample_ids(self) -> tuple[str, ...]:
+        """Return a bounded tail of identities confirmed by the transport."""
+        return self._last_sample_ids
 
     @property
     def connected(self) -> bool:
@@ -223,6 +229,10 @@ class CollectorPublisher:
                 )
         self.published += 1
         self.published_samples += len(batch.samples)
+        self._last_sample_ids = (
+            *self._last_sample_ids,
+            *(item.sample_id for item in batch.samples),
+        )[-64:]
         if self._telemetry is not None:
             self._telemetry.increment("collector.publisher.samples_published", len(batch.samples))
             received = min(

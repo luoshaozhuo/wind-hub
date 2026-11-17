@@ -84,6 +84,11 @@ class RealtimeEngine:
         self.latency_window = LatencyWindow(window_ms=metrics_window_ms)
 
     @property
+    def confirmed_sample_ids(self) -> tuple[str, ...]:
+        """Return latest per-point identities with confirmed target writes."""
+        return tuple(sorted(sample.sample_id for sample in self._sent.values()))
+
+    @property
     def source_identity(self) -> tuple[str, str]:
         """Index subscriptions by immutable wind-farm and Collector identities."""
         return self._wind_farm_id, self._collector_id
