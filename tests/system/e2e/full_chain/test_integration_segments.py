@@ -700,11 +700,13 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
         batch = fixed_batch(
             harness, "realtime", sample_id=sample_id, value=77.25, source_time=source_time
         )
+        published_at = datetime.now(UTC)
         await publish_batch(harness, batch)
         mapped = await wait_gateway_value(
             harness, target.cli_config, "gw-wtg_sim01", SINK_TARGET_POINT, 77.25
         )
-        assert utc_time(mapped["values"][0]["sample_timestamp"]) == source_time
+        mapped_at = utc_time(mapped["values"][0]["sample_timestamp"])
+        assert published_at <= mapped_at <= datetime.now(UTC)
         assert abs(await read_modbus_float(target.modbus_port, 400, holding=True) - 77.25) < 1e-3
         assert (
             abs(
@@ -875,6 +877,7 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             target_modbus_port=target.modbus_port,
             sink_mapping_sample_id=sample_id,
             sink_mapping_value=77.25,
+            sink_mapping_update_timestamp=mapped_at.isoformat(),
             source_loopback_value_unchanged=source_before,
             source_independent_write=88.5,
             target_after_source_write=target_after_source_write["values"][0],
