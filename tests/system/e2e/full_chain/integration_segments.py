@@ -417,7 +417,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         connection["gateway_id"] = "gw-wtg_sim01"
         _dump(candidate_sinks, sinks)
         await _push_apply_sink_snapshot(harness, candidate_snapshot, candidate_revision)
-        await harness.service("stop", "sink")
         sink_cert, sink_key = pki["clients"]["sink"]
         harness.cli.processes["sink"]["env"]["WH_FULLCHAIN_GATEWAY_TLS"] = json.dumps(
             {
@@ -444,7 +443,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
             sink_bundle=harness.sink.bundle,
         )
-        await harness.service("start", "sink")
         return target
     except BaseException:
         await stop_target_gateway(target)
@@ -463,8 +461,6 @@ async def stop_target_gateway(target: TargetGateway) -> None:
     harness.cli_rel.write_bytes(target.original_cli_rel)
     with contextlib.suppress(Exception):
         await harness.cli.service(target.cli_config, "stop", target.service_name)
-    with contextlib.suppress(Exception):
-        await harness.service("restart", "sink")
 
 
 async def read_modbus_float(port: int, address: int, *, holding: bool) -> float:
