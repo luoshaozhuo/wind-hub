@@ -61,6 +61,8 @@ REPO_CONFIGS = REPO_ROOT / "configs"
 FARM = "example_site"
 ADMIN_TOKEN = ADMIN_TOKEN
 SIM_DEVICES = ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01")
+REPLAY_DEVICE = "GW02"
+E2E_DEVICES = (*SIM_DEVICES, REPLAY_DEVICE)
 
 #: Sink GatewayOutput 的专用目标变量（寄存器随出厂 sim WTG 点表副本追加，
 #: 不与 DG 注入变量冲突）。
@@ -193,13 +195,6 @@ def _plant_root(base: Path) -> Path:
     root = base / "plant-configs"
     for name in ("instances", "templates", "history"):
         shutil.copytree(REPO_CONFIGS / name, root / name)
-    (root / "history" / "e2e-wind.csv").write_text(
-        "device_id,point_id,source_timestamp,value,quality,record_id\n"
-        "WTG_SIM01,wind_speed,2026-01-01T00:00:00Z,5.5,GOOD,1\n"
-        "WTG_SIM01,wind_speed,2026-01-01T00:00:01Z,6.0,GOOD,2\n"
-        "WTG_SIM01,wind_speed,2026-01-01T00:00:02Z,7.5,GOOD,3\n",
-        encoding="utf-8",
-    )
     (root / "services").mkdir()
     return root
 
@@ -207,8 +202,16 @@ def _plant_root(base: Path) -> Path:
 def _write_sim_devices(root: Path, modbus_ports: dict[str, int]) -> None:
     """devices_sim 副本：endpoint 指向本用例 Gateway 下行 Modbus 监听端口。"""
     document = _load(REPO_CONFIGS / "instances" / "devices_sim.yaml")
-    for device_id, port in modbus_ports.items():
+    for device_id in SIM_DEVICES:
+        port = modbus_ports[device_id]
         document["devices"][device_id]["endpoint"]["port"] = port
+    document["devices"][REPLAY_DEVICE] = {
+        "name": "GW02 demo.csv replay device",
+        "enabled": True,
+        "model": {"id": "e2e_gw02_replay", "version": "1.0.0"},
+        "endpoint": {"host": "127.0.0.1", "port": modbus_ports[REPLAY_DEVICE]},
+        "overrides": {},
+    }
     _dump(root / "instances" / "devices_sim.yaml", document)
 
 
@@ -216,12 +219,13 @@ def _write_e2e_devices(root: Path) -> None:
     """Collector/Commander 设备清单：同端点、e2e 型号（带任务引用）。"""
     document = _load(root / "instances" / "devices_sim.yaml")
     devices = {}
-    for device_id in SIM_DEVICES:
+    for device_id in E2E_DEVICES:
         source = document["devices"][device_id]
+        model_id = "e2e_gw02_replay" if device_id == REPLAY_DEVICE else f"e2e_{device_id.lower()}"
         devices[device_id] = {
             "name": source["name"],
             "enabled": source["enabled"],
-            "model": {"id": f"e2e_{device_id.lower()}", "version": "1.0.0"},
+            "model": {"id": model_id, "version": "1.0.0"},
             "endpoint": {
                 "host": "127.0.0.1",
                 "port": int(source["endpoint"]["port"]),
@@ -271,6 +275,56 @@ def _write_e2e_models_and_tasks(root: Path, intervals: dict[str, float] | None =
                 "desired_state": "STOP",
             },
         )
+    _dump(
+        root / "templates" / "device_models" / "device_model_e2e_gw02_replay_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "template_id": "e2e_gw02_replay",
+            "name": "GW02 demo.csv replay device",
+            "device_type_id": "turbine",
+            "protocol": {"id": "modbus_tcp", "version": "1.1.0"},
+            "point_table": {"id": "modbus_gw02_replay", "version": "1.0.0"},
+            "task": {"id": "e2e_task_gw02", "version": "1.0.0"},
+        },
+    )
+    _dump(
+        root / "templates" / "tasks" / "task_e2e_task_gw02_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "template_id": "e2e_task_gw02",
+            "point_group": "all",
+            "interval": (intervals or {}).get(REPLAY_DEVICE, 0.2),
+            "desired_state": "STOP",
+        },
+    )
+    _dump(
+        root / "templates" / "point_tables" / "point_table_modbus_gw02_replay_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "template_id": "modbus_gw02_replay",
+            "protocol": "modbus",
+            "points": {
+                "a02_dm_pitchangle1": {
+                    "business_point_id": "pitch_angle",
+                    "point_groups": ["all", "pitch"],
+                    "address": {
+                        "register_type": "input",
+                        "address": 0,
+                        "count": 2,
+                        "slave_id": 1,
+                    },
+                    "data_type": "float32",
+                    "unit": "degree",
+                    "scale": 1.0,
+                    "offset": 0.0,
+                    "description": "E2E projection of configs/history/demo.csv GW02 point",
+                }
+            },
+        },
+    )
     # Sink GatewayOutput 专用目标变量：寄存器追加进出厂 sim WTG 点表副本
     # （Gateway 与 Collector 共享同一根下同一份点表，寄存器布局天然一致）。
     point_table = (
@@ -474,19 +528,21 @@ def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
                 "source": {
                     "kind": "replay",
                     "history_reader": "csv",
-                    "file": "history/e2e-wind.csv",
+                    "file": "history/demo.csv",
                     "start_time": "2026-01-01T00:00:00Z",
                     "end_time": "2026-01-01T00:00:03Z",
                     "speed": speed,
                     "loop": False,
                 },
-                "devices": [{"device_id": "WTG_SIM01", "points": [{"point_id": "wind_speed"}]}],
+                "devices": [
+                    {"device_id": REPLAY_DEVICE, "points": [{"point_id": "a02_dm_pitchangle1"}]}
+                ],
                 "gateways": [
                     {
-                        "gateway_id": "gw-wtg_sim01",
+                        "gateway_id": "gw-gw02",
                         "endpoint": gateway_endpoint,
-                        "device_id": "WTG_SIM01",
-                        "variable_mapping": {"wind_speed": "wind_speed"},
+                        "device_id": REPLAY_DEVICE,
+                        "variable_mapping": {"a02_dm_pitchangle1": "a02_dm_pitchangle1"},
                     }
                 ],
             }
@@ -524,7 +580,7 @@ def _build_and_start(
     ports = {name: reserve_port() for name in SERVICES}
     harness.ports = ports
     harness.endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
-    harness.modbus_ports = {device_id: reserve_port() for device_id in SIM_DEVICES}
+    harness.modbus_ports = {device_id: reserve_port() for device_id in E2E_DEVICES}
     harness.gw_grpc_endpoint = harness.endpoints["gateway"]
     harness.sink_modbus_port = reserve_port()
 
@@ -551,6 +607,16 @@ def _build_and_start(
     gateway_document = _load(gateway_service)
     servers = gateway_document["servers"]
     assert [item["device_id"] for item in servers] == list(SIM_DEVICES)
+    servers.append(
+        {
+            "server_id": "gw-gw02",
+            "device_id": REPLAY_DEVICE,
+            "listen_host": "127.0.0.1",
+            "listen_port": harness.modbus_ports[REPLAY_DEVICE],
+            "desired_state": "START",
+            "control": {"enabled": False, "target": {"kind": "none"}, "mappings": []},
+        }
+    )
     for server in servers:
         server["server_id"] = f"gw-{server['device_id'].lower()}"
         server["listen_host"] = "127.0.0.1"

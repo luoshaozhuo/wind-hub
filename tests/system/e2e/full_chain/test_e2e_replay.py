@@ -39,7 +39,7 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
     await consumer.start()
     generation_id: str | None = None
     try:
-        await harness.cli_call(harness.cli_rel, "collector", "start", "WTG_SIM01", "--yes")
+        await harness.cli_call(harness.cli_rel, "collector", "start", "GW02", "--yes")
         started = await harness.cli_call(
             harness.cli_rt,
             "data-generator",
@@ -65,16 +65,16 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
         started_at = datetime.fromisoformat(rows[0]["produced_at"].replace("Z", "+00:00"))
         points = [point for row in rows for point in row["points"]]
         assert [(p["device_id"], p["point_id"], p["value"]) for p in points] == [
-            ("WTG_SIM01", "wind_speed", 5.5),
-            ("WTG_SIM01", "wind_speed", 6.0),
-            ("WTG_SIM01", "wind_speed", 7.5),
+            ("GW02", "a02_dm_pitchangle1", 5.5),
+            ("GW02", "a02_dm_pitchangle1", 6.0),
+            ("GW02", "a02_dm_pitchangle1", 7.5),
         ]
         gateway = await harness.poll(
             harness.cli_rt,
             "gateway",
             "read",
-            "gw-wtg_sim01",
-            "wind_speed",
+            "gw-gw02",
+            "a02_dm_pitchangle1",
             predicate=lambda data: bool(data.get("values"))
             and data["values"][0]["value"].get("double_value") == 7.5,
             timeout=30,
@@ -89,8 +89,8 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
                     item = json.loads(record.value)
                     if (
                         item.get("collector_id") == harness.reliable_collector
-                        and item.get("device_id") == "WTG_SIM01"
-                        and item.get("point_id") == "wind_speed"
+                        and item.get("device_id") == "GW02"
+                        and item.get("point_id") == "a02_dm_pitchangle1"
                         and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
                         >= started_at
                     ):
@@ -107,9 +107,7 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
         )
     finally:
         await consumer.stop()
-        await harness.cli_call(
-            harness.cli_rel, "collector", "stop", "WTG_SIM01", "--yes", check=False
-        )
+        await harness.cli_call(harness.cli_rel, "collector", "stop", "GW02", "--yes", check=False)
         if generation_id is not None:
             await harness.cli_call(
                 harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
