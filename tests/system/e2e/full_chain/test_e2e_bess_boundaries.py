@@ -67,7 +67,11 @@ async def test_e2e_03_bess_reaches_physical_soc_boundary(bess_boundary_chain: An
                 if datetime.fromisoformat(row["produced_at"].replace("Z", "+00:00")) >= command_time
             ]
             boundary_samples = [item for item in boundary_samples if len(item) == 2]
-            if boundary_samples and abs(boundary_samples[-1]["soc"] - boundary) < 1e-5:
+            if (
+                boundary_samples
+                and abs(boundary_samples[-1]["soc"] - boundary) < 1e-5
+                and abs(boundary_samples[-1]["active_power"]) < 1.0
+            ):
                 break
             await asyncio.sleep(0.2)
         assert boundary_samples, "no post-command BESS source samples"
