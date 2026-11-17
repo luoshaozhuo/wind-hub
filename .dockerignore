@@ -1,0 +1,6 @@
+# Allowlist build context: never upload private deployment roots or credentials.
+*
+!pyproject.toml
+!README.md
+!src/
+!src/**

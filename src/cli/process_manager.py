@@ -78,7 +78,18 @@ async def _isula(target: ServiceTarget, action: str) -> dict[str, Any]:
 
     if action == "status":
         return await status()
-    operations = ("stop", "start") if action == "restart" else (action,)
+    current = await status()
+    if action == "start" and current["running"]:
+        return {**current, "confirmed": True, "already_running": True}
+    if action == "stop" and not current["running"]:
+        return {**current, "confirmed": True, "already_stopped": True}
+    operations = (
+        ("stop", "start")
+        if action == "restart" and current["running"]
+        else ("start",)
+        if action == "restart"
+        else (action,)
+    )
     completed: list[dict[str, Any]] = []
     for operation in operations:
         remaining = deadline - asyncio.get_running_loop().time()
@@ -97,7 +108,12 @@ async def _isula(target: ServiceTarget, action: str) -> dict[str, Any]:
                 completed.append({"operation": operation, "confirmed": True, **current})
                 break
             await asyncio.sleep(min(0.2, remaining))
-    return {"manager": "isulad", "target": target.target, "stages": completed}
+    return {
+        "manager": "isulad",
+        "target": target.target,
+        "confirmed": True,
+        "stages": completed,
+    }
 
 
 async def manage_service_process(target: ServiceTarget, action: str) -> dict[str, Any]:

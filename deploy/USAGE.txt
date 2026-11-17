@@ -1,0 +1,181 @@
+wind-hub deployment and CLI lifecycle handoff
+==============================================
+
+Scope
+-----
+This directory provides one Python 3.11 OCI image, an isolated-Linux
+Docker Compose convenience stack, a deployment manifest generator,
+a two-Collector config generator, and native container provisioning.
+
+The real E2E qualification remains CLI-started native Linux business
+processes and independently provisioned NATS/JetStream, Redis, Kafka and
+databases. Compose is not a substitute for the CLI lifecycle Gate.
+
+Security / isolation
+--------------------
+Use an isolated Linux host or VM. Compose uses host networking because
+existing shipped simulation endpoints are loopback addresses. Do not
+deploy this Compose file on a shared or untrusted host. Do not expose
+plaintext control listeners on an external interface.
+
+Never commit the populated deploy/.env, TLS keys, or Collector tokens.
+All scripts refuse to overwrite existing deployment CLI/Collector YAML.
+All business processes need the correct mTLS identity, least privilege
+permissions, source trees, and writable owned state directories.
+
+Step 1: Prepare the private deployment root
+-------------------------------------------
+Create /srv/wind-hub/configs by copying the tracked configs directory
+and install credentials in /srv/wind-hub/certs. The root must be readable
+and writable by the selected unprivileged UID/GID.
+
+The repository ships example configurations, NOT production credentials.
+Adjust gateway, Commander and Data Generator control endpoints, dynamic
+device ports, Sink Delivery sources, and broker addresses for the host.
+Verify certificate CN/SAN and module permission mappings independently.
+
+Step 2: Generate two Collector service files
+--------------------------------------------
+  python deploy/prepare_collectors.py --root /srv/wind-hub
+
+This creates configs/services/collector-realtime.yaml and
+collector-reliable.yaml from the shipped collector.yaml, and changes
+only the delivery mode. Correct source devices, stream subjects, broker
+URLs and startup options before starting.
+
+Step 3A: Native Linux CLI deployment
+------------------------------------
+Set the Sink service's config_root to /srv/wind-hub. Install wind-hub
+into the host's Python environment. Then:
+
+  python deploy/render_cli.py \
+    --root /srv/wind-hub --mode process \
+    --output /srv/wind-hub/configs/services/cli.yaml \
+    --python /ABSOLUTE/PATH/TO/python \
+    --ca /srv/wind-hub/certs/ca.pem \
+    --client-cert /srv/wind-hub/certs/cli.pem \
+    --client-key /srv/wind-hub/certs/cli.key
+
+  wind-hub --config /srv/wind-hub/configs/services/cli.yaml \
+    service start gateway --yes
+
+Use the same CLI for all six module processes, then check readiness:
+
+  python deploy/check_ready.py \
+    --config /srv/wind-hub/configs/services/cli.yaml --timeout 90
+
+Step 3B: Docker Compose convenience stack
+-----------------------------------------
+Set Sink config_root to /etc/wind-hub and mount /srv/wind-hub as
+/etc/wind-hub. The service YAMLs must have the standard gRPC ports and
+host-network-reachable service addresses.
+
+  cp deploy/env.example deploy/.env
+  # Edit private values and set WIND_HUB_UID/GID from id -u / id -g.
+  docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+  docker compose --env-file deploy/.env -f deploy/compose.yaml build
+  docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+  docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+
+For a container-resident RPC-only CLI config, generate with:
+  python deploy/render_cli.py \
+    --root /srv/wind-hub --mode rpc --runtime-prefix /etc/wind-hub \
+    --output /srv/wind-hub/configs/services/cli-container.yaml \
+    --ca /srv/wind-hub/certs/ca.pem \
+    --client-cert /srv/wind-hub/certs/cli.pem \
+    --client-key /srv/wind-hub/certs/cli.key
+
+  docker compose --env-file deploy/.env -f deploy/compose.yaml \
+    run --rm --no-deps cli --config \
+    /etc/wind-hub/configs/services/cli-container.yaml service status
+
+The in-container CLI config is RPC-only. It MUST NOT use process mode,
+which would otherwise spawn unrelated processes inside the transient
+CLI container. Check gRPC/mTLS READY separately from Compose running.
+
+Safe cleanup (does not remove named data volumes):
+  docker compose --env-file deploy/.env -f deploy/compose.yaml down
+
+Step 3C: Pre-create OCI containers for CLI managers
+---------------------------------------------------
+For containerd or iSulad, export/import the built image into the exact
+runtime and namespace before provisioning.
+
+For example, Docker -> containerd:
+  docker save wind-hub:local -o /tmp/wind-hub-local.tar
+  ctr --namespace wind-hub images import /tmp/wind-hub-local.tar
+  ctr --namespace wind-hub images list
+
+The imported image tag may differ from 'wind-hub:local': pass its
+EXACT image reference to --image. For iSulad use:
+  isula load -i /tmp/wind-hub-local.tar
+
+Create a private 0600 env file for Collector only containing
+WIND_HUB_COLLECTOR_ADMIN_TOKEN=<secret>. The env file must not be
+stored in the repository. Check file permissions before provisioning.
+
+Preview and then apply on an isolated host:
+  python deploy/provision.py --runtime containerd --root /srv/wind-hub \
+    --image IMAGE_REF --uid 1000 --gid 1000 \
+    --namespace wind-hub \
+    --collector-env-file /ABSOLUTE/PATH/collector.env
+
+  python deploy/provision.py --runtime containerd --root /srv/wind-hub \
+    --image IMAGE_REF --uid 1000 --gid 1000 \
+    --namespace wind-hub \
+    --collector-env-file /ABSOLUTE/PATH/collector.env --apply
+
+  python deploy/provision.py --runtime isulad --root /srv/wind-hub \
+    --image wind-hub:local --uid 1000 --gid 1000 \
+    --collector-env-file /ABSOLUTE/PATH/collector.env --apply
+
+The tool never deletes or overwrites existing containers.
+It is NOT an orchestration daemon. If applying a multi-service setup
+fails halfway, inspect and remove ONLY those newly created target IDs.
+
+containerd: initial provision runs a task with --null-io, creating a
+managed OCI container+task. CLI start on an already-running task is
+idempotent. After CLI stop, CLI start re-creates the stopped task using
+strict snapshot/stdio preflight; an unsafe or missing snapshot causes
+an explicit failure, never a silent success. This bootstrap operation
+is not evidence of CLI start coverage.
+
+iSulad: provisioning creates the container but does not start it.
+Use CLI service start to start each pre-created target.
+
+Create the HOST CLI manager map:
+  python deploy/render_cli.py --root /srv/wind-hub \
+    --mode containerd \
+    --output /srv/wind-hub/configs/services/cli-containerd.yaml \
+    --ca /srv/wind-hub/certs/ca.pem \
+    --client-cert /srv/wind-hub/certs/cli.pem \
+    --client-key /srv/wind-hub/certs/cli.key
+
+For iSulad replace --mode containerd with --mode isulad.
+The generated target names must match provisioned container IDs.
+CLI containerd socket permissions are an operating system prerequisite.
+Neither runtime requires systemd.
+
+Step 4: Pre-retest checks
+------------------------
+A deployment is eligible for independent retest only when:
+  (a) Compose config parses and the OCI image can be built;
+  (b) the service config and credential paths are valid;
+  (c) six business services are observable as READY via their real RPCs;
+  (d) start/stop/restart/status semantics are demonstrated per runtime;
+  (e) failure/cleanup paths leave no unowned processes or test containers;
+  (f) the latest full-chain and formal acceptance matrices are reviewed.
+
+Deployment scripts do not claim to prove (a)-(f). Claude independently
+executes the static gates, target-specific checks and final software
+regression. No re-running already-passed unrelated suites just because
+a deployment document changed.
+
+Known boundaries
+----------------
+- No new Kubernetes, Helm, systemd or management daemon.
+- No automatic TLS generation, default credentials, or disabling mTLS.
+- Production multi-host networking and volume isolation require a
+  separately reviewed deployment design; host-network Compose is
+  intentionally restricted to isolated software-test hosts.
+- Field hardware tests are outside the software-only qualification.

@@ -125,19 +125,25 @@ async def containerd_manage(target: ServiceTarget, action: str) -> dict[str, Any
             current = await status()
             if current["state"] == "RUNNING":
                 return {**current, "already_running": True}
-            if current["state"] != "CREATED":
-                raise RuntimeError("containerd Start requires a CREATED task")
-            request = _MESSAGES["StartRequest"](container_id=target.target)
-            response = await method("Start", "StartResponse")(
-                request,
-                metadata=metadata,
-                timeout=target.timeout,
-            )
-            result = await status()
-            result["start_pid"] = int(response.pid)
-            if result["state"] != "RUNNING":
-                raise RuntimeError("containerd Start was not confirmed RUNNING")
-            return result
+            if current["state"] == "STOPPED":
+                # Existing container metadata and its attached snapshot are retained.
+                # Recreate only the stopped Task after the same strict preflight
+                # used by restart (including the FIFO-stdio safety barrier).
+                action = "restart"
+            elif current["state"] != "CREATED":
+                raise RuntimeError("containerd Start requires a CREATED or STOPPED task")
+            if action == "start":
+                request = _MESSAGES["StartRequest"](container_id=target.target)
+                response = await method("Start", "StartResponse")(
+                    request,
+                    metadata=metadata,
+                    timeout=target.timeout,
+                )
+                result = await status()
+                result["start_pid"] = int(response.pid)
+                if result["state"] != "RUNNING":
+                    raise RuntimeError("containerd Start was not confirmed RUNNING")
+                return result
         if action == "restart":
             from .containerd_restart import restart_task
 
