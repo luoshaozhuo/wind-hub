@@ -491,11 +491,23 @@ def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
                 ],
             }
         )
-    # PV 短日场景：辐照 0→800（cloud 0.8）与 0→1000（cloud 1.0）。
-    for scenario_id, cloud in (("e2e-pv-800", 0.8), ("e2e-pv-1000", 1.0)):
+    # PV 短日场景：0/800/1000 三个清晰边界，环境温度固定 25°C。
+    for scenario_id, cloud in (
+        ("e2e-pv-0", 0.0),
+        ("e2e-pv-800", 0.8),
+        ("e2e-pv-1000", 1.0),
+    ):
         document = _physical_scenario(scenario_id, "1.0.0", gateway_endpoint, interval=0.05)
         irradiance = document["weather"]["site-a"]["irradiance"]
         irradiance.update({"sunrise_s": 0, "sunset_s": 40, "cloud_factor_target": cloud})
+        temperature = document["weather"]["site-a"]["ambient_temperature"]
+        temperature.update(
+            {
+                "temperature_mean_c": 25.0,
+                "diurnal_amplitude_k": 0.0,
+                "temperature_sigma_k": 0.0,
+            }
+        )
         scenarios.append(document)
     return scenarios
 

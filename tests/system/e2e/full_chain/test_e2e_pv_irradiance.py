@@ -1,4 +1,4 @@
-"""E2E-02: compare PV physical output for two irradiance scenarios."""
+"""E2E-02: verify PV zero/800/1000 irradiance and temperature boundaries."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ async def test_e2e_02_pv_irradiance_and_capacity(full_chain: Any) -> None:
     harness = full_chain
     assert harness.sink is not None
     generation_id: str | None = None
-    observed: dict[int, tuple[float, float]] = {}
+    observed: dict[int, dict[str, float]] = {}
     try:
         await harness.cli_call(harness.cli_rt, "collector", "start", "PV_SIM01", "--yes")
-        for level in (800, 1000):
+        for level in (0, 800, 1000):
             started = await harness.cli_call(
                 harness.cli_rt,
                 "data-generator",
@@ -39,33 +39,55 @@ async def test_e2e_02_pv_irradiance_and_capacity(full_chain: Any) -> None:
                 for p in rows[29]["points"]
                 if p["device_id"] == "PV_SIM01"
             }
-            available = float(point_values["pv_available_power"])
-            power = float(point_values["active_power"])
-            assert 0 < available <= 1_000_000
-            assert 0 <= power <= 900_000
+            values = {
+                point_id: float(point_values[point_id])
+                for point_id in (
+                    "pv_available_power",
+                    "dc_power",
+                    "active_power",
+                    "cell_temperature",
+                    "inverter_temperature",
+                )
+            }
+            available = values["pv_available_power"]
+            power = values["active_power"]
+            if level == 0:
+                assert available == pytest.approx(0.0, abs=1e-9)
+                assert values["dc_power"] == pytest.approx(0.0, abs=1e-9)
+                assert power == pytest.approx(0.0, abs=1e-9)
+                assert values["cell_temperature"] == pytest.approx(25.0, abs=0.01)
+                assert values["inverter_temperature"] == pytest.approx(25.0, abs=0.01)
+            else:
+                assert 0 < available <= 1_000_000
+                assert 0 < values["dc_power"] <= available
+                assert 0 < power <= 900_000
+                assert 25.0 <= values["cell_temperature"] < 45.0
+                assert 25.0 <= values["inverter_temperature"] < 45.0
             redis = await harness.sink.wait_redis_value(
                 harness.redis_key("PV_SIM01", "active_power"),
                 timeout=90,
-                match=lambda item, cutoff=source_start: float(item["value"]) > 0
-                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
-                >= cutoff,
+                match=lambda item, cutoff=source_start, expected_positive=level > 0: (
+                    float(item["value"]) > 0
+                    if expected_positive
+                    else abs(float(item["value"])) < 1e-9
+                )
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= cutoff,
             )
             assert redis["device_id"] == "PV_SIM01" and redis["point_id"] == "active_power"
-            assert redis["quality"] == "good" and 0 < float(redis["value"]) <= 900_000
-            observed[level] = (available, power)
+            assert redis["quality"] == "good" and 0 <= float(redis["value"]) <= 900_000
+            observed[level] = values
             harness.record(
                 "E2E-02-IRRADIANCE",
                 generation_id=generation_id,
                 level=level,
-                source_available=available,
-                source_power=power,
+                source=values,
                 redis=redis["value"],
             )
             await harness.cli_call(harness.cli_rt, "data-generator", "stop", generation_id, "--yes")
             harness.generation_id = None
             generation_id = None
-        assert observed[1000][0] > observed[800][0]
-        assert observed[1000][1] >= observed[800][1]
+        assert observed[1000]["pv_available_power"] > observed[800]["pv_available_power"]
+        assert observed[1000]["active_power"] >= observed[800]["active_power"]
     finally:
         if generation_id is not None:
             await harness.cli_call(
