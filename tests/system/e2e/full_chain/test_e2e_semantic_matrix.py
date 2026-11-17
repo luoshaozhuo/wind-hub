@@ -378,6 +378,40 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
         await _stop_generation(full_chain, generation_id)
 
 
+@pytest.mark.timeout(180)
+async def test_diagnose_pipeline_correlates_real_collector_and_sink_samples(
+    full_chain: FullChainHarness,
+) -> None:
+    activity_start = datetime.now(UTC)
+    generation_id = await _start_generation(full_chain)
+    await full_chain.cli_call(full_chain.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
+    try:
+        assert full_chain.sink is not None
+        redis = await full_chain.sink.wait_redis_value(
+            full_chain.redis_key("WTG_SIM01", "wind_speed"),
+            timeout=90,
+            match=lambda item: datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+            >= activity_start,
+        )
+        row = next(row for row in CLI_ROWS if row.key == "diagnose pipeline")
+        healthy = SemanticEntry(**{**row.__dict__, "expected_exit": 0, "expected_error": None})
+        result = await _cli_exact(full_chain, healthy, ("WTG_SIM01", "--sink-id", "ems_power"))
+        report = result["envelope"]["data"]
+        assert report["overall_status"] == "PASS", report
+        full_chain.record(
+            "E2E-08-PIPELINE-PASS",
+            generation_id=generation_id,
+            redis_sample_id=redis["sample_id"],
+            overall_status=report["overall_status"],
+            report=report,
+        )
+    finally:
+        await full_chain.cli_call(
+            full_chain.cli_rt, "collector", "stop", "WTG_SIM01", "--yes", check=False
+        )
+        await _stop_generation(full_chain, generation_id)
+
+
 @pytest.mark.timeout(120)
 async def test_collector_cli_wrong_and_missing_token_cannot_start_task(
     full_chain: FullChainHarness,
