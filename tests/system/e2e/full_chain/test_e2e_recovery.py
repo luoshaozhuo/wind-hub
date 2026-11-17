@@ -191,3 +191,81 @@ async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -> None:
             harness.generation_id = None
         for config in (harness.cli_rt, harness.cli_rel):
             await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes", check=False)
+
+
+async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
+    """Restart Gateway during collection and verify a fresh generation reaches Redis."""
+    harness = full_chain
+    assert harness.sink is not None
+    generation_id: str | None = None
+    gateway_stopped = False
+    try:
+        await harness.cli_call(harness.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
+        first = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "start",
+            "wind-plant-physical",
+            "--scenario-version",
+            "1.0.0",
+            "--yes",
+        )
+        generation_id = str(first["data"]["generation_id"])
+        harness.generation_id = generation_id
+        key = harness.redis_key("WTG_SIM01", "wind_speed")
+        before = await harness.sink.wait_redis_value(
+            key, timeout=90, match=lambda item: abs(float(item["value"]) - 10.0) < 1e-3
+        )
+        stopped = await harness.cli_call(harness.cli_rt, "service", "stop", "gateway", "--yes")
+        gateway_stopped = True
+        assert stopped["data"]["process"]["state"] == "STOPPED"
+        await harness.cli_call(
+            harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
+        )
+        restarted = await harness.cli_call(harness.cli_rt, "service", "start", "gateway", "--yes")
+        gateway_stopped = False
+        assert restarted["data"]["business"]["health"] == "HEALTHY"
+        await harness.poll(
+            harness.cli_rt,
+            "data-generator",
+            "status",
+            generation_id,
+            predicate=lambda data: data.get("generation", {}).get("actual_state") == "STOPPED",
+            timeout=90,
+        )
+        harness.generation_id = None
+        generation_id = None
+        second = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "start",
+            "wind-plant-physical",
+            "--scenario-version",
+            "1.0.0",
+            "--yes",
+        )
+        generation_id = str(second["data"]["generation_id"])
+        assert generation_id != first["data"]["generation_id"]
+        harness.generation_id = generation_id
+        restored_at = datetime.now(UTC)
+        after = await harness.sink.wait_redis_value(
+            key,
+            timeout=90,
+            match=lambda item: item["sample_id"] != before["sample_id"]
+            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
+            and abs(float(item["value"]) - 10.0) < 1e-3,
+        )
+        harness.record("E2E-10-GATEWAY", generation_id=generation_id, sample_id=after["sample_id"])
+    finally:
+        if gateway_stopped:
+            await harness.cli_call(
+                harness.cli_rt, "service", "start", "gateway", "--yes", check=False
+            )
+        if generation_id is not None:
+            await harness.cli_call(
+                harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
+            )
+            harness.generation_id = None
+        await harness.cli_call(
+            harness.cli_rt, "collector", "stop", "WTG_SIM01", "--yes", check=False
+        )
