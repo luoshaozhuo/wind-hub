@@ -110,7 +110,19 @@ async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -> None:
             await asyncio.sleep(1)
         else:
             raise AssertionError(f"Reliable backlog did not drain: {state}")
-        records = await harness.sink.wait_kafka_messages(min_messages=len(baseline) + 1, timeout=90)
+
+        def is_recovered(record: Any) -> bool:
+            item = json.loads(record.value)
+            return (
+                item.get("collector_id") == harness.reliable_collector
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= outage_at
+            )
+
+        records = await harness.sink.wait_kafka_messages(
+            min_messages=len(baseline) + 1,
+            timeout=90,
+            match=is_recovered,
+        )
         payloads = [json.loads(record.value) for record in records]
         assert any(
             item.get("collector_id") == harness.reliable_collector

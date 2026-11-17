@@ -598,7 +598,12 @@ class SinkSystemHarness:
         return infos[0].name if infos else None
 
     async def wait_kafka_messages(
-        self, *, min_messages: int = 1, timeout: float = 45.0, offset_reset: str = "earliest"
+        self,
+        *,
+        min_messages: int = 1,
+        timeout: float = 45.0,
+        offset_reset: str = "earliest",
+        match: Callable[[Any], bool] | None = None,
     ) -> list[Any]:
         from aiokafka import AIOKafkaConsumer
         from aiokafka.errors import KafkaError
@@ -625,10 +630,15 @@ class SinkSystemHarness:
             return []
         try:
             records: list[Any] = []
-            while time.monotonic() < deadline and len(records) < min_messages:
+            matched = False
+            while time.monotonic() < deadline and (len(records) < min_messages or not matched):
                 result = await consumer.getmany(timeout_ms=2000, max_records=100)
                 for messages in result.values():
                     records.extend(messages)
+                    if match is not None and any(match(message) for message in messages):
+                        matched = True
+                if match is None:
+                    matched = True
             return records
         finally:
             await consumer.stop()

@@ -81,7 +81,16 @@ class AuditDelivery:
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
         except TimeoutError:
-            # A publisher still in I/O must not be cancelled and forgotten.
+            # The worker's own drain deadline and wait_for can expire in the
+            # same event-loop turn.  Reap an already-finished task (or give
+            # that internal deadline one scheduling turn) without cancelling
+            # a publisher that is still in I/O.
+            if not task.done():
+                await asyncio.wait({task}, timeout=min(0.05, timeout / 10))
+            if task.done():
+                with contextlib.suppress(Exception):
+                    task.result()
+                self._task = None
             return False
         except Exception:
             logger.exception("Commander audit worker failed")
