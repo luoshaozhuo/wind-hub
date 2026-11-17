@@ -40,9 +40,11 @@ async def test_e2e_06_reliable_multirate(
         enable_auto_commit=False,
     )
     await consumer.start()
+    redis_task: asyncio.Task[dict[str, list[datetime]]] | None = None
     try:
-        for device_id in PERIODS:
-            await harness.cli_call(harness.cli_rel, "collector", "start", device_id, "--yes")
+        for config in (harness.cli_rt, harness.cli_rel):
+            for device_id in PERIODS:
+                await harness.cli_call(config, "collector", "start", device_id, "--yes")
         started = await harness.cli_call(
             harness.cli_rt,
             "data-generator",
@@ -62,6 +64,9 @@ async def test_e2e_06_reliable_multirate(
         source_start = datetime.fromisoformat(first_row["produced_at"].replace("Z", "+00:00"))
         samples: dict[str, list[datetime]] = {device_id: [] for device_id in PERIODS}
         deadline = time.monotonic() + 12
+        redis_task = asyncio.create_task(
+            _observe_redis_latest(harness, source_start=source_start, deadline=deadline)
+        )
         while time.monotonic() < deadline:
             batches = await consumer.getmany(timeout_ms=1000, max_records=1000)
             for records in batches.values():
@@ -78,6 +83,8 @@ async def test_e2e_06_reliable_multirate(
                         )
                         if sample_time >= source_start:
                             samples[device_id].append(sample_time)
+        realtime_samples = await redis_task
+        redis_task = None
         rows = harness.read_recording(harness.generation_id)
         source_times = [
             datetime.fromisoformat(row["produced_at"].replace("Z", "+00:00")) for row in rows
@@ -106,7 +113,34 @@ async def test_e2e_06_reliable_multirate(
                 median=median,
                 count=len(times),
             )
+            realtime_times = sorted(set(realtime_samples[device_id]))
+            assert len(realtime_times) >= 4, ("realtime", device_id, len(realtime_times))
+            realtime_intervals = [
+                (right - left).total_seconds()
+                for left, right in zip(realtime_times, realtime_times[1:], strict=False)
+            ]
+            realtime_median = statistics.median(realtime_intervals)
+            # Redis is a latest-value output: polling can skip intermediate
+            # writes, but it must not manufacture a cadence faster than the
+            # configured Collector task and must keep making progress.
+            assert period * 0.5 <= realtime_median <= period * 2.5, (
+                "realtime",
+                device_id,
+                realtime_median,
+                period,
+            )
+            harness.record(
+                "E2E-06-REALTIME",
+                scenario=scenario,
+                device_id=device_id,
+                period=period,
+                median=realtime_median,
+                count=len(realtime_times),
+            )
     finally:
+        if redis_task is not None:
+            redis_task.cancel()
+            await asyncio.gather(redis_task, return_exceptions=True)
         await consumer.stop()
         if harness.generation_id is not None:
             await harness.cli_call(
@@ -118,7 +152,40 @@ async def test_e2e_06_reliable_multirate(
                 check=False,
             )
             harness.generation_id = None
-        for device_id in PERIODS:
-            await harness.cli_call(
-                harness.cli_rel, "collector", "stop", device_id, "--yes", check=False
-            )
+        for config in (harness.cli_rt, harness.cli_rel):
+            for device_id in PERIODS:
+                await harness.cli_call(config, "collector", "stop", device_id, "--yes", check=False)
+
+
+async def _observe_redis_latest(
+    harness: Any,
+    *,
+    source_start: datetime,
+    deadline: float,
+) -> dict[str, list[datetime]]:
+    """Poll Redis over one persistent RESP connection without test-client caching."""
+    host, _, raw_port = harness.stack.redis.rpartition(":")
+    reader, writer = await asyncio.open_connection(host, int(raw_port))
+    observed: dict[str, list[datetime]] = {device_id: [] for device_id in PERIODS}
+    try:
+        while time.monotonic() < deadline:
+            for device_id, (point_id, _) in PERIODS.items():
+                key = harness.redis_key(device_id, point_id)
+                writer.write(f"GET {key}\r\n".encode())
+                await writer.drain()
+                header = await reader.readuntil(b"\r\n")
+                if not header.startswith(b"$"):
+                    raise AssertionError(f"unexpected Redis response: {header!r}")
+                length = int(header[1:].strip())
+                if length < 0:
+                    continue
+                payload = await reader.readexactly(length + 2)
+                item = json.loads(payload[:-2])
+                sample_time = datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                if sample_time >= source_start:
+                    observed[device_id].append(sample_time)
+            await asyncio.sleep(0.01)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+    return observed
