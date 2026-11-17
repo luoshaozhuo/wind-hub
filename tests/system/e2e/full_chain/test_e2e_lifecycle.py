@@ -8,6 +8,8 @@ import pytest
 
 from tests.cli.test_r1f3_strict_cli_e2e import SERVICES
 
+from .conftest import SIM_DEVICES
+
 pytestmark = [
     pytest.mark.system,
     pytest.mark.real_service,
@@ -25,6 +27,9 @@ def _status_payload(result: dict[str, Any]) -> dict[str, Any]:
 async def test_e2e_09_cli_lifecycle_and_worker_cleanup(full_chain: Any) -> None:
     """Restart each CLI-managed process and distinguish PID from business READY."""
     harness = full_chain
+    for config in (harness.cli_rt, harness.cli_rel):
+        for device_id in SIM_DEVICES:
+            await harness.cli_call(config, "collector", "start", device_id, "--yes")
     for service in SERVICES:
         before = _status_payload(
             await harness.cli_call(harness.cli_rt, "service", "status", service)
@@ -46,11 +51,17 @@ async def test_e2e_09_cli_lifecycle_and_worker_cleanup(full_chain: Any) -> None:
         assert process["state"] == "RUNNING"
         assert process["pid"] != before_pid
 
-        after = _status_payload(
-            await harness.cli_call(harness.cli_rt, "service", "status", service)
+        after = await harness.poll(
+            harness.cli_rt,
+            "service",
+            "status",
+            service,
+            predicate=lambda data: bool(data) and data[0]["business"]["health"] == "HEALTHY",
+            timeout=60,
         )
+        after = after[0]
         assert after["process"]["pid"] == process["pid"]
-        assert after["business"]["health"] in {"HEALTHY", "DEGRADED"}
+        assert after["business"]["health"] == "HEALTHY"
         if service == "sink":
             dependencies = after["business"]["dependencies"]
             worker_health = {
