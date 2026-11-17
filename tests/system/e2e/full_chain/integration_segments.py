@@ -316,6 +316,15 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
         sink_bundle=harness.sink.bundle,
     )
+    cli_document = _load(cli_config)
+    cli_document["services"][service_name] = {
+        "grpc_endpoint": endpoint,
+        "tls_profile": "gateway",
+        "manager": "process",
+        "target": service_name,
+        "process": harness.cli.processes[service_name],
+    }
+    _dump(cli_config, cli_document)
 
     sinks_path = harness.sink.root / "configs" / "instances" / "sinks.yaml"
     target = TargetGateway(

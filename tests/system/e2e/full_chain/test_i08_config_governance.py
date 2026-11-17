@@ -8,6 +8,7 @@ import pytest
 from cli.runtime import Runtime
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
+from tests.cli.test_r1f3_strict_cli_e2e import ADMIN_TOKEN
 
 from .conftest import FullChainHarness
 
@@ -34,8 +35,9 @@ async def _snapshot(
 
 
 async def test_i08_collector_revision_conflict_preserves_disk_and_runtime(
-    full_chain: FullChainHarness,
+    full_chain: FullChainHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
     runtime = Runtime(full_chain.cli_rt, "json")
     try:
         common_stub = common_rpc.CommonServiceStub(runtime.channel("collector"))

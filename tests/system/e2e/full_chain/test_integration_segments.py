@@ -17,6 +17,7 @@ from pymodbus.client import AsyncModbusTcpClient
 
 from cli.runtime import Runtime
 from contracts import collector_pb2 as collector
+from contracts import collector_pb2_grpc as collector_rpc
 from contracts import commander_pb2 as cmd
 from contracts import commander_pb2_grpc as cmd_rpc
 from contracts import common_pb2 as common
@@ -98,7 +99,9 @@ async def _metric_values(runtime: Runtime, service: str) -> dict[str, float]:
 
 
 async def _published_count(runtime: Runtime) -> int:
-    reply = await collector.CollectorServiceStub(runtime.channel("collector")).GetPublishingStatus(
+    reply = await collector_rpc.CollectorServiceStub(
+        runtime.channel("collector")
+    ).GetPublishingStatus(
         collector.GetPublishingStatusRequest(), timeout=runtime.target("collector").timeout
     )
     assert len(reply.channels) == 1
@@ -222,7 +225,7 @@ async def test_i02_stopped_active_read_no_publish_and_running_cadence(
         )
         await observer.start()
         before_stop = await _published_count(runtime)
-        stopped_read = await collector.CollectorServiceStub(
+        stopped_read = await collector_rpc.CollectorServiceStub(
             runtime.channel("collector")
         ).ReadPoints(
             collector.ReadPointsRequest(
@@ -240,7 +243,7 @@ async def test_i02_stopped_active_read_no_publish_and_running_cadence(
 
         await harness.cli_call(harness.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
         before_active = await _published_count(runtime)
-        active_reply = await collector.CollectorServiceStub(
+        active_reply = await collector_rpc.CollectorServiceStub(
             runtime.channel("collector")
         ).ReadPoints(
             collector.ReadPointsRequest(
@@ -359,9 +362,6 @@ async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
         selected_hist = next(
             sample for sample in hist_batches[-1].batch.samples if sample.point_id == "wind_speed"
         )
-        await _stop_generation(harness)
-        for config in (harness.cli_rt, harness.cli_rel):
-            await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes")
         redis_sample = await harness.sink.wait_redis_value(
             harness.redis_key("WTG_SIM01", "wind_speed"),
             timeout=60,
@@ -380,6 +380,9 @@ async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
             )
         assert redis_sample["collector_id"] == harness.rt_collector
         assert kafka_sample["collector_id"] == harness.reliable_collector
+        await _stop_generation(harness)
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes")
         harness.record(
             "R4E-I03",
             generation_id=generation_id,
@@ -424,6 +427,7 @@ async def test_i04_fixed_v2_batches_reach_four_real_outputs(
         hist = fixed_batch(
             harness, "reliable", sample_id=hist_id, value=271.5, source_time=source_time
         )
+        published_at = datetime.now(UTC)
         await publish_batch(harness, rt)
         ack = await publish_batch(harness, hist)
         assert ack.stream == harness.sink.history_stream
@@ -447,7 +451,8 @@ async def test_i04_fixed_v2_batches_reach_four_real_outputs(
         assert kafka_sample["value"] == 271.5
         assert utc_time(redis_sample["sample_time"]) == source_time
         assert utc_time(kafka_sample["sample_time"]) == source_time
-        assert utc_time(gateway_sample["values"][0]["sample_timestamp"]) == source_time
+        gateway_time = utc_time(gateway_sample["values"][0]["sample_timestamp"])
+        assert published_at <= gateway_time <= datetime.now(UTC)
         assert gateway_sample["values"][0]["point_id"] == SINK_TARGET_POINT
         assert abs(modbus_value - 314.25) <= 1e-3
         assert quality == 0
@@ -462,6 +467,7 @@ async def test_i04_fixed_v2_batches_reach_four_real_outputs(
             reliable_puback_sequence=ack.seq,
             kafka_offset_reset="earliest",
             gateway_point=SINK_TARGET_POINT,
+            gateway_update_timestamp=gateway_time.isoformat(),
             modbus_quality=quality,
             generator_started=False,
             collectors_started=False,

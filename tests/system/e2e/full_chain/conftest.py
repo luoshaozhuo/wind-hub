@@ -669,8 +669,8 @@ def _build_and_start(
     ppc["control"]["target"]["tls"] = {
         "enabled": True,
         "ca_file": str(plant / "commander-pki" / "ca.crt"),
-        "cert_file": str(pki["server_crt"]),
-        "key_file": str(pki["server_key"]),
+        "cert_file": str(plant / "commander-pki" / "ops.crt"),
+        "key_file": str(plant / "commander-pki" / "ops.key"),
     }
     gateway_crt, gateway_key = clients["gateway"]
     ppc["control"]["simulation"] = {
