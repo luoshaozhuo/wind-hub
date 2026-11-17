@@ -210,7 +210,7 @@ async def test_i01_recording_gateway_identity_window_and_dg_lease_release(
 
 
 @pytest.mark.timeout(180)
-async def test_i02_stopped_active_read_no_publish_and_running_cadence(
+async def test_i02_stopped_read_rejected_without_publish_and_running_cadence(
     full_chain: FullChainHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     harness = full_chain
@@ -224,18 +224,16 @@ async def test_i02_stopped_active_read_no_publish_and_running_cadence(
         )
         await observer.start()
         before_stop = await _published_count(runtime)
-        stopped_read = await collector_rpc.CollectorServiceStub(
-            runtime.channel("collector")
-        ).ReadPoints(
-            collector.ReadPointsRequest(
-                device_id="WTG_SIM01", point_ids=["wind_speed"], timeout_ms=3000
-            ),
-            metadata=runtime.get_rpc_metadata("collector", "ReadPoints"),
-            timeout=10,
-        )
-        stopped = {sample.point_id: sample for sample in stopped_read.samples}
-        assert stopped["wind_speed"].quality == "good"
-        assert abs(decode_scalar(stopped["wind_speed"].value) - 10.0) < 0.6
+        with pytest.raises(grpc.aio.AioRpcError) as stopped_error:
+            await collector_rpc.CollectorServiceStub(runtime.channel("collector")).ReadPoints(
+                collector.ReadPointsRequest(
+                    device_id="WTG_SIM01", point_ids=["wind_speed"], timeout_ms=3000
+                ),
+                metadata=runtime.get_rpc_metadata("collector", "ReadPoints"),
+                timeout=10,
+            )
+        assert stopped_error.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+        assert "device is not connected" in stopped_error.value.details()
         await asyncio.sleep(0.5)
         after_stop = await _published_count(runtime)
         assert after_stop == before_stop
@@ -253,7 +251,7 @@ async def test_i02_stopped_active_read_no_publish_and_running_cadence(
         )
         active = active_reply.samples[0]
         after_active = await _published_count(runtime)
-        # 运行中后台任务可并发发布；主动读不发布的严格隔离由 STOP 状态相等断言证明。
+        # 运行中后台任务可并发发布；STOP 拒绝路径已证明失败主动读不产生发布。
         assert after_active >= before_active
         active_value = float(decode_scalar(active.value))
         assert active.quality == "good"
@@ -295,6 +293,7 @@ async def test_i02_stopped_active_read_no_publish_and_running_cadence(
             generation_id=generation_id,
             stopped_published_before=before_stop,
             stopped_published_after=after_stop,
+            stopped_read_error=stopped_error.value.code().name,
             active_published_before=before_active,
             active_published_after=after_active,
             scale=scale,

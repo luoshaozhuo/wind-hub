@@ -279,6 +279,7 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
     )
     servers = [item for item in document["servers"] if item["device_id"] == "WTG_SIM01"]
     assert len(servers) == 1
+    servers[0]["server_id"] = "gw-wtg_sim01"
     servers[0]["listen_host"] = "127.0.0.1"
     servers[0]["listen_port"] = modbus_port
     servers[0]["control"] = {
