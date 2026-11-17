@@ -1,6 +1,7 @@
 # Allowlist build context: never upload private deployment roots or credentials.
 *
 !pyproject.toml
+!poetry.lock
 !README.md
 !src/
 !src/**
