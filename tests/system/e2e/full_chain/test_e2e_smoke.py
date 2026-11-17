@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from .conftest import FARM
@@ -62,10 +64,16 @@ async def test_full_chain_physical_first_value(full_chain) -> None:  # noqa: ANN
 
     # Sink OUT-03：Redis 最新值（独立客户端）。
     assert harness.sink is not None
+    rows = harness.read_recording(generation_id)
+    first_source_time = datetime.fromisoformat(rows[0]["produced_at"].replace("Z", "+00:00"))
     redis_value = await harness.sink.wait_redis_value(
-        harness.redis_key("WTG_SIM01", "wind_speed"), timeout=90
+        harness.redis_key("WTG_SIM01", "wind_speed"),
+        timeout=90,
+        match=lambda sample: datetime.fromisoformat(sample["sample_time"].replace("Z", "+00:00"))
+        >= first_source_time
+        and abs(_number(sample.get("value")) - 10.0) < 1e-3,
     )
-    assert abs(redis_value["value"] - 10.0) < 0.6
+    assert abs(redis_value["value"] - 10.0) < 1e-3
     assert redis_value["wind_farm_id"] == FARM
     assert redis_value["collector_id"] == harness.rt_collector
 
