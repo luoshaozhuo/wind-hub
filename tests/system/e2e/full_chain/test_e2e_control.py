@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import grpc
 import pytest
+
+from contracts import data_generator_pb2 as dg
+from contracts import data_generator_pb2_grpc as dg_rpc
 
 from .conftest import SIM_DEVICES
 
@@ -74,6 +78,24 @@ async def test_e2e_04_ppc_control_applied(full_chain: Any, point_id: str, value:
         assert completed["outcome"] == "CONFIRMED_SUCCESS"
         assert completed["state"] == "SUCCEEDED"
         assert completed["io_settled"] is True
+        # Generator evidence is scoped to the authenticated Gateway caller and
+        # the durable Commander command ID passed through the control chain.
+        gateway_cert, gateway_key = harness.pki["clients"]["gateway"]
+        credentials = grpc.ssl_channel_credentials(
+            root_certificates=harness.pki["ca"].read_bytes(),
+            private_key=gateway_key.read_bytes(),
+            certificate_chain=gateway_cert.read_bytes(),
+        )
+        async with grpc.aio.secure_channel(
+            harness.endpoints["data-generator"], credentials
+        ) as channel:
+            execution = await dg_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
+                dg.GetInputExecutionRequest(generation_id=generation_id, request_id=command_id),
+                timeout=10,
+            )
+        assert execution.request_id == command_id
+        assert execution.state == "APPLIED"
+        assert execution.effective_step > 0
         harness.record(
             "E2E-04",
             generation_id=generation_id,
@@ -82,6 +104,7 @@ async def test_e2e_04_ppc_control_applied(full_chain: Any, point_id: str, value:
             request_id=data["request_id"],
             command_id=command_id,
             result_state=completed["state"],
+            effective_step=execution.effective_step,
         )
     finally:
         if generation_id is not None:
