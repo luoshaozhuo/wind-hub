@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
@@ -33,6 +34,7 @@ from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, 
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _PAGE_LIMIT = 500
+_LOGGER = logging.getLogger(__name__)
 
 
 async def _authorize(
@@ -336,6 +338,13 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         """Acquire, renew, or release source target ownership without PLC I/O."""
         await _authorize(context, self._runtime, "inject")
         await self._instance(request.gateway_id, context)
+        _LOGGER.info(
+            "ClaimTargets gateway=%s owner=%s action=%s variables=%s",
+            request.gateway_id,
+            request.owner_id,
+            request.action,
+            list(request.variable_ids),
+        )
         try:
             result = await self._runtime.claim_targets(
                 ClaimRequest(
