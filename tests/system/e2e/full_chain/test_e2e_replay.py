@@ -18,6 +18,17 @@ pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, 
 async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
     harness = full_chain
     assert harness.sink is not None
+    restart_pids: tuple[int, int] | None = None
+    if speed == 2:
+        before = await harness.cli_call(harness.cli_rt, "service", "status", "data-generator")
+        old_pid = before["data"][0]["process"]["pid"]
+        restarted = await harness.cli_call(
+            harness.cli_rt, "service", "restart", "data-generator", "--yes"
+        )
+        new_pid = restarted["data"]["process"]["pid"]
+        assert isinstance(old_pid, int) and isinstance(new_pid, int) and old_pid != new_pid
+        assert restarted["data"]["business"]["health"] == "HEALTHY"
+        restart_pids = (old_pid, new_pid)
     consumer = AIOKafkaConsumer(
         harness.sink.kafka_topic,
         bootstrap_servers=harness.stack.kafka,
@@ -87,7 +98,13 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
                         if value in {5.5, 6.0, 7.5} and (not values or values[-1] != value):
                             values.append(value)
         assert values == [5.5, 6.0, 7.5]
-        harness.record("E2E-05-CSV", generation_id=generation_id, speed=speed, values=values)
+        harness.record(
+            "E2E-05-CSV",
+            generation_id=generation_id,
+            speed=speed,
+            values=values,
+            restart_pids=restart_pids,
+        )
     finally:
         await consumer.stop()
         await harness.cli_call(
