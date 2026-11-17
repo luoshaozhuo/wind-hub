@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import uuid4
 
 import pytest
+
+from .conftest import SINK_TARGET_POINT, wait_sink_modbus_float
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -15,7 +18,8 @@ async def test_e2e_01_wind_step(full_chain: Any) -> None:
     assert harness.sink is not None
     generation_id: str | None = None
     try:
-        await harness.cli_call(harness.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
         started = await harness.cli_call(
             harness.cli_rt,
             "data-generator",
@@ -57,6 +61,45 @@ async def test_e2e_01_wind_step(full_chain: Any) -> None:
             match=lambda item: abs(float(item["value"]) - 12.0) < 1e-3
             and item["sample_id"] != before["sample_id"],
         )
+        gateway = await harness.poll(
+            harness.cli_rt,
+            "gateway",
+            "read",
+            "gw-wtg_sim01",
+            SINK_TARGET_POINT,
+            predicate=lambda data: bool(data.get("values"))
+            and abs(float(data["values"][0]["value"].get("double_value", 0)) - 12.0) < 1e-3
+            and data["values"][0]["quality"] == "GOOD",
+            timeout=90,
+        )
+        modbus_value, quality = await wait_sink_modbus_float(
+            harness.sink_modbus_port, 12.0, timeout=90
+        )
+        assert quality == 0
+        await harness.poll(
+            harness.cli_rel,
+            "collector",
+            "latest",
+            "WTG_SIM01",
+            "wind_speed",
+            predicate=lambda data: any(
+                sample.get("point_id") == "wind_speed"
+                and abs(float(sample["value"].get("double_value", 0)) - 12.0) < 1e-3
+                for sample in data.get("samples", [])
+            ),
+            timeout=90,
+        )
+        records = await harness.sink.wait_kafka_messages(
+            min_messages=100, timeout=90, offset_reset="latest"
+        )
+        payloads = [json.loads(record.value) for record in records]
+        assert any(
+            item.get("collector_id") == harness.reliable_collector
+            and item.get("device_id") == "WTG_SIM01"
+            and item.get("point_id") == "wind_speed"
+            and abs(float(item["value"]) - 12.0) < 1e-3
+            for item in payloads
+        )
         rows = harness.read_recording(generation_id)
         wind = [
             p["value"]
@@ -72,6 +115,8 @@ async def test_e2e_01_wind_step(full_chain: Any) -> None:
             effective_step=updated["data"]["effective_step"],
             before=before["value"],
             after=after["value"],
+            gateway=gateway["values"][0]["value"],
+            modbus=modbus_value,
         )
     finally:
         if generation_id is not None:
@@ -79,6 +124,5 @@ async def test_e2e_01_wind_step(full_chain: Any) -> None:
                 harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
             )
             harness.generation_id = None
-        await harness.cli_call(
-            harness.cli_rt, "collector", "stop", "WTG_SIM01", "--yes", check=False
-        )
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes", check=False)
