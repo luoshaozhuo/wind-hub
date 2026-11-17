@@ -241,6 +241,43 @@ class DualBatchObserver:
             await self.client.drain()
 
 
+async def _export_sink_snapshot(harness: FullChainHarness, directory: Path) -> str:
+    exported = await harness.cli_call(
+        harness.cli_rt, "config", "get", "sink", "--scope", "disk", "--output", str(directory)
+    )
+    return str(exported["data"]["revision"])
+
+
+async def _push_apply_sink_snapshot(
+    harness: FullChainHarness, directory: Path, expected_revision: str
+) -> str:
+    pushed = await harness.cli_call(
+        harness.cli_rt,
+        "config",
+        "push",
+        "sink",
+        str(directory),
+        "--expected-revision",
+        expected_revision,
+    )
+    assert pushed["data"]["valid"] is True, pushed
+    candidate_id = str(pushed["data"]["candidate_id"])
+    applied = await harness.cli_call(
+        harness.cli_rt,
+        "config",
+        "apply",
+        "sink",
+        candidate_id,
+        "--expected-revision",
+        expected_revision,
+        "--yes",
+        check=False,
+    )
+    assert applied["status"] in {"SUCCESS", "PARTIAL"}, applied
+    assert applied["data"]["file_commit"] == "COMMITTED", applied
+    return str(applied["data"]["effective_revision"])
+
+
 @dataclass(slots=True)
 class TargetGateway:
     harness: FullChainHarness
@@ -252,6 +289,7 @@ class TargetGateway:
     pki: dict[str, Any]
     cli_config: Path
     original_sinks: bytes
+    original_snapshot: Path
     original_cli_rt: bytes
     original_cli_rel: bytes
     original_sink_process: dict[str, Any]
@@ -345,6 +383,7 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         pki=pki,
         cli_config=cli_config,
         original_sinks=sinks_path.read_bytes(),
+        original_snapshot=root / "original-sink-snapshot",
         original_cli_rt=harness.cli_rt.read_bytes(),
         original_cli_rel=harness.cli_rel.read_bytes(),
         original_sink_process=copy.deepcopy(harness.cli.processes["sink"]),
@@ -364,12 +403,18 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             timeout=60,
         )
 
-        await harness.service("stop", "sink")
-        sinks = _load(sinks_path)
+        original_revision = await _export_sink_snapshot(harness, target.original_snapshot)
+        candidate_snapshot = root / "target-sink-candidate"
+        candidate_revision = await _export_sink_snapshot(harness, candidate_snapshot)
+        assert candidate_revision == original_revision
+        candidate_sinks = next(candidate_snapshot.rglob("sinks.yaml"))
+        sinks = _load(candidate_sinks)
         connection = sinks["sinks"]["gateway_sink"]["connection"]
         connection["endpoint"] = endpoint
         connection["gateway_id"] = "gw-wtg_sim01"
-        _dump(sinks_path, sinks)
+        _dump(candidate_sinks, sinks)
+        await _push_apply_sink_snapshot(harness, candidate_snapshot, candidate_revision)
+        await harness.service("stop", "sink")
         sink_cert, sink_key = pki["clients"]["sink"]
         harness.cli.processes["sink"]["env"]["WH_FULLCHAIN_GATEWAY_TLS"] = json.dumps(
             {
@@ -405,6 +450,10 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
 
 async def stop_target_gateway(target: TargetGateway) -> None:
     harness = target.harness
+    if target.original_snapshot.is_dir():
+        with contextlib.suppress(Exception):
+            current = await _export_sink_snapshot(harness, target.root / "restore-revision")
+            await _push_apply_sink_snapshot(harness, target.original_snapshot, current)
     target.sinks_path.write_bytes(target.original_sinks)
     harness.cli.processes["sink"] = target.original_sink_process
     harness.cli_rt.write_bytes(target.original_cli_rt)
