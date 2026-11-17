@@ -65,6 +65,34 @@ async def test_e2e_04_frequency_disturbance_ffr(full_chain: Any) -> None:
             match=lambda item: abs(float(item["value"]) - expected) < 1.0,
         )
         assert value["quality"] == "good"
+        rejected = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "variables",
+            "update",
+            "--generation-id",
+            generation_id,
+            "--device-id",
+            "GRID_SIM01",
+            "--request-id",
+            str(uuid4()),
+            "--point-id",
+            "grid_frequency_input",
+            "--value=-1",
+            "--yes",
+            check=False,
+        )
+        assert rejected["status"] == "FAILURE"
+        await harness.poll(
+            harness.cli_rt,
+            "gateway",
+            "read",
+            "gw-grid_sim01",
+            "grid_frequency",
+            predicate=lambda data: bool(data.get("values"))
+            and abs(float(data["values"][0]["value"].get("double_value", 0)) - 49.5) < 1e-3,
+            timeout=30,
+        )
         rows = harness.read_recording(generation_id)
         assert any(
             p["device_id"] == "PPC_SIM01"
