@@ -227,7 +227,7 @@ def _write_e2e_devices(root: Path) -> None:
     )
 
 
-def _write_e2e_models_and_tasks(root: Path) -> None:
+def _write_e2e_models_and_tasks(root: Path, intervals: dict[str, float] | None = None) -> None:
     """e2e 设备型号（sim 物理型号 + 任务引用）与逐设备任务模板。"""
     model_source = {
         "WTG_SIM01": "wtg_sim_physical",
@@ -260,7 +260,7 @@ def _write_e2e_models_and_tasks(root: Path) -> None:
                 "file_version": "1.0.0",
                 "template_id": f"e2e_task_{device_id.lower()}",
                 "point_group": "all",
-                "interval": 0.2,
+                "interval": (intervals or {}).get(device_id, 0.2),
                 "desired_state": "STOP",
             },
         )
@@ -466,7 +466,7 @@ def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
     return scenarios
 
 
-def _build_and_start(root: Path) -> FullChainHarness:
+def _build_and_start(root: Path, intervals: dict[str, float] | None = None) -> FullChainHarness:
     stack = asyncio.run(_up_stack_async())
     cli = StrictCliE2E(root)
     harness = FullChainHarness(root, stack, cli)
@@ -480,7 +480,7 @@ def _build_and_start(root: Path) -> FullChainHarness:
     plant = _plant_root(root)
     harness.plant = plant
     _write_sim_devices(plant, harness.modbus_ports)
-    _write_e2e_models_and_tasks(plant)
+    _write_e2e_models_and_tasks(plant, intervals)
     _write_e2e_devices(plant)
 
     pki = write_mtls_pki(
@@ -857,6 +857,21 @@ def full_chain(tmp_path_factory: pytest.TempPathFactory) -> FullChainHarness:
     if not r5_stack.docker_available():
         pytest.skip("NOT_RUN: docker daemon unavailable for real middleware stack")
     harness = _build_and_start(tmp_path)
+    try:
+        yield harness
+    finally:
+        _teardown(harness)
+
+
+@pytest.fixture
+def multirate_chain(tmp_path_factory: pytest.TempPathFactory) -> FullChainHarness:
+    """Isolated full chain with four independently configured task periods."""
+    if not r5_stack.docker_available():
+        pytest.skip("NOT_RUN: docker daemon unavailable for real middleware stack")
+    harness = _build_and_start(
+        tmp_path_factory.mktemp("multirate-chain"),
+        {"WTG_SIM01": 0.05, "PV_SIM01": 0.1, "BESS_SIM01": 0.2, "GRID_SIM01": 1.0},
+    )
     try:
         yield harness
     finally:
