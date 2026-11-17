@@ -268,7 +268,7 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
 
     shutil.copytree(harness.plant, plant)
     pki = write_mtls_pki(
-        root / "pki", ("cli", "gateway", "generator", "sink", "commander", "lease-a", "lease-b")
+        plant / "pki", ("cli", "gateway", "generator", "sink", "commander", "lease-a", "lease-b")
     )
     grpc_port = reserve_port()
     modbus_port = reserve_port()

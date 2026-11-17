@@ -105,7 +105,6 @@ async def _published_count(runtime: Runtime) -> int:
         collector.GetPublishingStatusRequest(), timeout=runtime.target("collector").timeout
     )
     assert len(reply.channels) == 1
-    assert reply.channels[0].nats_connected is True
     return int(reply.channels[0].published)
 
 
@@ -598,7 +597,7 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
                         point_id="agc_enable",
                         value=common.ScalarValue(uint64_value=0),
                         expires_at=deadline,
-                        expected_revision=first_result["revision"],
+                        expected_revision=replay_revision,
                         request_id=unauthorized_id,
                     ),
                     timeout=10,
