@@ -342,7 +342,11 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
                 continue
             if row.key == "collector task" and not context["task_id"]:
                 tasks = await full_chain.cli_call(full_chain.cli_rt, "collector", "tasks")
-                context["task_id"] = str(tasks["data"]["tasks"][0]["task_id"])
+                context["task_id"] = next(
+                    str(item["task_id"])
+                    for item in tasks["data"]["tasks"]
+                    if item["task_id"] == "WTG_SIM01"
+                )
             observed = await _cli_exact(full_chain, row, _arguments(row, context))
             calls.append(
                 {
