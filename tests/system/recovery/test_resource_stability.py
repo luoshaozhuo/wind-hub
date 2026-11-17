@@ -22,6 +22,9 @@ RPC，不得回退）。
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +78,23 @@ COLLECTOR_ID = "system-test"
 #: 新架构 Redis 键契约：{namespace}:{farm}:{collector}:{device}:{point}。
 SINK_NAMESPACE = "wind-hub-resources"
 REDIS_KEY = ":".join((SINK_NAMESPACE, SITE_ID, COLLECTOR_ID, DEVICE_ID, "rotor_speed"))
+
+
+def _resource_evidence(root: Path, case_id: str, **payload: Any) -> None:
+    repo = Path(__file__).resolve().parents[3]
+    entry = {
+        "case_id": case_id,
+        "status": "PASS",
+        "cycles": CYCLES,
+        "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
+        "worktree_diff_sha256": hashlib.sha256(
+            subprocess.check_output(["git", "diff", "--binary"], cwd=repo)
+        ).hexdigest(),
+        **payload,
+    }
+    path = root / f"{case_id}-resource.json"
+    path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"RESOURCE_EVIDENCE={path}")
 
 
 @pytest.fixture
@@ -278,6 +298,8 @@ class TestReconnectFlapStability:
         )
         baseline_fd = proc.fd_count()
         baseline_rss = proc.memory_rss_kb()
+        collector_cpu = proc.cpu_seconds()
+        per_cycle_cpu: list[float] = []
 
         for cycle in range(CYCLES):
             await modbus_server.stop()
@@ -293,6 +315,9 @@ class TestReconnectFlapStability:
                 description=f"cycle {cycle}: reconnected",
             )
             await _single_running_instance(proc)
+            current_cpu = proc.cpu_seconds()
+            per_cycle_cpu.append(current_cpu - collector_cpu)
+            collector_cpu = current_cpu
 
         # 数据面在最后一次恢复后继续出数。
         previous = await _wait_data(redis_service)
@@ -312,6 +337,31 @@ class TestReconnectFlapStability:
         assert (
             final_rss <= baseline_rss + MEMORY_SLACK_KB
         ), f"rss grew from {baseline_rss}KB to {final_rss}KB over {CYCLES} flap cycles"
+        half = CYCLES // 2
+        early = sum(per_cycle_cpu[:half]) / half
+        late = sum(per_cycle_cpu[half:]) / (CYCLES - half)
+        assert late <= early * CPU_GROWTH_FACTOR + CPU_ABS_SLACK_S, (
+            f"per-cycle reconnect CPU grew: first-half {early:.2f}s/cycle vs "
+            f"second-half {late:.2f}s/cycle ({per_cycle_cpu})"
+        )
+        _resource_evidence(
+            tmp_path,
+            "RES-01",
+            reconnects=reconnects - baseline_reconnects,
+            collector={
+                "baseline_fd": baseline_fd,
+                "final_fd": final_fd,
+                "fd_slack": FD_SLACK,
+                "baseline_rss_kb": baseline_rss,
+                "final_rss_kb": final_rss,
+                "rss_slack_kb": MEMORY_SLACK_KB,
+                "per_cycle_cpu_seconds": per_cycle_cpu,
+                "early_cpu_mean_seconds": early,
+                "late_cpu_mean_seconds": late,
+                "cpu_growth_factor_limit": CPU_GROWTH_FACTOR,
+                "cpu_absolute_slack_seconds": CPU_ABS_SLACK_S,
+            },
+        )
 
 
 class TestReloadStability:
@@ -342,6 +392,8 @@ class TestReloadStability:
         sink_rss = sink.memory_rss_kb()
         per_cycle_cpu: list[float] = []
         collector_cpu = proc.cpu_seconds()
+        per_cycle_sink_cpu: list[float] = []
+        sink_cpu = sink.cpu_seconds()
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
@@ -356,6 +408,9 @@ class TestReloadStability:
             await _single_running_instance(proc)
             per_cycle_cpu.append(proc.cpu_seconds() - collector_cpu)
             collector_cpu = proc.cpu_seconds()
+            current_sink_cpu = sink.cpu_seconds()
+            per_cycle_sink_cpu.append(current_sink_cpu - sink_cpu)
+            sink_cpu = current_sink_cpu
 
         # 采集在最后一轮配置下继续出数。
         previous = await _wait_data(redis_service)
@@ -390,4 +445,30 @@ class TestReloadStability:
         assert late <= early * CPU_GROWTH_FACTOR + CPU_ABS_SLACK_S, (
             f"per-cycle collector CPU grew: first-half {early:.2f}s/cycle vs "
             f"second-half {late:.2f}s/cycle ({per_cycle_cpu})"
+        )
+        _resource_evidence(
+            tmp_path,
+            "RES-02",
+            collector={
+                "baseline_fd": collector_fd,
+                "final_fd": final_collector_fd,
+                "fd_slack": FD_SLACK,
+                "baseline_rss_kb": collector_rss,
+                "final_rss_kb": final_collector_rss,
+                "rss_slack_kb": MEMORY_SLACK_KB,
+                "per_cycle_cpu_seconds": per_cycle_cpu,
+                "early_cpu_mean_seconds": early,
+                "late_cpu_mean_seconds": late,
+                "cpu_growth_factor_limit": CPU_GROWTH_FACTOR,
+                "cpu_absolute_slack_seconds": CPU_ABS_SLACK_S,
+            },
+            sink={
+                "baseline_fd": sink_fd,
+                "final_fd": final_sink_fd,
+                "fd_slack": FD_SLACK,
+                "baseline_rss_kb": sink_rss,
+                "final_rss_kb": final_sink_rss,
+                "rss_slack_kb": MEMORY_SLACK_KB,
+                "per_cycle_cpu_seconds": per_cycle_sink_cpu,
+            },
         )

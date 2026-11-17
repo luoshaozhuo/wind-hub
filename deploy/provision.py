@@ -7,11 +7,12 @@ The default is a non-mutating command preview; --apply performs actual creation.
 from __future__ import annotations
 
 import argparse
-import os
 import shlex
 import stat
 import subprocess
 from pathlib import Path
+
+from render_cli import _service_files, _validate_bindings
 
 SERVICE_FILES = {
     "gateway": "industrial_gateway-sim.example.yaml",
@@ -28,18 +29,27 @@ def _commands(name: str) -> list[str]:
     service = f"/etc/wind-hub/configs/services/{SERVICE_FILES[name]}"
     if name == "gateway":
         return [
-            "industrial_gateway.main", "--config", service,
-            "--project-root", "/etc/wind-hub",
+            "industrial_gateway.main",
+            "--config",
+            service,
+            "--project-root",
+            "/etc/wind-hub",
         ]
     if name == "data-generator":
         return ["data_generator.main", "--config", service]
     if name.startswith("collector_"):
         return [
-            "collector.main", "--config", service,
-            "--state-directory", f"/etc/wind-hub/state/{name}",
-            "--collector-id", name,
-            "--grpc-host", "127.0.0.1",
-            "--grpc-port", str(PORTS[name]),
+            "collector.main",
+            "--config",
+            service,
+            "--state-directory",
+            f"/etc/wind-hub/state/{name}",
+            "--collector-id",
+            name,
+            "--grpc-host",
+            "127.0.0.1",
+            "--grpc-port",
+            str(PORTS[name]),
         ]
     if name == "sink":
         return ["sink_service.main", "--config-root", "/etc/wind-hub"]
@@ -63,16 +73,18 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         raise ValueError("invalid deployment root or OCI image name")
     if args.uid < 1 or args.gid < 1:
         raise ValueError("run the deployment service under a non-root UID/GID")
-    if args.runtime == "containerd" and (
-        not args.socket.is_absolute() or not args.namespace
-    ):
+    if args.runtime == "containerd" and (not args.socket.is_absolute() or not args.namespace):
         raise ValueError("containerd requires an absolute socket and namespace")
     if args.runtime == "isulad" and not args.isula.is_absolute():
         raise ValueError("isulad executable path must be absolute")
+    files = _service_files(root, SERVICE_FILES)
+    _validate_bindings(root, files, "container")
     env_flags = _private_env(args.collector_env_file)
-    if args.apply and args.collector_env_file is None and args.service in {
-        "all", "collector_realtime", "collector_reliable"
-    }:
+    if (
+        args.apply
+        and args.collector_env_file is None
+        and args.service in {"all", "collector_realtime", "collector_reliable"}
+    ):
         raise ValueError("Collector provisioning requires --collector-env-file")
     result: list[list[str]] = []
     names = SERVICE_FILES if args.service == "all" else (args.service,)
@@ -85,19 +97,28 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         if args.runtime == "containerd":
             base = [
                 args.ctr,
-                "--address", str(args.socket),
-                "--namespace", args.namespace,
+                "--address",
+                str(args.socket),
+                "--namespace",
+                args.namespace,
             ]
             # ctr uses OCI process args, replacing the Docker image Entrypoint.
             result.append(
                 [
-                    *base, "containers", "create",
-                    "--net-host", "--user", f"{args.uid}:{args.gid}",
+                    *base,
+                    "containers",
+                    "create",
+                    "--net-host",
+                    "--user",
+                    f"{args.uid}:{args.gid}",
                     "--mount",
                     f"type=bind,src={root},dst=/etc/wind-hub,options=rbind:rw",
                     *role_env,
-                    args.image, ident,
-                    "python", "-m", *_commands(name),
+                    args.image,
+                    ident,
+                    "python",
+                    "-m",
+                    *_commands(name),
                 ]
             )
             # ctr creates/starts the initial task; subsequent restart and
@@ -106,11 +127,16 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         else:
             result.append(
                 [
-                    str(args.isula), "create",
-                    "--name", ident,
-                    "--network", "host",
-                    "--user", f"{args.uid}:{args.gid}",
-                    "-v", f"{root}:/etc/wind-hub:rw",
+                    str(args.isula),
+                    "create",
+                    "--name",
+                    ident,
+                    "--network",
+                    "host",
+                    "--user",
+                    f"{args.uid}:{args.gid}",
+                    "-v",
+                    f"{root}:/etc/wind-hub:rw",
                     *role_env,
                     args.image,
                     *_commands(name),
@@ -119,6 +145,61 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
             # iSulad initial create leaves the container stopped: use
             # 'wind-hub service start <name>' for lifecycle management.
     return result
+
+
+def _created_target(args: argparse.Namespace, command: list[str]) -> str | None:
+    if args.runtime == "containerd":
+        if "containers" not in command:
+            return None
+        index = command.index("containers")
+        if command[index : index + 2] != ["containers", "create"]:
+            return None
+        return command[command.index(args.image) + 1]
+    if command[1:2] == ["create"]:
+        return command[command.index("--name") + 1]
+    return None
+
+
+def _rollback(args: argparse.Namespace, targets: list[str]) -> None:
+    """只回滚本次已成功 create 的精确 ID，绝不清扫同名前缀或既有资源。"""
+    failures: list[str] = []
+    for ident in reversed(targets):
+        if args.runtime == "containerd":
+            base = [args.ctr, "--address", str(args.socket), "--namespace", args.namespace]
+            for operation in (("tasks", "kill", "-s", "SIGKILL", ident), ("tasks", "rm", ident)):
+                subprocess.run([*base, *operation], capture_output=True, timeout=30, check=False)
+            completed = subprocess.run(
+                [*base, "containers", "rm", ident],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        else:
+            completed = subprocess.run(
+                [str(args.isula), "rm", "-f", ident],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        if completed.returncode != 0:
+            failures.append(f"{ident}: {completed.stderr[:300]}")
+    if failures:
+        raise RuntimeError("rollback incomplete: " + "; ".join(failures))
+
+
+def _apply(args: argparse.Namespace, commands: list[list[str]]) -> None:
+    created: list[str] = []
+    try:
+        for command in commands:
+            subprocess.run(command, check=True, timeout=120)
+            target = _created_target(args, command)
+            if target is not None:
+                created.append(target)
+    except BaseException:
+        _rollback(args, created)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,10 +222,18 @@ def main(argv: list[str] | None = None) -> int:
         for command in commands:
             # Never print environment file contents.
             print(shlex.join(command), flush=True)
-            if args.apply:
-                subprocess.run(command, check=True, timeout=120)
+        if args.apply:
+            _apply(args, commands)
         return 0
-    except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except KeyboardInterrupt:
+        parser.exit(130, "OCI provision interrupted; owned resources rolled back\n")
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as exc:
         parser.exit(2, f"OCI provision failed: {exc}\n")
 
 

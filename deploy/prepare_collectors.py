@@ -49,13 +49,21 @@ def main(argv: list[str] | None = None) -> int:
         }
         if any(p.exists() for p in targets.values()):
             raise ValueError("Collector variants already exist; refusing overwrite")
-        # Both variants inherit the same site/devices/point-table references.
-        # The delivery mode is the only behavioral difference.
-        for delivery, path in targets.items():
-            body = dict(source)
-            body["messaging"] = {**source["messaging"], "delivery": delivery}
-            _create(path, body)
-            print(f"{delivery}: {path}")
+        # 两份配置必须成对出现；失败时只删除本次通过 O_EXCL 新建的文件。
+        created: list[Path] = []
+        completed = False
+        try:
+            for delivery, path in targets.items():
+                body = dict(source)
+                body["messaging"] = {**source["messaging"], "delivery": delivery}
+                _create(path, body)
+                created.append(path)
+                print(f"{delivery}: {path}")
+            completed = True
+        finally:
+            if not completed:
+                for path in created:
+                    path.unlink(missing_ok=True)
         return 0
     except (OSError, ValueError, yaml.YAMLError) as exc:
         parser.exit(2, f"Collector deployment preparation failed: {exc}\n")

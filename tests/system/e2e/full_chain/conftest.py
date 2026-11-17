@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import shutil
 import struct
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -67,6 +69,12 @@ E2E_DEVICES = (*SIM_DEVICES, REPLAY_DEVICE)
 #: Sink GatewayOutput 的专用目标变量（寄存器随出厂 sim WTG 点表副本追加，
 #: 不与 DG 注入变量冲突）。
 SINK_TARGET_POINT = "e2e_sink_target"
+GOLDEN_DEVICES = {"PV_SIM01": "active_power", "BESS_SIM01": "soc"}
+E2E_POINT_TABLES = {
+    "WTG_SIM01": ("modbus_wtg_sim", "modbus_wtg_sim_e2e"),
+    "PV_SIM01": ("modbus_pv_sim", "modbus_pv_sim_e2e"),
+    "BESS_SIM01": ("modbus_bess_sim", "modbus_bess_sim_e2e"),
+}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -252,10 +260,9 @@ def _write_e2e_models_and_tasks(root: Path, intervals: dict[str, float] | None =
             REPO_CONFIGS / "templates" / "device_models" / f"device_model_{sim_model}_v1.0.0.yaml"
         )
         document["template_id"] = f"e2e_{device_id.lower()}"
-        if device_id == "WTG_SIM01":
-            # Sink's independent write-back point is not a physical DG output.
-            # Only the Gateway/Collector E2E model uses the extended point table.
-            document["point_table"]["id"] = "modbus_wtg_sim_e2e"
+        if device_id in E2E_POINT_TABLES:
+            # Sink 回写点只属于 Gateway/Collector 投影，不要求 DG 物理模型生成。
+            document["point_table"]["id"] = E2E_POINT_TABLES[device_id][1]
         document["task"] = {"id": f"e2e_task_{device_id.lower()}", "version": "1.0.0"}
         _dump(
             root
@@ -325,30 +332,30 @@ def _write_e2e_models_and_tasks(root: Path, intervals: dict[str, float] | None =
             },
         },
     )
-    # Sink GatewayOutput 专用目标变量：寄存器追加进出厂 sim WTG 点表副本
-    # （Gateway 与 Collector 共享同一根下同一份点表，寄存器布局天然一致）。
-    point_table = (
-        REPO_CONFIGS / "templates" / "point_tables" / "point_table_modbus_wtg_sim_v1.0.0.yaml"
-    )
-    document = _load(point_table)
-    document["template_id"] = "modbus_wtg_sim_e2e"
-    document["points"][SINK_TARGET_POINT] = {
-        "business_point_id": SINK_TARGET_POINT,
-        "point_groups": ["all"],
-        "address": {"register_type": "holding", "address": 400, "count": 2, "slave_id": 1},
-        "data_type": "float32",
-        "unit": "none",
-        "scale": 1.0,
-        "offset": 0.0,
-        "description": "E2E Sink GatewayOutput target",
-    }
+    # 三类物理设备使用各自扩展点表，避免 Sink 回写地址占用 DG 输入寄存器。
+    for source_id, target_id in E2E_POINT_TABLES.values():
+        point_table = (
+            REPO_CONFIGS / "templates" / "point_tables" / f"point_table_{source_id}_v1.0.0.yaml"
+        )
+        document = _load(point_table)
+        document["template_id"] = target_id
+        document["points"][SINK_TARGET_POINT] = {
+            "business_point_id": SINK_TARGET_POINT,
+            "point_groups": ["all"],
+            "address": {"register_type": "holding", "address": 400, "count": 2, "slave_id": 1},
+            "data_type": "float32",
+            "unit": "none",
+            "scale": 1.0,
+            "offset": 0.0,
+            "description": "E2E Sink GatewayOutput target",
+        }
+        _dump(
+            root / "templates" / "point_tables" / f"point_table_{target_id}_v1.0.0.yaml",
+            document,
+        )
     business = _load(root / "templates" / "business_points_standard.yaml")
     business["business_points"][SINK_TARGET_POINT] = {"data_type": "float32", "unit": "none"}
     _dump(root / "templates" / "business_points_standard.yaml", business)
-    _dump(
-        root / "templates" / "point_tables" / "point_table_modbus_wtg_sim_e2e_v1.0.0.yaml",
-        document,
-    )
 
 
 def _write_collector_service(root: Path, filename: str, *, nats_url: str, delivery: str) -> Path:
@@ -458,10 +465,32 @@ class FullChainHarness:
         self.generation_id: str | None = None
         self.evidence_path = root / "evidence.jsonl"
         self.sink_modbus_port = 0
+        self.sink_modbus_ports: dict[str, int] = {}
+        self.source_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
+        ).strip()
+        self.source_diff_sha256 = hashlib.sha256(
+            subprocess.check_output(["git", "diff", "--binary"], cwd=REPO_ROOT)
+        ).hexdigest()
 
     # ---------------------------- evidence ----------------------------
+    def _config_sha256(self) -> str:
+        digest = hashlib.sha256()
+        for root in (self.plant, self.root / "sink"):
+            for path in sorted(root.rglob("*.yaml")):
+                digest.update(str(path.relative_to(root)).encode())
+                digest.update(path.read_bytes())
+        return digest.hexdigest()
+
     def record(self, case: str, **payload: Any) -> None:
-        entry = {"case_id": case, "time": time.time(), **payload}
+        entry = {
+            "case_id": case,
+            "time": time.time(),
+            "head": self.source_head,
+            "worktree_diff_sha256": self.source_diff_sha256,
+            "config_sha256": self._config_sha256(),
+            **payload,
+        }
         with self.evidence_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
 
@@ -583,6 +612,8 @@ def _build_and_start(
     harness.modbus_ports = {device_id: reserve_port() for device_id in E2E_DEVICES}
     harness.gw_grpc_endpoint = harness.endpoints["gateway"]
     harness.sink_modbus_port = reserve_port()
+    harness.sink_modbus_ports = {"WTG_SIM01": harness.sink_modbus_port}
+    harness.sink_modbus_ports.update({device: reserve_port() for device in GOLDEN_DEVICES})
 
     plant = _plant_root(root)
     harness.plant = plant
@@ -766,6 +797,37 @@ def _build_and_start(
         "source": bounded_gateway,
         "overrides": {},
     }
+    for device_id, point_id in GOLDEN_DEVICES.items():
+        suffix = device_id.lower()
+        bounded_source = {
+            "wind_farm_id": FARM,
+            "collector_id": harness.rt_collector,
+            "devices": [device_id],
+            "points": [point_id],
+        }
+        deliveries["deliveries"][f"gateway_output_{suffix}"] = {
+            "template_id": "realtime_power",
+            "template_version": "1.0.0",
+            "sink_id": f"gateway_sink_{suffix}",
+            "desired_state": "START",
+            "source": bounded_source,
+            "target_mappings": [
+                {
+                    "source_device_id": device_id,
+                    "source_point_id": point_id,
+                    "variable_id": SINK_TARGET_POINT,
+                }
+            ],
+            "overrides": {},
+        }
+        deliveries["deliveries"][f"modbus_output_{suffix}"] = {
+            "template_id": "realtime_power",
+            "template_version": "1.0.0",
+            "sink_id": f"modbus_sink_{suffix}",
+            "desired_state": "START",
+            "source": bounded_source,
+            "overrides": {},
+        }
     _dump(sink.root / DELIVERIES_INSTANCE, deliveries)
 
     sinks_doc = _load(sink.root / SINKS_INSTANCE)
@@ -785,6 +847,27 @@ def _build_and_start(
         "connection": {"listen_host": "127.0.0.1", "port": harness.sink_modbus_port},
         "overrides": {},
     }
+    for device_id in GOLDEN_DEVICES:
+        suffix = device_id.lower()
+        sinks_doc["sinks"][f"gateway_sink_{suffix}"] = {
+            "template_id": "gateway_realtime",
+            "template_version": "1.0.0",
+            "connection": {
+                "endpoint": harness.gw_grpc_endpoint,
+                "gateway_id": f"gw-{suffix}",
+                "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
+            },
+            "overrides": {},
+        }
+        sinks_doc["sinks"][f"modbus_sink_{suffix}"] = {
+            "template_id": "modbus_registers",
+            "template_version": "1.0.0",
+            "connection": {
+                "listen_host": "127.0.0.1",
+                "port": harness.sink_modbus_ports[device_id],
+            },
+            "overrides": {},
+        }
     _dump(sink.root / SINKS_INSTANCE, sinks_doc)
     for template_name in ("gateway_realtime", "modbus_registers"):
         source = REPO_CONFIGS / "templates" / "sinks" / f"sink_{template_name}_v1.0.0.yaml"
@@ -1058,7 +1141,7 @@ async def wait_gateway_modbus_float(
 
 
 async def wait_sink_modbus_float(
-    port: int, expected: float, timeout: float = 60
+    port: int, expected: float, timeout: float = 60, tolerance: float = 1e-3
 ) -> tuple[float, int]:
     """Read Sink's own Modbus output server with an independent client."""
     from pymodbus.client import AsyncModbusTcpClient
@@ -1075,7 +1158,7 @@ async def wait_sink_modbus_float(
                 raise RuntimeError(f"sink modbus read failed: {values!r}, {quality!r}")
             value = struct.unpack(">f", struct.pack(">HH", *values.registers))[0]
             code = int(quality.registers[0])
-            if abs(value - expected) < 1e-3 and code == 0:
+            if abs(value - expected) <= tolerance and code == 0:
                 return value, code
         except (OSError, RuntimeError) as error:
             latest = error

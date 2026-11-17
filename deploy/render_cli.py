@@ -74,24 +74,30 @@ def _service_files(root: Path, names: dict[str, str]) -> dict[str, Path]:
     return result
 
 
+def _section(document: dict[str, Any], key: str, service: str) -> dict[str, Any]:
+    value = document.get(key, {})
+    if not isinstance(value, dict):
+        raise ValueError(f"{service}: {key} must be a mapping")
+    return value
+
+
 def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
     docs = {name: _document(path) for name, path in files.items()}
     for name in ("collector_realtime", "collector_reliable"):
         expected = "realtime" if name == "collector_realtime" else "reliable"
-        delivery = docs[name].get("messaging", {}).get("delivery")
+        delivery = _section(docs[name], "messaging", name).get("delivery")
         if delivery != expected:
             raise ValueError(f"{name}: expected messaging.delivery={expected}")
     for name in ("gateway", "data-generator", "commander", "sink"):
         doc = docs[name]
-        if name == "gateway":
-            actual = doc.get("grpc", {}).get("listen_port")
-        elif name == "data-generator":
-            raw = doc.get("service", {}).get("grpc_bind", "")
+        if name == "data-generator":
+            raw = _section(doc, "service", name).get("grpc_bind", "")
+            if not isinstance(raw, str):
+                raise ValueError(f"{name}: service.grpc_bind must be a string")
             actual = int(raw.rsplit(":", 1)[1]) if re.search(r":[0-9]+$", raw) else None
-        elif name == "commander":
-            actual = doc.get("grpc", {}).get("listen_port")
         else:
-            actual = doc.get("grpc", {}).get("listen_port")
+            actual = _section(doc, "grpc", name).get("listen_port")
+        if name == "sink":
             expected_root = str(root) if mode == "process" else "/etc/wind-hub"
             if doc.get("config_root") != expected_root:
                 raise ValueError(f"sink: config_root must be {expected_root}")
@@ -116,7 +122,14 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
 def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[str]:
     base = [str(python), "-m"]
     if name == "gateway":
-        return [*base, "industrial_gateway.main", "--config", str(paths[name]), "--project-root", str(root)]
+        return [
+            *base,
+            "industrial_gateway.main",
+            "--config",
+            str(paths[name]),
+            "--project-root",
+            str(root),
+        ]
     if name == "data-generator":
         return [*base, "data_generator.main", "--config", str(paths[name])]
     if name.startswith("collector_"):
@@ -141,16 +154,18 @@ def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[s
 
 def _render(args: argparse.Namespace) -> dict[str, Any]:
     root = args.root.resolve(strict=True)
-    paths = _service_files(root, {name: getattr(args, name.replace("-", "_")) for name in SERVICE_NAMES})
+    paths = _service_files(
+        root, {name: getattr(args, name.replace("-", "_")) for name in SERVICE_NAMES}
+    )
     _validate_bindings(root, paths, args.mode)
     certs = (args.ca, args.client_cert, args.client_key)
     for cert in certs:
         if not cert.is_file() or cert.is_symlink():
             raise ValueError(f"missing or symlinked TLS credential: {cert}")
+    if args.client_key.stat().st_mode & 0o077:
+        raise ValueError("TLS client key must not be accessible by group or other users")
 
-    if args.mode == "containerd" and (
-        not args.socket.is_absolute() or not args.namespace
-    ):
+    if args.mode == "containerd" and (not args.socket.is_absolute() or not args.namespace):
         raise ValueError("containerd requires an absolute socket and a namespace")
     if args.mode == "isulad" and not args.isula.is_absolute():
         raise ValueError("isulad executable must be an absolute path")
@@ -237,7 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
     parser.add_argument("--namespace", default="wind-hub")
     parser.add_argument("--socket", type=Path, default=Path("/run/containerd/containerd.sock"))
-    parser.add_argument("--isula", type=Path, default=Path(shutil.which("isula") or "/usr/bin/isula"))
+    parser.add_argument(
+        "--isula", type=Path, default=Path(shutil.which("isula") or "/usr/bin/isula")
+    )
     parser.add_argument("--ca", type=Path, required=True)
     parser.add_argument("--client-cert", type=Path, required=True)
     parser.add_argument("--client-key", type=Path, required=True)

@@ -418,16 +418,15 @@ class Runtime:
                 if isinstance(process, dict):
                     # Native process and container managers expose a process state.
                     manager_state = process.get("state")
+                    managed_not_running = process.get("manager") in {
+                        "process",
+                        "containerd",
+                        "isulad",
+                    } and not (process.get("running") is True or manager_state == "RUNNING")
                     if (
                         process.get("status") == "UNKNOWN"
                         or process.get("running") is False
-                        or manager_state
-                        in {
-                            "STOPPED",
-                            "UNKNOWN",
-                            "FAILED",
-                            "exited",
-                        }
+                        or managed_not_running
                     ):
                         degraded += 1
                         continue

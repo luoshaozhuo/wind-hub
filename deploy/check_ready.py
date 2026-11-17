@@ -49,8 +49,8 @@ def _status(config: Path, service: str, timeout: float) -> dict[str, Any]:
     if completed.returncode != 0:
         raise RuntimeError(f"{service}: CLI status returned {completed.returncode}")
     response = json.loads(json_lines[-1])
-    if not isinstance(response, dict):
-        raise ValueError(f"{service}: unexpected CLI response")
+    if not isinstance(response, dict) or response.get("status") != "SUCCESS":
+        raise ValueError(f"{service}: CLI response is not SUCCESS")
     rows = response.get("data")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError(f"{service}: expected exactly one service status row")
@@ -69,10 +69,12 @@ def _ready(state: dict[str, Any]) -> bool:
     process = state.get("process")
     if not isinstance(process, dict):
         return False
+    if process.get("status") == "UNMANAGED":
+        return True
     if process.get("status") == "UNKNOWN" or process.get("running") is False:
         return False
-    # rpc-only configurations intentionally do not manage OS processes.
-    return process.get("state") not in {"STOPPED", "UNKNOWN", "FAILED", "exited"}
+    # 受管进程必须真实运行；RPC-only 配置只允许显式 UNMANAGED 豁免。
+    return process.get("running") is True or process.get("state") == "RUNNING"
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -5,3 +5,12 @@
 !README.md
 !src/
 !src/**
+**/__pycache__/
+**/*.py[cod]
+**/*.key
+**/*.pem
+**/.env
+**/.env.*
+src/web_admin/node_modules/
+src/web_admin/test-results/
+src/web_admin/playwright-report/

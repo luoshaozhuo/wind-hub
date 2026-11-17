@@ -66,3 +66,4 @@ src/web_admin/test-results/
 src/web_admin/playwright-report/
 
 run/
+.r4d-wheel-cache/
