@@ -125,3 +125,69 @@ async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -> None:
         await harness.cli_call(
             harness.cli_rel, "collector", "stop", "WTG_SIM01", "--yes", check=False
         )
+
+
+async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -> None:
+    """Pause only this test's NATS and observe new data on both downstream channels."""
+    harness = full_chain
+    assert harness.sink is not None
+    generation_id: str | None = None
+    paused = False
+    try:
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
+        started = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "start",
+            "wind-plant-physical",
+            "--scenario-version",
+            "1.0.0",
+            "--yes",
+        )
+        generation_id = str(started["data"]["generation_id"])
+        harness.generation_id = generation_id
+        key = harness.redis_key("WTG_SIM01", "wind_speed")
+        before = await harness.sink.wait_redis_value(
+            key, timeout=90, match=lambda item: abs(float(item["value"]) - 10.0) < 1e-3
+        )
+        baseline = await harness.sink.wait_kafka_messages(min_messages=10, timeout=90)
+        assert baseline
+        await asyncio.to_thread(harness.stack.pause, "nats")
+        paused = True
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(harness.sink.stream_pending(), timeout=3)
+        await asyncio.to_thread(harness.stack.unpause, "nats")
+        paused = False
+        restored_at = datetime.now(UTC)
+        after = await harness.sink.wait_redis_value(
+            key,
+            timeout=90,
+            match=lambda item: item["sample_id"] != before["sample_id"]
+            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at,
+        )
+        records = await harness.sink.wait_kafka_messages(
+            min_messages=20, timeout=90, offset_reset="latest"
+        )
+        payloads = [json.loads(record.value) for record in records]
+        assert any(
+            item.get("collector_id") == harness.reliable_collector
+            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
+            for item in payloads
+        )
+        harness.record(
+            "E2E-10-NATS",
+            generation_id=generation_id,
+            before=before["sample_id"],
+            after=after["sample_id"],
+        )
+    finally:
+        if paused:
+            await asyncio.to_thread(harness.stack.unpause, "nats")
+        if generation_id is not None:
+            await harness.cli_call(
+                harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
+            )
+            harness.generation_id = None
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes", check=False)
