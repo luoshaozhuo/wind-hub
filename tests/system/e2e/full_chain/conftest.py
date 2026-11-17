@@ -512,7 +512,12 @@ def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
     return scenarios
 
 
-def _build_and_start(root: Path, intervals: dict[str, float] | None = None) -> FullChainHarness:
+def _build_and_start(
+    root: Path,
+    intervals: dict[str, float] | None = None,
+    *,
+    bess_initial_soc: float | None = None,
+) -> FullChainHarness:
     stack = asyncio.run(_up_stack_async())
     cli = StrictCliE2E(root)
     harness = FullChainHarness(root, stack, cli)
@@ -528,6 +533,13 @@ def _build_and_start(root: Path, intervals: dict[str, float] | None = None) -> F
     _write_sim_devices(plant, harness.modbus_ports)
     _write_e2e_models_and_tasks(plant, intervals)
     _write_e2e_devices(plant)
+    if bess_initial_soc is not None:
+        bess_model = (
+            plant / "templates" / "device_models" / "device_model_bess_sim_physical_v1.0.0.yaml"
+        )
+        bess_document = _load(bess_model)
+        bess_document["simulation"]["parameters"]["initial_soc"] = bess_initial_soc
+        _dump(bess_model, bess_document)
 
     pki = write_mtls_pki(
         plant / "gateway-pki", ("cli", "gateway", "generator", "sink", "commander")
@@ -918,6 +930,27 @@ def multirate_chain(tmp_path_factory: pytest.TempPathFactory) -> FullChainHarnes
         tmp_path_factory.mktemp("multirate-chain"),
         {"WTG_SIM01": 0.05, "PV_SIM01": 0.1, "BESS_SIM01": 0.2, "GRID_SIM01": 1.0},
     )
+    try:
+        yield harness
+    finally:
+        _teardown(harness)
+
+
+@pytest.fixture(params=[("upper", 0.8999, -500000.0), ("lower", 0.1001, 500000.0)])
+def bess_boundary_chain(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> FullChainHarness:
+    """Isolated full chain with BESS initial SOC adjacent to one physical bound."""
+    if not r5_stack.docker_available():
+        pytest.skip("NOT_RUN: docker daemon unavailable for real middleware stack")
+    boundary, initial_soc, power = request.param
+    harness = _build_and_start(
+        tmp_path_factory.mktemp(f"bess-{boundary}-chain"),
+        bess_initial_soc=initial_soc,
+    )
+    harness.bess_boundary = boundary
+    harness.bess_boundary_power = power
     try:
         yield harness
     finally:
