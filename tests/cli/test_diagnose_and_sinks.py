@@ -32,7 +32,7 @@ def test_diagnose_pipeline_requires_correlated_evidence(cli_env: Any) -> None:
 
     async def behavior(request: Any, context: Any) -> Any:
         # 两侧必须共享同一 correlation_id；消息级证据无交集时不得判 PASS。
-        if list(request.stages) == ["connect", "protocol", "sample", "publish"]:
+        if "NATS" in request.stages:
             return _diagnose_response("PASS", ["m-1", "m-2"])
         return _diagnose_response("PASS", ["m-9"])
 
@@ -50,7 +50,7 @@ def test_diagnose_pipeline_requires_correlated_evidence(cli_env: Any) -> None:
 
 def test_diagnose_pipeline_pass_with_shared_id(cli_env: Any) -> None:
     async def behavior(request: Any, context: Any) -> Any:
-        if "consume" in request.stages:
+        if "consumer" in request.stages:
             return _diagnose_response("PASS", ["m-2"])
         return _diagnose_response("PASS", ["m-1", "m-2"])
 
@@ -62,7 +62,7 @@ def test_diagnose_pipeline_pass_with_shared_id(cli_env: Any) -> None:
 
 def test_diagnose_pipeline_failure_is_exit1(cli_env: Any) -> None:
     async def behavior(request: Any, context: Any) -> Any:
-        if "consume" in request.stages:
+        if "consumer" in request.stages:
             return _diagnose_response("FAIL", [])
         return _diagnose_response("PASS", ["m-2"])
 

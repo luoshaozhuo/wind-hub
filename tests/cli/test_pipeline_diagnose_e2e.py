@@ -24,7 +24,7 @@ def test_pipeline_correlated_pass(cli_env: object) -> None:
     server = cli_env.server
 
     async def diagnose(request: Any, context: Any) -> Any:
-        if "publish" in request.stages:
+        if "NATS" in request.stages:
             return common_pb2.DiagnoseResponse(
                 overall_status="PASS",
                 stages=[
@@ -51,7 +51,7 @@ def test_pipeline_missing_correlation_fails(cli_env: object) -> None:
     server = cli_env.server
 
     async def diagnose(request: Any, context: Any) -> Any:
-        if "publish" in request.stages:
+        if "NATS" in request.stages:
             return common_pb2.DiagnoseResponse(
                 overall_status="PASS",
                 stages=[_stage("publish", "PASS", [("message_id", "id-A")])],
