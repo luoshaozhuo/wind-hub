@@ -85,7 +85,8 @@ class GatewayOutput:
         try:
             response = await self._claim("ACQUIRE", "", self._lease_ms)
             if not response.accepted or not response.lease_token:
-                raise ConfigurationError("Gateway denied the initial target lease")
+                detail = response.error_code or "missing lease token"
+                raise ConfigurationError(f"Gateway denied the initial target lease: {detail}")
             self._lease_token = response.lease_token
             self._unhealthy = False
             self._renew_task = asyncio.create_task(self._renew(), name="sink:gateway-lease")
