@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -28,6 +29,25 @@ async def test_e2e_03_ppc_charge_discharge(full_chain: Any) -> None:
         )
         generation_id = str(started["data"]["generation_id"])
         harness.generation_id = generation_id
+        rejected = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "variables",
+            "update",
+            "--generation-id",
+            generation_id,
+            "--device-id",
+            "BESS_SIM01",
+            "--request-id",
+            str(uuid4()),
+            "--point-id",
+            "soc_target",
+            "--value",
+            "101",
+            "--yes",
+            check=False,
+        )
+        assert rejected["status"] == "FAILURE"
         readbacks = []
         for point, value in (
             ("agc_enable", "1"),
