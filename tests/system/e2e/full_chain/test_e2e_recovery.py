@@ -7,7 +7,10 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import nats
 import pytest
+
+from .conftest import FARM
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -191,6 +194,52 @@ async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -> None:
             harness.generation_id = None
         for config in (harness.cli_rt, harness.cli_rel):
             await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes", check=False)
+
+
+async def test_e2e_10_invalid_reliable_batch_is_dlq_acked(full_chain: Any) -> None:
+    """A permanent decode failure is durably dead-lettered before source ACK."""
+    harness = full_chain
+    assert harness.sink is not None
+    before = await harness.sink.dlq_count()
+    subject = f"wh.hist.batch.{FARM}.{harness.reliable_collector}.WTG_SIM01"
+    client = await nats.connect(servers=harness.stack.nats, connect_timeout=10)
+    try:
+        ack = await client.jetstream().publish(subject, b"{not-a-valid-sample-batch", timeout=10)
+        assert ack.stream == harness.sink.history_stream
+    finally:
+        await client.drain()
+
+    deadline = asyncio.get_running_loop().time() + 30
+    while asyncio.get_running_loop().time() < deadline:
+        if await harness.sink.dlq_count() > before:
+            break
+        await asyncio.sleep(0.5)
+    else:
+        raise AssertionError("invalid reliable batch never reached the full-chain DLQ")
+
+    record = await harness.sink.dlq_latest()
+    assert record is not None
+    envelope = json.loads(record.data.decode("utf-8"))
+    assert envelope["classification"] == "PERMANENT"
+    assert envelope["delivery_id"] == "power_history"
+    assert envelope["subject"] == subject
+
+    ack_deadline = asyncio.get_running_loop().time() + 20
+    while asyncio.get_running_loop().time() < ack_deadline:
+        state = await harness.sink.consumer_state()
+        if state["unacked"] == 0:
+            break
+        await asyncio.sleep(0.5)
+    else:
+        raise AssertionError(f"source remained unacked after DLQ PubAck: {state}")
+    harness.record(
+        "E2E-10-DLQ",
+        source_stream=ack.stream,
+        source_sequence=ack.seq,
+        dlq_count=await harness.sink.dlq_count(),
+        classification=envelope["classification"],
+        delivery_id=envelope["delivery_id"],
+    )
 
 
 async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
