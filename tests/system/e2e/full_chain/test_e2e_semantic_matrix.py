@@ -136,7 +136,7 @@ def _assert_cli_payload(row: SemanticEntry, envelope: dict[str, Any]) -> None:
     elif row.key == "gateway status":
         assert data["gateway"]["gateway_id"] == "gw-wtg_sim01"
     elif row.key == "gateway variables":
-        assert any(item["point_id"] == "wind_speed" for item in data["variables"])
+        assert any(item["variable_id"] == "wind_speed" for item in data["variables"])
     elif row.key == "gateway read":
         assert data["values"][0]["point_id"] == "wind_speed"
     elif row.key == "collector tasks":
