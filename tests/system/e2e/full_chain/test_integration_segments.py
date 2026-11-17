@@ -693,6 +693,8 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             "lease-b": gateway_rpc.IndustrialGatewayServiceStub(channel_b),
         }
 
+        delivery = await harness.cli_call(harness.cli_rt, "sink", "delivery", "gateway_output")
+        assert delivery["data"]["delivery"]["actual_state"] == "RUNNING", delivery
         sample_id = f"r4e-i07-map-{uuid4().hex}"
         source_time = datetime.now(UTC)
         batch = fixed_batch(

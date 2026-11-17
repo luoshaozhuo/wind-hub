@@ -25,7 +25,7 @@ from nats.aio.msg import Msg
 from cli.runtime import Runtime
 from contracts.sample_batch import SampleBatch, SampleItem
 from tests.cli.test_r1f3_strict_cli_e2e import _write_cli
-from tests.support.gateway import reserve_port, write_mtls_pki
+from tests.support.gateway import reserve_port
 
 from .conftest import FARM, REPO_ROOT, SRC, FullChainHarness, _dump, _load, _write_gateway_service
 
@@ -267,16 +267,23 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
     import shutil
 
     shutil.copytree(harness.plant, plant)
-    pki = write_mtls_pki(
-        plant / "pki", ("cli", "gateway", "generator", "sink", "commander", "lease-a", "lease-b")
-    )
+    certs = plant / "gateway-pki" / "certs"
+    clients = {
+        name: (certs / f"client-{name}.crt", certs / f"client-{name}.key")
+        for name in ("cli", "gateway", "generator", "sink", "commander")
+    }
+    clients["lease-a"] = clients["cli"]
+    clients["lease-b"] = clients["generator"]
+    pki = {
+        "ca": certs / "ca.crt",
+        "server_crt": certs / "server.crt",
+        "server_key": certs / "server.key",
+        "clients": clients,
+    }
     grpc_port = reserve_port()
     modbus_port = reserve_port()
     service_path = _write_gateway_service(plant, grpc_port=grpc_port, pki=pki)
     document = _load(service_path)
-    document["grpc"]["permissions"].update(
-        {"lease-a": ["inject", "read"], "lease-b": ["inject", "read"]}
-    )
     servers = [item for item in document["servers"] if item["device_id"] == "WTG_SIM01"]
     assert len(servers) == 1
     servers[0]["server_id"] = "gw-wtg_sim01"
@@ -418,7 +425,8 @@ async def read_modbus_float(port: int, address: int, *, holding: bool) -> float:
         else:
             response = await client.read_input_registers(address, count=2, device_id=1)
         assert not response.isError(), response
-        return struct.unpack(">f", struct.pack(">HH", *response.registers))[0]
+        # 出厂 protocol_modbus_tcp 明确使用 little_endian 字序。
+        return struct.unpack(">f", struct.pack(">HH", *response.registers[::-1]))[0]
     finally:
         client.close()
 
