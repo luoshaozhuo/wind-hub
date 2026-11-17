@@ -192,6 +192,7 @@ async def _cli_exact(
 ) -> dict[str, Any]:
     envelope = await harness.cli_call(
         harness.cli_rt,
+        *row.key.split(),
         *args,
         check=False,
         token=token,
@@ -394,7 +395,7 @@ async def test_collector_cli_wrong_and_missing_token_cannot_start_task(
                     "expected_error": expected_error,
                 }
             ),
-            ("collector", "start", task_id, "--yes"),
+            (task_id, "--yes"),
             token=token,
         )
         assert ADMIN_TOKEN not in observed["stdout"] + observed["stderr"]
@@ -480,9 +481,7 @@ async def test_common_service_semantics_on_all_six_deployments(
                         candidate_id=f"missing-semantic-{deployment}",
                         expected_revision=revision,
                     ),
-                    "GetMetrics": common.GetMetricsRequest(
-                        window_ms=60000 if deployment == "sink" else 1000
-                    ),
+                    "GetMetrics": common.GetMetricsRequest(window_ms=60000),
                     "GetEvents": common.GetEventsRequest(page_size=1),
                     "Diagnose": common.DiagnoseRequest(
                         target_id=targets[deployment],

@@ -292,7 +292,7 @@ CLI_ROWS = (
     _cli("gateway status", ("gw-wtg_sim01",), object_id="gw-wtg_sim01"),
     _cli("gateway variables", ("gw-wtg_sim01",), object_id="gw-wtg_sim01 variables"),
     _cli("gateway read", ("gw-wtg_sim01", "wind_speed"), object_id="gw-wtg_sim01/wind_speed"),
-    _cli("gateway metrics", ("--window-ms", "1000"), object_id="Gateway service metrics"),
+    _cli("gateway metrics", ("--window-ms", "60000"), object_id="Gateway service metrics"),
     _cli("gateway events", ("--page-size", "1"), object_id="Gateway events"),
     _mutation_cli(
         "gateway update",
@@ -352,7 +352,7 @@ CLI_ROWS = (
         object_id="one active-read sample",
     ),
     _cli("collector publishing", (), object_id="realtime publishing channel"),
-    _cli("collector metrics", ("--window-ms", "1000"), object_id="Collector service metrics"),
+    _cli("collector metrics", ("--window-ms", "60000"), object_id="Collector service metrics"),
     _cli("collector events", ("--page-size", "1"), object_id="Collector events"),
     _mutation_cli(
         "collector stop",
@@ -388,7 +388,7 @@ CLI_ROWS = (
     _cli("data-generator devices", (), object_id="Generator device catalog"),
     _cli("data-generator device", ("WTG_SIM01",), object_id="WTG_SIM01"),
     _cli("data-generator scenarios", (), object_id="Generator scenario catalog"),
-    _cli("data-generator metrics", ("--window-ms", "1000"), object_id="Generator metrics"),
+    _cli("data-generator metrics", ("--window-ms", "60000"), object_id="Generator metrics"),
     _cli("data-generator events", ("--page-size", "1"), object_id="Generator events"),
     _mutation_cli(
         "data-generator start",
@@ -511,7 +511,7 @@ CLI_ROWS = (
     ),
     _cli(
         "commander metrics",
-        ("--scope", "commander", "--window-ms", "1000"),
+        ("--scope", "commander", "--window-ms", "60000"),
         object_id="Commander metrics",
     ),
     _cli("commander events", ("--page-size", "1"), object_id="Commander events"),
