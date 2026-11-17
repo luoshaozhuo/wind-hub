@@ -6,11 +6,12 @@ import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import nats
 import pytest
 
-from .conftest import FARM
+from .conftest import FARM, SINK_TARGET_POINT, wait_sink_modbus_float
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -243,13 +244,14 @@ async def test_e2e_10_invalid_reliable_batch_is_dlq_acked(full_chain: Any) -> No
 
 
 async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
-    """Restart Gateway during collection and verify a fresh generation reaches Redis."""
+    """Restart Gateway and prove a new post-fault value reaches all four outputs."""
     harness = full_chain
     assert harness.sink is not None
     generation_id: str | None = None
     gateway_stopped = False
     try:
-        await harness.cli_call(harness.cli_rt, "collector", "start", "WTG_SIM01", "--yes")
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "start", "WTG_SIM01", "--yes")
         first = await harness.cli_call(
             harness.cli_rt,
             "data-generator",
@@ -297,14 +299,73 @@ async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
         assert generation_id != first["data"]["generation_id"]
         harness.generation_id = generation_id
         restored_at = datetime.now(UTC)
+        updated = await harness.cli_call(
+            harness.cli_rt,
+            "data-generator",
+            "variables",
+            "update",
+            "--generation-id",
+            generation_id,
+            "--device-id",
+            "WTG_SIM01",
+            "--request-id",
+            str(uuid4()),
+            "--point-id",
+            "wind_speed_mean",
+            "--value",
+            "12",
+            "--yes",
+        )
+        assert updated["data"]["accepted"] is True
         after = await harness.sink.wait_redis_value(
             key,
             timeout=90,
             match=lambda item: item["sample_id"] != before["sample_id"]
             and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
-            and abs(float(item["value"]) - 10.0) < 1e-3,
+            and abs(float(item["value"]) - 12.0) < 1e-3,
         )
-        harness.record("E2E-10-GATEWAY", generation_id=generation_id, sample_id=after["sample_id"])
+        gateway = await harness.poll(
+            harness.cli_rt,
+            "gateway",
+            "read",
+            "gw-wtg_sim01",
+            SINK_TARGET_POINT,
+            predicate=lambda data: bool(data.get("values"))
+            and data["values"][0]["quality"] == "GOOD"
+            and abs(float(data["values"][0]["value"].get("double_value", 0)) - 12.0) < 1e-3,
+            timeout=90,
+        )
+        modbus_value, modbus_quality = await wait_sink_modbus_float(
+            harness.sink_modbus_port, 12.0, timeout=90
+        )
+        assert modbus_quality == 0
+        records = await harness.sink.wait_kafka_messages(
+            min_messages=20, timeout=90, offset_reset="latest"
+        )
+        payloads = [json.loads(record.value) for record in records]
+        kafka = next(
+            (
+                item
+                for item in payloads
+                if item.get("collector_id") == harness.reliable_collector
+                and item.get("device_id") == "WTG_SIM01"
+                and item.get("point_id") == "wind_speed"
+                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                >= restored_at
+                and abs(float(item["value"]) - 12.0) < 1e-3
+            ),
+            None,
+        )
+        assert kafka is not None, payloads
+        harness.record(
+            "E2E-10-GATEWAY",
+            generation_id=generation_id,
+            effective_step=updated["data"]["effective_step"],
+            redis_sample_id=after["sample_id"],
+            gateway=gateway["values"][0],
+            modbus={"value": modbus_value, "quality": modbus_quality},
+            kafka_sample_id=kafka["sample_id"],
+        )
     finally:
         if gateway_stopped:
             await harness.cli_call(
@@ -315,6 +376,5 @@ async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
                 harness.cli_rt, "data-generator", "stop", generation_id, "--yes", check=False
             )
             harness.generation_id = None
-        await harness.cli_call(
-            harness.cli_rt, "collector", "stop", "WTG_SIM01", "--yes", check=False
-        )
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes", check=False)
