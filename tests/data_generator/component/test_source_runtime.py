@@ -67,6 +67,22 @@ class FakeWriter:
         return True
 
 
+class RecoveringWriter(FakeWriter):
+    """Retain ownership until a later authoritative release probe succeeds."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.recovered = False
+        self.release_attempts = 0
+
+    async def release(self, scenario, owner_id: str) -> bool:  # noqa: ANN001
+        self.release_attempts += 1
+        if not self.recovered:
+            return False
+        self.owners.discard(owner_id)
+        return True
+
+
 def _settings(service_path):  # noqa: ANN001, ANN202
     recover_transaction(service_path.absolute().parent.parent)
     return load_settings(service_path)
@@ -205,3 +221,35 @@ async def test_overrun_skips_periods_without_reentrant_emits(configs_root) -> No
     await runtime.stop(generation.generation_id, "")
     assert runtime.counters["skipped_steps"] >= 1
     assert writer.sent <= 4
+
+
+async def test_stopped_generation_retries_fenced_release_after_gateway_recovers(
+    configs_root,  # noqa: ANN001
+) -> None:
+    service_path = configs_root(
+        scenarios=ship_scenarios_document(
+            {"gw-test": "127.0.0.1:59999"},
+            interval=0.05,
+            mappings=[("gw-test", "GW01.pitch_angle")],
+        ),
+        bind="127.0.0.1:0",
+        output_timeout=0.1,
+    )
+    writer = RecoveringWriter()
+    runtime = Runtime(_settings(service_path), writer, history_reader=CsvHistoryReader())
+    generation = await runtime.start("demo-random", None, runtime.settings.revision)
+    await asyncio.sleep(0.08)
+    stopped = await runtime.stop(generation.generation_id, "")
+    assert stopped.actual_state == "STOPPING"
+    assert writer.has_claims(generation.generation_id)
+    assert writer.release_attempts >= 1
+    with pytest.raises(Exception, match="ownership retained"):
+        await runtime.start("demo-random", None, runtime.settings.revision)
+
+    writer.recovered = True
+    reconciled = await runtime.get_generation(generation.generation_id)
+    assert reconciled is not None
+    assert reconciled.actual_state == "STOPPED"
+    assert not writer.has_claims(generation.generation_id)
+    replacement = await runtime.start("demo-random", None, runtime.settings.revision)
+    await runtime.stop(replacement.generation_id, "")

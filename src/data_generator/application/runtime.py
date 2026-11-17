@@ -86,6 +86,7 @@ class Runtime:
         self._active: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._settlement_lock = asyncio.Lock()
         self.last_targets: dict[OutputTarget, DeliveryResult] = {}
         self.target_counts: dict[OutputTarget, dict[str, int]] = {}
         self.gateway_counts: dict[str, dict[str, int]] = defaultdict(
@@ -174,10 +175,32 @@ class Runtime:
             return changed, restart_required
 
     async def get_generation(self, generation_id: str) -> GenerationState | None:
-        """Reconcile settled ownership before reporting the authoritative state."""
+        """Reconcile or safely re-probe completed ownership before reporting state."""
         async with self._lock:
             self._reconcile_locked()
-            return self.generations.get(generation_id)
+            generation = self.generations.get(generation_id)
+            retry = (
+                generation is not None
+                and self._active == generation_id
+                and self._task is not None
+                and self._task.done()
+                and self._blocked(generation)
+            )
+        if retry and generation is not None:
+            timeout = float(
+                generation.bound_settings.service.get("output", {}).get(
+                    "grpc_timeout_seconds",
+                    3.0,
+                )
+            )
+            try:
+                await self._settle_finished(generation, timeout)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.record("WARNING", generation_id, "SETTLEMENT_ERROR", str(exc))
+            async with self._lock:
+                if self._active == generation_id:
+                    self._reconcile_locked()
+        return generation
 
     async def get_input_execution(
         self, generation_id: str, caller: str, request_id: str
@@ -330,9 +353,7 @@ class Runtime:
             * 2
         )
         try:
-            safe = await self.writer.wait_settled(self._gateway_keys(generation), timeout)
-            if safe:
-                await self.writer.release(generation.scenario, generation.generation_id)
+            await self._settle_finished(generation, timeout)
         except (OSError, RuntimeError, ValueError) as exc:
             self.record(
                 "WARNING",
@@ -343,6 +364,14 @@ class Runtime:
         async with self._lock:
             if self._active == generation.generation_id:
                 self._reconcile_locked()
+
+    async def _settle_finished(self, generation: GenerationState, timeout: float) -> bool:
+        """Serialize fenced release retries after the source task has completed."""
+        async with self._settlement_lock:
+            safe = await self.writer.wait_settled(self._gateway_keys(generation), timeout)
+            if not safe:
+                return False
+            return await self.writer.release(generation.scenario, generation.generation_id)
 
     async def stop(self, generation_id: str, revision: str) -> GenerationState:
         async with self._lock:
@@ -368,10 +397,7 @@ class Runtime:
         # The caller's cancellation cannot prove that its native output settled.
         with contextlib.suppress(TimeoutError, asyncio.CancelledError):
             await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-        keys = self._gateway_keys(generation)
-        settled = await self.writer.wait_settled(keys, timeout=timeout)
-        if settled and task.done():
-            settled = await self.writer.release(generation.scenario, generation.generation_id)
+        settled = task.done() and await self._settle_finished(generation, timeout)
         async with self._lock:
             if settled:
                 self._reconcile_locked()
