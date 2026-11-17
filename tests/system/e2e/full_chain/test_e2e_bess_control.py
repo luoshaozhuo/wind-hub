@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -27,11 +28,13 @@ async def test_e2e_03_ppc_charge_discharge(full_chain: Any) -> None:
         )
         generation_id = str(started["data"]["generation_id"])
         harness.generation_id = generation_id
+        readbacks = []
         for point, value in (
             ("agc_enable", "1"),
             ("agc_power_setpoint", "-300000.0"),
             ("agc_power_setpoint", "300000.0"),
         ):
+            command_time = datetime.now(UTC)
             command = await harness.cli_call(
                 harness.cli_rt, "commander", "write", "--yes", "PPC_SIM01", point, "--", value
             )
@@ -45,6 +48,20 @@ async def test_e2e_03_ppc_charge_discharge(full_chain: Any) -> None:
             )
             assert result["state"] == "SUCCEEDED" and result["outcome"] == "CONFIRMED_SUCCESS"
             await asyncio.sleep(7 if value == "300000.0" else 2)
+            if point == "agc_power_setpoint":
+                sign = -1 if value.startswith("-") else 1
+                readback = await harness.sink.wait_redis_value(
+                    harness.redis_key("BESS_SIM01", "active_power"),
+                    timeout=60,
+                    match=lambda item, direction=sign, cutoff=command_time: datetime.fromisoformat(
+                        item["sample_time"].replace("Z", "+00:00")
+                    )
+                    >= cutoff
+                    and direction * float(item["value"]) > 1,
+                )
+                assert readback["device_id"] == "BESS_SIM01"
+                assert readback["point_id"] == "active_power" and readback["quality"] == "good"
+                readbacks.append(readback)
         rows = harness.read_recording(generation_id)
         samples = [
             {
@@ -68,6 +85,7 @@ async def test_e2e_03_ppc_charge_discharge(full_chain: Any) -> None:
             generation_id=generation_id,
             charge_samples=len(negative),
             discharge_samples=len(positive),
+            redis_samples=[item["sample_id"] for item in readbacks],
         )
     finally:
         if generation_id is not None:
