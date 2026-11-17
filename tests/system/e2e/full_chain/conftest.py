@@ -193,6 +193,13 @@ def _plant_root(base: Path) -> Path:
     root = base / "plant-configs"
     for name in ("instances", "templates", "history"):
         shutil.copytree(REPO_CONFIGS / name, root / name)
+    (root / "history" / "e2e-wind.csv").write_text(
+        "device_id,point_id,source_timestamp,value,quality,record_id\n"
+        "WTG_SIM01,wind_speed,2026-01-01T00:00:00Z,5.5,GOOD,1\n"
+        "WTG_SIM01,wind_speed,2026-01-01T00:00:01Z,6.0,GOOD,2\n"
+        "WTG_SIM01,wind_speed,2026-01-01T00:00:02Z,7.5,GOOD,3\n",
+        encoding="utf-8",
+    )
     (root / "services").mkdir()
     return root
 
@@ -458,6 +465,32 @@ def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
             weather=_weather_block(turbulence=0.12),
         ),
     ]
+    for speed in (1, 2):
+        scenarios.append(
+            {
+                "scenario_id": f"e2e-replay-{speed}x",
+                "version": "1.0.0",
+                "description": "Full-chain WTG CSV replay",
+                "source": {
+                    "kind": "replay",
+                    "history_reader": "csv",
+                    "file": "history/e2e-wind.csv",
+                    "start_time": "2026-01-01T00:00:00Z",
+                    "end_time": "2026-01-01T00:00:03Z",
+                    "speed": speed,
+                    "loop": False,
+                },
+                "devices": [{"device_id": "WTG_SIM01", "points": [{"point_id": "wind_speed"}]}],
+                "gateways": [
+                    {
+                        "gateway_id": "gw-wtg_sim01",
+                        "endpoint": gateway_endpoint,
+                        "device_id": "WTG_SIM01",
+                        "variable_mapping": {"wind_speed": "wind_speed"},
+                    }
+                ],
+            }
+        )
     # PV 短日场景：辐照 0→800（cloud 0.8）与 0→1000（cloud 1.0）。
     for scenario_id, cloud in (("e2e-pv-800", 0.8), ("e2e-pv-1000", 1.0)):
         document = _physical_scenario(scenario_id, "1.0.0", gateway_endpoint, interval=0.05)
