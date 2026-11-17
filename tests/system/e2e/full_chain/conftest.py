@@ -449,6 +449,7 @@ class FullChainHarness:
 def _build_scenarios(gateway_endpoint: str) -> list[dict[str, Any]]:
     scenarios = [
         _physical_scenario("wind-plant-physical", "1.0.0", gateway_endpoint, interval=0.05),
+        _physical_scenario("e2e-wind-100ms", "1.0.0", gateway_endpoint, interval=0.1),
         _physical_scenario(
             "e2e-wind-seeded",
             "1.0.0",
