@@ -364,6 +364,7 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             timeout=60,
         )
 
+        await harness.service("stop", "sink")
         sinks = _load(sinks_path)
         connection = sinks["sinks"]["gateway_sink"]["connection"]
         connection["endpoint"] = endpoint
@@ -395,7 +396,7 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
             sink_bundle=harness.sink.bundle,
         )
-        await harness.service("restart", "sink")
+        await harness.service("start", "sink")
         return target
     except BaseException:
         await stop_target_gateway(target)
