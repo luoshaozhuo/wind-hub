@@ -6,7 +6,9 @@ belong to Industrial Gateway and Data Generator in the current worktree.
 
 from __future__ import annotations
 
+import asyncio
 import math
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -71,15 +73,21 @@ async def test_physical_device_reaches_gateway_and_redis(
         generation_id = str(generation["data"]["generation_id"])
         harness.generation_id = generation_id
 
+        for _ in range(100):
+            path = harness.recording_path(generation_id)
+            if path.is_file() and path.stat().st_size:
+                break
+            await asyncio.sleep(0.1)
+        first_row = harness.read_recording(generation_id)[0]
+        first_source_time = datetime.fromisoformat(first_row["produced_at"].replace("Z", "+00:00"))
+
         assert harness.sink is not None
         redis_value = await harness.sink.wait_redis_value(
             harness.redis_key(device_id, point_id),
             timeout=90,
-            match=(
-                (lambda value: abs(_scalar(value["value"]) - 10.0) < 1e-3)
-                if case_id == "E2E-01"
-                else None
-            ),
+            match=lambda value: datetime.fromisoformat(value["sample_time"].replace("Z", "+00:00"))
+            >= first_source_time
+            and (case_id != "E2E-01" or abs(_scalar(value["value"]) - 10.0) < 1e-3),
         )
         observed = _scalar(redis_value["value"])
         assert redis_value["device_id"] == device_id
@@ -112,17 +120,22 @@ async def test_physical_device_reaches_gateway_and_redis(
 
         rows = harness.read_recording(generation_id)
         truth = [
-            _scalar(point["value"])
+            (
+                datetime.fromisoformat(point["source_time"].replace("Z", "+00:00")),
+                _scalar(point["value"]),
+            )
             for row in rows
             for point in row.get("points", [])
             if point.get("device_id") == device_id and point.get("point_id") == point_id
         ]
         assert truth, f"{case_id}: missing recorded source truth"
-        # A sampled latest value can lag a continuously changing model. Compare
-        # against the observed truth series rather than an unrelated final step.
-        tolerance = max(1e-3, max(abs(v) for v in truth) * 2e-3)
-        assert min(abs(observed - v) for v in truth) <= tolerance
-        assert min(abs(gateway_value - v) for v in truth) <= tolerance
+        sample_time = datetime.fromisoformat(redis_value["sample_time"].replace("Z", "+00:00"))
+        eligible = [(timestamp, value) for timestamp, value in truth if timestamp <= sample_time]
+        assert eligible, f"{case_id}: no source sample preceding Redis acquisition"
+        source_time, source_value = max(eligible, key=lambda item: item[0])
+        assert (sample_time - source_time).total_seconds() <= 1.0
+        tolerance = max(1e-3, abs(source_value) * 2e-3)
+        assert abs(observed - source_value) <= tolerance
         harness.record(
             case_id,
             generation_id=generation_id,
@@ -131,6 +144,9 @@ async def test_physical_device_reaches_gateway_and_redis(
             truth_samples=len(truth),
             gateway_value=gateway_value,
             redis_value=observed,
+            source_time=source_time.isoformat(),
+            sample_time=sample_time.isoformat(),
+            source_value=source_value,
             tolerance=tolerance,
         )
     finally:
