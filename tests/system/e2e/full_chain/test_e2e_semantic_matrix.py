@@ -132,7 +132,7 @@ def _assert_cli_payload(row: SemanticEntry, envelope: dict[str, Any]) -> None:
     elif row.key == "net tcp":
         assert data["tcp_state"] == "OPEN"
     elif row.key == "gateway list":
-        assert len(data["gateways"]) == 6
+        assert len(data["gateways"]) == 5 and data["next_page_token"]
     elif row.key == "gateway status":
         assert data["gateway"]["gateway_id"] == "gw-wtg_sim01"
     elif row.key == "gateway variables":
@@ -617,7 +617,7 @@ async def test_generator_update_is_applied_and_idempotent(full_chain: FullChainH
         assert replay["envelope"]["data"]["effective_step"] == accepted["effective_step"]
         conflict_args = tuple("13" if item == "12" else item for item in args)
         conflict_row = SemanticEntry(
-            **{**row.__dict__, "expected_exit": 2, "expected_error": "ALREADY_EXISTS"}
+            **{**row.__dict__, "expected_exit": 1, "expected_error": "ALREADY_EXISTS"}
         )
         await _cli_exact(full_chain, conflict_row, conflict_args)
         assert (await _wait_input_applied(stub, generation_id, request_id)).effective_step == step

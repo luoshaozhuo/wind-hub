@@ -422,7 +422,7 @@ CLI_ROWS = (
         ),
         object_id="WTG_SIM01/wind_speed_mean",
         normal="exit 0 only after accepted=true and a positive effective_step",
-        rejection="same request_id with different content is ALREADY_EXISTS/exit 2",
+        rejection="same request_id with different content is ALREADY_EXISTS/exit 1",
         auth="CLI certificate has variables_update; other identities cannot write",
         readback="GetInputExecution APPLIED at the same step plus independent recording value 12",
         side_effect="one physical model input applied at one step",
