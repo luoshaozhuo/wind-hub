@@ -48,9 +48,13 @@ async def test_r4e_resources_and_formal_stop_all_release_complete_trees(
             "service",
             "status",
             service,
-            predicate=lambda value: bool(value)
+            predicate=lambda value, service=service: bool(value)
             and value[0]["process"]["running"] is True
-            and value[0]["business"]["health"] == "HEALTHY",
+            and (
+                value[0]["business"]["health"] == "HEALTHY"
+                or service.startswith("collector_")
+                and value[0]["business"]["health"] == "DEGRADED"
+            ),
             timeout=75,
         )
         process = data[0]["process"]
@@ -114,6 +118,15 @@ async def test_r4e_resources_and_formal_stop_all_release_complete_trees(
             json.loads(record.value) for record in kafka_records if is_fresh_kafka(record)
         )
         assert redis_sample["sample_id"] != kafka_sample["sample_id"]
+        for config in (harness.cli_rt, harness.cli_rel):
+            await harness.poll(
+                config,
+                "service",
+                "status",
+                "collector_realtime" if config == harness.cli_rt else "collector_reliable",
+                predicate=lambda value: bool(value) and value[0]["business"]["health"] == "HEALTHY",
+                timeout=60,
+            )
 
         observed = await sample_process_trees(trees, duration_seconds=12.0)
     finally:

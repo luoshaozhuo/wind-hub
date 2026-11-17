@@ -66,6 +66,22 @@ async def _read_gateway(
         await runtime.close()
 
 
+def _measurement(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if key != "queried_at"}
+
+
+async def _wait_gateway_measurement(
+    harness: FullChainHarness, gateway_id: str, variable_id: str
+) -> dict[str, Any]:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        value = await _read_gateway(harness, gateway_id, variable_id)
+        if "value" in value and value.get("quality") == "GOOD":
+            return value
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"Gateway value not initialized: {gateway_id}/{variable_id}")
+
+
 async def _start_generation(
     harness: FullChainHarness, scenario: str = "wind-plant-physical"
 ) -> str:
@@ -269,7 +285,7 @@ async def test_r4e_mtls_rejects_bad_client_handshake_without_write(
         no_side_effect = "commander_request_absent"
     else:
         after = await _read_gateway(full_chain, "gw-gw02", "a02_dm_pitchangle1")
-        assert after == before
+        assert _measurement(after) == _measurement(before)
         readback = after
         no_side_effect = "gateway_value_unchanged"
     full_chain.record(
@@ -296,7 +312,7 @@ async def test_r4e_commander_identity_cannot_write_gateway_or_generator(
     request_id = f"r4e-unauthorized-{uuid4()}"
     try:
         generation_id = await _start_generation(full_chain)
-        gateway_before = await _read_gateway(full_chain, "gw-wtg_sim01", "wind_speed")
+        gateway_before = await _wait_gateway_measurement(full_chain, "gw-wtg_sim01", "wind_speed")
         credentials = _client_credentials(full_chain, "commander")
         async with grpc.aio.secure_channel(
             full_chain.endpoints["gateway"], credentials
@@ -337,7 +353,7 @@ async def test_r4e_commander_identity_cannot_write_gateway_or_generator(
                 )
         assert generator_error.value.code() is grpc.StatusCode.PERMISSION_DENIED
 
-        gateway_after = await _read_gateway(full_chain, "gw-wtg_sim01", "wind_speed")
+        gateway_after = await _wait_gateway_measurement(full_chain, "gw-wtg_sim01", "wind_speed")
         # 活跃 Generation 会合法刷新 sample_time；拒绝写的不变量是值与质量。
         assert gateway_after["value"] == gateway_before["value"]
         assert gateway_after["quality"] == gateway_before["quality"]
@@ -390,8 +406,27 @@ async def test_r4e_stopped_g1_write_rejected_and_g2_has_no_replay(
             check=False,
         )
         assert rejected["status"] == "FAILURE"
-        assert rejected["data"]["accepted"] is False
-        assert rejected["data"]["error_code"] == "INPUT_REJECTED"
+        assert rejected["data"] is None
+        assert rejected["error_code"] == "PermissionError"
+        async with grpc.aio.secure_channel(
+            full_chain.endpoints["data-generator"], _client_credentials(full_chain, "cli")
+        ) as channel:
+            rpc_rejected = await dg_rpc.DataGeneratorServiceStub(channel).UpdateVariables(
+                dg.UpdateVariablesRequest(
+                    generation_id=g1,
+                    device_id="WTG_SIM01",
+                    request_id=request_id,
+                    values=[
+                        dg.VariableUpdate(
+                            point_id="wind_speed_mean",
+                            value=common.ScalarValue(double_value=88.0),
+                        )
+                    ],
+                ),
+                timeout=10,
+            )
+        assert rpc_rejected.accepted is False
+        assert rpc_rejected.error_code == "INPUT_REJECTED"
         old_execution = await _input_execution(full_chain, g1, request_id)
         assert old_execution.state == "UNKNOWN"
 
@@ -415,7 +450,8 @@ async def test_r4e_stopped_g1_write_rejected_and_g2_has_no_replay(
             g2=g2,
             request_id=request_id,
             rejected_status=rejected["status"],
-            rejected_error_code=rejected["data"]["error_code"],
+            rejected_error_code=rpc_rejected.error_code,
+            cli_rejection=rejected["error_code"],
             old_execution=old_execution.state,
             g2_replay_execution=replay_execution.state,
             g2_wind_values=wind_values,
@@ -478,7 +514,7 @@ async def test_r4e_gateway_lease_expiry_renew_lost_and_update_precondition(
     assert update_error.value.code() is grpc.StatusCode.FAILED_PRECONDITION
     assert "LEASE_LOST" in update_error.value.details()
     after = await _read_gateway(full_chain, "gw-gw02", "a02_dm_pitchangle1")
-    assert after == before
+    assert _measurement(after) == _measurement(before)
     full_chain.record(
         "R4-E-GATEWAY-LEASE-EXPIRED",
         lease_ms=1000,
