@@ -1,0 +1,89 @@
+# Linux-only convenience deployment. Host networking preserves the existing
+# loopback service endpoints; it is unsuitable for shared/untrusted hosts.
+# Real Full-chain E2E continues to launch business processes via the CLI.
+x-service: &service
+  image: wind-hub:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  init: true
+  network_mode: host
+  restart: "no"
+  user: "${WIND_HUB_UID:?Set numeric UID}:${WIND_HUB_GID:?Set numeric GID}"
+  volumes:
+    - "${WIND_HUB_DEPLOY_ROOT:?Set absolute writable deployment root}:/etc/wind-hub:rw"
+  working_dir: /etc/wind-hub
+  stop_grace_period: 40s
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  gateway:
+    <<: *service
+    command:
+      - industrial_gateway.main
+      - --config
+      - /etc/wind-hub/${WIND_HUB_GATEWAY_CONFIG:-configs/services/industrial_gateway-sim.example.yaml}
+      - --project-root
+      - /etc/wind-hub
+
+  data-generator:
+    <<: *service
+    command:
+      - data_generator.main
+      - --config
+      - /etc/wind-hub/${WIND_HUB_DATA_GENERATOR_CONFIG:-configs/services/data-generator-sim.example.yaml}
+
+  collector-realtime:
+    <<: *service
+    environment:
+      WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
+    command:
+      - collector.main
+      - --config
+      - /etc/wind-hub/${WIND_HUB_COLLECTOR_REALTIME_CONFIG:?Set realtime Collector YAML}
+      - --state-directory
+      - /etc/wind-hub/state/collector-realtime
+      - --collector-id
+      - collector-realtime
+      - --grpc-host
+      - 127.0.0.1
+      - --grpc-port
+      - "${WIND_HUB_COLLECTOR_REALTIME_PORT:-50051}"
+
+  collector-reliable:
+    <<: *service
+    environment:
+      WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
+    command:
+      - collector.main
+      - --config
+      - /etc/wind-hub/${WIND_HUB_COLLECTOR_RELIABLE_CONFIG:?Set reliable Collector YAML}
+      - --state-directory
+      - /etc/wind-hub/state/collector-reliable
+      - --collector-id
+      - collector-reliable
+      - --grpc-host
+      - 127.0.0.1
+      - --grpc-port
+      - "${WIND_HUB_COLLECTOR_RELIABLE_PORT:-50054}"
+
+  sink:
+    <<: *service
+    command:
+      - sink_service.main
+      - --config-root
+      - /etc/wind-hub
+
+  commander:
+    <<: *service
+    command:
+      - commander
+      - --config
+      - /etc/wind-hub/${WIND_HUB_COMMANDER_CONFIG:-configs/services/commander.yaml}
+
+  cli:
+    <<: *service
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "cli.main"]
+    command: ["--help"]

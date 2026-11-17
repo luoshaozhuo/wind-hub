@@ -37,6 +37,9 @@ htmlcov/
 # 本地工具权限配置（不进仓库）
 #.claude/settings.local.json
 
+# Private deployment environment (contains secrets)
+deploy/.env
+
 # OS
 .DS_Store
 Thumbs.db
