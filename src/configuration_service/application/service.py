@@ -624,6 +624,11 @@ class ConfigurationApplication:
         if not rows:
             raise RepositoryNotFoundError("PointTable has no immutable closure")
         records = tuple(self._restore(row, revision_id=0) for row in rows)
+        kinds = {item.identity.config_type for item in records}
+        if not {"point_table", "business_points", "units"}.issubset(kinds):
+            raise RepositoryConflictError(
+                "PointTable lacks a fixed BusinessPoint/Units interpretation closure"
+            )
         if sum(len(item.yaml_bytes) for item in records) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("PointTable bundle exceeds response limit")
         entries = [
