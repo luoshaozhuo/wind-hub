@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -77,3 +78,71 @@ def build_directory_manifest(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return DirectoryManifest(ordered, hashlib.sha256(encoded).hexdigest(), total)
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationIdentity:
+    config_type: str
+    config_id: str
+    file_version: str
+
+
+_TEMPLATE_TYPES = {
+    "point_tables": ("point_table", "point_table_"),
+    "device_models": ("device_model", "device_model_"),
+    "protocols": ("protocol", "protocol_"),
+    "tasks": ("task", "task_"),
+    "sinks": ("sink", "sink_"),
+    "deliveries": ("delivery", "delivery_"),
+}
+_INSTANCE_TYPES = {
+    "devices": "device",
+    "devices_sim": "device",
+    "site": "site",
+    "sinks": "sink",
+    "deliveries": "delivery",
+}
+_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+
+
+def resolve_publication_identity(
+    relative_path: str,
+    document: dict[str, object],
+) -> PublicationIdentity:
+    """Map an explicitly supported configuration path to its stable identity."""
+    DirectoryFile(relative_path, b"identity-check")
+    version = document.get("file_version")
+    if not isinstance(version, str) or _VERSION.fullmatch(version) is None:
+        raise ValueError(f"invalid file_version: {relative_path}")
+    parts = relative_path.split("/")
+    if len(parts) == 3 and parts[0] == "templates":
+        category = _TEMPLATE_TYPES.get(parts[1])
+        if category is None:
+            raise ValueError(f"unsupported template directory: {relative_path}")
+        config_type, prefix = category
+        name = parts[2]
+        marker = f"_v{version}.yaml"
+        if not name.startswith(prefix) or not name.endswith(marker):
+            raise ValueError(f"template path/version mismatch: {relative_path}")
+        logical_id = name[len(prefix) : -len(marker)]
+        if not logical_id or document.get("template_id") != logical_id:
+            raise ValueError(f"template path/id mismatch: {relative_path}")
+        return PublicationIdentity(config_type, logical_id, version)
+    if len(parts) == 2 and parts[0] == "instances":
+        name = parts[1].removesuffix(".yaml")
+        config_type = _INSTANCE_TYPES.get(name)
+        if config_type is None:
+            raise ValueError(f"unsupported instance file: {relative_path}")
+        return PublicationIdentity(config_type, name, version)
+    if len(parts) == 2 and parts[0] == "services":
+        name = parts[1].removesuffix(".yaml")
+        if name.startswith("service_configuration_v"):
+            raise ValueError("Configuration bootstrap must be outside publication root")
+        return PublicationIdentity("service", name, version)
+    if relative_path == "templates/business_points_standard.yaml":
+        return PublicationIdentity("business_points", "standard", version)
+    if relative_path == "templates/units_standard.yaml":
+        return PublicationIdentity("units", "standard", version)
+    if relative_path == f"templates/observability_v{version}.yaml":
+        return PublicationIdentity("observability", "observability", version)
+    raise ValueError(f"unsupported configuration file path: {relative_path}")
