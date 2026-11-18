@@ -85,12 +85,17 @@ class CollectorPublisher:
         self.attempted_samples = 0
         self.published_samples = 0
         self.pubacked_samples = 0
-        self._last_sample_ids: tuple[str, ...] = ()
+        self._last_sample_evidence: tuple[dict[str, str], ...] = ()
+
+    @property
+    def last_sample_evidence(self) -> tuple[dict[str, str], ...]:
+        """返回按设备可过滤的有界传输确认证据，而非全局匿名 ID。"""
+        return self._last_sample_evidence
 
     @property
     def last_sample_ids(self) -> tuple[str, ...]:
-        """Return a bounded tail of identities confirmed by the transport."""
-        return self._last_sample_ids
+        """Return identities for existing metrics consumers."""
+        return tuple(item["sample_id"] for item in self._last_sample_evidence)
 
     @property
     def connected(self) -> bool:
@@ -229,9 +234,18 @@ class CollectorPublisher:
                 )
         self.published += 1
         self.published_samples += len(batch.samples)
-        self._last_sample_ids = (
-            *self._last_sample_ids,
-            *(item.sample_id for item in batch.samples),
+        confirmed_at = datetime.now(UTC).isoformat()
+        self._last_sample_evidence = (
+            *self._last_sample_evidence,
+            *(
+                {
+                    "device_id": batch.device_id,
+                    "point_id": item.point_id,
+                    "sample_id": item.sample_id,
+                    "confirmed_at": confirmed_at,
+                }
+                for item in batch.samples
+            ),
         )[-64:]
         if self._telemetry is not None:
             self._telemetry.increment("collector.publisher.samples_published", len(batch.samples))

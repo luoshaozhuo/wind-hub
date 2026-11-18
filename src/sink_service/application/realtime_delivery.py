@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
@@ -40,7 +42,9 @@ class RealtimeDeliveryPort:
         return {
             "source": "CONNECTED" if self._ingress.connected else "DISCONNECTED",
             "consumer": "BOUND" if engine is not None else "NOT_BOUND",
-            "sample_id": ",".join(engine.confirmed_sample_ids) if engine is not None else "",
+            "sample_evidence": json.dumps(
+                engine.confirmed_samples if engine is not None else (), separators=(",", ":")
+            ),
             "delivery": "RUNNING" if engine is not None else "STOPPED",
             "sink": "OWNED" if self._writer is not None else "NOT_ATTACHED",
             "io_inflight": str(self._writer.io_inflight if self._writer is not None else False),

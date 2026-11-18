@@ -69,6 +69,7 @@ class RealtimeEngine:
         self._conflicted: set[tuple[str, str]] = set()
         self._sent: dict[tuple[str, str], DeliveryPoint] = {}
         self._sent_at: dict[tuple[str, str], float] = {}
+        self._confirmed_at: dict[tuple[str, str], datetime] = {}
         self._skipped: dict[tuple[str, str], str] = {}
         self._retry_pending = False
         self._saturated = False
@@ -84,9 +85,22 @@ class RealtimeEngine:
         self.latency_window = LatencyWindow(window_ms=metrics_window_ms)
 
     @property
-    def confirmed_sample_ids(self) -> tuple[str, ...]:
-        """Return latest per-point identities with confirmed target writes."""
-        return tuple(sorted(sample.sample_id for sample in self._sent.values()))
+    def confirmed_samples(self) -> tuple[dict[str, str], ...]:
+        """每个 Delivery 最多暴露四条最近确认证据，严格限制 Worker IPC 大小。"""
+        recent = sorted(
+            self._sent.values(),
+            key=lambda sample: self._confirmed_at[self._key(sample)],
+            reverse=True,
+        )[:4]
+        return tuple(
+            {
+                "device_id": sample.device_id,
+                "point_id": sample.point_id,
+                "sample_id": sample.sample_id,
+                "confirmed_at": self._confirmed_at[self._key(sample)].isoformat(),
+            }
+            for sample in recent
+        )
 
     @property
     def source_identity(self) -> tuple[str, str]:
@@ -267,6 +281,7 @@ class RealtimeEngine:
                     self._conflicted.discard(key)
                     self._sent.pop(key, None)
                     self._sent_at.pop(key, None)
+                    self._confirmed_at.pop(key, None)
                     self._skipped.pop(key, None)
             if self._policy == "periodic" and not periodic_due:
                 continue
@@ -332,6 +347,7 @@ class RealtimeEngine:
                     if offset in delivered:
                         self._sent[key] = sample
                         self._sent_at[key] = loop.time()
+                        self._confirmed_at[key] = datetime.now(UTC)
                         self._skipped.pop(key, None)
                     else:
                         # A stale/duplicate target-side CAS skip is not a new success.

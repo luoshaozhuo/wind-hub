@@ -465,11 +465,11 @@ class Runtime:
             return "UNKNOWN", 3
         if command == "net ping" and data.get("status") != "UP":
             return "UNKNOWN", 3
-        if command == "diagnose pipeline":
+        if command.startswith("diagnose ") or command.endswith(" Diagnose"):
             overall = data.get("overall_status")
-            if overall in ("FAIL", "FAILURE"):
+            if overall in {"FAIL", "FAILED", "FAILURE"}:
                 return "FAILURE", 1
-            if overall not in ("PASS", "SUCCESS"):
+            if overall not in {"PASS", "SUCCESS"}:
                 return "UNKNOWN", 3
         if command == "commander recover-device" and data.get("state") != "UNBLOCKED":
             return "FAILURE", 1

@@ -88,9 +88,13 @@ class AuditDelivery:
             if not task.done():
                 await asyncio.wait({task}, timeout=min(0.05, timeout / 10))
             if task.done():
-                with contextlib.suppress(Exception):
+                try:
                     task.result()
+                except (Exception, asyncio.CancelledError):
+                    self._task = None
+                    return False
                 self._task = None
+                return True
             return False
         except Exception:
             logger.exception("Commander audit worker failed")

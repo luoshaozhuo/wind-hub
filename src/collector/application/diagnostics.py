@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -91,8 +92,9 @@ class CollectorDiagnostics:
                     )
                 evidence.append(("delivery", self._publisher.delivery_mode))
                 evidence.extend(
-                    ("sample_id", sample_id)
-                    for sample_id in getattr(self._publisher, "last_sample_ids", ())
+                    ("sample", json.dumps(item, separators=(",", ":")))
+                    for item in getattr(self._publisher, "last_sample_evidence", ())
+                    if not target_id or item.get("device_id") == target_id
                 )
                 limitations.append(
                     "NATS stage verifies the client transport only; no isolated "

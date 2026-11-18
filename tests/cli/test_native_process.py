@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from cli import native_process
 from cli.native_process import manage_native_process
 from cli.runtime import ProcessSpec, ServiceTarget
 
@@ -119,3 +121,22 @@ async def test_state_save_failure_reaps_started_group(tmp_path: Path) -> None:
     ):
         await manage_native_process(target, "start")
     assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
+
+
+def test_orphaned_group_guard_detects_active_pgid(tmp_path: Path) -> None:
+    pid = os.getpid()
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_dir.chmod(0o700)
+    state_file = state_dir / "native-demo.json"
+    state_file.write_text(json.dumps({"pid": pid, "start_tick": "invalid"}), encoding="utf-8")
+    target = _target(tmp_path)
+    assert target.process is not None
+    target = replace(target, process=replace(target.process, state_dir=state_dir))
+
+    with (
+        patch("cli.native_process._group_active", return_value=True),
+        pytest.raises(RuntimeError, match="orphaned or conflicting worker group"),
+    ):
+        native_process._manage(target, "start")
+    assert json.loads(state_file.read_text(encoding="utf-8"))["pid"] == pid

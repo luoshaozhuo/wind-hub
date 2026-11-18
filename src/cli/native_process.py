@@ -140,6 +140,8 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
     def current_state() -> dict[str, Any]:
         saved = _load_state(state_file)
         alive = _running(saved)
+        if saved is not None and not alive and _group_active(saved["pid"]):
+            raise RuntimeError("orphaned or conflicting worker group requires explicit recovery")
         return {
             "manager": "process",
             "target": target.service_id,

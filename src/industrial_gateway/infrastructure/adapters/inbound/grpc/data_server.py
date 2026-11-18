@@ -338,24 +338,29 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         """Acquire, renew, or release source target ownership without PLC I/O."""
         await _authorize(context, self._runtime, "inject")
         await self._instance(request.gateway_id, context)
-        _LOGGER.info(
-            "ClaimTargets gateway=%s owner=%s action=%s variables=%s",
-            request.gateway_id,
-            request.owner_id,
-            request.action,
-            list(request.variable_ids),
-        )
+        principal = _trusted_identity(context, self._runtime)
         try:
             result = await self._runtime.claim_targets(
                 ClaimRequest(
                     gateway_id=request.gateway_id,
                     owner_id=request.owner_id,
-                    principal=_trusted_identity(context, self._runtime),
+                    principal=principal,
                     variable_ids=tuple(request.variable_ids),
                     action=request.action,
                     lease_token=request.lease_token,
                     lease_ms=request.lease_ms,
                 )
+            )
+            _LOGGER.info(
+                "ClaimTargets gateway=%r principal=%r owner=%r action=%r variables=%r "
+                "accepted=%s error_code=%r",
+                request.gateway_id,
+                principal,
+                request.owner_id,
+                request.action,
+                list(request.variable_ids),
+                result.accepted,
+                result.error_code,
             )
             return pb.ClaimTargetsResponse(
                 accepted=result.accepted,

@@ -503,10 +503,13 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
                             observations.append((view.delivery_id, state))
                         elif stage in evidence:
                             observations.append((view.delivery_id, evidence[stage]))
+                        raw_samples = json.loads(evidence.get("sample_evidence", "[]"))
+                        if not isinstance(raw_samples, list):
+                            raise ValueError("invalid sample evidence snapshot")
                         observations.extend(
-                            ("sample_id", sample_id)
-                            for sample_id in evidence.get("sample_id", "").split(",")
-                            if sample_id
+                            ("sample", json.dumps(item, separators=(",", ":")))
+                            for item in raw_samples
+                            if isinstance(item, dict) and item.get("sample_id")
                         )
                     if not observations:
                         status = "UNKNOWN"

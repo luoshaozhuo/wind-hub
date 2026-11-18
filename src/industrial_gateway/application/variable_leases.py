@@ -72,8 +72,13 @@ class VariableLeases:
         async with self._lock(gateway_id):
             claims = self._active(gateway_id)
             names = frozenset(request.variable_ids)
+            owner_valid = (
+                request.owner_id.strip() == request.owner_id
+                and 0 < len(request.owner_id) <= 256
+                and all(32 < ord(char) < 127 for char in request.owner_id)
+            )
             if (
-                not request.owner_id.strip()
+                not owner_valid
                 or not request.principal.strip()
                 or not names
                 or len(names) != len(request.variable_ids)

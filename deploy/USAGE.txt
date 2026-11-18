@@ -66,6 +66,11 @@ Then:
   wind-hub --config /srv/wind-hub/configs/services/cli.yaml \
     service start gateway --yes
 
+The generated YAML contains TLS paths but never the admin token. Export the
+four variables from the protected env file into the CLI execution environment
+before invoking management commands; child processes inherit them without
+serializing the token into configuration.
+
 Use the same CLI for all six module processes, then check readiness:
 
   python deploy/check_ready.py \

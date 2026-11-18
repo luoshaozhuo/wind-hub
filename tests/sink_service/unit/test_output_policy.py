@@ -8,6 +8,7 @@ threshold math, authority bookkeeping and 500-point batching.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -263,3 +264,23 @@ async def test_writer_failure_is_retried_and_then_delivered() -> None:
     assert engine.delivered_total >= 1
     assert engine.last_error == ""
     assert engine.failed_total == 0  # raised attempts break the cycle, not counted
+
+
+async def test_confirmed_sample_evidence_is_bounded_for_large_delivery() -> None:
+    writer = RecordingWriter()
+    engine = _engine(writer, period_ms=1, max_points=10000)
+    await engine.start()
+    try:
+        for index in range(10000):
+            engine.offer(_sample(f"id-{index:05}", point=f"p{index:05}"))
+        for _ in range(100):
+            if writer.batches:
+                break
+            await asyncio.sleep(0.02)
+        assert writer.batches
+    finally:
+        await engine.stop()
+    evidence = engine.confirmed_samples
+    assert len(evidence) == 4
+    assert len(json.dumps(evidence, separators=(",", ":")).encode()) < 2048
+    assert all(item["device_id"] and item["point_id"] and item["confirmed_at"] for item in evidence)

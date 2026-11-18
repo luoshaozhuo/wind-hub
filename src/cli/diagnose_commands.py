@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -16,7 +17,7 @@ diagnose.add_typer(collector, name="collector")
 
 @collector.command("device")
 def collector_device(device_id: str) -> None:
-    _run_common("collector", "Diagnose", {"target_id": device_id, "stages": ["device"]})
+    _run_common("collector", "Diagnose", {"target_id": device_id, "stages": []})
 
 
 @collector.command("pipeline")
@@ -26,7 +27,7 @@ def collector_pipeline(device_id: str) -> None:
         "Diagnose",
         {
             "target_id": device_id,
-            "stages": ["connect", "protocol", "sample", "publish"],
+            "stages": ["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"],
         },
     )
 
@@ -93,7 +94,7 @@ def pipeline_diagnose(
         correlation_id = str(uuid4())
         for svc_name, stages in (
             ("collector", ["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"]),
-            ("sink", ["consumer", "delivery"]),
+            ("sink", ["source", "consumer", "delivery"]),
         ):
             target = device_id if svc_name == "collector" else (sink_id or device_id)
             rpc_target = svc_name
@@ -114,24 +115,28 @@ def pipeline_diagnose(
             )
 
         def message_ids(report: dict[str, Any]) -> set[str]:
-            ids: set[str] = set()
+            structured: set[str] = set()
+            legacy: set[str] = set()
+            has_structured = False
             for stage in report.get("stages", []):
                 if not isinstance(stage, dict):
                     continue
                 for evidence in stage.get("evidence", []):
-                    if (
-                        isinstance(evidence, dict)
-                        and evidence.get("name") in {"message_id", "sample_id"}
-                        and isinstance(evidence.get("value"), str)
-                        and evidence["value"]
-                    ):
-                        ids.add(evidence["value"])
-            return ids
+                    if not isinstance(evidence, dict) or not isinstance(evidence.get("value"), str):
+                        continue
+                    if evidence.get("name") == "sample":
+                        has_structured = True
+                        item = json.loads(evidence["value"])
+                        if item.get("device_id") == device_id and item.get("sample_id"):
+                            structured.add(str(item["sample_id"]))
+                    elif evidence.get("name") in {"message_id", "sample_id"}:
+                        legacy.add(evidence["value"])
+            return structured if has_structured else legacy
 
         collector_report = reports["collector"]
         sink_report = reports["sink"]
         states = {collector_report.get("overall_status"), sink_report.get("overall_status")}
-        if "FAIL" in states or "FAILURE" in states:
+        if states & {"FAIL", "FAILED", "FAILURE"}:
             reports["overall_status"] = "FAIL"
         elif states <= {"PASS", "SUCCESS"} and (
             message_ids(collector_report) & message_ids(sink_report)

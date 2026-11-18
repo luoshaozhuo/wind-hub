@@ -230,6 +230,7 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         collector_env = _collector_environment(
             args.collector_env_file, required=True, check_files=True
         )
+        collector_env.pop("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
     else:
         if args.collector_env_file is not None:
             raise ValueError("--collector-env-file is supported only for process mode")
