@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -14,14 +15,22 @@ pytestmark = pytest.mark.contract
 _PATH = "/windhub.common.v1.CommonService/Diagnose"
 
 
-def _diagnose_response(status: str, ids: list[str]) -> common_pb2.DiagnoseResponse:
+def _diagnose_response(
+    status: str, ids: list[str], *, device_id: str = "dev-1"
+) -> common_pb2.DiagnoseResponse:
     return common_pb2.DiagnoseResponse(
         overall_status=status,
         stages=[
             common_pb2.DiagnosticStage(
                 stage="publish",
                 status="PASS",
-                evidence=[common_pb2.Evidence(name="message_id", value=value) for value in ids],
+                evidence=[
+                    common_pb2.Evidence(
+                        name="sample",
+                        value=json.dumps({"device_id": device_id, "sample_id": value}),
+                    )
+                    for value in ids
+                ],
             )
         ],
     )
@@ -99,7 +108,7 @@ def test_diagnose_pipeline_routes_explicit_delivery_id_to_sink(cli_env: Any) -> 
 
     async def behavior(request: Any, context: Any) -> Any:
         targets.append((tuple(request.stages)[0], request.target_id))
-        return _diagnose_response("PASS", ["m-1"])
+        return _diagnose_response("PASS", ["m-1"], device_id="WTG_SIM01")
 
     server.respond(_PATH, behavior)
     result = cli_env.invoke("diagnose", "pipeline", "WTG_SIM01", "--sink-id", "ems_power")

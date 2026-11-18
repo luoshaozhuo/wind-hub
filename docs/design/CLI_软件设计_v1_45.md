@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_44 · 20261118</p>
+<p class="subtitle">v1_45 · 20261118</p>
 
 <style>
 body {
@@ -1955,7 +1955,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `ReadPoints` | `collector latest DEVICE [POINT...]`、`collector watch DEVICE [POINT...]` | 单次现场主动读取；watch 为 CLI 周期调用独立 Unary；不创建服务端任务或 NATS 发布 |
 | `InterrogateDevice` | `diagnose collector gi DEVICE` | IEC104 一次性总召 |
 
-`diagnose pipeline DEVICE --sink-id DELIVERY_ID` 要求显式指定真实 Sink Delivery ID，不允许把 DEVICE 当作 Delivery ID。该命令为 CLI 跨服务编排命令，调用各 Service 的公共 `Diagnose` 汇总证据。必需 RPC 对应命令均应提供帮助；尚未实现时返回 gRPC UNIMPLEMENTED 或 CLI 明确的未实现错误；不得将其隐藏以规避验收。每项远程命令禁止绕过对应 Service 直接执行本地业务。
+`diagnose pipeline DEVICE --sink-id DELIVERY_ID` 要求显式指定真实 Sink Delivery ID，不允许把 DEVICE 当作 Delivery ID。该命令为 CLI 跨服务编排命令，调用各 Service 的公共 `Diagnose` 汇总证据。只有 Collector 与指定 Delivery 均报告相同 `device_id` 的结构化 `sample` 证据且有效 `sample_id` 相交、双方业务状态成功时，才能报告 PASS。匿名 `message_id`、不带设备身份的历史 `sample_id` 或无法解析的 JSON 只能得到 UNKNOWN，不得作为跨设备关联的兼容回退。必需 RPC 对应命令均应提供帮助；尚未实现时返回 gRPC UNIMPLEMENTED 或 CLI 明确的未实现错误；不得将其隐藏以规避验收。每项远程命令禁止绕过对应 Service 直接执行本地业务。
 
 ### 10.2.2 命令参数及交互统一约束
 

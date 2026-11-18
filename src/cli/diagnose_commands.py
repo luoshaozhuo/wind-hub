@@ -115,23 +115,29 @@ def pipeline_diagnose(
             )
 
         def message_ids(report: dict[str, Any]) -> set[str]:
-            structured: set[str] = set()
-            legacy: set[str] = set()
-            has_structured = False
+            """Only device-bound structured evidence can prove pipeline delivery."""
+            verified: set[str] = set()
             for stage in report.get("stages", []):
                 if not isinstance(stage, dict):
                     continue
                 for evidence in stage.get("evidence", []):
-                    if not isinstance(evidence, dict) or not isinstance(evidence.get("value"), str):
+                    if not isinstance(evidence, dict) or evidence.get("name") != "sample":
                         continue
-                    if evidence.get("name") == "sample":
-                        has_structured = True
-                        item = json.loads(evidence["value"])
-                        if item.get("device_id") == device_id and item.get("sample_id"):
-                            structured.add(str(item["sample_id"]))
-                    elif evidence.get("name") in {"message_id", "sample_id"}:
-                        legacy.add(evidence["value"])
-            return structured if has_structured else legacy
+                    value = evidence.get("value")
+                    if not isinstance(value, str):
+                        continue
+                    try:
+                        item = json.loads(value)
+                    except (ValueError, TypeError):
+                        continue
+                    if (
+                        isinstance(item, dict)
+                        and item.get("device_id") == device_id
+                        and isinstance(item.get("sample_id"), str)
+                        and item["sample_id"]
+                    ):
+                        verified.add(item["sample_id"])
+            return verified
 
         collector_report = reports["collector"]
         sink_report = reports["sink"]

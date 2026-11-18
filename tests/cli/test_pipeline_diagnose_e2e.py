@@ -29,15 +29,20 @@ def test_pipeline_correlated_pass(cli_env: object) -> None:
             return common_pb2.DiagnoseResponse(
                 overall_status="PASS",
                 stages=[
-                    _stage("sample", "PASS", [("sample_id", "s-1")]),
-                    _stage("publish", "PASS", [("message_id", "m-shared")]),
+                    _stage(
+                        "NATS", "PASS",
+                        [("sample", json.dumps({"device_id": "d1", "sample_id": "s-1"}))],
+                    ),
                 ],
             )
         return common_pb2.DiagnoseResponse(
             overall_status="PASS",
             stages=[
-                _stage("consume", "PASS", [("message_id", "m-shared")]),
-                _stage("dispatch", "PASS"),
+                _stage("source", "PASS"),
+                _stage(
+                    "delivery", "PASS",
+                    [("sample", json.dumps({"device_id": "d1", "sample_id": "s-1"}))],
+                ),
             ],
         )
 
@@ -109,5 +114,41 @@ def test_pipeline_other_device_traffic_cannot_pass_target(cli_env: object) -> No
 
     server.respond(server.method_path("CommonService", "Diagnose"), diagnose)
     result = cli_env.subprocess_invoke("diagnose", "pipeline", "B", "--sink-id", "ems_power")
+    assert result.exit_code == 3, result.stdout
+    assert result.json()["data"]["overall_status"] == "UNKNOWN"
+
+
+def test_pipeline_rejects_matching_anonymous_ids(cli_env: object) -> None:
+    """Matching legacy message IDs must not prove any device-specific delivery."""
+    server = cli_env.server
+
+    async def diagnose(request: Any, context: Any) -> Any:
+        return common_pb2.DiagnoseResponse(
+            overall_status="PASS",
+            stages=[_stage("NATS", "PASS", [("message_id", "shared-id")])],
+        )
+
+    server.respond(server.method_path("CommonService", "Diagnose"), diagnose)
+    result = cli_env.subprocess_invoke(
+        "diagnose", "pipeline", "d1", "--sink-id", "ems_power"
+    )
+    assert result.exit_code == 3, result.stdout
+    assert result.json()["data"]["overall_status"] == "UNKNOWN"
+
+
+def test_pipeline_rejects_malformed_structured_evidence(cli_env: object) -> None:
+    """Malformed remote evidence must not cause false PASS or an uncaught error."""
+    server = cli_env.server
+
+    async def diagnose(request: Any, context: Any) -> Any:
+        return common_pb2.DiagnoseResponse(
+            overall_status="PASS",
+            stages=[_stage("NATS", "PASS", [("sample", "{invalid-json")])],
+        )
+
+    server.respond(server.method_path("CommonService", "Diagnose"), diagnose)
+    result = cli_env.subprocess_invoke(
+        "diagnose", "pipeline", "d1", "--sink-id", "ems_power"
+    )
     assert result.exit_code == 3, result.stdout
     assert result.json()["data"]["overall_status"] == "UNKNOWN"
