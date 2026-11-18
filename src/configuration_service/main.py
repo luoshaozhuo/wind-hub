@@ -25,6 +25,9 @@ from configuration_service.infrastructure.adapters.inbound.grpc.common_server im
 from configuration_service.infrastructure.adapters.inbound.grpc.repository_server import (
     RepositoryServicer,
 )
+from configuration_service.infrastructure.adapters.outbound.nats.revision_notifier import (
+    RevisionBroadcaster,
+)
 from configuration_service.infrastructure.adapters.outbound.sqlite.backup import (
     SQLiteBackupManager,
 )
@@ -68,8 +71,14 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         max_workers=settings.max_backup_jobs, thread_name_prefix="configuration-backup"
     )
     backups = SQLiteBackupManager(repository, settings.backup_root)
+    notifier = RevisionBroadcaster(
+        settings.nats_servers,
+        subject=settings.nats_subject,
+        connect_timeout_ms=settings.nats_connect_timeout_ms,
+    )
     server: grpc.Server | None = None
     try:
+        notifier.start()
         interrupted = backups.recover()
         if interrupted:
             _LOG.warning("marked %s interrupted backup jobs", interrupted)
@@ -128,6 +137,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             tokens=_load_actor_tokens(settings),
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
+            revision_notify=notifier.enqueue,
             metrics=rpc_metrics,
         )
         common_servicer = CommonServicer(
@@ -173,6 +183,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
     finally:
         if server is not None:
             server.stop(grace=5).wait(timeout=10)
+        notifier.close()
         backup_pool.shutdown(wait=True, cancel_futures=False)
         worker_pool.shutdown(wait=True, cancel_futures=True)
         repository.close()

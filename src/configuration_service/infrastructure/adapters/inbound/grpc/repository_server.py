@@ -142,11 +142,13 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         tokens: dict[str, str],
         cursor_secret: bytes,
         submit_backup: Callable[[str], None],
+        revision_notify: Callable[[int], None],
         metrics: RpcMetrics,
     ) -> None:
         self.app = application
         self.metrics = metrics
         self.submit_backup = submit_backup
+        self.revision_notify = revision_notify
         self.permissions = permissions
         if not tokens or set(tokens) != set(permissions):
             raise ValueError("authorized callers and token identities must match")
@@ -274,6 +276,16 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             expected_revision=request.expected_revision_id,
             candidate_id=request.candidate_id,
         )
+        # A committed revision survives notification failure. Offline subscribers
+        # reconcile with the repository on start, reconnect and periodic refresh.
+        if not result.replayed:
+            try:
+                self.revision_notify(result.revision_id)
+            except Exception:
+                _LOG.exception(
+                    "could not schedule NATS revision notice: revision=%s",
+                    result.revision_id,
+                )
         # Request ordering is the durable candidate document ordering.
         staged = self.app.repository.get_candidate(request.candidate_id, actor)
         docs = staged["documents"]
