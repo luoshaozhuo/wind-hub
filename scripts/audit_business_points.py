@@ -38,6 +38,9 @@ def audit(root: Path, output: Path) -> int:
     units = unit_catalog.get("units")
     if not isinstance(businesses, dict) or not isinstance(units, dict):
         raise ValueError("invalid BusinessPoint or Unit catalog")
+    documents = sorted(root.rglob("*.yaml"))
+    for path in documents:
+        _load(path, root)
     tables = sorted((root / "templates/point_tables").glob("*.yaml"))
     rows: list[dict[str, str]] = []
     for path in tables:
@@ -97,7 +100,10 @@ def audit(root: Path, output: Path) -> int:
         writer.writeheader()
         writer.writerows(rows)
     findings = sum(bool(row["issues"]) for row in rows)
-    print(f"Audited {len(tables)} PointTables / {len(rows)} points; {findings} flagged rows")
+    print(
+        f"Checked {len(documents)} YAML files; audited {len(tables)} PointTables / "
+        f"{len(rows)} points; {findings} flagged rows"
+    )
     return findings
 
 
