@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import argparse
 import shlex
-import stat
 import subprocess
 from pathlib import Path
 
-from render_cli import _service_files, _validate_bindings
+from render_cli import _collector_environment, _service_files, _validate_bindings
 
 SERVICE_FILES = {
     "gateway": "industrial_gateway-sim.example.yaml",
@@ -56,15 +55,9 @@ def _commands(name: str) -> list[str]:
     return ["commander", "--config", service]
 
 
-def _private_env(path: Path | None) -> list[str]:
-    if path is None:
-        return []
-    if not path.is_absolute() or not path.is_file() or path.is_symlink():
-        raise ValueError("env file must be an absolute regular file")
-    mode = path.stat().st_mode
-    if not stat.S_ISREG(mode) or mode & 0o077:
-        raise ValueError("env file must be private (0600)")
-    return ["--env-file", str(path)]
+def _private_env(path: Path | None, *, required: bool) -> list[str]:
+    environment = _collector_environment(path, required=required, check_files=False)
+    return ["--env-file", str(path)] if environment else []
 
 
 def _build(args: argparse.Namespace) -> list[list[str]]:
@@ -79,13 +72,10 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         raise ValueError("isulad executable path must be absolute")
     files = _service_files(root, SERVICE_FILES)
     _validate_bindings(root, files, "container")
-    env_flags = _private_env(args.collector_env_file)
-    if (
-        args.apply
-        and args.collector_env_file is None
-        and args.service in {"all", "collector_realtime", "collector_reliable"}
-    ):
-        raise ValueError("Collector provisioning requires --collector-env-file")
+    env_flags = _private_env(
+        args.collector_env_file,
+        required=args.apply and args.service in {"all", "collector_realtime", "collector_reliable"},
+    )
     result: list[list[str]] = []
     names = SERVICE_FILES if args.service == "all" else (args.service,)
     for name in names:

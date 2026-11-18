@@ -46,7 +46,13 @@ URLs and startup options before starting.
 Step 3A: Native Linux CLI deployment
 ------------------------------------
 Set the Sink service's config_root to /srv/wind-hub. Install wind-hub
-into the host's Python environment. Then:
+into the host's Python environment. Create a private 0600 collector.env
+containing exactly these four assignments, with absolute host paths:
+  WIND_HUB_COLLECTOR_TLS_CERT=/srv/wind-hub/certs/collector.pem
+  WIND_HUB_COLLECTOR_TLS_KEY=/srv/wind-hub/certs/collector.key
+  WIND_HUB_COLLECTOR_TLS_CA=/srv/wind-hub/certs/ca.pem
+  WIND_HUB_COLLECTOR_ADMIN_TOKEN=<secret>
+Then:
 
   python deploy/render_cli.py \
     --root /srv/wind-hub --mode process \
@@ -54,7 +60,8 @@ into the host's Python environment. Then:
     --python /ABSOLUTE/PATH/TO/python \
     --ca /srv/wind-hub/certs/ca.pem \
     --client-cert /srv/wind-hub/certs/cli.pem \
-    --client-key /srv/wind-hub/certs/cli.key
+    --client-key /srv/wind-hub/certs/cli.key \
+    --collector-env-file /ABSOLUTE/PATH/collector.env
 
   wind-hub --config /srv/wind-hub/configs/services/cli.yaml \
     service start gateway --yes
@@ -110,9 +117,11 @@ The imported image tag may differ from 'wind-hub:local': pass its
 EXACT image reference to --image. For iSulad use:
   isula load -i /tmp/wind-hub-local.tar
 
-Create a private 0600 env file for Collector only containing
-WIND_HUB_COLLECTOR_ADMIN_TOKEN=<secret>. The env file must not be
-stored in the repository. Check file permissions before provisioning.
+Create a private 0600 env file for Collector containing exactly the four
+assignments documented in Step 3A. OCI paths should normally be under
+/etc/wind-hub/certs. The env file must not be stored in the repository.
+All four values are mandatory: Collector does not fall back to plaintext.
+Check file permissions before provisioning.
 
 Preview and then apply on an isolated host:
   python deploy/provision.py --runtime containerd --root /srv/wind-hub \

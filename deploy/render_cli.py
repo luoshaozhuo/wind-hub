@@ -42,12 +42,66 @@ PORTS = {
     "commander": 50052,
 }
 
+COLLECTOR_ENV_KEYS = frozenset(
+    {
+        "WIND_HUB_COLLECTOR_TLS_CERT",
+        "WIND_HUB_COLLECTOR_TLS_KEY",
+        "WIND_HUB_COLLECTOR_TLS_CA",
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN",
+    }
+)
+
+
+def _collector_environment(
+    path: Path | None, *, required: bool, check_files: bool
+) -> dict[str, str]:
+    """读取 Collector 的正式 mTLS 与管理身份，绝不输出密钥或 Token 内容。"""
+    if path is None:
+        if required:
+            raise ValueError("Collector mTLS requires --collector-env-file")
+        return {}
+    if not path.is_absolute() or not path.is_file() or path.is_symlink():
+        raise ValueError("Collector env file must be an absolute regular file")
+    if path.stat().st_mode & 0o077:
+        raise ValueError("Collector env file must be private (0600)")
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or key not in COLLECTOR_ENV_KEYS or key in result or not value:
+            raise ValueError("Collector env file has invalid or duplicate entries")
+        result[key] = value
+    if set(result) != COLLECTOR_ENV_KEYS:
+        raise ValueError("Collector env file requires TLS cert, key, CA and admin token")
+    for key in (
+        "WIND_HUB_COLLECTOR_TLS_CERT",
+        "WIND_HUB_COLLECTOR_TLS_KEY",
+        "WIND_HUB_COLLECTOR_TLS_CA",
+    ):
+        credential = Path(result[key])
+        if not credential.is_absolute():
+            raise ValueError(f"{key} must be an absolute path")
+        if check_files and (not credential.is_file() or credential.is_symlink()):
+            raise ValueError(f"{key} must reference a regular non-symlinked file")
+        if (
+            check_files
+            and key == "WIND_HUB_COLLECTOR_TLS_KEY"
+            and credential.stat().st_mode & 0o077
+        ):
+            raise ValueError("Collector TLS private key must not be group/other accessible")
+    return result
+
 
 def _document(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"missing or symlinked service YAML: {path}")
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("schema_version") != 1:
+    if (
+        not isinstance(data, dict)
+        or type(data.get("schema_version")) is not int
+        or data["schema_version"] != 1
+    ):
         raise ValueError(f"invalid service schema: {path}")
     return data
 
@@ -108,9 +162,9 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
         if not isinstance(sources, dict):
             raise ValueError(f"{name}: config_sources must be a mapping")
         for group in ("instances", "templates"):
-            entries = sources.get(group, {})
-            if not isinstance(entries, dict):
-                raise ValueError(f"{name}: config_sources.{group} must be a mapping")
+            entries = sources.get(group)
+            if not isinstance(entries, dict) or not entries:
+                raise ValueError(f"{name}: config_sources.{group} must be a non-empty mapping")
             for label, value in entries.items():
                 if not isinstance(value, str):
                     raise ValueError(f"{name}: invalid config source {label}")
@@ -173,6 +227,13 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         python = args.python.resolve(strict=True)
         if not python.is_file() or not os.access(python, os.X_OK):
             raise ValueError(f"invalid Python executable: {python}")
+        collector_env = _collector_environment(
+            args.collector_env_file, required=True, check_files=True
+        )
+    else:
+        if args.collector_env_file is not None:
+            raise ValueError("--collector-env-file is supported only for process mode")
+        collector_env = {}
 
     if args.runtime_prefix is not None and (
         args.mode != "rpc" or not args.runtime_prefix.is_absolute()
@@ -201,7 +262,7 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
                     "process": {
                         "argv": _argv(name, paths, root, python),
                         "cwd": str(root),
-                        "env": {},
+                        "env": collector_env if name.startswith("collector_") else {},
                         "state_dir": str(root / "state" / "cli-processes"),
                         "log_file": str(root / "logs" / f"{name}.log"),
                     },
@@ -258,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ca", type=Path, required=True)
     parser.add_argument("--client-cert", type=Path, required=True)
     parser.add_argument("--client-key", type=Path, required=True)
+    parser.add_argument("--collector-env-file", type=Path)
     parser.add_argument("--runtime-prefix", type=Path, default=None)
     for name, default in DEFAULT_FILES.items():
         parser.add_argument(f"--{name.replace('_', '-')}", default=default)

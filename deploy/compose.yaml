@@ -38,14 +38,17 @@ services:
     <<: *service
     environment:
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
+      WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
+      WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
+      WIND_HUB_COLLECTOR_TLS_CA: "${WIND_HUB_COLLECTOR_TLS_CA:-/etc/wind-hub/certs/ca.pem}"
     command:
       - collector.main
       - --config
       - /etc/wind-hub/${WIND_HUB_COLLECTOR_REALTIME_CONFIG:?Set realtime Collector YAML}
       - --state-directory
-      - /etc/wind-hub/state/collector-realtime
+      - /etc/wind-hub/state/collector_realtime
       - --collector-id
-      - collector-realtime
+      - collector_realtime
       - --grpc-host
       - 127.0.0.1
       - --grpc-port
@@ -55,14 +58,17 @@ services:
     <<: *service
     environment:
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
+      WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
+      WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
+      WIND_HUB_COLLECTOR_TLS_CA: "${WIND_HUB_COLLECTOR_TLS_CA:-/etc/wind-hub/certs/ca.pem}"
     command:
       - collector.main
       - --config
       - /etc/wind-hub/${WIND_HUB_COLLECTOR_RELIABLE_CONFIG:?Set reliable Collector YAML}
       - --state-directory
-      - /etc/wind-hub/state/collector-reliable
+      - /etc/wind-hub/state/collector_reliable
       - --collector-id
-      - collector-reliable
+      - collector_reliable
       - --grpc-host
       - 127.0.0.1
       - --grpc-port
