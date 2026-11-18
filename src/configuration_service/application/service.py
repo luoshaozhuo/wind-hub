@@ -610,6 +610,41 @@ class ConfigurationApplication:
             raise RepositoryCapacityExceededError("configuration bundle exceeds response limit")
         return output
 
+    def get_point_table_bundle(
+        self,
+        point_table_id: str,
+        *,
+        expected_manifest_sha256: str | None = None,
+    ) -> tuple[tuple[DocumentOutput, ...], str]:
+        """Retrieve historical immutable semantics, never the latest recommended mapping."""
+        rows = self.repository.get_point_table_versions(
+            point_table_id,
+            max_versions=self.limits.max_dependencies,
+        )
+        if not rows:
+            raise RepositoryNotFoundError("PointTable has no immutable closure")
+        records = tuple(self._restore(row, revision_id=0) for row in rows)
+        if sum(len(item.yaml_bytes) for item in records) > self.limits.max_bundle_bytes:
+            raise RepositoryCapacityExceededError("PointTable bundle exceeds response limit")
+        entries = [
+            {
+                "config_type": item.identity.config_type,
+                "config_id": item.identity.config_id,
+                "version_id": item.version_id,
+                "content_sha256": item.content_sha256,
+            }
+            for item in records
+        ]
+        entries.sort(
+            key=lambda item: (item["config_type"], item["config_id"], item["version_id"])
+        )
+        manifest = hashlib.sha256(
+            self.codec.canonical_json(entries).encode("utf-8")
+        ).hexdigest()
+        if expected_manifest_sha256 and expected_manifest_sha256 != manifest:
+            raise RepositoryConflictError("PointTable immutable manifest hash mismatch")
+        return records, manifest
+
     def create_backup(self, actor_id: str, request_id: str, label: str) -> str:
         return self.repository.create_backup_task(
             actor_id=actor_id,

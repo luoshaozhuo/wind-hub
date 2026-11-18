@@ -724,6 +724,95 @@ class SQLiteRepository:
         """Resolve a single root and its pinned historical dependencies."""
         return self.get_bundle_versions((identity,), revision_id, max_versions=max_versions)
 
+    @staticmethod
+    def _load_version_closure(
+        connection: sqlite3.Connection,
+        pending: list[str],
+        *,
+        max_versions: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Resolve pinned dependency versions in deterministic topological order."""
+        import heapq
+
+        records: dict[str, dict[str, Any]] = {}
+        dependencies: dict[str, set[str]] = {}
+        while pending:
+            version_id = pending.pop()
+            if version_id in records:
+                continue
+            if len(records) >= max_versions:
+                raise RepositoryCapacityExceededError(
+                    "configuration dependency closure exceeds limit"
+                )
+            row = connection.execute(
+                "SELECT v.*, d.config_type, d.config_id "
+                "FROM config_versions AS v "
+                "JOIN config_documents AS d ON d.document_id = v.document_id "
+                "WHERE v.version_id = ?",
+                (version_id,),
+            ).fetchone()
+            if row is None:
+                raise RepositoryNotFoundError("historical configuration reference is broken")
+            records[version_id] = dict(row)
+            targets = {
+                str(item[0])
+                for item in connection.execute(
+                    "SELECT target_version_id FROM config_references "
+                    "WHERE source_version_id = ?",
+                    (version_id,),
+                )
+            }
+            dependencies[version_id] = targets
+            pending.extend(sorted(targets))
+        counts = {version: len(targets) for version, targets in dependencies.items()}
+        dependents: dict[str, set[str]] = {version: set() for version in records}
+        for source, targets in dependencies.items():
+            for target in targets:
+                dependents[target].add(source)
+        ready = [version for version, count in counts.items() if count == 0]
+        heapq.heapify(ready)
+        ordered: list[dict[str, Any]] = []
+        while ready:
+            version = heapq.heappop(ready)
+            ordered.append(records[version])
+            for dependent in sorted(dependents[version]):
+                counts[dependent] -= 1
+                if counts[dependent] == 0:
+                    heapq.heappush(ready, dependent)
+        if len(ordered) != len(records):
+            raise RepositoryConflictError("cyclic configuration version references")
+        return tuple(ordered)
+
+    def get_point_table_versions(
+        self,
+        point_table_id: str,
+        *,
+        max_versions: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Read historical PointTable closure by immutable ID, ignoring current recommendations."""
+        import re
+
+        match = re.fullmatch(
+            r"point_table_(?P<template>[A-Za-z][A-Za-z0-9_.-]*)_v"
+            r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)",
+            point_table_id,
+        )
+        if match is None or max_versions < 1:
+            raise ValueError("invalid point_table_id or closure limit")
+        with self.read() as connection:
+            root = connection.execute(
+                "SELECT v.version_id FROM config_versions AS v "
+                "JOIN config_documents AS d ON d.document_id = v.document_id "
+                "WHERE d.config_type = 'point_table' AND d.config_id = ? "
+                "AND v.file_version = ?",
+                (match["template"], match["version"]),
+            ).fetchone()
+            if root is None:
+                raise RepositoryNotFoundError("immutable PointTable not found")
+            return self._load_version_closure(
+                connection, [str(root["version_id"])], max_versions=max_versions
+            )
+
     def get_bundle_versions(
         self,
         roots: Sequence[ConfigIdentity],
@@ -732,8 +821,6 @@ class SQLiteRepository:
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]:
         """Resolve pinned dependencies and topologically order one SQLite snapshot."""
-        import heapq
-
         if revision_id < 1 or max_versions < 1 or not roots:
             raise ValueError("revision, roots and max_versions must be positive")
         with self.read() as connection:
@@ -755,54 +842,9 @@ class SQLiteRepository:
                 if row is None:
                     raise RepositoryNotFoundError("root configuration not found at revision")
                 pending.append(str(row["version_id"]))
-            records: dict[str, dict[str, Any]] = {}
-            dependencies: dict[str, set[str]] = {}
-            while pending:
-                version_id = pending.pop()
-                if version_id in records:
-                    continue
-                if len(records) >= max_versions:
-                    raise RepositoryCapacityExceededError(
-                        "configuration dependency closure exceeds limit"
-                    )
-                row = connection.execute(
-                    "SELECT v.*, d.config_type, d.config_id "
-                    "FROM config_versions AS v "
-                    "JOIN config_documents AS d ON d.document_id = v.document_id "
-                    "WHERE v.version_id = ?",
-                    (version_id,),
-                ).fetchone()
-                if row is None:
-                    raise RepositoryNotFoundError("historical configuration reference is broken")
-                records[version_id] = dict(row)
-                targets = {
-                    str(item[0])
-                    for item in connection.execute(
-                        "SELECT target_version_id FROM config_references "
-                        "WHERE source_version_id = ?",
-                        (version_id,),
-                    )
-                }
-                dependencies[version_id] = targets
-                pending.extend(sorted(targets))
-            counts = {version: len(targets) for version, targets in dependencies.items()}
-            dependents: dict[str, set[str]] = {version: set() for version in records}
-            for source, targets in dependencies.items():
-                for target in targets:
-                    dependents[target].add(source)
-            ready = [version for version, count in counts.items() if count == 0]
-            heapq.heapify(ready)
-            ordered: list[dict[str, Any]] = []
-            while ready:
-                version = heapq.heappop(ready)
-                ordered.append(records[version])
-                for dependent in sorted(dependents[version]):
-                    counts[dependent] -= 1
-                    if counts[dependent] == 0:
-                        heapq.heappush(ready, dependent)
-            if len(ordered) != len(records):
-                raise RepositoryConflictError("cyclic configuration version references")
-            return tuple(ordered)
+            return self._load_version_closure(
+                connection, pending, max_versions=max_versions
+            )
 
     def get_schema_by_type(self, config_type: str, document_schema_version: int) -> dict[str, Any]:
         """Look up the exact registered schema version without exposing SQL."""

@@ -80,6 +80,13 @@ class RepositoryPort(Protocol):
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]: ...
 
+    def get_point_table_versions(
+        self,
+        point_table_id: str,
+        *,
+        max_versions: int,
+    ) -> tuple[dict[str, Any], ...]: ...
+
     def create_backup_task(
         self,
         *,
