@@ -355,6 +355,191 @@ def test_provision_failure_rolls_back_only_successfully_created_ids(
     assert all("unrelated-user-container" not in command for command in calls)
 
 
+def test_inspect_target_classifies_present_absent_and_uncertain(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "containerd")
+    ident = "wind-hub-gateway"
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert command[-2:] == ["info", ident]
+        return next(outcomes)
+
+    outcomes = iter([subprocess.CompletedProcess([], 0, "{}", "")])
+    monkeypatch.setattr(scripts.provision.subprocess, "run", fake_run)
+    assert scripts.provision._inspect_target(args, ident) is True
+
+    outcomes = iter(
+        [
+            subprocess.CompletedProcess([], 1, "", "container not found"),
+            subprocess.CompletedProcess([], 1, "", "no such container: x"),
+            subprocess.CompletedProcess([], 1, "", "object does not exist"),
+        ]
+    )
+    for _ in range(3):
+        assert scripts.provision._inspect_target(args, ident) is False
+
+    outcomes = iter([subprocess.CompletedProcess([], 1, "", "permission denied on socket")])
+    assert scripts.provision._inspect_target(args, ident) is None
+
+    def raise_timeout(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(command, 15)
+
+    monkeypatch.setattr(scripts.provision.subprocess, "run", raise_timeout)
+    assert scripts.provision._inspect_target(args, ident) is None
+
+    def raise_oserror(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise OSError("socket vanished")
+
+    monkeypatch.setattr(scripts.provision.subprocess, "run", raise_oserror)
+    assert scripts.provision._inspect_target(args, ident) is None
+
+
+def test_inspect_target_uses_isula_inspect_for_isulad_runtime(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "isulad")
+    seen: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.append(command)
+        return subprocess.CompletedProcess(command, 1, "", "container not found")
+
+    monkeypatch.setattr(scripts.provision.subprocess, "run", fake_run)
+    assert scripts.provision._inspect_target(args, "wind-hub-gateway") is False
+    assert seen == [["/usr/bin/isula", "inspect", "wind-hub-gateway"]]
+
+
+@pytest.mark.parametrize("presence", [True, None])
+def test_apply_refuses_when_precreate_target_exists_or_unverified(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    presence: bool | None,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "containerd")
+    commands = scripts.provision._build(args)[:2]
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(scripts.provision, "_inspect_target", lambda _args, _id: presence)
+    monkeypatch.setattr(
+        scripts.provision.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command)
+        or subprocess.CompletedProcess(command, 0, "", ""),
+    )
+    with pytest.raises(RuntimeError, match="refusing create"):
+        scripts.provision._apply(args, commands)
+    # The create command must never have run; no rollback either.
+    assert calls == []
+
+
+def test_apply_runs_without_rollback_when_all_creates_verified_absent(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "containerd")
+    commands = scripts.provision._build(args)[:4]
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(scripts.provision, "_inspect_target", lambda _args, _id: False)
+    monkeypatch.setattr(
+        scripts.provision.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command)
+        or subprocess.CompletedProcess(command, 0, "", ""),
+    )
+    scripts.provision._apply(args, commands)
+    assert not any("rm" in command or "kill" in command for command in calls)
+    create_targets = [
+        scripts.provision._created_target(args, command)
+        for command in calls
+        if scripts.provision._created_target(args, command) is not None
+    ]
+    assert create_targets == ["wind-hub-gateway", "wind-hub-data-generator"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        lambda command: subprocess.TimeoutExpired(command, 120),
+        lambda command: subprocess.CalledProcessError(1, command),
+        KeyboardInterrupt,
+        lambda command: OSError("broken pipe"),
+    ],
+)
+def test_apply_unknown_create_result_never_deletes_unowned_target(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Any,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "containerd")
+    commands = scripts.provision._build(args)[:2]
+    calls: list[list[str]] = []
+    target = scripts.provision._created_target(args, commands[0])
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if scripts.provision._created_target(args, command) is not None:
+            raise failure(command) if callable(failure) else failure()
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    inspect_results = iter([False, True])
+    monkeypatch.setattr(
+        scripts.provision,
+        "_inspect_target",
+        lambda _args, _id: next(inspect_results),
+    )
+    monkeypatch.setattr(scripts.provision.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="UNKNOWN") as exc_info:
+        scripts.provision._apply(args, commands)
+    message = str(exc_info.value)
+    assert target in message and "present=True" in message
+    assert "NOT deleted" in message and "manual runtime reconciliation" in message
+    # Nothing owned existed yet, so no removal is attempted.
+    assert not any("rm" in command or "kill" in command for command in calls)
+
+
+def test_apply_unknown_result_still_rolls_back_previously_owned_containers(
+    tmp_path: Path,
+    scripts: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _provision_args(tmp_path, scripts, "containerd")
+    commands = scripts.provision._build(args)[:4]
+    calls: list[list[str]] = []
+    create_seen = 0
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal create_seen
+        calls.append(command)
+        if scripts.provision._created_target(args, command) is not None:
+            create_seen += 1
+            if create_seen == 2:
+                raise subprocess.TimeoutExpired(command, 120)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(scripts.provision, "_inspect_target", lambda _args, _id: False)
+    monkeypatch.setattr(scripts.provision.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="UNKNOWN"):
+        scripts.provision._apply(args, commands)
+    removals = [command for command in calls if "rm" in command]
+    assert any("wind-hub-gateway" in command for command in removals)
+    assert all("wind-hub-data-generator" not in command for command in removals)
+
+
 def test_runtime_result_rejects_created_and_paused_containers() -> None:
     from cli.runtime import Runtime
 

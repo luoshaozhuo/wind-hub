@@ -84,3 +84,44 @@ def test_sink_uses_single_service_identity(cli_env: Any) -> None:
         import asyncio
 
         asyncio.run(runtime.close())
+
+
+def test_diagnose_pipeline_requires_explicit_sink_id(cli_env: Any) -> None:
+    # G-04：缺少 --sink-id 必须在本地拒绝，禁止把 device_id 当 Delivery ID。
+    result = cli_env.invoke("diagnose", "pipeline", "dev-1")
+    assert result.exit_code == 2, result.stdout
+    assert not [call for call in cli_env.server.calls if call.path.endswith("/Diagnose")]
+
+
+def test_diagnose_pipeline_routes_explicit_delivery_id_to_sink(cli_env: Any) -> None:
+    server = cli_env.server
+    targets: list[tuple[str, str]] = []
+
+    async def behavior(request: Any, context: Any) -> Any:
+        targets.append((tuple(request.stages)[0], request.target_id))
+        return _diagnose_response("PASS", ["m-1"])
+
+    server.respond(_PATH, behavior)
+    result = cli_env.invoke("diagnose", "pipeline", "WTG_SIM01", "--sink-id", "ems_power")
+    assert result.exit_code == 0, result.stdout
+    assert ("NETWORK", "WTG_SIM01") in targets
+    # Sink 侧必须收到显式 Delivery ID，而不是设备 ID。
+    assert ("source", "ems_power") in targets
+    assert all(target != ("source", "WTG_SIM01") for _, target in targets)
+
+
+def test_diagnose_pipeline_unknown_delivery_is_business_failure(cli_env: Any) -> None:
+    import grpc
+
+    server = cli_env.server
+
+    async def behavior(request: Any, context: Any) -> Any:
+        if "NATS" in request.stages:
+            return _diagnose_response("PASS", ["m-1"])
+        await context.abort(grpc.StatusCode.NOT_FOUND, "unknown Delivery")
+
+    server.respond(_PATH, behavior)
+    result = cli_env.invoke("diagnose", "pipeline", "dev-1", "--sink-id", "missing-delivery")
+    assert result.exit_code == 1, result.stdout
+    assert result.json()["status"] == "FAILURE"
+    assert len([call for call in server.calls if call.path.endswith("/Diagnose")]) == 2

@@ -183,15 +183,19 @@ def _inspect_target(args: argparse.Namespace, ident: str) -> bool | None:
     """True if present, False only on explicit not-found, None if uncertain."""
     if args.runtime == "containerd":
         command = [
-            args.ctr, "--address", str(args.socket), "--namespace", args.namespace,
-            "containers", "info", ident,
+            args.ctr,
+            "--address",
+            str(args.socket),
+            "--namespace",
+            args.namespace,
+            "containers",
+            "info",
+            ident,
         ]
     else:
         command = [str(args.isula), "inspect", ident]
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=False, timeout=15
-        )
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode == 0:

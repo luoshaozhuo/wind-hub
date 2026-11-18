@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -24,6 +25,14 @@ logger = logging.getLogger(__name__)
 
 class CollectorPublisher:
     """Publish bounded immutable batches to Core NATS or JetStream."""
+
+    # Keep a short per-(device, point) history of transport-confirmed samples
+    # instead of a global tail. A global tail rotates a Sink-subscribed point
+    # out under wide point fan-out, and a single latest entry loses the race
+    # against the next batch; bounded per-point history keeps correlation
+    # provable while the diagnostic payload stays small.
+    _EVIDENCE_HISTORY = 8
+    _EVIDENCE_MAX_KEYS = 256
 
     def __init__(
         self,
@@ -235,18 +244,31 @@ class CollectorPublisher:
         self.published += 1
         self.published_samples += len(batch.samples)
         confirmed_at = datetime.now(UTC).isoformat()
-        self._last_sample_evidence = (
-            *self._last_sample_evidence,
-            *(
+        evidence: dict[tuple[str, str], deque[dict[str, str]]] = {}
+        for item in self._last_sample_evidence:
+            key = (item["device_id"], item["point_id"])
+            evidence.setdefault(key, deque(maxlen=self._EVIDENCE_HISTORY)).append(item)
+        for sample in batch.samples:
+            key = (batch.device_id, sample.point_id)
+            history = evidence.get(key)
+            if history is None:
+                history = deque(maxlen=self._EVIDENCE_HISTORY)
+                evidence[key] = history
+            history.append(
                 {
                     "device_id": batch.device_id,
-                    "point_id": item.point_id,
-                    "sample_id": item.sample_id,
+                    "point_id": sample.point_id,
+                    "sample_id": sample.sample_id,
                     "confirmed_at": confirmed_at,
                 }
-                for item in batch.samples
-            ),
-        )[-64:]
+            )
+        overflow = len(evidence) - self._EVIDENCE_MAX_KEYS
+        if overflow > 0:
+            for stale_key in tuple(evidence)[:overflow]:
+                del evidence[stale_key]
+        self._last_sample_evidence = tuple(
+            entry for history in evidence.values() for entry in history
+        )
         if self._telemetry is not None:
             self._telemetry.increment("collector.publisher.samples_published", len(batch.samples))
             received = min(

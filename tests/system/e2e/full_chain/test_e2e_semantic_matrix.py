@@ -336,6 +336,9 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
     )
     before_config = _tree_digest(full_chain)
     calls: list[dict[str, Any]] = []
+    sink_diagnose_envelope: dict[str, Any] | None = None
+    gateway_diagnose_envelope: dict[str, Any] | None = None
+    dg_diagnose_envelope: dict[str, Any] | None = None
     try:
         for row in CLI_ROWS:
             if row.action != "delta" or row.key == "data-generator variables update":
@@ -348,6 +351,12 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
                     if item["task_id"] == "WTG_SIM01"
                 )
             observed = await _cli_exact(full_chain, row, _arguments(row, context))
+            if row.key == "diagnose sink":
+                sink_diagnose_envelope = observed["envelope"]
+            if row.key == "diagnose gateway":
+                gateway_diagnose_envelope = observed["envelope"]
+            if row.key == "diagnose data-generator":
+                dg_diagnose_envelope = observed["envelope"]
             calls.append(
                 {
                     "command_id": row.key,
@@ -362,6 +371,37 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
                     "action": row.action,
                 }
             )
+        # 阶段级证据：target 的 NOT_SUPPORTED 必须显式可见，其余阶段保持 SUCCESS。
+        assert sink_diagnose_envelope is not None
+        stages = {
+            item["stage"]: item["status"] for item in sink_diagnose_envelope["data"]["stages"]
+        }
+        assert stages["target"] == "NOT_SUPPORTED", stages
+        assert all(
+            status == "SUCCESS" for stage, status in stages.items() if stage != "target"
+        ), stages
+        assert sink_diagnose_envelope["data"]["limitations"]
+        # Gateway：三个阶段都只给可观测证据，不能证明真实外部读写——健康栈下
+        # 均为 UNKNOWN/NOT_SUPPORTED，总体必须诚实 UNKNOWN，禁止伪装 PASS。
+        assert gateway_diagnose_envelope is not None
+        gateway_stages = {
+            item["stage"]: item["status"] for item in gateway_diagnose_envelope["data"]["stages"]
+        }
+        assert gateway_stages["injection"] == "UNKNOWN", gateway_stages
+        assert all(
+            status in {"UNKNOWN", "NOT_SUPPORTED"} for status in gateway_stages.values()
+        ), gateway_stages
+        assert not any(
+            status in {"SUCCESS", "FAIL"} for status in gateway_stages.values()
+        ), gateway_stages
+        assert gateway_diagnose_envelope["data"]["limitations"]
+        # Data Generator：write 阶段按设计 SKIPPED/NO_DIAGNOSTIC_TARGETS，
+        # 整体诚实 UNKNOWN，禁止伪装 PASS。
+        assert dg_diagnose_envelope is not None
+        dg_payload = dg_diagnose_envelope["data"]
+        assert dg_payload["overall_status"] == "UNKNOWN"
+        assert dg_payload["limitations"]
+        assert all(stage["status"] != "SUCCESS" for stage in dg_payload.get("stages", []))
         assert _tree_digest(full_chain) == before_config
         full_chain.record(
             "E2E-08-CLI-SEMANTIC-DELTA",
@@ -394,9 +434,21 @@ async def test_diagnose_pipeline_correlates_real_collector_and_sink_samples(
             >= activity_start,
         )
         row = next(row for row in CLI_ROWS if row.key == "diagnose pipeline")
+        # 两侧诊断证据都是有界最近样本缓存（maxlen=4）：单次调用可能落在缓存
+        # 不相交窗口。按有界轮询等待真实交集出现，不放宽最终断言。
+        report = await full_chain.poll(
+            full_chain.cli_rt,
+            "diagnose",
+            "pipeline",
+            "WTG_SIM01",
+            "--sink-id",
+            "ems_power",
+            predicate=lambda data: data.get("overall_status") == "PASS",
+            timeout=45,
+        )
         healthy = SemanticEntry(**{**row.__dict__, "expected_exit": 0, "expected_error": None})
-        result = await _cli_exact(full_chain, healthy, ("WTG_SIM01", "--sink-id", "ems_power"))
-        report = result["envelope"]["data"]
+        observed = _last_cli_call(full_chain)
+        assert observed["returncode"] == healthy.expected_exit, observed
         assert report["overall_status"] == "PASS", report
         full_chain.record(
             "E2E-08-PIPELINE-PASS",

@@ -700,6 +700,126 @@ async def test_legitimate_zero_match_safely_skips_without_dlq(broker) -> None:
         await port.stop()
 
 
+async def test_confirmed_sample_evidence_is_per_delivery_and_broker_bound(broker) -> None:
+    """G-03：真实 JetStream ACK 后才发布证据；多 Delivery 证据互不串用。"""
+    import json
+
+    nats_url = broker
+    adapters = {"sink_a": FakeKafkaAdapter(), "sink_b": FakeKafkaAdapter()}
+    pool = FakePool(adapters)
+    deliveries = {
+        "da": _delivery_instance(sink="sink_a", devices=[DEVICE], points=["active_power"]),
+        "db": _delivery_instance(sink="sink_b", devices=[DEVICE], points=["active_power"]),
+    }
+    snapshot = _snapshot(
+        nats_url,
+        deployment_id=f"dep-g03-ok-{uuid.uuid4().hex[:8]}",
+        deliveries=deliveries,
+        sinks={"sink_a": _kafka_sink(19092), "sink_b": _kafka_sink(19093)},
+    )
+    port_a = _port(snapshot, pool, "da", "sink_a")
+    port_b = _port(snapshot, pool, "db", "sink_b")
+    durable_a, durable_b = _durable(snapshot, "da"), _durable(snapshot, "db")
+    batch = make_batch()
+    await port_a.start()
+    await port_b.start()
+    try:
+        await _publish_batch(nats_url, batch)
+        await _wait_for(
+            lambda: _both_settled(nats_url, durable_a, durable_b),
+            label="both Durables acknowledged with evidence",
+        )
+        for port, delivery_id in ((port_a, "da"), (port_b, "db")):
+            evidence = json.loads(port.inspect()["sample_evidence"])
+            assert len(evidence) == 1
+            entry = evidence[0]
+            assert entry["sample_id"] == batch.samples[0].sample_id
+            assert entry["device_id"] == DEVICE
+            assert entry["delivery_id"] == delivery_id
+            assert entry["channel"] == "reliable"
+            assert len(port.inspect()["sample_evidence"].encode()) < 2048
+            assert port.acknowledged_batches_total == 1
+    finally:
+        await port_b.stop()
+        await port_a.stop()
+
+
+async def test_failed_redelivery_keeps_evidence_empty_until_target_confirms(broker) -> None:
+    """G-03：目标写失败/不确定期间不得产生成功证据；恢复且 ACK 后才出现。"""
+    import json
+
+    nats_url = broker
+    adapter = FakeKafkaAdapter(mode="fail")
+    pool = FakePool({"sink_z": adapter})
+    deliveries = {
+        "dz": _delivery_instance(sink="sink_z", devices=[DEVICE], points=["active_power"]),
+    }
+    snapshot = _snapshot(
+        nats_url,
+        deployment_id=f"dep-g03-fail-{uuid.uuid4().hex[:8]}",
+        deliveries=deliveries,
+        sinks={"sink_z": _kafka_sink()},
+    )
+    durable_z = _durable(snapshot, "dz")
+    port = _port(snapshot, pool, "dz", "sink_z")
+    batch = make_batch()
+    await port.start()
+    try:
+        await _publish_batch(nats_url, batch)
+        await _wait_for(
+            lambda: _redelivered_at_least(nats_url, SOURCE_STREAM, durable_z, 2),
+            label="failed target redelivered twice",
+        )
+        # 源批未 ACK：确认缓存必须为空，失败写入不得冒充目标交付。
+        assert port.inspect()["sample_evidence"] == "[]"
+        assert port.acknowledged_batches_total == 0
+        assert not await _settled(nats_url, SOURCE_STREAM, durable_z)
+
+        adapter.mode = "success"
+        await _wait_for(
+            lambda: _settled(nats_url, SOURCE_STREAM, durable_z),
+            label="recovered delivery acknowledged once",
+        )
+        evidence = json.loads(port.inspect()["sample_evidence"])
+        assert [item["sample_id"] for item in evidence] == [batch.samples[0].sample_id]
+        # 重投只允许一个源批完成一次 ACK，证据数量不得随重投膨胀。
+        assert port.acknowledged_batches_total == 1
+        assert len(evidence) <= 4
+    finally:
+        await port.stop()
+
+
+async def test_dlq_only_settlement_publishes_no_target_evidence(broker) -> None:
+    """G-03：DLQ 不是目标交付，即使源批最终 ACK 也不得出现确认样本。"""
+    nats_url = broker
+    adapter = FakeKafkaAdapter()
+    pool = FakePool({"sink_z": adapter})
+    deliveries = {
+        "dz": _delivery_instance(sink="sink_z", devices=[DEVICE], points=["active_power"]),
+    }
+    snapshot = _snapshot(
+        nats_url,
+        deployment_id=f"dep-g03-dlq-{uuid.uuid4().hex[:8]}",
+        deliveries=deliveries,
+        sinks={"sink_z": _kafka_sink()},
+    )
+    durable_z = _durable(snapshot, "dz")
+    port = _port(snapshot, pool, "dz", "sink_z")
+    await port.start()
+    try:
+        subject = f"{SUBJECT_PREFIX}.{FARM}.{COLLECTOR}.{DEVICE}"
+        await _publish_raw(nats_url, subject, b"{not valid json")
+        await _wait_for(
+            lambda: _settled(nats_url, SOURCE_STREAM, durable_z),
+            label="invalid batch ACKed after DLQ PubAck",
+        )
+        assert port.dlq_invalid_batches_total == 1
+        assert adapter.calls == 0
+        assert port.inspect()["sample_evidence"] == "[]"
+    finally:
+        await port.stop()
+
+
 # ---- Broker 侧判定原语（独立连接，不读进程内状态）-----------------------
 
 

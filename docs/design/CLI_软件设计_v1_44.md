@@ -615,7 +615,7 @@ System Test 必须遵守以下规定：
 2. **规定场景覆盖率 100%**：每项 UC 明确的主流程、关键分支、异常流程、边界和恢复场景均必须有对应 System Test；不能仅以一条正常路径代表整个 UC 已覆盖。
 3. **需求覆盖率 100%**：每项 UR 必须能够经一个或多个 UC 追溯至 System Test；若某项需求未能被 UC 覆盖，必须先补全用例，不得直接以技术测试代替业务用例。
 4. **技术约束补充覆盖**：用例未充分表达的性能、容量、并发、安全、权限、超时和可靠性要求，依据对应技术契约补充测试；不得因 UC 未逐项列出而豁免。
-5. **真实系统边界**：System Test 通过真实 CLI 进程和真实通信/运行基础设施执行。涉及 containerd、iSulad、process 的用例必须分别在对应真实管理器上验证；允许在真实容器或独立 Linux 进程 中运行模拟下游业务组件，Mock 不得代替运行基础设施验收。
+5. **真实系统边界**：System Test 通过真实 CLI 进程和真实通信/运行基础设施执行。涉及 containerd、iSulad、process 的用例必须分别在对应真实管理器上验证；允许在真实容器或独立 Linux 进程中运行模拟下游业务组件，Mock 不得代替运行基础设施验收。
 6. **覆盖与通过分开裁定**：测试已关联不等于已执行；失败、跳过及未运行均不得计为通过。验收报告分别给出需求覆盖、用例及场景覆盖、执行情况和通过情况；缺少真实环境时标记 `NOT_RUN`，不得用模拟结果替代。
 7. **变更同步**：任何 UR、UC、接口或行为约束的新增、删除、调整，必须同步核查 System Test、测试矩阵和验收条款；新增 UC 不得留下无测试映射。
 
@@ -1935,7 +1935,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `data-generator variables list` | generation_id、device_id，分页参数 | 目标 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；尚未实现不能假报支持 |
 | `data-generator variables update` | generation_id、device_id、point_id/value 或 values-file、request_id | 目标 DataGeneratorService `UpdateVariables` | 仅可控模型 INPUT；整批原子、幂等、有效步反馈，不是 Gateway 数据注入 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
-| `diagnose pipeline` | DEVICE | CLI 调用 Collector + Sink | 跨服务证据汇总 |
+| `diagnose pipeline` | DEVICE、必填 `--sink-id DELIVERY_ID` | CLI 调用 Collector + Sink | 跨服务证据汇总 |
 | `net scan` | CIDR | CLI 本地 ICMP 扫描 | 一次性发现可响应地址 |
 | `net industrial` | IP | CLI 本地工业 TCP 端口集 | 一次性扫描预设端口 |
 | `net tcp` | IP PORT | CLI 本地 TCP Connect | 一次性指定端口 |
@@ -2204,7 +2204,7 @@ NATS Publish   PASS      3.5 ms      Publish acknowledged
 Overall        PASS
 Scope          Collector -> NATS only
 
-wind-hub> diagnose pipeline WTG001
+wind-hub> diagnose pipeline WTG001 --sink-id ems_power
 STAGE                    STATUS    EVIDENCE
 ─────────────────────────────────────────────
 Collector acquisition    PASS      Sample available
@@ -2458,7 +2458,8 @@ network_probe:
 | `services.<id>.tls_profile` | 启用远程 gRPC 时 | 引用 `tls_profiles` 中已存在条目；证书在使用前校验可读 |
 | `services.<id>.manager` | 执行服务启停时 | `containerd`、`isulad`、`process` 三选一 |
 | `target`、`namespace` | 使用对应管理器时 | target 为固定白名单 ID；containerd 必填 namespace；process target 是受控服务 ID |
-| `process.argv/cwd/state_dir/log_file` | process | 程序绝对路径及受控工作目录、PID 状态和日志路径；不用 shell/systemd |\n| `manager_socket` | containerd | 本地 Unix Socket，权限严格限制 |
+| `process.argv/cwd/state_dir/log_file` | process | 程序绝对路径及受控工作目录、PID 状态和日志路径；不用 shell/systemd |
+| `manager_socket` | containerd | 本地 Unix Socket，权限严格限制 |
 | `isula_binary` | iSulad | 固定的 `isula` 可执行文件绝对路径；调用时禁止 shell=True |
 | `network_probe.*` | 使用本地探测时 | 非负、有界，非法端口或超大网段须拒绝 |
 
@@ -2686,7 +2687,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 |---|---|---|---|
 | containerd | start/stop/restart/status 及真实任务状态 | 重复操作、gRPC 延迟就绪 | Daemon 不可达、权限拒绝、退出/超时 |
 | iSulad | isula 管理真实容器的相同操作 | 重复操作、gRPC 延迟就绪 | Daemon 不可达、权限拒绝、退出/超时 |
-| process | 真实 Linux 进程的相同操作 | 重复操作、gRPC 延迟就绪 | D-Bus/权限拒绝、异常退出、超时 |
+| process | 真实 Linux 进程的相同操作 | 重复操作、gRPC 延迟就绪 | ESRCH/权限拒绝、异常退出、超时 |
 
 三个运行时各自覆盖全部三个场景，至少九个独立的“运行时×场景”测试标识；涉及多种错误时参数化补齐，不得以单环境结果替代。全部用专用模拟业务 Server、真实容器/Unit 和真实 CLI 验证。
 

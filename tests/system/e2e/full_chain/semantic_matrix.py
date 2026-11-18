@@ -532,9 +532,37 @@ CLI_ROWS = (
         side_effect="none: full-chain intentionally has no IEC104 GI",
     ),
     _cli("diagnose commander", ("PPC_SIM01",), object_id="PPC_SIM01"),
-    _cli("diagnose sink", ("ems_power",), object_id="ems_power"),
-    _cli("diagnose gateway", ("gw-wtg_sim01",), object_id="gw-wtg_sim01"),
-    _cli("diagnose data-generator", ("{generation_id}",), object_id="active Generation"),
+    _cli(
+        "diagnose sink",
+        ("ems_power",),
+        # 设计契约（Sink v1_65 §13.4）：target 阶段无副作用无关探针，恒为
+        # NOT_SUPPORTED；默认全阶段诊断因此为 PARTIAL，CLI 诚实映射 UNKNOWN/3，
+        # 不得把 target 不可探测伪装成整体 PASS。
+        expected_exit=3,
+        normal="supported stages SUCCESS while target stage is designed NOT_SUPPORTED",
+        rejection="UNKNOWN/exit 3 with an explicit target-probe limitation, never a fake PASS",
+        object_id="ems_power",
+    ),
+    _cli(
+        "diagnose gateway",
+        ("gw-wtg_sim01",),
+        # 设计契约（Gateway Diagnostics）：三个阶段都只给可观测证据，不能证明
+        # 真实外部读写（注册/监听/TCP 可达均非业务成功）；整体恒为 UNKNOWN/exit 3。
+        expected_exit=3,
+        normal="observable evidence only; every stage stays UNKNOWN/NOT_SUPPORTED by design",
+        rejection="UNKNOWN/exit 3 with explicit evidence limitations, never a fake PASS",
+        object_id="gw-wtg_sim01",
+    ),
+    _cli(
+        "diagnose data-generator",
+        ("{generation_id}",),
+        # 设计契约（DG Diagnostics）：write 阶段无授权隔离测试目标，恒 SKIPPED；
+        # 且 generation_id 非 scenario 标识时给 NO_DIAGNOSTIC_TARGETS，整体 UNKNOWN。
+        expected_exit=3,
+        normal="observable stages only; write evidence is designed SKIPPED/UNKNOWN",
+        rejection="UNKNOWN/exit 3 with explicit evidence limitations, never a fake PASS",
+        object_id="active Generation",
+    ),
     _cli(
         "diagnose pipeline",
         ("WTG_SIM01", "--sink-id", "missing-semantic-delivery"),

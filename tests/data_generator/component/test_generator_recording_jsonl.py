@@ -237,3 +237,63 @@ async def test_stop_waits_for_inflight_recording_before_releasing_generation(
     finally:
         recorder.allow_finish.set()
         await runtime.shutdown()
+
+
+async def test_recording_settlement_failure_after_stop_keeps_error_evidence(
+    configs_root,
+) -> None:  # noqa: ANN001
+    """STOP 期间在途 append 失败：错误证据必须保留，Generation 进入 FAILED。"""
+
+    class FailingRecorder:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.fail_now = asyncio.Event()
+
+        async def append(self, settings, generation_id, payload) -> None:  # noqa: ANN001
+            self.started.set()
+            await self.fail_now.wait()
+            raise OSError("recording media vanished")
+
+    runtime, _ = _runtime(
+        configs_root,
+        recording={"enabled": True, "directory": "artifacts/data-generator"},
+    )
+    recorder = FailingRecorder()
+    runtime._recorder = recorder
+    generation = await runtime.start("demo-random", None, runtime.settings.revision)
+    try:
+        await asyncio.wait_for(recorder.started.wait(), timeout=3)
+        stopping = asyncio.create_task(runtime.stop(generation.generation_id, ""))
+        await asyncio.sleep(0.05)
+        assert generation.actual_state == "STOPPING"
+        recorder.fail_now.set()
+        state = await asyncio.wait_for(stopping, timeout=3)
+        # 失败 I/O 随 STOP 结算后状态收敛为 STOPPED；失败终态与错误证据必须保留。
+        assert state.terminal_state == "FAILED"
+        assert state.actual_state == "STOPPED"
+        assert state.last_error
+        codes = {event.error_code for event in runtime.events}
+        assert "RECORDING_SETTLEMENT_FAILED" in codes
+        assert any("recording media vanished" in event.message for event in runtime.events)
+        assert generation.generation_id not in runtime.writer.owners
+    finally:
+        recorder.fail_now.set()
+        await runtime.shutdown()
+
+
+async def test_duplicate_stop_after_settlement_is_idempotent(configs_root) -> None:  # noqa: ANN001
+    runtime, _ = _runtime(
+        configs_root,
+        recording={"enabled": True, "directory": "artifacts/data-generator"},
+    )
+    generation = await runtime.start("demo-random", None, runtime.settings.revision)
+    try:
+        await asyncio.sleep(0.15)
+        first = await runtime.stop(generation.generation_id, "")
+        assert first.actual_state in {"STOPPED", "COMPLETED"}
+        # 第二次 STOP 不得复活任务或抛出异常，所有权保持释放。
+        second = await runtime.stop(generation.generation_id, "")
+        assert second.generation_id == generation.generation_id
+        assert generation.generation_id not in runtime.writer.owners
+    finally:
+        await runtime.shutdown()
