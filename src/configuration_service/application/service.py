@@ -9,6 +9,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from configuration_service.application.directory_manifest import (
+    DirectoryFile,
+    DirectoryManifest,
+    build_directory_manifest,
+    resolve_publication_identity,
+)
 from configuration_service.application.ports import (
     BackupPort,
     DocumentCodecPort,
@@ -200,6 +206,38 @@ class ConfigurationApplication:
             schema_version=int(registered["document_schema_version"]),
             max_bytes=self.limits.max_request_bytes,
         )
+
+    def prepare_directory(
+        self, documents: tuple[DirectoryFile, ...]
+    ) -> tuple[DirectoryManifest, tuple[PreparedDocument, ...]]:
+        """Validate a complete directory without admitting a partial publication."""
+        manifest = build_directory_manifest(
+            documents,
+            max_documents=self.limits.max_documents_per_publication,
+            max_bytes=self.limits.max_request_bytes,
+        )
+        prepared: list[PreparedDocument] = []
+        seen: set[tuple[ConfigIdentity, str]] = set()
+        for item in manifest.files:
+            raw = self.codec.parse_yaml(
+                item.yaml_bytes, max_bytes=self.limits.max_request_bytes
+            )
+            location = resolve_publication_identity(item.relative_path, raw)
+            identity = ConfigIdentity(location.config_type, location.config_id)
+            key = (identity, location.file_version)
+            if key in seen:
+                raise ValueError("duplicate configuration document identity and version")
+            seen.add(key)
+            prepared.append(
+                self._prepare(
+                    DocumentInput(
+                        identity=identity,
+                        file_name=item.relative_path.rsplit("/", 1)[-1],
+                        yaml_bytes=item.yaml_bytes,
+                    )
+                )
+            )
+        return manifest, tuple(prepared)
 
     def create_candidate(
         self,
