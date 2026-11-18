@@ -1,6 +1,9 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_49 · 20261116</p>
+<p class="subtitle">v1_53 · 20261118</p>
+
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+
 
 <style>
 body {
@@ -1400,7 +1403,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 
 | 编号 | 需求 | 可验证要求 | 来源原始需求 |
 |---|---|---|---|
-| SR-01 | 请求身份与授权 | gRPC 采用 mTLS 验证客户端证书；从证书可信身份映射 caller_id，并按 commander.yaml 中 control/query/reload 权限授权；认证失败与权限不足分别返回 UNAUTHENTICATED、PERMISSION_DENIED；不得信任自报 caller_id；控制前复核设备、点位、数据类型、目标值及有效期约束 | UR-04、UR-05、UR-11 |
+| SR-01 | 请求身份与授权 | 内部 gRPC 不启用 TLS；从服务端校验的受控访问令牌身份映射 caller_id，并按 commander.yaml 中 control/query/reload 权限授权；认证失败与权限不足分别返回 UNAUTHENTICATED、PERMISSION_DENIED；不得信任自报 caller_id；控制前复核设备、点位、数据类型、目标值及有效期约束 | UR-04、UR-05、UR-11 |
 | SR-02 | 设备写入保护 | 只允许向生效配置声明可写的测点写入；同设备 FIFO、批量调用及热重载不得产生冲突现场操作 | UR-04、UR-05、UR-10、UR-11 |
 | SR-03 | 不确定执行的安全策略 | 状态未知时不自动重试可能已发送的写入；底层 I/O 未安全结束或隔离前不得释放冲突资源 | UR-02、UR-04、UR-05、UR-15 |
 | SR-04 | 控制实例唯一性 | 启动、重启及异常恢复期间，不能在现场控制权不确定时接受可能冲突的写入 | UR-01、UR-03、UR-15 |
@@ -1446,7 +1449,7 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 |---|---|
 | UR 覆盖 | 15/15 项至少关联一条分类需求，无遗漏 |
 | 分类需求来源 | FR 13 项、PR 5 项、RR 9 项、SR 5 项、CR 5 项，均标注 UR 来源 |
-| 控制标识 | UR-04/05 的 request_id 由授权调用方生成，command_id 由 Commander 生成；caller_id 由 mTLS 认证身份映射 |
+| 控制标识 | UR-04/05 的 request_id 由授权调用方生成，command_id 由 Commander 生成；caller_id 由 内网访问授权 认证身份映射 |
 | 热重载边界 | 不热重载 commander.yaml；不记录热重载请求历史、不生成命令业务审计 |
 | 设备详情点表 | 仅返回当前生效配置中的可写点及其写入约束，无只读/查询点 |
 | 审计与存储 | 本地有限留存供查询/恢复/补发；JetStream 负责可靠投递，下游负责长期保存 |
@@ -1528,7 +1531,7 @@ flowchart TD
 |---|---|
 | 参与者与目标 | 操作系统终端发起启动，使 Commander 根据现有配置建立可信的本地运行状态并对 gRPC 请求提供服务。 |
 | 前置条件 | 进程可启动；指定配置目录与本地持久化路径可访问。 |
-| 主要异常 | 关键配置缺失或不兼容、存储不可用、恢复安全条件不满足、mTLS 证书无效或监听端口被占用时不得报告业务就绪；返回明确故障并保持安全状态。 |
+| 主要异常 | 关键配置缺失或不兼容、存储不可用、恢复安全条件不满足、访问令牌无效或监听端口被占用时不得报告业务就绪；返回明确故障并保持安全状态。 |
 | 后置条件 | 服务就绪，或者明确处于失败/不可就绪状态；启动行为本身不生成命令业务审计事件。 |
 | 关联需求 | UR-01、UR-07、UR-08、UR-13、UR-14 |
 
@@ -1573,7 +1576,7 @@ flowchart TD
 |---|---|
 | 参与者与目标 | gRPC 调用方提交单点或批量设定值，获知接收身份，并在后续查询中取得逐点命令结果。 |
 | 前置条件 | Commander 已就绪；调用方获授权；目标设备与可写点属于当前生效配置。 |
-| 主要异常 | mTLS 认证失败或控制权限不足直接拒绝；接受前参数、配置或容量校验失败则拒绝、不产生已接受命令；排队超时或有效期届满按未执行终结；现场写入结果不确定时标记 `UNKNOWN`，不盲目重试；RPC 断连不撤销已接受命令；提交前保存的 request_id 可用于查询；同 ID 重提按指纹幂等处理，不允许新 ID 自动重试；内存 ACCEPTED 未成功记录时不得执行现场写入；SQLite 受理事务故障时拒绝新的命令受理；已持久受理者按恢复规程处理；JetStream 故障时保留未确认事件重试；批量整体与逐点结果不得相互冒认。 |
+| 主要异常 | 内网访问授权 认证失败或控制权限不足直接拒绝；接受前参数、配置或容量校验失败则拒绝、不产生已接受命令；排队超时或有效期届满按未执行终结；现场写入结果不确定时标记 `UNKNOWN`，不盲目重试；RPC 断连不撤销已接受命令；提交前保存的 request_id 可用于查询；同 ID 重提按指纹幂等处理，不允许新 ID 自动重试；内存 ACCEPTED 未成功记录时不得执行现场写入；SQLite 受理事务故障时拒绝新的命令受理；已持久受理者按恢复规程处理；JetStream 故障时保留未确认事件重试；批量整体与逐点结果不得相互冒认。 |
 | 后置条件 | 已受理请求的身份、全部 command_id 与幂等占位在 accepted=true 前可恢复；结果事件和审计可异步落盘，崩溃后对写入不确定的命令保留 UNKNOWN，不自动补发。 |
 | 关联需求 | UR-04、UR-05、UR-06、UR-13、UR-14 |
 
@@ -1735,7 +1738,7 @@ flowchart TD
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
     A["进程异常退出后重新启动"] --> B["读取配置、事件与未发布审计"]
-    B --> C{"配置、证书、数据库可用？"}
+    B --> C{"配置、访问授权、数据库可用？"}
     C -->|否| X["恢复失败：不得进入 READY"]
     C -->|是| D["识别未终结命令并保守裁决"]
     D --> E["检查旧实例控制权及在途 I/O 安全性"]
@@ -1776,7 +1779,7 @@ sequenceDiagram
     participant P as 现场协议适配器
     participant J as JetStream发布器
     C->>A: 设备 / 可写点 / 目标值 / 时限
-    A->>A: mTLS身份确认、control授权、配置与容量校验
+    A->>A: 内网访问授权身份确认、control授权、配置与容量校验
     A->>A: 验证客户端 request_id 并生成稳定 command_id
     A->>E: SQLite 异步事务持久登记请求/指纹/command_ids
     E-->>A: COMMIT 完成，受理身份可恢复
@@ -2012,7 +2015,7 @@ flowchart TB
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
   A["Terminal 启动或重启进程"] --> B["按启动参数读取 commander.yaml，按声明 pathname 加载直接实例与模板根并复用 Core 校验"]
-  B --> C{"配置、证书及关键依赖有效?"}
+  B --> C{"配置、访问授权及关键依赖有效?"}
   C -->|否| X["恢复失败 / 不进入 READY"]
   C -->|是| D["打开 SQLite 并恢复事件"]
   D --> E["检查旧实例隔离与未终结命令"]
@@ -2274,7 +2277,7 @@ flowchart TB
 
 ## 7.3.1 真实与仿真控制的统一执行端口
 
-**R2 编码配置与提交语义**：Commander Service 可在 `simulation_targets` 下为模拟设备声明 `device_id -> {gateway_id,endpoint,ca_cert,client_cert,client_key}`；没有声明的设备仍使用 Core 协议 Client。所有目标设备必须属于当前显式引用的设备实例闭包，证书经 Gateway mTLS 双向认证。该映射是服务专属配置，不重复定义型号、点表、协议地址或 Generation。Outbound Gateway Adapter 位于 `infrastructure/adapters/outbound/`；`application/queued_executor.py` 通过可选的命令感知执行 Port 传递持久 `AcceptedCommand`，而不是绕过 Commander 仓储。
+**R2 编码配置与提交语义**：Commander Service 可在 `simulation_targets` 下为模拟设备声明 `device_id -> {gateway_id,endpoint,token_env}`；没有声明的设备仍使用 Core 协议 Client。所有目标设备必须属于当前显式引用的设备实例闭包，证书经 Gateway 内网访问授权 双向认证。该映射是服务专属配置，不重复定义型号、点表、协议地址或 Generation。Outbound Gateway Adapter 位于 `infrastructure/adapters/outbound/`；`application/queued_executor.py` 通过可选的命令感知执行 Port 传递持久 `AcceptedCommand`，而不是绕过 Commander 仓储。
 
 **请求身份**：Commander `SubmitCommands.request_id` 是批次事务身份，子命令 `command_id` 是单项不可重用的执行身份。Gateway 的 `SimulationCommandRequest.request_id` 与 Generator 的 `UpdateVariables.request_id` 使用同一个子命令 `command_id`，使批量请求中的多个点互不发生幂等键冲突；不能仅传递同一个批次 ID。
 
@@ -2301,7 +2304,7 @@ Gateway 两个仿真执行 RPC 已写入正式 Proto，Commander 通过受认证
 |---|---|
 | YAML、Schema、领域配置校验 | 使用 Core 现有能力；Commander 仅判断本服务的切换安全性 |
 | ADS / IEC104 / Modbus | 使用 Core 协议适配器；仅补足本服务需要的安全结束契约，不重造协议栈 |
-| gRPC / TLS | 使用成熟 gRPC 库和拦截器；授权逻辑在边界集中实现 |
+| 内部 gRPC | 使用标准 gRPC 无 TLS 连接；受控令牌授权在接口边界执行 |
 | SQLite、NATS | 使用成熟驱动，集中在基础设施模块管理事务与网络确认 |
 | 审计、日志、指标、追踪 | 统一由边界、中间件或适配器实施；业务组件只提供必要语义数据 |
 | 模块依赖 | 不从 Domain 反向依赖 Application、gRPC、SQLite、NATS；避免循环导入和无职责抽象 |
@@ -2314,7 +2317,7 @@ Gateway 两个仿真执行 RPC 已写入正式 Proto，Commander 通过受认证
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart LR
   T["操作系统终端"] -->|start/stop/restart| CMD["Commander 进程"]
-  G["gRPC 调用方"] <-->|mTLS：控制/查询/校验/Reload| CMD
+  G["gRPC 调用方"] <-->|内网访问授权：控制/查询/校验/Reload| CMD
   CMD -->|ADS / IEC104 / Modbus| P["现场控制设备"]
   CMD <-->|WAL 事件/查询| DB[("本地 SQLite")]
   CMD -->|稳定 event_id / PubAck| JS["NATS JetStream"]
@@ -2328,7 +2331,7 @@ flowchart LR
 | 计算资源 | 验收参考：6 核、16 GiB、512 GB NVMe SSD、Linux | 100 台、10 Hz、每批 10 点为设计负载，不是实测承诺 |
 | 实例与控制域 | 一个现场控制域仅一个有效写入者；进程身份和持久化卷稳定 | 数据库锁只约束共享同一文件的进程；不能证明跨主机 PLC 物理互斥 |
 | SQLite | 本地持久化磁盘、WAL 与足额可用空间；按权限限制访问 | 数据库不可写时进入持久化降级并保留有界内存事件；缓存或安全准入容量耗尽时拒绝新控制，不能主动丢弃已落盘且未确认的事件 |
-| gRPC 安全 | 服务端证书、可信客户端 CA 和调用方授权映射 | 未认证或证书非法拒绝访问；密钥不得入日志和配置明文 |
+| gRPC 安全 | 受控内网与调用令牌授权映射 | 未授权调用拒绝访问；令牌不得入日志或配置明文 |
 | 现场协议网络 | 明确防火墙、路由与设备访问权限 | 设备断连不等于命令确定失败；可能已写入时 UNKNOWN |
 | JetStream | 可访问目标 stream/subject；下游可靠消费自行部署 | Publisher 获得 PubAck 才标记确认；不宣称下游已永久存储 |
 | 停机/接管 | 操作系统服务管理与现场隔离规程 | 强制终止或跨主机接管必须重新确认控制权，禁止盲目写入 |
@@ -2342,7 +2345,7 @@ flowchart LR
 - `windhub.common.v1.CommonService`：9 个 Unary RPC，提供通用服务、配置快照、指标、事件和诊断能力。
 - `windhub.commander.v1.CommanderService`：8 个 Unary RPC（Contracts v1_29），提供设备/测点查询、单点控制和结果查询。
 - 复用 `ScalarValue`、`PointMetadata`、`SnapshotFile`、`ApplicationResult`、`DiagnosticStage` 等 Common 类型；参数校验必须保留 `oneof`、`optional`、`Timestamp` 及分页语义。
-- Infrastructure 实现 Protobuf 到 Application 的映射；Domain/Application 不依赖生成的 Protobuf 类型。gRPC mTLS、权限、限流、截止时间和错误映射由边界统一执行。
+- Infrastructure 实现 Protobuf 到 Application 的映射；Domain/Application 不依赖生成的 Protobuf 类型。gRPC 内网访问授权、权限、限流、截止时间和错误映射由边界统一执行。
 - 现有 Proto 字段不足以表达的业务信息不得伪装在 `message`、`revision`、`error_code` 等无关字段中；必须登记契约缺口并协调 Contracts 维护方。
 
 ## 9.2 数据字段、错误与版本语义
@@ -2386,7 +2389,7 @@ flowchart LR
 
 ### 9.2.3 恢复 RPC 与现有接口
 
-新增 `RecoverDeviceControl`，其请求/响应字段及编号由 Contracts v1_29 统一规定；本服务只实现有外部可信隔离证明时的恢复逻辑，不能将客户端声称的隔离、当前进程无 Session 或 mTLS 认证直接解释为旧 I/O 已安全结束。正式接口共 8 个 Commander Unary RPC、9 个 Common Unary RPC。当前生产实现包括 Proto/CLI、独立证明方 HTTPS/mTLS Client、SQLite 恢复裁决与审计 Outbox，以及受控 BLOCKED 解除流程。实际部署证明方的持续 fencing 和旧现场 I/O 隔离尚未完成真实生产验收，F1-GAP-02 不得据此判 PASS。
+新增 `RecoverDeviceControl`，其请求/响应字段及编号由 Contracts v1_29 统一规定；本服务只实现有外部可信隔离证明时的恢复逻辑，不能将客户端声称的隔离、当前进程无 Session 或 内网访问授权 认证直接解释为旧 I/O 已安全结束。正式接口共 8 个 Commander Unary RPC、9 个 Common Unary RPC。当前生产实现包括 Proto/CLI、独立证明方 HTTPS/内网访问授权 Client、SQLite 恢复裁决与审计 Outbox，以及受控 BLOCKED 解除流程。实际部署证明方的持续 fencing 和旧现场 I/O 隔离尚未完成真实生产验收，F1-GAP-02 不得据此判 PASS。
 
 ## 9.3 服务端映射、权限与契约差异
 
@@ -2408,7 +2411,7 @@ flowchart LR
 
 - 认证失败、授权不足、非法参数、目标不存在、修订冲突、容量不足、服务不可用应分别映射合适的 gRPC 状态；业务逻辑结果保留 Proto 规定的 `state/outcome/error_code`，不可将业务 UNKNOWN 误报为 gRPC 传输失败。
 - `GetServiceInfo/GetServiceStatus/GetCapabilities/GetConfigSnapshot/GetMetrics/GetEvents/Diagnose` 等通用操作适用 query 权限；`PushConfigSnapshot/ApplyConfigSnapshot` 适用 reload；`SubmitCommand/SubmitCommands` 适用 control，`RecoverDeviceControl` 必须单独具有 recover 权限。设备/点表查询和命令结果查询适用 query。
-- 验证两个 Service 共 17 个 RPC 全部注册、可调用；逐项覆盖空值/边界、`oneof`、`optional`、`Timestamp`、分页、候选快照冲突、mTLS、取消与 Deadline、UNKNOWN 与 `io_settled` 分离。
+- 验证两个 Service 共 17 个 RPC 全部注册、可调用；逐项覆盖空值/边界、`oneof`、`optional`、`Timestamp`、分页、候选快照冲突、内网访问授权、取消与 Deadline、UNKNOWN 与 `io_settled` 分离。
 - System Test 必须包含配置快照三阶段（Get/Push/Apply）、通用指标/事件/诊断以及 Commander 单点控制完整链路；对新增批量及 request_id 查询进行独立验收；正式 Proto 已冻结，真实服务未执行则标 NOT_RUN。
 
 ## 9.4 接口协作时序
@@ -2498,7 +2501,7 @@ sequenceDiagram
 
 **故障与配置**：受理后断联不撤销已持久请求，查询 NOT_FOUND 不代表从未写入，未知命令不得换 ID 重试。恢复不得再次派发可能已到达的 I/O，io_settled 只有全部活动安全收敛时为真。core.configuration 共享子包按总体设计 v1_15 第 5 章提供共享源闭包、source_manifest 和只读版本快照；Commander 对专属文件执行 Apply，公共文件仅由唯一协调写入方经跨进程锁、持久事务标志和崩溃回滚机制提交。区分 DISK/CANDIDATE/RUNTIME，SOURCE_CHANGED 时拒绝混合快照。
 
-**独立测试**：System ST 必须覆盖真实 mTLS caller 隔离、非法子项整批零 I/O、COMMIT 前后断联、重启结果查询、ADS 原生批写与其他协议拒绝/回退、部分 UNKNOWN、io_settled、存储故障和审计积压。每项 ST 关联 UC、UR、Marker 与可执行断言；缺真实环境标 NOT_RUN。
+**独立测试**：System ST 必须覆盖真实 内网访问授权 caller 隔离、非法子项整批零 I/O、COMMIT 前后断联、重启结果查询、ADS 原生批写与其他协议拒绝/回退、部分 UNKNOWN、io_settled、存储故障和审计积压。每项 ST 关联 UC、UR、Marker 与可执行断言；缺真实环境标 NOT_RUN。
 
 # 10. 核心技术与数据契约
 
@@ -2575,15 +2578,12 @@ grpc:
   max_active_rpcs: 256                 # 正整数
 
 security:
-  ca_cert: "/etc/wind-hub/certs/ca.pem"
-  server_cert: "/etc/wind-hub/certs/commander.pem"
-  server_key: "/etc/wind-hub/certs/commander.key"
-  callers:                             # 证书 URI SAN 不允许重复
+  callers:                             # 令牌主体 ID 不允许重复
     - caller_id: ems
-      certificate_identity: "spiffe://wind-hub/ems"
+      token_env: WIND_HUB_COMMANDER_EMS_TOKEN
       permissions: [control, query]    # control / query / reload
     - caller_id: maintenance
-      certificate_identity: "spiffe://wind-hub/maintenance"
+      token_env: WIND_HUB_COMMANDER_MAINT_TOKEN
       permissions: [query, reload]
 
 dispatcher:
@@ -2645,9 +2645,15 @@ shutdown:
 
 变更模板根目录、实例 pathname 是**服务级配置变化**，只能经重启加载；Reload 不得自行发现磁盘上其他实例文件。设备引用切换前必须核实未结束 I/O 资源安全结束或可信隔离。
 
+## 11.4.1 Configuration 全局修订与控制安全
+
+Commander 仅从授权的 Configuration Repository 获取自身 Service、设备实例、设备模型、点表及控制策略的已发布历史配置闭包；收到 Configuration 的 NATS Core 修订广播后查询当前已发布 `revision_id` 并主动拉取、校验并在安全边界切换。正在执行/未完成的现场写入继续绑定原本的授权、点表及控制语义版本；不允许配置切换改变一个已受理控制请求的目标、单位、值或权限。新旧版本生效及需要重启的配置分别记录；断线重连对账不能绕过原有 内网访问授权、签名、fencing、审计和可信恢复约束。
+
+访问令牌校验与内部 gRPC 技术由公共能力复用，Commander 仍对控制业务进行细粒度权限与强制安全校验。不能通过配置通知代替控制命令，配置库查询身份也不赋予现场写入权限。
+
 ## 11.5 配置安全与访问权限
 
-服务配置和共享文件须按部署身份限定读权限，证书私钥仅 Commander 服务身份可读；配置快照接口执行 `query/reload` 授权，并避免将私钥载荷向无权限客户端输出。拒绝非预期绝对路径、符号链接逃逸及模板解析根目录越界，错误日志可报告安全的相对路径但不得输出凭据。配置推送、应用和失败均记录调用方、修订和对象级结果；配置变更不能绕过受控控制域安全边界。
+服务配置和共享文件须按部署身份限定读权限，访问令牌文件仅 Commander 服务身份可读；配置快照接口执行 `query/reload` 授权，并避免将私钥载荷向无权限客户端输出。拒绝非预期绝对路径、符号链接逃逸及模板解析根目录越界，错误日志可报告安全的相对路径但不得输出凭据。配置推送、应用和失败均记录调用方、修订和对象级结果；配置变更不能绕过受控控制域安全边界。
 
 # 12. 外部适配与集成契约
 
@@ -2675,13 +2681,13 @@ shutdown:
 
 ## 13.1 身份认证、授权与安全边界
 
-gRPC 强制 mTLS；以已验证客户端证书 URI SAN 映射 `caller_id` 并检查 `control/query/reload` 权限。未认证返回 `UNAUTHENTICATED`，已认证无权限返回 `PERMISSION_DENIED`；客户端 metadata 中的身份、`operator_id` 或 `trace_id` 不能替代可信身份。设备/点表控制需通过当前已生效白名单、类型、范围及修订校验；对失效权限的排队命令在写前复核。跨主机不能仅凭 SQLite 文件锁证明控制权独占；无法确认旧活动实例及在途 I/O 已安全隔离时，新实例不得开放控制写入。
+内部 gRPC 不启用 TLS，并强制业务操作令牌授权；以服务端验证的访问令牌身份映射 `caller_id` 并检查 `control/query/reload` 权限。未认证返回 `UNAUTHENTICATED`，已认证无权限返回 `PERMISSION_DENIED`；客户端 metadata 中的身份、`operator_id` 或 `trace_id` 不能替代可信身份。设备/点表控制需通过当前已生效白名单、类型、范围及修订校验；对失效权限的排队命令在写前复核。跨主机不能仅凭 SQLite 文件锁证明控制权独占；无法确认旧活动实例及在途 I/O 已安全隔离时，新实例不得开放控制写入。
 
 ### 13.1.1 崩溃恢复设备的证据型解除（规范性）
 
 恢复期间由 SQLite 裁决为 UNKNOWN 的设备进入 `BLOCKED`；只要旧实例的现场 I/O 安全结束或可信隔离未得到**独立、可验证的正面证据**，该状态不得自动清除。进程内无 Session、TCP 断连、Task 取消、RPC 超时、单纯重新加载配置、操作员声明均不能单独作为解除证据。
 
-**对外接口**：新增 CommanderService.`RecoverDeviceControl`（定义见 Contracts 设计）。请求包含 `device_id`、`expected_revision`、`request_id`、`isolation_attestation`。调用方必须通过 mTLS 匹配已配置的专用 `recover` 权限（出厂仅 maintenance 身份具有）。客户端提供的证据仅作为待验证材料，不是可信事实。
+**对外接口**：新增 CommanderService.`RecoverDeviceControl`（定义见 Contracts 设计）。请求包含 `device_id`、`expected_revision`、`request_id`、`isolation_attestation`。调用方必须通过 内网访问授权 匹配已配置的专用 `recover` 权限（出厂仅 maintenance 身份具有）。客户端提供的证据仅作为待验证材料，不是可信事实。
 
 **证据权威和验证责任**：部署层可信隔离证明方是独立于 Commander 进程的安全边界；其信任根、签名算法、允许的颁发者与撤销/轮换规则由部署安全配置提供，不得由普通客户端或 Commander 自行签发。必须验证签名、颁发者、目标设备和实例绑定、配置修订、独占控制权代次（单调 fencing epoch）、前任实例身份、后继实例身份、颁发与截止时间、唯一 token ID、撤销状态，以及证明所依据的现场 I/O 收敛/隔离事实。签名有效但不能证明旧现场 I/O 无后续冲突的材料仍必须拒绝。现场只读状态校验是辅助证据，不能代替隔离与 fencing 保证。
 
@@ -2695,7 +2701,7 @@ gRPC 强制 mTLS；以已验证客户端证书 URI SAN 映射 `caller_id` 并检
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
     A["恢复 UNKNOWN：设备 BLOCKED"] --> B["已授权运维请求 RecoverDeviceControl"]
-    B --> C{"mTLS 权限与设备修订合法？"}
+    B --> C{"内网访问授权 权限与设备修订合法？"}
     C -->|否| R["拒绝，保持 BLOCKED"]
     C -->|是| D["外部证明方：验签、epoch、旧 I/O 隔离"]
     D --> E{"权威证明仍有效？"}
@@ -2714,9 +2720,9 @@ flowchart TD
 
 ### 13.1.2 独立控制权证明方接入及持久化裁决
 
-Commander 通过 `application.recovery.RecoveryAuthority` Port 接入独立部署的隔离证明方，Infrastructure 使用 HTTPS 双向 TLS、独立信任 CA、服务器 hostname 校验、单目标 POST（禁止重定向）通信。认证的远端负责在响应前**实际完成并持续执行**旧实例隔离、旧 I/O 收敛和控制权代次 fencing，Commander 不以证书本身或客户端输入的布尔值证明现场安全。部署方必须保证已失去控制权的旧实例无法重新发出现场写入；无法提供该保证的现场通信协议/部署方式不得启用可信恢复成功路径。
+Commander 通过 `application.recovery.RecoveryAuthority` Port 接入独立部署的隔离证明方，Infrastructure 使用 HTTPS（独立可信端，按隔离证明需求校验签名）、独立受控信任根与服务器 hostname 校验、单目标 POST（禁止重定向）通信。认证的远端负责在响应前**实际完成并持续执行**旧实例隔离、旧 I/O 收敛和控制权代次 fencing，Commander 不以证书本身或客户端输入的布尔值证明现场安全。部署方必须保证已失去控制权的旧实例无法重新发出现场写入；无法提供该保证的现场通信协议/部署方式不得启用可信恢复成功路径。
 
-`configs/services/commander.yaml` 在 `security.recovery` 可选配置 `url`、`instance_id`、`ca_cert`、`client_cert`、`client_key`、`timeout_seconds`。未配置时所有 RecoverDeviceControl 请求拒绝并维持 BLOCKED。证明方接口为 HTTPS POST，路径由 `url` 指定，请求 JSON 至少包含 `device_id`、`config_revision`、`caller_id`、`request_id`、`new_instance` 和 Base64 编码的 `attestation`；返回 JSON 必须包含同名身份字段以及 `old_instance`、`token_id`、正整数 `fencing_epoch`、带时区 `expires_at`、`isolated=true` 与 `fencing_enforced=true`。TLS 通道仅负责验证远端身份，返回的隔离保证必须有独立的实际 fencing 机制支撑。
+`configs/services/commander.yaml` 在 `security.recovery` 可选配置 `url`、`instance_id`、`trust_key_ref`、`timeout_seconds`。未配置时所有 RecoverDeviceControl 请求拒绝并维持 BLOCKED。证明方接口为 HTTPS POST，路径由 `url` 指定，请求 JSON 至少包含 `device_id`、`config_revision`、`caller_id`、`request_id`、`new_instance` 和 Base64 编码的 `attestation`；返回 JSON 必须包含同名身份字段以及 `old_instance`、`token_id`、正整数 `fencing_epoch`、带时区 `expires_at`、`isolated=true` 与 `fencing_enforced=true`。TLS 通道仅负责验证远端身份，返回的隔离保证必须有独立的实际 fencing 机制支撑。
 
 Commander 对响应进行身份、设备修订、时效、epoch 和 token 约束检查，在 SQLite `recovery_decisions` 表中以 `caller_id+request_id` 持久幂等、`token_id` 唯一及设备 epoch 单调性保存 `decision_id`、证据 SHA-256 摘要、旧/新实例与裁决，并在同一事务建立 `RECOVERY_FENCE_COMMITTED` 审计 Outbox。事务成功后必须再次向独立证明方确认未撤销、当前控制权归属、设备身份与 epoch 未倒退，且审计 Worker 正常运行、证据未过期，才解除当前进程的恢复设备 BLOCKED。拒绝或落盘失败均不解除。该审计事件证明 fencing 裁决已持久化，不等于本地状态必然解除成功；进程在提交与解除之间崩溃时重新进入 BLOCKED，需再次核实外部控制权。JetStream 审计异步发布、ACK 后确认，原始证据不写入审计。
 
@@ -2831,8 +2837,8 @@ tests/
 | `test_query.py` | `component` | — | `normal`、`exception` | 命令状态还原、设备可写点和基本信息查询 |
 | `test_config.py` | `component` | `reliability` | `normal`、`exception` | 复用 Core 配置校验、热重载条件及失败保留 |
 | `test_audit.py` | `component` | `reliability` | `timeout`、`recovery` | 审计事件选择、发布重试与积压处理 |
-| `test_auth.py` | `component` | `security` | `normal`、`exception` | 证书身份到 caller_id 的映射及操作授权 |
-| `test_grpc.py` | `integration` | `security` | `normal`、`exception` | 按 `contracts/` 正式 proto 验证 Server、真实 mTLS 与授权拒绝 |
+| `test_auth.py` | `component` | `security` | `normal`、`exception` | 令牌身份到 caller_id 的映射及操作授权 |
+| `test_grpc.py` | `integration` | `security` | `normal`、`exception` | 按 `contracts/` 正式 proto 验证 Server、真实 内网访问授权 与授权拒绝 |
 | `test_sqlite.py` | `integration` | `reliability` | `storage`、`recovery` | 真实事务、提交失败、数据库重开及恢复 |
 | `test_nats_audit.py` | `integration` | `reliability` | `timeout`、`recovery` | JetStream 断连、PubAck 丢失、重投与去重 |
 | `test_protocol.py` | `integration` | `reliability` | `normal`、`exception` | `write_many` 优先、`write_one` 降级及逐点结果 |
@@ -2860,7 +2866,7 @@ tests/
 | UR | UC 与规定场景 | 技术契约 | 测试文件/标识 | Marker | 预期结果 | 真实环境及执行结果 |
 |---|---|---|---|---|---|---|
 | UR-01 | UC-01-S01 正常启动 | §6.2、§10.4、§11 | `test_lifecycle.py::test_start_ready` | `system`、`normal` | 有效配置、SQLite 与认证依赖初始化成功后 READY，启动不向 PLC 写入 | 独立进程、真实 SQLite；NOT_RUN |
-| UR-01 | UC-01-S02 启动依赖失败 | §6.2、§11、§13 | `test_lifecycle.py::test_start_invalid_config` | `system`、`exception` | 配置缺失、引用失效或证书无效时拒绝 READY 并报告原因 | 独立进程、真实配置；NOT_RUN |
+| UR-01 | UC-01-S02 启动依赖失败 | §6.2、§11、§13 | `test_lifecycle.py::test_start_invalid_config` | `system`、`exception` | 配置缺失、引用失效或令牌或访问配置无效时拒绝 READY 并报告原因 | 独立进程、真实配置；NOT_RUN |
 | UR-02 | UC-06-S01 正常停止 | §6.2、§10.3、§12 | `test_lifecycle.py::test_graceful_shutdown` | `system`、`normal` | 拒绝新命令、安全结束 I/O、按期限排空并报告未完成项 | 独立进程、真实 SQLite/NATS；NOT_RUN |
 | UR-02 | UC-06-S02 未收敛 I/O | §5.3、§6.4、§13.4 | `test_lifecycle.py::test_shutdown_unsettled_io` | `system`、`timeout` | 不把超时当作 I/O 安全结束，不虚报安全退出 | 独立进程、可控阻塞的真实协议链路；NOT_RUN |
 | UR-03 | UC-07-S01 重启并重新加载配置 | §6.2、§11 | `test_lifecycle.py::test_restart_new_config` | `system`、`recovery` | 重新校验磁盘配置，不重发旧命令，真实报告生效版本 | 独立进程、真实配置与 SQLite；NOT_RUN |
@@ -2868,7 +2874,7 @@ tests/
 | UR-04 | UC-02-S02 超期、断连及未知结果 | §6.3～§6.4、§9.3、§10.4 | `test_concurrency.py::test_expiration_and_unknown` | `system`、`timeout`、`exception` | 到期前未发写入；可能发出而结果不明为 UNKNOWN；断连不撤销已接受命令 | 独立 gRPC 客户端、可注入延迟的真实协议链路；NOT_RUN |
 | UR-05 | UC-02-S03 批量原子接受及逐点结果 | §3.1、§6.3、§9.4 | `test_control_flow.py::test_batch_acceptance` | `system`、`normal`、`exception` | 应用层批量及对外 `SubmitCommands` RPC 均须通过真实 gRPC 和状态查询验收，不能仅凭应用层测试判定需求 PASS | 应用层+真实协议；RPC 已冻结；真实系统验收状态由独立测试证据裁定，未执行记 NOT_RUN |
 | UR-06 | UC-02-S04 查询/保留/不存在 | §9.3～§9.4、§10 | `test_control_flow.py::test_result_query` | `system`、`normal`、`exception` | 按 command_id 与 request_id 查询；逐项返回完整命令、状态、io_settled；过期 NOT_FOUND | 真实 gRPC、SQLite；真实系统验证 NOT_RUN |
-| UR-07、UR-08 | UC-04-S01 查询服务信息与状态 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_service_info_status` | `system`、`normal`、`exception` | 返回实际服务身份、依赖健康；不能把存活等同业务就绪 | 真实 gRPC/mTLS；NOT_RUN |
+| UR-07、UR-08 | UC-04-S01 查询服务信息与状态 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_service_info_status` | `system`、`normal`、`exception` | 返回实际服务身份、依赖健康；不能把存活等同业务就绪 | 真实 内部 gRPC；NOT_RUN |
 | UR-09、UR-10 | UC-03-S01 设备、详情及点表 | §9.3、§11 | `test_query.py::test_devices_and_points` | `system`、`normal`、`exception` | 设备分页、详情与点表元数据正确；查询不连接现场；非法 ID 明确失败 | 真实 gRPC、共享配置；NOT_RUN |
 | UR-11 | UC-05-S01 推送、校验和应用配置 | §6.4.5、§9.2、§11 | `test_grpc_end_to_end.py::test_config_snapshot_apply` | `system`、`normal`、`concurrency` | Push 校验候选；Apply 安全切换且明确 restart_required；在途 I/O 不受错误替换 | 真实 gRPC、配置目录、协议链路；NOT_RUN |
 | UR-11 | UC-05-S02 版本冲突与失败保留 | §9.2、§11 | `test_grpc_end_to_end.py::test_config_revision_conflict` | `system`、`exception` | expected_revision 冲突不覆盖有效快照；失败设备保留旧版本或阻塞 | 真实 gRPC、配置目录；NOT_RUN |
@@ -2877,7 +2883,7 @@ tests/
 | UR-14 | UC-02-S06 审计确认、重投与积压 | §10.2、§12 | `test_capacity.py::test_audit_retry` | `system`、`reliability`、`recovery` | 仅已落盘事件发布；PubAck 后确认；丢确认可用同一 event_id 重投 | 真实 NATS JetStream、SQLite；NOT_RUN |
 | UR-15 | UC-08-S01 崩溃恢复与控制权隔离 | §6.2、§10.4、§13.4 | `test_crash_recovery.py::test_crash_recovery` | `system`、`reliability`、`recovery` | 已落盘未终结事件保守裁决；不重发旧写入；隔离未确认不 READY | 独立进程、真实 SQLite/NATS、协议链路；NOT_RUN |
 | UR-04、UR-05、UR-08 | UC-02-S07 负载及资源边界 | §3.3、§6.3、§13.3 | `test_performance.py::test_nominal_load` | `system`、`performance`、`load` | 记录 100 设备、10 Hz、最多 10 点负载下的吞吐/P99/资源上限；批量 RPC 独立统计吞吐、受理时延和逐点执行 | 真实负载进程、SQLite/NATS；真实性能验收未执行则标 NOT_RUN |
-| UR-07、UR-08 | UC-04-S03 指标、事件、诊断 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_metrics_events_diagnose` | `system`、`normal`、`exception` | GetMetrics/GetEvents/Diagnose 完成真实调用且不触发控制写入 | 独立进程、真实 gRPC/mTLS；NOT_RUN |
+| UR-07、UR-08 | UC-04-S03 指标、事件、诊断 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_metrics_events_diagnose` | `system`、`normal`、`exception` | GetMetrics/GetEvents/Diagnose 完成真实调用且不触发控制写入 | 独立进程、真实 内部 gRPC；NOT_RUN |
 
 本矩阵覆盖 UC-01～UC-08 及 UR-01～UR-15 的目标场景；UC-02 的批量提交和按 request_id 查询已由 Contracts v1_29 设计定义，正式 Proto 已冻结；真实系统行为仍须独立验收。测试实施时须将上述目标标识与真实测试函数保持同步，记录每项的环境、执行命令、结果和未验证项。
 
@@ -2913,3 +2919,41 @@ tests/
 **状态约束：**请求级聚合状态和 Commander 单项控制状态不是同一个枚举。前者严格使用 Contracts v1_29 第 12.2.1 节规定的 `ACCEPTED/EXECUTING/SUCCEEDED/FAILED/NOT_SENT/PARTIAL/UNKNOWN`；后者仍按第 5 章单命令状态机和 `outcome/io_settled` 描述。尚有未终结子项时不得返回已终结的请求级状态。底层 I/O 安全收敛与业务结果确认是两种证据；`UNKNOWN` 可伴随 `io_settled=true`，但不能以它作为指令成功或安全重新执行的证据。
 
 **验收可执行性：**测试文件的目标统一目录为 `tests/src/commander/`（历史测试仍存在 `tests/commander/`），遵守各层级 Marker；每项正常/异常/恢复/边界场景至少有唯一可定位的测试 ID 和明确预期。两个 RPC 已存在于真实 Proto；只有对应真实服务或系统测试未执行时标 NOT_RUN；相应 Unit/Integration/System 均不得以 Mock 替代全部真实链路。编码实现可以重构内部模块，但必须保留此处外部不变量，禁止私下引入独立的 Core 批量 Command API。
+
+
+# 附录 A：全量目录配置与广播订阅的目标契约
+
+## A.1 模块配置权威和初始引导
+
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+
+## A.2 广播、拉取、对账和独立生效
+
+```mermaid
+sequenceDiagram
+    participant C as Configuration
+    participant N as NATS Core
+    participant M as 本模块
+    M->>N: 独立订阅 wh.config.changed
+    M->>C: GetCurrentRevision
+    C-->>M: 最新 revision_id
+    M->>C: GetConfigBundle(roots,revision_id)
+    C-->>M: 完整 YAML 闭包/manifest_sha256
+    M->>M: 校验、持久化、安全生效
+    C->>N: 广播 wh.config.changed
+    N-->>M: {revision_id}
+    M->>C: 确认最新修订并拉取完整闭包
+    M->>M: 序列化应用，失败保留旧状态
+```
+
+<p class="figure-caption">图 A-1 模块独立配置收敛</p>
+
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+
+## A.3 必须同步移除的旧路径
+
+取消原目标 `CommonService.NotifyConfigRevision`，不再由 CLI 逐模块通知。业务模块原先的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 不能再作为全局配置的发布或旁路更新入口；迁移时按正式 Contracts 一次性更新所有客户端、服务端、配置、代码注释、测试及启动脚本，不保留两套可写权威。此附录为目标契约，**当前 main 生产代码并未实施全量根目录+广播方案**。
+
+## 附录 B：内部 gRPC 适配范围
+
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。

@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_10 · 20261118 · 全系统配置库与 SQLite 结构化存储</p>
+<p class="subtitle">v1_15 · 20261118 · 全系统配置库与 SQLite 结构化存储</p>
 
 <style>
 body {
@@ -748,55 +748,57 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-## 3.1 定位、边界与原始需求
+## 3.1 职责及需求边界
 
-本服务是 wind-hub **全系统唯一权威配置库**，覆盖 `Units`、`SemanticPoint`、`BusinessPoint`、`DeviceModel`、`PointTable/Point`、`Device`、`Site`、`Task`、`Delivery`、各应用 `Service` 配置及可公开分发的系统参数。以 SQLite 结构化数据为权威，接受与输出 YAML。既有业务模块仍通过 YAML 加载和缓存配置；Configuration Service **自身以独立 Service YAML 启动**，不从自身数据库获取引导配置。
+Configuration 是全系统唯一权威配置库，SQLite 保存发布修订、目录快照成员、不可变配置对象及固定依赖闭包。**CLI 每次仅上传指定 `configs/` 根目录的完整 YAML 集合**；首次初始化和日常更新完全同一语义。Configuration 不接收“只包含变化文件”的部分配置发布为正常正式入口。发布完成后由 Configuration 通过 NATS Core 广播，不逐个调用业务模块；不保证全系统同时生效。
 
-CLI 是配置发布和业务模块生效的协调入口；Configuration Service 只对库内提交、版本和查询负责，**不推送变更通知、不调用各模块的 Apply RPC、不跟踪模块是否已经生效**。Storage 可以绕过 CLI 直接查询指定历史语义版本，但无权发布。
+| ID | 需求 | 权威结果 |
+|---|---|---|
+| UR-01 | 完整目录单次候选上传、校验、CAS 原子发布 | 完整目录视图及 revision_id |
+| UR-02 | 不可变版本、当前成员集与历史依赖 | 版本身份及可重建闭包 |
+| UR-03 | 指定修订的完整模块依赖包及按 PointTable ID 的历史闭包 | 完整 YAML 文件集/哈希 |
+| UR-04 | 查询、废弃、统计及备份 | 目录/版本/统计/备份 |
+| UR-05 | 公共 gRPC 运行管理和权限 | Common RPC |
+| UR-06 | 发布成功后的 NATS 广播、故障对账基础设施 | `wh.config.changed` 修订提示 |
 
-| 编号 | 原始需求 | 请求方 / 触发 | 输出 |
-|---|---|---|---|
-| UR-01 | 全类型配置导入与原子发布 | CLI / API | 发布修订、结果、冲突详情 |
-| UR-02 | 不可变版本、引用与全局修订 | CLI / API | 历史版本、内容哈希、引用闭包 |
-| UR-03 | 配置检索、重建 YAML 与导出 | CLI、业务模块 / API | YAML bytes、修订、SHA-256 |
-| UR-04 | 配置库查询、废弃、统计与备份 | 管理客户端 / API | 目录、引用、容量、备份任务 |
-| UR-05 | 公共 gRPC 接口与运行管理 | CLI、监控 / API、Lifecycle | 9 个 Common RPC 的标准响应 |
+Configuration 自身由本地独立 Service YAML 引导，不把其数据库访问参数存入正在启动的 SQLite。存储、Collector、Sink 和业务管理模块必须使用正式的配置读接口，无权隐式写入版本库。
 
-## 3.2 UR-01 全类型配置导入与原子发布
+## 3.2 UR-01 完整目录配置发布
 
-### 3.2.1 基本信息与触发方式
+### 3.2.1 触发、输入和输出
 
-Requester：CLI 或授权管理客户端；Trigger：API；Input：一个或多个 YAML 文档、配置身份、预期全局修订、可选发布操作者；Response：校验问题、候选 ID、发布修订和原子提交结果；Destination：SQLite 配置库；Output：持久化版本及结构化关系。发布成功仅表示**配置库版本已可见**，不表示业务模块加载成功。
+Requester：授权 CLI；Trigger：`wind-hub config publish --root PATH`；Input：经过 CLI 安全扫描的**全部合法 YAML 文件**、每文件相对路径及完整 UTF-8 正文、`expected_revision_id` 和请求幂等 ID；通过一次有界 Unary RPC 上传；Response：候选完整性/逐字段错误/发布修订；Destination：Configuration SQLite；Output：发布后的目录成员快照。首次与后续更新不设两种更新模式。
 
 ### 3.2.2 业务流程
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-  A(["收到发布请求"]) --> B[/"YAML 文档、期望修订"/]
-  B --> C["解析 YAML 与标准 Schema 校验"]
-  C --> D{"文档及引用有效?"}
-  D -->|否| E[/"拒绝并返回全部校验问题"/]
-  D -->|是| F["构建结构化候选版本"]
-  F --> G{"版本和预期修订无冲突?"}
-  G -->|否| H[/"拒绝并返回冲突详情"/]
-  G -->|是| I["单次 SQLite 事务写入版本、关系、发布修订"]
-  I --> J[/"返回提交结果和 revision"/]
+    A["CLI 扫描完整 configs 根目录"] --> B["一次 CreateCandidate(documents[]) 上传全集"]
+    B --> C{"候选完整、Schema 与引用合法?"}
+    C -->|否| X["返回全部可定位错误，不发布"]
+    C -->|是| D{"CAS 修订及历史不可变性通过?"}
+    D -->|否| Y["冲突拒绝，旧视图不变"]
+    D -->|是| E["SQLite 单事务替换当前目录成员视图"]
+    E --> F["新增或复用不可变对象/生成修订"]
+    F --> G["事务提交完成，返回 revision_id"]
+    G --> H["Configuration 尝试 NATS Core 广播"]
+    H --> I["各业务模块独立拉取并应用"]
 ```
 
-<p class="figure-caption">图 3-1 配置导入和发布流程</p>
+<p class="figure-caption">图 3-1 完整目录快照发布流程</p>
 
 ### 3.2.3 业务规则
 
-1. 覆盖系统所有配置，包括 Collector、Sink、Storage、Commander、Gateway、Data Generator、CLI 等应用 Service 配置。各应用内部专有选项保留其业务 Schema，由对应模块负责业务有效性判断；配置库负责结构、类型、版本、引用等可确定的校验。
-2. 稳定、需要关联查询的领域对象结构化入关系表；变化频繁的应用 Service 参数使用受其 Schema 校验的 JSON 字段入库；同属 SQLite 唯一权威配置数据。
-3. 不依赖额外服务端 YAML 文件目录存放配置正文。解析及输出使用统一 YAML Schema 和序列化器。
-4. 多文档上传形成候选发布，只有完整候选通过校验才可一次性发布；候选不对业务读者可见。
-5. 服务自身引导 YAML 由部署管理、原地读取，独立于配置库发布；禁止通过将自身 SQLite 路径改入同一数据库造成循环依赖。
+1. **完整性**：CLI 在上传前稳定扫描根目录，拒绝根外路径、符号链接逃逸、不可读文件、大小超限、文件名冲突和不受支持的 YAML；空目录默认拒绝。CLI 用单次 `CreateCandidate(documents[])` 携带**全部成员**，每个 `file_name` 是根目录相对路径。gRPC Unary 消息天然整包接收或拒绝；不引入分片协议。服务端独立计算有序目录 Manifest 哈希并校验文件类型、字段、身份和引用；请求异常不得创建部分候选。
+2. **全集语义**：输入列出所有本次目录成员，而不是差异清单。服务端比较完整候选与当前有效目录成员集合：新增纳入、改变生成新不可变版本、缺失从当前视图移除、相同内容复用旧版本记录。**没有实际变更则幂等返回原修订，不生成无意义广播**。
+3. **历史并存**：同一对象的不同 `file_version` 可以同在目录；当前业务引用确定生效版本，不能自动选择版本号最大者。历史对象不因离开当前目录成员集而物理删除；被当前对象引用的文件从目录移除时校验失败。
+4. **不可变**：`config_type + config_id + file_version` 是全局唯一不可变身份；同一身份不同规范化正文/依赖版本必须冲突。PointTable ID 额外固定完整转换语义闭包，不能因推荐版本变化而漂移。
+5. **原子性**：当前目录成员、不可变对象、依赖投影、revision 和审计在一个 SQLite 事务内提交；CAS 和请求幂等受唯一约束保护。不得出现部分发布。配置库提交成功是业务发布事实，后续 NATS 广播失败**不能回滚**。
+6. **模块生效**：Configuration 不对任何模块发出逐个 gRPC Apply，不维护在线模块名单；收到广播的模块按确定修订查询**自身完整**闭包并独立应用。模块运行失败不更改 Configuration 的发布结果。
 
 ### 3.2.4 关键约束
 
-SQLite 外键、唯一约束、事务与完整性校验必须开启；并发发布以预期 revision 实施 CAS；相同身份+版本的不同内容拒绝覆盖；失败后不得出现部分发布。输入字节大小、候选数、文档数量和事务等待时间受自身 Service YAML 限制。
+根目录文件数、单请求最大字节、候选 TTL、引用深度和 Manifest 均有上限。超过可配置 Unary gRPC 容量时明确拒绝 `RESOURCE_EXHAUSTED`，不可无声忽略文件；首版不引入分片上传。正式 Contracts 复用当前 `CreateCandidate`、`PublishCandidate` RPC，**更新其完整目录全集语义**并同步服务端、CLI、数据库和测试；不保留单文件增量发布路径。
 
 ## 3.3 UR-02 不可变版本、引用与全局修订
 
@@ -824,7 +826,7 @@ flowchart TD
 1. `config_type + config_id + file_version` 唯一定位不可变配置；`content_hash` 标识结构化配置的规范化语义，`revision` 标识一次原子发布的全局视图。
 2. `file_version` 按项目统一格式 `MAJOR.MINOR.PATCH`；文件名采用 `<type>_<info>_vMAJOR.MINOR.PATCH.yaml`。`schema_version` 与 `file_version` 不可混为同一含义。
 3. 所有外键式配置引用绑定明确的版本身份；查询指定 revision 的依赖闭包时，禁止混用后续发布产生的“最新”版本。
-4. 新增 `SemanticPoint` 作为通用语义定义；`BusinessPoint` 是**设备类别内标准字段**，引用一个 `SemanticPoint`；`Point` 定义协议点映射，引用对应 BusinessPoint。模型随版本发布；不对既有历史语义原地改写。
+4. 不引入独立 `SemanticPoint` 第三层；`BusinessPoint` 就是同类设备跨型号、真实与仿真复用的标准业务语义；`Point` 属于 PointTable，显式引用唯一业务标准。不同位置/相别/叶片/统计边界必须区分标准业务身份。
 5. `latest/recommended` 是可变别名，不是可变历史正文；改变推荐指针需单独提交新全局 revision，并接受 CAS 检查。
 
 ### 3.3.4 关键约束
@@ -946,12 +948,12 @@ flowchart TD
 | 类别 | 可验收要求 |
 |---|---|
 | 一致性 | 事务提交、版本不可变、同 revision 引用闭包、CAS |
-| 安全 | mTLS、权限分离、敏感值只存引用、审计 |
+| 安全 | 内部网络隔离、权限分离、敏感值只存引用、审计 |
 | 可靠性 | SQLite 重启恢复、WAL 故障处理、只读降级、一致性备份 |
 | 资源 | 请求、版本、大小、并发、备份配额由自身 YAML 配置 |
-| 独立性 | CLI 协调生效；本服务不通知业务模块、不运行设备控制 |
+| 独立性 | 本服务只通过 NATS Core 广播修订提示；各业务模块独立拉取与生效，不逐个调度设备控制 |
 
-不纳入首版：审批工作流、分布式多写节点、任意 SQL 执行、管理业务服务进程、主动变更通知、备份自动覆盖恢复。
+不纳入首版：审批工作流、分布式多写节点、任意 SQL 执行、管理业务服务进程、逐模块 gRPC 通知和跨模块同步生效、备份自动覆盖恢复。
 
 # 4. 用例视图
 
@@ -964,8 +966,9 @@ flowchart LR
   CS <--> DB[("SQLite 结构化配置库")]
   MOD["Collector / Sink / Storage / 其他模块"] -->|"按版本查询"| CS
   CS -->|"YAML 与版本元数据"| MOD
-  CLI -.->|"通知、协调应用配置；不经过配置库"| MOD
-  CS --> BOOT[("本服务独立启动 YAML")]
+  CS -->|"NATS Core 变更广播"| N["NATS Core"]
+  N -->|"修订提示"| MOD
+  BOOT[("本服务独立启动 YAML")] --> CS
 ```
 
 <p class="figure-caption">图 4-1 系统上下文及职责边界</p>
@@ -1075,6 +1078,13 @@ erDiagram
     string document_id PK,FK
     string version_id FK
   }
+  REVISION_FILE {
+    int revision_id PK,FK
+    string relative_path PK
+    string document_id FK
+    string version_id FK
+    string yaml_sha256
+  }
   CONFIG_REFERENCE {
     string source_version_id PK,FK
     string target_version_id PK,FK
@@ -1109,12 +1119,14 @@ erDiagram
   }
   CONFIG_SCHEMA ||--o{ CONFIG_VERSION : validates
   CONFIG_DOCUMENT ||--o{ CONFIG_VERSION : has_versions
-  CONFIG_REVISION ||--o{ REVISION_MEMBER : complete_snapshot
+  CONFIG_REVISION ||--o{ REVISION_MEMBER : explicitly_selected_root
+  CONFIG_REVISION ||--o{ REVISION_FILE : complete_directory_snapshot
   CONFIG_DOCUMENT ||--o{ REVISION_MEMBER : mapped_document
-  CONFIG_VERSION ||--o{ REVISION_MEMBER : active_version
+  CONFIG_VERSION ||--o{ REVISION_MEMBER : selected_version
+  CONFIG_VERSION ||--o{ REVISION_FILE : directory_version
   CONFIG_VERSION ||--o{ CONFIG_REFERENCE : source
   CONFIG_VERSION ||--o{ CONFIG_REFERENCE : target
-  CANDIDATE ||--|{ CANDIDATE_DOCUMENT : stages
+  CANDIDATE ||--o{ CANDIDATE_DOCUMENT : stages
   CONFIG_VERSION ||--o{ VERSION_EVENT : history
   CONFIG_REVISION ||--o{ VERSION_EVENT : records
 ```
@@ -1122,87 +1134,75 @@ erDiagram
 <p class="figure-caption">图 5-2 配置库版本、修订与引用关系 ER 图（DB_META 为单行系统元数据）</p>
 
 ```mermaid
-%%{init: {"er": {"useMaxWidth": true}}}%%
 erDiagram
-  CONFIG_VERSION {
-    string version_id PK
-  }
-  SEMANTIC_POINT {
-    string config_version_id PK,FK
-    string semantic_point_id PK
-    string data_type
-    string standard_unit_id
-  }
-  UNIT_DEFINITION {
-    string config_version_id PK,FK
-    string unit_id PK
-    string quantity_id
-    string symbol
-    string scale_to_base
-    string offset_to_base
-  }
-  BUSINESS_POINT {
-    string config_version_id PK,FK
-    string device_type PK
-    string business_point_id PK
-    string semantic_config_version_id FK
-    string semantic_point_id FK
-  }
-  POINT_TABLE {
-    string config_version_id PK,FK
-    string point_table_id PK
-    string device_type
-    string protocol
-  }
-  POINT_MAPPING {
-    string config_version_id PK,FK
-    string point_table_id PK,FK
-    string point_id PK
-    string business_config_version_id FK
-    string device_type FK
-    string business_point_id FK
-    string source_unit_id
-  }
-  DEVICE_MODEL {
-    string config_version_id PK,FK
-    string model_id PK
-    string device_type
-  }
-  DEVICE {
-    string config_version_id PK,FK
-    string device_id PK
-    string model_version_id FK
-    string model_id FK
-    string point_table_version_id FK
-    string point_table_id FK
-  }
-  APP_SERVICE_CONFIG {
-    string config_version_id PK,FK
-    string service_id PK
-    string module_type
-    string params_json
-  }
-  CONFIG_ENTRY {
-    string config_version_id PK,FK
-    string object_type PK
-    string object_id PK
-    string properties_json
-  }
-  CONFIG_VERSION ||--o{ SEMANTIC_POINT : contains
-  CONFIG_VERSION ||--o{ UNIT_DEFINITION : defines_units
-  UNIT_DEFINITION ||--o{ SEMANTIC_POINT : standard_unit
-  UNIT_DEFINITION ||--o{ POINT_MAPPING : source_unit
-  CONFIG_VERSION ||--o{ BUSINESS_POINT : contains
-  CONFIG_VERSION ||--o{ POINT_TABLE : contains
-  CONFIG_VERSION ||--o{ DEVICE_MODEL : contains
-  CONFIG_VERSION ||--o{ DEVICE : contains
-  CONFIG_VERSION ||--o{ APP_SERVICE_CONFIG : contains
-  CONFIG_VERSION ||--o{ CONFIG_ENTRY : contains
-  SEMANTIC_POINT ||--o{ BUSINESS_POINT : defined_by
-  BUSINESS_POINT ||--o{ POINT_MAPPING : mapped_to
-  POINT_TABLE ||--o{ POINT_MAPPING : contains
-  DEVICE_MODEL ||--o{ DEVICE : defines
-  POINT_TABLE ||--o{ DEVICE : bound_to
+    CONFIG_VERSION {
+        string version_id PK
+    }
+    UNIT_DEFINITION {
+        string config_version_id PK,FK
+        string unit_id PK
+        string quantity_id
+        string symbol
+    }
+    BUSINESS_POINT {
+        string config_version_id PK,FK
+        string business_point_id PK
+        string data_type
+        string standard_unit_version_id FK
+        string standard_unit_id FK
+    }
+    POINT_TABLE {
+        string config_version_id PK,FK
+        string point_table_id PK
+        string device_type
+        string protocol
+    }
+    POINT_MAPPING {
+        string config_version_id PK,FK
+        string point_table_id PK,FK
+        string point_id PK
+        string business_config_version_id FK
+        string business_point_id FK
+        string source_unit_id
+    }
+    DEVICE_MODEL {
+        string config_version_id PK,FK
+        string model_id PK
+        string device_type
+    }
+    DEVICE {
+        string config_version_id PK,FK
+        string device_id PK
+        string model_version_id FK
+        string model_id FK
+        string point_table_version_id FK
+        string point_table_id FK
+    }
+    APP_SERVICE_CONFIG {
+        string config_version_id PK,FK
+        string service_id PK
+        string module_type
+        string params_json
+    }
+    CONFIG_ENTRY {
+        string config_version_id PK,FK
+        string object_type PK
+        string object_id PK
+        string properties_json
+    }
+    CONFIG_VERSION ||--o{ UNIT_DEFINITION : contains
+    CONFIG_VERSION ||--o{ BUSINESS_POINT : contains
+    UNIT_DEFINITION ||--o{ BUSINESS_POINT : standard_unit
+    CONFIG_VERSION ||--o{ POINT_TABLE : contains
+    CONFIG_VERSION ||--o{ DEVICE_MODEL : contains
+    CONFIG_VERSION ||--o{ DEVICE : contains
+    CONFIG_VERSION ||--o{ APP_SERVICE_CONFIG : contains
+    CONFIG_VERSION ||--o{ CONFIG_ENTRY : contains
+    POINT_TABLE ||--o{ POINT_MAPPING : contains
+    BUSINESS_POINT ||--o{ POINT_MAPPING : mapped_to
+    UNIT_DEFINITION ||--o{ POINT_MAPPING : source_unit
+    DEVICE_MODEL ||--o{ DEVICE : defines
+    POINT_TABLE ||--o{ DEVICE : bound_to
 ```
 
 <p class="figure-caption">图 5-3 配置领域对象及应用配置关系 ER 图</p>
@@ -1212,14 +1212,15 @@ erDiagram
 ## 5.3 状态模型
 
 ```mermaid
-%%{init: {"state": {"useMaxWidth": true}}}%%
 stateDiagram-v2
-  [*] --> CANDIDATE
-  CANDIDATE --> REJECTED: validation failed
-  CANDIDATE --> PUBLISHED: SQLite commit
-  PUBLISHED --> DEPRECATED: old version not recommended; explicit mark
-  PUBLISHED --> PUBLISHED: new recommended pointer revision
-  REJECTED --> [*]
+    [*] --> VALID: CreateCandidate 全集校验通过
+    [*] --> REJECTED: 请求无效/全集校验失败
+    VALID --> PUBLISHED: PublishCandidate CAS 原子提交
+    VALID --> REJECTED: CAS/版本/引用冲突
+    VALID --> EXPIRED: 候选 TTL 过期
+    PUBLISHED --> [*]
+    REJECTED --> [*]
+    EXPIRED --> [*]
 ```
 
 <p class="figure-caption">图 5-4 发布版本状态机</p>
@@ -1228,7 +1229,7 @@ stateDiagram-v2
 
 ## 5.4 核心逻辑协作
 
-系统发布为 `parse → validate → begin immediate transaction → check expected revision → insert immutable versions and references → create complete revision membership → commit`。所有读请求在单个一致性 SQLite 读事务内完成。业务模块对其实际配置生效自行负责。
+系统发布为 `scan directory → upload manifest/chunks → finalize/validate → BEGIN IMMEDIATE → CAS → insert/reuse immutable versions → replace complete revision_files membership → commit → best-effort NATS broadcast`。所有读请求在单个一致性 SQLite 读事务内完成。业务模块对其实际配置生效自行负责。
 
 # 6. 进程视图
 
@@ -1284,7 +1285,7 @@ src/configuration_service/
 |---|---|---|
 | Unit | `tests/src/configuration_service/unit/` | 版本、引用、类型映射、YAML 输出 |
 | Component | `tests/src/configuration_service/component/` | SQLite Repository 事务、Migration、备份 |
-| Integration | `tests/src/configuration_service/integration/` | 真实 gRPC、mTLS、共享 Core Schema |
+| Integration | `tests/src/configuration_service/integration/` | 真实 gRPC、内网隔离、共享 Core Schema |
 | System | `tests/src/configuration_service/system/` | CLI 进程、发布、崩溃、恢复和历史下载 |
 
 ## 7.3 静态依赖与公共能力复用
@@ -1298,8 +1299,8 @@ src/configuration_service/
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-  CLI["CLI 进程"] -->|"mTLS gRPC"| CS["Configuration Service 进程"]
-  CLIENT["Collector / Sink / Storage 等"] -->|"mTLS gRPC"| CS
+  CLI["CLI 进程"] -->|"内部 gRPC"| CS["Configuration Service 进程"]
+  CLIENT["Collector / Sink / Storage 等"] -->|"内部 gRPC"| CS
   CS --> DB[("单机持久化 SQLite + WAL")]
   CS --> BOOT[("本服务配置 YAML")]
   CS --> BACK[("受控备份目录")]
@@ -1310,7 +1311,7 @@ flowchart TB
 
 ## 8.2 部署身份、资源与故障域
 
-数据库主文件、WAL、SHM 及备份根目录放置在可持久化卷；生产进程持有唯一数据库写权限，禁止多个独立 Configuration 实例同时作应用层写者。mTLS 证书路径由自身 YAML 指定；CLI 仍负责启动/停止与模块配置协调。单节点服务宕机时其他模块可使用已验证本地快照运行；无快照且无服务端则启动失败。
+数据库主文件、WAL、SHM 及备份根目录放置在可持久化卷；生产进程持有唯一数据库写权限，禁止多个独立 Configuration 实例同时作应用层写者。本服务内部 gRPC 无证书配置，监听地址与访问令牌由启动配置和部署环境限定；CLI 仍负责启动/停止与模块配置协调。单节点服务宕机时其他模块可使用已验证本地快照运行；无快照且无服务端则启动失败。
 
 # 9. gRPC 接口实现与调用方适配
 
@@ -1358,29 +1359,30 @@ flowchart TB
 | `GetEvents` | 发布、冲突、迁移、备份、故障和权限事件，按正式契约分页 |
 | `Diagnose` | 数据库文件访问、完整性、外键、迁移状态、依赖路径、可用磁盘等分阶段诊断 |
 
-## 9.4 发布与生效时序
+## 9.4 全量发布、广播与模块独立生效
 
 ```mermaid
-%%{init: {"sequence": {"useMaxWidth": true}}}%%
 sequenceDiagram
-  participant C as CLI
-  participant R as Configuration Service
-  participant DB as SQLite
-  participant M as 业务模块
-  C->>R: 上传候选 / 发布请求
-  R->>DB: 校验与原子发布
-  DB-->>R: 固定 revision
-  R-->>C: 版本及 revision
-  C->>M: 协调应用该 revision
-  M->>R: 按 revision 获取配置包
-  R-->>M: 完整 Header YAML + 哈希
-  M->>M: 校验、落盘并尝试生效
-  M-->>C: 实际生效结果
+    participant CLI
+    participant CFG as Configuration
+    participant DB as SQLite
+    participant N as NATS Core
+    participant M as 业务模块
+    CLI->>CFG: CreateCandidate(完整目录 documents[])
+    CLI->>CFG: PublishCandidate(expected_revision_id)
+    CFG->>DB: 完整当前目录视图原子提交
+    DB-->>CFG: revision_id
+    CFG-->>CLI: 已发布 revision
+    CFG->>N: wh.config.changed {revision_id}
+    N-->>M: 普通广播提醒
+    M->>CFG: GetCurrentRevision / GetConfigBundle
+    CFG-->>M: 完整依赖闭包及 manifest
+    M->>M: 校验、持久化、独立生效
 ```
 
-<p class="figure-caption">图 9-1 配置发布、下载及 CLI 生效协调</p>
+<p class="figure-caption">图 9-1 全量目录发布与非阻断广播</p>
 
-配置发布成功不代表业务模块已生效；Configuration Service 不主动向所有模块广播，也不拥有模块状态机。
+发布者只负责 SQLite 原子提交及发送一次 NATS Core 广播，不逐个联系模块。某一模块离线或应用失败不影响其他模块，也不改变发布事务。广播投递失败不回滚已提交修订，模块建立订阅后、重连后和周期性对账时从 Configuration 查询最新修订。本节定义目标能力，现有服务仅实现既有 `CreateCandidate/PublishCandidate` 等 RPC，尚需新增目录候选协议、修订查询和 NATS 发布 Adapter。
 
 # 10. SQLite 数据模型与 YAML 契约
 
@@ -1409,30 +1411,32 @@ Schema 发布由**随软件版本交付并签名/校验的受控 Schema 包**完
 | `config_documents` | `document_id TEXT`, `config_type TEXT`, `config_id TEXT` | PK `document_id`；`UNIQUE(config_type,config_id)`；非空、规范身份 |
 | `config_versions` | `version_id TEXT`, `document_id TEXT`, `schema_ref TEXT`, `file_version TEXT`, `content_sha256 TEXT`, `created_at TEXT` | PK `version_id`；FK 至 documents/schemas；`UNIQUE(document_id,file_version)`；版本和内容及其子行不可变；`UNIQUE(document_id,version_id)` 供复合 FK |
 | `revisions` | `revision_id INTEGER`, `parent_revision_id INTEGER`, `publisher TEXT`, `request_id TEXT`, `created_at TEXT` | PK 自增；parent FK；成功写事务的全局连续视图；`(publisher,request_id)` 唯一仅限发布用途 |
-| `revision_members` | `revision_id INTEGER`, `document_id TEXT`, `version_id TEXT` | PK(`revision_id`,`document_id`)；FK 到 revisions；复合 FK(`document_id`,`version_id`) 到 config_versions；**每个 revision 对每个已选用文档仅一条记录** |
+| `revision_members` | `revision_id INTEGER`, `document_id TEXT`, `version_id TEXT` | PK(`revision_id`,`document_id`)；显式推荐/根选择版本，与目录文件全集分离 |
+| `revision_files` | `revision_id INTEGER`, `relative_path TEXT`, `document_id TEXT`, `version_id TEXT`, `yaml_sha256 TEXT` | PK(`revision_id`,`relative_path`)；复合 FK(`document_id`,`version_id`)，允许同一对象不同文件版本在一修订并存，不能目录路径重复 |
 | `config_references` | `source_version_id TEXT`, `target_version_id TEXT`, `relation TEXT` | 三字段复合 PK；双端 FK 至 config_versions；引用版本固定、不随推荐版本改变；按 target 建反向索引 |
-| `candidates` | `candidate_id TEXT`, `owner_id TEXT`, `base_revision_id INTEGER`, `status TEXT`, `payload_sha256 TEXT`, `created_at TEXT`, `expires_at TEXT` | PK；FK base revision；状态 `VALID/REJECTED/PUBLISHED/EXPIRED`；候选冻结后内容不得更改 |
-| `candidate_documents` | `candidate_id TEXT`, `document_id TEXT`, `config_type TEXT`, `config_id TEXT`, `file_version TEXT`, `schema_ref TEXT`, `canonical_payload_json TEXT`, `content_sha256 TEXT` | PK(`candidate_id`,`document_id`)；FK 至 candidate；必须保留完整可重建、已类型校验的正文 |
+| `candidates` | `candidate_id TEXT`, `owner_id TEXT`, `base_revision_id INTEGER`, `status TEXT`, `manifest_sha256 TEXT`, `created_at TEXT`, `expires_at TEXT` | PK；FK base revision；状态 `VALID/REJECTED/PUBLISHED/EXPIRED`，CreateCandidate 校验通过后冻结候选 |
+| `candidate_documents` | `candidate_id TEXT`, `relative_path TEXT`, `document_id TEXT`, `config_type TEXT`, `config_id TEXT`, `file_version TEXT`, `schema_ref TEXT`, `canonical_payload_json TEXT`, `yaml_sha256 TEXT`, `content_sha256 TEXT` | PK(`candidate_id`,`relative_path`)；同一候选可包含同一对象不同文件版本；路径不可重复、正文必须无损重建 |
 | `idempotency_requests` | `actor_id TEXT`, `operation TEXT`, `request_id TEXT`, `payload_sha256 TEXT`, `response_json TEXT`, `completed_at TEXT` | PK(`actor_id`,`operation`,`request_id`)；记录**操作最终提交证据**；同键不同 payload 拒绝；和业务更新同事务写入 |
 | `version_events` | `event_id TEXT`, `version_id TEXT`, `revision_id INTEGER`, `event_type TEXT`, `reason TEXT`, `actor_id TEXT`, `created_at TEXT` | PK；FK version/revision；`DEPRECATED` 事件只追加，废弃状态是按 revision 推导的视图 |
 | `audit_events` | `event_id TEXT`, `actor_id TEXT`, `operation TEXT`, `target_id TEXT`, `revision_id INTEGER`, `outcome TEXT`, `created_at TEXT`, `detail_json TEXT` | PK；审计只追加、受控保留；不保存秘密原文 |
 | `backup_tasks` | `task_id TEXT`, `actor_id TEXT`, `request_id TEXT`, `state TEXT`, `path TEXT`, `size_bytes INTEGER`, `sha256 TEXT`, `created_at TEXT`, `finished_at TEXT`, `error TEXT`, `database_schema_version INTEGER`, `integrity_verified INTEGER` | PK；任务状态持久化；受控目录；启动与完成更新事务化 |
 
-**修订语义（唯一规则）**：`revision_members` 是**推荐/拟应用的目标版本的唯一权威映射**，不另建 `recommended_versions` 第二张权威表。新 revision 在同一事务复制上一修订的全量成员、替换变更文档版本后一次提交；空库起始修订为 `0`（虚拟初始状态，无成员，非业务发布）。`SetRecommendedVersion` 产生新 revision 并替换一条成员。`config_versions` 和 `config_references` 永不更改；`version_events` 不改变历史版本内容。
+**修订语义（唯一规则）**：`revision_files` 是**当前目录内全部文件/版本的唯一权威成员集合**；`revision_members` 仅表示显式指定的推荐/根选择版本，不是目录全集，不另建 `recommended_versions` 第二张权威表。新 revision 在同一事务按输入 Manifest 完全替换 `revision_files` 文件集合，并独立记录显式推荐/根选择视图后一次提交；空库起始修订为 `0`（虚拟初始状态，无成员，非业务发布）。`SetRecommendedVersion` 产生新 revision 并替换一条成员。`config_versions` 和 `config_references` 永不更改；`version_events` 不改变历史版本内容。
 
 **固定引用闭包**：某个已发布源版本引用目标版本 `B@v1` 时，即使当前 revision 推荐 `B@v2`，`GetConfigBundle` 仍必须读取 `B@v1`。因此“同一 revision”是指**根配置选用的修订一致且读取期间拥有一个 SQLite 快照**，绝不表示所有依赖都强制等于 `revision_members` 的当前推荐版本。闭包允许同时包含同一文档的两个固定历史版本；输出以 `(config_id,version_id)` 唯一标识文件，不能按 config_id 覆盖。
 
 **废弃规则**：只记录 `version_events`，保留已经存在的历史引用和查询；禁止将已废弃版本加入新发布的引用，除非发布策略明确授权；禁止废弃当前 revision 中仍被推荐的版本（需先切换推荐目标）。`DeprecateConfigVersion` 与 `SetRecommendedVersion` 均形成新 revision；原版本和旧 revision 不可被改写。
 
+**目录全集与多版本共存的迁移要求**：原 `revision_members` 只有推荐/根选择版本，不能表示一个根目录中同对象多版本并存。目标新增 `revision_files` 为完整文件目录的唯一成员集合，`candidate_documents` 增加 `relative_path` 及 YAML 哈希并将主键改为 `(candidate_id,relative_path)`；该调整不增加第三张候选文件表。发布时服务端依 `CreateCandidate(documents[])` 的完整集合一次性生成全量 Manifest 和 `revision_files`，对旧版本表、Projection、查询及测试执行原子 Schema 迁移，不保留两套候选存储方案。已使用历史修订的根成员必须按可证明的原身份规则迁移；无法无损重建的旧修订不能虚构文件路径，应明确拒绝迁移并保留旧库备份。
+
 ### 10.1.3 领域对象、业务键与外键
 
 | 表 | 不可变版本内键及内容 | 关联约束 |
 |---|---|---|
-| `semantic_points` | PK(`config_version_id`,`semantic_point_id`)；`data_type`,`standard_unit_version_id`,`standard_unit_id`,`description`,`constraints_json` | 复合 FK(`standard_unit_version_id`,`standard_unit_id`)→unit_definitions；标准类型与单位一致 |
 | `unit_definitions` | PK(`config_version_id`,`unit_id`)；`quantity_id`,`symbol`,`scale_to_base`,`offset_to_base`,`base_unit_id` | 对应确切 Units 文档版本，单位换算系数有限，基准单位及量纲关系完整 |
-| `business_points` | PK(`config_version_id`,`device_type`,`business_point_id`)；`semantic_config_version_id`,`semantic_point_id`,`description` | 复合 FK(semantic_config_version_id,semantic_point_id) → semantic_points；设备类别内标准字段唯一 |
+| `business_points` | PK(`config_version_id`,`business_point_id`)；`data_type`,`standard_unit_version_id`,`standard_unit_id`,`description` | 复合 FK(`standard_unit_version_id`,`standard_unit_id`)→unit_definitions；标准业务 ID 在本目录唯一，跨同类型号/真实/仿真复用 |
 | `point_tables` | PK(`config_version_id`,`point_table_id`)；`device_type`,`protocol`,`parent_version_id`,`parent_point_table_id` | 父表复合 FK；继承链无循环，同名字段合并规则固定 |
-| `point_mappings` | PK(`config_version_id`,`point_table_id`,`point_id`)；`business_config_version_id`,`device_type`,`business_point_id`,`source_type`,`source_unit_version_id`,`source_unit_id`,`scale`,`offset`,`address_json`,`point_groups_json` | 到 point_tables 的联合 FK、business_points 的三列联合 FK，以及 unit_definitions 的双列联合 FK；`scale` 有限非零、`offset` 有限；同一设备最终业务字段不得产生未定义的多源冲突 |
+| `point_mappings` | PK(`config_version_id`,`point_table_id`,`point_id`)；`business_config_version_id`,`business_point_id`,`source_type`,`source_unit_version_id`,`source_unit_id`,`scale`,`offset`,`address_json`,`point_groups_json` | 到 point_tables 的联合 FK、business_points 的两列联合 FK 与 unit_definitions 的双列联合 FK；`UNIQUE(config_version_id,point_table_id,business_point_id)` 在展开继承的有效点表上必须成立；`scale` 有限非零，`offset` 有限 |
 | `device_models` | PK(`config_version_id`,`model_id`)；`device_type`,`properties_json` | 归属版本；结构与引用校验 |
 | `devices` | PK(`config_version_id`,`device_id`)；`model_version_id`,`model_id`,`point_table_version_id`,`point_table_id`,`properties_json` | 两组复合 FK，设备类别与关联型号/点表一致 |
 | `app_service_configs` | PK(`config_version_id`,`service_id`)；`module_type`,`params_json` | 所有模块 Service 配置；对应 Schema 的全字段检查 |
@@ -1475,8 +1479,8 @@ SQLite 文件及 WAL/SHM 必须使用受控权限；远端不得通过任意文�
 1. 导入 YAML 时使用安全加载器，拒绝重复键、非受支持的自定义标签、非有限浮点及隐式类型歧义；原文的注释、缩进、锚点无需逐字保留。`schema_version`、`file_version` 按每一文档类型验证，严禁将数据库 `schema_version` 用作配置正文版本。
 2. 导入的每个配置必须匹配**已注册、不可变**的 `config_schemas.schema_ref`。对于新增应用配置，先注册完整 Schema/字段描述并完成映射验收，不得把未知业务字段默默丢弃。
 3. 先在候选阶段完成结构、字段、版本、单位类型、引用、继承环、逻辑字段唯一性校验；发布事务内重检 CAS、目标版本和当前废弃状态，避免候选到发布之间的竞态。
-4. `CreateCandidate` 的候选必须持久化或在重启后明确作为 `EXPIRED`；过期候选不可发布。`validate_only` 不入库。发布后崩溃的 `request_id` 必须通过 `idempotency_requests` 返回**已提交结果**，重复同键不同请求正文一律拒绝。
-5. 单写事务采用 `BEGIN IMMEDIATE`、受控超时和事务边界；原子提交版本行、领域关系、引用、完整 revision_members、审计和幂等结果。`COMMIT` 未确认时必须查询持久化操作证据，不得凭客户端超时判定写入失败或自动重新生成第二次 revision。
+4. 完整目录候选必须持久化完整候选 Manifest 和全部文件正文，重启后按已确认内容继续或作为 `EXPIRED`；过期候选不可发布。`validate_only` 不入库。发布后崩溃的 `request_id` 必须通过 `idempotency_requests` 返回**已提交结果**，重复同键不同请求正文一律拒绝。
+5. 单写事务采用 `BEGIN IMMEDIATE`、受控超时和事务边界；原子提交版本行、领域关系、引用、完整 `revision_files` 和显式选择版本、审计与幂等结果。`COMMIT` 未确认时必须查询持久化操作证据，不得凭客户端超时判定写入失败或自动重新生成第二次 revision。
 6. 使用同一只读事务完成 `GetConfigBundle` 依赖闭包解析，闭包查询采用固定 `version_id`，绝不能覆盖两个不同版本的同名文档。闭包中出现同一身份的多版本时应提供不同确定文件路径与 manifest 项；业务模块若不支持该场景则明确返回 `FAILED_PRECONDITION`，而不是静默选择最新。
 7. 分页必须绑定查询谓词、排序与选定 revision；游标应校验篡改及过期，默认/最大页数、候选数、依赖闭包长度、YAML 最大字节数和并发由自身 Service YAML 控制。
 8. 业务引用是精确版本引用；新版本引用旧文档是合法历史关系，不要求与当前推荐指针相同。配置文件正文若使用相对模板名称，发布时必须解析成确定版本并保留原始引用表达与版本绑定，以便往返时仍能生成业务模块实际支持的 YAML 格式。
@@ -1494,15 +1498,17 @@ Header 生成依据：配置身份绑定的 Schema 版本及其字段定义，�
 # schema_version: 必填；integer；允许 1；示例 1
 # file_version: 必填；semver MAJOR.MINOR.PATCH；示例 1.0.0
 # business_points: 必填；mapping；设备类别内标准字段目录
-# business_points.<id>.semantic_point_id: 必填；string；引用已发布 SemanticPoint
+# business_points.<id>.data_type: 必填；标准数据类型
+# business_points.<id>.unit: 必填；标准单位 ID，引用已发布 Units
 # business_points.<id>.description: 可选；string；说明性文字；示例 发电机绕组温度
 # 注：本文件头由 Configuration Service 按其已发布 Schema 版本生成
 schema_version: 1
 file_version: 1.0.0
 business_points:
   generator_temperature:
-    semantic_point_id: temperature
-    description: 发电机绕组温度
+    data_type: float32
+    unit: celsius
+    description: 发电机温度
 ```
 
 <p class="figure-caption">示例 10-1 带完整 Header 的单一 YAML 交付格式（节选示例；正式 Header 必须覆盖目标类型所有字段）</p>
@@ -1541,7 +1547,7 @@ semantic_points:
     description: 温度
 ```
 
-引用在候选校验及发布时解析成不可变 `config_versions.version_id`，而不是向使用者暴露数据库内部主键。业务点依赖 SemanticPoint，设备类别点表依赖 BusinessPoint 和 Units；唯一关系不成立、被引用版本不存在、已废弃或出现循环时，禁止发布。旧格式的目录型 `config_sources` 只允许在能消除歧义并固定到已发布版本时转换，不能依赖运行时可变的“最新”文件。
+引用在候选校验及发布时解析成不可变 `config_versions.version_id`，而不是向使用者暴露数据库内部主键。业务点本身就是标准语义；设备类别点表依赖 BusinessPoint 和 Units 的不可变版本；唯一关系不成立、被引用版本不存在、已废弃或出现循环时，禁止发布。旧格式的目录型 `config_sources` 只允许在能消除歧义并固定到已发布版本时转换，不能依赖运行时可变的“最新”文件。
 
 **配置重建**：版本表和领域关系表均写入确定的结构化记录；不规则应用专属字段落入版本化 JSON 对象列。每个已发布文档另保留规范化对象树，用于验证外部完整 YAML 重建的哈希、类型、缺省与显式 null；这不是保留 YAML 原始文件文本。新增领域关系映射后，不允许仅依靠规范化对象树掩盖缺失的外键。
 
@@ -1561,16 +1567,16 @@ semantic_points:
 
 ### 10.4.3 校验、错误码和运行中数据库身份
 
-- **嵌套 YAML Schema**：数组字段 `type=array` 必须定义并递归验证 `items`，数组元素中的 `required`、`properties`、`enum` 和 `additionalProperties` 同对象字段执行统一规则。真实 `security.callers` 为调用者对象数组，元素包括 `caller_id`、`certificate_identity` 和 `permissions`（字符串数组），导出 Header 须同步说明其结构。
+- **嵌套 YAML Schema**：数组字段 `type=array` 必须定义并递归验证 `items`，数组元素中的 `required`、`properties`、`enum` 和 `additionalProperties` 同对象字段执行统一规则。目标模块 Service Schema 如采用 `security.callers` 数组，元素统一为 `caller_id`、`token_env` 和 `permissions`（字符串数组）；Configuration 自身引导配置使用 `security.token_sources` 与 `security.permissions`。导出 Header 和机器 Schema 必须保持一致。
 - **Schema 注册**：同一 `config_type + document_schema_version` 对应唯一不变的 Schema 定义。重复一致定义可幂等；内容冲突必须以领域 `RepositoryConflictError` 拒绝，不能泄漏裸 SQLite 异常。内置 Schema 定义升级必须按受控迁移处理，不能在同一版本号上静默修改已使用的数据模型。
-- **认证**：无客户端证书、无证书 CN 或空白 CN 均属于 `UNAUTHENTICATED`；合法证书 CN 不在授权表中属于 `PERMISSION_DENIED`。Common 与 Repository 接口应共用同一认证判定语义。
+- **认证与授权**：无有效受控访问令牌属于 `UNAUTHENTICATED`；已验证令牌主体没有相应角色时属于 `PERMISSION_DENIED`。Common 与 Repository 接口应共用同一认证判定语义。
 - **容量错误码**：Bundle 的 YAML 总字节数和版本引用闭包数量超限，以及单文件导出超限，均为 `RESOURCE_EXHAUSTED`；不得作为非法请求参数返回 `INVALID_ARGUMENT`。
 - **运行中数据库身份**：服务完成初始化后绑定 SQLite 数据库文件的设备号与 inode。每次建立新连接前检查文件仍存在且身份不变；外部移除或替换数据库时必须使健康检查返回不健康，诊断返回失败，拒绝由 SQLite 自动新建的空数据库被误判为可用。允许停机后按正式恢复流程重新初始化，不允许运行中无感切换数据库。
 
 ### 10.4.4 YAML 集合契约及 gRPC 传输容量
 
 - 每个 `type=array` 的 Schema 字段必须声明 `items`，元素按类型、必填字段、枚举和未知字段规则递归校验；缺少 `items` 不得降级成任意数组。内置 `service.servers`、`service.scenarios`、`scenario.scenarios` 和明确版本引用列表 `config_sources` 均提供元素类型定义。
-- `security.callers` 数组元素的 `caller_id`、`certificate_identity`、`permissions` 是必填字段，Header 及机器 Schema 必须一致。
+- `security.callers` 数组元素的 `caller_id`、`token_env`、`permissions` 为目标必填字段（与代码迁移同步更新 Schema），Header 及机器 Schema 必须一致。
 - `max_bundle_bytes` 仅约束导出 YAML 正文字节总量。单文件和 Bundle 在进行导出后的重新解析之前检查内容字节数，超限返回 `RESOURCE_EXHAUSTED`。
 - gRPC `max_send_message_length` 不得直接等于 YAML 内容配额；必须为 Protobuf 文件身份、版本、哈希、manifest 等传输字段保留有界余量，且不得提高应用层 YAML 配额。恰好等于 YAML 配额的有效 Bundle 应完整返回。
 - Point Mapping 行的 `device_type` 与相应 PointTable 经过验证的设备类型保持一致，不得引用其他投影分支中声明的局部变量。
@@ -1592,13 +1598,15 @@ semantic_points:
 # service_id: 必填唯一字符串
 # grpc.host: 必填 IP/主机名；示例 127.0.0.1
 # grpc.port: 必填 TCP 端口 1..65535
-# grpc.tls.ca_file: 必填；受控本地 CA 证书路径
-# grpc.tls.cert_file: 必填；本服务证书路径
-# grpc.tls.key_file: 必填；本服务私钥路径，禁止远程输出
+# grpc: 内部标准 gRPC，不启用 TLS；跨主机必须使用隔离网络与防火墙
 # repository.sqlite_path: 必填；SQLite 数据库文件绝对路径
 # repository.backup_root: 必填；备份目录绝对路径
+# nats.servers: 必填；NATS Core 连接列表，用于发布修订通知
+# nats.subject: 固定 wh.config.changed；普通 Pub/Sub 广播，不使用 Queue Group
+# nats.connect_timeout_ms: 正整数 ms；广播连接超时
 # security.cursor_secret_file: 必填；受控绝对路径，至少 32 字节随机值
-# security.permissions: 必填；按 mTLS 客户端 CN 映射 query/publish/admin 权限
+# security.token_sources: 必填；调用身份到令牌来源的映射（仅保存 env: 环境变量名）
+# security.permissions: 必填；按已验证令牌主体映射 query/publish/admin 权限
 # limits.max_request_bytes: 单 RPC 最大请求字节数；正整数
 # limits.max_documents_per_publication: 单次发布文档数；正整数
 # limits.max_dependencies: 单次完整引用闭包条目数；正整数
@@ -1614,15 +1622,18 @@ service_id: configuration-main
 grpc:
   host: 127.0.0.1
   port: 51060
-  tls:
-    ca_file: /etc/wind-hub/pki/ca.pem
-    cert_file: /etc/wind-hub/pki/configuration.pem
-    key_file: /etc/wind-hub/pki/configuration.key
 repository:
   sqlite_path: /var/lib/wind-hub/configuration/configuration.db
   backup_root: /var/backups/wind-hub/configuration
+nats:
+  servers: [nats://127.0.0.1:4222]
+  subject: wh.config.changed
+  connect_timeout_ms: 2000
 security:
   cursor_secret_file: /etc/wind-hub/configuration/cursor-secret
+  token_sources:
+    wind-hub-cli-admin: env:WIND_HUB_CONFIG_CLI_ADMIN_TOKEN
+    wind-hub-collector: env:WIND_HUB_CONFIG_COLLECTOR_TOKEN
   permissions:
     wind-hub-cli-admin: [query, publish, admin]
     wind-hub-collector: [query]
@@ -1640,13 +1651,17 @@ limits:
   max_workers: 16
 ```
 
+配置的 `security.token_sources` 是本轮目标新增 Schema，当前 `configuration_service.settings` 尚未支持，编码时必须同步更新启动配置校验和 CLI/模块令牌注入，不得将示例称为现行可直接运行配置。
+
+**本引导配置不属于 CLI 根目录全量发布的业务 YAML。** 配置发布后，NATS 广播失败不回滚已提交的 SQLite 修订；模块依赖订阅后查询、重连和周期对账恢复。NATS 连接配置也须列入正式 Configuration 自身 Service Schema 与运维诊断。
+
 ## 11.2.1 启动配置的不可动态变更项
 
-SQLite 文件路径、TLS 私钥路径、gRPC 监听地址及认证策略属于**重启生效**配置。`PushConfigSnapshot` 只创建受控候选；`ApplyConfigSnapshot` 对上述字段必须返回 `restart_required=true`，不得在仍使用旧连接时半途切换数据库或证书。Candidate/运行态/磁盘态及失败回滚语义完全遵照现有 `common.proto`；启动配置不再作为配置库的业务文档发布。直接由已认证的管理员管理本机引导 YAML，不允许普通查询方读取密钥或实际敏感路径。
+SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略属于**重启生效**配置。`PushConfigSnapshot` 只创建受控候选；`ApplyConfigSnapshot` 对上述字段必须返回 `restart_required=true`，不得在仍使用旧连接时半途切换数据库或访问策略。Candidate/运行态/磁盘态及失败回滚语义完全遵照现有 `common.proto`；启动配置不再作为配置库的业务文档发布。直接由已认证的管理员管理本机引导 YAML，不允许普通查询方读取密钥或实际敏感路径。
 
 ## 11.3 配置读取、修改与应用
 
-启动时从 CLI 指定的绝对路径读取自身 YAML；按运行时 Schema 校验、打开 SQLite 与 mTLS 服务。自身 `GetConfigSnapshot`/`PushConfigSnapshot`/`ApplyConfigSnapshot` 仅围绕此启动文件的 DISK/RUNTIME/CANDIDATE 三种状态；对影响数据库路径、身份、监听地址、TLS 的更改，返回 `restart_required=true`，不在运行中热切换未收敛资源。
+启动时从 CLI 指定的绝对路径读取自身 YAML；按运行时 Schema 校验、打开 SQLite 与内部 gRPC 服务。自身 `GetConfigSnapshot`/`PushConfigSnapshot`/`ApplyConfigSnapshot` 仅围绕此启动文件的 DISK/RUNTIME/CANDIDATE 三种状态；对影响数据库路径、身份、监听地址、TLS 的更改，返回 `restart_required=true`，不在运行中热切换未收敛资源。
 
 ## 11.4 生效范围与异常处理
 
@@ -1656,6 +1671,26 @@ SQLite 文件路径、TLS 私钥路径、gRPC 监听地址及认证策略属于*
 
 自身 YAML 中私钥只保留路径；库中其他应用参数只保存密钥引用。完整 Header YAML 导出注释也不得包含秘密实际值。
 
+## 11.6 BusinessPoint、PointTable 与不可变身份闭包
+
+Configuration 是全局业务语义、PointTable 及历史配置的唯一权威版本存储方。标准 BusinessPoint 定义稳定业务含义、数据类型及标准单位，不根据设备型号或仿真标记复制造成语义别名。候选校验要求每个 Point 明确引用一个存在的 BusinessPoint，同一有效 PointTable 不得重复引用同一业务身份；标准单位与源工程单位必须量纲一致。
+
+**PointTable 规范身份**：从点表配置的 `template_id` 和 `file_version` 生成 `point_table_<template_id>_v<file_version>`，作为 SampleBatch 的唯一语义版本身份。其文件名须按同一规范推导；若逻辑 ID、版本和文件名不一致则发布拒绝。现行点表不显式携带所有标准目录依赖版本，目标发布时必须将 BusinessPoint/Units 的准确版本和内容哈希固定到 PointTable 不可变关系闭包；如果同时存在多个候选标准目录版本且无明确引用，则拒绝模糊绑定，不能默认选最大版本。
+
+**数据包的 `point_table_id` 是唯一的数据解释身份，不另传全局 `config_revision_id` 或 `data_version`**。同一 ID 必须确定唯一且不可变的点表内容（点位集合、类型、比例/偏移、单位），以及准确固定的 BusinessPoint 与 Units 等依赖**版本闭包**；若任何解释语义变化，必须注册新 `point_table_id`，不可只改同名 YAML 内容或变更其引用的推荐版本。Configuration 的全局 `revision_id` 仍用于配置发布、查询当前推荐视图及业务模块运行生效，不是遥测数据版本。
+
+Configuration 必须支持按精确 `point_table_id` 拉取不可变完整解释闭包的正式 `GetPointTableBundle` 查询能力（字段见 Contracts §10.3.13），包括已不再推荐但历史消息仍引用的 ID；删除策略不得物理清除仍可重放的历史定义。现有 `GetConfigBundle(roots,revision_id)` 不等价于按 PointTable ID 的专用查询，目标接口尚未实现，编码之前需补齐 Contracts、配置库、权限及缓存失效测试。
+
+## 11.6.1 目录快照与广播故障恢复设计
+
+每个发布修订必须持久化本次目录成员 Manifest（相对路径、配置身份及版本、内容哈希、逻辑引用），不能仅保留变化对象集合。Configuration 启动后根据 SQLite 当前修订恢复状态。提交成功后执行 NATS `wh.config.changed` 广播，消息 UTF-8 JSON **仅含** `{"revision_id":<uint64>}`，使用 Core Pub/Sub，所有业务模块独立订阅，禁止 Queue Group 负载分发。通知失败必须写日志和指标但不回滚已提交视图；不新增逐模块通知 RPC，也不对模块运行状态做跨进程事务。
+
+业务模块启动时先订阅再查询最新已发布修订；接收通知时合并为最大待处理目标修订，按固定修订拉取自身完整根引用闭包并校验哈希；配置恢复、重连与周期性对账均必须查权威 revision。一个模块不可达/应用失败不阻塞其他模块更新；冷启动无有效本地快照时不报 READY，已存在有效本地快照可按各模块的受控降级规则继续运行。
+
+## 11.7 客户端访问权限与拉取性能
+
+Collector、Sink、Storage（后续）仅获得必要配置身份的查询权限；CLI/授权管理端才具有发布权限。独立的 内网隔离与应用授权 身份认证、RPC 角色和配置资源作用域不能混淆。历史版本闭包读取应有大小/数量限制，并允许 Sink 按不可变 `point_table_id` 复用已校验缓存，以避免逐条样本跨进程查询配置库。缓存以不可变 PointTable ID 为键；过期数据不能改用最新推荐点表解释。
+
 # 12. 外部适配与集成
 
 ## 12.1 外部依赖
@@ -1663,14 +1698,14 @@ SQLite 文件路径、TLS 私钥路径、gRPC 监听地址及认证策略属于*
 | 对象 | 方向 | 契约 |
 |---|---|---|
 | SQLite | 本服务 ↔ 数据库文件 | 本地事务、WAL、FK、备份 |
-| CLI | CLI → 本服务 | mTLS gRPC 发布/查询 |
+| CLI | CLI → 本服务 | 内部 gRPC 发布/查询 |
 | 业务模块 | 模块 → 本服务 | 依确定版本/revision 只读配置 YAML |
 | Core | 本服务 → 公共 Schema | 共享配置对象解析及版本约束 |
 | 文件系统 | 本服务 ↔ | 仅本服务 YAML 引导文件与备份输出，不作为业务配置权威库 |
 
 ## 12.2 配置数据与控制映射
 
-Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Storage 所属设计确定；本服务提供按精确身份和修订返回 SemanticPoint/BusinessPoint/PointTable 配置的能力，不解析采样数据、不直接创建 TDengine 表。公共服务的 `GetConfigSnapshot` 不代替 Repository 专用 `GetConfig`。
+Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Storage 所属设计确定；本服务提供按精确身份或 PointTable ID 返回 BusinessPoint/PointTable 配置的能力，不解析采样数据、不直接创建 TDengine 表。公共服务的 `GetConfigSnapshot` 不代替 Repository 专用 `GetConfig`。
 
 ## 12.3 资源生命周期
 
@@ -1680,7 +1715,7 @@ Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Stora
 
 ## 13.1 身份认证与权限
 
-mTLS 双向认证；统一使用 `query`、`publish`、`admin` 三类权限。Configuration Service 自身 YAML 配置读取、候选与应用归 `admin`，不另设 `self_config` 角色。敏感 YAML 内容按客户端权限过滤/拒绝；禁止任意 SQL 执行与服务器任意文件路径读取。
+内部网络隔离与操作权限验证；统一使用 `query`、`publish`、`admin` 三类权限。Configuration Service 自身 YAML 配置读取、候选与应用归 `admin`，不另设 `self_config` 角色。敏感 YAML 内容按客户端权限过滤/拒绝；禁止任意 SQL 执行与服务器任意文件路径读取。
 
 ## 13.2 审计、日志与事件
 
@@ -1705,7 +1740,7 @@ mTLS 双向认证；统一使用 `query`、`publish`、`admin` 三类权限。Co
 
 ## 13.4 健康与诊断
 
-`GetServiceStatus` 返回总体健康及 SQLite 可读、可写、可用空间、备份目录、mTLS 等依赖状态和观测时间。`Diagnose` 有界检查存储连接、索引和引用完整性、日志/WAL 及受控路径可用性；异常不返回敏感文件内容。进程存活与业务 READY 分开判定。
+`GetServiceStatus` 返回总体健康及 SQLite 可读、可写、可用空间、备份目录、NATS 广播连接及最近广播失败等依赖状态和观测时间。`Diagnose` 有界检查存储连接、索引和引用完整性、日志/WAL 及受控路径可用性；异常不返回敏感文件内容。进程存活与业务 READY 分开判定。
 
 # 14. 测试与验收
 
@@ -1767,3 +1802,6 @@ mTLS 双向认证；统一使用 `query`、`publish`、`admin` 三类权限。Co
 | G7 测试准入 | 每项 UR/UC、RPC、异常、崩溃和 YAML 往返均有可执行验收用例 | 不认定为可验收实现 |
 
 本设计属于**目标行为基线**。新 Proto、SQLite DDL、全量 YAML 映射及真实运行测试尚未执行，不能把文档审校当成实现 PASS。进入实施前应以最新分支 HEAD 再次核实源码和配置样例；若 G1–G3 的实现映射出现新的未覆盖类型，先补齐设计、测试约束，再编码。
+## 附录 B：内部 gRPC 适配范围
+
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。

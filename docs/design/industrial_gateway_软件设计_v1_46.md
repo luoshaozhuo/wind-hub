@@ -1,6 +1,9 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_42 · 20261115</p>
+<p class="subtitle">v1_46 · 20261118</p>
+
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+
 
 <style>
 body {
@@ -812,7 +815,7 @@ flowchart TD
 
 **R01-03 返回与重试。** 每个请求项按顺序给出一条结果；同批请求出现重复 `variable_id` 时以 `INVALID_ARGUMENT` 整批拒绝，**不允许产生部分写入**。RPC 连接中断时调用方不能依赖响应确定处理结果，读取当前值只能核对最终状态，不能证明历史处理次数。单次调用只能说明 Gateway 当前值更新，不证明工业协议客户端已消费。
 
-**租约主体绑定：**RPC 的可信调用主体从服务端验证的 mTLS 客户端证书 CN 获取，开发环境仅在受限 loopback 明文模式下使用本地身份。服务端除校验 `inject` 权限外，在租约中保存该主体身份；ACQUIRE/RENEW/RELEASE 使用相同可信主体，UpdateVariables 仅允许持有同一主体租约令牌的调用方更新。`owner_id` 仍为 Generation/管理操作的业务标识，不能代替认证身份，不能通过自报相同 `owner_id` 接管其他主体的租约。各状态变更和写入均需验证相同主体；授权不成立时失败且不得修改变量。该约束属于 Gateway 内部授权逻辑，不增改任何 Proto 字段。
+**租约主体绑定：**RPC 的可信调用主体从服务端验证的受控访问令牌获取，跨主机采用专用隔离网络；不得直接使用未经验证的请求方自报身份。服务端除校验 `inject` 权限外，在租约中保存该主体身份；ACQUIRE/RENEW/RELEASE 使用相同可信主体，UpdateVariables 仅允许持有同一主体租约令牌的调用方更新。`owner_id` 仍为 Generation/管理操作的业务标识，不能代替认证身份，不能通过自报相同 `owner_id` 接管其他主体的租约。各状态变更和写入均需验证相同主体；授权不成立时失败且不得修改变量。该约束属于 Gateway 内部授权逻辑，不增改任何 Proto 字段。
 
 **R01-04 目标租约保护。** `ClaimTargets` 以单 Gateway 为作用域申请变量集合租约。`ACQUIRE` 原子占用全部目标；`RENEW`、`RELEASE` 要求原 `owner_id`、完全一致的目标集合和 `lease_token`。租约持续时间 `lease_ms` 为 1000～60000 ms，按单调时间计时；同一目标同一时刻只允许一个有效租约。一个租约覆盖多个变量，令牌只能写入其占用的集合。任何 `UpdateVariables` 写入均须携带本调用方通过 `ClaimTargets(ACQUIRE)` 获得、当前有效且覆盖完整目标集合的 `lease_token`；目标尚未被租约占用不构成无令牌写入许可。空令牌、失效令牌、目标集合不匹配或他人令牌均拒绝整份更新请求。令牌过期、释放、Server 重新配置/删除或进程重启后不可恢复。租约仅约束数据注入，不改变工业协议写入及 Commander 控制的权限边界。无权访问、非法目标、重复目标、租约失效均不得造成字段修改。
 
@@ -953,7 +956,7 @@ flowchart TD
 |---|---|
 | 请求方（Requester） | 获认证的上游、CLI 和运维平台；进程管理器 |
 | 触发方式（Trigger） | API：正式 9 个 Common + 8 个 Gateway Unary；Lifecycle：Server 启停 |
-| 输入（Input） | `src/contracts/common.proto`、`industrial_gateway.proto` 请求及 mTLS 身份 |
+| 输入（Input） | `src/contracts/common.proto`、`industrial_gateway.proto` 请求及受控令牌身份 |
 | 反馈（Response） | 对应响应或 gRPC Status；不自行创造未定义 wire 字段 |
 | 目标方（Destination） | 内部业务组件、Commander gRPC Server |
 | 业务输出（Output） | 17 个正式入站 RPC 的处理结果（公共 9 项 + Gateway 8 项） |
@@ -1036,7 +1039,7 @@ I --> J["分别反馈磁盘版本及逐实例运行结果"]
 
 ### 3.6.3 业务规则
 
-**R05-01 三类配置。** Service 负责进程、TLS、额度与内存转发限额，正式提交后重启生效；Template 有确定 `schema_version`、不可变 `file_version`；Instance 有确定修订版并引用精确 Template 版本。 Service 必须通过 `config_sources.instances.devices` 指定直接使用的设备实例 pathname，通过 `config_sources.templates.root` 指定公共模板根目录 pathname。两者均为必填；只解析 Instance/Template 的实际引用链，不读取隐式默认实例文件、不扫描或回退默认模板目录。
+**R05-01 三类配置。** Service 负责进程、内网监听、访问令牌、额度与内存转发限额，正式提交后重启生效；Template 有确定 `schema_version`、不可变 `file_version`；Instance 有确定修订版并引用精确 Template 版本。 Service 必须通过 `config_sources.instances.devices` 指定直接使用的设备实例 pathname，通过 `config_sources.templates.root` 指定公共模板根目录 pathname。两者均为必填；只解析 Instance/Template 的实际引用链，不读取隐式默认实例文件、不扫描或回退默认模板目录。
 
 **R05-02 快照与竞争。** Get 读取 DISK/RUNTIME/CANDIDATE 的完整一致文件集；Push 仅验证与暂存；Apply 用候选 ID 和 `expected_revision` 做 CAS，并采用 Gateway 专属文件集合原子提交（公共配置不由 Gateway 改写）。文件提交与实例运行生效必须分别报告。
 
@@ -1631,9 +1634,9 @@ flowchart LR
         G --- P
     end
     UP["Collector / Data Generator"] -->|"gRPC"| G
-    OPS["CLI"] -->|"gRPC/mTLS"| G
+    OPS["CLI"] -->|"内部 gRPC"| G
     EMS["AGC / AVC / DC-EMS"] <-->|"Modbus TCP / IEC 104 等"| P
-    G -->|"gRPC/mTLS"| CM["Commander"]
+    G -->|"内部 gRPC"| CM["Commander"]
     CM -->|"工业协议控制"| PLC["PLC"]
 ```
 
@@ -1796,15 +1799,10 @@ config_sources:
   templates:
     root: configs/templates                 # 必填；模板解析根 pathname，无默认目录
 grpc:
-  listen_host: "127.0.0.1"        # 本地 gRPC 监听主机；非本机访问必须配 mTLS
+  listen_host: "127.0.0.1"        # 本地 gRPC 监听主机；非本机访问必须使用隔离网络和访问控制
   listen_port: 50073              # 1..65535；必须与活动协议监听端口不冲突
   max_active_rpcs: 64             # 正整数；设计默认并发上限
   request_max_bytes: 2097152      # 字节；设计默认 2 MiB
-  tls:
-    enabled: false                # 仅限受控本机部署；跨主机生产部署必须启用 mTLS
-    cert_file: ""                 # enabled=true 时必填，可读路径
-    key_file: ""                  # enabled=true 时必填，权限受控
-    ca_file: ""                   # enabled=true 时必填，可信 CA
 servers:
   - server_id: "gateway-tz01"    # 必填；本 Service 唯一
     device_id: "TZ01"            # 必填；仅引用指定实例文件中的一个实际设备
@@ -1863,6 +1861,12 @@ metrics:
 已验收分支使用新 Schema，旧的内嵌 `data_grpc_bind`、`endpoints`、`point_tables`、`devices` 结构不得再作为兼容来源。合入 main 前仍须核查其他分支调用方、配置文件、配置验证及测试；三分支集成与旧 Seahorse 路径迁移在此次独立验收中未完成，不能据此声称系统级全部兼容。
 
 
+## 11.6.1 集中配置、协议原始值与标准测点关系
+
+Industrial Gateway 从 Configuration Service 按全局修订下载设备实例、设备模型、点表与变量映射；通过 Configuration 发布后的 NATS Core 广播和模块自身启动/重连对账取得最新生效配置。网关拥有工业协议 Server 的帧解析、寄存器/变量原生类型编解码、租约和更新校验，不承担 Sink 下游业务标准化。对 Collector 以协议读取的原生数据，Gateway 不应因外部变量映射而提前替换为 BusinessPoint 名称；实际 `point_id` 经 PointTable 唯一映射到 `business_point_id`。
+
+同一有效 PointTable 内每个实际 Point 显式映射一个 BusinessPoint，业务身份不得重复；不同型号/真实及仿真设备对相同物理含义采用同一业务标准。设备身份、控制变量和数据注入在配置变更时原子切换，不能因此绕过 Commander 授权或将注入解释为现场控制。
+
 ## 11.7 工业控制事件统一提交 Commander
 
 Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=data_generator` 直接调用 Data Generator。协议 Server 捕获每一次真实工业客户端控制写请求，生成稳定 request_id，按同目标 FIFO 和容量边界提交 Commander。被授权的 `ClaimTargets/UpdateVariables` 仅更新 Gateway 变量存储，不触发控制转发。
@@ -1876,7 +1880,7 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 
 ### 11.7.2 仿真执行接口、绑定与权威结果
 
-**实际配置契约（R2）**：工业写监听的 `servers[].control.target.kind` 只能是 `commander` 或 `none`，不得再提供 `data_generator` 分支。仿真执行目标独立配置为 `servers[].control.simulation = {endpoint, tls, scenario_id}`，其中 `tls.enabled=true` 且 CA、客户端证书与私钥必须有效；`scenario_id` 只指定模型场景，不允许硬编码运行态 Generation ID。该字段仅在 `control.enabled=true` 时允许出现。Gateway gRPC 入站 `grpc.tls.enabled=true` 且对 Commander 证书主体显式授予 `simulation_execute`，Commander 为读取目标 Gateway revision 还需 `read` 权限；本机明文模式也不得执行仿真控制。
+**实际配置契约（R2）**：工业写监听的 `servers[].control.target.kind` 只能是 `commander` 或 `none`，不得再提供 `data_generator` 分支。仿真执行目标独立配置为 `servers[].control.simulation = {endpoint, token_env, scenario_id}`，其中 `tls.enabled=true` 且 CA、客户端证书与私钥必须有效；`scenario_id` 只指定模型场景，不允许硬编码运行态 Generation ID。该字段仅在 `control.enabled=true` 时允许出现。Gateway gRPC 入站 `grpc.tls.enabled=true` 且对 Commander 证书主体显式授予 `simulation_execute`，Commander 为读取目标 Gateway revision 还需 `read` 权限；本机明文模式也不得执行仿真控制。
 
 **跨层身份约束**：工业写事件用稳定 `request_id` 向 Commander 提交；一次 Commander 批次可能包含多个子命令，因此下游 Gateway 的 `SimulationCommandRequest.request_id` 必须为对应子命令的持久 `command_id`，Generator `UpdateVariables.request_id` 使用相同值；Commander 批次 `request_id` 留在 Commander 仓储和对外查询中。Gateway 的 `GetSimulationExecutionResult` 按该子命令 ID 查询，不把批次 ID 当作单一模型写入 ID。Gateway 的 ACCEPTED/effective_step 只证明模型原子受理，未取得已生效证据不得声明 APPLIED。
 
@@ -1887,8 +1891,8 @@ Gateway 对工业写事件只出站调用 Commander `SubmitCommand`。来自 Com
 - Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_27 §3.3，不在 Gateway 重复定义同名线契约。
 - Gateway 实例的 Service 配置声明每台仿真设备的 Scenario 绑定、目标变量映射和允许的模型输入；不得将运行态 `generation_id` 写死在静态配置。活动 Generation 必须通过 Generator 正式 RPC 解析且版本一致。
 - 接受执行 RPC 前验证 Commander 认证主体、request_id、expires_at、revision、目标属性及唯一 Generation。拒绝失败不改变变量或模型；同 request_id 同内容保持同一结果，不创建二次执行。
-- Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；Gateway 通过 `GetInputExecution` 查询同一 Generation、证书主体与 request_id 的实际计算步完成结果，只有 `APPLIED` 才可返回 Commander 成功。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。
-- Gateway 的控制转发任务与仿真执行用例属于 Application，通信 Client、Server、TLS 和模型输入 RPC 属于 Infrastructure，依赖装配统一在 Bootstrap。
+- Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；Gateway 通过 `GetInputExecution` 查询同一 Generation、经令牌核验的调用主体与 request_id 的实际计算步完成结果，只有 `APPLIED` 才可返回 Commander 成功。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。
+- Gateway 的控制转发任务与仿真执行用例属于 Application，通信 Client、Server、访问令牌和模型输入 RPC 属于 Infrastructure，依赖装配统一在 Bootstrap。
 
 ### 11.7.2 唯一控制链路
 
@@ -1984,7 +1988,7 @@ tests/
 | `test_grpc_updates_and_claims.py` | component | safety | lease | 真实 grpc.aio 注入、租约和重复目标 |
 | `test_claims_reload_and_rpc_lifecycle.py` | component | reliability | reload | Apply 对租约失效、RPC 生命周期 |
 | `test_config_snapshots.py` | component | contract | config | 配置三态、CAS、热重载、端口交换 |
-| `test_mtls_authorization.py` | component | safety | authorization | 真实 PKI、权限与明文保护 |
+| 令牌与网络隔离专项测试（原 `test_mtls_authorization.py` 须更新） | component | safety | authorization | 访问令牌、角色权限及对外监听限制 |
 | `test_observability_rpc.py` | component | observability | metrics | RPC 指标、事件和诊断 |
 | `test_command_outcomes.py` | integration | reliability | command | 真实 Commander RPC 终态和业务拒绝 |
 | `test_modbus_matrix.py` | integration | contract | modbus | FC01～FC16、FC15/16 跨点及请求级转发 |
@@ -2081,3 +2085,41 @@ lint-imports
 ```
 
 上述命令用于后续变更复测。
+
+
+# 附录 A：全量目录配置与广播订阅的目标契约
+
+## A.1 模块配置权威和初始引导
+
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+
+## A.2 广播、拉取、对账和独立生效
+
+```mermaid
+sequenceDiagram
+    participant C as Configuration
+    participant N as NATS Core
+    participant M as 本模块
+    M->>N: 独立订阅 wh.config.changed
+    M->>C: GetCurrentRevision
+    C-->>M: 最新 revision_id
+    M->>C: GetConfigBundle(roots,revision_id)
+    C-->>M: 完整 YAML 闭包/manifest_sha256
+    M->>M: 校验、持久化、安全生效
+    C->>N: 广播 wh.config.changed
+    N-->>M: {revision_id}
+    M->>C: 确认最新修订并拉取完整闭包
+    M->>M: 序列化应用，失败保留旧状态
+```
+
+<p class="figure-caption">图 A-1 模块独立配置收敛</p>
+
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+
+## A.3 必须同步移除的旧路径
+
+取消原目标 `CommonService.NotifyConfigRevision`，不再由 CLI 逐模块通知。业务模块原先的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 不能再作为全局配置的发布或旁路更新入口；迁移时按正式 Contracts 一次性更新所有客户端、服务端、配置、代码注释、测试及启动脚本，不保留两套可写权威。此附录为目标契约，**当前 main 生产代码并未实施全量根目录+广播方案**。
+
+## 附录 B：内部 gRPC 适配范围
+
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。

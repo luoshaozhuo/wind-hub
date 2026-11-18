@@ -1,6 +1,9 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_30 · 20261118</p>
+<p class="subtitle">v1_35 · 20261118</p>
+
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+
 
 <style>
 body {
@@ -1092,8 +1095,7 @@ flowchart TD
 
   R-03                                批量读取按测点身份严格关联，不得因部分错误错配其他测点。
 
-  R-04                                按点表完成数据类型验证、scale/offset
-                                      与单位语义处理，并保留源质量和来源时间；静态元数据不重复进入采集流。
+  R-04                                执行原生协议类型解码及质量校验，保留原始标量、源时间和生效配置修订；工程缩放、单位换算与业务映射由 Sink 处理。
 
   R-05                                订阅和监听必须保留注册句柄所有权；重连后重建必要的订阅与监听，不复用失效句柄。
 
@@ -2872,7 +2874,7 @@ flowchart LR
    CFG["Service → Instance → Template 显式路径引用"]
    CFG --> C
  end
- CLI["管理客户端 / CLI"] <-->|"gRPC / mTLS"| C
+ CLI["管理客户端 / CLI"] <-->|"内部 gRPC"| C
  PLC <-->|"ADS / Modbus TCP / IEC104"| C
  C -->|"NATS / JetStream"| N["NATS 服务节点"]
  N --> S["Sink Service"]
@@ -3116,13 +3118,19 @@ I/O
 
 ## 10.3 采样数据完整性
 
-每个样本保留设备、测点、数值/数据类型、来源时间、采集接收时间及质量；工程值换算必须区分测点的
-scale/offset 与 Quantity/Unit
-单位换算。分批采集不得由于缺点、乱序或单点异常错误关联其余点。最新值缓存仅存运行事实，不把静态点表周期重复发布。
+每个样本保留设备、测点、原始标量/协议类型、来源时间、采集接收时间及质量；不得预先应用 scale/offset 或 Quantity/Unit 工程与业务换算。分批采集不得由于缺点、乱序或单点异常错误关联其余点。最新值缓存仅存运行事实，不把静态点表周期重复发布。
+
+## 10.3.1 原始标量、PointTable ID 与采集计划绑定
+
+Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不在发布前应用 PointTable 比例/偏移、BusinessPoint 映射或标准单位换算。**Collector 对 NATS 的唯一正式源数据格式是 Contracts §11.6 定义的 SampleBatch v3；此处不重复定义字段或编码。**
+
+Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
+
+当前 `src/contracts/sample_batch.py` 和 BatchBuilder 仍发送 v2、未填写 `device_type` / `point_table_id`；目标 v3 需同步修改代码和测试。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
 ## 10.4 NATS 投递及可靠性边界
 
-Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。三种采集模式均发送 `SampleBatch(schema_version=2)`，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
+Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现有三种采集模式发送 `SampleBatch(schema_version=2)`；目标切换后发送携带不可变 `point_table_id` 的 v3，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
 
 ## 10.5 指标时间和历史职责
 
@@ -3155,11 +3163,11 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 
 # 11. 配置与动态生效
 
-**基线与配置裁决：**本章以 Contracts v1_20 的 `SampleBatch(schema_version=2)`、总体设计 v1_15 第 5 章的显式 `config_sources` 为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
+**配置与数据契约：**现有代码以 `SampleBatch(schema_version=2)` 运行；目标以 Contracts v1_38、总体设计 v1_22 的 v3 版本和集中 Configuration gRPC 拉取为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
 
 ## 11.1 三类配置与所有权
 
-配置按 **Service / Instance / Template** 三类分离。**Service 仅声明直接使用的 Instance 文件和 Template 根目录；Instance 仅保留模板 ID 与精确版本，不重复传递 Template 根目录**：Collector 运行时直接读取两份 Instance 文件及 Template 根目录，因此 Service 必须显式声明三者的路径；Device Instance 仅声明设备型号模板 ID 与精确版本，不再重复声明 Template 根目录。Template 内部的 wind-hub 专属版本化引用由 `configuration` 装配；Core 只提供通用 YAML 解析和数据操作。Service 只指定 Template 根目录，不逐项选择模板 ID/版本；不得从程序内置默认目录或文件名推断任何缺失的路径。
+配置按 **Service / Instance / Template** 三类分离。**Service 仅声明直接使用的 Instance 文件和 Template 根目录；Instance 仅保留模板 ID 与精确版本，不重复传递 Template 根目录**：Collector 运行时直接读取两份 Instance 文件及 Template 根目录，因此 Service 必须显式声明三者的路径；Device Instance 仅声明设备型号模板 ID 与精确版本，不再重复声明 Template 根目录。Template 版本引用由 Configuration Service 保存并提供完整闭包，Core 仅提供公共解析与校验；下述本地路径操作是待替换的历史实现描述。Service 只指定 Template 根目录，不逐项选择模板 ID/版本；不得从程序内置默认目录或文件名推断任何缺失的路径。
 
 | 类别 | 物理路径示例 | 引用与所有权 | 生效规则 |
 |---|---|---|---|
@@ -3496,7 +3504,7 @@ ISOLATED，不可将超时视为已安全关闭。系统恢复只能依据已持
 ## 13.1 安全与故障隔离
 
 外部管理端遵守项目统一 gRPC
-mTLS/授权策略，配置写入、任务控制和主动诊断需权限；日志、Metrics、配置回显不得泄漏凭据。设备间独立故障域，配置热更最小影响；任务取消、超时不表示底层
+内网隔离与应用层授权策略；配置写入、任务控制和主动诊断需权限；日志、Metrics、配置回显不得泄漏凭据。设备间独立故障域，配置热更最小影响；任务取消、超时不表示底层
 I/O 已结束。进程关闭须拒绝新工作、停止采集、尝试排空发布、释放设备连接及
 ADS 本地资源，并报告未能安全退出的资源。
 
@@ -3932,3 +3940,41 @@ UC。以下状态均为 `NOT_RUN`，不表示实现失败或通过。
 
 **本节规定设计目标和验证标准，不构成对现有实现的验收结论。** 配置文件布局、Schema 和接口须保持唯一事实源；尚不能确定的现场性能阈值应通过负载模型与实测确定。缺少真实环境的验证项标为 `NOT_RUN`。
 
+
+
+# 附录 A：全量目录配置与广播订阅的目标契约
+
+## A.1 模块配置权威和初始引导
+
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+
+## A.2 广播、拉取、对账和独立生效
+
+```mermaid
+sequenceDiagram
+    participant C as Configuration
+    participant N as NATS Core
+    participant M as 本模块
+    M->>N: 独立订阅 wh.config.changed
+    M->>C: GetCurrentRevision
+    C-->>M: 最新 revision_id
+    M->>C: GetConfigBundle(roots,revision_id)
+    C-->>M: 完整 YAML 闭包/manifest_sha256
+    M->>M: 校验、持久化、安全生效
+    C->>N: 广播 wh.config.changed
+    N-->>M: {revision_id}
+    M->>C: 确认最新修订并拉取完整闭包
+    M->>M: 序列化应用，失败保留旧状态
+```
+
+<p class="figure-caption">图 A-1 模块独立配置收敛</p>
+
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+
+## A.3 必须同步移除的旧路径
+
+取消原目标 `CommonService.NotifyConfigRevision`，不再由 CLI 逐模块通知。业务模块原先的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 不能再作为全局配置的发布或旁路更新入口；迁移时按正式 Contracts 一次性更新所有客户端、服务端、配置、代码注释、测试及启动脚本，不保留两套可写权威。此附录为目标契约，**当前 main 生产代码并未实施全量根目录+广播方案**。
+
+## 附录 B：内部 gRPC 适配范围
+
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。

@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_36 · 20261115 · 公共能力与共享配置设计</p>
+<p class="subtitle">v1_39 · 20261118 · 公共能力与共享配置设计</p>
 
 <style>
 body {
@@ -1568,6 +1568,70 @@ flowchart TD
 ## 6.7 项目模板装配与通用解析的边界
 
 Core 通用 YAML 接口处理调用方传入的路径和数据，不依赖 `configs/templates` 固定目录；工程交付可包含该目录作为版本化模板实例。现有布局按 `configs/templates/` 的实际目录组织 `protocols/*.yaml`、`point_tables/*.yaml`、`device_models/*.yaml`、`units.yaml`、`business_points.yaml` 等共享模板；不把任一可选模板类别写成 Core 的硬编码发现规则。版本化模板使用 `<template_id>_<file_version>.yaml`，显式 ID/版本精确引用；`units.yaml`、`business_points.yaml` 使用文件内 `file_version`。文件系统装配、模板发布权限及任务策略归宿主负责；内容规则分别见第 7、10、8 章。`tasks` 模板属于 Collector 业务，Core 不解释其采集策略。
+
+## 6.8 BusinessPoint 标准语义体系（统一业务定义）
+
+**唯一模型**：`BusinessPoint` 表示业务测量或控制语义，字段为 `business_point_id`、`data_type`、`standard_unit`、`description`；不引入与之平行的 `SemanticPoint` 第三层。全系统同类设备（真实、仿真、不同型号及协议）若测量对象、物理位置、统计窗口、控制方向和工程含义相同，则**必须共享一个标准 BusinessPoint**。差异只存在协议地址或源单位时由 PointTable 的 Point 映射承担。源点 `point_id` 不得直接冒充标准业务身份。
+
+### 6.8.1 标准业务身份规则
+
+| 属性 | 规则 |
+|---|---|
+| 物理量 | 有功/无功/频率/温度等，应定义清晰测量边界；例如机组并网点功率与变流器内部功率不一定同一量 |
+| 物理位置 | 叶片编号、相别、发电机位置、多轴/多通道等**影响身份**，不能仅靠点表元数据消歧 |
+| 统计口径 | 瞬时、平均、最大、累计、滑动窗口与正负方向均需区分，不能混用同一 ID |
+| 控制语义 | 反馈、指令、设定值、限值及允许/禁止状态不可共用同一标准 ID |
+| 数据类型 | 统一业务类型，应允许不同源类型在无溢出且受验证的规则下转换；不能凭源 ADS/Modbus 字面类型复制业务标准 |
+| 单位 | 一项业务定义仅有一种标准单位及量纲；不同型号的工程单位通过 Units 转换，不复制 BusinessPoint |
+| 仿真标签 | `sim_` 不能仅因数据来自仿真而成为新的业务身份；**真正的内部仿真状态**可保留明确标识，但不得冒充真实设备标准测点 |
+| 命名 | lowercase snake_case、稳定、完整表达物理量/位置/方向/语义；同义重复 ID 禁止，历史名称只可通过受控数据迁移处理 |
+
+同一个标准目录允许不同设备类别复用同一物理含义明确的 BusinessPoint；**不能为了共享名字强行合并不同测量边界**。设备型号和通信协议不进入通用 BusinessPoint ID，实例号也不进入 ID。
+
+### 6.8.2 Point → BusinessPoint 映射、类型及单位
+
+`PointTable.points` 的每个 Point 都**必须显式填写** `business_point_id`，默认由 `point_id` 推断身份的解析分支必须删除。对同一**继承展开之后**的有效 PointTable，`point_id` 唯一且 `business_point_id` **不得重复**；跨不同 PointTable 可引用同一个标准 ID。若两个协议点确实是同一物理量的多条副本或冗余通道，必须先在配置设计上明确选择权威点或建立真实具有区别的业务身份，不能自动加序号掩盖未知含义。
+
+由 Core/Configuration 校验：业务点存在、单位量纲兼容、值类型可安全转换、比例 `scale` 有限且非零、偏移 `offset` 有限、源点协议解码类型与真实设备数据契约相符；对 BOOL/STRING 的比例偏移保持恒等。业务值流程唯一为：
+
+```mermaid
+flowchart LR
+    RAW["Core Driver 协议解码标量"] --> POINT["Sink 按 PointTable scale/offset"]
+    POINT --> ENG["工程单位数据"]
+    ENG --> STD["Sink Units 标准单位变换"]
+    STD --> BUSINESS["BusinessPoint 类型及业务标准"]
+```
+
+**职责**：Driver 只执行协议线编码/解码；Collector 只保存原始解码标量、质量、时间及 `point_table_id`；Sink 按完整不可变 PointTable 依赖闭包做工程/业务转换。Core 的 `engineering_value` 可作为纯函数技术能力，但**不能在 Collector 的发布路径内执行**。同一版本源数据不能被 Sink 以当前最新推荐业务标准覆盖历史语义。
+
+### 6.8.2.1 不可变 PointTable 身份构成
+
+`point_table_id` 采用 `point_table_<template_id>_v<file_version>`，同时也是对应 YAML 文件去除 `.yaml` 后的名称，例如 `point_table_modbus_wtg_sim_v1.0.0`。现有 YAML 中 `template_id` 仍表示逻辑模板，而不是历史唯一身份；Collector 发布数据包时必须携带带版本的完整 PointTable ID。PointTable 对 BusinessPoint/Units 的依赖必须由 Configuration 以准确文件版本和哈希固定；不能直接读取当前全局的可变标准目录。依赖版本不明确时拒绝发布，不猜测。
+
+### 6.8.3 全量盘点、迁移与验收
+
+以 `configs/templates/business_points_standard.yaml` 及**全部** `configs/templates/point_tables/*.yaml` 为检查范围，而非只盘点已被设备引用的点表。对每个 `point_id` 建立至少包含以下列的映射台账：`device_type`、`device_model`、`point_table_id`、`point_id`、原 `business_point_id`、新 `business_point_id`、物理位置/语义判断、`source_unit`、`standard_unit`、`data_type`、迁移结论和证据。类别包括 保留/规范同义/消歧拆分/仿真内部量保留/删除冗余/待现场核验。对歧义点**不得猜测**，必须保留可追溯异常并标记其点表不可用于 BUSINESS 生产准入。
+
+当前代码差距清单：`src/core/configuration/shared_point_tables.py` 存在 `entry.get("business_point_id", point_id)` 隐式回退；`src/core/domain/point.py` 的 `points_for_business` 返回多点集合；`src/core/configuration/validation.py` 未拒绝业务身份重复。它们均是**待编码整改**，并非已落实。现存 GW2MW ADS 点表多个不同点共用 `pitch_angle`、`generator_speed` 等业务身份；是否属于位置不同或冗余测量，必须依据 PLC 符号和现场数据确定后才能替换版本，不允许给未核实点自动制造标准身份。
+
+验证分为四层：① BusinessPoint 字典内无同义及类型单位矛盾；② 每张已展开 PointTable 映射唯一、无默认回退、类型单位兼容；③ 同类设备不同型号/仿真与真实等价物理量业务 ID 相同；④ Sink BUSINESS Golden Data 在每个实际受支持 PointTable 上逐项通过。**未完成盘点和配置整改前，不能宣称标准体系已完整或允许进入业务标准输出验收。**
+
+### 6.8.4 当前配置基线盘点（设计阶段证据，非整改通过）
+
+检查范围为 main@8147395a 的标准目录及目前九份 PointTable YAML 的直接 `points` 映射；此项是**静态文本盘点**，不等同于继承展开、协议合法性或现场点语义验收。计数用于建立完整整改分母，不得因未来删除有问题的样本而缩小分母。
+
+| 指标 | 当前检查结果 | 准出含义 |
+|---|---:|---|
+| BusinessPoint 标准目录 | 293 个 ID | 需要逐项审查业务含义、类型、单位和同义别名 |
+| 以 `sim_` 开头的 ID | 61 个 | 逐项识别真正仿真内部状态，其他共享实际业务 ID |
+| 已列九份 PointTable 的直接 Point | 240 | 需覆盖全部已定义协议测点 |
+| 直接显式 `business_point_id` | 240 | 不能以此替代“解析器不存在隐式默认回退”的代码验收 |
+| 被点表引用的不同 BusinessPoint ID | 117 | 与全目录标准定义对账，不代表其余定义可以删除 |
+| 同表重复业务身份的 PointTable | 1（GW2MW ADS） | **业务标准输出准入阻断** |
+| GW2MW ADS 重复的业务身份种类 | 22 | 必须逐一决定同义冗余/不同位置与语义 |
+| GW2MW ADS 超出唯一映射的额外 Point 数 | 87 | 必须逐项完成标准身份判定，不能给无依据序号 |
+
+典型冲突包括 `wind_speed` 13 次、`pitch_rate_setpoint` 10 次、`generator_speed` 10 次、`pitch_angle` 8 次、`yaw_error` 7 次。工业 PLC Symbol 的实际对象、采样位置、单位和读写语义未被现场资料确认前，**不得自动生成新的业务标准名称或宣称完成整改**。目标是保留全部可追溯映射和真实的设备协议点，在业务含义确定后创建新业务目录版本及新的 PointTable ID。
 
 # 7. 通用工业协议通信设计
 
@@ -3239,6 +3303,18 @@ classDiagram
 
 `diagnostic/` 只实现 UR-06 的显式、受控诊断能力：`network.py`、`firewall.py`、`protocol.py`、`benchmark.py`。日志 Handler、Request-ID 上下文、gRPC 拦截器、Metric/Trace 装配及 `ObservedProtocolPort` 均属第 8 章 `crosscutting/`，不得通过 `diagnostic/__init__.py` 重导出旧观测 API。通信诊断主动探测由调用方发起并明确目标及资源所有权；协议 Wrapper 仅在调用发生时被动采集，不得暗中执行诊断读或控制写。模块依赖约束通过架构测试验证。
 
+## 11.6 原始值、工程值与业务值的技术边界
+
+Core 工业协议驱动负责协议帧、字节序、寄存器组合、原生编码、连接与质量信息的解析，提供**未按点表比例、偏移及业务单位转换**的类型化标量。Core 的 `engineering_value(point, raw)` 作为无状态纯函数保留，供 Sink 工程等级转换和必要的诊断独立调用；**Collector 不得在发布之前调用该函数转换采样值**。必须区分协议原生类型解码与按点表进行的工程换算；物理帧字节捕获不在 SampleBatch 语义内。
+
+Core 的 BusinessPoint 标准目录按物理含义、位置/相别及统计口径定义，不按设备型号或真实/仿真模式复制业务语义。PointTable 中每个 Point 都显式引用存在的 BusinessPoint；同一 PointTable 内 `business_point_id` 唯一，跨型号点表可以共享相同 BusinessPoint。原先 `business_point_id` 缺省使用 `point_id` 的回退和 `points_for_business()` 返回多个 Point 的宽松行为须在代码迁移中移除或改为有界单值查询，并同步全仓调用方与测试。
+
+业务值标准化还包括工程源单位到 BusinessPoint 标准单位的量纲兼容和数值换算；`engineering_value` 本身并不等于完整业务标准化。Core 提供可复用的单位校验和确定性单位转换原语，由 Sink 按数据包携带的不可变 `point_table_id` 装配对应的完整语义映射。
+
+## 11.7 gRPC 通用安全技术能力
+
+Core 复用无 TLS 的内部 gRPC 客户端/服务端连接技术、受控令牌身份提取、关闭/重连及公共错误映射；不定义或放宽 Commander/Configuration/其他模块的业务权限策略。每个管理及控制 RPC 的操作权限由业务服务作最终裁决；不得新增平行的私有安全框架或在单个采样点上反复进行认证握手。该能力的引入需要先核实现有安全适配器，复用可用组件而非无理由重写。
+
 # 12. 公共 API 稳定性与演进
 
 ## 12.1 公共接口边界
@@ -3615,3 +3691,6 @@ lint-imports
 证据至少包含 ST ID、UR/UC、完整输入（含可调参数与版本）、被测协议对端及版本、测试文件/函数、实际请求和响应、原始异常、资源收敛观测、执行命令、结果及日期。System 用例各流程、关键分支、异常、边界、恢复场景应逐项实现且执行，不能由“连接成功”取代“读/写/订阅/监听/总召/不支持/更新”的逐项判定。协议实际支持的能力不全覆盖、算法未测试合法边界、或数据写入出现未经核实的成功结论，均不能判为完整 PASS。ST-53～60 各需独立验证成功、提交前失败、提交后部分生效、代次隔离与资源回收；协议模板新增参数须有合法/非法/优先级及版本不可变测试；可观测装配须证明无业务 Handler 改动。
 
 静态检查仍以项目 Ruff Lint、Ruff Format、Mypy/Pyright、import-linter 为门槛；测试目录整改必须额外验证 `tests/src/core/` 与现有 `tests/core/` 的实际收集数、Node ID 及 ST/Marker 覆盖，不得以仅变更文档路径代替测试迁移；接口、配置和缓存契约变更必须检查调用方、示例、模板及测试。未执行的项目明确标 `NOT_RUN`，不以设计文档自行判 PASS。另增三模块协调验收：① Core 基础层不导入 `contracts`、`core.configuration` 或任何业务模块；② `core.configuration → Core 基础 API` 的单向依赖及共享加载版本/路径边界；③ Contracts 标量编解码迁移前后具有等价的 wire 行为；④ 全仓库生产调用方不残留旧 `core.infrastructure.rpc.scalar_codec` 导入；⑤ 其他业务设计对 Core 的引用必须与真实公开 API 一致。上述为后续编码验收项，本次文档修订不宣称已通过。
+## 附录 B：内部 gRPC 适配范围
+
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。

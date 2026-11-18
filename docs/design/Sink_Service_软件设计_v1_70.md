@@ -1,6 +1,9 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_65 · 20261118</p>
+<p class="subtitle">v1_70 · 20261118</p>
+
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+
 
 <style>
 body {
@@ -807,7 +810,7 @@ System Test 必须遵守以下规定：
 |---|---|
 | 请求方（Requester） | NATS Core 消息生产者（Collector）；周期定时器非外部请求方 |
 | 触发方式（Trigger） | 消息：实时样本到达；周期：按 Delivery 输出/保底周期；状态：目标恢复后重试未过期最新值 |
-| 输入（Input） | 批量实时样本（以冻结的 `SampleBatch(schema_version=2)` 为准）、来源规则、逐测点有效期、Delivery 输出策略 |
+| 输入（Input） | 批量实时样本（当前生产 v2，目标见 Contracts §11.6 的 SampleBatch v3）、来源规则、逐测点有效期、Delivery 输出策略 |
 | 反馈（Response） | 不逐条应答 Core 消息；通过状态、指标与事件查询派发结果 |
 | 目标方（Destination） | 已绑定的 Redis、Modbus TCP Server 或 Industrial Gateway（Realtime）；Kafka 不属于本实时用例 |
 | 业务输出（Output） | 未过期的最新值及原始质量、时间、测点身份 |
@@ -977,7 +980,7 @@ flowchart TD
 
 **R03-02 共享资源所有权。** 共享 Sink 以稳定身份键管理引用；最后一个 Delivery 引用释放且 I/O 已安全收敛后才可关闭目标连接；正在进行的操作不能因上层取消失去所有权。
 
-`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。Kafka 的 13 字段编码及 Redis 目标记录格式由各自 Outbound Adapter 实现，且必须保证既有目标格式字节/语义不变；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
+`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。当前 Kafka 13 字段编码与 Redis Value 由各自 Outbound Adapter 实现；目标统一迁移到 Contracts §11.9 规定的 v2 结构并通过 Golden Data 验收，不要求新格式字节等同旧格式；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
 
 **物理目标隔离竞态。** 物理目标隔离状态必须在等待全局/目标额度后、开始原生写入之前重新核对；目标在等待期间变为 unsafe 时不得提交原生 I/O。关闭 Adapter 为异步过程，关闭期间或关闭完成前若发生未决 I/O 取消，必须保留物理隔离与引用占有，不能删除池条目或重建目标绕过 fencing。
 
@@ -1364,7 +1367,7 @@ flowchart TD
 
 | 约束类别 | 可验证要求 |
 |---|---|
-| 安全与性能 | 强制 mTLS 与权限检查；设计目标：请求体最大 2 MiB、单服务并发 RPC 默认上限 64、默认 deadline 5000 ms，必须在配置章节体现。请求断连不撤销已提交操作，未收敛写入不得被误判完成；错误状态依正式 Proto/gRPC。 |
+| 安全与性能 | 强制 内网隔离与权限检查；设计目标：请求体最大 2 MiB、单服务并发 RPC 默认上限 64、默认 deadline 5000 ms，必须在配置章节体现。请求断连不撤销已提交操作，未收敛写入不得被误判完成；错误状态依正式 Proto/gRPC。 |
 
 
 # 4. 用例视图
@@ -1431,7 +1434,7 @@ flowchart TD
 |---|---|
 | 参与者 | 进程管理系统 |
 | 业务目标 | 首次部署启动并就绪 |
-| 前置条件 | 系统具备配置路径及 TLS 文件 |
+| 前置条件 | 系统具备合法配置路径和访问令牌 |
 | 主要异常 | 配置非法、Main 配置写入冲突、独占端口占用 |
 | 后置条件 | 进程及对象的就绪状态真实可查询 |
 | 关联需求 | UR-03、UR-06、UR-08 |
@@ -1585,7 +1588,7 @@ flowchart TD
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
- A["调用方选择查询"] --> B["mTLS 认证并校验 query 权限"]
+ A["调用方选择查询"] --> B["应用层授权并校验 query 权限"]
  B --> C{"通过?"}
  C -->|否| X["返回认证 / 权限错误"]
  C -->|是| D["读取当前生效对象快照和指标"]
@@ -1882,7 +1885,7 @@ UC-12 仅查询死信与积压证据，外部运维工具负责重放；UC-13 �
 
 ## 5.1 组件结构与职责
 
-Sink Service 的技术 Service Schema（gRPC、NATS、mTLS caller、指标窗口及部署路径）由 Infrastructure 配置解析器校验；Application 负责显式配置来源、运行配额和 Reliable 交付策略，再校验跨文档业务一致性；Domain 仅保存配置身份、状态与通用局部不变量。磁盘和远程候选快照均经过相同的技术 Schema 与应用业务校验，Domain 不承担服务级配置装配，也不依赖技术端点或证书。
+Sink Service 的技术 Service Schema（gRPC、NATS、受控调用者、指标窗口及部署路径）由 Infrastructure 配置解析器校验；Application 负责显式配置来源、运行配额和 Reliable 交付策略，再校验跨文档业务一致性；Domain 仅保存配置身份、状态与通用局部不变量。磁盘和远程候选快照均经过相同的技术 Schema 与应用业务校验，Domain 不承担服务级配置装配，也不依赖技术端点或证书。
 
 
 ```mermaid
@@ -1907,7 +1910,7 @@ flowchart TB
 
 | 组件 | 职责 | 不承担 |
 |---|---|---|
-| Main / gRPC | 唯一对外 RPC、mTLS、配置快照、Delivery 管理、状态与指标聚合、诊断 | NATS 样本解码及目标业务写入 |
+| Main / gRPC | 唯一对外 RPC、内部网络隔离、配置快照、Delivery 管理、状态与指标聚合、诊断 | NATS 样本解码及目标业务写入 |
 | ProcessSupervisor | 创建、监控、重启/停止两个子进程；按子进程状态判定就绪 | 自动跨容器抢占 Delivery |
 | WorkerControl | 经 IPC 接收已校验的配置版本和命令，回报真实运行状态、错误及指标 | 对外 gRPC、配置文件写入 |
 | DeliveryRuntime | 本通道 Delivery 生命周期、过滤/策略、确认责任 | 跨进程共享 Adapter 对象 |
@@ -2316,7 +2319,7 @@ src/sink_service/
 └── main.py                         # 真实业务进程入口
 ```
 
-配置解析顺序为：Infrastructure 读取 YAML、验证技术 Schema → Application 校验配置来源及交付业务规则 → 形成受控配置快照；不允许由 Domain 直接解析部署路径、gRPC、NATS、mTLS 及指标配置。Runtime 只持有技术资源和生命周期接口，策略不重复实现。
+配置解析顺序为：Infrastructure 读取 YAML、验证技术 Schema → Application 校验配置来源及交付业务规则 → 形成受控配置快照；不允许由 Domain 直接解析部署路径、gRPC、NATS、访问授权及指标配置。Runtime 只持有技术资源和生命周期接口，策略不重复实现。
 
 Realtime Delivery 的启动、停止、上游注册及 I/O 收敛由 Application 控制，经 Application Port 调用 NATS Adapter 与共享输出池。可靠消息 ACK 由 Application 在业务交付裁决后通过 Adapter 执行；JetStream API、Kafka Builder、Redis Lua、连接池和 IPC 编码保持在 Infrastructure。
 
@@ -2335,7 +2338,7 @@ Realtime Delivery 的启动、停止、上游注册及 I/O 收敛由 Application
 | `application/reliable_engine.py` | Reliable 交付状态机、ACK/重试/DLQ | 原生 I/O 终态、异常、重投、过滤审计 |
 | `application/output_pool.py` | 物理目标额度、连接引用及 I/O 所有权 | 取消、动态最小限额、并发安全 |
 | `application/worker_coordinator.py` | Worker 收敛、Watchdog、指标调度 | 启停、重启、观测窗口及故障 |
-| `infrastructure/config_io.py`、`config_schema.py` | 文件与技术配置 Schema | YAML、gRPC/NATS/mTLS/指标准入 |
+| `infrastructure/config_io.py`、`config_schema.py` | 文件与技术配置 Schema | YAML、gRPC/NATS/访问授权/指标准入 |
 | `infrastructure/adapters/` | 实际传输及网络 I/O | NATS、JetStream、Redis、Modbus、Gateway、Kafka |
 | `infrastructure/persistence/` | 原子配置提交、恢复、不可变版本 | 崩溃恢复、文件一致性和 CAS |
 
@@ -2411,7 +2414,7 @@ flowchart TB
 | Reliable | 独立事件循环，按当前配置启动 Durable Tasks | 只影响可靠交付；未 ACK 消息保留 |
 | 配置域 | 每容器独立一个 `CURRENT` 和唯一配置提交者 Main | 其它配置域不可自动接管 |
 | NATS/JetStream | 源过滤、Durable 身份与目标所有权按本地分配 | Broker 不承担静态分配协调 |
-| gRPC/mTLS | 每容器一个可达 Main 端点 | Main 满载可用性必须实测，不能仅凭进程隔离推定 |
+| 内部 gRPC | 每容器一个可达 Main 端点 | Main 满载可用性必须实测，不能仅凭进程隔离推定 |
 
 **容器生命周期。** Main 处理 SIGTERM，向两子进程下发受控停止命令、等待 I/O 收敛、关闭连接与进程，最后退出。容器终止期限必须大于配置的停止宽限；超时被强制杀死不等于业务副作用已经被证明不存在，恢复时按 §10 的不确定结果语义处理。禁止借助多个容器模拟实例内三进程，也不新增容器级集群服务。
 
@@ -2482,7 +2485,7 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 
 | RPC 组 | 实现责任组件 | 权限及资源约束 | 主要测试归属 |
 |---|---|---|---|
-| 身份、健康、能力（三项） | Main Service Runtime / Health | mTLS；聚合子进程实际状态，不能凭配置猜测 | `test_grpc_contract.py`、`test_grpc_api.py` |
+| 身份、健康、能力（三项） | Main Service Runtime / Health | 受控内网通信；聚合子进程实际状态，不能凭配置猜测 | `test_grpc_contract.py`、`test_grpc_api.py` |
 | 配置快照（三项） | Main Config Manager | Get 按角色授权；Push/Apply 仅 Main 写正式快照；CAS、候选及 IPC 版本收敛 | `test_config_snapshot.py`、`test_config_apply.py` |
 | Metrics、Events（两项） | Main Metrics / Event Query | 汇总有时间戳的子进程指标，超时标记不可用 | `test_metrics.py`、`test_metrics_query.py` |
 | Diagnose（一项） | Main Diagnose | 经 IPC 有界获取数据面证据，失败返回 UNKNOWN | `test_diagnose.py`、`test_diagnose_pipeline.py` |
@@ -2516,7 +2519,7 @@ sequenceDiagram
     participant A as 应用服务
     participant R as Config / Delivery Runtime
     C->>G: 按正式 Proto 请求
-    G->>G: mTLS、授权与输入校验
+    G->>G: 内部网络隔离、授权与输入校验
     G->>A: 调用对应业务入口
     A->>R: 执行并获取权威状态
     R-->>A: 文件提交、运行状态或诊断证据
@@ -2583,7 +2586,7 @@ R12 已验证 Kafka 编码 CPU 可降低约 33.1%，短时饱和吞吐增加 18.
 
 ## 10.3 批量消息接收与校验
 
-正式源消息使用 main 的 `contracts.sample_batch.SampleBatch(schema_version=2)`，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
+当前生产源消息使用 `contracts.sample_batch.SampleBatch(schema_version=2)`；目标源消息依照 Contracts §11.6 的 v3，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
 
 | 通道 | Subject | 校验不通过 |
 |---|---|---|
@@ -2732,7 +2735,7 @@ sequenceDiagram
 
 只对 `SampleBatch.decode()` 严格校验、来源过滤后的可信批次执行。Kafka Reliable 直接使用 `SampleItem`，每个目标子批最多 500 点；输入源批容量可配置，目标拆批上限独立于输入。不得逐点构造旧线协议对象。
 
-**编码算法。** `encode_kafka_points(batch, items)` 将同一源批共享的 `schema_version=1/wind_farm_id/collector_id/task_id/device_id` 按原顺序编码一次，删除公共 JSON 对象末尾的 `}` 并追加逗号，形成 UTF-8 字节前缀。源批的 `publish_time` 仅进行一次 UTC 格式规范化，但仍作为每个测点 JSON 片段的字段逐条序列化；不得把“时间规范化一次”误写成“该字段 JSON 编码一次”。每点按固定顺序编码 `point_id/sample_id/value/quality/sample_time/publish_time/receive_time/max_staleness_ms`，去掉逐点 JSON 对象开头的 `{`，再与公共字节前缀拼接。
+**现行 Kafka v1 编码算法（迁移前实现描述，非目标格式）**。`encode_kafka_points(batch, items)` 将同一源批共享的 `schema_version=1/wind_farm_id/collector_id/task_id/device_id` 按原顺序编码一次，删除公共 JSON 对象末尾的 `}` 并追加逗号，形成 UTF-8 字节前缀。源批的 `publish_time` 仅进行一次 UTC 格式规范化，但仍作为每个测点 JSON 片段的字段逐条序列化；不得把“时间规范化一次”误写成“该字段 JSON 编码一次”。每点按固定顺序编码 `point_id/sample_id/value/quality/sample_time/publish_time/receive_time/max_staleness_ms`，去掉逐点 JSON 对象开头的 `{`，再与公共字节前缀拼接。
 
 **两测点可复算示例（演示 500 点子批的相同算法）。** 输入为同一有效源批，公共身份 `farm-a / collector-1 / task-1 / WTG001`，`publish_time=2026-11-11T02:00:00Z`；两点分别为 `(P, sample-P, 1200)` 和 `(Q, sample-Q, 300)`，质量均为 `good`，`sample_time=2026-11-11T01:59:59Z`，`receive_time=null`，`max_staleness_ms=null`。
 
@@ -2761,7 +2764,7 @@ P 点逐点片段（已移除开头 `{`）：
 {"schema_version":1,"wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_id":"WTG001","point_id":"P","sample_id":"sample-P","value":1200,"quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
 ```
 
-Q 点只把 P 点片段中的 `point_id/sample_id/value` 分别换为 `Q/sample-Q/300`，与**同一公共前缀**拼接，生成第二条独立 Kafka Record。原始 13 字段顺序、`ensure_ascii=False`、`allow_nan=False`、紧凑分隔符、UTF-8 字节、浮点、Unicode、UTC 时间与 `null` 必须与经独立固定夹具验证的 Sink 13 字段 Kafka 目标 Record 字节逐字节等价。源批为 500 点时，公共身份字段只编码一次，逐点片段仍编码 500 次，并输出 500 条 Record；不合并为一条 Record。单点入口 `encode_kafka_point` 使用同一规范，空子批输出空集合。不得跨源批缓存公共编码结果，亦不得使用无法证明字节等价的新 JSON 库。
+Q 点只把 P 点片段中的 `point_id/sample_id/value` 分别换为 `Q/sample-Q/300`，与**同一公共前缀**拼接，生成第二条独立 Kafka Record。迁移前原始 13 字段顺序、`ensure_ascii=False`、`allow_nan=False`、紧凑分隔符、UTF-8 字节、浮点、Unicode、UTC 时间与 `null` 必须与经独立固定夹具验证的 Sink 13 字段 Kafka 目标 Record 字节逐字节等价。源批为 500 点时，公共身份字段只编码一次，逐点片段仍编码 500 次，并输出 500 条 Record；不合并为一条 Record。单点入口 `encode_kafka_point` 使用同一规范，空子批输出空集合。不得跨源批缓存公共编码结果，亦不得使用无法证明字节等价的新 JSON 库。
 
 ### 10.7.2 Kafka Builder 与 Future 索引
 
@@ -2864,7 +2867,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 
 | 参数类别 | 所属契约 |
 |---|---|
-| `schema_version=2`、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
+| 当前 v2 / 目标 v3、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
 | `nats.max_samples_per_batch`、`max_batch_bytes` | Sink 入口容量；默认 500 点 / 1 MiB，部署值不得小于 Collector 发布值且不得超过 NATS 服务器限制 |
 | `runtime.max_inflight_global`、`max_inflight_per_sink`、`max_pending_points` | 本容器每数据 Worker 的安全执行预算 |
 | `reliable.max_inflight_per_delivery`、`replay_max_inflight`、`replay_max_rate_per_second` | Reliable Delivery 消费及补发限制 |
@@ -2920,14 +2923,12 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # default_deadline_ms — RPC 默认截止时间；整数 1..5000 ms，如 5000。
 #
 # [安全与调用方]
-# ca_cert — 客户端证书验证所用 CA 证书路径；非空字符串。
-# server_cert — Main gRPC 服务端证书路径；非空字符串。
-# server_key — Main gRPC 服务端私钥路径；非空字符串。
+# gRPC 默认绑定回环地址；跨主机只使用受控专用网络和网络访问控制。
 # callers[].caller_id — 授权调用方的唯一业务标识；非空字符串，如 maintenance。
-# callers[].certificate_identity — 与客户端证书对应的调用身份；如 spiffe://wind-hub/maintenance。
+# callers[].token_env — 运行时访问令牌的环境变量名称；如 WIND_HUB_SINK_ADMIN_TOKEN。
 # callers[].permissions — 该调用方允许的操作类别；query（查询）、
 #   control（启停/控制）、config（配置）；按最小权限分配。
-#   证书与密钥只引用文件路径，不在 YAML 中写入密钥内容。
+#   令牌值仅由环境变量/受控文件提供，禁止写入 YAML 或日志。
 #
 # [NATS / JetStream]
 # servers — NATS 连接地址列表；非空 nats:// URI 列表，如 [nats://127.0.0.1:4222]。
@@ -3020,19 +3021,16 @@ config_sources:
     root: configs/templates
 
 grpc:
-  listen_host: 0.0.0.0
+  listen_host: 127.0.0.1
   listen_port: 50061
   max_active_rpcs: 64
   max_request_bytes: 2097152
   default_deadline_ms: 5000
 
 security:
-  ca_cert: /etc/wind-hub/tls/ca.crt
-  server_cert: /etc/wind-hub/tls/sink.crt
-  server_key: /etc/wind-hub/tls/sink.key
   callers:
     - caller_id: maintenance
-      certificate_identity: spiffe://wind-hub/maintenance
+      token_env: WIND_HUB_SINK_ADMIN_TOKEN
       permissions: [query, control, config]
 
 nats:
@@ -3235,7 +3233,7 @@ capabilities:
   max_safe_inflight: 1
 connection:
   endpoint: "gateway.local:50073" # 实例可覆盖；host:port 非空
-  credential_ref: "env:WH_GATEWAY_MTLS"  # 服务证书/身份凭据引用，禁止明文
+  credential_ref: "env:WH_GATEWAY_ACCESS_TOKEN"  # 服务访问令牌环境变量引用，禁止明文
 output:
   write_timeout_ms: 2000       # 1..30000；超时不能当作明确失败
   lease_ms: 15000              # 1000..60000；按约 1/3 租期续约
@@ -3275,7 +3273,7 @@ sinks:
     template_version: "1.0.0"
     connection:
       endpoint: "gateway.local:50073"
-      credential_ref: "env:WH_GATEWAY_MTLS"
+      credential_ref: "env:WH_GATEWAY_ACCESS_TOKEN"
       gateway_id: gateway-emulation
     overrides: {}
   modbus_view:
@@ -3403,16 +3401,16 @@ flowchart TD
 
 ## 11.6 如何保护配置路径与密钥
 
-Main 对外 gRPC 使用 mTLS 与 `query/control/config` 权限；密钥只引用 Secret，不出现在普通配置查询和日志。严格拒绝绝对路径、`..`、符号链接及未引用模板扫描。IPC 为容器内受权限控制的本地通道，有界消息和超时；两个 Worker 没有外部配置写权限。
+Main 对外 gRPC 使用 内网隔离与 `query/control/config` 权限；密钥只引用 Secret，不出现在普通配置查询和日志。严格拒绝绝对路径、`..`、符号链接及未引用模板扫描。IPC 为容器内受权限控制的本地通道，有界消息和超时；两个 Worker 没有外部配置写权限。
 
 
 # 12. Sink Adapter 能力与输出映射
 
 ## 12.1 四类 Adapter 的确认、并发及幂等契约
 
-**Gateway 输出实施契约**：`connection.endpoint/gateway_id/credential_ref` 分别为 Gateway RPC 地址、目标实例和 `env:NAME` Secret 引用。环境变量是包含 `ca_pem`、`client_cert_pem`、`client_key_pem` 的 JSON PEM 凭据；仅可使用具备 Gateway `inject` 权限的 mTLS 身份，禁止明文回退。模板 `output` 含 `write_timeout_ms/lease_ms/max_batch_size`。Realtime Delivery 的 `target_mappings` 数组逐项声明 `source_device_id/source_point_id/variable_id`，校验来源、目标唯一性和最大批量。一个 Sink 的多个 Delivery 共享 Gateway 租约，RPC 成功边界仅为逐变量成功应答，不等于工业 Client 已读取；未知或断连不盲重发。
+**Gateway 输出实施契约**：`connection.endpoint/gateway_id/credential_ref` 分别为 Gateway RPC 地址、目标实例和 `env:NAME` Secret 引用。环境变量提供受控 Gateway 访问令牌；仅可使用具备 Gateway `inject` 权限的 应用令牌身份，禁止明文回退。模板 `output` 含 `write_timeout_ms/lease_ms/max_batch_size`。Realtime Delivery 的 `target_mappings` 数组逐项声明 `source_device_id/source_point_id/variable_id`，校验来源、目标唯一性和最大批量。一个 Sink 的多个 Delivery 共享 Gateway 租约，RPC 成功边界仅为逐变量成功应答，不等于工业 Client 已读取；未知或断连不盲重发。
 
-**Gateway 输出 Schema 冻结约束**：目标 `kind: gateway`，连接字段必须声明服务端地址、可信 TLS 身份及 RPC 超时；输出模板声明可访问的 `gateway_id`、按点映射的 `variable_id`、租约 owner/TTL、批量大小和在途额度。配置根路径及共享设备/点表引用按总体设计 v1_15 第 5 章；`gateway_id` 与 `variable_id` 是目标标识，不是来源 `device_id` 的别名。一次源点可映射到多个不同目标，目标二元组在相同 Delivery 版本内不得重复；同一目标不同 Delivery 同时更新必须经 Gateway 租约仲裁。有效租约的取得、续约、释放和失效是 Adapter 的义务；结果不确定时保留在途和隔离，不回退到无租约写入。现行 Gateway `UpdateVariables` 只接收 `gateway_id, values[], lease_token`，不得伪造它存储 `sample_time/quality/sample_id`。四类目标的需求与配置准入同时生效，不实现新可靠通道策略。
+**Gateway 输出 Schema 冻结约束**：目标 `kind: gateway`，连接字段必须声明服务端地址、可信 访问主体及 RPC 超时；输出模板声明可访问的 `gateway_id`、按点映射的 `variable_id`、租约 owner/TTL、批量大小和在途额度。配置根路径及共享设备/点表引用按总体设计 v1_15 第 5 章；`gateway_id` 与 `variable_id` 是目标标识，不是来源 `device_id` 的别名。一次源点可映射到多个不同目标，目标二元组在相同 Delivery 版本内不得重复；同一目标不同 Delivery 同时更新必须经 Gateway 租约仲裁。有效租约的取得、续约、释放和失效是 Adapter 的义务；结果不确定时保留在途和隔离，不回退到无租约写入。现行 Gateway `UpdateVariables` 只接收 `gateway_id, values[], lease_token`，不得伪造它存储 `sample_time/quality/sample_id`。四类目标的需求与配置准入同时生效，不实现新可靠通道策略。
 
 
 
@@ -3425,17 +3423,17 @@ Main 对外 gRPC 使用 mTLS 与 `query/control/config` 权限；密钥只引用
 | Industrial Gateway | gRPC Client | 支持 | 不支持 | `ClaimTargets` 有效租约下 `UpdateVariables` 的逐项成功结果，不代表协议 Client 已读取 | 按 Gateway 分组、租约生命周期受控、失败/未知逐项归属；数据注入不得触发 Commander |
 | Kafka | Producer | 不支持 | 支持 | 所需 ACK 策略下 Broker 确认；不代表 Consumer 处理成功 | `enable_idempotence=true`、`acks=all`；同设备稳定 Key；跨系统重复按业务策略处理 |
 
-首版必须实现四类；TDengine、其他 gRPC 目标、MQTT 与 IEC 104 不在本版本范围内。目标类型与通道在 Push/Apply 阶段严格校验，禁止 Kafka→Realtime、Redis/Modbus/Gateway→Reliable。Adapter 返回 `CONFIRMED/FAILED/UNCERTAIN` 与底层 I/O 收敛状态，不能把超时当成明确失败。Kafka 作为大数据平台接入出口，只承担 Producer，不在 Sink 中增加 Kafka Consumer、数据清洗或分析逻辑。
+首版必须实现四类；TDengine、其他 gRPC 目标、MQTT 与 IEC 104 不在本版本范围内。目标类型与通道在 Push/Apply 阶段严格校验，禁止 Kafka→Realtime、Redis/Modbus/Gateway→Reliable。Adapter 返回 `CONFIRMED/FAILED/UNCERTAIN` 与底层 I/O 收敛状态，不能把超时当成明确失败。Kafka 作为大数据平台接入出口，只承担 Producer，不在 Sink 中增加 Kafka Consumer 或数据分析；Sink 必须完成本章规定的工程/业务转换，不能将其误归为禁止的数据清洗。
 
 **并发能力契约**：每个 Delivery 默认仅允许一个在途操作；共享 Sink 可以允许不同 Delivery 并发，但须满足 Adapter 的 `supports_concurrent_write`、`max_safe_inflight`、Sink 配置上限、进程上限和目标顺序约束的交集。未声明安全并发的 Adapter 上限固定为 1。跨进程共享目标资源时，不能把两个进程的本地计数误认为全局协调；需要独立连接/端口/客户端配额或明示无法提供严格隔离的部署限制。
 
-**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的固定编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
+**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的Contracts §11.9 的目标 JSON v2 编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
 
 **重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis、Modbus TCP Server 与 Gateway 首版模板均须 `reliable: false`，Kafka 首版模板须 `realtime: false`；违反通道矩阵的候选配置直接拒绝。Modbus 业务成功边界只到内存镜像。
 
 ### 12.1.1 四类输出的可编码映射契约
 
-下述映射以稳定的逐测点身份和目标输出能力为约束；main 的正式输入线格式为 Contracts v1_20 的 `SampleBatch(schema_version=2)`，不能在输出 Adapter 中把源批次误解成单点消息。
+下述编码规则仅描述现行 Adapter；目标格式依 Contracts §11.9 统一更换为按 `point_table_id` 标定语义的 JSON v2，须先按 Delivery 等级转换再编码，不得把源批误解成单点消息。
 
 1. **Redis**：业务 Key 由 `namespace:wind_farm_id:collector_id:device_id:point_id` 组成，禁止使用 `sample_id` 作为 Key 的一部分。Value 为 UTF-8 JSON 对象，固定包含 `sample_id`、`value`、`quality`、`sample_time`、`publish_time`、`collector_id`、`device_id`、`point_id`、`wind_farm_id`；时间统一为 UTC ISO 8601，数值与布尔使用原始 JSON 类型，`null` 不改写为数字零。单个 Adapter 批次的成功要求所有属于该批的 Key 更新均获得可信确认；部分成功不得宣称整批已成功，已成功测点的确认按具体操作记录。
 2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 按独立输出的测点条目规范 JSON 编码（含 `sample_id`、质量和原始采样时间，必要时保留源批次身份）；不得将整个 `SampleBatch` 强行当作旧单点消息或无依据假称输出格式已验收。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
@@ -3479,6 +3477,24 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 目标 Broker ACK 不等于 JetStream 源批 ACK；源批确认规则见 §10.6。
 
+## 12.1.5 三级转换和对外数据包格式
+
+**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 字段、示例和校验见 Contracts §11.6；Sink→Kafka/Redis 的目标 JSON v2 字段、示例和编码见 Contracts §11.9。Sink 不定义另一套冗余结构。当前生产接收 v2、Kafka 输出 v1，均为**待迁移实现**。
+
+Delivery 的 `output.data_level` 取 `raw`、`engineering`、`business`，默认 `business`：
+
+| 级别 | 转换流程 | 输出身份 |
+|---|---|---|
+| RAW | 验证源消息后直接使用协议解码标量 | 源 `point_id`；业务 ID 和单位为 null |
+| ENGINEERING | RAW → 历史 PointTable 比例/偏移及工程单位 | 源 `point_id` 与工程 `unit`，业务 ID 为 null |
+| BUSINESS | ENGINEERING → BusinessPoint 映射与标准单位换算 | 保留源 `point_id`、写入 `business_point_id` 和标准 `unit` |
+
+`point_table_id` 是数据解释规则的不可变完整标识，Sink 缓存以该 ID 为键查询 PointTable 及固定依赖闭包，**不依赖全局 `config_revision_id`**。历史 JetStream 消息重放时必须用原 `point_table_id`，禁止读取当前推荐的最新点表替代。RAW 可不读取 Configuration 用于诊断；其他等级无已验证点表缓存且 Configuration 不可用时按受控重试、DLQ/失败语义处理，不得静默回退为 RAW。可靠交付的 ACK 只在每个 Delivery 实际下游确认之后发出。
+
+Kafka Reliable 按单点 Record 组织 JSON v2；Redis Value 使用统一的投影后 JSON 字段，Adapter 自行决定 Key/TTL/CAS；Modbus 寄存器镜像与 Gateway `UpdateVariables` 无法直接传输 JSON 来源元数据，必须由 Delivery 的目标映射和配置版本切换保证正确解释。输入、转换和发送阶段各自可观测；原消息不可被修改，同批次不同 Delivery 可用不同等级输出。
+
+**失败条件**：缺失/冲突的业务映射、单位量纲不匹配、非法值/类型、未知 `point_table_id`、PointTable 内容哈希与已知身份冲突均拒绝解释和交付；`sample_id`、质量、时间戳、幂等及可靠重试语义不得改变。
+
 ## 12.2 输出点映射与冲突规则
 
 <p class="table-caption">表 12-2 输出映射验证</p>
@@ -3514,7 +3530,7 @@ flowchart TD
 
 ## 13.1 管理面身份与授权
 
-外部 gRPC 只使用 mTLS 验证身份；从可信证书 URI SAN 映射 caller_id，再按 `query/control/config` 检查。不能使用请求体自报的 caller_id 作为权限事实。授权查询不执行通用脱敏；凭据不作为普通业务查询输出字段。Main 的配置权限不通过客户端可修改字段决定。运行日志不保存 Token、私钥或明文连接口令。
+内部 gRPC 按受控令牌验证身份；从令牌主体映射 caller_id，再按 `query/control/config` 检查。不能使用请求体自报的 caller_id 作为权限事实。授权查询不执行通用脱敏；凭据不作为普通业务查询输出字段。Main 的配置权限不通过客户端可修改字段决定。运行日志不保存 Token、私钥或明文连接口令。
 
 ## 13.2 操作审计和普通指标
 
@@ -3620,7 +3636,7 @@ tests/src/
 | `test_worker_ipc.py` | component | reliability | recovery、timeout | Main/子进程版本确认、超时与部分收敛 |
 | `test_metrics.py` | component | contract | exception | 初始化、时间窗口、周期计算、跳周期、延迟分位数及快照不可用 |
 | `test_diagnose.py` | component | security | exception、timeout | 诊断分阶段证据、无副作用、限流 |
-| `test_grpc_contract.py` | integration | contract、security | normal、exception | 正式 Proto 全 RPC、mTLS、授权与错误映射 |
+| `test_grpc_contract.py` | integration | contract、security | normal、exception | 正式 Proto 全 RPC、内部网络隔离、授权与错误映射 |
 | `test_jetstream_real.py` | integration | reliability | timeout、recovery | 真实 JetStream durable、ACK、重投、DLQ PubAck |
 | `test_nats_realtime_real.py` | integration | reliability | normal、exception | 真实 NATS Core 实时消息链路 |
 | `test_adapters_real.py` | integration | reliability | normal、exception | 四类 Adapter 真实协议确认边界 |
@@ -3726,7 +3742,7 @@ tests/src/
 | 契约 | 验证内容 | 基础设施与要求 |
 |---|---|---|
 | 第 6 章 | 单容器三进程，各自独立 asyncio、IPC、任务所有权与恢复 | 真实 Main/Realtime/Reliable 三进程；模拟 IPC 断开、进程崩溃及未收敛 I/O |
-| 第 9 章 | `CommonService` 9 项 + `SinkService` 4 项全部 Unary RPC，认证、错误、deadline | 真实 gRPC Server/Stub、mTLS，Proto 已发布；未能完成编译或真实联调则 NOT_RUN |
+| 第 9 章 | `CommonService` 9 项 + `SinkService` 4 项全部 Unary RPC，认证、错误、deadline | 真实 gRPC Server/Stub、内网隔离，Proto 已发布；未能完成编译或真实联调则 NOT_RUN |
 | 第 10 章 | 实时 NATS 和可靠 JetStream、确认/死信与重复投递 | 真实 NATS Core 与 JetStream 服务 |
 | 第 11 章 | 快照候选与原子提交、版本冲突、子进程配置代收敛 | 真实磁盘配置和三个进程；故障可控 |
 | 第 12 章 | Redis/Modbus TCP Server/Gateway/Kafka 成功边界 | 真实协议端点；不可用项逐项 NOT_RUN |
@@ -3834,7 +3850,7 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 | 标识 | 层级 Marker | 验收要求 | 与基线比较 |
 |---|---|---|---|
-| B3-01 | unit、contract | 固定 13 字段目标 Record 字节夹具、§10.7.1 两测点示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
+| B3-01 | unit、contract | 当前 v1 固定 13 字段目标 Record 字节夹具 + 目标 JSON v2 新字段完整 Golden Data（以 Contracts §11.9 为准）、§10.7.1 两测点示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
 | B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | main SampleBatch v2 |
 | B3-03 | system、performance | 真实 JetStream/Kafka 三进程 A/B 至少三轮，报告编码 CPU/批、Reliable CPU/批、CPU 栈、event-loop lag P99、Broker ACK、吞吐、backlog、RSS | R11 稳定容量 |
 | B3-04 | system、reliability | 30 Durable、Realtime/可靠双通道共载、断连恢复、超限 Record、无提前 ACK；全量字节、记录顺序和重复数审计 | R10/R11 |
@@ -3874,7 +3890,7 @@ lint-imports
 | 设计范围 | 第一、二章编制原则保留；第三章定义单实例性能目标，§10.3 统一 main 输入契约，§10.7/§12.1.4/§13.3.2 保持 Kafka 性能与观测边界 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | main 的 `SampleBatch(schema_version=2)` / `SampleItem` 是唯一输入线协议；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
+| 消息契约 | 当前生产的 `SampleBatch(schema_version=2)` / `SampleItem` 仍在运行；目标唯一输入线协议为 Contracts §11.6 的 v3；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
 | 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为批内测点条目，`source batch` 为采集来源事件，`output batch` 为 Adapter 输出组 |
@@ -3929,3 +3945,41 @@ lint-imports
 上述是跨模块核验清单，不自动代表缺失实现或验收通过；Contracts Schema 2 和当前 Sink B2 开发分支实现需分别核对，真实 Collector/Sink 联调结论以实际测试报告为准。
 
 > **v1_37 历史修订说明（2026-11-09）**：以用户提供 v1_36 为基线，第 1～2 章原文保留；保留 Schema 2 源批与受控设备级并发决策，将 B2 Kafka Builder/Metadata/Future 确认纳入 §10.7.2 和 §12.1.4，将加权近似 P99 纳入 §3.5.3 和 §13.3.2，将独立验收纳入 §14.5.6；更新 Kafka 1.1.0 开发分支状态及历史基线表述。不增加第 15 章，不扩展 13 RPC，也不把线下测试视为已通过。
+
+
+# 附录 A：全量目录配置与广播订阅的目标契约
+
+## A.1 模块配置权威和初始引导
+
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+
+## A.2 广播、拉取、对账和独立生效
+
+```mermaid
+sequenceDiagram
+    participant C as Configuration
+    participant N as NATS Core
+    participant M as 本模块
+    M->>N: 独立订阅 wh.config.changed
+    M->>C: GetCurrentRevision
+    C-->>M: 最新 revision_id
+    M->>C: GetConfigBundle(roots,revision_id)
+    C-->>M: 完整 YAML 闭包/manifest_sha256
+    M->>M: 校验、持久化、安全生效
+    C->>N: 广播 wh.config.changed
+    N-->>M: {revision_id}
+    M->>C: 确认最新修订并拉取完整闭包
+    M->>M: 序列化应用，失败保留旧状态
+```
+
+<p class="figure-caption">图 A-1 模块独立配置收敛</p>
+
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+
+## A.3 必须同步移除的旧路径
+
+取消原目标 `CommonService.NotifyConfigRevision`，不再由 CLI 逐模块通知。业务模块原先的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 不能再作为全局配置的发布或旁路更新入口；迁移时按正式 Contracts 一次性更新所有客户端、服务端、配置、代码注释、测试及启动脚本，不保留两套可写权威。此附录为目标契约，**当前 main 生产代码并未实施全量根目录+广播方案**。
+
+## 附录 B：内部 gRPC 适配范围
+
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。

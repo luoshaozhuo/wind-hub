@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_33 · 20261118 · 统一 RPC 与数据契约</p>
+<p class="subtitle">v1_38 · 20261118 · 统一 RPC 与数据契约</p>
 
 <style>
 body {
@@ -750,7 +750,7 @@ System Test 必须遵守以下规定：
 ## 3.1 契约权威与目标状态
 
 - **代码基线**：`luoshaozhuo/wind-hub`，`fix/native-process-e2e-20261116@44d41aa90564a0efe0f86ce795b9b26bab171dbc`；该提交已通过仓库接口核对。
-- **文档基线**：`docs/design/Contracts_软件设计_v1_29.md`，本版升级为 `v1_30`，保留原有服务的契约边界，增加 Configuration Repository 的正式目标设计。
+- **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；新增模块修订通知 RPC 的消息及方法仍需在 `common.proto` 定义并生成代码。
 - **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，总计 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9）。
 - **新增目标契约**：`src/contracts/configuration_repository.proto` 已手写定义 `ConfigurationRepositoryService` 的 12 个 RPC，并纳入 `scripts/generate_rpc.py`。Protobuf/gRPC Python 绑定尚待线下生成；服务端尚未实现，不能标记为运行通过。
 - `src/contracts/sample_batch.py::SampleBatch(schema_version=2)` 属 Collector/Sink NATS 批量采样线协议，不计入上述 gRPC RPC 数；Sink→Kafka 输出另有 `schema_version=1` JSON 格式，也不是配置或点表版本号。
@@ -908,7 +908,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ## 10.1 状态与权威来源
 
-本章定义的目标契约已写入 `src/contracts/configuration_repository.proto`，其 `package` 为 `windhub.configuration.v1`，`service` 为 `ConfigurationRepositoryService`。现有六份 Proto 不增加重复业务 RPC；CommonService 9 RPC 仍通过 `common.proto` 实现。**当前已有 Proto 源文件，但尚未生成绑定和实现服务端**，不得作为已实现能力报告。Configuration Service 只提供全系统配置存储、版本、查询、统计与备份；CLI 负责通知业务服务应用修订，服务本身不主动协调配置生效。所有配置（包含各应用 Service 配置）均入库，只有 Configuration Service 自身的引导配置采用本地 YAML。
+本章定义的目标契约已写入 `src/contracts/configuration_repository.proto`，其 `package` 为 `windhub.configuration.v1`，`service` 为 `ConfigurationRepositoryService`。现有六份 Proto 不增加重复业务 RPC；CommonService 9 RPC 仍通过 `common.proto` 实现。**当前已有 Proto 源文件，但尚未生成绑定和实现服务端**，不得作为已实现能力报告。Configuration Service 只提供全系统配置存储、版本、查询、统计与备份；Configuration 在 SQLite 提交后通过 NATS Core 广播修订提示，服务不逐个协调业务模块生效。所有配置（包含各应用 Service 配置）均入库，只有 Configuration Service 自身的引导配置采用本地 YAML。
 
 ## 10.2 统一命名与消息结构
 
@@ -934,13 +934,13 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ## 10.3 ConfigurationRepositoryService：专用 RPC 定义（目标）
 
-### 10.3.1 `CreateCandidate` — 上传候选配置
+### 10.3.1 `CreateCandidate` — 完整目录候选（复用既有 RPC）
 
-**请求**：`request_id:string`（必填）；`expected_revision_id:optional uint64`（必填且应具 presence）；`documents[]`（至少 1 个），每项包括 `config_id:ConfigId`、`file_name:string`、`yaml_bytes:bytes`；可选 `validate_only:bool`（仅校验不生成候选）。同一次上传禁止重复的 `ConfigId`；总文件数、字节数由服务配置限制。
+**不新增专用上传 RPC。** 既有 `CreateCandidateRequest` 字段 `request_id=1`、`expected_revision_id=2`、`documents=3`、`validate_only=4` 不变；但其 `documents[]` **仅代表 CLI 指定的 `configs/` 根目录内完整文件集合**，不再表示局部文件增量。
 
-**响应**：`candidate_id:string`（仅成功创建候选时非空）；`valid:bool`；`base_revision_id:uint64`；`issues[]`，每条 `{document_id, field_path, error_code, message}`；`document_results[]`，每条 `{config_id, schema_version, file_version, content_sha256}`。
+每个 `ConfigDocumentInput` 继续使用 `config_id=1`、`file_name=2`、`yaml_bytes=3`；其中 `file_name` 必须是受控根目录相对 POSIX 路径并稳定排序。服务端依据 YAML 的 `file_version` 验证唯一 `(config_type, config_id, file_version)`，允许同一逻辑对象不同文件版本同时存在；同身份/同版本不同正文禁止发布。每次请求必须携带所有文件而非差异清单，空集合默认拒绝；收到整个 Unary 消息后再按全集校验并创建持久候选，不得部分落库为有效目录。
 
-**语义**：对请求字段错误返回 `INVALID_ARGUMENT`，对容量超限返回 `RESOURCE_EXHAUSTED`；对可定位的 YAML/Schema 内容错误返回 `CreateCandidateResponse.valid=false` 及 `issues`，不得创建候选。`validate_only=true` 不创建持久候选。已发布的同一 `file_version` 冲突返回 `ALREADY_EXISTS`。
+服务端计算并保存基于 `relative_path/config_id/file_version/yaml_sha256/byte_length` 确定性排序的完整 Manifest 哈希，并执行全文件 Schema、引用、同版本不可变性及容量验证。超出请求大小/文件数限制返回 `RESOURCE_EXHAUSTED`，不隐式截断或分片；**首版不设计分片上传或续传协议**。请求幂等、validate-only 和返回 `issues` 语义保持现有字段号。
 
 ### 10.3.2 `PublishCandidate` — 原子发布
 
@@ -948,7 +948,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 **响应**：`revision_id:uint64`、`published[]`，每项 `{config_id, version_id, file_version, content_sha256}`；`committed_at:Timestamp`；`already_applied:bool`（仅相同幂等请求重试时为真）。
 
-**语义**：在 SQLite 单事务内验证候选、引用、CAS、版本唯一性，发布完整新的全局 revision；不执行各业务模块的 `ApplyConfigSnapshot`。事务失败无部分可见结果。CAS 失败 `ABORTED`；候选不存在 `NOT_FOUND`；重复请求 ID 携带不同内容返回 `ALREADY_EXISTS`。
+**语义**：在 SQLite 单事务内验证候选、引用、CAS、版本唯一性，用单个事务替换新的**目录成员全集视图**并发布全局 revision；缺失文件退出当前目录成员视图，历史不可变版本仍保留；同一集合幂等返回原修订。发布成功后 Configuration 异步尝试 NATS Core 广播，不执行各业务模块的 `ApplyConfigSnapshot`。事务失败无部分可见结果。CAS 失败 `ABORTED`；候选不存在 `NOT_FOUND`；重复请求 ID 携带不同内容返回 `ALREADY_EXISTS`。
 
 ### 10.3.3 `ListConfigs` — 枚举配置身份
 
@@ -1030,6 +1030,30 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 **语义**：成功任务必须返回受控存储路径并完成数据库完整性验证；失败任务必须返回可诊断原因，不承诺客户端可以直接访问服务端路径。
 
+### 10.3.13 `GetPointTableBundle` — 按不可变数据语义 ID 查询（目标）
+
+**用途**：Sink/Storage 根据数据包的 `point_table_id` 获取原始 PointTable 与精确固定的 BusinessPoint/Units 依赖版本闭包，不需要知道全局 `revision_id`。由 Configuration Repository 实现，是目标新增 RPC；当前生产 Proto 尚未包含，不得与现有 `GetConfigBundle(revision_id)` 混为一谈。
+
+**请求**：`point_table_id:string`（非空、全局唯一语义标识），可选 `expected_manifest_sha256:string`（客户端已知闭包哈希时可用于一致性复核），调用方查询权限在服务端判断。
+
+**响应**：`point_table_id:string`、`device_type:string`、`documents[]`（同一不可变闭包全部 YAML 与各自内容哈希及文件版本）、`manifest_sha256:string`；闭包完整、排序确定，不通过当前推荐版本动态解析依赖，文件大小和总数量受已有 Repository 配额限制。未知或已合法不可读的 ID 返回 `NOT_FOUND`，哈希不匹配返回明确一致性错误；不能回退为最新同名点表。
+
+**写入约束**：注册/发布配置时同一 `point_table_id` 如已存在，不允许以不同内容或不同依赖闭包覆盖。历史数据引用 ID 的保护须由 Configuration 统一维护；禁止通过更改 BusinessPoint/Units 的推荐版本导致旧 ID 的历史解释改变。
+
+### 10.3.14 完整目录快照与现有 Candidate RPC 的语义扩展
+
+正式发布链路只有 `CreateCandidate(完整 documents[])` → `PublishCandidate(candidate_id, expected_revision_id)`。完整候选必须在 Configuration 中携带**完整文件相对路径及规范化 Manifest**；发布后新的 `revision_files` 保存该修订的全部目录成员，历史 `config_versions` 只增不改。目录缺失的文件从当前目录视图移除，但历史版本仍可查询；引用被删除文件的当前有效对象时全量候选无效。
+
+`PublishCandidate` 在同一事务内完成 CAS、版本复用或插入、完整成员集合替换、精确引用校验、不可变版本保护、审计及持久幂等。输入集合与当前版本视图没有任何语义差异时，返回当前 revision 且不重复广播。普通候选不接收“仅上传有变化文件”或“单文件 patch”的另一种正式发布语义。大于单请求上限的根目录在本版明确报错，后续若确有证据需要大目录再独立设计上传协议，不提前增加三套 RPC。
+
+### 10.3.15 `GetCurrentRevision` — 启动及周期对账（目标新增）
+
+请求为有 `query` 权限的空消息；响应包含 `revision_id:uint64`（允许空库 0）、`manifest_sha256:string` 和已发布时间。此 RPC 是各模块启动时在订阅 NATS 后、网络重连后及周期对账时读取的唯一全局权威；不依赖 CLI 在线。现有 `GetRepositoryStats` 不能被默认为可替代的强一致性修订查询，除非正式契约提供一致的快照字段。
+
+### 10.3.16 NATS Core 修订事件（非 gRPC）
+
+发布方仅 Configuration Service；Subject 固定 `wh.config.changed`；正文固定 UTF-8 JSON 对象：`{"revision_id":126}`，其中 `revision_id` 为已提交正整数，无 `config_revision_id` 或文件正文。该通知仅为**提示**：业务模块各自使用普通 Pub/Sub 订阅，不能共享 Queue Group；收到重复、乱序通知时按 Configuration 当前权威修订合并请求，不按消息顺序回退；NATS 发布失败不回滚 SQLite 提交，通过订阅后主动查询、重连和周期查询收敛。业务模块完整拉取其自身闭包，各自决定热更新或重启，不保证跨模块原子应用。
+
 ## 10.4 公共错误码与授权
 
 | 类型 | gRPC Status | 示例 |
@@ -1041,7 +1065,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 | CAS 并发冲突 | `ABORTED` | 预期 revision 已变化 |
 | 历史引用不完整 | `FAILED_PRECONDITION` | 版本闭包缺失、不可重建 |
 | 超出服务配额 | `RESOURCE_EXHAUSTED` | 批量文件数量、字节限制 |
-| 未认证 | `UNAUTHENTICATED` | 缺少有效 mTLS 客户端身份 |
+| 未认证 | `UNAUTHENTICATED` | 缺少有效 受控客户端身份 |
 | 授权不足 | `PERMISSION_DENIED` | 只读用户调用发布或备份 |
 | 暂时不可用 | `UNAVAILABLE` | SQLite 无法读取或连接失效 |
 | 数据库内部缺陷 | `INTERNAL` | 读取结果违反已承诺的不变量 |
@@ -1090,6 +1114,31 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 `expected_revision_id=0` 表示空库初始化期望，不得当作“忽略 CAS”；对只读接口中 `revision_id` 缺失与显式 0 必须通过 `optional`/`oneof` 辨别。权限校验发生在有副作用操作之前，服务端私有数据库路径不通过响应泄露给普通查询调用方。
 
+## 10.5.2 简化后新增 RPC 的字段号规划
+
+既有 `CreateCandidate` 和 `PublishCandidate` 以及 `ConfigDocumentInput` 的消息字段号**完全不变**，仅将 `documents[]` 的发布语义收敛为完整根目录。为模块启动/对账和历史 PointTable 精确读取，正式新增**两个**只读 RPC；消息布局如下（尚未写入 Proto）：
+
+```proto
+message GetCurrentRevisionRequest {}
+message GetCurrentRevisionResponse {
+  uint64 revision_id = 1;
+  string manifest_sha256 = 2;
+  google.protobuf.Timestamp committed_at = 3;
+}
+message GetPointTableBundleRequest {
+  string point_table_id = 1;
+  optional string expected_manifest_sha256 = 2;
+}
+message GetPointTableBundleResponse {
+  string point_table_id = 1;
+  string device_type = 2;
+  repeated ConfigYamlDocument documents = 3;
+  string manifest_sha256 = 4;
+}
+```
+
+增加 `GetCurrentRevision`、`GetPointTableBundle` 两个 Unary RPC；前者服务端在一致 SQLite 事务中读取最新已提交全局修订，空库允许返回 0；后者严格定位不可变历史 PointTable 与固定 BusinessPoint/Units 闭包。两者需要 `query` 权限并有数量/字节上限，不得推测当前推荐版本。不会新增 `BeginDirectoryCandidate/AppendDirectoryFiles/FinalizeDirectoryCandidate` 或 `NotifyConfigRevision`。
+
 ## 10.6 YAML 导入导出唯一语义
 
 **只存在一种返回格式**：含完整字段说明、取值、范围、单位及示例的注释 Header + 该版本实际配置正文，不再出现 `STANDARD` / `DOCUMENTED` / `mode` 选择。Header 来源由配置库依据**与该配置版本绑定的 Schema 定义**生成；正文来源是 SQLite 结构化表/受 Schema 约束的配置数据，并通过稳定序列化重建。返回 `yaml_sha256` 是最终传输字节哈希，`content_sha256` 是配置语义对象哈希；二者不可混用。注释中的示例不应作为实际配置键值。导出对象必须重新解析并通过同一 Schema 校验。未知字段、丢失、精度变化或布尔/整数混淆一律视为重建失败，不得悄悄默认。
@@ -1115,13 +1164,13 @@ SQLite 的 `db_meta.schema_version` 描述数据库结构迁移，独立于 YAML
 
 ### 10.7.3 面向既有模块的 YAML 兼容条件
 
-导出文件正文保留目标业务模块的原始 YAML **字段身份、嵌套层级、数据类型、存在性及引用格式**；不能把数据库内部 `version_id` 或 `schema_ref` 注入现有不接受这些字段的配置正文。若新增 `SemanticPoint`、`BusinessPoint` 或文件版本字段涉及 Core 的公共配置解析器变更，必须先升级契约并同步 Collector/Commander/Gateway/Data Generator/Sink/CLI；旧的冻结设计不能由本章擅自替代。
+导出文件正文保留目标业务模块的原始 YAML **字段身份、嵌套层级、数据类型、存在性及引用格式**；不能把数据库内部 `version_id` 或 `schema_ref` 注入现有不接受这些字段的配置正文。若完善 `BusinessPoint`、PointTable 或文件版本字段涉及 Core 的公共配置解析器变更，必须先升级契约并同步 Collector/Commander/Gateway/Data Generator/Sink/CLI；旧的冻结设计不能由本章擅自替代。
 
 # 11. 跨契约一致性与演进
 
 ## 11.1 身份与业务含义
 
-`device_id`、`point_id`、`business_point_id`、Gateway `variable_id` 不得偷换；现行数据链中 `SampleBatch.schema_version=2` 和 Kafka JSON `schema_version=1` 仅指**线格式版本**，不代表配置库点表身份。未来如需在 Kafka 数据中增加不可变点表/存储 Schema 版本标识，必须在 Collector→Sink→Kafka 所有调用者和测试中同步修订并冻结新版本，不能在 Storage 中自行猜测。SemanticPoint→BusinessPoint→Point 的三层语义属于拟议的新统一配置模型，其落地要同步迁移 Core、设备点表及跨模块测试，不应把尚未编码的结构假装为现行 Proto。
+`device_id`、`point_id`、`business_point_id`、Gateway `variable_id` 不得偷换。标准业务测点与实际测点保持 PointTable 内单值对应，同类设备的 BusinessPoint 语义跨设备型号和真实/仿真场景复用。数据包仅以不可变 `point_table_id` 标识数据解释规则，不包含 `config_revision_id` 或 `data_version`；Configuration 全局 `revision_id` 仅在配置管理面使用。`schema_version` 保留，但只表示传输结构版本而非点表版本。
 
 ## 11.2 操作、结果与失败语义
 
@@ -1131,13 +1180,135 @@ gRPC `UNAUTHENTICATED`、`PERMISSION_DENIED`、`INVALID_ARGUMENT`、`NOT_FOUND`�
 
 Configuration Repository 只负责版本与发布，不触发模块 Apply；CLI 依据全局 `revision_id` 协调目标业务模块应用配置，业务模块的 Common `GetConfigSnapshot` 反映**其自身**候选/磁盘/运行快照。配置库不可用时模块可使用已验证且持久化的本地配置快照，禁止隐式切换到未确认的最新版本。Configuration Service 本身由本地 Service YAML 启动，不依赖 SQLite 中的自身配置对象。
 
-## 11.4 NATS 双通道批量样本与 Kafka 边界
+## 11.4 Collector→NATS→Sink 与 Sink→Kafka 的线格式权威
 
-`SampleBatch(schema_version=2)` 具有 `batch_id`, `mode`, `wind_farm_id`, `collector_id`, `task_id`, `device_id`, `publish_time`, `samples[]`；每条样本含 `point_id`,`sample_id`,`value`,`quality`,`sample_time`,`receive_time`,`max_staleness_ms`。Realtime 需 TTL、Reliable 禁止 TTL；样本必须显式携带值（含 `null`），拒绝 NaN/Inf、重复 point/sample ID；默认批次样本数不超过 500，默认编码字节不超过 1048576。Sink 当前 Kafka 以设备范围逐样本 JSON 输出，含相同采样标识、时间和质量。它属于独立的输出线格式，不应在本版暗改；新 Storage 契约应待独立设计冻结后追加。
+Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯一权威**。NATS Realtime 与 JetStream Reliable 使用同一种 Envelope 和 SampleItem Schema，由 `mode` 区分，并分别使用 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>`、`wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` Subject。跨模块源格式以 §11.6 为准；Sink 对外输出以 §11.9 为准。各模块设计只引用这些唯一字段契约，不得再另定义字段含义或格式版本。
+
+现行生产输入是 `SampleBatch(schema_version=2)`，现行 Kafka 单点 JSON 是 `schema_version=1`，均缺少目标 PointTable 身份及数据等级。新格式为**待联动实施的目标契约**，迁移时同步更改 Contracts、Collector、Sink、Kafka/Redis Adapter 与测试，禁止宣称已经上线。目标 NATS SampleBatch v3 与 Kafka/Redis 单点 JSON v2 相互独立，不能根据一个的版本推导另一个。
 
 ## 11.5 Proto 兼容规则
 
 允许添加新字段号（保持现有号、类型、oneof presence）；不允许同包同号改语义、改变 scalar 类型、误用隐式缺省或移除现行 RPC。确需不兼容变更，应新包版本并同时完成生产端、调用方、CLI、配置及测试迁移；不保留无故兼容层。用户可见 `file_version` 并非 Proto 包版本，不能互相替代。
+
+## 11.6 Collector→Sink：SampleBatch v3 目标线格式
+
+**传输**：NATS/JetStream 消息体为 UTF-8 JSON 对象；单条消息为同一设备、同一采集任务、同一 PointTable 的采样批。下表规定全部字段的名称、层级和校验要求；除注明可选的字段外，均必须存在。消息按固定 Schema 严格解析，拒绝未知字段和重复 JSON 键。
+
+| 层级 | 字段 | 类型 | 规则 |
+|---|---|---|---|
+| Batch | `schema_version` | integer | 固定 3；仅表示当前 JSON 契约结构版本 |
+| Batch | `batch_id` | string | 必填，稳定批次身份；重发不更改 |
+| Batch | `mode` | enum | `realtime` / `reliable`，必须与 NATS 通道一致 |
+| Batch | `wind_farm_id`、`collector_id`、`task_id` | string | 非空来源身份；Subject 中设备/站/Collector 与包头一致 |
+| Batch | `device_type`、`device_id` | string | 必填，稳定设备类型与实例身份，由生效采集计划确定 |
+| Batch | `point_table_id` | string | **必填，全局唯一且不可变的完整 PointTable 语义标识**，由采集计划固定 |
+| Batch | `publish_time` | RFC 3339/ISO 8601 | 带时区的 UTC 时间，批发布时刻 |
+| Batch | `samples` | array | 1～500 条，每条均属于该点表；禁止重复 `point_id` / `sample_id` |
+| Item | `point_id` | string | 必填，原始 PointTable 测点身份，不预先变为 BusinessPoint |
+| Item | `sample_id` | string | 必填，采样幂等身份；同次消息重发保持不变 |
+| Item | `value` | float/int/bool/string/null | 必须显式出现；原协议字段解码后的标量，未做比例、偏移及标准单位换算；不允许 NaN/Inf |
+| Item | `quality` | enum | `good` / `bad` / `uncertain` |
+| Item | `sample_time` | RFC 3339/ISO 8601 | 必填，带时区 UTC 时间 |
+| Item | `receive_time` | RFC 3339/ISO 8601 | 可选，Collector 接收时间 |
+| Item | `max_staleness_ms` | positive integer | **Realtime 必填；Reliable 必须省略** |
+
+**完整示例（Realtime，v3 目标）**：
+
+```json
+{
+  "schema_version": 3,
+  "batch_id": "batch-0001",
+  "mode": "realtime",
+  "wind_farm_id": "farm-a",
+  "collector_id": "collector-1",
+  "task_id": "task-wtg-1",
+  "device_type": "wtg",
+  "device_id": "WTG001",
+  "point_table_id": "point_table_modbus_wtg_v1.0.0",
+  "publish_time": "2026-11-18T00:00:00Z",
+  "samples": [
+    {
+      "point_id": "P001",
+      "sample_id": "sample-0001",
+      "value": 15234,
+      "quality": "good",
+      "sample_time": "2026-11-18T00:00:00Z",
+      "receive_time": "2026-11-18T00:00:00Z",
+      "max_staleness_ms": 500
+    }
+  ]
+}
+```
+
+Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_staleness_ms`。默认完整 UTF-8 消息 ≤ 1,048,576 字节，单批默认 ≤ 500 条，部署参数允许更严格限制；超限应按采集事件安全拆批，不允许把不同点表的数据合并。UTF-8 JSON、UTC 时区、显式 null 和完整来源身份保持旧契约的严格验证。
+
+**PointTable 身份约定**：数据包的 `point_table_id` 取 `point_table_<template_id>_v<file_version>`（不带 `.yaml`），例如现有点表 `template_id: modbus_wtg_sim`、`file_version: 1.0.0` 对应 `point_table_modbus_wtg_sim_v1.0.0`；这**一个字符串已包含不可变模板版本**，不在数据包另传版本字段。该身份由配置装配阶段从已发布点表的逻辑 ID 和版本生成并核验，禁止使用无版本的 `template_id` 代替。
+
+**PointTable 不变性**：`point_table_id` 必须能在 Configuration 解析到确定且不可变的 Point 集合、比例/偏移、类型/源工程单位及**精确固定的 BusinessPoint/Units 依赖闭包**。如果任何改变影响样本解释或 BusinessPoint 输出语义，必须发布新的 `point_table_id`；不能沿用同一 ID 指向可变的最新依赖版本。若仅变更采集间隔或服务连接参数、不影响解释规则，可继续使用原 PointTable ID。不同全局配置修订可以共享同一 PointTable ID。
+
+**迁移要求**：当前代码严格要求 v2，新的必填字段意味着 v3 输入不能在旧消费者下兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
+
+## 11.7 数据三级语义与映射不变量
+
+`RAW` 为协议解码出的标量，不是报文字节，允许独立于 Configuration 查询进行诊断交付（但仍要校验批次结构和来源身份）；`ENGINEERING` 为按 PointTable 变换的工程值；`BUSINESS` 为按 BusinessPoint 唯一语义和标准单位投影后的业务值。输出等级是每个 Delivery 的配置，合法值为 `raw`、`engineering`、`business`，缺省 `business`。下游编码（Kafka JSON、Modbus 寄存器、Gateway/Redis 映射）是与三级数据表达正交的 Adapter 职责。
+
+每条 Point 在点表中必须显式设置 `business_point_id`；同一有效 PointTable 的该字段不可重复，跨不同点表允许引用同一个 BusinessPoint。BusinessPoint 不因仿真/真实、设备型号、协议地址产生别名；物理位置和统计口径不同则须定义可区分的稳定身份。Configuration 拒绝重复及无效映射；Sink 不猜测或静默回退。
+
+## 11.8 安全契约与配置通知
+
+内部通信使用受控内网与按角色/资源的轻量操作授权；模块之间不启用 TLS/mTLS。Configuration 在发布提交后发送 NATS Core `wh.config.changed` 修订提示；业务模块各自主动拉取完整配置包并独立生效，通知不进入 SampleBatch 采样报文。控制与管理权限不因数据格式变化而放宽。
+
+## 11.9 Sink→下游：转换值对象、Kafka/Redis 与协议输出契约
+
+每个 Delivery 的 `output.data_level` 为 `raw`、`engineering`、`business`，默认 `business`。Sink 在选择数据等级后生成**统一的转换后逻辑样本**，随后由 Adapter 编码到不同目标；原始值、源 `point_id`、`sample_id`、质量与时间均不可被覆盖。
+
+| 逻辑字段 | 类型 | 规则 |
+|---|---|---|
+| `schema_version` | integer | Kafka/Redis 目标 JSON 固定为 2，与 SampleBatch v3 独立 |
+| `data_level` | enum | `raw`、`engineering` 或 `business` |
+| `wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id` | string | 必填，与 Collector 原包一致 |
+| `batch_id`、`point_id`、`sample_id` | string | 必填；`point_id` 永远为源 Point ID |
+| `business_point_id` | string/null | BUSINESS 必填有效业务标准 ID；RAW、ENGINEERING 为 null |
+| `unit` | string/null | RAW 为 null；ENGINEERING 为工程源单位；BUSINESS 为 BusinessPoint 标准单位 |
+| `value` | scalar/null | 按等级获得的值；未经量纲转换的 RAW 不标注标准单位 |
+| `quality` | enum | 原始采样质量，不因转换而伪造 good |
+| `sample_time`、`publish_time` | RFC 3339/ISO 8601 | 必填 |
+| `receive_time` | RFC 3339/ISO 8601/null | 无值时为 null |
+| `max_staleness_ms` | positive integer/null | 原始 Realtime 过期约束；Reliable 为 null |
+
+Kafka Reliable **每条 SampleItem 一条 JSON Record**，Key 仍是 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节，Topic 由 Delivery 配置确定；一个原始 SampleBatch 可经 Kafka Producer 的批处理合并网络发送，但不得改变逐样本 Record 的身份与 ACK 归属。
+
+**Kafka BUSINESS 输出完整示例（Kafka JSON v2，数值仅示意）**：
+
+```json
+{
+  "schema_version": 2,
+  "data_level": "business",
+  "wind_farm_id": "farm-a",
+  "collector_id": "collector-1",
+  "task_id": "task-wtg-1",
+  "device_type": "wtg",
+  "device_id": "WTG001",
+  "point_table_id": "point_table_modbus_wtg_v1.0.0",
+  "batch_id": "batch-0001",
+  "point_id": "P001",
+  "business_point_id": "active_power",
+  "sample_id": "sample-0001",
+  "value": 1523.4,
+  "unit": "kW",
+  "quality": "good",
+  "sample_time": "2026-11-18T00:00:00Z",
+  "publish_time": "2026-11-18T00:00:00Z",
+  "receive_time": "2026-11-18T00:00:00Z",
+  "max_staleness_ms": null
+}
+```
+
+Kafka 原始值模式仍使用相同 JSON v2 字段集合，仅将 `data_level="raw"`、`business_point_id=null`、`unit=null`，`value` 保持原标量；工程值模式同理保留源 `point_id`、`business_point_id=null`、附工程单位。Redis JSON Value 使用相同逻辑字段和语义，但 Redis Key/TTL、CAS 和原子更新规则由 Sink Adapter 规定；RAW/ENGINEERING/BUSINESS 在同目标输出时必须防止 Key 冲突和旧值覆盖。
+
+Modbus TCP 输出为配置指定的寄存器值/质量镜像，Industrial Gateway 输出为受控 `UpdateVariables` 的 `variable_id/value` 参数。两者**不具备传递上述完整 JSON 元数据的能力**，必须在 Delivery 模板中显式配置 Point/BusinessPoint→目标地址映射、编码类型、写入确认和版本切换规则；不得谎称下游可以从 Modbus 寄存器恢复 `point_table_id`。如目标需要完整来源身份，必须使用支持元数据的 Sink（Kafka/Redis）或另行设计寄存器元数据地址区。
+
+**Storage 接口约束**：Kafka 记录的 `device_type`、`device_id`、`point_table_id` 是存储建表/语义归属的充分来源标识（其正确性依赖 PointTable 不可变闭包及 Storage 设计）；`schema_version` 仅负责 JSON 字段契约，不能作为设备数据表版本；不新增 `data_version` 和 `config_revision_id`。历史重放必须依原消息携带的 `point_table_id`，缺失历史点表或依赖时拒绝解释，不得采用最新点表替代。
 
 # 12. 测试、生成与验收
 
@@ -1145,7 +1316,7 @@ Configuration Repository 只负责版本与发布，不触发模块 Apply；CLI 
 
 | 契约文件 | RPC 数 | Descriptor 与联调断言 |
 |---|---:|---|
-| `common.proto` | 9 | 9 RPC 注册；ScalarValue oneof；三种 SnapshotScope；健康/指标/诊断；mTLS |
+| `common.proto` | 9 | 9 RPC 注册；ScalarValue oneof；三种 SnapshotScope；健康/指标/诊断；内网隔离及操作授权 |
 | `collector.proto` | 11 | 设备/点/任务枚举、主动读取、总召、发布状态及分页 |
 | `commander.proto` | 8 | request_id、批量接纳/执行分离、查询隔离、恢复证据、`io_settled` |
 | `sink_service.proto` | 4 | Delivery 身份、状态及可靠/实时通道隔离 |
@@ -1179,4 +1350,11 @@ Configuration Repository 只负责版本与发布，不触发模块 Apply；CLI 
 
 ## 13.3 `RecoverDeviceControl` 的证据与幂等
 
-`isolation_attestation` 必须来自 Commander 外部独立可信决策方，验证身份、有效期、设备范围、epoch/fencing、撤销及防重放。恢复成功返回 `decision_id`、`evidence_digest` 并持久保存，跨重启旧证据不能重新获得写权限。全部安全属性需要 mTLS 和 SQLite 持久化复测；单凭接口设计不能宣称生产验证完成。
+`isolation_attestation` 必须来自 Commander 外部独立可信决策方，验证身份、有效期、设备范围、epoch/fencing、撤销及防重放。恢复成功返回 `decision_id`、`evidence_digest` 并持久保存，跨重启旧证据不能重新获得写权限。全部安全属性需要 内网隔离和 SQLite 持久化复测；单凭接口设计不能宣称生产验证完成。
+## 附录 A：全量配置与广播契约的迁移边界
+
+唯一人工发布入口为 CLI 的根目录全集上传；配置库持久化目录全集、不可变对象版本与全局修订；Configuration NATS Core 广播不承诺模块在线或生效。**废止目标 `CommonService.NotifyConfigRevision` RPC**，不得在目标 Proto 中新增。既有业务服务的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 属于旧运行管理能力，不得继续承担集中发布路径。上述两个新增查询 RPC、现有 Candidate/Publish 语义、CLI、Configuration、模块订阅/拉取、旧调用方、生成绑定和测试必须一次性同步迁移。
+
+## 附录 B：内部 gRPC 适配范围
+
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。

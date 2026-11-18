@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_17 · 20261115 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_22 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -182,7 +182,7 @@ $$
 
 ## 3.1 系统边界与分层
 
-wind-hub 按管理入口、业务服务、公共基础能力三层组织。外部工业设备、工业协议对端、第三方系统、NATS/JetStream、Redis、Kafka 及其他目标服务均不属于 wind-hub 的进程边界。仓库内配置文件作为系统的逻辑数据存储。
+wind-hub 按管理入口、业务服务、公共基础能力三层组织。外部工业设备、工业协议对端、第三方系统、NATS/JetStream、Redis、Kafka 及其他目标服务均不属于 wind-hub 的进程边界。Configuration Service 的 SQLite 为已发布配置的权威逻辑存储；仓库中的 YAML 文件作为导入、导出和服务引导的交换形式。
 
 <p class="table-caption">表 3-1 系统模块分工</p>
 
@@ -190,13 +190,13 @@ wind-hub 按管理入口、业务服务、公共基础能力三层组织。外�
 |---|---|---|
 | 管理入口 | CLI | 通过正式 RPC 执行配置、启停、诊断、监视及控制操作；不直接执行业务服务的内部逻辑 |
 | 管理入口 | Web Admin / Web Server | Web Admin 提供界面；Web Server 提供管理 API、身份和权限边界，通过正式接口调用业务模块 |
-| 业务服务 | Collector | 设备数据采集、批量组织及 Realtime/Reliable 发布 |
+| 业务服务 | Collector | 工业设备采集、原始标量与质量/时间戳记录、数据配置修订身份绑定、批量组织及 Realtime/Reliable 发布；不承担工程或业务标准化转换 |
 | 业务服务 | Commander | 控制命令校验、调度、执行与权威结果裁决 |
 | 业务服务 | Industrial Gateway | 工业协议 Server、模拟变量寄存与授权注入、控制事件转发 |
 | 业务服务 | Data Generator | 随机、回放及简单物理模型驱动的仿真数据生成，向 Gateway 注入数据 |
-| 业务服务 | Sink Service | 订阅/消费数据批，按 Delivery 向外部目标派发并处理交付确认 |
-| 公共基础 | Core | 通用领域原语、协议客户端、YAML 基础处理、技术横切能力及内置的共享配置子包 `core.configuration` |
-| Core 内部能力 | `core.configuration` | 共享配置语义、版本引用、实例与模板校验及有效配置装配；不独立发布为顶级服务 |
+| 业务服务 | Sink Service | 校验批次、按源配置修订加载映射，按 Delivery 提供 RAW/ENGINEERING/BUSINESS 递进转换（默认 BUSINESS），并负责下游协议编码、交付确认 |
+| 公共基础 | Core | 通用领域原语、协议客户端、YAML 基础处理与共享配置解析原语；不存储全系统权威配置 |
+| 公共基础服务 | Configuration Service | SQLite 权威配置库、不可变版本、全局修订、引用闭包及配置包 gRPC 查询；不执行各业务模块的运行生效 |
 | 公共基础 | Contracts | 跨进程 RPC、消息格式及线协议契约 |
 
 ## 3.2 外部对象
@@ -242,7 +242,8 @@ flowchart TB
             GW(["1.7 Industrial Gateway"])
             DG(["1.8 Data Generator"])
         end
-        C[("D1 配置文件<br/>Service / Instance / Template")]
+        CFG(["1.9 Configuration Service"])
+        C[("D1 SQLite 权威配置库")]
     end
 
     U -->|"用户请求"| CLI
@@ -264,12 +265,17 @@ flowchart TB
     N -->|"订阅 / 消费数据批"| SINK
     SINK -->|"Redis / Modbus TCP / Kafka 交付"| X
     SINK -->|"Realtime：Gateway UpdateVariables"| GW
-    C <-->|"配置读取 / 提交"| MG
+    CLI -->|"候选上传 / 原子发布"| CFG
+    WEB -->|"授权配置管理"| CFG
+    CFG <-->|"版本与修订"| C
+    CFG -->|"NATS Core 广播修订提示"| N
+    N -->|"配置变更广播"| B
+    B -->|"按 revision 拉取配置包"| CFG
 ```
 
 <p class="figure-caption">图 4-1 wind-hub 系统一级数据流图</p>
 
-其中 `1.3 业务管理接口组` 是图形汇聚节点，代表业务服务正式管理接口的集合，不是新增运行进程或网关服务；从该节点到“业务服务”分组的一根线代表面向多个服务的同类管理数据流，不要求每个操作访问全部模块。配置的具体读取与提交由目标服务负责，不经管理接口组代存。为保持一级图清晰，各业务模块直接读取配置的链路在第 5 章说明。图中省略返回方向的管理结果线，管理请求应按正式接口返回结果。
+其中 `1.3 业务管理接口组` 是图形汇聚节点，代表业务服务正式管理接口的集合，不是新增运行进程或网关服务；从该节点到“业务服务”分组的一根线代表面向多个服务的同类管理数据流，不要求每个操作访问全部模块。Configuration Service 是独立进程和配置数据的唯一权威库；Configuration 在 SQLite 发布后通过 NATS Core 广播修订提示，业务模块直接调用 Configuration Service 的 gRPC 查询接口拉取完整闭包。管理接口组不存储配置。图中省略返回方向的管理结果线，管理请求应按正式接口返回结果。
 
 ## 4.2 核心数据链路
 
@@ -277,12 +283,13 @@ flowchart TB
 
 | 链路 | 逻辑路径 | 责任边界 |
 |---|---|---|
-| 真实采集 | 工业协议 Server → Collector → NATS/JetStream → Sink Service → Redis / Modbus TCP / Kafka | Collector 负责源数据发布；Sink 负责下游交付 |
+| 真实采集 | 工业协议 Server → Core 协议驱动 → Collector → NATS/JetStream → Sink Service → 下游目标 | Core 解码协议字段；Collector 发布未做工程换算的标量与不可变 PointTable ID；Sink 负责映射、换算、标准化及交付 |
 | 实时回注 | NATS Core → Sink Service → Industrial Gateway | Sink Realtime 通过 Gateway 正式更新接口批量写入变量，Gateway 不因此触发控制事件 |
 | 控制执行 | CLI/Web Server 或 Gateway → Commander → 工业协议 Server | Commander 裁决命令执行和结果 |
 | 仿真测量 | Data Generator → Industrial Gateway → Collector | Generator 产生数据；Gateway 持有变量并提供协议 Server |
 | 仿真控制 | 协议 Client → Gateway → Commander → Gateway → Data Generator | Gateway 捕获写事件并仅向 Commander 提交；Commander 授权和裁决后经 Gateway 仿真执行接口转发 Data Generator 的可写输入。此接口需先纳入 Contracts，不能复用仅用于数据注入的 UpdateVariables |
-| 管理和配置 | CLI/Web Server → 目标业务服务 → 本服务配置管理能力 | 目标服务持有配置提交与运行生效状态 |
+| 配置发布 | CLI → Configuration Service → SQLite | Configuration Service 持有全局版本和原子发布修订；发布不等于运行生效 |
+| 配置分发 | CLI → Configuration Service（完整目录发布）→ NATS 广播 → 业务服务独立拉取 | Configuration 广播；业务服务独立校验和应用，记录运行修订与失败原因 |
 
 可靠消息的各 Delivery 通过独立 JetStream Durable Consumer 管理确认责任；Collector 发布成功不等于 Sink 下游交付成功。工业协议请求接受不等于现场控制已完成。Gateway 的变量注入和控制请求是不同操作，不得互相替代。
 
@@ -290,9 +297,9 @@ flowchart TB
 
 外部管理调用方通过正式 Proto 调用业务服务。Commander 对 `SubmitCommand(s)` 的接收、执行、幂等记录及权威结果负责；`accepted` 不等于现场操作完成。Core 协议驱动提供 `read_one`、`read_many`、`write_one`、`write_many` 的技术能力，不承担 Commander 的批次业务原子性与结果裁决。
 
-Gateway 对工业协议 Server、变量、租约和注入结果负责；工业协议控制写事件只能提交 Commander，禁止直接调用 Data Generator 绕过统一控制裁决。Commander 对真实设备调用 Core 协议客户端，对仿真设备经 Gateway 仿真执行接口调用 Data Generator；该接口的请求身份、幂等、权限、结果与 UNKNOWN 语义须在 Contracts 正式定义并验收后实现。变量注入不得自动触发控制转发。Data Generator 只允许更新受权的模型输入，不允许把计算输出直接作为外部可写输入。Collector 对采集和采样发布负责；Sink 每条 Delivery 的确认、重试及 DLQ 由该 Delivery 自身负责，NATS/JetStream 消息 ACK 不能代替下游交付确认。
+Gateway 对工业协议 Server、变量、租约和注入结果负责；工业协议控制写事件只能提交 Commander，禁止直接调用 Data Generator 绕过统一控制裁决。Commander 对真实设备调用 Core 协议客户端，对仿真设备经 Gateway 仿真执行接口调用 Data Generator；该接口的请求身份、幂等、权限、结果与 UNKNOWN 语义须在 Contracts 正式定义并验收后实现。变量注入不得自动触发控制转发。Data Generator 只允许更新受权的模型输入，不允许把计算输出直接作为外部可写输入。Collector 对原始标量采集、采样身份及不可变 `point_table_id` 绑定负责；Sink 按该历史点表身份获取完整固定依赖闭包并实施数据转换，各 Delivery 的确认、重试及 DLQ 由该 Delivery 自身负责，NATS/JetStream 消息 ACK 不能代替下游交付确认。
 
-配置查询与变更的候选态、持久态、运行态由目标业务服务持有。`core.configuration` 提供共享源解析、校验和只读快照，不提供独立配置 RPC，不承担跨服务原子 Apply。
+Configuration Service 统一持有全局候选、不可变版本和已发布修订；业务模块持有本地已拉取及运行生效修订。`core.configuration` 仅提供共享解析与校验原语。Configuration 的广播不构成跨业务服务原子 Apply。
 
 ## 4.4 静态代码依赖
 
@@ -328,61 +335,125 @@ wind-hub 配置统一划分为 **Service、Instance、Template** 三类；分类
 
 设备通信端点归 Instance；协议参数 Schema、点表与型号固定参数归 Template；运行调度、生成场景选择与外部输入归所属 Service。物理仿真型号的额定值、结构参数、查表及固定控制策略属于 Device Model Template；不把这些定义重复写入设备实例或运行场景。
 
-## 5.2 管理职责与引用关系
+## 5.2 权威配置库与全量目录快照
 
-Configuration 是 **Core 内部**的 `src/core/configuration/` 共享 Python 子包（正式导入前缀 `core.configuration`），**不是顶级 `src/configuration/` 包，不是独立进程，也不提供配置 RPC**。本章定义目标结构；当前分支代码仍保留 `src/configuration/`，须在 R2-C 集中迁移，统一修改 imports、包发布配置、import-linter、测试及设计引用，删除旧包，不保留 re-export 或兼容别名。公共组件与业务服务的分工如下。
+Configuration Service 的 SQLite 是配置权威，`configs/` 是 CLI 导入的**完整目标目录快照**。首次初始化及后续更新使用同一入口 `wind-hub config publish --root PATH`；CLI 递归扫描受控根目录，上传全部有效 YAML 及相对路径，不要求运维人员指定增量文件清单。Service 自身用于打开 SQLite 的引导配置不纳入自身版本库；其他服务的业务配置由库集中管理。
 
-<p class="table-caption">表 5-2 配置管理职责</p>
-
-| 责任主体 | 职责边界 |
+| 责任主体 | 唯一职责 |
 |---|---|
-| `core.infrastructure.config` | 模块无关的 YAML 读写和基础数据处理；不判断 Service 配置业务语义 |
-| `core.configuration` | 解析 wind-hub 共享 Instance 与 Template、校验显式引用及版本关系、装配不可变共享配置快照；不负责业务 Service 应用结果 |
-| 业务 Service | 选择配置来源、定义专属 Schema、处理配置请求与候选、协调持久化、应用运行配置并报告权威结果 |
-| Contracts | 统一规定跨进程配置查询、提交、应用和结果查询的线协议 |
-| CLI / Web Server | 调用业务服务正式接口进行配置管理；不直接取代业务服务执行配置应用 |
+| CLI | 安全扫描根目录、稳定排序和上传全量文件、提交基准修订 CAS、展示配置库校验与发布结果；不逐模块通知/应用 |
+| Configuration Service | 对**完整目录快照**校验并用一次 SQLite 事务替换当前目录成员视图；不可变版本复用/新增、历史留存、全局修订、NATS Core 广播 |
+| 业务模块 | 从最小本地引导参数获取服务身份/Configuration 与 NATS 地址，订阅全局变更；按固定修订拉取**自身完整依赖闭包**、本地持久化、独立校验及生效 |
+| Contracts | 规定全量目录候选上传、CAS 发布、完整配置闭包和按 PointTable ID 不可变闭包读取的 RPC，以及广播消息 Schema |
+| Core | 提供通用解析、引用、Schema、内容哈希及共享配置对象；不拥有跨模块修订 |
+| Web 相关模块 | 本轮不修改生产代码；后续复用正式管理接口，不绕过 Configuration 发布机制 |
+
+目录中可以同时包含同一配置对象的不同 `file_version`：这些是合法的独立历史候选；**不会因版本号更大自动生效**。Service、Device、DeviceModel 及其他业务引用确定实际有效闭包；同一 `config_type + config_id + file_version` 不得关联两种内容及两套依赖。完整快照中已不存在的对象版本从**当前目录成员视图**移除，不删除 SQLite 内历史不可变版本；如仍被当前生效依赖引用，则整个发布失败。旧版未被当前引用仍可保留在库中供历史重放。
+
+全量指**提交者的目录内容集合完整**，不是每次重新插入全部数据库行：服务端基于规范化文件内容、逻辑身份和 SHA-256 复用未改变对象，仅变更当前目录视图并递增有效修订。若相同目录与当前发布视图等价，应按幂等语义返回现有修订，不重复广播。正式入口复用一次 `CreateCandidate(documents[])` Unary 请求，传输整个目录清单及全部文件；服务端按完整候选进行校验。若超过明确配置的 gRPC 请求字节或文件数上限，必须拒绝并报告容量错误，**首版不引入分片候选会话**。发布与并发冲突使用 `expected_revision_id` CAS；不允许用全量上传绕过并发保护。
+
+## 5.3 发布后广播、完整闭包拉取与独立应用
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart LR
-    S[("Service 配置")]
-    I[("Instance 配置")]
-    T[("Template 配置")]
-    C["Configuration<br/>共享配置解析及校验"]
-    A["业务 Service<br/>专属配置和运行应用"]
-    S -->|"config_sources：实例路径/模板根目录"| C
-    I -->|"实例与模板精确引用"| C
-    T -->|"版本化定义"| C
-    C -->|"不可变共享快照"| A
-    S -->|"服务运行参数"| A
+sequenceDiagram
+    participant O as 运维人员
+    participant CLI
+    participant CFG as Configuration
+    participant N as NATS Core
+    participant A as Collector
+    participant B as Sink
+    O->>CLI: config publish --root configs/
+    CLI->>CFG: CreateCandidate(完整目录 documents[])
+    CFG-->>CLI: 候选完整性及校验结果
+    CLI->>CFG: 原子 Publish(expected_revision_id)
+    CFG->>CFG: SQLite 提交完整目录视图 r
+    CFG-->>CLI: 发布成功 revision_id=r
+    CFG-->>N: wh.config.changed {revision_id:r}
+    par Collector 独立更新
+        N-->>A: 配置变更提示
+        A->>CFG: GetConfigBundle(roots,r)
+        CFG-->>A: 完整依赖闭包及哈希
+        A->>A: 校验、持久快照、安全切换
+    and Sink 独立更新
+        N-->>B: 配置变更提示
+        B->>CFG: GetConfigBundle(roots,r)
+        CFG-->>B: 完整依赖闭包及哈希
+        B->>B: 校验、持久快照、安全切换
+    end
 ```
 
-<p class="figure-caption">图 5-1 三类配置的引用、解析及使用关系</p>
+<p class="figure-caption">图 5-1 全量目录发布、变更广播与模块独立拉取</p>
 
-Service 可通过可选的 `config_sources.instances` 显式指向需要的 Instance 文件，通过 `config_sources.templates.root` 指定模板解析根目录；实际允许的子键由该 Service 的 Schema 确定。Instance 中对 Template 的引用采用精确标识与版本，不自动搜索或选择最新版本。引用路径相对于规定的配置根目录解析；不得以进程工作目录或目录扫描代替显式来源。
+1. **全量目录发布**：CLI 递归读取整个受控根目录（仅允许受支持 YAML、无路径穿越或符号链接逃逸），将相对路径和 UTF-8 内容在单次 `CreateCandidate(documents[])` 中提交。服务端校验**全体文件**、业务 Schema、版本身份、引用闭包与文件集完整性；不以缺失文件作为可忽略的增量输入。
+2. **单事务替换**：只有候选整体合法、CAS 成功才一次性写入不可变版本/目录成员/全局修订；任何失败不影响旧配置视图。目录中文件删除仅改变当前成员集合，历史版本保留。发布成功不能等同模块已生效。
+3. **广播**：**由 Configuration Service** 在 SQLite 提交之后向 `wh.config.changed` 发送最简通知 `{"revision_id":r}`。所有模块建立各自普通 Pub/Sub 订阅，**不能共享 NATS Queue Group**；不维护逐模块发送清单，也不调用 `NotifyConfigRevision` RPC。广播失败不得回滚已提交版本，但必须记录/告警；Core NATS 消息只作提示，并非配置正文或可靠提交证明。
+4. **独立拉取**：模块收到提示后以 Configuration 当前已发布修订为准，调用 `GetConfigBundle` 拉取自身**完整**依赖闭包，检验 manifest、版本与文件哈希，不进行跨修订文件拼接。模块保留经验证的持久化本地快照，完整拉取不等于销毁重建全部运行资源。
+5. **独立应用**：各模块串行化自身配置应用，依据新旧配置比较决定无变化、局部热更新或 `restart_required`；不能通过广播强制跨模块原子切换。某一模块失败/离线不能影响 Configuration 提交或其他模块；每模块独立记录 `seen_revision`、`downloaded_revision`、`effective_revision` 和错误。
+6. **丢通知恢复**：模块先建立订阅、再查询当前最新修订；收到多条通知时合并为最新目标；重连及周期（可配置、有限）查询修订并对账。Configuration 不可用时使用合法已验证的本地运行快照；首次没有合法快照则不报告 READY。广播事件乱序/重复不得使模块回退。
+7. **引导边界**：Configuration 服务仅从本地最小启动 YAML 获得 SQLite 与 NATS 连接；业务模块仅从本地/CLI 受控引导获得 `service_id`、Configuration Endpoint、NATS Endpoint、访问令牌来源和缓存位置，其他业务参数统一远端获取。无 TLS 的内部 gRPC 限制在受控隔离网络，敏感操作保留应用令牌授权。
+8. **删除旧契约**：不新增 `NotifyConfigRevision`；先前设计要求的 CLI 逐模块通知和推送/Apply 业务配置路径属于待移除旧实现。复用既有 `CreateCandidate` 和 `PublishCandidate` RPC，将 documents[] 统一解释为**完整目录成员集合**；须同步修改服务器处理语义、CLI、数据库目录视图及测试；严禁以普通增量候选冒充完整目录发布。
 
-## 5.3 配置处理与生效规则
+### 5.3.0 最小引导配置与发布安全边界
 
-配置处理分为**来源加载、共享校验、有效装配、业务应用**四个阶段。Configuration 负责共享语义，业务服务负责专属验证及生效；服务独立管理其配置状态，不产生跨服务原子应用的隐含保证。
+Configuration 自身的 SQLite 路径、监听与 NATS 连接配置由部署启动文件（位于发布根目录之外）提供。其他模块及 CLI 仅使用如下最小引导信息连接权威配置库，**业务 Service YAML 仍位于 Configuration 的已发布配置集合**：
 
-```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart LR
-    S["Service 指定配置源"] --> L["加载 Service / Instance / Template"]
-    L --> V["Schema、版本、引用闭包校验"]
-    V --> C["装配不可变共享快照"]
-    C --> B["业务 Service 校验并应用"]
-    B --> R["记录生效结果"]
+```yaml
+# 这是业务模块本机最小引导配置示意，不作为集中发布的业务 Service 文件。
+# schema_version: 必填正整数；本引导配置结构版本
+# file_version: 必填 MAJOR.MINOR.PATCH；引导文件版本
+# service_id: 必填；与 Configuration 内业务 Service ID 对应
+# configuration.endpoint: 必填；内部隔离网络中的 gRPC host:port
+# nats.servers: 必填；NATS Core URI 列表
+# auth.token_env: 必填；提供操作/查询令牌的环境变量名，非令牌明文
+# cache.directory: 必填；受控本地持久化快照目录
+schema_version: 1
+file_version: 1.0.0
+service_id: collector-main
+configuration:
+  endpoint: 127.0.0.1:51060
+nats:
+  servers: [nats://127.0.0.1:4222]
+auth:
+  token_env: WIND_HUB_COLLECTOR_CONFIG_TOKEN
+cache:
+  directory: /var/lib/wind-hub/collector/config-cache
 ```
 
-<p class="figure-caption">图 5-2 配置加载、校验与运行应用流程</p>
+该示例是**目标引导 Schema**，不是现有源码可直接加载的配置；实现时须同步启动器、CLI、各模块和测试。新业务配置更新从 Configuration 拉取，不将 `configs/` 的全量根目录复制到每个业务模块；冷启动无权威库/无合法缓存不应报告 READY。接口使用标准无 TLS gRPC，访问令牌仅在可信隔离网络内传输，不能暴露公网。配置权限仅限本服务授权范围，不能读取其他模块敏感配置。
 
-1. **加载**：仅读取 Service 显式选择的实例及其所需模板；共享模板按完整标识与版本定位。
-2. **校验**：区分通用语法/结构校验、共享配置语义校验、服务专属业务校验；任一阶段失败时不得宣称配置生效成功。
-3. **装配**：配置解析结果形成可验证来源与版本的不可变快照；不得以调用方可修改的共享字典作为权威快照。
-4. **持久化和生效**：业务服务拥有候选、持久及运行配置状态，校验并协调自己的配置提交和运行应用。磁盘提交完成不等于运行态完成；需要重启的参数不得伪称热生效。
-5. **一致性**：同一共享配置引用闭包的多文件提交须由明确的协调写入方负责；并发修改以正式配置契约规定的版本/修订条件裁决。跨业务服务配置操作不默认构成统一事务。
-6. **结果查询**：异步配置请求按照正式 Contracts 及所属服务设计追踪请求与最终结果，调用接受不代表运行应用成功。
+## 5.3.1 配置生效修订与遥测 PointTable 身份
+
+全局 Configuration `revision_id` 只用于配置发布、通知、运行生效及审计；**不放入 Collector/Sink 数据包**。Collector 在 Task 装配阶段按已生效设备实例/型号解析 `point_table_id` 并固定在不可变采集计划；每个源 SampleBatch 标识唯一不可变 PointTable。PointTable ID 规范为 `point_table_<template_id>_v<file_version>`（不带 `.yaml`），由点表逻辑 ID/版本唯一生成并验证；该字符串含完整模板版本。PointTable ID 及其版本化依赖闭包必须共同确定每个测点的类型、工程转换、标准单位和 BusinessPoint 语义。上述解释规则改变时换新 `point_table_id`，不能就地覆盖旧 ID。Sink/Storage 以该 ID 解释历史记录，不得查询最新推荐点表替代旧版。
+
+## 5.3.2 安全认证与性能边界
+
+模块间 gRPC 不启用 TLS；Core 只复用连接管理、受控令牌校验和公共权限技术能力，业务模块负责 RPC 及资源级授权。高频采样通路不进行逐点身份鉴别或签名。NATS/JetStream 与下游协议按自身连接安全机制处理，不能以“同机部署”为由无条件关闭认证。控制写入、配置发布和诊断管理接口严格鉴权；高频数据路径复用已建立连接并保持有界资源消耗。
+
+## 5.3.3 设备测点与业务语义模型
+
+`BusinessPoint` 是可在**同类设备不同型号、真实与仿真设备之间复用**的业务语义标准，包含稳定 `business_point_id`、标准数据类型、标准单位及必要的业务含义。相同物理含义不因协议、型号、实例或仿真标记而复制为不同业务标准；不同测量位置、相别、叶片或统计口径必须明确消歧。型号和协议差异由 `PointTable` 中的 `Point` 描述。
+
+约束为：每个实际 `Point` 必须精确引用一个有效 `BusinessPoint`；**同一有效 PointTable 内，同一 `business_point_id` 最多绑定一个 `point_id`**，即已映射部分为一一对应；目录中并非每个 BusinessPoint 都必须在每台设备出现。跨 PointTable 可以多对一复用同一 BusinessPoint。单位量纲、数据类型及物理量必须兼容；不允许缺省 `business_point_id` 后直接猜测业务身份。现有 `points_for_business()` 多结果接口和隐式同名回退需在生产迁移中清理，不保留旧映射的旁路。
+
+## 5.3.4 Sink 三级数据表达与转换责任
+
+| 等级 | 配置值 | 表达、处理范围 | 典型用途 |
+|---|---|---|---|
+| L1 | `raw` | 工业驱动从协议帧提取的原始标量（寄存器/字段已按协议编码解出，但尚未按点表比例、偏移换算）；保留源 `point_id` | 原始值对账、定位设备及协议异常 |
+| L2 | `engineering` | L1 + PointTable 中的数据类型、比例、偏移和源工程单位处理，保留实际测点身份 | 点表/单位调试、工程诊断 |
+| L3（默认） | `business` | L2 + BusinessPoint 唯一身份映射、单位标准化、标准数据类型与质量保留 | 统一业务消费及历史存储 |
+
+三级采用相同 `SampleBatch` 源数据，**逐级派生、不反向覆盖原始值**。RAW 仅需线格式与来源身份校验，不依赖配置库在线或点表加载，因此在配置故障期间仍可用于诊断；ENGINEERING 才需历史 PointTable，BUSINESS 进一步需要 BusinessPoint/Units。每个 Delivery 在其配置中声明 `output.data_level`，默认 `business`；下游目标仍由 Sink Adapter 完成各自 Modbus/Redis/Kafka/Gateway 线格式编码（与业务三级不是同一维度）。若数据类型、单位或业务映射不合法，应报告明确错误、可靠路径按 Delivery 失败策略处理，不能静默降级到 RAW 或篡改质量状态。除显式 RAW 输出外，转换失败不应伪装为成功派发。
+
+RAW 不是工业链路上的原始字节报文。若未来需要完整帧留存，须另立协议诊断捕获能力，不得将既有 `value` 当成字节帧。
+
+## 5.3.5 Collector 与 Sink 的唯一数据契约
+
+Contracts §11.6 统一规定 Collector→NATS→Sink 的 SampleBatch v3 输入字段、JSON 示例、严格校验及 Realtime/Reliable 的差异；Contracts §11.9 规定 Sink→Kafka/Redis 的单点 JSON v2 以及 Modbus TCP/Gateway 的受限映射输出。Collector 与 Sink 设计只引用 Contracts，不再另行定义第二套 Schema。
+
+`schema_version` 保留，用于线格式变更（NATS v3 和 Kafka/Redis JSON v2 分别独立），不承担设备点表版本职责。数据包携带 `device_type`、`device_id`、`point_table_id`；**不再增加 `config_revision_id`、`data_version`**。Storage 依据设备和不可变 PointTable 标识确定数据存储及语义归属，具体库表自动创建逻辑由 Storage 设计约束。
+
+受控编码迁移前，现有生产 Source Batch v2 与 Kafka JSON v1 不符合目标格式，不得把目标契约称为已实施。
 
 ## 5.4 配置文件命名规则
 
@@ -789,3 +860,15 @@ Google Python Style Guide 要求使用可理解的描述性命名，避免自造
 公开模块、类、函数及复杂方法遵守 PEP 257，使用三重双引号的 Docstring；摘要应清楚陈述行为，必要时说明副作用、状态转换、异常及返回的确认语义，不重复逐字解释名称。内部简短方法可根据复杂度省略文档字符串。
 
 外部已发布 RPC/Proto、HTTP、CLI、数据库字段、配置字段、第三方 SDK 函数签名、自动生成代码以及 Python 特殊方法保持其正式命名，内部差异在边界转换。任何公开重命名必须在同一变更中核对静态与动态导入、装配、打包、类型声明、配置、测试、Fixture、文档及调用方；不保留无依据的旧别名和兼容转发。稳定且含义清晰的既有名称不做纯形式批量更名。只有最终 HEAD 上 Ruff、Mypy、import-linter 和相关测试实际通过，方可声明代码命名整改完成。
+
+## 附录 B：模块间通信安全的简化目标设计
+
+wind-hub 内部模块之间的 gRPC 使用**不启用 TLS 的标准 gRPC 连接**，不部署证书、CA、双向证书认证或证书身份映射。默认仅绑定 `127.0.0.1`；跨主机部署必须使用明确隔离的受控专用网络并配置主机/容器网络访问控制，不得将内部 RPC 端口直接暴露公网或不可信办公网。通信安全前提是部署隔离；若无法保证网络可信，**不能宣称该设计提供传输机密性或抗中间人攻击**，应先补足网络隔离方案。
+
+只有需要修改配置、启停任务、更新变量或下发现场控制的操作才使用轻量的应用层授权：按服务声明的运行身份/角色配置受限令牌（从受控环境变量或密钥文件读取；只存哈希或受控校验值，不在 YAML 正文、日志、RPC 回显中写明文）。服务端必须验证令牌与操作/资源授权，不信任客户端请求体自报的 caller_id 或 operator_id。只读接口可根据部署边界实行受控访问，但配置版本/敏感字段查询不得对任意网络主体开放。身份令牌经未加密内网传输，故**不适用于非可信网络**。
+
+Commander 的指令幂等、独立隔离证明、fencing、SQLite 持久结果与审计，以及 Gateway 的租约持有者一致性和目标级权限，均继续有效；移除传输层证书不能取消这些控制安全约束。原先依赖证书主体的隔离标识改由服务端验证的令牌主体给出，不接受无鉴别的 caller_id。
+
+**接口与配置迁移**：所有模块启动配置删除仅供内部 gRPC 证书认证的 `tls`、`ca_cert`、`client_cert`、`client_key`、`tls_profile` 等字段；明确新 Schema、调用端配置与启动方式，不保留隐式安全降级或兼容路径。外部第三方网络连接如有独立协议安全需求，不受内部 gRPC 简化设计取代。
+
+**代码状态**：当前 main 的部分模块仍包含证书加载、证书身份解析和相关集成测试；本附录是**目标设计而非已实现行为**，需在生产代码集中整改后才能验收通过。相关旧测试应按正式新契约更新，严禁简单跳过权限、租约、隔离证明与控制安全测试。

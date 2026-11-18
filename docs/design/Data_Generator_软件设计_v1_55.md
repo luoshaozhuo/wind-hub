@@ -1,6 +1,9 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_51 · 20261118</p>
+<p class="subtitle">v1_55 · 20261118</p>
+
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+
 
 <style>
 body {
@@ -1549,7 +1552,7 @@ flowchart LR
 ```
 <p class="figure-caption">图 5-1 Data Generator 第 0 层数据流图</p>
 
-**执行与配置边界。** Application `SimulationCoordinator` 统一生成步调度和物理/随机模型的输出结果；现有设备数学模型保留原精度、状态推进和确定性种子规则。`GatewayOutputCoordinator` 负责多 Gateway 的变量映射、租约生命周期、写入限额、UNKNOWN 隔离与安全释放，依赖 `GatewayRpcPort`；Infrastructure `GatewayRpcClient` 专职 mTLS、Channel、Proto/Scalar 编码与实际 RPC。`HistoryReaderPort` 将重放时序与 CSV、SQLite 临时索引、文件资源所有权分离；`CsvHistoryReader` 只在 Infrastructure。配置 Get/Push/Apply 的事务协调与只读生效版本判定位于 Application `ConfigurationCoordinator`；Persistence Adapter 负责候选文件、磁盘事务日志及恢复，场景版本不可变和重启条件由 Application 策略定义。
+**执行与配置边界。** Application `SimulationCoordinator` 统一生成步调度和物理/随机模型的输出结果；现有设备数学模型保留原精度、状态推进和确定性种子规则。`GatewayOutputCoordinator` 负责多 Gateway 的变量映射、租约生命周期、写入限额、UNKNOWN 隔离与安全释放，依赖 `GatewayRpcPort`；Infrastructure `GatewayRpcClient` 专职 内网访问授权、Channel、Proto/Scalar 编码与实际 RPC。`HistoryReaderPort` 将重放时序与 CSV、SQLite 临时索引、文件资源所有权分离；`CsvHistoryReader` 只在 Infrastructure。配置 Get/Push/Apply 的事务协调与只读生效版本判定位于 Application `ConfigurationCoordinator`；Persistence Adapter 负责候选文件、磁盘事务日志及恢复，场景版本不可变和重启条件由 Application 策略定义。
 
 ## 5.2 逻辑组件
 
@@ -1922,7 +1925,7 @@ flowchart LR
 | `StartGeneration` | `StartGenerationRequest(scenario_id, optional scenario_version, expected_revision)` | `StartGenerationResponse(generation_id, accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；指定已配置场景启动生成/重放，必须校验版本/互斥，接受不等于已经运行 |
 | `ListVariables` | `ListVariablesRequest(generation_id, device_id, page_size, page_token)` | `ListVariablesResponse(variables[], next_page_token)` | §9.4、§10.5.11 | 模型有效点目录、类型、单位、角色与可写权限 |
 | `UpdateVariables` | `UpdateVariablesRequest(generation_id, device_id, request_id, values[])` | `UpdateVariablesResponse(accepted, effective_step, error_code, message, request_id)` | §9.4、§10.5.11 | 只更新活跃 Generation 的可更新模型输入，整批原子/幂等 |
-| `GetInputExecution` | `GetInputExecutionRequest(generation_id, request_id)` | `GetInputExecutionResponse(request_id, state, effective_step)` | §9.4 | mTLS 请求主体隔离的只读步完成证据，返回 PENDING/APPLIED/UNKNOWN |
+| `GetInputExecution` | `GetInputExecutionRequest(generation_id, request_id)` | `GetInputExecutionResponse(request_id, state, effective_step)` | §9.4 | 内网访问授权 请求主体隔离的只读步完成证据，返回 PENDING/APPLIED/UNKNOWN |
 | `StopGeneration` | `StopGenerationRequest(generation_id, expected_revision)` | `StopGenerationResponse(accepted, actual_state, error_code, message)` | §5.3、§6.2、§10.4 | UR-04、UC-07；按 ID 停止，逻辑终结与底层 I/O 收敛分别报告与处理 |
 
 **业务对象语义见 §5.3**：`Device` 是虚拟设备，不是 Gateway；包含 `device_id, protocol, endpoint, generation_id, actual_state`；其 `generation_id` 只标识当前活动实例，没有活动归属时使用空字符串，`endpoint` 为虚拟设备显示/映射属性，不等于一对多 Gateway 的唯一地址；`Scenario` 是版本化方案，包含 `scenario_id, active_version, available_versions[], device_ids[], description`；`Generation` 是绑定单个场景版本并管理多个 Device 的一次运行，包含 `generation_id, scenario_id, scenario_version, desired_state, actual_state, started_at, last_error`。其中 `scenario_version` 是可选输入，未提供时选用该场景当前 `active_version`，一旦生成开始即绑定具体版本。版本冲突不得隐式忽略 `expected_revision`。`generation_id` 由服务端产生并用于查询与停止；不引入未经 Proto 定义的暂停、Seek、循环重放控制。
@@ -1953,7 +1956,7 @@ flowchart LR
 
 `GetEvents` 是实际存在的强制接口，必须有可查询的运行事件及时间、过滤和分页语义；不能用日志文本代替 Proto `Event`。公共接口在服务启动后必须支持真实 gRPC 调用；接口不可用不得虚报到 `GetCapabilities`。
 
-**执行确认**：`UpdateVariables.accepted/effective_step` 只确定未来步准入；Generator 记录请求级 `effective_step` 和成功完成的物理计算步。经 `GetInputExecution(generation_id,request_id)` 查询，只有相同认证主体的请求已越过其真实完成步才返回 `APPLIED`；未完成返回 `PENDING`，缺少证据或任务终止则为 `UNKNOWN`。不提供物理输出到达设定值的承诺；接口必须使用 mTLS，且拒绝跨主体查询。
+**执行确认**：`UpdateVariables.accepted/effective_step` 只确定未来步准入；Generator 记录请求级 `effective_step` 和成功完成的物理计算步。经 `GetInputExecution(generation_id,request_id)` 查询，只有相同认证主体的请求已越过其真实完成步才返回 `APPLIED`；未完成返回 `PENDING`，缺少证据或任务终止则为 `UNKNOWN`。不提供物理输出到达设定值的承诺；接口必须使用 内网访问授权，且拒绝跨主体查询。
 
 ## 9.3 Gateway 客户端：正式 UpdateVariables 契约
 
@@ -1979,13 +1982,13 @@ flowchart LR
 
 ### 9.3.2 跨实例目标所有权与租约契约
 
-- 所有权键为 `(gateway_id,variable_id)`，仲裁权属于实际持有该变量的 Industrial Gateway 进程；Data Generator 本地锁只处理本进程内的竞争。Gateway 在内部租约记录中同时绑定来自服务端认证上下文的可信主体；Generation 业务 `owner_id` 不能代替该认证主体。ACQUIRE、RENEW、RELEASE、UpdateVariables 必须由同一可信主体发起；跨证书主体复制 token 不取得写权限。
+- 所有权键为 `(gateway_id,variable_id)`，仲裁权属于实际持有该变量的 Industrial Gateway 进程；Data Generator 本地锁只处理本进程内的竞争。Gateway 在内部租约记录中同时绑定来自服务端认证上下文的可信主体；Generation 业务 `owner_id` 不能代替该认证主体。ACQUIRE、RENEW、RELEASE、UpdateVariables 必须由同一可信主体发起；跨令牌主体复制 token 不取得写权限。
 - `ClaimTargetsRequest` 使用 `gateway_id,owner_id,variable_ids[],action,lease_token,lease_ms`；action 限定 `ACQUIRE/RENEW/RELEASE`。ACQUIRE 对单 Gateway 内全部变量原子接受或拒绝，成功签发高熵、不复用的 fencing token；RENEW/RELEASE 必须与 owner、token、目标集合匹配。租期有界为 1～60 秒，实际调用端按 10～60 秒（不小于约 6 倍 RPC 超时）确定并每三分之一租期续约。
 - `UpdateVariables` 不携带有效租约 token 时必须拒绝整个请求，不允许已失效的旧实例继续写入；检查和变量更新须受 Gateway 同一把串行锁保护，避免租约转移与旧写入交错。
 - Generation 启动：校验映射和真实变量 → 逐 Gateway 申请租约 → **全部取得后**才能启动来源。任一 Gateway 申请失败，逐一释放已确认取得的租约，申请结果未知的 Gateway 只能等待租约自动过期，不冒充已确认释放。多 Gateway 之间**没有分布式原子事务**。
 - Generation 运行：定期 RENEW；续租拒绝或租约丢失时停止后续写入，标记 FAILED/UNKNOWN（按实际送达证据），不得重放旧 UNKNOWN 批次。临时网络不可达允许受控 RENEW 探测，旧批次仍不得重发。
 - Generation 停止：等待来源任务和原生 I/O 安全收敛，再 RELEASE；若无法确认原生调用已结束，继续隔离，进程退出后由 Gateway TTL 回收。Gateway 重启后旧 token 全部失效。
-- token 是写入授权凭证，仅在受控回环网络和部署身份边界内传送；不得写入日志、Metrics、错误文本或 GetConfigSnapshot。IP 白名单不能替代跨机 mTLS。**本契约有意修改 Gateway Proto；所有调用方、Server/Client、生成物、测试和诊断须同步升级，不保留旧无令牌写入兼容路径。**
+- token 是写入授权凭证，仅在受控回环网络和部署身份边界内传送；不得写入日志、Metrics、错误文本或 GetConfigSnapshot。跨机必须使用可信隔离网络与防火墙。**本契约有意修改 Gateway Proto；所有调用方、Server/Client、生成物、测试和诊断须同步升级，不保留旧无令牌写入兼容路径。**
 
 ## 9.4 方法实现、错误、并发与契约验收
 
@@ -3082,6 +3085,12 @@ scenarios:
 
 修改已有 `scenario_id@version` 内容应拒绝；修改场景必须发布新版本。正在运行的 Generation 绑定不可变 Scenario/共享设备快照，配置更新不得在未安全收敛时夺取设备或 Gateway 目标。仅 Scenario 集合变化可在满足互斥条件时应用；服务运行参数及配置源路径变化需要重启。失败时区分文件落盘、运行态应用及重启要求，不以文件提交代表服务已生效。
 
+## 11.4.1 统一业务点语义与配置历史修订
+
+Data Generator 的仿真变量通过 Device Instance、DeviceModel、PointTable 及变量映射表达，使用与对应真实设备相同的 BusinessPoint 标准，不得仅因 `sim`、型号或模拟协议而创建不同含义的业务标准。模型状态可以使用独立内部变量标识，只有实际对外测点才通过相同类型的 PointTable 与业务标准绑定；不同位置/统计口径必须显式区分。同一有效 PointTable 中每个 Point 的 `business_point_id` 必填、且不可与其他 Point 重复。
+
+Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator 自行从 Configuration Repository gRPC 读取对应的完整修订闭包。正在执行的物理模型和随机场景持有完整不可变配置快照，更新不得混合不同修订的模型参数、仿真变量映射及 Gateway 目标；不能安全热切换的参数返回重启要求。Data Generator 不填写 Collector 的采集修订号；当 Collector 从 Gateway/协议对端采样时，由 Collector 根据自身生效配置填写 `SampleBatch.config_revision_id`。
+
 ## 11.5 校验和验收
 
 配置解析必须校验：所有设备存在且启用；设备型号与仿真模型种类匹配；物理参数完整；随机规则合法；Point Table 点位类型正确；每个输出点有唯一且受权的 Gateway 设备级目标路由；源点可扇出至不同 Gateway，但同一输出目标不得重复；历史数据文件路径受限且时间窗合法；文件记录目录禁止绝对路径和穿越。
@@ -3135,11 +3144,12 @@ scenarios:
 
 ## 12.3 安全与故障隔离
 
-只对明确配置的 Gateway 和历史来源访问，不直接连接真实 PLC；候选配置与运行信息不得回显密码。生产环境中的访问认证、mTLS、授权主体和角色须由部署安全策略及 `contracts` 统一确定，不能将 loopback-only 简单认为万能安全边界。
+只对明确配置的 Gateway 和历史来源访问，不直接连接真实 PLC；候选配置与运行信息不得回显密码。生产环境中的访问认证、内网访问授权、授权主体和角色须由部署安全策略及 `contracts` 统一确定，不能将 loopback-only 简单认为万能安全边界。
 
-**Gateway Diagnose 安全通道与配套仿真配置。** Gateway 的正式写路径与 Diagnose 只读预检使用同一 mTLS 凭证与传输安全策略；未配置证书时，仅允许数值型 IPv4/IPv6 回环地址的本机测试连接，`localhost` 等主机名不视为可信回环。出厂物理仿真示例必须给出与 Gateway 配套的 CA 与客户端证书引用，证书由部署或测试设施提供，不在仓库中存放私钥。预检失败不得改走明文。
+**Gateway 受控内网通信与诊断。** Data Generator 对 Gateway 的 ListVariables、ClaimTargets、UpdateVariables、RENEW、RELEASE 以及 Diagnose 统一使用无 TLS 的内部 gRPC Channel，连接按 Gateway Endpoint 复用，默认要求回环地址。跨主机必须由隔离的专用网络与防火墙限制访问，不得自动连接未经批准的公网或不可信端点。业务写入必须携带服务端可验证的受限访问令牌及 Gateway 租约令牌，Diagnose 查询同样受访问控制，不允许用诊断路径绕过写入授权。
 
-Data Generator 的正式 Gateway 出站客户端由 Composition Root 从服务文件 `output.gateway_tls` 注入证书路径，结构为 `ca_file`、`cert_file`、`key_file` 三个绝对路径；三项必须同时配置。GatewayWriter 对同一 Gateway Endpoint 创建并复用 `grpc.aio.secure_channel`，在 ListVariables 预检、ClaimTargets、UpdateVariables、RENEW 与 RELEASE 中统一使用同一安全通道和客户端证书。未配置该字段时只允许 `127.0.0.0/8`、`::1` 或 `localhost` 的本机回环端点明文连接；非回环端点必须拒绝连接，不得自动降级到明文。CLI 对 Gateway 使用独立的 `tls_profile`，两类客户端须由部署提供各自可信的证书与授权主体。回环模式仅限受控本机开发或测试，不代表跨机生产准入。
+Data Generator 通过运行环境变量或受控密钥文件取得 Gateway 的授权令牌，配置只引用令牌来源，不出现 CA、客户端证书及私钥路径。启动/重连、变量预检、写入、租约续期和释放都采用同一授权主体；失败不得以匿名请求重试。CLI 仅配置内网 Endpoint 和操作授权令牌，不创建第二套证书身份。此段为目标配置和通信契约，当前代码仍存在证书适配器，需要编码时删除并同步修改调用方、配置及测试。
+
 输出重试不能掩盖未知投递；超时并不释放未结束底层 I/O 的所有权。日志带 `source_id`、`batch_sequence`、`device_id`、`trace_id`（有则记录）及错误阶段；大规模点值默认不写入日志。Metrics 与 Diagnose 仅用于观测与排障，不能充当可靠业务审计。
 
 # 13. 测试方法及运行基线
@@ -3256,3 +3266,41 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-03、UR-07 | UC-03-S03 未知输出的计量与隔离 | 9.3、12.2 | `test_observability_system.py::test_obs1_unknown_quarantine_no_resend_and_recovery_probe` | system/reliability/recovery | UNKNOWN 不重发，安全续租探测与计数匹配实际 RPC 发生次数 | 真实 Gateway / 故障注入 |
 | UR-03、UR-04 | UC-03-S02 Gateway 错误类型识别 | 9.3、9.4 | `test_error_classification_system.py::test_type_mismatch_rejected_as_target_validation` | system/safety/invalid_data | 类型不匹配在目标预检拒绝，零变量更新，不冒充网络 UNKNOWN | 真实 Gateway |
 
+
+
+# 附录 A：全量目录配置与广播订阅的目标契约
+
+## A.1 模块配置权威和初始引导
+
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+
+## A.2 广播、拉取、对账和独立生效
+
+```mermaid
+sequenceDiagram
+    participant C as Configuration
+    participant N as NATS Core
+    participant M as 本模块
+    M->>N: 独立订阅 wh.config.changed
+    M->>C: GetCurrentRevision
+    C-->>M: 最新 revision_id
+    M->>C: GetConfigBundle(roots,revision_id)
+    C-->>M: 完整 YAML 闭包/manifest_sha256
+    M->>M: 校验、持久化、安全生效
+    C->>N: 广播 wh.config.changed
+    N-->>M: {revision_id}
+    M->>C: 确认最新修订并拉取完整闭包
+    M->>M: 序列化应用，失败保留旧状态
+```
+
+<p class="figure-caption">图 A-1 模块独立配置收敛</p>
+
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+
+## A.3 必须同步移除的旧路径
+
+取消原目标 `CommonService.NotifyConfigRevision`，不再由 CLI 逐模块通知。业务模块原先的本地 `GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot` 不能再作为全局配置的发布或旁路更新入口；迁移时按正式 Contracts 一次性更新所有客户端、服务端、配置、代码注释、测试及启动脚本，不保留两套可写权威。此附录为目标契约，**当前 main 生产代码并未实施全量根目录+广播方案**。
+
+## 附录 B：内部 gRPC 适配范围
+
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。

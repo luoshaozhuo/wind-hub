@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_28 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_32 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -231,7 +231,7 @@ flowchart LR
 
 Gateway 的 `UpdateVariables` 是持有变量空间的测量注入接口，受 `ClaimTargets` 租约保护，不能触发工业控制事件。Gateway 的 `ExecuteSimulationCommand` 是接收 Commander 授权的**独立控制接口**，随后调用 Generator 的 `UpdateVariables` 修改模型 INPUT；`GetSimulationExecutionResult` 经 Generator 请求级 `GetInputExecution` 得到 PENDING/APPLIED/UNKNOWN 证据。`accepted/effective_step` 只表示准入，不足以证明 APPLIED。
 
-Sink 的 Gateway 出站 Adapter **已实现**于 `src/sink_service/infrastructure/adapters/outbound/gateway.py`，以 mTLS 获取租约并更新目标 Gateway；真实 E2E 仍须运行验收。其目标变量空间与源 Gateway 采集变量、控制映射必须隔离。Sink 的 Modbus Realtime 输出为 **Modbus TCP Server**，须由外部 Client 读回；不得假定两个 Server 可以主动互写。
+Sink 的 Gateway 出站 Adapter **已实现**于 `src/sink_service/infrastructure/adapters/outbound/gateway.py`，以 内网访问授权 获取租约并更新目标 Gateway；真实 E2E 仍须运行验收。其目标变量空间与源 Gateway 采集变量、控制映射必须隔离。Sink 的 Modbus Realtime 输出为 **Modbus TCP Server**，须由外部 Client 读回；不得假定两个 Server 可以主动互写。
 
 ## 4.2 必测场景
 
@@ -299,15 +299,15 @@ configs/
 |---|---|---|
 | 五设备 | `instances/devices_sim.yaml` + 准确型号与点表 | WTG/PV/BESS/GRID/PPC_SIM01；源 Modbus 端口 15021～15025 |
 | Generator | `services/data-generator-sim.example.yaml` | Scenario `wind-plant-physical`、5 设备、0.05 s 步长；确定性场景由合法 Service 场景版本表达 |
-| Gateway 源 | `services/industrial_gateway-sim.example.yaml` | gRPC 50073，五 Server；仅 PPC 配置工业控制映射；验证 TLS、路由、证书授权 |
+| Gateway 源 | `services/industrial_gateway-sim.example.yaml` | gRPC 50073，五 Server；仅 PPC 配置工业控制映射；验证内网路由、访问令牌与控制权限 |
 | Collector | `services/collector.yaml`、`templates/tasks/` | 当前仍引用真实 `devices.yaml`；必须建立隔离模拟 Service 和合法采样任务 |
 | Sink | `services/sink_service.yaml`、`instances/sinks.yaml`、`instances/deliveries.yaml` | 现有过滤为 WT001/WT002，地址属示例；测试使用隔离实例与四种目标，不能误写真实目标 |
-| Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、mTLS 凭据、独立变量与租约 |
+| Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、内网访问授权 凭据、独立变量与租约 |
 | Commander | `services/commander.yaml` | 模拟控制设备、Gateway 授权与请求身份一致 |
 | CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/process；完整 E2E 统一使用 CLI 原生 process 后端启动六类业务进程；容器后端另行专项验证 |
 | 外部 | NATS/JetStream、Redis、Kafka | 独立测试命名空间及清理所有权 |
 
-**端口核对**：现行参考配置已将 Sink Main 设为 `50053`、Generator 模拟服务设为 `50061`，CLI 参考端点相应为 `50053` 和 `50061`。完整 E2E 使用隔离服务配置与动态端口，仍须按实际运行时逐一核对 Gateway、Commander、双 Collector、Sink 和 Generator 的监听地址、mTLS 身份及路由。`.example.yaml` 不等于通过启动或证书验收。
+**端口核对**：现行参考配置已将 Sink Main 设为 `50053`、Generator 模拟服务设为 `50061`，CLI 参考端点相应为 `50053` 和 `50061`。完整 E2E 使用隔离服务配置与动态端口，仍须按实际运行时逐一核对 Gateway、Commander、双 Collector、Sink 和 Generator 的监听地址、内网访问授权 身份及路由。`.example.yaml` 不等于通过启动或证书验收。
 
 ## 5.3 最少配置原则
 
@@ -354,7 +354,7 @@ sequenceDiagram
 2. **冲突处理。** Compose 绑定冲突时仅销毁本用例创建的 Project，重新分配端口并有界重试；不执行 docker prune、不停止其他用户的容器。显式 `WIND_HUB_TEST_REDIS` 可使用外部 Redis，但必须标记为外部依赖，不能在结束时停机。端口重试后仍失败记为 SETUP_ERROR 并保留日志，不属于生产模块 FAIL。
 3. **进程管理。** CLI 启动/停止/restart 通过正式 process 管理后端启动和管理独立 Linux 进程，不依赖 systemd。必须校验进程身份（PID 与 start-tick）、进程组、状态文件及日志所有权；容器后端须另做真实运行时专项验证。任何后端不可用时记录 NOT_RUN_ENV，不得用 Mock 伪造 PASS。
 4. **隔离与清理。** 每个测试使用独立 tmp_path、动态端口、独立进程管理状态目录与受控服务 ID、唯一 NATS Stream / Kafka Topic / Redis Namespace；即使断言失败也依次 CLI 停止业务进程、清理本次进程组、中间件 Project、文件和流。任何端口占用必须先归属识别，不得无条件删除非本测试容器。
-5. **前置检查与裁决。** 校验当前 HEAD、Python/CLI 执行路径、Docker daemon、process 管理后端、证书生成、compose 健康、服务 gRPC READY 和 Sink 双 Worker 状态；缺业务必需中间件或正式 process 后端的场景标 NOT_RUN，缺少真实现场硬件对软件仿真场景**不构成** NOT_RUN 理由。不得把准备阶段的端口竞争记作软件功能缺陷。
+5. **前置检查与裁决。** 校验当前 HEAD、Python/CLI 执行路径、Docker daemon、process 管理后端、访问令牌注入、compose 健康、服务 gRPC READY 和 Sink 双 Worker 状态；缺业务必需中间件或正式 process 后端的场景标 NOT_RUN，缺少真实现场硬件对软件仿真场景**不构成** NOT_RUN 理由。不得把准备阶段的端口竞争记作软件功能缺陷。
 
 # 6. Integration 分段测试
 
@@ -368,8 +368,8 @@ sequenceDiagram
 | I-04 Sink 四目标 | Sink 测试 Service、隔离 Sink/Delivery + Gateway/Redis/Kafka；Sink、目标 Gateway | 固定标准 SampleBatch 注入真实 NATS → Delivery start → 四目标读回 → stop | Gateway 更新、Modbus 寄存器、Redis 最新值、Kafka 历史分别断言 |
 | I-05 工业仿真控制 | Gateway/Commander/Generator 仿真配置；三进程 | 工业 Client FC06/FC16 → Commander → Gateway 执行 → Generator 查询 → 重复/无权测试 | 同 command_id、不直接转发、PENDING→APPLIED/UNKNOWN，受理非成功 |
 | I-06 CLI 生命周期 | CLI 有效 Service + 六业务服务身份 | start → status/READY → restart → stop | Unit/PID/业务状态和 Sink Worker 退出 |
-| I-07 Gateway Realtime | Sink Gateway 模板/映射 + 独立目标 Gateway；两进程 | mTLS ACQUIRE → UpdateVariables → ReadVariables → RELEASE/过期 | 值与映射正确，租约及回环隔离 |
-| I-08 配置治理 | Core 配置、各业务 Service | 版本冲突、无效路径、旧结构、非法实例键 → Load/Apply | 拒绝错误配置，快照不可变，归属不混乱 |
+| I-07 Gateway Realtime | Sink Gateway 模板/映射 + 独立目标 Gateway；两进程 | 受控令牌 ACQUIRE → UpdateVariables → ReadVariables → RELEASE/过期 | 值与映射正确，租约及回环隔离 |
+| I-08 配置治理 | CLI 全量根目录、Configuration、各业务 Service | 修改完整 configs 根目录并通过 CLI publish，注入版本冲突、无效路径、旧结构和非法实例键 | 完整候选拒绝且原目录视图不变；正确候选只广播修订，各模块独立拉取生效 |
 | I-09 全 RPC | 六 Proto 和全部服务 | 自动枚举 → 真实 RPC 调用及拒绝路径 → 检查 Descriptor | 51/51 服务限定 RPC 声明及各服务 Common 注册，证据完整 |
 
 I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 Generator→Collector→Sink 路径，才能确认全链路结果。
@@ -378,7 +378,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 ## 7.1 通用执行步骤
 
-1. 核实 Git HEAD、六份 Proto 的生成一致性、配置哈希、CLI 命令清单、证书身份、测试目标和端口。
+1. 核实 Git HEAD、六份 Proto 的生成一致性、配置哈希、CLI 命令清单、调用方令牌权限、测试目标和端口。
 2. 中间件准备器启动 NATS/JetStream、Redis、Kafka；只通过 CLI 启动各业务进程，验证 PID/READY，再启动 Generation、Gateway、Collector Task 和 Sink Delivery。
 3. 对选定模型实施确定性激励，收集 Generator 原始 JSONL、Gateway、Collector、NATS/JetStream、Sink Gateway/Modbus/Redis/Kafka 读回。
 4. 对控制场景记录 Commander 批次 request_id、子命令 command_id、Generator generation_id、effective_step 和查询结果；不得用准入代替完成。
@@ -403,7 +403,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 | ID | 通道与目标 | 实际输入和独立读回 | 必须验证 |
 |---|---|---|---|
-| OUT-01 | Realtime → Industrial Gateway | 正式 GatewayOutput、mTLS `ClaimTargets/UpdateVariables` → Gateway ReadVariables | target_mappings、租约、权限、值更新及目标与源隔离 |
+| OUT-01 | Realtime → Industrial Gateway | 正式 GatewayOutput、内网访问授权 `ClaimTargets/UpdateVariables` → Gateway ReadVariables | target_mappings、租约、权限、值更新及目标与源隔离 |
 | OUT-02 | Realtime → Modbus TCP | Sink Modbus Server → 独立 Modbus TCP Client | 寄存器地址、类型、缩放、大小端和最新值；非主动写第三方 Server |
 | OUT-03 | Realtime → Redis | Sink Redis 写入 → 独立 Redis Client | 来源标识、时间与最新值覆盖 |
 | OUT-04 | Reliable → Kafka | JetStream→Sink Reliable→Kafka → 独立 Consumer | 应交付的真实源批、顺序、ACK、重投与下游去重界限 |
@@ -416,7 +416,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 执行必须保留独立证据：① CLI 与 Linux 进程 PID/READY；② 两个 Collector 分别对应 Realtime、Reliable 的真实 SampleBatch 和 JetStream PubAck；③ Generator 真值 JSONL 和 Gateway/Collector 采集值；④ Industrial Gateway、Modbus TCP、Redis、Kafka 四个目标的独立读回；⑤ Commander request_id/command_id 与 Data Generator effective_step 的控制完成结果；⑥ restart 后已提交配置与业务运行状态一致、消息积压收敛；⑦ stop 后无遗留业务进程、连接或活跃 Worker。
 
-安全场景必须采用正式 mTLS 与权限约束，验证 Collector 管理令牌、Gateway/Generator 证书身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每一个 E2E ID 都必须有实际命令、日志、配置哈希、源值、目标读回和 PASS/FAIL/NOT_RUN 证据。
+安全场景必须采用正式 内网访问授权 与权限约束，验证 Collector 管理令牌、Gateway/Generator 令牌授权身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每一个 E2E ID 都必须有实际命令、日志、配置哈希、源值、目标读回和 PASS/FAIL/NOT_RUN 证据。
 
 ## 7.5 各完整场景的配置、激励、独立读回与步骤
 
@@ -431,7 +431,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | E2E-05 随机/CSV | `history/demo.csv`、Replay Scenario、固定种子 Scenario | 两轮同 seed 运行并比对，同一 CSV 按 1x/2x 顺序重放；停止重启后再取值 | DG 真值逐点序列与 replay 顺序一致；Reliable 已提交批次顺序不逆转；不同运行 ID 不混淆 |
 | E2E-06 多速率 | DG `interval_seconds`=0.05/0.1，Collector Task `interval`=0.05/0.1/0.2/1.0 | CLI 分别应用合法版本配置并重启/生效，固定同一确定性激励 | 统计实际时间戳、容许抖动、样本数量与丢弃/覆盖语义；不得假设 Collector 每个生成步必采 |
 | E2E-07 四出口 | 同一个全链批次，`gateway_output` / `modbus_output` / `ems_power` / `power_history` | CLI 启/停四 Delivery，正常运行、断连恢复各一次 | OUT-01 Gateway 变量与模拟 Modbus；OUT-02 真实 Modbus 目标寄存器；OUT-03 Redis 键/值；OUT-04 Kafka topic/分区及可靠 ACK，分别独立 PASS |
-| E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实 mTLS 凭据 | 枚举 73 个 CLI 叶子并逐项实际执行/合法拒绝；51 个 RPC 逐服务调用与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
+| E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实访问令牌与隔离网络 | 枚举 73 个 CLI 叶子并逐项实际执行/合法拒绝；51 个 RPC 逐服务调用与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
 | E2E-09 生命周期 | CLI service manager 对六进程的合法 unit；Sink Main 管理双 Worker | start→status/READY→restart→status→stop；重复启停和服务单侧失败 | 每个 PID、READY、退出码、Worker 清退、无残留连接/僵尸进程；进程状态不代替业务就绪 |
 | E2E-10 故障恢复 | 隔离 R5 中间件、故障代理、Gateway/DG/Collector/Sink | 先建立正常基线，再逐项断 NATS/Redis/Kafka/Gateway、注入过期 generation 与重复请求、恢复服务 | Reliable 重投/DLQ、Realtime 覆盖、配置/控制幂等、租约隔离、恢复时间、FD/RSS/CPU；修复后双通道持续出数 |
 
@@ -506,6 +506,48 @@ recording:
 - Reliable：以**实际 JetStream 受理**的源批为责任边界，验证 Kafka 消费、重投和下游去重，不声称全系统恰好一次。
 - 浮点容差考虑编码、缩放及模型精度；整数、布尔与枚举逐值比较；各阶段时间延迟分开统计。
 
+## 9.4 全量目录快照、广播与模块独立生效专项
+
+**运行前提**：中间件和数据库由测试代码独立启动；所有业务模块和 CLI 命令均通过正式 CLI 作为进程管理/操作接口启动或执行，不使用测试直接调用 Application 层冒充 E2E。测试所用 `configs/` 是单一共享测试目录，包含真实和仿真设备实例、Service、PointTable、BusinessPoint/Units 与所有被引用的历史版本。
+
+| ID | 配置与进程 | 执行步骤（全部经 CLI） | 独立可验收证据 |
+|---|---|---|---|
+| CFG-01 首次全量发布 | 干净 Configuration SQLite、完整 configs 根目录；Configuration/CLI | `config publish --root <root>` → 查询版本与目录 | SQLite 当前完整成员、所有身份/版本/哈希、revision；未遗漏文件 |
+| CFG-02 再次全量发布 | 新目录新增、改变、移除合法配置文件；全部业务进程 | 原命令再次提交全目录 | 当前成员集整体替换，新旧差异正确；未变化版本复用；未变化目录重复提交无新 revision |
+| CFG-03 历史共存 | 同一配置身份 v1.0.0、v1.1.0 并存；明确引用 v1.0.0 | 完整发布后重新查询不同版本 | 不凭版本号自动升级；当前引用确定；历史对象仍可按 ID/版本查询 |
+| CFG-04 非法全集 | 缺少被引用文件、重复身份同版本异内容、路径穿越、非 YAML、Unary 消息超出容量、缺失引用 | 完整候选上传、validate、publish | 校验问题可定位；**旧完整成员视图完全不变**；没有部分提交 |
+| CFG-05 CAS 并发 | 两个 CLI 模拟同一起始 revision | 发布 A 后旧基线提交 B | B `ABORTED`，不能静默覆盖 A；幂等重试同候选不产生第二修订 |
+| CFG-06 广播 | Configuration + 独立订阅的 Collector/Sink/Commander/Gateway/Generator | 发布 revision r，抓取 `wh.config.changed` | 消息仅含 `revision_id`；每个独立订阅收到通知；**不使用共享 Queue Group** |
+| CFG-07 一模块离线 | Gateway 进程停止，其他模块在线 | 发布新根目录，观察所有业务进程 | 配置库成功且其他模块正常完成拉取/生效；Gateway 离线不阻断 |
+| CFG-08 NATS 不可用 | 发布时中断 NATS，随后恢复 | SQLite 成功提交、重连 NATS，模块周期对账 | 不回滚已发布修订；广播失败可观测，模块最终收敛 |
+| CFG-09 丢通知/重启 | 订阅之后制造通知丢失；重启模块 | 启动先订阅再查修订、重连和周期检查 | 不依赖瞬时通知成功；`seen/downloaded/effective` 状态可核对，错序不会回退 |
+| CFG-10 完整闭包/安全应用 | PointTable/BusinessPoint/Units 多版本和 Service/实例依赖 | 修改有效引用并广播；注入坏哈希及应用异常 | 模块完整闭包、固定修订与哈希一致；失败保留旧有效快照；热更新/重启语义正确 |
+| CFG-11 启动引导 | 最小引导文件 + 当前配置库、合法缓存与坏缓存 | 首次启动、Configuration 停机、恢复上线 | 无合法配置不报告 READY；有合法缓存按模块定义降级；恢复后从权威修订对账 |
+
+Configuration 发布成功与每个业务模块的实际 `effective_revision` **分开判定**，不得由 CLI 单次成功退出推定全部模块已更新。测试要覆盖完整根目录物理扫描/Manifest 的路径与哈希、按设备固定历史 PointTable 语义、不因配置变更篡改已采集 SampleBatch。每个场景需保留 CLI 退出码、数据库状态、实际 NATS 消息、模块 gRPC 状态、日志及独立输出证据。
+
+## 9.5 Contracts 数据包与 Sink 三级交付的真实链路验收
+
+测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。目标输入为 `SampleBatch(schema_version=3)`，目标 Kafka/Redis JSON 为 `schema_version=2`（当前生产分别是 v2 和 v1，未完成迁移前必须判为未实施）。
+
+| 验收项 | 激励及配置 | 独立观察与断言 |
+|---|---|---|
+| Collector Realtime | 固定设备实例/PointTable，CLI 启动采集；包含多个 Point 的采集事件 | 实际 NATS Subject 与模式、来源身份一致；批头携带 `device_type`、`device_id`、`point_table_id`；原始标量未做 scale/offset；批次合法 |
+| Collector Reliable | 同上，JetStream Durable 消费 | JSON 字段集、`schema_version=3`、样本质量/时间不变；无 `max_staleness_ms`；重放 `sample_id` 保持稳定 |
+| RAW/ENGINEERING/BUSINESS | 三个 Delivery 使用同一输入批并分别设置 `output.data_level` | 同一源 Point 身份；RAW 无单位，ENGINEERING 按历史比例/单位，BUSINESS 按 BusinessPoint 标准化；默认未配置等级=BUSINESS |
+| Kafka/Redis | 启动真实目标，以独立 Client 读取输出 | 固定 JSON v2 字段、等级、`point_table_id`、`batch_id`、`sample_id`、`business_point_id`、`unit`、值/质量/时间；Kafka Key、Topic 与重复语义正确 |
+| Modbus/Gateway | 单独启用 Realtime Delivery，读取实际镜像/变量 | 输出地址编码和点位映射正确；不要求目标寄存器传输 JSON 元数据；保留 Gateway 租约和目标隔离 |
+| 格式拒绝 | 注入未知 `schema_version`、缺 `point_table_id`、重复键/测点、非法时间、NaN、Realtime 缺 TTL、Reliable 带 TTL | 严格拒绝，不能自动补全或静默降级 |
+| 历史版本 | 先按 PointTable A 采样，发布与之业务解释不同的 PointTable B，然后重放旧消息 | A 的 `point_table_id` 和输出值不改变；不查询最新 B 代替；缓存冷启动及 Configuration 断联路径可复验 |
+| 标准点表 | 真实/仿真同类设备与两种型号，共享 BusinessPoint，配置重复映射作为负例 | 逐点业务身份一致，重复/未知 BusinessPoint 被拒绝，单位换算不二次应用 |
+| Storage 输入 | 将 Kafka BUSINESS v2 Record 作为后续 Storage 消费样本 | 验证 `device_type`、`device_id`、`point_table_id` 足以标定语义版本，无 `data_version` 或 `config_revision_id` 字段 |
+
+各场景均遵守第5章真实进程/CLI 启动方式，消息中间件及数据库由测试代码单独启动；完整 CLI 与 RPC 覆盖不因新增线格式测试而减少。非正常消息与下游失败必须保留单 Delivery ACK/重试/死信证据；高吞吐条件下分别统计输入、转换与 Adapter 发送阶段。
+
+## 9.6 安全认证复用与负载边界
+
+验证无效访问令牌拒绝、角色和资源级权限拒绝、Configuration 历史配置查询最小权限；重复高频采样不触发逐点令牌鉴别或复杂安全握手。分别统计 RAW、ENGINEERING、BUSINESS 三个等级的端到端吞吐、转换 CPU 和 P99，不能只通过纯编码单测宣称满足 30 台风机的既定容量目标。
+
 # 10. 性能、故障与安全验收
 
 ## 10.1 性能
@@ -514,7 +556,13 @@ recording:
 
 ## 10.2 故障、安全与恢复
 
-验证真实服务重启和 READY 假阳性、非法/过期 mTLS 证书、越权 CN、Gateway 租约失效、配置 revision 冲突、Generation 切换、同 request_id 异内容、Commander 断连 UNKNOWN、Modbus 非法地址及错误标量、NATS/JetStream/Kafka/Redis 中断与恢复、记录文件损坏与隔离资源回收。每个故障有前、中、后状态及真实副作用证据。仅 `accepted/effective_step` 时不可确认 APPLIED，必须通过 Gateway/Generator 请求级查询取得完成证明；不改变 request_id 盲重试。
+验证真实服务重启和 READY 假阳性、非法/过期访问令牌、越权操作角色、Gateway 租约失效、配置 revision 冲突、Generation 切换、同 request_id 异内容、Commander 断连 UNKNOWN、Modbus 非法地址及错误标量、NATS/JetStream/Kafka/Redis 中断与恢复、记录文件损坏与隔离资源回收。每个故障有前、中、后状态及真实副作用证据。仅 `accepted/effective_step` 时不可确认 APPLIED，必须通过 Gateway/Generator 请求级查询取得完成证明；不改变 request_id 盲重试。
+
+## 10.1 BusinessPoint 标准和 PointTable 全覆盖验收
+
+在 `configs/templates/business_points_standard.yaml` 和所有 `configs/templates/point_tables/*.yaml` 上执行实际 Core/Configuration 校验。所有 Point 必须**显式**填写 BusinessPoint；展开 PointTable 继承后，任何重复 `business_point_id` 必须拒绝发布。同一物理量在同类设备不同型号及仿真/真实场景中的标准业务 ID 与标准单位必须一致；不同叶片、相别、测点位置、反馈和设定值不可无区分地共用 ID。检查已知 GW2MW ADS 点表多点映射同一业务 ID 的案例，禁止直接跳过或以测试代码补默认值。
+
+输出可审计的全量矩阵 `device_type/device_model/point_table_id/point_id/business_point_id/source_unit/standard_unit/data_type/semantic_decision`，针对未核实 PLC 符号单列现场待核验项，不得将猜测值视为已通过 BUSINESS 级业务验收。验证不存在多余的 `sim_` 仅因仿真来源产生的业务别名，真正仿真内部状态允许单独身份；同时检查所有配置引用、默认缺失回退、同身份不同历史内容冲突。缺覆盖映射或业务定义冲突时标记 FAIL 或 NOT_VERIFIED，不得裁定全链路 BUSINESS PASS。
 
 # 11. 测试执行、目录、Marker 与报告
 
@@ -560,7 +608,7 @@ reason: "template only; not executed"
 
 ## 12.1 完整 E2E 运行前置
 
-1. 各模拟 Service 配置合法且同机端口不冲突；核对现行 Sink `50053`、Generator `50061`、CLI 端点、mTLS 身份、Gateway/Commander 路由及测试动态端口。
+1. 各模拟 Service 配置合法且同机端口不冲突；核对现行 Sink `50053`、Generator `50061`、CLI 端点、内网访问授权 身份、Gateway/Commander 路由及测试动态端口。
 2. Collector 模拟任务、Sink 四目标实例和 Delivery 与 `devices_sim.yaml` 使用同一套正式模板/点表；不覆盖真实现场设备或另设非法 Generator Instance。
 3. Sink GatewayOutput 的租约/权限/目标映射已可测试，独立 Modbus 客户端可读 Sink Server；四出口逐项证明。
 4. Generator 现有 Recording 的源批和文件完整性可验证；缺证据必须 INCONCLUSIVE 而不是假设源值。
@@ -569,10 +617,14 @@ reason: "template only; not executed"
 
 7. CLI 对 Collector 控制面的认证应使用正式配置/环境来源提供管理令牌，按服务契约发送 `x-windhub-admin-token` metadata；不存在明文回退、鉴权关闭或测试专用绕过。必须分别证明已授权与拒绝路径，测试证据不得泄露令牌。
 8. CLI 严格 E2E 依次验证全部业务进程 READY、Collector Task 启动、Generation 运行、四出口读回、Commander 写控制、服务重启恢复与关闭收敛；任一步失败不得将其后续步骤计为 PASS。
-9. 核对当前 HEAD 的全部 CLI 叶子命令、正式 RPC、已发布 Schema、`configs/` 路径和证书/端口绑定，覆盖矩阵在执行时生成；设计书中的数量和示例不替代运行时实际枚举。
+9. 核对当前 HEAD 的全部 CLI 叶子命令、正式 RPC、已发布 Schema、`configs/` 路径和访问令牌/端口绑定，覆盖矩阵在执行时生成；设计书中的数量和示例不替代运行时实际枚举。
 
 ## 12.2 裁决
 
 `PASS`：真实执行、证据完整且符合断言；`FAIL`：执行后违反契约；`NOT_IMPLEMENTED`：正式目标缺实现；`NOT_RUN`：环境或前置不足而未执行；`INCONCLUSIVE`：证据不足。任一未覆盖 CLI/RPC、四目标缺口、三进程 CLI E2E 未执行或 Proto 生成门禁失败，均不得将全套跨模块测试裁决为 PASS。
 
 本文件只定义验收目标；当前 HEAD 的实际测试结果必须另行记录，不援引其他分支的通过报告取代。
+
+## 附录 B：内部 gRPC 适配范围
+
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。

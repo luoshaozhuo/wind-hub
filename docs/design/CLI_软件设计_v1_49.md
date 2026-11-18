@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_45 · 20261118</p>
+<p class="subtitle">v1_49 · 20261118</p>
 
 <style>
 body {
@@ -650,7 +650,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | UR-01 | 操作入口 | 命令交互与执行 | 通过交互终端或脚本执行 CLI 命令 | CLI 本地、各 Service |
 | UR-02 | 服务管理 | 服务进程生命周期管理 | 启动、停止、重启指定 Service | 进程/容器管理器 |
 | UR-03 | 服务管理 | 服务状态与能力查询 | 查询服务身份、运行状态、健康及支持能力 | 各 Service gRPC |
-| UR-04 | 配置管理 | 配置快照管理 | 获取、推送和应用 Service 完整配置 | 各 Service gRPC |
+| UR-04 | 配置管理 | 集中配置发布与通知 | 通过 Configuration 原子发布修订，通知业务模块主动拉取并跟踪生效 | Configuration Repository、各 Service gRPC |
 | UR-05 | 配置管理 | 配置比较 | 比较两个完整 `configs/` 目录快照的文件差异 | CLI 本地文件系统 |
 | UR-06 | 业务管理 | 业务对象查询与管理 | 查询设备、测点、任务等对象，并执行相应管理操作 | 各 Service gRPC |
 | UR-07 | 监视与读取 | 跨模块数据与运行状态监视 | 读取 Collector 缓存测点、Gateway 当前变量，以及各模块提供的设备/任务/交付/生成状态；支持允许的周期刷新 | Collector、Gateway 及各 Service gRPC |
@@ -704,20 +704,18 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 业务规则（Business Rules） | 区分 gRPC 可达、服务健康、功能可用；不支持的能力明确报告 |
 | 约束（Constraints） | 认证授权、调用超时、敏感信息脱敏 |
 
-### 3.1.5 UR-04 配置快照管理
-
-<p class="table-caption">表 3-5 UR-04 配置快照管理</p>
+### 3.1.5 UR-04 以配置根目录发布完整快照
 
 | 字段 | 描述 |
 |---|---|
-| 请求方（Requester） | 授权操作人员、自动化脚本 |
-| 触发方式（Trigger） | 终端/API：执行配置 Get/Push/Apply |
-| 输入（Input） | Service、Get/Push/Apply 操作、完整候选快照、候选标识及预期版本 |
-| 反馈（Response） | 磁盘/运行/候选快照、Push 校验结果、Apply 文件提交与运行生效结果、重启要求 |
-| 目标方（Destination） | 对应 Service gRPC Server |
-| 业务输出（Output） | `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` RPC |
-| 业务规则（Business Rules） | Get 获取完整配置；Push 校验后整体暂存、不修改正式文件或运行状态；Apply 替换正式文件，对 Instance/Template 变更热更新受影响对象；Service 配置变更报告 `RESTART_REQUIRED`；文件提交与运行生效分别报告 |
-| 约束（Constraints） | Schema/版本/引用校验、冲突保护、文件集合一致性、失败恢复、部分热更新结果可追溯、服务端授权与审计；CLI 不直接修改正式服务文件 |
+| 请求方 | 授权运维人员或自动化脚本 |
+| 触发 | `wind-hub config publish --root PATH`；初始化和日常更新命令完全一致 |
+| 输入 | 唯一配置根目录下**全部合法 YAML**、当前期望 Configuration 修订、可选 validate-only |
+| 反馈 | 扫描文件数、大小及整体哈希、候选有效性、冲突/校验错误、是否真正变更、已发布 revision |
+| 目标方 | ConfigurationRepositoryService（完整候选上传和原子发布） |
+| 业务输出 | 目录全集的不可变版本与已发布全局 revision；**不返回各模块应用完成承诺** |
+| 业务规则 | 递归扫描并稳定排序、先取当前 revision 做 CAS，完整候选单次有界 Unary RPC 上传、最终校验和一次发布；CLI 不自行计算对象级增量、不逐模块 gRPC 通知、不 Push 到业务模块 |
+| 关键约束 | 路径必须在根目录内，不跟随越界符号链接；空目录/非法文件/清单冲突明确拒绝，部分上传不可发布；模块失联不得影响 CLI 的配置库成功判据 |
 
 ### 3.1.6 UR-05 配置比较
 
@@ -1085,7 +1083,7 @@ flowchart TD
 |---|---|
 | 参与者 | 运维人员、脚本 |
 | 业务目标 | 查询服务身份、健康与能力 |
-| 前置条件 | 目标已配置；证书及授权可用 |
+| 前置条件 | 目标已配置；内网访问及授权可用 |
 | 主要异常 | 服务未启动；握手失败；拒绝；不支持的能力；部分依赖异常 |
 | 后置条件 | 只读结果、真实错误和调用时间，不把进程 RUNNING 等同 READY |
 | 关联需求 | UR-01、UR-03 |
@@ -1093,39 +1091,25 @@ flowchart TD
 | UC-03-S02 关键边界 | 五服务查询和 JSON |
 | UC-03-S03 异常与恢复 | 认证失败；不支持；依赖异常 |
 
-## 4.5 UC-04 获取、推送和应用完整配置快照
+## 4.5 UC-04 根目录完整快照发布
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-    A["指定 Service 与配置操作"] --> B{"操作类型?"}
-    B -->|get| C["获取完整快照并安全导出"]
-    B -->|push| D["上传全量文件集并校验"]
-    D --> E{"校验及版本一致?"}
-    E -->|否| X["拒绝候选且保持正式配置"]
-    E -->|是| F["返回候选标识"]
-    B -->|apply| G["按候选标识请求应用"]
-    G --> H["分别报告文件提交与运行生效"]
-    H --> I{"全部成功?"}
-    I -->|否| J["显示部分成功或重启要求"]
-    I -->|是| K["显示成功与正式版本"]
+    A["config publish --root configs/"] --> B{"根目录安全、完整、所有 YAML 可读?"}
+    B -->|否| X["拒绝并报告本地文件错误"]
+    B -->|是| C["稳定扫描、Manifest 与整体哈希"]
+    C --> D["Configuration GetCurrentRevision / CAS 基线"]
+    D --> E["CreateCandidate 一次上传完整文件集合"]
+    E --> G["服务端完整目录校验"]
+    G --> H{"候选有效?"}
+    H -->|否| Y["返回路径/字段/引用问题，不发布"]
+    H -->|是| I["PublishCandidate 一次原子提交"]
+    I --> J["显示 revision、是否变更及 Configuration 广播状态"]
 ```
 
-<p class="figure-caption">图 4-5 UC-04 业务活动图</p>
+<p class="figure-caption">图 4-5 CLI 完整目录发布流程</p>
 
-<p class="table-caption">表 4-5 UC-04 用例说明与规定场景</p>
-
-| 要素 | 内容 |
-|---|---|
-| 参与者 | 授权运维人员、脚本 |
-| 业务目标 | 获取、推送和应用完整配置快照 |
-| 前置条件 | 目标服务可用；有完整目录；预期版本已知 |
-| 主要异常 | 路径非法/重复；校验失败；版本冲突；候选过期；文件提交成功但运行时部分失败；网络中断状态未知 |
-| 后置条件 | Push 不改正式配置；Apply 返回独立的文件与运行态结果，不自动回滚 |
-| 关联需求 | UR-04 |
-| UC-04-S01 主流程 | Get/Push/Apply 主链 |
-| UC-04-S02 关键边界 | 冲突与候选边界 |
-| UC-04-S03 异常与恢复 | 部分生效；断连与恢复查询 |
+CLI 不要求逐个指定文件；根目录可以同时存在多个历史版本，当前有效引用由文件自身的显式版本依赖确定。Configuration 对未发生变化的对象复用不可变版本，对删除的文件移出当前成员视图但不物理删除历史对象。完整候选校验不通过不得发布；CAS 冲突需终止并提示用户重新核对目录，不自动无条件覆盖。广播由 Configuration 发出，CLI 不维护模块端点名单；离线模块通过启动/周期性修订对账恢复。
 
 ## 4.6 UC-05 比较两套本地完整配置目录
 
@@ -1553,7 +1537,7 @@ flowchart TB
 
 | 数据对象 | 最小必要字段 | 来源或所有者 |
 |---|---|---|
-| ServiceTarget | service_id、endpoint、TLS 及操作超时 | CLI 自身配置 |
+| ServiceTarget | service_id、endpoint、授权令牌引用及操作超时 | CLI 自身配置 |
 | CommandResult | command、status、code、message、timestamp、duration、data、warnings | CLI 输出边界 |
 | TelemetrySample | device_id、point_id、value、quality、sample_timestamp、freshness | Collector 提供，CLI 只读 |
 | DiagnosisStage | stage、status、duration_ms、error_code、message、evidence | 各执行 Service 提供 |
@@ -1586,7 +1570,7 @@ flowchart TB
 | 资源 | 所有者 | 生命周期 | 边界 |
 |---|---|---|---|
 | CLI 主循环 | CLI 命令入口 | 启动至退出 | 不依赖业务 Service 在线 |
-| gRPC Channel | Service Client Manager | 交互会话复用，退出时关闭 | Endpoint/TLS 身份匹配后复用 |
+| gRPC Channel | Service Client Manager | 交互会话复用，退出时关闭 | Endpoint/访问主体匹配后复用 |
 | 轮询任务 | 当前 CLI watch 命令 | 启动监视至 Ctrl+C 或终止条件 | 每次仅一个在途 ReadPoints；结束后取消本地调度 |
 | 本地探测 Task/Socket | Network Probe | 一次扫描命令内 | 并发、超时及目标数量有界 |
 | 本地报告句柄 | Presentation | 输出期间 | 失败不得破坏旧文件 |
@@ -1660,7 +1644,7 @@ src/cli/
 ├── __main__.py                  # CLI 启动入口
 ├── main.py                      # Typer 命令注册
 ├── *_commands.py                # 管理、配置、诊断与业务命令入口
-├── service_rpc.py               # 统一 gRPC/mTLS Client
+├── service_rpc.py               # 统一 内部 gRPC Client
 ├── runtime.py                   # CLI 进程编排与运行参数
 ├── snapshot_io.py               # 配置快照读写和传输转换
 ├── process_manager.py           # 本机进程管理
@@ -1727,10 +1711,10 @@ flowchart LR
         CLI --- Config
         CLI --- Local
     end
-    CLI -->|gRPC/mTLS| Collector["Collector"]
-    CLI -->|gRPC/mTLS| Commander["Commander"]
-    CLI -->|gRPC/mTLS| Sink["Sink Service"]
-    CLI -->|gRPC/mTLS| Gateway["Industrial Gateway"]
+    CLI -->|内部 gRPC| Collector["Collector"]
+    CLI -->|内部 gRPC| Commander["Commander"]
+    CLI -->|内部 gRPC| Sink["Sink Service"]
+    CLI -->|内部 gRPC| Gateway["Industrial Gateway"]
     CLI --> DG["Data Generator"]
     CLI --> PM["进程/容器管理器"]
     CLI --> Network["本地网络探测目标"]
@@ -1744,7 +1728,7 @@ flowchart LR
 | 类别 | 要求 | 故障影响 |
 |---|---|---|
 | CLI 主机 | 支持 Python 环境、gRPC 与本地文件访问 | CLI 自身不可用 |
-| CLI 配置 | 自身 Endpoint/TLS/终端默认值 | 仅影响相关目标连接；帮助与本地探测可继续 |
+| CLI 配置 | 自身 Endpoint/受控令牌/终端默认值 | 仅影响相关目标连接；帮助与本地探测可继续 |
 | Service 网络 | CLI 到 Service gRPC 可达 | 对应远程命令不可用，不影响其他目标 |
 | 进程管理器 | 按部署方式支持启停操作 | 仅 UR-02 不可用 |
 | 本地网络探测 | 探测从 CLI 主机发出 | 结果不能代替 Collector 所在环境视角 |
@@ -1756,14 +1740,14 @@ flowchart LR
 
 ## 9.1 客户端通信与边界
 
-Collector 的管理类 RPC（StartTask、StopTask、ReadPoints、InterrogateDevice，以及 CommonService 的配置快照、事件和 Diagnose）必须经 mTLS 与独立管理令牌双重约束。CLI 仅从执行进程环境变量 `WIND_HUB_COLLECTOR_ADMIN_TOKEN` 读取令牌，并通过 gRPC metadata `x-windhub-admin-token` 传递；缺少令牌时在本地拒绝调用，不降级为匿名访问，不将令牌写入 CLI 配置、命令参数、JSON 输出或日志。未受该令牌保护的只读 RPC 不附带管理凭证。多 Collector 部署时，使用相应运行环境隔离凭证。
+Collector 的管理类 RPC（StartTask、StopTask、ReadPoints、InterrogateDevice，以及 CommonService 的配置快照、事件和 Diagnose）必须经 内网隔离与独立管理令牌双重约束。CLI 仅从执行进程环境变量 `WIND_HUB_COLLECTOR_ADMIN_TOKEN` 读取令牌，并通过 gRPC metadata `x-windhub-admin-token` 传递；缺少令牌时在本地拒绝调用，不降级为匿名访问，不将令牌写入 CLI 配置、命令参数、JSON 输出或日志。未受该令牌保护的只读 RPC 不附带管理凭证。多 Collector 部署时，使用相应运行环境隔离凭证。
 
 
 | 项目 | CLI 要求 |
 |---|---|
-| 连接 | 一个 Endpoint/TLS 身份对应可复用的 gRPC Channel；所有 Channel 在其所属 Event Loop 内创建与关闭 |
+| 连接 | 一个 Endpoint/访问主体对应可复用的 gRPC Channel；所有 Channel 在其所属 Event Loop 内创建与关闭 |
 | 调用 | 对每次 Unary RPC 设置 deadline；保留远端 gRPC 状态与业务响应中的状态字段，不以网络异常推断副作用是否生效 |
-| 权限 | mTLS 身份凭据由 CLI 配置；服务端授权为唯一权威；交互确认不代替服务端权限 |
+| 权限 | 应用令牌身份凭据由 CLI 配置；服务端授权为唯一权威；交互确认不代替服务端权限 |
 | 取消 | Ctrl+C 停止本地等待和后续轮询；受理状态不明的变更请求保持 UNKNOWN，不自动重发 |
 | 状态 | 服务进程状态、gRPC 可达性、业务健康、期望状态与实际状态分别显示 |
 | 分页 | 使用 Proto 定义的 page_size/page_token/next_page_token；无结果与查询失败分开 |
@@ -1814,16 +1798,17 @@ Collector 的管理类 RPC（StartTask、StopTask、ReadPoints、InterrogateDevi
 5. ACQUIRE 失败时不发送更新；Update RPC 超时或断连时不自动重发，按 UNKNOWN 显示，可读回确认当前值，但读回不能证明此前提交是否发生。
 6. 租约避免与 Data Generator 的既有目标写入冲突；CLI 不可抢占其他有效 owner 的租约。租约 TTL、授权与原子归属由 Gateway Server 裁决。
 
-**服务端授权边界**：CLI 的 `--owner-id` 是业务标识而非 mTLS 身份。Gateway 把租约绑定到受认证主体；CLI 必须以同一安全主体执行 ACQUIRE、UpdateVariables 与 RELEASE，不可借用其他主体的令牌。`industrial_gateway.proto` 注释称租约为 per-Generation；普通 CLI 身份不因存在 `ClaimTargets` RPC 而自动获得 ACQUIRE 权限；仅当 Gateway 的正式服务端授权策略明确赋权该管理主体时，才允许 CLI 以自己的授权身份申请租约。未授权必须拒绝且不执行 `UpdateVariables`，不得绕过令牌或冒用 Generation owner。
+**服务端授权边界**：CLI 的 `--owner-id` 是业务标识而非 应用令牌身份。Gateway 把租约绑定到受认证主体；CLI 必须以同一安全主体执行 ACQUIRE、UpdateVariables 与 RELEASE，不可借用其他主体的令牌。`industrial_gateway.proto` 注释称租约为 per-Generation；普通 CLI 身份不因存在 `ClaimTargets` RPC 而自动获得 ACQUIRE 权限；仅当 Gateway 的正式服务端授权策略明确赋权该管理主体时，才允许 CLI 以自己的授权身份申请租约。未授权必须拒绝且不执行 `UpdateVariables`，不得绕过令牌或冒用 Generation owner。
 
 **兼容性差异**：原 v1_1 第 9.6 节的两字段 `UpdateVariablesRequest` 示例已失效。此处不重定义字段号。CLI 仍保留 `gateway update` 命令，但须增加租约获取与释放的业务步骤。
 
-## 9.4 配置快照和现场控制的特殊处理
+## 9.4 集中配置管理与现场控制边界
 
-- Get/Push/Apply 的 `revision`、`expected_revision`、`candidate_id` 以 `common.proto` 定义为准。`Push` 不应用，`Apply` 分别呈现 `file_commit`、`apply_results`、`restart_required`，不得合并为一个布尔值。
-- 单点与批量提交均在调用前生成并向终端标准错误输出 `request_id`（也允许操作员通过 `--request-id` 显式重用已保存 ID），调用 Commander 正式 SubmitCommand/SubmitCommands；Commander 返回 `command_id` 或 `command_ids[]`。响应丢失时使用同一 `request_id` 调用 `GetRequestResult` 查询，不以新的请求 ID 重发现场控制；`GetCommandResult` 仍可按已知 `command_id` 查询。
-- `ReadPoints` 执行一次现场主动读取且不触发额外 NATS 发布；`InterrogateDevice` 才是显式 IEC104 总召；CLI 不以本地协议驱动替代两者。
-- 业务响应中用字符串表达的状态不应由 CLI 假定是 Proto enum；应由对应 Service 设计说明给出合法值及状态规则。
+- 配置发布调用 Configuration Repository 的 `CreateCandidate` 与 `PublishCandidate`，一次提交根目录完整快照后取得全局 `revision_id`。
+- CLI 不对模块发通知；Configuration 在完整目录发布后向 NATS Core 广播。各模块自行完整拉取、校验和决定热更新/重启。
+- CLI 输出完整目录清单/字节数、候选错误、`published_revision`、是否发生实际变更和 Configuration 广播报告；不逐模块等待 `applied_revision`。重试不得重新发布无关修订。
+- Commander 现场控制的 `request_id`、`command_id`、UNKNOWN 与重试规则维持原设计；配置通知不构成现场控制操作。
+- `ReadPoints`、`InterrogateDevice` 与 Gateway 更新变量接口维持原有操作边界。
 
 ## 9.5 契约缺口处理
 
@@ -1838,11 +1823,11 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**本节以已冻结 Contracts v1_29、Core v1_35、总体设计 v1_15 第 5 章，以及 Commander v1_40 的本轮设计要求为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。共享配置按 总体设计 v1_15 第 5 章 消费，不在 CLI 发明第二套配置装配机制。
+**契约与版本声明：**集中配置遵从 Contracts v1_38、总体设计 v1_22 第 5 章；现场控制仍以 Commander 正式接口为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。配置发布调用独立 Configuration Repository，通知由 Configuration 经 NATS Core 广播；业务模块主动通过 gRPC 拉取，不在 CLI 实现第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
-CLI 以 Contracts v1_29 和六份实际 Proto 的正式 Unary RPC 为唯一外部依据，不得创设流式监控或业务接口。Core v1_35 的 YAML/结构 Diff、网络与协议诊断原语优先复用；总体设计 v1_15 第 5 章 只提供共享配置装配，不是独立 Service。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
+CLI 以最新 Contracts 及正式 Proto 为唯一外部契约；配置库为独立的 Configuration Service。全量候选与最新修订查询必须先在 Configuration Repository Proto、服务端和 CLI 同步实现；不新增 NotifyConfigRevision RPC。Core 的 YAML/结构 Diff、网络与协议诊断原语优先复用。CLI 负责命令输入、跨 RPC 编排、分页和结果展示；所有受理、执行、审计、权限及配置生效的权威属于业务 Service。不得直接访问 Commander 数据库、修改共享配置文件或使用 Core Driver 绕过 Commander 现场控制。
 
 **实时监视**：以 Collector ReadPoints、Gateway ReadVariables 和各服务状态 RPC 进行有界 Unary 周期轮询；若缺流式 RPC 不得虚构订阅。一个 endpoint 同一目标不重入、不积压；用户退出仅停止客户端任务，不能取消已被服务端确认受理的操作。缺样本、质量异常、时间过期、单项失败和网络失败分别展示，Commander ListPoints 不返回现场当前值。
 
@@ -2051,6 +2036,12 @@ UNCHANGED templates/protocols/modbus/1.0.0.yaml
 
 两个路径都显式指定；不解析 YAML 语义。上述 5 条变更分类涵盖文件并集，左右各 4 个文件（1 新增、1 删除、1 修改、2 未变）；字节数为格式示例。涉密值不得原样输出。
 
+## 10.4.1 全量配置发布及 Sink 数据等级配置
+
+CLI 只处理本地配置目录的完整扫描、候选一次性全量上传和原子发布，用户可一次执行 `wind-hub config publish --root ./configs`；不增设单文件发布或字段 PATCH 作为独立生产发布方式。原有 `configuration apply` 下载→Push→Apply 业务服务配置属于待移除旧路径，目标代码不得保留双写或兼容分支。`configuration diff` 继续作为本地目录文本差异诊断，不影响正式发布语义。
+
+Sink Delivery 配置可声明 `output.data_level: raw|engineering|business`，缺省 `business`；CLI 不自行进行数据转换。CLI 展示的“配置发布成功”仅指 Configuration SQLite 已提交；通知/模块生效属于独立观测结果，不能伪装成同一原子事务。
+
 ## 10.5 Collector 对象查询和实时监视输出
 
 ```text
@@ -2141,11 +2132,11 @@ Result   : SUCCESS
 
 新增 `commander recover-device`，仅负责调用 CommanderService.`RecoverDeviceControl`，不在 CLI 本地判定隔离是否安全。参数包含 `--device-id`、`--expected-revision`、`--request-id`、`--attestation-file`。证据文件按二进制读取并原样经受保护的 gRPC 通道发送，不在日志、命令回显或错误信息中打印原文；CLI 不签发、不修补、不伪造证明材料。
 
-响应显示设备状态、`decision_id` 和证据摘要，不将 RPC 接收当成现场写入成功。无权限、过期证据、签发者/epoch 不符、证明方不可用或存储/审计失败时退出非零；不得将 BLOCKED 误报为 READY。命令不绕过现有 mTLS 身份、权限、配置修订和审计逻辑。
+响应显示设备状态、`decision_id` 和证据摘要，不将 RPC 接收当成现场写入成功。无权限、过期证据、签发者/epoch 不符、证明方不可用或存储/审计失败时退出非零；不得将 BLOCKED 误报为 READY。命令不绕过现有 应用令牌身份、权限、配置修订和审计逻辑。
 
 测试覆盖文件不可读、空证据、证据超限、RPC 权限失败、无可信证明方（fail-closed）、重复 request_id、冲突与成功响应解析；真实成功恢复必须在隔离证明方和现场安全机制均到位的环境进行独立 E2E 验证。
 
-**当前实现边界**：恢复 CLI 已提供二进制证据有界读取、Base64/Protobuf bytes 编码及非零失败退出码，真实 mTLS 调用可达服务端；生产可信证明方与恢复成功路径未实现，禁止把命令存在或拒绝路径通过解释为运维功能可用。
+**当前实现边界**：恢复 CLI 已提供二进制证据有界读取、Base64/Protobuf bytes 编码及非零失败退出码，真实内部 gRPC 调用可达服务端（迁移前后须分别验收）；生产可信证明方与恢复成功路径未实现，禁止把命令存在或拒绝路径通过解释为运维功能可用。
 
 ## 10.7 Gateway 与 Data Generator 输出
 
@@ -2349,7 +2340,7 @@ Message : Snapshot revision changed; fetch the current snapshot
 | `data-generator variables list --generation-id G --device-id D` | `DataGeneratorService.ListVariables` | 列出有效模型 point_id、来源（POINT_TABLE/WEATHER_INPUT）、数据类型、单位、INPUT/STATE/OUTPUT、writable、范围、说明及设备 PointTable 版本 |
 | `data-generator variables update --generation-id G --device-id D --point-id P --value V --request-id R` | `DataGeneratorService.UpdateVariables` | 仿真输入更新，回显 request_id、accepted、effective_step、错误 |
 | `data-generator variables update --generation-id G --device-id D --values-file F --request-id R` | `DataGeneratorService.UpdateVariables` | 同一设备多个输入的一次原子批；文件中的每点仅声明 point_id/value，不覆盖类型和单位 |
-| `gateway describe --gateway-id ID`（或对应已有查看命令） | Gateway 状态和配置读取 | 查看当前 Server 的控制目标类型、目标端点的脱敏标识及运行状态；不暴露 TLS 私钥 |
+| `gateway describe --gateway-id ID`（或对应已有查看命令） | Gateway 状态和配置读取 | 查看当前 Server 的控制目标类型、目标端点的脱敏标识及运行状态；不暴露 访问凭据 |
 
 CLI 对输入值的解析须使用 `ListVariables` 的逻辑类型：bool 仅接受严格布尔，不因 Modbus 编码为 uint16 而宽松接受 0/1；字符串采用明确编码，浮点拒绝 NaN/Inf。POINT_TABLE 变量的单位按共享点表，WEATHER_INPUT 变量的单位按气象模型 Schema；CLI 不隐式转换数值量纲。修改范围由 Generator 动态 `writable` 给出，CLI **不维护第二份硬编码的变量白名单**。所有写操作需要独立授权身份；交互式 shell 在提交之前展示目标 Generation/设备/点 ID/数值/单位，非交互 JSON/脚本模式要求显式参数，不在后台自动重试换 request_id。超时不宣称未写入，允许用户持**相同请求摘要、相同 request_id** 重试以获取幂等裁决，不得自动生成新的 request_id。成功的 accepted 表示在 effective_step 受理待生效，不代表实际设备状态立即达到目标。
 
@@ -2369,13 +2360,13 @@ CLI 对输入值的解析须使用 `ListVariables` 的逻辑类型：bool 仅接
 
 ### 10.12.2 CLI 专属配置
 
-`configs/services/cli.yaml` 已有 Gateway 与 Data Generator endpoint/TLS 配置必须与实际 RPC 服务对应；新增两个命令**优先复用同一个 Data Generator 客户端连接和 mTLS 身份来源**，不增加第二套 endpoint。权限不足时拒绝更新，不自行回退到明文或不受限身份。CLI 不加载或改写 `devices_sim.yaml` 来推断模型权限，权限及模型变量以服务端 `ListVariables` 的结果为准。
+`configs/services/cli.yaml` 已有 Gateway 与 Data Generator endpoint/授权令牌配置必须与实际 RPC 服务对应；新增两个命令**优先复用同一个 Data Generator 客户端连接和 应用令牌身份来源**，不增加第二套 endpoint。权限不足时拒绝更新，不自行回退到明文或不受限身份。CLI 不加载或改写 `devices_sim.yaml` 来推断模型权限，权限及模型变量以服务端 `ListVariables` 的结果为准。
 
 # 11. CLI 自身配置与运行参数
 
 ## 11.1 配置文件范围
 
-CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、TLS、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。业务配置仅在执行 `config get/push/apply` 或 `config diff` 时按参数读取。
+CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、受控授权令牌引用、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。业务配置仅在执行 `config get/push/apply` 或 `config diff` 时按参数读取。
 
 ## 11.2 CLI 配置示例（目标字段）
 
@@ -2396,20 +2387,20 @@ cli:
 services:
   collector:
     grpc_endpoint: "127.0.0.1:50051"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: containerd
     target: collector
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
   commander:
     grpc_endpoint: "127.0.0.1:50052"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: isulad
     isula_binary: "/usr/bin/isula"  # 固定绝对路径，不调用 Shell
     target: commander
   sink:
     grpc_endpoint: "127.0.0.1:50053"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: process
     target: sink
     process:
@@ -2419,14 +2410,14 @@ services:
       log_file: "/var/log/wind-hub/sink.log"
   gateway:
     grpc_endpoint: "127.0.0.1:50073"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: containerd
     target: gateway
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
   data-generator:
     grpc_endpoint: "127.0.0.1:50061"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: process
     target: data-generator
     process:
@@ -2434,11 +2425,6 @@ services:
       cwd: "/opt/wind-hub"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/data-generator.log"
-tls_profiles:
-  local:
-    ca_cert: "/etc/wind-hub/certs/ca.crt"
-    client_cert: "/etc/wind-hub/certs/cli.crt"
-    client_key: "/etc/wind-hub/certs/cli.key"
 network_probe:
   max_hosts: 1024
   max_concurrency: 64
@@ -2446,7 +2432,7 @@ network_probe:
   industrial_tcp_ports: [102, 502, 2404, 4840, 44818, 48898]
 ```
 
-以上 Endpoint、证书路径、运行目标和上限全为**配置格式示例**，不代表项目真实端口或出厂值。iSulad 固定以本机 isula CLI 适配；containerd 使用实际 Namespace 与 Socket 配置；敏感凭据不可嵌入命令历史。
+以上 Endpoint、访问令牌引用、运行目标和上限全为**配置格式示例**，不代表项目真实端口或出厂值。iSulad 固定以本机 isula CLI 适配；containerd 使用实际 Namespace 与 Socket 配置；敏感凭据不可嵌入命令历史。
 
 ### 11.2.1 配置字段与 Sink Main/Worker 部署约束
 
@@ -2455,7 +2441,7 @@ network_probe:
 | `schema_version` | 总是 | 固定已支持 Schema 版本，未知版本拒绝加载 |
 | `file_version` | 总是 | 必须是 `MAJOR.MINOR.PATCH` 字符串，不允许缺省或使用 `v` 前缀 |
 | `services.<id>.grpc_endpoint` | 独立提供 gRPC Server 时 | `host:port` 或明确 URI；不提供业务 RPC 的进程仅通过进程管理器管理 |
-| `services.<id>.tls_profile` | 启用远程 gRPC 时 | 引用 `tls_profiles` 中已存在条目；证书在使用前校验可读 |
+| `services.<id>.auth_token_env` | 访问需授权的内部 RPC 时 | 可选环境变量名称，运行时读取受控授权令牌，禁止在 YAML 中保存明文令牌 |
 | `services.<id>.manager` | 执行服务启停时 | `containerd`、`isulad`、`process` 三选一 |
 | `target`、`namespace` | 使用对应管理器时 | target 为固定白名单 ID；containerd 必填 namespace；process target 是受控服务 ID |
 | `process.argv/cwd/state_dir/log_file` | process | 程序绝对路径及受控工作目录、PID 状态和日志路径；不用 shell/systemd |
@@ -2469,7 +2455,7 @@ Sink Service 采用单一 Main 进程和 Main 管理的 Realtime、Reliable 两�
 services:
   sink:
     grpc_endpoint: "127.0.0.1:50053"
-    tls_profile: local
+    auth_token_env: WIND_HUB_CLI_ACCESS_TOKEN
     manager: process
     target: sink
     process:
@@ -2563,7 +2549,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 
 | 主题 | 设计约束 |
 |---|---|
-| 认证与权限 | 服务 RPC 使用 mTLS 和服务端对象授权；运行时管理器使用受限 Socket/管理接口权限 |
+| 认证与权限 | 服务 RPC 使用 内网隔离和服务端对象授权；运行时管理器使用受限 Socket/管理接口权限 |
 | 服务目标白名单 | CLI 只管理 `cli.yaml` 显式配置的容器及原生进程，不提供任意 PID/容器管理 |
 | 现场控制 | 仅调用 Commander；不由 CLI 判断底层写入是否生效；不自动重试 UNKNOWN |
 | 配置 | Push/Apply 由服务端校验、提交和审计；本地 Diff 只读，报告敏感值脱敏 |
@@ -2592,7 +2578,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
 | `test_native_process_real.py` | integration | reliability | real_process | 真实独立 Linux 进程 |
-| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（现行 Generator 8 项；Gateway 2 项拟增另行验收）、mTLS、错误映射 |
+| `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（现行 Generator 8 项；Gateway 2 项拟增另行验收）、内部网络隔离、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
 
@@ -2610,7 +2596,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | UR-02 | UC-02-S03 | 10.3；11.2 | `test_runtime_e2e.py` / `test_uc_02_s03` | `system` | `security` | `exception` | 权限、不可达、超时及异常退出；断言权限拒绝不改变目标状态；超时不谎报成功；异常退出可识别 |
 | UR-01、UR-03 | UC-03-S01 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s01` | `system` | `contract` | `normal` | 基本状态及能力；断言五个服务均返回身份/版本、健康和能力 |
 | UR-01、UR-03 | UC-03-S02 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s02` | `system` | `contract` | `exception` | 五服务查询和 JSON；断言五服务输出结构一致；JSON含独立健康/能力字段 |
-| UR-01、UR-03 | UC-03-S03 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s03` | `system` | `reliability` | `exception` | 认证失败、不支持、依赖异常；断言mTLS拒绝退出2；UNIMPLEMENTED退出3；依赖故障不显示READY |
+| UR-01、UR-03 | UC-03-S03 | 9.2；10 | `test_service_info_e2e.py` / `test_uc_03_s03` | `system` | `reliability` | `exception` | 授权失败、不支持、依赖异常；断言无效访问令牌拒绝并非零退出；UNIMPLEMENTED退出3；依赖故障不显示READY |
 | UR-04 | UC-04-S01 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s01` | `system` | `contract` | `normal` | Get/Push/Apply 主链；断言Get文件哈希一致；Push磁盘不变；Apply后磁盘版本变化 |
 | UR-04 | UC-04-S02 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s02` | `system` | `contract` | `exception` | 冲突与候选边界；断言基线revision冲突拒绝提交；候选失效不得应用 |
 | UR-04 | UC-04-S03 | 9.2；10 | `test_snapshot_e2e.py` / `test_uc_04_s03` | `system` | `security` | `exception` | 部分生效、断连与恢复查询；断言逐对象部分失败退出4；Get运行视图可查询最后生效错误 |
@@ -2659,7 +2645,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 
 | 测试文件名 | 层级 Marker | 专题 Marker | 场景 Marker | 契约 / 验证说明 |
 |---|---|---|---|---|
-| `test_mtls_permissions_e2e.py` | system | security | real_service | 9.1、13：mTLS、越权、身份与审计边界 |
+| `test_mtls_permissions_e2e.py` | system | security | real_service | 9.1、13：内部网络隔离、越权、身份与审计边界 |
 | `test_timeout_unknown_e2e.py` | system | reliability | timeout | 6.4、9.1：RPC 超时不推断远端副作用、不盲目重发 |
 | `test_config_apply_partial_e2e.py` | system | reliability | partial | 9.2：文件提交与运行生效分别返回，部分成功退出码 4 |
 | `test_gateway_variable_update_real.py` | system | contract | real_service | 9.3：真实 CLI→Gateway 变量发现→ClaimTargets→UpdateVariables→Release→读回闭环（Data Generator→Gateway 链路归 Contracts/Generator 验收）；请求顺序、部分成功、写权限隔离、拒绝控制转发、未知结果不重试 |
@@ -2741,3 +2727,7 @@ lint-imports
 | 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O |
 | 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 |
 | Core/Contracts 接口变更 | 全调用方、测试、配置、注释同步检查；静态检查及系统测试有真实证据 |
+
+## 附录 B：内部通信与配置发布的唯一目标
+
+内部 gRPC 不使用 TLS/客户端证书；敏感发布和控制操作使用受控内网及服务端令牌权限检查。Configuration 在全量发布事务提交后广播 `wh.config.changed`；CLI 不再调用 `NotifyConfigRevision`，也不逐模块判断运行生效。具体发布字段、文件集校验与对账以 Contracts §10.3.14～§10.3.16 为准。
