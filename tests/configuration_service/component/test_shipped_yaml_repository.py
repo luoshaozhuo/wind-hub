@@ -15,7 +15,7 @@ from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
 from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FILES, identity_for
 
 pytestmark = pytest.mark.component
-BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.0.0.yaml"
+BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml"
 REPOSITORY_YAMLS = YAML_FILES
 
 

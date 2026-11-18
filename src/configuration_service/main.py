@@ -1,9 +1,10 @@
-"""Configuration Service executable: local YAML bootstrap and mTLS gRPC."""
+"""Configuration Service executable: local YAML bootstrap and authorized gRPC."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -39,14 +40,17 @@ from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
 _LOG = logging.getLogger(__name__)
 
 
-def _credentials(settings: ServerSettings) -> grpc.ServerCredentials:
-    """Require validated client certificates on every externally exposed RPC."""
-    ca = settings.ca_file.read_bytes()
-    cert = settings.cert_file.read_bytes()
-    key = settings.key_file.read_bytes()
-    return grpc.ssl_server_credentials(
-        [(key, cert)], root_certificates=ca, require_client_auth=True
-    )
+def _load_actor_tokens(settings: ServerSettings) -> dict[str, str]:
+    """Resolve authorized identities to independent deployment-injected tokens."""
+    tokens: dict[str, str] = {}
+    for actor, variable in settings.token_sources.items():
+        token = os.environ.get(variable, "")
+        if len(token) < 32 or token.strip() != token:
+            raise ValueError(f"missing or invalid token for authorized actor {actor}")
+        if token in tokens.values():
+            raise ValueError("duplicate configuration access token")
+        tokens[actor] = token
+    return tokens
 
 
 def serve(settings: ServerSettings, bootstrap: Path) -> None:
@@ -121,6 +125,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         repository_servicer = RepositoryServicer(
             application,
             permissions=settings.permissions,
+            tokens=_load_actor_tokens(settings),
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
             metrics=rpc_metrics,
@@ -151,8 +156,8 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         )
         common_pb2_grpc.add_CommonServiceServicer_to_server(common_servicer, server)
         bind = f"{settings.host}:{settings.port}"
-        if server.add_secure_port(bind, _credentials(settings)) == 0:
-            raise RuntimeError("failed to bind secure Configuration Service endpoint")
+        if server.add_insecure_port(bind) == 0:
+            raise RuntimeError("failed to bind Configuration Service endpoint")
         server.start()
         _LOG.info("Configuration Service listening at %s", bind)
         should_stop = False

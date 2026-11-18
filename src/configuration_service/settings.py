@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,9 +15,10 @@ class ServerSettings:
     service_id: str
     host: str
     port: int
-    ca_file: Path
-    cert_file: Path
-    key_file: Path
+    nats_servers: tuple[str, ...]
+    nats_subject: str
+    nats_connect_timeout_ms: int
+    token_sources: dict[str, str]
     sqlite_path: Path
     backup_root: Path
     cursor_secret_file: Path
@@ -74,11 +76,12 @@ def load_settings(path: Path) -> ServerSettings:
         "repository",
         "limits",
         "security",
+        "nats",
     }
     if set(raw) != allowed_root:
         raise ValueError("invalid bootstrap configuration root fields")
     grpc_config = _mapping(raw["grpc"], "grpc")
-    tls = _mapping(grpc_config["tls"], "grpc.tls")
+    nats = _mapping(raw["nats"], "nats")
     repository = _mapping(raw["repository"], "repository")
     limits = _mapping(raw["limits"], "limits")
     security = _mapping(raw["security"], "security")
@@ -88,10 +91,10 @@ def load_settings(path: Path) -> ServerSettings:
         if unexpected:
             raise ValueError(f"unknown {name} fields: {sorted(unexpected)}")
 
-    assert_fields(grpc_config, {"host", "port", "tls"}, "grpc")
-    assert_fields(tls, {"ca_file", "cert_file", "key_file"}, "grpc.tls")
+    assert_fields(grpc_config, {"host", "port"}, "grpc")
+    assert_fields(nats, {"servers", "subject", "connect_timeout_ms"}, "nats")
     assert_fields(repository, {"sqlite_path", "backup_root"}, "repository")
-    assert_fields(security, {"cursor_secret_file", "permissions"}, "security")
+    assert_fields(security, {"cursor_secret_file", "token_sources", "permissions"}, "security")
     assert_fields(
         limits,
         {
@@ -121,14 +124,33 @@ def load_settings(path: Path) -> ServerSettings:
             raise ValueError("client permissions must be a nonempty role list")
         identities[name] = frozenset(roles)
     if not identities:
-        raise ValueError("at least one authorized mTLS client is required")
+        raise ValueError("at least one authorized client is required")
+    sources = _mapping(security["token_sources"], "security.token_sources")
+    if set(sources) != set(identities):
+        raise ValueError("every authorized actor must have one token source")
+    token_sources: dict[str, str] = {}
+    for actor, value in sources.items():
+        source = _text(value, "token source")
+        if not re.fullmatch(r"env:[A-Z][A-Z0-9_]*", source):
+            raise ValueError("token source must use env:UPPERCASE_NAME")
+        token_sources[actor] = source[4:]
+    servers = nats["servers"]
+    if not isinstance(servers, list) or not servers or any(
+        not isinstance(server, str) or not server.startswith("nats://") for server in servers
+    ):
+        raise ValueError("NATS servers must be nonempty nats:// addresses")
+    if nats["subject"] != "wh.config.changed":
+        raise ValueError("NATS configuration subject must be wh.config.changed")
     return ServerSettings(
         service_id=_text(raw["service_id"], "service_id"),
         host=_text(grpc_config["host"], "grpc.host"),
         port=_number(grpc_config["port"], "grpc.port", 1, 65535),
-        ca_file=_file(tls["ca_file"], "grpc.tls.ca_file"),
-        cert_file=_file(tls["cert_file"], "grpc.tls.cert_file"),
-        key_file=_file(tls["key_file"], "grpc.tls.key_file"),
+        nats_servers=tuple(servers),
+        nats_subject="wh.config.changed",
+        nats_connect_timeout_ms=_number(
+            nats["connect_timeout_ms"], "nats.connect_timeout_ms", 1, 120_000
+        ),
+        token_sources=token_sources,
         sqlite_path=_file(repository["sqlite_path"], "repository.sqlite_path"),
         backup_root=_file(repository["backup_root"], "repository.backup_root"),
         cursor_secret_file=_file(security["cursor_secret_file"], "security.cursor_secret_file"),

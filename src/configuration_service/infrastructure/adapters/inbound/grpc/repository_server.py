@@ -1,4 +1,4 @@
-"""Authenticated gRPC adapters for the configuration repository."""
+"""Token-authorized gRPC adapters for the configuration repository."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ T = TypeVar("T")
 
 
 class AuthenticationError(Exception):
-    """Authenticated mTLS client certificate is missing or invalid."""
+    """Required caller token is absent or invalid."""
 
 
 def _timestamp(value: str | None = None) -> Timestamp:
@@ -111,12 +111,7 @@ def guarded(
         except grpc.RpcError:
             raise
         except Exception as exc:
-            names = context.auth_context().get("x509_common_name", ())
-            actor = (
-                names[0].decode("utf-8", "replace")
-                if names and isinstance(names[0], bytes) and names[0]
-                else "unauthenticated"
-            )
+            actor = "unauthenticated"
             try:
                 self.app.repository.record_rejected_operation(
                     actor_id=actor,
@@ -137,13 +132,14 @@ def guarded(
 
 
 class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
-    """Serve all twelve repository RPCs with mandatory mTLS authorization."""
+    """Serve repository RPCs with mandatory per-caller token authorization."""
 
     def __init__(
         self,
         application: ConfigurationApplication,
         *,
         permissions: dict[str, frozenset[str]],
+        tokens: dict[str, str],
         cursor_secret: bytes,
         submit_backup: Callable[[str], None],
         metrics: RpcMetrics,
@@ -152,18 +148,41 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         self.metrics = metrics
         self.submit_backup = submit_backup
         self.permissions = permissions
+        if not tokens or set(tokens) != set(permissions):
+            raise ValueError("authorized callers and token identities must match")
+        if len(set(tokens.values())) != len(tokens) or any(
+            len(value) < 32 for value in tokens.values()
+        ):
+            raise ValueError("configuration access tokens must be unique and sufficiently long")
+        self._tokens = dict(tokens)
         if len(cursor_secret) < 32:
             raise ValueError("cursor secret must be at least 32 bytes")
         self.secret = cursor_secret
 
     def _actor(self, context: grpc.ServicerContext, role: str) -> str:
-        certificate = context.auth_context()
-        names = certificate.get("x509_common_name", ())
-        if not names or not isinstance(names[0], bytes) or not names[0].strip():
-            raise AuthenticationError("valid mTLS identity required")
-        actor = names[0].decode("utf-8").strip()
-        if not actor:
-            raise AuthenticationError("valid mTLS identity required")
+        metadata = context.invocation_metadata()
+        authorization = [
+            item.value
+            for item in metadata
+            if item.key.lower() == "authorization"
+        ]
+        if (
+            len(authorization) != 1
+            or not isinstance(authorization[0], str)
+            or not authorization[0].startswith("Bearer ")
+        ):
+            raise AuthenticationError("valid authorization token required")
+        supplied = authorization[0][7:]
+        if len(supplied) < 32:
+            raise AuthenticationError("valid authorization token required")
+        matched = [
+            actor
+            for actor, expected in self._tokens.items()
+            if hmac.compare_digest(supplied, expected)
+        ]
+        if len(matched) != 1:
+            raise AuthenticationError("valid authorization token required")
+        actor = matched[0]
         roles = self.permissions.get(actor, frozenset())
         if role not in roles and "admin" not in roles:
             raise PermissionError("missing repository permission")
