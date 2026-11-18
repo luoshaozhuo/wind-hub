@@ -45,6 +45,7 @@ COLLECTOR_GI = "tests/collector/system/test_collector_acquisition_system.py"
 COMMANDER = (
     "tests/commander/integration/test_grpc.py::test_all_seventeen_rpcs_registered_and_callable"
 )
+COMMANDER_BATCH = "tests/commander/system/test_control_flow.py::test_batch_acceptance"
 CONTROL = "tests/system/e2e/full_chain/test_e2e_control.py::test_e2e_04_ppc_control_applied"
 CONTROL_AUTH = (
     "tests/system/e2e/full_chain/test_e2e_control_security.py::"
@@ -676,7 +677,11 @@ RPC_ROWS = (
         _rpc(
             "CommanderService",
             method,
-            evidence=COMMANDER + "; " + CONTROL + "; " + CONTROL_AUTH,
+            evidence=(COMMANDER_BATCH if method == "SubmitCommands" else COMMANDER)
+            + "; "
+            + CONTROL
+            + "; "
+            + CONTROL_AUTH,
             object_id="PPC_SIM01 or caller-scoped command identity",
             normal="OK; accepted control is independently settled, not equated with success"
             if method in {"SubmitCommand", "SubmitCommands"}
@@ -798,19 +803,43 @@ RPC_ROWS = (
             method,
             evidence=(DELTA + "::test_generator_update_is_applied_and_idempotent")
             if method in {"UpdateVariables", "GetInputExecution"}
+            else DELTA + "::test_cli_semantic_delta_has_exact_exit_and_error_contracts"
+            if method == "ListVariables"
             else GENERATOR,
-            action="delta" if method in {"UpdateVariables", "GetInputExecution"} else "reuse",
+            action="delta"
+            if method in {"ListVariables", "UpdateVariables", "GetInputExecution"}
+            else "reuse",
             object_id="WTG_SIM01/wind_speed_mean request"
             if method in {"UpdateVariables", "GetInputExecution"}
             else "Generator catalog/Generation",
             normal="OK accepted=true; independent query reaches APPLIED at effective_step"
             if method in {"UpdateVariables", "GetInputExecution"}
             else "OK with asserted Generator identity/state",
-            rejection=(
+            rejection="missing generation/device NOT_FOUND; invalid page token INVALID_ARGUMENT"
+            if method
+            in {
+                "ListDevices",
+                "GetDevice",
+                "ListScenarios",
+                "GetGeneration",
+                "ListVariables",
+                "GetInputExecution",
+            }
+            else (
                 "same request_id with different fingerprint ALREADY_EXISTS; invalid input "
                 "accepted=false without a step"
             ),
-            auth="CLI/Gateway variables_update identity required; caller scopes execution lookup",
+            auth="CLI/Gateway variables_read identity required; caller scopes the catalog"
+            if method
+            in {
+                "ListDevices",
+                "GetDevice",
+                "ListScenarios",
+                "GetGeneration",
+                "ListVariables",
+                "GetInputExecution",
+            }
+            else "CLI/Gateway variables_update identity required; caller scopes execution lookup",
             readback="GetInputExecution APPLIED and independent recording value 12"
             if method in {"UpdateVariables", "GetInputExecution"}
             else "GetGeneration plus recording JSONL"
