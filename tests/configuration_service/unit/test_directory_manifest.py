@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
+
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     build_directory_manifest,
@@ -108,3 +110,20 @@ def test_publication_rejects_bootstrap_and_ambiguous_identity(
 ) -> None:
     with pytest.raises(ValueError):
         resolve_publication_identity(path, source)
+
+
+def test_repository_directory_paths_have_unambiguous_identities() -> None:
+    root = Path(__file__).resolve().parents[3] / "configs"
+    seen: set[tuple[str, str, str]] = set()
+    for path in sorted(root.rglob("*.yaml")):
+        relative_path = path.relative_to(root).as_posix()
+        document = parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
+        if relative_path.startswith("services/service_configuration_v"):
+            with pytest.raises(ValueError, match="bootstrap"):
+                resolve_publication_identity(relative_path, document)
+            continue
+        identity = resolve_publication_identity(relative_path, document)
+        key = (identity.config_type, identity.config_id, identity.file_version)
+        assert key not in seen, f"duplicate document identity: {relative_path}"
+        seen.add(key)
+    assert len(seen) >= 40
