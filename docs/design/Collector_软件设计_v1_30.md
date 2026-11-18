@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_29 · 20261115</p>
+<p class="subtitle">v1_30 · 20261118</p>
 
 <style>
 body {
@@ -2856,8 +2856,8 @@ Collector；`ScalarValue` 统一使用 Core 权威编解码，不在 Collector
 
 # 8. 物理视图（部署视图）
 
-Collector 为独立服务进程，可由 systemd
-或容器进程管理器启动；不将容器作为协议会话或采集任务的逻辑所有者。部署参数必须区分现场设备网络、控制/管理
+Collector 为独立服务进程，可由 CLI process 后端
+或 containerd/iSulad 容器进程管理器启动；不将容器作为协议会话或采集任务的逻辑所有者。部署参数必须区分现场设备网络、控制/管理
 gRPC 网络与 NATS
 消息网络，跨网段可达性由实际现场网络提供，不假定全部设备与服务位于一张网卡或同一主机。
 

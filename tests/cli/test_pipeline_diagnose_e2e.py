@@ -42,7 +42,7 @@ def test_pipeline_correlated_pass(cli_env: object) -> None:
         )
 
     server.respond(server.method_path("CommonService", "Diagnose"), diagnose)
-    result = cli_env.subprocess_invoke("diagnose", "pipeline", "d1")
+    result = cli_env.subprocess_invoke("diagnose", "pipeline", "d1", "--sink-id", "ems_power")
     assert result.exit_code == 0, result.stdout
     assert result.json()["data"]["overall_status"] in {"PASS", "SUCCESS"}
 
@@ -63,7 +63,7 @@ def test_pipeline_missing_correlation_fails(cli_env: object) -> None:
         )
 
     server.respond(server.method_path("CommonService", "Diagnose"), diagnose)
-    result = cli_env.subprocess_invoke("diagnose", "pipeline", "d1")
+    result = cli_env.subprocess_invoke("diagnose", "pipeline", "d1", "--sink-id", "ems_power")
     assert result.exit_code in {1, 3}, result.stdout
     assert result.json()["status"] in {"FAILURE", "UNKNOWN"}
 

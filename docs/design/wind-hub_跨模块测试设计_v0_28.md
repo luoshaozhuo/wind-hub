@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_27 · 20261116 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_28 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -304,7 +304,7 @@ configs/
 | Sink | `services/sink_service.yaml`、`instances/sinks.yaml`、`instances/deliveries.yaml` | 现有过滤为 WT001/WT002，地址属示例；测试使用隔离实例与四种目标，不能误写真实目标 |
 | Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、mTLS 凭据、独立变量与租约 |
 | Commander | `services/commander.yaml` | 模拟控制设备、Gateway 授权与请求身份一致 |
-| CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/systemd；测试须准备所有业务服务由同一可用 Linux 原生管理器接管的有效配置 |
+| CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/process；完整 E2E 统一使用 CLI 原生 process 后端启动六类业务进程；容器后端另行专项验证 |
 | 外部 | NATS/JetStream、Redis、Kafka | 独立测试命名空间及清理所有权 |
 
 **端口核对**：现行参考配置已将 Sink Main 设为 `50053`、Generator 模拟服务设为 `50061`，CLI 参考端点相应为 `50053` 和 `50061`。完整 E2E 使用隔离服务配置与动态端口，仍须按实际运行时逐一核对 Gateway、Commander、双 Collector、Sink 和 Generator 的监听地址、mTLS 身份及路由。`.example.yaml` 不等于通过启动或证书验收。
@@ -352,9 +352,9 @@ sequenceDiagram
 
 1. **端口先检测再分配。** 普通 System Redis Fixture 使用独立 Compose Project 和随机 loopback 宿主端口，返回真实端点给测试；R5 完整栈对 NATS、Redis、Kafka、TDengine 分别使用动态宿主端口。所有生成的 Service YAML、CLI YAML、Sink 连接及测试读回均引用分配的端点，禁止硬编码 6379/4222/9092。
 2. **冲突处理。** Compose 绑定冲突时仅销毁本用例创建的 Project，重新分配端口并有界重试；不执行 docker prune、不停止其他用户的容器。显式 `WIND_HUB_TEST_REDIS` 可使用外部 Redis，但必须标记为外部依赖，不能在结束时停机。端口重试后仍失败记为 SETUP_ERROR 并保留日志，不属于生产模块 FAIL。
-3. **进程管理。** CLI 启动/停止/restart 通过真实 systemd user 服务管理器；其不可达但运行环境为 uid 0 且 systemd system 管理器可用时，可使用 system scope，测试用临时单元并在 finally 中删除。没有任何可用 manager 时记录 NOT_RUN 与具体 DBus 错误及修复办法，不得用 Mock 伪造 PASS。现场执行环境须在测试前备好可运行的 systemd，或另行提供经正式 CLI 支持的 Linux 进程管理实现。
-4. **隔离与清理。** 每个测试使用独立 tmp_path、动态端口、临时 systemd Unit 名称、唯一 NATS Stream / Kafka Topic / Redis Namespace；即使断言失败也依次 CLI 停止业务进程、清理专属 Unit、中间件 Project、文件和流。任何端口占用必须先归属识别，不得无条件删除非本测试容器。
-5. **前置检查与裁决。** 校验当前 HEAD、Python/CLI 执行路径、Docker daemon、可用 systemd 管理器、证书生成、compose 健康、服务 gRPC READY 和 Sink 双 Worker 状态；缺 Docker/systemd 的场景标 NOT_RUN，缺少真实现场硬件对软件仿真场景**不构成** NOT_RUN 理由。不得把准备阶段的端口竞争记作软件功能缺陷。
+3. **进程管理。** CLI 启动/停止/restart 通过正式 process 管理后端启动和管理独立 Linux 进程，不依赖 systemd。必须校验进程身份（PID 与 start-tick）、进程组、状态文件及日志所有权；容器后端须另做真实运行时专项验证。任何后端不可用时记录 NOT_RUN_ENV，不得用 Mock 伪造 PASS。
+4. **隔离与清理。** 每个测试使用独立 tmp_path、动态端口、独立进程管理状态目录与受控服务 ID、唯一 NATS Stream / Kafka Topic / Redis Namespace；即使断言失败也依次 CLI 停止业务进程、清理本次进程组、中间件 Project、文件和流。任何端口占用必须先归属识别，不得无条件删除非本测试容器。
+5. **前置检查与裁决。** 校验当前 HEAD、Python/CLI 执行路径、Docker daemon、process 管理后端、证书生成、compose 健康、服务 gRPC READY 和 Sink 双 Worker 状态；缺业务必需中间件或正式 process 后端的场景标 NOT_RUN，缺少真实现场硬件对软件仿真场景**不构成** NOT_RUN 理由。不得把准备阶段的端口竞争记作软件功能缺陷。
 
 # 6. Integration 分段测试
 

@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_43 · 20261116</p>
+<p class="subtitle">v1_44 · 20261118</p>
 
 <style>
 body {
@@ -615,7 +615,7 @@ System Test 必须遵守以下规定：
 2. **规定场景覆盖率 100%**：每项 UC 明确的主流程、关键分支、异常流程、边界和恢复场景均必须有对应 System Test；不能仅以一条正常路径代表整个 UC 已覆盖。
 3. **需求覆盖率 100%**：每项 UR 必须能够经一个或多个 UC 追溯至 System Test；若某项需求未能被 UC 覆盖，必须先补全用例，不得直接以技术测试代替业务用例。
 4. **技术约束补充覆盖**：用例未充分表达的性能、容量、并发、安全、权限、超时和可靠性要求，依据对应技术契约补充测试；不得因 UC 未逐项列出而豁免。
-5. **真实系统边界**：System Test 通过真实 CLI 进程和真实通信/运行基础设施执行。涉及 containerd、iSulad、systemd 的用例必须分别在对应真实管理器上验证；允许在真实容器或 Service Unit 中运行模拟下游业务组件，Mock 不得代替运行基础设施验收。
+5. **真实系统边界**：System Test 通过真实 CLI 进程和真实通信/运行基础设施执行。涉及 containerd、iSulad、process 的用例必须分别在对应真实管理器上验证；允许在真实容器或独立 Linux 进程 中运行模拟下游业务组件，Mock 不得代替运行基础设施验收。
 6. **覆盖与通过分开裁定**：测试已关联不等于已执行；失败、跳过及未运行均不得计为通过。验收报告分别给出需求覆盖、用例及场景覆盖、执行情况和通过情况；缺少真实环境时标记 `NOT_RUN`，不得用模拟结果替代。
 7. **变更同步**：任何 UR、UC、接口或行为约束的新增、删除、调整，必须同步核查 System Test、测试矩阵和验收条款；新增 UC 不得留下无测试映射。
 
@@ -856,7 +856,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 编号 | 可核验要求 | 来源 |
 |---|---|---|
 | FR-01 | 统一支持单次命令和交互式 Shell，输出结果、错误与退出码 | UR-01 |
-| FR-02 | 通过 containerd、iSulad 或 systemd 管理 Service 启停与重启，查询就绪结果 | UR-02 |
+| FR-02 | 通过 containerd、iSulad 或 process 管理 Service 启停与重启，查询就绪结果 | UR-02 |
 | FR-03 | 查询 Service 身份、状态、健康及能力信息 | UR-03 |
 | FR-04 | 对完整 Service 配置执行 Get/Push/Apply，Push 不生效，Apply 报告磁盘和运行态结果 | UR-04 |
 | FR-05 | 使用两个显式本地目录递归比较整个 `configs/`：文件数、总字节数、增删改及文本 Diff | UR-05 |
@@ -960,7 +960,7 @@ Collector 读取契约统一为一次性 Unary `ReadPoints`；持续读取由 CL
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart LR
     U["操作人员 / 自动化脚本"] --> CLI["wind-hub CLI"]
-    CLI --> PM["真实 containerd / iSulad / systemd"]
+    CLI --> PM["真实 containerd / iSulad / process"]
     CLI --> FS["本地配置目录与网络探测"]
     CLI --> C["Collector gRPC"]
     CLI --> M["Commander gRPC"]
@@ -1907,7 +1907,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `service list` | — | CLI 配置的受管目标 | 列出 Service 与运行时 |
 | `service info/capabilities` | SERVICE | Service GetServiceInfo/GetCapabilities | 服务身份、支持能力 |
 | `service status` | 可选 SERVICE | 运行时管理器 + 服务 gRPC | 进程状态与业务健康分别显示 |
-| `service start/stop/restart` | SERVICE | containerd/iSulad/systemd | 操作真实进程或容器 |
+| `service start/stop/restart` | SERVICE | containerd/iSulad/process | 操作真实进程或容器 |
 | `config get` | SERVICE、`--output PATH` | Service GetConfigSnapshot | 获取完整快照并安全导出 |
 | `config push` | SERVICE、PATH | Service PushConfigSnapshot | 校验并暂存完整候选 |
 | `config apply` | SERVICE、CANDIDATE_ID | Service ApplyConfigSnapshot | 提交并逐对象报告运行生效 |
@@ -1955,7 +1955,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `ReadPoints` | `collector latest DEVICE [POINT...]`、`collector watch DEVICE [POINT...]` | 单次现场主动读取；watch 为 CLI 周期调用独立 Unary；不创建服务端任务或 NATS 发布 |
 | `InterrogateDevice` | `diagnose collector gi DEVICE` | IEC104 一次性总召 |
 
-`diagnose pipeline DEVICE` 为 CLI 跨服务编排命令，调用各 Service 的公共 `Diagnose` 汇总证据。必需 RPC 对应命令均应提供帮助；尚未实现时返回 gRPC UNIMPLEMENTED 或 CLI 明确的未实现错误；不得将其隐藏以规避验收。每项远程命令禁止绕过对应 Service 直接执行本地业务。
+`diagnose pipeline DEVICE --sink-id DELIVERY_ID` 要求显式指定真实 Sink Delivery ID，不允许把 DEVICE 当作 Delivery ID。该命令为 CLI 跨服务编排命令，调用各 Service 的公共 `Diagnose` 汇总证据。必需 RPC 对应命令均应提供帮助；尚未实现时返回 gRPC UNIMPLEMENTED 或 CLI 明确的未实现错误；不得将其隐藏以规避验收。每项远程命令禁止绕过对应 Service 直接执行本地业务。
 
 ### 10.2.2 命令参数及交互统一约束
 
@@ -1980,9 +1980,9 @@ SERVICE             RUNTIME       PROCESS    GRPC
 ───────────────────────────────────────────────────
 Collector           containerd    RUNNING    READY
 Commander           iSulad        RUNNING    READY
-Sink Service        systemd       RUNNING    READY
+Sink Service        process       RUNNING    READY
 Industrial Gateway  containerd    STOPPED    UNAVAILABLE
-Data Generator           systemd       STOPPED    UNAVAILABLE
+Data Generator           process       STOPPED    UNAVAILABLE
 
 wind-hub> service start collector
 Target       : collector
@@ -1998,7 +1998,7 @@ Result       : PARTIAL
 Message      : Process restarted; service readiness not confirmed
 ```
 
-管理器操作成功不意味着 gRPC 一定已就绪。`service stop`/`restart` 对真实容器或 systemd Unit 生效；不能只改 CLI 内存状态。
+管理器操作成功不意味着 gRPC 一定已就绪。`service stop`/`restart` 对真实容器或独立 Linux 进程 生效；不能只改 CLI 内存状态。
 
 ## 10.4 配置管理与目录比较输出
 
@@ -2410,21 +2410,30 @@ services:
   sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
-    manager: systemd
-    systemd_scope: system
-    target: wind-hub-sink.service
+    manager: process
+    target: sink
+    process:
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/etc/wind-hub"]
+      cwd: "/opt/wind-hub"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/sink.log"
   gateway:
-    grpc_endpoint: "127.0.0.1:50054"
+    grpc_endpoint: "127.0.0.1:50073"
     tls_profile: local
     manager: containerd
     target: gateway
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
-  data_generator:
-    grpc_endpoint: "127.0.0.1:50055"
+  data-generator:
+    grpc_endpoint: "127.0.0.1:50061"
     tls_profile: local
-    manager: systemd
-    target: wind-hub-data_generator.service
+    manager: process
+    target: data-generator
+    process:
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/configs/services/data-generator-service.yaml"]
+      cwd: "/opt/wind-hub"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/data-generator.log"
 tls_profiles:
   local:
     ca_cert: "/etc/wind-hub/certs/ca.crt"
@@ -2447,9 +2456,9 @@ network_probe:
 | `file_version` | 总是 | 必须是 `MAJOR.MINOR.PATCH` 字符串，不允许缺省或使用 `v` 前缀 |
 | `services.<id>.grpc_endpoint` | 独立提供 gRPC Server 时 | `host:port` 或明确 URI；不提供业务 RPC 的进程仅通过进程管理器管理 |
 | `services.<id>.tls_profile` | 启用远程 gRPC 时 | 引用 `tls_profiles` 中已存在条目；证书在使用前校验可读 |
-| `services.<id>.manager` | 执行服务启停时 | `containerd`、`isulad`、`systemd` 三选一 |
-| `target`、`namespace` | 使用对应管理器时 | target 为固定白名单 ID；containerd 必填 namespace；systemd target 是 Unit |
-| `manager_socket` | containerd | 本地 Unix Socket，权限严格限制 |
+| `services.<id>.manager` | 执行服务启停时 | `containerd`、`isulad`、`process` 三选一 |
+| `target`、`namespace` | 使用对应管理器时 | target 为固定白名单 ID；containerd 必填 namespace；process target 是受控服务 ID |
+| `process.argv/cwd/state_dir/log_file` | process | 程序绝对路径及受控工作目录、PID 状态和日志路径；不用 shell/systemd |\n| `manager_socket` | containerd | 本地 Unix Socket，权限严格限制 |
 | `isula_binary` | iSulad | 固定的 `isula` 可执行文件绝对路径；调用时禁止 shell=True |
 | `network_probe.*` | 使用本地探测时 | 非负、有界，非法端口或超大网段须拒绝 |
 
@@ -2460,8 +2469,13 @@ services:
   sink:
     grpc_endpoint: "127.0.0.1:50053"
     tls_profile: local
-    manager: systemd
-    target: wind-hub-sink.service
+    manager: process
+    target: sink
+    process:
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/etc/wind-hub"]
+      cwd: "/opt/wind-hub"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/sink.log"
 ```
 
 Realtime 与 Reliable 的运行状态及独立故障需经 Main 的正式状态/指标接口分别查询；Main READY 不能替代两 Worker 的业务就绪证明。
@@ -2549,7 +2563,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | 主题 | 设计约束 |
 |---|---|
 | 认证与权限 | 服务 RPC 使用 mTLS 和服务端对象授权；运行时管理器使用受限 Socket/管理接口权限 |
-| 服务目标白名单 | CLI 只管理 `cli.yaml` 显式配置的容器和 systemd Unit，不提供任意 PID/容器管理 |
+| 服务目标白名单 | CLI 只管理 `cli.yaml` 显式配置的容器及原生进程，不提供任意 PID/容器管理 |
 | 现场控制 | 仅调用 Commander；不由 CLI 判断底层写入是否生效；不自动重试 UNKNOWN |
 | 配置 | Push/Apply 由服务端校验、提交和审计；本地 Diff 只读，报告敏感值脱敏 |
 | 终端 | 命令历史不保存密钥及敏感参数；Rich 输出不泄露认证字段 |
@@ -2576,7 +2590,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 | `test_gateway_lease_client.py` | integration | contract | lease | ClaimTargets 与 UpdateVariables 真实请求字段、权限及释放语义 |
 | `test_containerd_real.py` | integration | reliability | real_container | 真实 containerd Daemon 及容器 |
 | `test_isulad_real.py` | integration | reliability | real_container | 真实 iSulad Daemon 及容器 |
-| `test_systemd_real.py` | integration | reliability | real_process | 真实 systemd Unit |
+| `test_native_process_real.py` | integration | reliability | real_process | 真实独立 Linux 进程 |
 | `test_grpc_contract_real.py` | integration | contract | real_service | 五服务公共与专属 Unary RPC（现行 Generator 8 项；Gateway 2 项拟增另行验收）、mTLS、错误映射 |
 
 ## 14.2 System Test：全 UC 与场景追溯矩阵
@@ -2660,7 +2674,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 |---|---|---|---|
 | containerd | Daemon、namespace、OCI Runtime、真实容器 | 容器内 gRPC 业务 Server | start/stop/restart/status、未就绪、权限、异常退出 |
 | iSulad | Daemon、真实容器 | 容器内 gRPC 业务 Server | start/stop/restart/status、未就绪、权限、异常退出 |
-| systemd | 真实 systemd Manager、专用 Unit | Unit 执行的 gRPC 业务 Server | start/stop/restart/status、未就绪、权限、异常退出 |
+| process | CLI 原生进程管理器与受控 PID/进程组 | 独立进程执行的 gRPC 业务 Server | start/stop/restart/status、未就绪、权限、异常退出 |
 
 测试 Fixture 为容器、Unit、镜像、端口和管理 Namespace 创建独立资源；必须验证真实进程启动、停止及异常退出，模拟业务 Server 必须以独立进程提供实际 gRPC 端点；记录运行版本、进程、命令、对应 UC/场景、测试标识和结果；结束时清理专用资源并验证无遗留。基础设施不可用登记 `NOT_RUN`，不得算 PASS；不能使用 Mock Daemon 代替。
 
@@ -2672,7 +2686,7 @@ Core `DiagnosticResult` 与 gRPC Service 的响应分别来自本机和远程执
 |---|---|---|---|
 | containerd | start/stop/restart/status 及真实任务状态 | 重复操作、gRPC 延迟就绪 | Daemon 不可达、权限拒绝、退出/超时 |
 | iSulad | isula 管理真实容器的相同操作 | 重复操作、gRPC 延迟就绪 | Daemon 不可达、权限拒绝、退出/超时 |
-| systemd | 真实 system Unit 的相同操作 | 重复操作、gRPC 延迟就绪 | D-Bus/权限拒绝、异常退出、超时 |
+| process | 真实 Linux 进程的相同操作 | 重复操作、gRPC 延迟就绪 | D-Bus/权限拒绝、异常退出、超时 |
 
 三个运行时各自覆盖全部三个场景，至少九个独立的“运行时×场景”测试标识；涉及多种错误时参数化补齐，不得以单环境结果替代。全部用专用模拟业务 Server、真实容器/Unit 和真实 CLI 验证。
 

@@ -195,3 +195,45 @@ async def test_recording_disk_failure_marks_generation_failed(configs_root, tmp_
     # 失败发生在目录创建阶段，不会留下半截 JSONL 制品。
     assert not (tmp_path / "artifacts" / "data-generator").exists()
     await runtime.shutdown()
+
+
+async def test_stop_waits_for_inflight_recording_before_releasing_generation(
+    configs_root,
+) -> None:  # noqa: ANN001
+    """Canceling the producer must not disown an unfinished Recording append."""
+
+    class BlockingRecorder:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.allow_finish = asyncio.Event()
+            self.completed = False
+
+        async def append(self, settings, generation_id, payload) -> None:  # noqa: ANN001
+            self.started.set()
+            await self.allow_finish.wait()
+            self.completed = True
+
+    runtime, _ = _runtime(
+        configs_root,
+        recording={"enabled": True, "directory": "artifacts/data-generator"},
+    )
+    recorder = BlockingRecorder()
+    runtime._recorder = recorder
+    generation = await runtime.start("demo-random", None, runtime.settings.revision)
+    try:
+        await asyncio.wait_for(recorder.started.wait(), timeout=3)
+        stopping = asyncio.create_task(runtime.stop(generation.generation_id, ""))
+        await asyncio.sleep(0.05)
+        assert not stopping.done()
+        assert not recorder.completed
+        assert generation.generation_id in runtime.writer.owners
+        assert generation.actual_state == "STOPPING"
+
+        recorder.allow_finish.set()
+        state = await asyncio.wait_for(stopping, timeout=3)
+        assert recorder.completed
+        assert state.actual_state == "STOPPED"
+        assert generation.generation_id not in runtime.writer.owners
+    finally:
+        recorder.allow_finish.set()
+        await runtime.shutdown()

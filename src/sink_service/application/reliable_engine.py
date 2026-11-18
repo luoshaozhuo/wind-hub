@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
@@ -49,6 +50,8 @@ class ReliableDeliveryEngine:
     filtered_ack_batches_total: int
     filtered_ack_values_total: int
     _pending_filter_reason: str
+    _pending_confirmed_samples: list[dict[str, str]]
+    _confirmed_samples: deque[dict[str, str]]
     latency_window: LatencyWindow
     last_error: str
 
@@ -152,6 +155,7 @@ class ReliableDeliveryEngine:
         stripe = selection.stripe
         count = selection.count
         self._pending_filter_reason = selection.filter_reason
+        self._pending_confirmed_samples = []
         if not count:
             return True
         self.received_total += count
@@ -185,6 +189,20 @@ class ReliableDeliveryEngine:
             finally:
                 self._active_io = False
             decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+            # Preserve only target-confirmed identities. Publish to diagnostics
+            # after the corresponding source ACK, never on an uncertain write.
+            for index in outcome.delivered:
+                item = chunk_items[index] if self._kafka_target else chunk[index]
+                self._pending_confirmed_samples.append(
+                    {
+                        "device_id": batch.device_id,
+                        "sample_id": item.sample_id,
+                        "delivery_id": self._definition.delivery_id,
+                        "channel": "reliable",
+                    }
+                )
+                if len(self._pending_confirmed_samples) > 4:
+                    self._pending_confirmed_samples.pop(0)
             self.write_success_total += outcome.successful_attempts
             self.failed_total += outcome.failed_attempts
             self.delivered_total += decision.delivered
@@ -282,6 +300,8 @@ class ReliableDeliveryEngine:
                         raise RuntimeError("source batch contains unconfirmed points")
                     await message.ack(timeout=5)
                     self.acknowledged_batches_total += 1
+                    self._confirmed_samples.extend(self._pending_confirmed_samples[-4:])
+                    self._pending_confirmed_samples.clear()
                     if self._pending_filter_reason:
                         self.filtered_ack_batches_total += 1
                         self.filtered_ack_values_total += len(batch.samples)

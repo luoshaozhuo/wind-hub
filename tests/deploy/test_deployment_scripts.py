@@ -344,7 +344,8 @@ def test_provision_failure_rolls_back_only_successfully_created_ids(
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(scripts.provision.subprocess, "run", fake_run)
-    with pytest.raises(subprocess.CalledProcessError):
+    monkeypatch.setattr(scripts.provision, "_inspect_target", lambda _args, _id: False)
+    with pytest.raises(RuntimeError, match="UNKNOWN"):
         scripts.provision._apply(args, commands)
 
     removals = [command for command in calls if "rm" in command]

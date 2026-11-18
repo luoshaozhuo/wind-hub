@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import time
+from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
@@ -67,6 +68,8 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self.filtered_ack_batches_total = 0
         self.filtered_ack_values_total = 0
         self._pending_filter_reason = ""
+        self._pending_confirmed_samples: list[dict[str, str]] = []
+        self._confirmed_samples: deque[dict[str, str]] = deque(maxlen=4)
         self.rejected_batches_total = 0
         self.input_values_total = 0
         self.delivered_total = 0
@@ -131,6 +134,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             "sink": "OWNED" if self._adapter is not None else "NOT_ATTACHED",
             "io_inflight": str(self.io_inflight),
             "target": "NOT_PROBED",
+            "sample_evidence": json.dumps(list(self._confirmed_samples), separators=(",", ":")),
         }
 
     @property

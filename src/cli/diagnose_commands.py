@@ -80,7 +80,7 @@ def generator_diagnose(generation_id: str) -> None:
 @diagnose.command("pipeline")
 def pipeline_diagnose(
     device_id: str,
-    sink_id: str | None = typer.Option(None, "--sink-id"),
+    sink_id: str = typer.Option(..., "--sink-id", help="Exact Sink Delivery ID"),
 ) -> None:
     """Never claim end-to-end PASS without correlated evidence from both services."""
     from .main import _run, runtime
@@ -96,7 +96,7 @@ def pipeline_diagnose(
             ("collector", ["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"]),
             ("sink", ["source", "consumer", "delivery"]),
         ):
-            target = device_id if svc_name == "collector" else (sink_id or device_id)
+            target = device_id if svc_name == "collector" else sink_id
             rpc_target = svc_name
             stub = common_pb2_grpc.CommonServiceStub(runtime().channel(rpc_target))
             response = await stub.Diagnose(

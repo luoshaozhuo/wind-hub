@@ -37,7 +37,7 @@ def test_diagnose_pipeline_requires_correlated_evidence(cli_env: Any) -> None:
         return _diagnose_response("PASS", ["m-9"])
 
     server.respond(_PATH, behavior)
-    result = cli_env.invoke("diagnose", "pipeline", "dev-1")
+    result = cli_env.invoke("diagnose", "pipeline", "dev-1", "--sink-id", "delivery-dev1")
     assert result.exit_code == 3, result.stdout
     envelope = result.json()
     assert envelope["status"] == "UNKNOWN"
@@ -55,7 +55,7 @@ def test_diagnose_pipeline_pass_with_shared_id(cli_env: Any) -> None:
         return _diagnose_response("PASS", ["m-1", "m-2"])
 
     cli_env.server.respond(_PATH, behavior)
-    result = cli_env.invoke("diagnose", "pipeline", "dev-1")
+    result = cli_env.invoke("diagnose", "pipeline", "dev-1", "--sink-id", "delivery-dev1")
     assert result.exit_code == 0, result.stdout
     assert result.json()["data"]["overall_status"] == "PASS"
 
@@ -67,7 +67,7 @@ def test_diagnose_pipeline_failure_is_exit1(cli_env: Any) -> None:
         return _diagnose_response("PASS", ["m-2"])
 
     cli_env.server.respond(_PATH, behavior)
-    result = cli_env.invoke("diagnose", "pipeline", "dev-1")
+    result = cli_env.invoke("diagnose", "pipeline", "dev-1", "--sink-id", "delivery-dev1")
     assert result.exit_code == 1, result.stdout
     assert result.json()["status"] == "FAILURE"
 

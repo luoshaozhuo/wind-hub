@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_50 · 20261115</p>
+<p class="subtitle">v1_51 · 20261118</p>
 
 <style>
 body {
@@ -897,6 +897,8 @@ $$
 
 
 ## 3.4 UR-03 虚拟设备数据输出
+
+**Recording 收敛约束：** 收到 Generation STOP 或取消后，必须等待已开始的 JSONL 文件追加真实结束；未完成时 Generation 保持 `STOPPING`，不得提前释放同一 Generation 的输出所有权。协程取消不等于底层文件 I/O 结束；文件写入失败必须保留错误证据。
 
 ### 3.4.1 基本信息与触发方式
 

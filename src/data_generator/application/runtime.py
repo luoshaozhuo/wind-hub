@@ -601,7 +601,23 @@ class Runtime:
                 for point in batch.points
             ],
         }
-        await self._recorder.append(generation.bound_settings, generation.generation_id, payload)
+        # to_thread-based Recording can outlive cancellation of its awaiting task.
+        # Retain ownership until the actual append has settled. A concurrent STOP
+        # may report STOPPING, but must never release Generation ownership early.
+        append_task = asyncio.create_task(
+            self._recorder.append(generation.bound_settings, generation.generation_id, payload)
+        )
+        try:
+            await asyncio.shield(append_task)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(append_task)
+            except Exception as exc:
+                self.record(
+                    "ERROR", generation.generation_id, "RECORDING_SETTLEMENT_FAILED", str(exc)
+                )
+                raise
+            raise
 
     async def _emit(
         self,

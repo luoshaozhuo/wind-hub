@@ -179,16 +179,64 @@ def _rollback(args: argparse.Namespace, targets: list[str]) -> None:
         raise RuntimeError("rollback incomplete: " + "; ".join(failures))
 
 
+def _inspect_target(args: argparse.Namespace, ident: str) -> bool | None:
+    """True if present, False only on explicit not-found, None if uncertain."""
+    if args.runtime == "containerd":
+        command = [
+            args.ctr, "--address", str(args.socket), "--namespace", args.namespace,
+            "containers", "info", ident,
+        ]
+    else:
+        command = [str(args.isula), "inspect", ident]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=15
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode == 0:
+        return True
+    error = (result.stdout + result.stderr).lower()
+    if any(fragment in error for fragment in ("not found", "no such container", "does not exist")):
+        return False
+    return None
+
+
 def _apply(args: argparse.Namespace, commands: list[list[str]]) -> None:
     created: list[str] = []
+    uncertain: str | None = None
     try:
         for command in commands:
-            subprocess.run(command, check=True, timeout=120)
             target = _created_target(args, command)
             if target is not None:
+                presence = _inspect_target(args, target)
+                if presence is not False:
+                    raise RuntimeError(
+                        f"refusing create for existing or unverified target {target}: "
+                        f"present={presence}"
+                    )
+            try:
+                subprocess.run(command, check=True, timeout=120)
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.CalledProcessError,
+                KeyboardInterrupt,
+                OSError,
+            ):
+                if target is not None:
+                    uncertain = target
+                raise
+            if target is not None:
                 created.append(target)
-    except BaseException:
+    except BaseException as exc:
         _rollback(args, created)
+        if uncertain is not None:
+            presence = _inspect_target(args, uncertain)
+            raise RuntimeError(
+                f"OCI create result UNKNOWN for {uncertain} (present={presence}); "
+                "ownership cannot be established, target was NOT deleted; "
+                "manual runtime reconciliation required"
+            ) from exc
         raise
 
 

@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_64 · 20261115</p>
+<p class="subtitle">v1_65 · 20261118</p>
 
 <style>
 body {
@@ -3565,6 +3565,8 @@ $$
 **示例与验收。** 一次确认 Builder A 含 99 条成功 Record、耗时 10 ms；Builder B 含 1 条成功 Record、耗时 100 ms；无其他样本。$n=100$，最近秩 $Q_{0.99}=10$ ms；应按权重取 10 ms 所在对数桶的**上界近似值**，而非以两条 Builder 观测的未加权 P99 得到 100 ms。必须验证桶权重与目标确认点数一致、时间窗口淘汰后结果消失、高负载下内存有界且不会因 50000 条测点溢出而丢失 P99。
 
 ## 13.4 链路诊断证据与安全边界
+
+**Reliable 目标确认样本证据：** 每个 Delivery 最多保留最近四条目标确认且源批已 JetStream ACK 的记录（`device_id`、`sample_id`、`delivery_id`、`channel=reliable`）。诊断只读 Worker 中的有界样本缓存，通过现有 `sample_evidence` 快照返回；未确认、未 ACK、仅 DLQ 的样本不得冒充目标确认，不允许以其他设备样本交集判定 pipeline PASS。
 
 Diagnose 仅返回所指定范围内的可验证证据：NATS/JetStream 连通与消费者状态、Delivery 匹配/过滤与待处理、Sink 连接与在途 I/O、Adapter 返回及可验证的目标响应。每阶段报告执行位置、观察时间、耗时、状态、错误及证据来源；未执行和无法证明分别记为 `NOT_RUN`/`UNKNOWN`（最终状态名称以正式 Proto 为准）。TCP 通不代表协议成功，Adapter 接受不等于目标完成业务处理。
 
