@@ -15,8 +15,8 @@ from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
 from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FILES, identity_for
 
 pytestmark = pytest.mark.component
-BOOTSTRAP = ROOT / "configs/services/service_configuration_v1.0.0.yaml"
-REPOSITORY_YAMLS = tuple(path for path in YAML_FILES if path != BOOTSTRAP)
+BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.0.0.yaml"
+REPOSITORY_YAMLS = YAML_FILES
 
 
 def input_for(path: Path) -> DocumentInput:

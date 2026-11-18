@@ -20,7 +20,7 @@ services:
     manager: process
     target: configuration
     process:
-      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/services/service_configuration_v1.0.0.yaml"]
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/bootstrap/service_configuration_v1.0.0.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/configuration.log"
