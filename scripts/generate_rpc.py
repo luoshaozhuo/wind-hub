@@ -20,6 +20,7 @@ PROTO_FILES = (
     "contracts/sink_service.proto",
     "contracts/industrial_gateway.proto",
     "contracts/data_generator.proto",
+    "contracts/configuration_repository.proto",
 )
 
 RETIRED_PROTO_NAMES = ("collector_v2", "sink", "gateway")

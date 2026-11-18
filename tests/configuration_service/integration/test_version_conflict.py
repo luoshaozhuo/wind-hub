@@ -1,0 +1,56 @@
+"""Immutable file-version conflict mapped to the public contract."""
+
+from __future__ import annotations
+
+import grpc
+import pytest
+
+from contracts import configuration_repository_pb2 as pb
+from tests.configuration_service.integration.test_repository_rpc import document
+from tests.support.configuration_live import LiveConfiguration
+
+pytestmark = [pytest.mark.integration, pytest.mark.real_service]
+
+
+@pytest.mark.asyncio
+async def test_same_file_version_with_different_content_is_already_exists(
+    live: LiveConfiguration,
+) -> None:
+    repository, _common, channel = live.stubs("deployer")
+    try:
+        first = await repository.CreateCandidate(
+            pb.CreateCandidateRequest(
+                request_id="version-first",
+                expected_revision_id=0,
+                documents=[document("versioned", "1.0.0", name="first")],
+            ),
+            timeout=10,
+        )
+        await repository.PublishCandidate(
+            pb.PublishCandidateRequest(
+                request_id="version-first-publish",
+                candidate_id=first.candidate_id,
+                expected_revision_id=0,
+            ),
+            timeout=10,
+        )
+        conflicting = await repository.CreateCandidate(
+            pb.CreateCandidateRequest(
+                request_id="version-conflict",
+                expected_revision_id=1,
+                documents=[document("versioned", "1.0.0", name="different")],
+            ),
+            timeout=10,
+        )
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await repository.PublishCandidate(
+                pb.PublishCandidateRequest(
+                    request_id="version-conflict-publish",
+                    candidate_id=conflicting.candidate_id,
+                    expected_revision_id=1,
+                ),
+                timeout=10,
+            )
+        assert rejected.value.code() == grpc.StatusCode.ALREADY_EXISTS
+    finally:
+        await channel.close()

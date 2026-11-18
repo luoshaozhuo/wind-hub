@@ -14,6 +14,16 @@ cli:
   diff_max_file_bytes: 1048576
   diff_max_output_lines: 10000
 services:
+  configuration:
+    grpc_endpoint: "127.0.0.1:51060"
+    tls_profile: local
+    manager: process
+    target: configuration
+    process:
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/services/service_configuration_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/configuration.log"
   collector:
     grpc_endpoint: "127.0.0.1:50051"
     tls_profile: local

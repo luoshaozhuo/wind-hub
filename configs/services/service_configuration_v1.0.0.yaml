@@ -1,0 +1,56 @@
+# Configuration Service 独立引导配置，需部署到仅管理者可读路径。
+# schema_version: 必填；整数，固定 1
+# file_version: 必填；语义版本 MAJOR.MINOR.PATCH
+# service_id: 必填；服务唯一身份
+# grpc.host: 必填；监听主机/IP
+# grpc.port: 必填；1..65535
+# grpc.tls.ca_file: 必填；绝对路径；用于验证客户端 mTLS 证书
+# grpc.tls.cert_file: 必填；绝对路径；服务端证书
+# grpc.tls.key_file: 必填；绝对路径；服务端私钥，禁止在配置中嵌入私钥值
+# repository.sqlite_path: 必填；SQLite 数据库绝对路径
+# repository.backup_root: 必填；受控备份根目录绝对路径
+# security.cursor_secret_file: 必填；绝对路径；至少 32 字节随机密钥
+# security.permissions: 必填；客户端证书 CN -> [query, publish, admin] 角色集合
+# limits.max_request_bytes: 必填；1024..67108864 字节，含整包 YAML
+# limits.max_bundle_bytes: 必填；1024..67108864 字节，含全部注释 YAML
+# limits.max_documents_per_publication: 必填；1..1000
+# limits.max_dependencies: 必填；1..100000
+# limits.candidate_ttl_seconds: 必填；1..86400 秒
+# limits.write_timeout_ms: 必填；1..120000 毫秒
+# limits.max_candidates: 必填；1..100000，待处理候选上限
+# limits.max_backup_jobs: 必填；1..64，备份在途任务上限
+# limits.max_concurrent_queries: 必填；1..1024，gRPC 并发受理上限
+# limits.page_size: 可选；1..1000，默认 100
+# limits.max_workers: 可选；1..256，默认 16
+schema_version: 1
+file_version: 1.0.0
+service_id: configuration-main
+grpc:
+  host: 127.0.0.1
+  port: 51060
+  tls:
+    ca_file: /etc/wind-hub/pki/ca.pem
+    cert_file: /etc/wind-hub/pki/configuration.pem
+    key_file: /etc/wind-hub/pki/configuration.key
+repository:
+  sqlite_path: /var/lib/wind-hub/configuration/configuration.db
+  backup_root: /var/backups/wind-hub/configuration
+security:
+  cursor_secret_file: /etc/wind-hub/configuration/cursor-secret
+  permissions:
+    wind-hub-cli-admin: [query, publish, admin]
+    wind-hub-collector: [query]
+    wind-hub-sink: [query]
+    wind-hub-gateway: [query]
+limits:
+  max_request_bytes: 1048576
+  max_bundle_bytes: 4194304
+  max_documents_per_publication: 100
+  max_dependencies: 1000
+  candidate_ttl_seconds: 3600
+  write_timeout_ms: 10000
+  max_candidates: 128
+  max_backup_jobs: 1
+  max_concurrent_queries: 32
+  page_size: 100
+  max_workers: 16

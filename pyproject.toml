@@ -8,6 +8,7 @@ license = "MIT"
 packages = [
     { include = "core", from = "src" },
     { include = "contracts", from = "src" },
+    { include = "configuration_service", from = "src" },
     { include = "collector", from = "src" },
     { include = "sink_service", from = "src" },
     { include = "commander", from = "src" },
@@ -80,6 +81,7 @@ wind-hub = "cli.main:main"
 wind-hub-server = "web_server.main:main"
 wind-hub-gateway = "industrial_gateway.main:main"
 wind-hub-data-generator = "data_generator.main:main"
+wind-hub-configuration-service = "configuration_service.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -112,6 +114,8 @@ extend-immutable-calls = [
 "src/data_generator/infrastructure/adapters/inbound/server.py" = ["N802"]
 "src/sink_service/infrastructure/adapters/inbound/grpc_server.py" = ["N802"]
 "src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py" = ["N802"]
+"src/configuration_service/infrastructure/adapters/inbound/grpc/repository_server.py" = ["N802"]
+"src/configuration_service/infrastructure/adapters/inbound/grpc/common_server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -158,6 +162,8 @@ module = [
     "contracts.industrial_gateway_pb2_grpc",
     "contracts.data_generator_pb2",
     "contracts.data_generator_pb2_grpc",
+    "contracts.configuration_repository_pb2",
+    "contracts.configuration_repository_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -241,8 +247,47 @@ root_packages = [
     "data_generator",
     "contracts",
     "sink_service",
+    "configuration_service",
 ]
 
+
+[[tool.importlinter.contracts]]
+name = "configuration-service 三层依赖方向"
+type = "layers"
+layers = [
+    "configuration_service.infrastructure",
+    "configuration_service.application",
+    "configuration_service.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "configuration-service 不得依赖其他业务进程包"
+type = "forbidden"
+source_modules = ["configuration_service"]
+forbidden_modules = [
+    "collector",
+    "commander",
+    "cli",
+    "sink_service",
+    "industrial_gateway",
+    "data_generator",
+    "web_server",
+]
+
+
+[[tool.importlinter.contracts]]
+name = "configuration application/domain 不得依赖生成 Protobuf"
+type = "forbidden"
+source_modules = [
+    "configuration_service.application",
+    "configuration_service.domain",
+]
+forbidden_modules = [
+    "contracts.configuration_repository_pb2",
+    "contracts.configuration_repository_pb2_grpc",
+    "contracts.common_pb2",
+    "contracts.common_pb2_grpc",
+]
 
 # ---- new Shared Core boundary ----
 
