@@ -92,3 +92,32 @@ def test_audit_rejects_missing_device_model(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="missing model target"):
         audit(root, tmp_path / "results.csv")
+
+
+def test_audit_expands_inherited_points_before_duplicate_check(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    _write(
+        root / "templates/point_tables/point_table_child_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\ntemplate_id: child\n"
+        "parent:\n  id: wtg\n  version: 1.0.0\n"
+        "points:\n  p2:\n    business_point_id: active_power\n"
+        "    unit: kilowatt\n    data_type: float32\n",
+    )
+    assert audit(root, tmp_path / "results.csv") == 2
+
+
+def test_audit_rejects_point_table_inheritance_cycle(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    base = root / "templates/point_tables/point_table_wtg_v1.0.0.yaml"
+    base.write_text(
+        base.read_text(encoding="utf-8")
+        + "parent:\n  id: child\n  version: 1.0.0\n",
+        encoding="utf-8",
+    )
+    _write(
+        root / "templates/point_tables/point_table_child_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\ntemplate_id: child\n"
+        "parent:\n  id: wtg\n  version: 1.0.0\npoints: {}\n",
+    )
+    with pytest.raises(ValueError, match="inheritance cycle"):
+        audit(root, tmp_path / "results.csv")

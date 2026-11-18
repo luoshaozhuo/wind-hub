@@ -91,6 +91,63 @@ def _validate_references(root: Path, documents: dict[Path, dict[str, Any]]) -> N
                     raise ValueError(f"missing model target {target} from {path}:{device_id}")
 
 
+
+def _resolve_points(
+    path: Path,
+    documents: dict[Path, dict[str, Any]],
+    cache: dict[Path, dict[str, dict[str, Any]]],
+    visiting: set[Path],
+) -> dict[str, dict[str, Any]]:
+    """Expand exact versioned inheritance before auditing business identity."""
+    if path in cache:
+        return cache[path]
+    if path in visiting:
+        raise ValueError(f"PointTable inheritance cycle: {path}")
+    if path not in documents:
+        raise ValueError(f"unknown PointTable: {path}")
+    visiting.add(path)
+    document = documents[path]
+    raw_points = document.get("points")
+    if not isinstance(raw_points, dict):
+        raise ValueError(f"PointTable points must be a mapping: {path}")
+    points: dict[str, dict[str, Any]] = {}
+    parent = document.get("parent")
+    if parent is not None:
+        if not isinstance(parent, dict) or set(parent) != {"id", "version"}:
+            raise ValueError(f"invalid PointTable parent: {path}")
+        identity, version = parent["id"], parent["version"]
+        if not isinstance(identity, str) or not isinstance(version, str):
+            raise ValueError(f"invalid PointTable parent: {path}")
+        if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]*", identity):
+            raise ValueError(f"unsafe PointTable parent identity: {path}")
+        if _VERSION.fullmatch(version) is None:
+            raise ValueError(f"invalid PointTable parent version: {path}")
+        parent_path = path.parent / f"point_table_{identity}_v{version}.yaml"
+        if parent_path not in documents:
+            raise ValueError(f"missing PointTable parent {parent_path}")
+        parent_doc = documents[parent_path]
+        if parent_doc.get("protocol") != document.get("protocol"):
+            raise ValueError(f"PointTable parent protocol mismatch: {path}")
+        points = {
+            key: dict(value)
+            for key, value in _resolve_points(parent_path, documents, cache, visiting).items()
+        }
+    remove = document.get("remove_points", [])
+    if not isinstance(remove, list) or len(set(remove)) != len(remove):
+        raise ValueError(f"invalid PointTable remove_points: {path}")
+    for key in remove:
+        if not isinstance(key, str) or key not in points:
+            raise ValueError(f"cannot remove unknown inherited Point: {path}:{key}")
+        del points[key]
+    for point_id, patch in raw_points.items():
+        if not isinstance(point_id, str) or not isinstance(patch, dict):
+            raise ValueError(f"invalid PointTable point: {path}:{point_id}")
+        points[point_id] = {**points.get(point_id, {}), **patch}
+    visiting.remove(path)
+    cache[path] = points
+    return points
+
+
 def audit(root: Path, output: Path) -> int:
     """Write a complete, non-destructive audit; return the number of findings."""
     if root.is_symlink() or not root.is_dir():
@@ -103,21 +160,19 @@ def audit(root: Path, output: Path) -> int:
     if not isinstance(businesses, dict) or not isinstance(units, dict):
         raise ValueError("invalid BusinessPoint or Unit catalog")
     documents = sorted(root.rglob("*.yaml"))
-    for path in documents:
-        _load(path, root)
-    _validate_references(root, {path: _load(path, root) for path in documents})
+    loaded = {path: _load(path, root) for path in documents}
+    _validate_references(root, loaded)
     tables = sorted((root / "templates/point_tables").glob("*.yaml"))
     rows: list[dict[str, str]] = []
+    cache: dict[Path, dict[str, dict[str, Any]]] = {}
     for path in tables:
-        document = _load(path, root)
+        document = loaded[path]
         matched = _TABLE_FILE.fullmatch(path.name)
         if matched is None or document.get("template_id") != matched["id"]:
             raise ValueError(f"PointTable filename/template_id mismatch: {path}")
         if document["file_version"] != matched["version"]:
             raise ValueError(f"PointTable filename/file_version mismatch: {path}")
-        points = document.get("points")
-        if not isinstance(points, dict):
-            raise ValueError(f"PointTable points must be a mapping: {path}")
+        points = _resolve_points(path, loaded, cache, set())
         counts = Counter(
             item.get("business_point_id")
             for item in points.values()
