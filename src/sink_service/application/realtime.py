@@ -29,6 +29,12 @@ class BatchOutcome:
 class RealtimeEngine:
     """One serial output owner; callbacks only replace the newest cached sample."""
 
+    # Per-(device, point) latest confirmed evidence with a hard key cap. A
+    # global four-entry tail rotates a non-dominant device out under wide
+    # point fan-out, which would make its pipeline correlation unprovable.
+    # 256 entries at ~170 B stay well below the 64 KiB Worker IPC frame limit.
+    EVIDENCE_MAX_KEYS = 256
+
     def __init__(
         self,
         *,
@@ -86,12 +92,12 @@ class RealtimeEngine:
 
     @property
     def confirmed_samples(self) -> tuple[dict[str, str], ...]:
-        """每个 Delivery 最多暴露四条最近确认证据，严格限制 Worker IPC 大小。"""
+        """每（设备、点位）暴露一条最新确认证据，键数硬上限以保证 Worker IPC 安全。"""
         recent = sorted(
             self._sent.values(),
             key=lambda sample: self._confirmed_at[self._key(sample)],
             reverse=True,
-        )[:4]
+        )[: self.EVIDENCE_MAX_KEYS]
         return tuple(
             {
                 "device_id": sample.device_id,

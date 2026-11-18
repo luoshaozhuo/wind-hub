@@ -464,6 +464,115 @@ async def test_diagnose_pipeline_correlates_real_collector_and_sink_samples(
         await _stop_generation(full_chain, generation_id)
 
 
+def _structured_sample_ids(report: dict[str, Any], *, device: str) -> set[str]:
+    ids: set[str] = set()
+    for service in ("collector", "sink"):
+        for stage in report[service].get("stages", []):
+            for evidence in stage.get("evidence", []):
+                if evidence.get("name") != "sample":
+                    continue
+                item = json.loads(evidence["value"])
+                if item.get("device_id") == device and item.get("sample_id"):
+                    ids.add(item["sample_id"])
+    return ids
+
+
+@pytest.mark.timeout(300)
+async def test_pipeline_diagnosis_is_strictly_device_scoped_on_real_chain(
+    full_chain: FullChainHarness,
+) -> None:
+    """H-03：真实链路上同 Delivery 多设备流量不得造成跨设备误判 PASS。"""
+    activity_start = datetime.now(UTC)
+    generation_id = await _start_generation(full_chain)
+    for device in ("WTG_SIM01", "PV_SIM01"):
+        await full_chain.cli_call(full_chain.cli_rt, "collector", "start", device, "--yes")
+    try:
+        assert full_chain.sink is not None
+        # 独立 Redis 读回：两个设备的真实样本均已落到同一 ems_power Delivery。
+        await full_chain.sink.wait_redis_value(
+            full_chain.redis_key("WTG_SIM01", "wind_speed"),
+            timeout=90,
+            match=lambda item: datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+            >= activity_start,
+        )
+        await full_chain.sink.wait_redis_value(
+            full_chain.redis_key("PV_SIM01", "active_power"),
+            timeout=90,
+            match=lambda item: datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+            >= activity_start,
+        )
+
+        reports: dict[str, dict[str, Any]] = {}
+        for device in ("WTG_SIM01", "PV_SIM01"):
+            reports[device] = await full_chain.poll(
+                full_chain.cli_rt,
+                "diagnose",
+                "pipeline",
+                device,
+                "--sink-id",
+                "ems_power",
+                predicate=lambda data: data.get("overall_status") == "PASS",
+                timeout=45,
+            )
+            observed = _last_cli_call(full_chain)
+            assert observed["returncode"] == 0, observed
+
+        # 每个设备只能凭自己 device_id 的结构化 sample 关联，交集互不借用。
+        wtg_ids = _structured_sample_ids(reports["WTG_SIM01"], device="WTG_SIM01")
+        pv_ids = _structured_sample_ids(reports["PV_SIM01"], device="PV_SIM01")
+        assert wtg_ids and pv_ids
+        assert wtg_ids.isdisjoint(pv_ids)
+        # 原始子报告中只要出现结构化 sample，其 device_id 必须严格匹配目标设备。
+        for device, report in reports.items():
+            for stage in report["collector"].get("stages", []):
+                for evidence in stage.get("evidence", []):
+                    if evidence.get("name") == "sample":
+                        assert json.loads(evidence["value"])["device_id"] == device
+
+        # 同栈其他设备的流量不得让目标设备误判：GRID_SIM01 无关联样本交集，
+        # 即使两端业务状态成功也必须诚实返回 UNKNOWN。
+        no_correlation = await full_chain.cli_call(
+            full_chain.cli_rt,
+            "diagnose",
+            "pipeline",
+            "GRID_SIM01",
+            "--sink-id",
+            "ems_power",
+            check=False,
+        )
+        assert no_correlation["status"] == "UNKNOWN", no_correlation
+        assert no_correlation["data"]["overall_status"] == "UNKNOWN"
+
+        # 配置外设备：Collector 无此诊断目标，正式 NOT_FOUND/exit 1，不得 PASS。
+        missing = await full_chain.cli_call(
+            full_chain.cli_rt,
+            "diagnose",
+            "pipeline",
+            "NO_SUCH_DEVICE_R4H",
+            "--sink-id",
+            "ems_power",
+            check=False,
+        )
+        assert missing["status"] == "FAILURE", missing
+        full_chain.record(
+            "E2E-08-PIPELINE-DEVICE-SCOPE",
+            devices=["WTG_SIM01", "PV_SIM01"],
+            wtg_sample_ids=sorted(wtg_ids),
+            pv_sample_ids=sorted(pv_ids),
+        )
+    finally:
+        for device in ("WTG_SIM01", "PV_SIM01"):
+            await full_chain.cli_call(
+                full_chain.cli_rt,
+                "collector",
+                "stop",
+                device,
+                "--yes",
+                check=False,
+            )
+        await _stop_generation(full_chain, generation_id)
+
+
 @pytest.mark.timeout(120)
 async def test_collector_cli_wrong_and_missing_token_cannot_start_task(
     full_chain: FullChainHarness,

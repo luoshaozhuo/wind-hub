@@ -281,6 +281,33 @@ async def test_confirmed_sample_evidence_is_bounded_for_large_delivery() -> None
     finally:
         await engine.stop()
     evidence = engine.confirmed_samples
-    assert len(evidence) == 4
-    assert len(json.dumps(evidence, separators=(",", ":")).encode()) < 2048
+    # 每（设备、点位）一条，键数硬上限；JSON 必须保持在 Worker IPC 64 KiB 帧内。
+    assert len(evidence) == RealtimeEngine.EVIDENCE_MAX_KEYS
+    encoded = json.dumps(evidence, separators=(",", ":")).encode()
+    assert len(encoded) < 48 * 1024
+    keys = [(item["device_id"], item["point_id"]) for item in evidence]
+    assert len(keys) == len(set(keys))
     assert all(item["device_id"] and item["point_id"] and item["confirmed_at"] for item in evidence)
+
+
+async def test_confirmed_evidence_keeps_non_dominant_device_under_fanout() -> None:
+    """H-03：高频设备扇出不得把其他设备的确认证据挤出诊断面。"""
+    writer = RecordingWriter()
+    engine = _engine(writer, period_ms=1, max_points=10000)
+    await engine.start()
+    try:
+        # 非主导设备 PV 的一个点位先确认。
+        engine.offer(_sample("pv-1", device="PV_SIM01", point="active_power"))
+        # 主导设备 WTG 随后大量点位扇出。
+        for index in range(200):
+            engine.offer(_sample(f"wtg-{index:03}", device="WTG_SIM01", point=f"p{index:03}"))
+        for _ in range(100):
+            if len(writer.batches) >= 2:
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        await engine.stop()
+    evidence = engine.confirmed_samples
+    pv = [item for item in evidence if item["device_id"] == "PV_SIM01"]
+    assert len(pv) == 1 and pv[0]["sample_id"] == "pv-1"
+    assert all(item["device_id"] in {"PV_SIM01", "WTG_SIM01"} for item in evidence)

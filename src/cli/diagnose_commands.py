@@ -114,7 +114,7 @@ def pipeline_diagnose(
                 always_print_fields_with_no_presence=True,
             )
 
-        def message_ids(report: dict[str, Any]) -> set[str]:
+        def verified_sample_ids(report: dict[str, Any]) -> set[str]:
             """Only device-bound structured evidence can prove pipeline delivery."""
             verified: set[str] = set()
             for stage in report.get("stages", []):
@@ -145,7 +145,7 @@ def pipeline_diagnose(
         if states & {"FAIL", "FAILED", "FAILURE"}:
             reports["overall_status"] = "FAIL"
         elif states <= {"PASS", "SUCCESS"} and (
-            message_ids(collector_report) & message_ids(sink_report)
+            verified_sample_ids(collector_report) & verified_sample_ids(sink_report)
         ):
             reports["overall_status"] = "PASS"
         else:
