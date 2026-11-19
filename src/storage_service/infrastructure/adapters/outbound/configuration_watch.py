@@ -7,6 +7,8 @@ import logging
 from collections.abc import Sequence
 
 import nats
+from nats.aio.client import Client as NatsClient
+from nats.aio.msg import Msg
 
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigHistoryUnavailable,
@@ -67,7 +69,7 @@ class StorageConfigurationWatcher:
         _LOG.info("Storage accepted Configuration revision %d", updated.revision_id)
 
     async def run(self, stop: asyncio.Event) -> None:
-        connection: nats.NATS | None = None
+        connection: NatsClient | None = None
         timeout = self._active.configuration.configuration.reconcile_interval_s
         while not stop.is_set():
             if connection is None:
@@ -77,7 +79,7 @@ class StorageConfigurationWatcher:
                         max_reconnect_attempts=-1,
                     )
 
-                    async def notify(message: nats.aio.msg.Msg) -> None:
+                    async def notify(message: Msg) -> None:
                         # NATS hints are not authoritative revisions; a bounded
                         # message only triggers a full gRPC revision check.
                         if len(message.data) <= 4096:
