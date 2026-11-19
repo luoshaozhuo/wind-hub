@@ -529,7 +529,8 @@ class SQLiteRepository:
                 )
             self._check_expected(connection, expected_revision)
             candidate = connection.execute(
-                "SELECT owner_id, base_revision_id, status, expires_at "
+                "SELECT owner_id, base_revision_id, status, expires_at, "
+                "manifest_sha256, payload_sha256 "
                 "FROM candidates WHERE candidate_id = ?",
                 (candidate_id,),
             ).fetchone()

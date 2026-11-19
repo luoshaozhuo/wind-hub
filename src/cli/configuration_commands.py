@@ -15,7 +15,7 @@ from core.configuration.publication_identity import (
     resolve_publication_identity,
     validate_relative_path,
 )
-from core.infrastructure.config import parse_yaml
+from core.infrastructure.config import ConfigOperationError, parse_yaml
 from google.protobuf.json_format import MessageToDict
 
 from contracts import configuration_repository_pb2 as pb
@@ -86,7 +86,7 @@ def publish(
         try:
             raw = parse_yaml(content.decode("utf-8"))
             identity = resolve_publication_identity(relative_path, raw)
-        except (UnicodeError, ValueError, KeyError) as exc:
+        except (UnicodeError, ValueError, KeyError, ConfigOperationError) as exc:
             raise typer.BadParameter(f"invalid configuration {relative_path}: {exc}") from exc
         documents.append(
             pb.ConfigDocumentInput(
