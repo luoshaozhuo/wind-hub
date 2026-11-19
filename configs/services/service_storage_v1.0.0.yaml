@@ -1,0 +1,75 @@
+# Storage Service v1: central Configuration business document.
+# schema_version: required int 1; file_version: required semantic triple MAJOR.MINOR.PATCH.
+# service_id: required nonempty string <= 256 bytes.
+# kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
+#   max_partition_workers [1,64] partitions; max_buffer_records [100,100000] records;
+#   max_buffer_bytes [1048576,536870912] bytes; commit_interval_ms [100,10000] ms.
+# tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
+#   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
+#   database.cachemodel: none|last_row|last_value|both; cachesize [1,1024] MB.
+#   max_connections [1,64]; max_inflight_sql [1,32], <= max_connections;
+#   max_concurrent_ddl [1,8]; batch_max_records [1,10000] records;
+#   batch_max_bytes [4096,8388608] bytes; batch_wait_ms [0,1000] ms;
+#   write_timeout_ms [100,120000] ms.
+# configuration.reconcile_interval_s [5,3600] s;
+#   cache_max_bytes [16777216,2147483648] bytes.
+# query.max_page_size [1,1000] points; max_range_days [1,365] days;
+#   max_concurrent [1,32]; timeout_ms [100,120000] ms.
+# export.root: authorized absolute directory; max_jobs [1,16];
+#   max_bytes [1048576,10737418240] bytes.
+# backup.root: authorized absolute directory; max_jobs [1,4].
+# retry.initial_ms [100,60000], max_ms [1000,600000] and >= initial_ms;
+#   max_attempts [0,100] where 0 means retry count is unbounded but concurrency is bounded.
+# reconciliation.auto_alter and allow_retention_shrink: boolean, default false.
+#   KEEP shrink additionally requires independent one-use authorization evidence.
+#   owner_instance_id: required, equals service_id; v1 is single-instance only.
+schema_version: 1
+file_version: 1.0.0
+service_id: storage-main
+kafka:
+  topic: windhub-history
+  group_id: storage-main
+  max_poll_records: 500
+  max_partition_workers: 4
+  max_buffer_records: 20000
+  max_buffer_bytes: 67108864
+  commit_interval_ms: 1000
+tdengine:
+  endpoint: 127.0.0.1:6041
+  credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
+  database:
+    precision: us
+    duration: 10d
+    keep: 365d
+    cachemodel: none
+    cachesize: 1
+  max_connections: 8
+  max_inflight_sql: 4
+  max_concurrent_ddl: 2
+  batch_max_records: 1000
+  batch_max_bytes: 1048576
+  batch_wait_ms: 20
+  write_timeout_ms: 10000
+configuration:
+  reconcile_interval_s: 60
+  cache_max_bytes: 268435456
+query:
+  max_page_size: 1000
+  max_range_days: 31
+  max_concurrent: 4
+  timeout_ms: 30000
+export:
+  root: /var/lib/wind-hub/storage/exports
+  max_jobs: 2
+  max_bytes: 1073741824
+backup:
+  root: /var/lib/wind-hub/storage/backups
+  max_jobs: 1
+retry:
+  initial_ms: 500
+  max_ms: 30000
+  max_attempts: 0
+reconciliation:
+  auto_alter: false
+  allow_retention_shrink: false
+  owner_instance_id: storage-main
