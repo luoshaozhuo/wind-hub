@@ -124,6 +124,7 @@ class TDengineBackend:
         self._driver: _TaosModule | None = None
         self._connection: _TaosConnection | None = None
         self._lock = threading.RLock()
+        self._verified_tables: set[str] = set()
 
     async def open(self) -> None:
         await asyncio.to_thread(self._open_sync)
@@ -159,6 +160,7 @@ class TDengineBackend:
                 self._connection.close()
             self._connection = None
             self._driver = None
+            self._verified_tables.clear()
 
     def _resources(self) -> tuple[_TaosConnection, _TaosModule]:
         if self._connection is None or self._driver is None:
@@ -182,7 +184,7 @@ class TDengineBackend:
             seen: set[str] = set()
             for sample in samples:
                 names = get_object_names(sample, SCHEMA_FINGERPRINT)
-                if names.table in seen:
+                if names.table in seen or names.table in self._verified_tables:
                     continue
                 seen.add(names.table)
                 identities = (
@@ -231,6 +233,9 @@ class TDengineBackend:
                 )
                 for registration in registrations:
                     self._metadata.mark_ready(registration, verified=True)
+                # Single managed process: once readback verified, future batches
+                # must not emit DDL or repeat expensive schema/ownership checks.
+                self._verified_tables.add(names.table)
 
     @staticmethod
     def _verify_table(
