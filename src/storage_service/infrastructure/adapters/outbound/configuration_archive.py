@@ -215,7 +215,7 @@ class ConfigurationPointTableResolver:
             if not isinstance(point, dict):
                 raise ConfigHistoryUnavailable("source point has invalid semantic definition")
             if sample.data_level == DataLevel.BUSINESS:
-                source_business_id = point.get("business_point_id")
+                source_business_id = point.get("business_point_id", sample.point_id)
                 if source_business_id != sample.business_point_id:
                     # A one-to-many mapping must be explicitly represented by an
                     # immutable mapping closure; no implicit guessing is allowed.
