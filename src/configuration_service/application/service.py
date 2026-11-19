@@ -550,10 +550,10 @@ class ConfigurationApplication:
                 ):
                     base = prefix
             kind = name_types[name]
-            for prefix in (name, kind):
-                if base.startswith(prefix + "_"):
-                    base = base[len(prefix) + 1:]
-                    break
+            # Legacy filenames are complete identities (devices_sim -> devices_sim).
+            # Only the canonical singular type prefix is stripped when present.
+            if base.startswith(kind + "_"):
+                base = base[len(kind) + 1:]
             identity = ConfigIdentity(kind, base)
             version_id = staged.get(identity)
             if version_id is None:
