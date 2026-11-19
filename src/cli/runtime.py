@@ -354,8 +354,12 @@ class Runtime:
                 else "WIND_HUB_STORAGE_OPERATOR_TOKEN"
             )
             token = os.getenv(name)
-            if not token:
-                raise PermissionError(f"{service} requires an operator token")
+            if not token or len(token.encode("utf-8")) < 32:
+                raise PermissionError(
+                    f"{service} requires a bearer token of at least 32 bytes"
+                )
+            if any(character in token for character in "\r\n"):
+                raise PermissionError(f"{service} bearer token contains invalid controls")
             return (("authorization", f"Bearer {token}"),)
         if service == "collector" and method in protected:
             return self.collector_admin_metadata()
