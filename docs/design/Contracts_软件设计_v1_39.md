@@ -165,6 +165,7 @@ pre code {
 11. [跨契约一致性与演进](#11-跨契约一致性与演进)
 12. [测试、生成与验收](#12-测试生成与验收)
 13. [Commander 扩展契约补充规则](#13-commander-扩展契约补充规则)
+14. [Storage Service RPC 契约](#14-storage-service-rpc-契约)
 
 ---
 
