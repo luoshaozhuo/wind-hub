@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import UTC, datetime
 from typing import Literal, NoReturn
 
@@ -140,8 +141,8 @@ class SampleBatch(BaseModel):
     def _point_table_identity(cls, value: str) -> str:
         if (
             _is_unsafe_identifier(value)
-            or not value.startswith("point_table_")
-            or "_v" not in value
+            or re.fullmatch(r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\\.[0-9]+\\.[0-9]+", value)
+            is None
         ):
             raise ValueError("invalid immutable point_table_id")
         return value
