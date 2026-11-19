@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from core.configuration.publication_identity import resolve_publication_identity
@@ -703,6 +703,31 @@ class ConfigurationApplication:
             relative_path=relative_path,
         )
 
+    @staticmethod
+    def _unique_export_paths(
+        documents: tuple[DocumentOutput, ...],
+    ) -> tuple[DocumentOutput, ...]:
+        """Assign collision-free paths to multiple immutable versions in one bundle.
+
+        The original on-disk YAML identity and bytes remain untouched. Only
+        bundle export names change when two pinned versions share a source path.
+        """
+        counts: dict[str, int] = {}
+        for item in documents:
+            counts[item.relative_path] = counts.get(item.relative_path, 0) + 1
+        exported: list[DocumentOutput] = []
+        used: set[str] = set()
+        for item in documents:
+            if counts[item.relative_path] > 1:
+                path = f"_bundle_versions/{item.version_id}/{item.file_name}"
+            else:
+                path = item.relative_path
+            if path in used or len(path.encode("utf-8")) > 512:
+                raise RepositoryConflictError("ambiguous historical bundle path")
+            used.add(path)
+            exported.append(replace(item, relative_path=path))
+        return tuple(exported)
+
     def get_config(
         self,
         identity: ConfigIdentity,
@@ -733,7 +758,9 @@ class ConfigurationApplication:
             records = tuple(
                 self.repository.get_version(identity, revision_id=revision_id) for identity in roots
             )
-        output = tuple(self._restore(row, revision_id=revision_id) for row in records)
+        output = self._unique_export_paths(
+            tuple(self._restore(row, revision_id=revision_id) for row in records)
+        )
         if sum(len(item.yaml_bytes) for item in output) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration bundle exceeds response limit")
         return output
@@ -751,7 +778,9 @@ class ConfigurationApplication:
         )
         if not rows:
             raise RepositoryNotFoundError("PointTable has no immutable closure")
-        records = tuple(self._restore(row, revision_id=0) for row in rows)
+        records = self._unique_export_paths(
+            tuple(self._restore(row, revision_id=0) for row in rows)
+        )
         kinds = {item.identity.config_type for item in records}
         if not {"point_table", "business_points", "units"}.issubset(kinds):
             raise RepositoryConflictError(
@@ -765,6 +794,8 @@ class ConfigurationApplication:
                 "config_id": item.identity.config_id,
                 "version_id": item.version_id,
                 "content_sha256": item.content_sha256,
+                "yaml_sha256": item.yaml_sha256,
+                "relative_path": item.relative_path,
             }
             for item in records
         ]
