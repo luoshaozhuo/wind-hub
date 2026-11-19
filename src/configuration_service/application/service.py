@@ -306,6 +306,36 @@ class ConfigurationApplication:
                 )
             else:
                 raise ValueError("config_sources must be a mapping or list")
+            # A model's protocol, point table and optional task are pinned
+            # dependencies, not implicit references to a template directory.
+            if document.identity.config_type == "device_model":
+                for field, target_type in (
+                    ("protocol", "protocol"),
+                    ("point_table", "point_table"),
+                    ("task", "task"),
+                ):
+                    target = document.canonical_payload.get(field)
+                    if target is None:
+                        continue
+                    if not isinstance(target, dict):
+                        raise ValueError(f"device model {field} must be a mapping")
+                    target_name = target.get("id")
+                    target_version = target.get("version")
+                    if not isinstance(target_name, str) or not target_name or (
+                        not isinstance(target_version, str) or not target_version
+                    ):
+                        raise ValueError(f"device model {field} must pin id and version")
+                    target_id = new_ids.get((target_type, target_name, target_version))
+                    if target_id is None:
+                        try:
+                            target_id = self.repository.resolve_version(
+                                ConfigIdentity(target_type, target_name), target_version
+                            )
+                        except RepositoryNotFoundError as exc:
+                            raise RepositoryConflictError(
+                                f"missing {target_type} {target_name}@{target_version}"
+                            ) from exc
+                    references.append((target_id, f"device_model.{field}"))
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
