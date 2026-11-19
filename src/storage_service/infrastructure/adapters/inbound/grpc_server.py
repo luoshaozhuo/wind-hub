@@ -440,6 +440,9 @@ class StorageServicer(rpc.StorageServiceServicer):
         record = self._jobs.get_export(request.task_id, owner_id=owner)
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "export task not visible")
+        self._auth.require(
+            context, permission="storage.export", farm=record.wind_farm_id
+        )
         return _task(record)
 
     @guarded
@@ -473,6 +476,9 @@ class StorageServicer(rpc.StorageServiceServicer):
         record = self._jobs.get_backup(request.task_id, owner_id=owner)
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "backup task not visible")
+        self._auth.require(
+            context, permission="storage.backup", farm=record.wind_farm_id
+        )
         return _task(record)
 
     @guarded
