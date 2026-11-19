@@ -87,6 +87,7 @@ class IngestionService:
         point_tables: PointTableResolver,
         evidence: PoisonEvidence,
         metrics: StorageRuntimeMetrics,
+        allowed_wind_farms: frozenset[str],
         max_batch_records: int = 1000,
         max_batch_bytes: int = 1048576,
     ) -> None:
@@ -95,7 +96,10 @@ class IngestionService:
         self._storage = storage
         self._point_tables = point_tables
         self._evidence = evidence
+        if not allowed_wind_farms:
+            raise ValueError("Storage requires explicitly authorized wind farms")
         self._metrics = metrics
+        self._allowed_wind_farms = allowed_wind_farms
         self._max_batch_records = max_batch_records
         self._max_batch_bytes = max_batch_bytes
 
@@ -228,6 +232,8 @@ class IngestionService:
                 self._block(record, "KAFKA_RECORD_EXCEEDS_BATCH_BYTES")
             try:
                 sample = self._decode(record)
+                if sample.wind_farm_id not in self._allowed_wind_farms:
+                    raise ValueError("wind farm is not authorized for Storage ingestion")
             except (ValueError, KeyError, TypeError) as exc:
                 if pending:
                     count, duplicates = await self._flush(
