@@ -72,9 +72,10 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         sync = snapshot.service.get("config_sync", {})
         endpoint = sync.get("repository_endpoint", "")
         token_ref = sync.get("repository_token_ref", "")
+        approved = sync.get("approved_point_table_manifests", {})
         self._history = (
-            HistoricalPointTableClient(endpoint, token_ref)
-            if endpoint and token_ref
+            HistoricalPointTableClient(endpoint, token_ref, approved)
+            if self._data_level == "business"
             else None
         )
         self.last_error = ""
