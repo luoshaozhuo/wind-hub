@@ -80,7 +80,17 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     assert versions["data"]["versions"][0]["version_id"] == version1
 
     output = live.root / "downloaded.yaml"
-    downloaded = live.cli("config", "get", "task", "cli", str(output), "--version-id", version1)
+    downloaded = live.cli(
+        "config",
+        "get",
+        "task",
+        "--config-id",
+        "cli",
+        "--output",
+        str(output),
+        "--version-id",
+        version1,
+    )
     assert downloaded["data"]["version_id"] == version1
     assert output.stat().st_mode & 0o777 == 0o600
     assert yaml.safe_load(output.read_bytes())["template_id"] == "cli"
@@ -178,7 +188,9 @@ def test_cli_refuses_to_overwrite_and_query_identity_cannot_publish(
         "config",
         "get",
         "task",
+        "--config-id",
         "missing",
+        "--output",
         str(existing),
         "--version-id",
         "missing",
