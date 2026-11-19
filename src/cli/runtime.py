@@ -219,7 +219,11 @@ def load_config(path: Path) -> CLIConfig:
             and (not isinstance(isula_binary, str) or not Path(isula_binary).is_absolute())
         ):
             raise ValueError(f"{name}.isula_binary must be absolute")
-        if endpoint is not None and profile is None:
+        if name in {"configuration", "storage"} and profile is not None:
+            raise ValueError(f"{name}.tls_profile is unsupported for token gRPC")
+        if endpoint is not None and profile is None and name not in {
+            "configuration", "storage",
+        }:
             raise ValueError(f"{name}.tls_profile is required for mTLS")
         targets[name] = ServiceTarget(
             name,
