@@ -212,13 +212,24 @@ class SQLiteRepository:
         if not version_id or revision_id < 0:
             raise ValueError("version and nonnegative revision are required")
         with self.read() as connection:
-            row = connection.execute(
-                "SELECT relative_path, yaml_bytes, yaml_sha256 "
-                "FROM revision_files WHERE version_id = ? "
-                "ORDER BY (revision_id = ?) DESC, revision_id DESC, relative_path "
-                "LIMIT 1",
-                (version_id, revision_id),
-            ).fetchone()
+            # Historical reads may resolve a dependency absent from that
+            # revision's directory. Never borrow a later publication's source:
+            # it could have a different path or bytes for the same version ID.
+            if revision_id:
+                row = connection.execute(
+                    "SELECT relative_path, yaml_bytes, yaml_sha256 "
+                    "FROM revision_files WHERE version_id = ? AND revision_id <= ? "
+                    "ORDER BY (revision_id = ?) DESC, revision_id DESC, relative_path "
+                    "LIMIT 1",
+                    (version_id, revision_id, revision_id),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT relative_path, yaml_bytes, yaml_sha256 "
+                    "FROM revision_files WHERE version_id = ? "
+                    "ORDER BY revision_id DESC, relative_path LIMIT 1",
+                    (version_id,),
+                ).fetchone()
             if row is None:
                 return None
             payload = bytes(row["yaml_bytes"])
