@@ -57,12 +57,10 @@ class CommonServicer(rpc.CommonServiceServicer):
         try:
             return self.repository_rpc._actor(context, role)
         except (AuthenticationError, PermissionError) as exc:
-            names = context.auth_context().get("x509_common_name", ())
-            actor = (
-                names[0].decode("utf-8", "replace")
-                if names and isinstance(names[0], bytes) and names[0]
-                else "unauthenticated"
-            )
+            try:
+                actor = self.repository_rpc.identify_actor(context)
+            except AuthenticationError:
+                actor = "unauthenticated"
             try:
                 self.app.repository.record_rejected_operation(
                     actor_id=actor,
