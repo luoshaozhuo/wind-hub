@@ -58,7 +58,15 @@ def publish(
     if root.is_symlink() or not root.is_dir():
         raise typer.BadParameter("configuration root must be a real directory")
     root = root.resolve(strict=True)
-    paths = sorted(root.rglob("*.yaml"))
+    # Reject hidden directory links as well as linked files: pathlib.rglob
+    # does not traverse symlinked directories, which would silently omit data.
+    entries = tuple(root.rglob("*"))
+    for entry in entries:
+        if entry.is_symlink():
+            raise typer.BadParameter(f"configuration tree contains symlink: {entry}")
+        if entry.is_file() and entry.suffix == ".yml":
+            raise typer.BadParameter(f"use canonical .yaml suffix: {entry}")
+    paths = sorted(entry for entry in entries if entry.is_file() and entry.suffix == ".yaml")
     if not paths or len(paths) > 1000:
         raise typer.BadParameter("configuration root must contain 1..1000 YAML files")
     documents: list[pb.ConfigDocumentInput] = []
