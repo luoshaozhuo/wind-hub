@@ -49,7 +49,9 @@ class CommanderRpcClient:
         return self._stub
 
     async def get_revision(self, device_id: str, timeout: float) -> str:
-        response = await self._ready().GetDevice(common.ObjectId(id=device_id), timeout=timeout, metadata=self._metadata())
+        response = await self._ready().GetDevice(
+            common.ObjectId(id=device_id), timeout=timeout, metadata=self._metadata(),
+        )
         return response.device.revision
 
     async def submit(
