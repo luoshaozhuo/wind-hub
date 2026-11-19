@@ -1,4 +1,4 @@
-"""Build an atomic, bounded Configuration candidate from a complete configs/ root."""
+"""Build a bounded Configuration candidate from the complete on-disk configs root."""
 
 from __future__ import annotations
 
@@ -9,21 +9,29 @@ from typing import Any
 
 import yaml
 
-_VERSION = re.compile(r"^(?P<name>.+)_v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$")
-_GROUPS: dict[str, dict[str, str]] = {
-    "instances": {
-        "devices": "device", "device": "device", "sites": "site", "site": "site",
-        "sinks": "sink", "sink": "sink", "deliveries": "delivery",
-        "delivery": "delivery", "tasks": "task", "task": "task",
-    },
-    "templates": {
-        "point_table": "point_table", "device_model": "device_model",
-        "business_points": "business_points", "semantic_points": "semantic_points",
-        "units": "units", "protocol": "protocol", "sink": "sink",
-        "delivery": "delivery", "task": "task", "observability": "observability",
-    },
-    "services": {"service": "service"},
+_VERSION = re.compile(r"^(?P<stem>.+)_v(?P<version>(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*))\\.yaml$")
+_SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)")
+_TEMPLATE_DIRECTORIES = {
+    "point_tables": "point_table",
+    "device_models": "device_model",
+    "protocols": "protocol",
+    "sinks": "sink",
+    "deliveries": "delivery",
+    "tasks": "task",
 }
+_INSTANCE_NAMES = {
+    "device": "device",
+    "devices": "device",
+    "site": "site",
+    "sites": "site",
+    "sink": "sink",
+    "sinks": "sink",
+    "delivery": "delivery",
+    "deliveries": "delivery",
+    "task": "task",
+    "tasks": "task",
+}
+_LOCAL_SERVICES = frozenset({"cli.example.yaml"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,87 +43,131 @@ class DirectoryDocument:
     content: bytes
 
 
-def read_complete_directory(root: Path, *, max_bytes: int = 64 * 1024 * 1024,
-                            max_files: int = 1000) -> tuple[DirectoryDocument, ...]:
-    """Select newest declared file_version per identity, rejecting unsafe inputs."""
-    if not root.is_dir() or root.is_symlink():
+def _classify(path: Path, group: str) -> tuple[str, str]:
+    """Classify using actual relative layout, not inferred filename prefixes."""
+    parts = path.parts
+    stem = path.stem
+    match = _VERSION.fullmatch(path.name)
+    if match is not None:
+        stem = match["stem"]
+    if group == "instances":
+        if len(parts) != 1:
+            raise ValueError(f"nested instance configuration is unsupported: {path}")
+        prefix = stem.split("_", 1)[0]
+        kind = _INSTANCE_NAMES.get(prefix)
+        if kind is None:
+            raise ValueError(f"unknown instance configuration: {path}")
+        # Preserve the existing path-reference identity (devices, devices_sim).
+        return kind, stem
+    if group == "services":
+        if len(parts) != 1:
+            raise ValueError(f"nested service configuration is unsupported: {path}")
+        name = stem.removeprefix("service_")
+        if not name:
+            raise ValueError(f"empty service identity: {path}")
+        return "service", name
+    if group == "templates":
+        if len(parts) == 2:
+            kind = _TEMPLATE_DIRECTORIES.get(parts[0])
+            if kind is None:
+                raise ValueError(f"unknown template directory: {path}")
+            prefix = kind + "_"
+            if not stem.startswith(prefix):
+                raise ValueError(f"template filename has incorrect prefix: {path}")
+            name = stem[len(prefix):]
+            if not name:
+                raise ValueError(f"empty template identity: {path}")
+            return kind, name
+        if len(parts) == 1:
+            for kind in ("business_points", "semantic_points", "observability", "units"):
+                if stem == kind:
+                    return kind, kind
+                if stem.startswith(kind + "_"):
+                    return kind, stem[len(kind) + 1:]
+        raise ValueError(f"unknown template configuration: {path}")
+    raise ValueError(f"unknown configuration group: {group}")
+
+
+def read_complete_directory(
+    root: Path, *, max_bytes: int = 64 * 1024 * 1024, max_files: int = 1000
+) -> tuple[DirectoryDocument, ...]:
+    """Select one latest version per typed identity; reject unsafe or ambiguous input."""
+    if root.is_symlink() or not root.is_dir():
         raise ValueError("Configuration root must be a real directory")
     if not 1 <= max_files <= 10000 or max_bytes < 1024:
         raise ValueError("invalid Configuration directory limits")
+
     chosen: dict[tuple[str, str], DirectoryDocument] = {}
-    total = 0
-    files = 0
-    for group in _GROUPS:
+    scanned_bytes = 0
+    file_count = 0
+    for group in ("instances", "templates", "services"):
         directory = root / group
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError(f"missing or unsafe Configuration directory: {group}")
-        for entry in directory.rglob("*"):
-            if entry.is_symlink():
-                raise ValueError(f"Configuration root contains a symbolic link: {entry}")
-            if entry.is_file() and entry.suffix == ".yml":
-                raise ValueError(f"Configuration YAML must use .yaml extension: {entry}")
-        for path in sorted(directory.rglob("*.yaml")):
-            if path.is_symlink() or not path.is_file():
-                raise ValueError(f"Configuration root contains unsafe YAML: {path}")
-            files += 1
-            if files > max_files:
+        for path in sorted(directory.rglob("*")):
+            if path.is_symlink():
+                raise ValueError(f"Configuration root contains a symbolic link: {path}")
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise ValueError(f"Configuration root contains a special file: {path}")
+            if path.suffix == ".yml":
+                raise ValueError(f"Configuration YAML must use .yaml extension: {path}")
+            if path.suffix != ".yaml":
+                raise ValueError(f"unexpected file in Configuration root: {path}")
+            file_count += 1
+            if file_count > max_files:
                 raise ValueError("Configuration root contains too many YAML files")
-            # Local bootstrap files and deployment examples are never published.
+            # Local bootstraps and examples are not centrally published documents.
             if group == "services" and (
-                path.name.endswith(".example.yaml")
+                path.name in _LOCAL_SERVICES
+                or path.name.endswith(".example.yaml")
                 or path.name.startswith("service_configuration_")
                 or path.name.startswith("storage_bootstrap_")
             ):
                 continue
-            match = _VERSION.fullmatch(path.name)
-            if match is None:
-                raise ValueError(f"Configuration filename lacks _vX.Y.Z.yaml: {path.name}")
-            name = match["name"]
-            categories = _GROUPS[group]
-            prefix = next(
-                (prefix for prefix in sorted(categories, key=len, reverse=True)
-                 if name.startswith(prefix + "_")),
-                None,
-            )
-            if prefix is None:
-                raise ValueError(f"unknown Configuration type: {path.name}")
-            kind = categories[prefix]
-            config_id = name[len(prefix) + 1:]
-            if not config_id:
-                raise ValueError("Configuration identity suffix is required")
+            relative = path.relative_to(directory)
+            kind, config_id = _classify(relative, group)
             size = path.stat().st_size
-            if size < 1 or size > max_bytes - total:
+            if size < 1 or size > max_bytes - scanned_bytes:
                 raise ValueError("Configuration YAML byte budget exhausted")
             content = path.read_bytes()
-            total += len(content)
+            scanned_bytes += len(content)
             if len(content) != size:
-                raise ValueError("Configuration YAML changed during directory scan")
+                raise ValueError(f"Configuration YAML changed during scan: {path}")
             document: Any = yaml.safe_load(content)
-            version = tuple(int(item) for item in match["version"].split("."))
-            if (
-                not isinstance(document, dict)
-                or type(document.get("schema_version")) is not int
-                or document["schema_version"] != 1
-                or document.get("file_version") != match["version"]
-            ):
-                raise ValueError(f"Configuration YAML header disagrees with filename: {path.name}")
-            if kind == "service":
-                service_id = document.get("service_id")
-                if not isinstance(service_id, str) or not service_id:
-                    raise ValueError(f"Service lacks service_id: {path.name}")
-                config_id = service_id
-            elif kind in {"point_table", "device_model", "protocol"}:
+            if not isinstance(document, dict) or type(document.get("schema_version")) is not int:
+                raise ValueError(f"invalid Configuration schema_version: {path}")
+            if document["schema_version"] != 1:
+                raise ValueError(f"unsupported Configuration schema_version: {path}")
+            declared = document.get("file_version")
+            if not isinstance(declared, str) or _SEMVER.fullmatch(declared) is None:
+                raise ValueError(f"invalid Configuration file_version: {path}")
+            version = tuple(int(part) for part in declared.split("."))
+            match = _VERSION.fullmatch(path.name)
+            if match is not None and match["version"] != declared:
+                raise ValueError(f"Configuration filename/version mismatch: {path}")
+            if match is None and re.search(r"_v[0-9]", path.stem):
+                raise ValueError(f"malformed Configuration filename version: {path}")
+            if kind in {"point_table", "device_model", "protocol", "sink", "delivery", "task"} and group == "templates":
                 template_id = document.get("template_id")
                 if not isinstance(template_id, str) or not template_id:
-                    raise ValueError(f"Template lacks template_id: {path.name}")
+                    raise ValueError(f"missing template_id: {path}")
                 config_id = template_id
-            selected = DirectoryDocument(kind, config_id, path.name, version, content)
-            identity = (kind, config_id)
-            prior = chosen.get(identity)
-            if prior is None or selected.file_version > prior.file_version:
-                chosen[identity] = selected
-            elif selected.file_version == prior.file_version and selected.content != prior.content:
-                raise ValueError("same immutable version has conflicting directory content")
+            elif kind == "service":
+                service_id = document.get("service_id")
+                if service_id is not None:
+                    if not isinstance(service_id, str) or not service_id:
+                        raise ValueError(f"invalid service_id: {path}")
+                    config_id = service_id
+            normalized_name = f"{kind}_{config_id}_v{declared}.yaml"
+            selected = DirectoryDocument(kind, config_id, normalized_name, version, content)
+            key = (kind, config_id)
+            previous = chosen.get(key)
+            if previous is None or version > previous.file_version:
+                chosen[key] = selected
+            elif version == previous.file_version and content != previous.content:
+                raise ValueError(f"immutable Configuration version conflict: {path}")
     if not chosen:
         raise ValueError("Configuration root contains no eligible YAML documents")
     return tuple(chosen[key] for key in sorted(chosen))
