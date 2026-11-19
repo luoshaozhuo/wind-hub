@@ -32,7 +32,7 @@ class MetadataStore:
         if not path.is_absolute():
             raise ValueError("metadata path must be absolute")
         self._path = path
-        self._lock_fd: int | None = None
+        self._lock_file: object | None = None
         self._connection: sqlite3.Connection | None = None
 
     def __enter__(self) -> Self:
@@ -66,7 +66,6 @@ class MetadataStore:
         except BaseException:
             fd.close()
             raise
-        self._lock_fd = fd.fileno()
         self._lock_file = fd
         self._connection = connection
 
@@ -90,6 +89,7 @@ class MetadataStore:
                 offset_id INTEGER NOT NULL,
                 reason TEXT NOT NULL,
                 payload_sha256 TEXT NOT NULL,
+                payload BLOB NOT NULL,
                 PRIMARY KEY (topic, partition_id)
             );
             CREATE TABLE IF NOT EXISTS tasks (
@@ -158,18 +158,35 @@ class MetadataStore:
             raise MetadataConflict("reservation changed or disappeared")
 
     def block_partition(
-        self, topic: str, partition: int, offset: int, reason: str, digest: str
+        self, topic: str, partition: int, offset: int, reason: str, payload: bytes
     ) -> None:
-        """Persist a stop-the-world point for this partition; never auto-skip."""
-        self._db().execute(
-            """INSERT INTO blocked_partitions
-               (topic, partition_id, offset_id, reason, payload_sha256)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT (topic, partition_id) DO UPDATE SET
-               offset_id=excluded.offset_id, reason=excluded.reason,
-               payload_sha256=excluded.payload_sha256""",
-            (topic, partition, offset, reason, digest),
-        )
+        """Retain the original poison record; never replace an earlier blocker."""
+        import hashlib
+
+        if not topic or partition < 0 or offset < 0 or len(payload) > 4 * 1024 * 1024:
+            raise ValueError("invalid blocked partition evidence")
+        digest = hashlib.sha256(payload).hexdigest()
+        db = self._db()
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            previous = db.execute(
+                """SELECT offset_id, payload_sha256 FROM blocked_partitions
+                   WHERE topic = ? AND partition_id = ?""",
+                (topic, partition),
+            ).fetchone()
+            if previous is not None and previous != (offset, digest):
+                raise MetadataConflict("cannot overwrite an earlier blocked Kafka record")
+            if previous is None:
+                db.execute(
+                    """INSERT INTO blocked_partitions
+                       (topic, partition_id, offset_id, reason, payload_sha256, payload)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (topic, partition, offset, reason, digest, payload),
+                )
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
 
     def get_blocked_partition(self, topic: str, partition: int) -> tuple[int, str] | None:
         row = self._db().execute(
@@ -226,5 +243,4 @@ class MetadataStore:
         if fd is not None:
             fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
             fd.close()
-            self._lock_fd = None
             self._lock_file = None
