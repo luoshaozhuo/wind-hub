@@ -4,6 +4,8 @@
 # configuration.endpoint: required trusted-network gRPC host:port.
 # configuration.token_env: required name of an environment variable with an
 #   authorized application token. No mTLS credentials or plaintext secrets here.
+# nats.servers: required list of nats:// URLs for revision broadcast;
+#   NATS Core is a hint, periodic reconciliation remains authoritative.
 # cache.directory: required writable absolute, persistent path used for
 #   crash-safe SQLite metadata and immutable historical Configuration archives.
 schema_version: 1
@@ -12,5 +14,7 @@ service_id: storage-main
 configuration:
   endpoint: 127.0.0.1:51060
   token_env: WIND_HUB_CONFIGURATION_TOKEN
+nats:
+  servers: [nats://127.0.0.1:4222]
 cache:
   directory: /var/lib/wind-hub/storage
