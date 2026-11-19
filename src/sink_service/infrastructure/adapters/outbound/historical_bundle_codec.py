@@ -118,6 +118,13 @@ def parse_point_table_bundle(
     root = tables.get(PointTableId(expected_id))
     if root is None:
         raise ConfigurationError("unable to resolve immutable PointTable")
+    raw_root = documents[table_key]
+    declared_type = raw_root.get("device_type")
+    if declared_type is not None and declared_type != expected_type:
+        raise ConfigurationError("historical PointTable device type declaration mismatch")
+    business_ids = [point.business_point_id for point in root.points.values()]
+    if len(set(business_ids)) != len(business_ids):
+        raise ConfigurationError("historical PointTable contains repeated BusinessPoint IDs")
     return HistoricalPointTable(
         point_table_id=expected_id,
         device_type=expected_type,
