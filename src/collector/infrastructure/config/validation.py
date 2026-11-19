@@ -406,6 +406,11 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
                 interval=float(model.task.document["interval"]),
                 desired_state=intent,
                 mode=mode,
+                device_type=str(device_model.device_type_id),
+                point_table_id=(
+                    f"point_table_{model.point_table.document['template_id']}"
+                    f"_v{model.point_table.document['file_version']}"
+                ),
                 data_types={
                     point.point_id: snapshot.business_points[
                         point.business_point_id
