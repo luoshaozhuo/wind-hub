@@ -81,7 +81,7 @@ class MetadataStore:
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()
-        if version is None or version[0] not in (0, 2):
+        if version is None or version[0] not in (0, 1):
             raise MetadataConflict("unsupported SQLite metadata schema")
         connection.executescript(
             """
@@ -123,7 +123,7 @@ class MetadataStore:
                 partition_id INTEGER NOT NULL,
                 offset_id INTEGER NOT NULL
             );
-            PRAGMA user_version=2;
+            PRAGMA user_version=1;
             """
         )
 
