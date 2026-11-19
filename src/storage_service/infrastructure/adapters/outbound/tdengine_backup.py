@@ -67,28 +67,34 @@ class NativeTDengineBackup:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = root / task_id
         path.mkdir(mode=0o700)
-        # Credentials reside only in the child environment; no passwords in argv.
-        environment = {
-            **os.environ, "TDENGINE_USER": username,
-            "TDENGINE_PASSWORD": password,
-        }
+        # -Z 1 selects TDengine WebSocket on port 6041.
+        # -p requests interactive authentication: never trust an undocumented
+        # TDENGINE_PASSWORD fallback or expose secrets in argv/process lists.
+        # Whether the target 3.3.6.13 taosdump accepts piped input is a
+        # mandatory backup acceptance check; if not, fail closed.
         command = [
             binary, "-Z", "1", "-h", host, "-P", str(port),
-            "-D", database, "-o", str(path),
+            "-u", username, "-p", "-D", database, "-o", str(path),
         ]
         process = await asyncio.create_subprocess_exec(
-            *command, env=environment,
+            *command,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         try:
-            result = await asyncio.wait_for(
-                process.wait(), timeout=self._config.backup.timeout_s,
+            await asyncio.wait_for(
+                process.communicate((password + "\n").encode("utf-8")),
+                timeout=self._config.backup.timeout_s,
             )
+            result = process.returncode
         except (TimeoutError, asyncio.CancelledError):
-            process.kill()
+            if process.returncode is None:
+                process.kill()
             await asyncio.shield(process.wait())
             raise
+        if result is None:
+            raise NativeBackupFailure("native backup exit state is unknown")
         if result != 0:
             raise NativeBackupFailure(
                 f"TDengine taosdump returned a nonzero exit code ({result})"
