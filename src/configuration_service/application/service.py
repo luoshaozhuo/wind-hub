@@ -473,8 +473,22 @@ class ConfigurationApplication:
         for name, raw_path in instances.items():
             if name not in name_types or not isinstance(raw_path, str):
                 raise ValueError("unsupported config_sources instance reference")
-            config_id = PurePosixPath(raw_path).stem
-            identity = ConfigIdentity(name_types[name], config_id)
+            file_stem = PurePosixPath(raw_path).stem
+            # Historical filename version is not part of repository config_id.
+            # The immutable file_version lives in config_versions instead.
+            base = file_stem
+            if "_v" in base:
+                prefix, sep, suffix = base.rpartition("_v")
+                if sep and all(part.isdecimal() for part in suffix.split(".")) and (
+                    len(suffix.split(".")) == 3
+                ):
+                    base = prefix
+            kind = name_types[name]
+            for prefix in (name, kind):
+                if base.startswith(prefix + "_"):
+                    base = base[len(prefix) + 1:]
+                    break
+            identity = ConfigIdentity(kind, base)
             version_id = staged.get(identity)
             if version_id is None:
                 raise RepositoryConflictError(f"missing pinned configuration reference: {raw_path}")
