@@ -7,9 +7,9 @@
 
 ## 1. 总体结论
 
-**FAIL（带 1 项 P1 设计缺口）后经本验收整改，除 P1-CLI-01 外全部转绿。**
+**第一轮 FAIL（P1-CLI-01 缺口）→ 第二轮复测 PASS WITH LIMITATIONS（P1-CLI-01 已关闭，详见 §7-§11）。**
 
-分支交付时 Configuration 测试套件整体不可通过（unit/component 84 失败、integration/reliability 17 失败、ruff/mypy/契约 `--check` 全红）。本验收按 v1_16 全量目录语义完成测试迁移与小范围生产修复，未删除任何测试语义；当前仅余 1 个 P1：实现移除了冻结设计仍要求的 CLI 快照生效命令面，需设计裁决后由集中整改处理。
+分支交付时 Configuration 测试套件整体不可通过（unit/component 84 失败、integration/reliability 17 失败、ruff/mypy/契约 `--check` 全红）。本验收按 v1_16 全量目录语义完成测试迁移与小范围生产修复，未删除任何测试语义；第一轮仅余 P1-CLI-01（实现移除了冻结设计仍要求的 CLI 快照生效命令面）。第二轮确认集中整改恢复了该命令面并通过复测，P1-CLI-01 关闭，剩余仅为与整改无耦合的满载时序 flake（P2）。
 
 ## 2. 门禁退出码（验收后实测）
 
@@ -49,7 +49,7 @@
 
 ## 4. 问题台账
 
-### P1-CLI-01（未闭环，建议交集中整改）：CLI 移除了冻结设计仍要求的快照生效命令
+### P1-CLI-01（第一轮未闭环；第二轮已 CLOSED，关闭证据见 §7）：CLI 移除了冻结设计仍要求的快照生效命令
 
 - 现象：`config push`、`config apply`、`config get --scope`（runtime/disk 视图）在 Typer 命令树中不存在；调用即 `No such command`（exit 2）。
 - 失败面（7+1+1，均 RELATED）：
@@ -85,3 +85,75 @@
 - Kafka 相关链路（本机仅 NATS/Redis 容器；相关套件保持既有 skip）。
 - full_chain 完整端到端套件（仅运行 surface matrix 以定位 P1-CLI-01）。
 - NATS 真实断连后的离线重放协调（仅有单测级 best-effort 验证，建议后续补端到端）。
+
+---
+
+# 第二轮：P1-CLI-01 集中独立复测（2026-11-19）
+
+- 复测基线（ChatGPT 整改交付）：`009a7ffc470604b2bb9c8d7794f8d10a3525d911`
+- 上轮验收 HEAD：`fb0fb89e752b0475aff7078817b3a5d07d8a5d78`
+- 本轮验收后 HEAD：见交付说明（在 `009a7ffc` 之上追加两个提交，未 push、未 rebase、未合并 main、未新建分支）
+- 整改文件：新增 `src/cli/snapshot_commands.py`，改 `src/cli/configuration_commands.py`、两个测试文件，共 9 个整改提交。
+
+## 7. P1-CLI-01 关闭证据
+
+整改恢复了冻结设计（CLI 设计 v1_49 §4.5、表 1896-1898/1991-2004；Configuration v1_16 §10.1/§13.2）要求的 CommonService 快照命令面，并与 Repository 发布面显式隔离：
+
+| 命令 | 入口 | 关键实测证据 |
+|---|---|---|
+| `config push` | `snapshot_commands.push_snapshot` → CommonService.PushConfigSnapshot | 完整目录读取；symlink/非 yaml/空树/大小写重复/64MiB 本地拒绝；显式 `--expected-revision` 与默认 DISK revision；仅 staging 不自动 apply；`valid=False`→FAILURE/1（test_snapshot_e2e、test_grpc_integration） |
+| `config apply` | `apply_snapshot` → ApplyConfigSnapshot | `--yes` 与显式 revision；默认 DISK revision；全成功 SUCCESS/0；部分失败/restart_required→PARTIAL/4；UNAVAILABLE→UNKNOWN/3 且实测仅 1 次调用不重试；无 `--yes` 在非 tty 于 RPC 前结构化失败（confirm_mutation 单测） |
+| `config get --scope` | `get_snapshot` → GetConfigSnapshot | disk/runtime/candidate 三态；candidate 强制 `--candidate-id`；SHA-256/size/relative_path 校验；输出目录已存在拒绝；失败无残留；历史 apply_results 不改变只读查询 SUCCESS/0；无输出时仅回元数据不回正文 |
+
+- Repository `config get`（无 `--scope`）与快照 `config get --scope` 经 Typer 双路由 + 交叉选择器守卫隔离，新增 11 个本地单测（`tests/cli/test_snapshot_commands.py`）覆盖符号链接、遍历、容量、原子写、scope 与双模式互斥。
+- 原 7 个失败用例（snapshot_e2e 5 + grpc_integration 2）逐一复跑全部 PASSED；命令树/注册契约测试同步通过。
+- 结论：**P1-CLI-01 CLOSED**，生产代码、CommonService proto、CLI 与设计文档一致。
+
+## 8. 第二轮门禁与测试结果（实测退出码/计数）
+
+### 8.1 静态门禁（全部 exit 0）
+
+| 门禁 | 结果 |
+|---|---|
+| `python scripts/generate_rpc.py --check` | 0 |
+| `ruff check src tests scripts` | 0 |
+| `ruff format --check src tests scripts` | 0（修复了交付分支 2 个文件的格式漂移） |
+| `mypy src` | 0（443 源文件） |
+| `lint-imports` | 0（19 契约 kept） |
+
+### 8.2 测试计数
+
+| 范围 | 结果 |
+|---|---|
+| 原 P1 失败四文件 | 33 passed |
+| 新增 snapshot 本地单测 | 11 passed |
+| Configuration 全树（unit 106/component 95/integration 36/reliability 3） | 240 passed，与上轮基线一致无回归 |
+| contracts + core/config + tooling | 258 passed（与 Configuration 合计 498，持平上轮） |
+| `tests/cli` 全量 | 242 passed / 0 failed / 13 skipped（上轮 225+7 失败；新增 11 单测、原 7 失败转绿） |
+| `pytest tests -m "unit or component or contract"` | 2832 passed / 0 failed / 1024 deselected |
+| full_chain 整目录（58 收集） | 整目录满载复跑 55 passed，3 个时序用例失败（见 P2）；3 个失败单独复跑全部通过 |
+| E2E-08 73 CLI 叶 | 73/73 真实进入处理路径（无 --help/解析错误/skip 伪装），`execute()` 断言 No such command/Usage 不出现且返回码 ∈ {0,1,2,3} |
+
+## 9. 本轮新发现与处置
+
+### 本轮已闭环（测试/格式，未改生产语义）
+
+- **FIX-R2-01（P1 阻断）**：双模式 `config get` 因 `config_id/output` 带默认值被 Typer 降为选项，上轮迁移的 Repository 位置参数调用报 “Got unexpected extra argument”。按 CLI 设计 v1_49（`config get <service> --output PATH`）改为 `--config-id/--output` 选项风格；真实子进程集成测试转绿。
+- **FIX-R2-02（P1 阻断）**：full_chain 分母仍硬编码 73 且语义矩阵 `set(cli)==_command_words()` 与实际 85 叶冲突。按六服务拓扑显式排除 12 个 Repository 专属叶（该拓扑无 configuration 目标，相关能力由 tests/configuration_service 真实进程套件覆盖），surface/semantic 两矩阵转绿，未弱化任何断言。
+- **FIX-R2-03（P1 阻断）**：语义矩阵 push 用空目录，在新本地校验下于 RPC 前 ValueError，无法到达预期 PERMISSION_DENIED。补合法探针 YAML 使请求真实过网后被服务授权拒绝，保留精确 error_code 断言。
+- **FIX-R2-04（P2）**：交付的两个生产文件未过 ruff format；仅应用官方 formatter（空行/换行），token 级无语义变更。
+- **新增覆盖**：`test_snapshot_commands.py` 11 个确定性本地单测（含此前无直测的 snapshot_commands 安全守卫与双模式互斥）。
+
+### P2（非阻断，建议后续专项）
+
+- **P2-FLAK-01 满载时序偶发（3 用例）**：`r4e`（gateway 写读 `10.0 vs 12.0`）、`i03`（NATS publisher 计数 `N.0 > N.0`）、`i05`（DataGenerator 执行态未及时 APPLIED）。证据：merge-base 与本分支单独复跑均通过；失败仅出现在 ~16 分钟全栈饱和复跑；均不引用 config push/apply/snapshot 代码路径。判定为既有序列化/资源竞争 flake，非本次整改回归，不计入失败统计但如实记录。
+- **P2-GAP-01**：`_write_snapshot` 目的存在性检查与最终 `os.rename` 间存在理论 TOCTOU（同本地操作者威胁模型，与既有 bundle 命令同模式），建议后续以 renameat2/目录 fd 硬化。
+- **P2-GAP-02**：NATS 断连离线重放仍仅单测级 best-effort，无端到端证据（沿用上轮限制）。
+
+## 10. NOT_EXECUTED（本轮仍不具备，未混入 PASS）
+
+- 硬件/真实 PLC/netem/root 权限、iSulad/containerd、多机部署、Kafka 链路；full_chain 中 3 个时序 flake 的全饱和复跑稳定性（功能正确性已由单独复跑证明，稳定性属 P2 专项）。
+
+## 11. 第二轮裁决
+
+**PASS WITH LIMITATIONS。** P1-CLI-01 关闭证据充分，原 7 失败全绿，五静态门禁 exit 0，Configuration 240 与全仓 marker 2832 零回归，E2E-08 真实覆盖 73 叶。限制项为与本次整改无耦合的 3 个满载时序 flake（P2）及既有环境 NOT_EXECUTED 项；B3 Sink/Storage 数据等级契约未触碰。
