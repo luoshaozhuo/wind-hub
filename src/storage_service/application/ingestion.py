@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.domain.sample import StorageSample
@@ -41,6 +41,10 @@ class PoisonEvidence(Protocol):
         self, topic: str, partition: int, offset: int, reason: str, payload: bytes
     ) -> None:
         """Persist original Kafka bytes before changing partition state."""
+
+
+class ConfigHistoryUnavailable(RuntimeError):
+    """Historical configuration is absent, corrupt, or cannot be validated."""
 
 
 class IngestionBlocked(RuntimeError):
@@ -92,7 +96,7 @@ class IngestionService:
         self._max_batch_records = max_batch_records
         self._max_batch_bytes = max_batch_bytes
 
-    def _block(self, record: KafkaRecord, reason: str) -> None:
+    def _block(self, record: KafkaRecord, reason: str) -> NoReturn:
         self._evidence.block_partition(
             record.topic, record.partition, record.offset, reason, record.value
         )
@@ -133,7 +137,15 @@ class IngestionService:
                 self._block(entry.record, "SAMPLE_CONFLICT_IN_BATCH")
 
         samples = tuple(item.sample for item in batch)
-        await self._point_tables.require_exact_versions(samples)
+        for index, entry in enumerate(batch):
+            try:
+                await self._point_tables.require_exact_versions((entry.sample,))
+            except ConfigHistoryUnavailable as exc:
+                if index:
+                    await self._flush(
+                        batch[:index], offsets=offsets, generation=generation
+                    )
+                self._block(entry.record, f"CONFIG_HISTORY_UNAVAILABLE: {exc}")
         await self._storage.ensure_tables(samples)
         existing = await self._storage.fetch_content_hashes(samples)
         for index, entry in enumerate(batch):
