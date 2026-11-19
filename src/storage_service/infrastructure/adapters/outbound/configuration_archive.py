@@ -158,7 +158,7 @@ class ConfigurationPointTableResolver:
 
     def add_immutable_pins(
         self, *,
-        point_table_versions: Mapping[str, str],
+        point_table_versions: Mapping[str, tuple[str, str]],
         business_points_pin: tuple[str, str] | None,
     ) -> None:
         """Apply additions only; existing immutable interpretation is never replaced."""
