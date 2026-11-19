@@ -29,6 +29,8 @@ class ObjectRegistration:
 class TaskRecord:
     task_id: str
     kind: str
+    wind_farm_id: str
+    owner_id: str
     state: str
     created_at: str
     finished_at: str | None
@@ -93,7 +95,7 @@ class MetadataStore:
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()
-        if version is None or version[0] not in (0, 1):
+        if version is None or version[0] not in (0, 2):
             raise MetadataConflict("unsupported SQLite metadata schema")
         connection.executescript(
             """
@@ -118,6 +120,8 @@ class MetadataStore:
                 request_id TEXT UNIQUE NOT NULL,
                 request_sha256 TEXT NOT NULL,
                 kind TEXT NOT NULL CHECK (kind IN ('EXPORT', 'BACKUP')),
+                wind_farm_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 artifact_id TEXT NOT NULL DEFAULT '',
                 error_code TEXT NOT NULL DEFAULT '',
@@ -133,7 +137,7 @@ class MetadataStore:
                 partition_id INTEGER NOT NULL,
                 offset_id INTEGER NOT NULL
             );
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
             """
         )
 
@@ -244,7 +248,8 @@ class MetadataStore:
             return cursor.rowcount == 1
 
     def register_task(
-        self, *, task_id: str, request_id: str, request_sha256: str, kind: str
+        self, *, task_id: str, request_id: str, request_sha256: str, kind: str,
+        wind_farm_id: str, owner_id: str
     ) -> str:
         """Create idempotently: same request ID with different content is fatal."""
         with self._mutex:
@@ -252,21 +257,22 @@ class MetadataStore:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(
-                    "SELECT task_id, request_sha256, kind FROM tasks WHERE request_id = ?",
+                    "SELECT task_id, request_sha256, kind, wind_farm_id, owner_id FROM tasks WHERE request_id = ?",
                     (request_id,),
                 ).fetchone()
                 if row is not None:
-                    if row[1:] != (request_sha256, kind):
+                    if row[1:] != (request_sha256, kind, wind_farm_id, owner_id):
                         raise MetadataConflict("request_id reused with different parameters")
                     result = str(row[0])
                 else:
                     db.execute(
                         """INSERT INTO tasks
-                           (task_id, request_id, request_sha256, kind, state, created_at)
-                           VALUES (?, ?, ?, ?, 'QUEUED', ?)""",
+                           (task_id, request_id, request_sha256, kind,
+                            wind_farm_id, owner_id, state, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?)""",
                         (
                             task_id, request_id, request_sha256, kind,
-                            datetime.now(UTC).isoformat(),
+                            wind_farm_id, owner_id, datetime.now(UTC).isoformat(),
                         ),
                     )
                     result = task_id
@@ -363,15 +369,18 @@ class MetadataStore:
             ).hexdigest()[:24] == database.removeprefix("wh_")
         ]
 
-    def get_task(self, task_id: str, *, kind: str) -> TaskRecord | None:
+    def get_task(
+        self, task_id: str, *, kind: str, owner_id: str
+    ) -> TaskRecord | None:
         if not task_id or kind not in {"EXPORT", "BACKUP"}:
             raise ValueError("invalid task query")
         with self._mutex:
             row = self._db().execute(
-                """SELECT task_id, kind, state, created_at, finished_at,
+                """SELECT task_id, kind, wind_farm_id, owner_id,
+                          state, created_at, finished_at,
                           artifact_id, size_bytes, sha256, error_code, message
-                   FROM tasks WHERE task_id=? AND kind=?""",
-                (task_id, kind),
+                   FROM tasks WHERE task_id=? AND kind=? AND owner_id=?""",
+                (task_id, kind, owner_id),
             ).fetchone()
             return TaskRecord(*row) if row else None
 
