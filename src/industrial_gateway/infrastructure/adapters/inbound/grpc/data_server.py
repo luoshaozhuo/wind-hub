@@ -17,6 +17,11 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from core.application.errors import ConfigError
+from core.infrastructure.grpc_bearer import (
+    BearerAuthenticationError,
+    BearerAuthorizationError,
+    BearerAuthorizer,
+)
 from industrial_gateway.application.ports.simulation import SimulationInputPort
 from industrial_gateway.application.runtime import GatewayInstance
 from industrial_gateway.application.simulation import (
@@ -29,7 +34,6 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.diagnostics import 
 from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import (
     GeneratorRpcClient,
 )
-from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
@@ -37,37 +41,33 @@ _PAGE_LIMIT = 500
 _LOGGER = logging.getLogger(__name__)
 
 
+def _bearer(runtime: GatewayRuntime) -> BearerAuthorizer:
+    policy = runtime.config.service.grpc
+    return BearerAuthorizer.from_mapping(
+        policy.token_sources, policy.permissions
+    )
+
+
 async def _authorize(
     context: grpc.aio.ServicerContext[Any, Any],
     runtime: GatewayRuntime,
     permission: str,
 ) -> None:
-    """Enforce mTLS identity permissions or explicitly local-only development."""
-    policy = runtime.config.service.grpc
-    if not policy.tls.enabled:
-        if context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
-            return
-        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only deployment")
-        return
-    common_names = tuple(context.auth_context().get("x509_common_name", ()))
-    identity = common_names[0].decode("utf-8") if common_names else ""
-    rights = policy.permissions.get(identity, ())
-    if permission not in rights:
-        await context.abort(
-            grpc.StatusCode.PERMISSION_DENIED,
-            "caller identity has insufficient permissions",
-        )
+    """Authenticate caller identity and enforce operation-specific permissions."""
+    try:
+        _bearer(runtime).require(context, permission)
+    except BearerAuthenticationError as exc:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
+    except BearerAuthorizationError as exc:
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
 
 def _trusted_identity(
     context: grpc.aio.ServicerContext[Any, Any],
     runtime: GatewayRuntime,
 ) -> str:
-    """Use authenticated client certificate CN, never client-supplied metadata."""
-    if not runtime.config.service.grpc.tls.enabled:
-        return "local-loopback"
-    identities = tuple(context.auth_context().get("x509_common_name", ()))
-    return identities[0].decode("utf-8") if identities else "unidentified"
+    """Extract only verified bearer identity, never caller-supplied metadata IDs."""
+    return _bearer(runtime).identify(context).caller_id
 
 
 def _timestamp(value: datetime) -> Timestamp:
@@ -437,8 +437,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Allow only Commander to request a model-input change."""
         await _authorize(context, self._runtime, "simulation_execute")
-        if not self._runtime.config.service.grpc.tls.enabled:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
             raise RuntimeError("abort unexpectedly returned") from None
         instance = await self._instance(request.gateway_id, context)
         control = instance.config.settings.control
@@ -489,8 +487,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Query known execution evidence; absent records remain UNKNOWN."""
         await _authorize(context, self._runtime, "simulation_execute")
-        if not self._runtime.config.service.grpc.tls.enabled:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
             raise RuntimeError("abort unexpectedly returned") from None
         await self._instance(request.gateway_id, context)
         if not request.request_id.strip():
@@ -814,24 +810,8 @@ def create_gateway_grpc_server(
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     bind = f"{host}:{config.listen_port}"
-    if config.tls.enabled:
-        if not all((config.tls.cert_file, config.tls.key_file, config.tls.ca_file)):
-            raise ValueError("mTLS certificate files are required")
-        assert config.tls.cert_file is not None
-        assert config.tls.key_file is not None
-        assert config.tls.ca_file is not None
-        root = runtime.config.project_root
-        key = service_path(root, config.tls.key_file).read_bytes()
-        cert = service_path(root, config.tls.cert_file).read_bytes()
-        ca = service_path(root, config.tls.ca_file).read_bytes()
-        credentials = grpc.ssl_server_credentials(
-            [(key, cert)],
-            root_certificates=ca,
-            require_client_auth=True,
-        )
-        bound = server.add_secure_port(bind, credentials)
-    else:
-        bound = server.add_insecure_port(bind)
+    _bearer(runtime)
+    bound = server.add_insecure_port(bind)
     if bound == 0:
         raise RuntimeError(f"unable to bind Gateway gRPC: {bind}")
     return server
