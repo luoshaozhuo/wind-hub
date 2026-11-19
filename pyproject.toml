@@ -279,6 +279,20 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Storage application/domain 不得依赖生成 Protobuf"
+type = "forbidden"
+source_modules = [
+    "storage_service.application",
+    "storage_service.domain",
+]
+forbidden_modules = [
+    "contracts.storage_service_pb2",
+    "contracts.storage_service_pb2_grpc",
+    "contracts.configuration_repository_pb2",
+    "contracts.configuration_repository_pb2_grpc",
+]
+
+[[tool.importlinter.contracts]]
 name = "configuration-service 三层依赖方向"
 type = "layers"
 layers = [
