@@ -37,6 +37,13 @@ class TaskStore(Protocol):
     ) -> None: ...
 
 
+class NativeBackupPort(Protocol):
+    async def backup(
+        self, *, task_id: str, wind_farm_id: str,
+    ) -> tuple[str, int, str]:
+        """Return artifact identifier, verified total bytes, and manifest SHA256."""
+
+
 class ExportQuotaExceeded(RuntimeError):
     """An export would exceed the authorized output limit."""
 
@@ -46,11 +53,13 @@ class AsyncStorageTasks:
 
     def __init__(
         self, *, config: StorageConfig, metadata: TaskStore,
-        history: HistoryQueryService,
+        history: HistoryQueryService, backup: NativeBackupPort,
     ) -> None:
         self._config = config
         self._metadata = metadata
         self._history = history
+        self._backup = backup
+        self._backup_semaphore = asyncio.Semaphore(config.backup.max_jobs)
         self._semaphore = asyncio.Semaphore(config.export.max_jobs)
         self._pending: set[asyncio.Task[None]] = set()
 
@@ -180,6 +189,57 @@ class AsyncStorageTasks:
         finally:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
+
+
+    def get_backup(self, task_id: str, *, owner_id: str) -> TaskRecord | None:
+        return self._metadata.get_task(task_id, kind="BACKUP", owner_id=owner_id)
+
+    async def create_backup(
+        self, *, request_id: str, wind_farm_id: str, owner_id: str,
+    ) -> TaskRecord:
+        if not request_id or not wind_farm_id:
+            raise ValueError("backup request ID and farm must be nonempty")
+        if len(request_id) > 256 or len(wind_farm_id.encode("utf-8")) > 256:
+            raise ValueError("backup request identity too long")
+        task_id = uuid.uuid4().hex
+        fingerprint = self._request_digest(["BACKUP", wind_farm_id])
+        actual = await asyncio.to_thread(
+            self._metadata.register_task,
+            task_id=task_id, request_id=request_id,
+            request_sha256=fingerprint, kind="BACKUP",
+            wind_farm_id=wind_farm_id, owner_id=owner_id,
+        )
+        record = self.get_backup(actual, owner_id=owner_id)
+        if record is None:
+            raise RuntimeError("durable backup task was not retrievable")
+        if actual == task_id:
+            job = asyncio.create_task(
+                self._run_backup(task_id, wind_farm_id),
+                name=f"storage-backup-{task_id}",
+            )
+            self._pending.add(job)
+            job.add_done_callback(self._pending.discard)
+        return record
+
+    async def _run_backup(self, task_id: str, wind_farm_id: str) -> None:
+        async with self._backup_semaphore:
+            await asyncio.to_thread(
+                self._metadata.set_task_state, task_id, state="RUNNING"
+            )
+            try:
+                artifact, size, digest = await self._backup.backup(
+                    task_id=task_id, wind_farm_id=wind_farm_id,
+                )
+                await asyncio.to_thread(
+                    self._metadata.set_task_state, task_id, state="SUCCEEDED",
+                    artifact_id=artifact, size_bytes=size, sha256=digest,
+                )
+            except BaseException as exc:
+                await asyncio.to_thread(
+                    self._metadata.set_task_state, task_id, state="FAILED",
+                    error_code="NATIVE_BACKUP_FAILED", message=type(exc).__name__,
+                )
+                raise
 
     async def close(self) -> None:
         if self._pending:
