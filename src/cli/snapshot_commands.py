@@ -136,6 +136,8 @@ def get_snapshot(
         )
         if output is not None:
             _write_snapshot(output, result.files)
+        else:
+            _verify_snapshot(result.files)
         data: dict[str, Any] = MessageToDict(result, preserving_proto_field_name=True)
         data["files"] = [
             {
@@ -154,24 +156,27 @@ def get_snapshot(
     _run("config get", invoke())
 
 
-def push_snapshot(target: str, directory: Path) -> None:
+def push_snapshot(target: str, directory: Path, expected_revision: str = "") -> None:
     """Validate and stage a complete service snapshot without applying it."""
-    files = _snapshot_files(directory)
 
     async def invoke() -> dict[str, Any]:
-        current = await _invoke(
-            target,
-            "GetConfigSnapshot",
-            common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
-        )
-        if not current.revision:
+        files = _snapshot_files(directory)
+        revision = expected_revision
+        if not revision:
+            current = await _invoke(
+                target,
+                "GetConfigSnapshot",
+                common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
+            )
+            revision = current.revision
+        if not revision:
             raise RuntimeError("target DISK snapshot has no revision")
         staged = await _invoke(
             target,
             "PushConfigSnapshot",
             common_pb2.PushConfigSnapshotRequest(
                 files=files,
-                expected_revision=current.revision,
+                expected_revision=revision,
             ),
         )
         data: dict[str, Any] = MessageToDict(staged, preserving_proto_field_name=True)
