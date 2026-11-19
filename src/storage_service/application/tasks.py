@@ -19,6 +19,7 @@ from typing import Protocol
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
+from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
 
 
@@ -42,6 +43,14 @@ class TaskStore(Protocol):
     ) -> None: ...
 
 
+class HistoricalUnitsPort(Protocol):
+    async def get_unit(
+        self, *, point_table_id: str, point_id: str,
+        business_point_id: str, data_level: DataLevel,
+    ) -> str:
+        """Resolve units only from immutable PointTable semantic closures."""
+
+
 class NativeBackupPort(Protocol):
     async def backup(
         self, *, task_id: str, wind_farm_id: str,
@@ -59,11 +68,13 @@ class AsyncStorageTasks:
     def __init__(
         self, *, config: StorageConfig, metadata: TaskStore,
         history: HistoryQueryService, backup: NativeBackupPort,
+        units: HistoricalUnitsPort,
     ) -> None:
         self._config = config
         self._metadata = metadata
         self._history = history
         self._backup = backup
+        self._units = units
         self._backup_semaphore = asyncio.Semaphore(config.backup.max_jobs)
         self._semaphore = asyncio.Semaphore(config.export.max_jobs)
         self._pending: set[asyncio.Task[None]] = set()
@@ -161,7 +172,7 @@ class AsyncStorageTasks:
                     "wind_farm_id", "device_type", "device_id",
                     "point_table_id", "data_level", "sample_time_us",
                     "sample_id", "point_id", "business_point_id",
-                    "value_kind", "value", "quality",
+                    "value_kind", "value", "unit", "quality",
                     "logical_key", "content_sha256",
                 ])
                 token = ""
@@ -174,10 +185,16 @@ class AsyncStorageTasks:
                         value = row.value
                         if isinstance(value, bytes):
                             value = base64.b64encode(value).decode("ascii")
+                        unit = await self._units.get_unit(
+                            point_table_id=row.identity[3],
+                            point_id=row.point_id,
+                            business_point_id=row.business_point_id,
+                            data_level=filter_.data_level,
+                        )
                         cells: list[object] = [
                             *row.identity[:5], row.ts_us, row.sample_id,
                             row.point_id, row.business_point_id,
-                            row.value_kind, value, row.quality,
+                            row.value_kind, value, unit, row.quality,
                             row.logical_key, row.content_sha256,
                         ]
                         # Neutralize spreadsheet formulas in user-supplied identifiers.
