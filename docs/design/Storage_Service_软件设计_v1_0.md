@@ -624,7 +624,7 @@ System Test 必须遵守以下规定：
 
 Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。**这是用户确认的下一阶段目标契约**：当前 main 的 Contracts v1_38 仍采用 `raw/engineering/business`，且 RAW 为协议驱动解码后的标量；新 `raw` 若表示未解码协议载荷，需要 Sink/Collector 后续联合明确数据载荷类型和传输可行性。本版只修改 Storage 设计，不宣称上游改造已经实现。
 
-设计目标依照 `main@dc6af967653bf74d274e8302fe70d4a6015f3417`：总体逻辑架构 v1_22、Collector v1_35、Sink v1_70、Contracts v1_38、Configuration Service v1_15。**不修改上游模块生产代码；Storage 专用接口由 Contracts v1_39 定义，Storage 实现 Server，CLI 在编码阶段实现客户端**；本文件只定义 Storage 的实现目标及对现有接口的调用。上述设计中若有尚未落地的消息格式或订阅服务，本文件明确列为集成前置，不称作已可运行。
+设计目标依照 `main@dc6af967653bf74d274e8302fe70d4a6015f3417`：总体逻辑架构 v1_22、Collector v1_35、Sink v1_70、Contracts v1_38、Configuration Service v1_15。**不修改上游模块生产代码；Storage 专用接口由 Contracts v1_39 定义，Storage 实现 Server，CLI 在编码阶段实现客户端**；本文件同时规定 Storage 自身内部实现目标；新增 Storage 对外接口统一由 Contracts v1_39 定义，并在未来编码阶段生成 Proto。上述设计中若有尚未落地的消息格式或订阅服务，本文件明确列为集成前置，不称作已可运行。
 
 ## 3.2 需求清单
 
@@ -1897,7 +1897,7 @@ $$
 | payload_bytes | VARBINARY(4096) | 原始字节仅在正式上游契约具备时使用 |
 | publish_time/receive_time | TIMESTAMP | UTC，时间精度按契约校验 |
 
-正常值按 value_kind 只允许一个值列非 NULL；MISSING 时全部值列 NULL，质量和缺值语义仍保留。业务字段标准单位和原始单位可通过持久的不可变配置闭包回查。禁止 NaN、Inf、整数溢出、偷偷转 DOUBLE。最大原始字节数 4096 为首版单点记录上限，逐帧大包不在首版范围。
+质量字段取 Core Quality 的 good/bad/uncertain，数据库映射为 1/2/3；读取 RPC 必须反向映射为原始字符串，未知值拒绝。正常值按 value_kind 只允许一个值列非 NULL；MISSING 时全部值列 NULL，质量和缺值语义仍保留。业务字段标准单位和原始单位可通过持久的不可变配置闭包回查。禁止 NaN、Inf、整数溢出、偷偷转 DOUBLE。最大原始字节数 4096 为首版单点记录上限，逐帧大包不在首版范围。
 
 ~~~sql
 CREATE STABLE IF NOT EXISTS <stable_name> (
@@ -1934,9 +1934,9 @@ CREATE TABLE IF NOT EXISTS <table_name>
 
 ## 16.3 幂等键、冲突与重复写
 
-所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,sample_time,sample_id]；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
+所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,sample_time,sample_id]，其中 sample_time 统一表示为 UTC 微秒整数，其他 ID 为原始 UTF-8 字符串；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
 
-content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,quality,business_point_id,unit,publish_time,receive_time]；字节按原始字节流，浮点按确定性 IEEE-754 位型编码（负零规范化）；对参与字段不做静默省略。sample_key 摘要输入为 [logical_key,content_sha256]。将内容纳入复合主键的目的：即使 TDengine 同键 INSERT 具有覆盖语义，异值记录也不会覆盖原先内容。
+content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,quality,business_point_id,unit]（publish_time、receive_time 属传输观测时间，不能参与逻辑内容指纹，否则同一采样事件重新投递可能被误判成异值冲突）；字节按原始字节流，浮点按确定性 IEEE-754 位型编码（负零规范化）；对参与字段不做静默省略。sample_key 摘要输入为 [logical_key,content_sha256]。将内容纳入复合主键的目的：即使 TDengine 同键 INSERT 具有覆盖语义，异值记录也不会覆盖原先内容。
 
 同一 logical_key 对应多个不同 content_sha256 属于 SAMPLE_CONFLICT：**物理库可以含冲突候选，但逻辑查询不能任选一条作为有效样本，计数不得计成功逻辑点，Kafka 不提交造成冲突的 Offset**。写入前及 UNKNOWN 恢复后核验该 logical_key 的所有候选；不宣称普通 SELECT+INSERT 原子解决并发。跨实例初版禁止并行双写同一归属库；同一逻辑源 Kafka Key 须稳定路由同一 Partition。对冲突组的过滤查询和报警必须执行。重复同内容可重写同一物理键但不得累计第二次成功点数。不同等级始终拥有不同 logical_key。
 
@@ -1954,7 +1954,7 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 
 ## 16.6 元数据所有权、DDL 与重启
 
-TDengine 内建立 Storage 独立的持久身份登记，至少保存 full_identity_json、full_sha256、logical_identity_hash、physical_database、stable_name、table_name、schema_fingerprint、closure_hash、creation_state、created_at。实际库表和登记之间无跨 SQL 事务，流程为登记 CREATING、幂等 DDL、回读表结构/TAG/数据库参数、状态变成 READY。进程崩溃后双向校验实际物理结构与映射，CREATING 只允许按证据恢复；同名冲突进入 SCHEMA_CONFLICT，绝不 DROP 或重建。跨实例元数据库原子并发不可证明前，首版**仅允许一个 Storage 实例运行并拥有库级 DDL/ALTER 权限**，避免用未实现的分布式锁伪装正确性。
+单实例首版通过本地持久 SQLite（与任务/幂等请求记录同一管理数据库）建立 Storage 独立的持久身份登记，至少保存 full_identity_json、full_sha256、logical_identity_hash、physical_database、stable_name、table_name、schema_fingerprint、closure_hash、creation_state、created_at。实际库表和登记之间无跨 SQL 事务，流程为登记 CREATING、幂等 DDL、回读表结构/TAG/数据库参数、状态变成 READY。进程崩溃后双向校验实际物理结构与映射，CREATING 只允许按证据恢复；同名冲突进入 SCHEMA_CONFLICT，绝不 DROP 或重建。首版明确只部署一个 Storage 实例；SQLite 使用进程独占锁和事务，失去独占锁时拒绝启动。跨实例、跨主机共用必须重设计统一元数据权威和同步协议，不能宣称已支持多副本。首版**仅允许一个 Storage 实例运行并拥有库级 DDL/ALTER 权限**，避免用未实现的分布式锁伪装正确性。
 
 ## 16.7 查询和异步任务实现边界
 
@@ -1996,6 +1996,73 @@ TDengine 内建立 Storage 独立的持久身份登记，至少保存 full_ident
 | reconciliation.owner_instance_id | 必填 | 单实例 ID 一致 |
 
 完整生产 YAML 文件头必须记录**所有**字段的必选性、取值范围、单位和示例；未知字段拒绝。Topic、Group、数据库时间精度、认证与管理者 ID 变更要求重启；批次大小、重试、查询限额可热更新，但不得更改在途批次配置代际。
+
+
+### 16.8.1 可复制的集中业务配置实例
+
+下例覆盖第 16.8 节首版全部业务配置字段；部署地址、凭据环境变量、Topic、根目录需按环境调整。文件头仍需在实际配置文件中逐字段扩展为复制后可直接使用的说明（单位、范围、默认及示例）；Schema 类型及额外字段校验由 Configuration 注册完成。
+
+~~~yaml
+# service_storage_v1.0.0.yaml
+# schema_version: 必填，整数1；file_version: 必填，MAJOR.MINOR.PATCH。
+# kafka: 授权可靠 Topic/Group；Consumer 缓存双限制（条/byte），所有间隔为 ms。
+# tdengine: us 时间精度；DB DURATION/KEEP 为 TDengine 原生时间单位；
+#           连接/DDL/SQL 上限均为正整数；密码仅使用 env: 引用。
+# configuration: 修订对账 s，本地历史闭包最大缓存 byte（历史必需版本不自动清理）。
+# query/export/backup: 有界访问；root 是服务端预授权固定目录，不接受 RPC 传入任意路径。
+# retry: max_attempts=0 表示不限制总重试次数，但指数退避及同时在途任务保持有界。
+# reconciliation: 缩短 KEEP 除布尔开关仍必须单独一次性审批。
+schema_version: 1
+file_version: 1.0.0
+service_id: storage-main
+kafka:
+  topic: windhub-history
+  group_id: storage-main
+  max_poll_records: 500
+  max_partition_workers: 4
+  max_buffer_records: 20000
+  max_buffer_bytes: 67108864
+  commit_interval_ms: 1000
+tdengine:
+  endpoint: 127.0.0.1:6041
+  credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
+  database:
+    precision: us
+    duration: 10d
+    keep: 365d
+    cachemodel: none
+    cachesize: 1
+  max_connections: 8
+  max_inflight_sql: 4
+  max_concurrent_ddl: 2
+  batch_max_records: 1000
+  batch_max_bytes: 1048576
+  batch_wait_ms: 20
+  write_timeout_ms: 10000
+configuration:
+  reconcile_interval_s: 60
+  cache_max_bytes: 268435456
+query:
+  max_page_size: 1000
+  max_range_days: 31
+  max_concurrent: 4
+  timeout_ms: 30000
+export:
+  root: /var/lib/wind-hub/storage/exports
+  max_jobs: 2
+  max_bytes: 1073741824
+backup:
+  root: /var/lib/wind-hub/storage/backups
+  max_jobs: 1
+retry:
+  initial_ms: 500
+  max_ms: 30000
+  max_attempts: 0
+reconciliation:
+  auto_alter: false
+  allow_retention_shrink: false
+  owner_instance_id: storage-main
+~~~
 
 ## 16.9 容量计算与性能试验
 
