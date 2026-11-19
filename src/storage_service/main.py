@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import grpc
 import asyncio
 import logging
 import os
@@ -25,6 +26,9 @@ from storage_service.infrastructure.adapters.outbound.configuration_grpc import 
 )
 from storage_service.infrastructure.adapters.outbound.configuration_watch import (
     StorageConfigurationWatcher,
+)
+from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+    StorageBundleSnapshot,
 )
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
@@ -63,9 +67,26 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
         )
         await configuration.open()
         try:
-            bundle = await configuration.fetch_service_bundle(
-                service_id=bootstrap.service_id
-            )
+            snapshot = StorageBundleSnapshot(base / "configuration-snapshots")
+            restored_from_snapshot = False
+            try:
+                bundle = await configuration.fetch_service_bundle(
+                    service_id=bootstrap.service_id
+                )
+                await asyncio.to_thread(snapshot.store, bundle)
+            except (grpc.aio.AioRpcError, TimeoutError, ConnectionError) as exc:
+                if isinstance(exc, grpc.aio.AioRpcError) and exc.code() not in (
+                    grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
+                ):
+                    raise
+                bundle = await asyncio.to_thread(snapshot.load)
+                if bundle.configuration.service_id != bootstrap.service_id:
+                    raise RuntimeError("saved Configuration service_id mismatch")
+                restored_from_snapshot = True
+                _LOG.warning(
+                    "using verified previous Configuration revision %d while unavailable",
+                    bundle.revision_id,
+                )
             if not bundle.point_table_versions:
                 raise RuntimeError(
                     "Storage cannot consume until the Service bundle pins PointTable versions"
@@ -124,7 +145,10 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     client=configuration, resolver=point_tables,
                     bundle=bundle, service_id=bootstrap.service_id,
                     servers=bootstrap.nats.servers, metadata=metadata,
+                    snapshot=snapshot,
                 )
+                if restored_from_snapshot:
+                    watcher.status = "CONFIG_RECONCILE_DEGRADED"
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
                     metadata=metadata, query=history, jobs=jobs,
