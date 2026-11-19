@@ -292,10 +292,14 @@ class ConfigurationApplication:
             sources = document.canonical_payload.get("config_sources", {})
             if isinstance(sources, list):
                 for item in sources:
-                    if not isinstance(item, dict):
-                        raise ValueError("config_sources items must be mappings")
-                    identity = ConfigIdentity(str(item["config_type"]), str(item["config_id"]))
-                    file_version = str(item["file_version"])
+                    if not isinstance(item, dict) or set(item) != {
+                        "config_type", "config_id", "file_version"
+                    }:
+                        raise ValueError("config_sources requires type, id and file_version")
+                    if any(not isinstance(item[key], str) or not item[key] for key in item):
+                        raise ValueError("config_sources identity and version must be strings")
+                    identity = ConfigIdentity(item["config_type"], item["config_id"])
+                    file_version = item["file_version"]
                     target_id = new_ids.get(
                         (identity.config_type, identity.config_id, file_version)
                     ) or self.repository.resolve_version(identity, file_version)
