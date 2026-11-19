@@ -75,12 +75,15 @@ class GeneratorRpcClient:
                 raise TimeoutError("Generator control deadline expired")
             return left
 
-        device = await stub.GetDevice(common.ObjectId(id=device_id), timeout=remaining(), metadata=self._metadata())
+        device = await stub.GetDevice(
+            common.ObjectId(id=device_id), timeout=remaining(), metadata=self._metadata(),
+        )
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
             raise ValueError("target device has no running Generation")
         generation = await stub.GetGeneration(
-            common.ObjectId(id=generation_id), timeout=remaining()
+            common.ObjectId(id=generation_id), timeout=remaining(),
+            metadata=self._metadata(),
         )
         bound = generation.generation
         if (
@@ -104,7 +107,6 @@ class GeneratorRpcClient:
                     page_token=token,
                 ),
                 timeout=remaining(),
-            metadata=self._metadata(),
                 metadata=self._metadata(),
             )
             if listing.generation_state != "RUNNING":
@@ -136,6 +138,7 @@ class GeneratorRpcClient:
                 values=[dg.VariableUpdate(point_id=point_id, value=encode_scalar(value))],
             ),
             timeout=remaining(),
+            metadata=self._metadata(),
         )
         return SimulationInputReceipt(
             accepted=response.accepted,
