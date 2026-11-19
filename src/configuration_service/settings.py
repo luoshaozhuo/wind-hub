@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Any
 
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
