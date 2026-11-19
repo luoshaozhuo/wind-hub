@@ -144,7 +144,7 @@ class ConfigurationPointTableResolver:
         self,
         *, fetcher: DocumentFetcher,
         archive: ImmutableConfigArchive,
-        point_table_versions: Mapping[str, str],
+        point_table_versions: Mapping[str, tuple[str, str]],
         business_points_version: tuple[str, str] | None = None,
     ) -> None:
         if not point_table_versions:
@@ -166,9 +166,9 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailable(
                 "business semantic version changed; require an explicit migration"
             )
-        for point_table_id, version_id in point_table_versions.items():
+        for point_table_id, pin in point_table_versions.items():
             old = self._pins.get(point_table_id)
-            if old is not None and old != version_id:
+            if old is not None and old != pin:
                 raise ConfigHistoryUnavailable(
                     "existing PointTable ID was rebound to a different immutable version"
                 )
@@ -222,9 +222,10 @@ class ConfigurationPointTableResolver:
                 raise ConfigHistoryUnavailable(
                     f"no pinned immutable version for {sample.point_table_id}"
                 )
+            config_id, version_id = pin
             document = await self._load(
-                config_type="point_table", config_id=sample.point_table_id,
-                version_id=pin,
+                config_type="point_table", config_id=config_id,
+                version_id=version_id,
             )
             points = document.get("points")
             if not isinstance(points, dict) or sample.point_id not in points:
@@ -265,11 +266,12 @@ class ConfigurationPointTableResolver:
         """Resolve original or standardized units from immutable configuration history."""
         if data_level == DataLevel.RAW:
             return ""
-        version = self._pins.get(point_table_id)
-        if not version:
+        pin = self._pins.get(point_table_id)
+        if pin is None:
             raise ConfigHistoryUnavailable("query PointTable has no pinned version")
+        config_id, version_id = pin
         document = await self._load(
-            config_type="point_table", config_id=point_table_id, version_id=version
+            config_type="point_table", config_id=config_id, version_id=version_id
         )
         points = document.get("points")
         if not isinstance(points, dict):
