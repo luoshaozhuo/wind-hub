@@ -1,4 +1,4 @@
-"""Configuration Repository CLI commands, using the shared mTLS runtime."""
+"""Configuration Repository CLI commands with scoped bearer-token gRPC."""
 
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ def _request(method: str, request: Any, service: str) -> Any:
         from cli.main import runtime
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
-        result = await getattr(client, method)(request)
+        result = await getattr(client, method)(
+            request, timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, method),
+        )
         return MessageToDict(result, preserving_proto_field_name=True)
 
     from cli.main import _run
@@ -149,7 +152,10 @@ def get(
         from cli.main import runtime
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
-        result = await client.GetConfig(req)
+        result = await client.GetConfig(
+            req, timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetConfig"),
+        )
         data = result.document.yaml_bytes
         if hashlib.sha256(data).hexdigest() != result.document.yaml_sha256:
             raise RuntimeError("downloaded YAML SHA-256 mismatch")
@@ -183,7 +189,9 @@ def bundle(
                 roots=[_identity(config_type, config_id)],
                 revision_id=revision_id,
                 include_dependencies=dependencies,
-            )
+            ),
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetConfigBundle"),
         )
         manifest = hashlib.sha256()
         names: set[str] = set()
@@ -382,7 +390,10 @@ def apply_revision(
                 query.version_id = str(entry["version_id"])
             else:
                 query.revision_id = revision_id
-            result = await source.GetConfig(query)
+            result = await source.GetConfig(
+                query, timeout=runtime().target(repository).timeout,
+                metadata=runtime().get_rpc_metadata(repository, "GetConfig"),
+            )
             content = result.document.yaml_bytes
             if hashlib.sha256(content).hexdigest() != result.document.yaml_sha256:
                 raise RuntimeError("downloaded YAML digest mismatch")
