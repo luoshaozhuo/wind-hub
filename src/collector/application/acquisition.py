@@ -38,6 +38,8 @@ class DevicePlan:
     interval: float
     desired_state: str
     mode: str
+    device_type: str
+    point_table_id: str
     data_types: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -310,7 +312,12 @@ class DeviceWorker:
                 self.telemetry.increment(prefix + "points.collected", len(converted))
                 self.telemetry.increment(prefix + "points.bad", bad)
             self.last_samples = tuple(converted)
-            await self.sink.publish(str(self.plan.device.device_id), tuple(converted))
+            await self.sink.publish(
+                str(self.plan.device.device_id),
+                tuple(converted),
+                device_type=self.plan.device_type,
+                point_table_id=self.plan.point_table_id,
+            )
 
     async def _poll_loop(self, point_ids: tuple[str, ...]) -> None:
         next_slot = time.monotonic()
