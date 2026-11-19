@@ -250,7 +250,8 @@ class MetadataStore:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(
-                    "SELECT task_id, request_sha256, kind, wind_farm_id, owner_id FROM tasks WHERE request_id = ?",
+                    """SELECT task_id, request_sha256, kind, wind_farm_id, owner_id
+                       FROM tasks WHERE request_id = ?""",
                     (request_id,),
                 ).fetchone()
                 if row is not None:
