@@ -64,8 +64,13 @@ def load_settings(path: Path) -> ServerSettings:
     if not path.is_absolute() or not path.is_file():
         raise ValueError("bootstrap YAML must be an existing absolute path")
     raw = parse_yaml(path.read_bytes(), max_bytes=1024 * 1024)
-    if raw["schema_version"] != 1:
+    if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
         raise ValueError("unsupported bootstrap schema_version")
+    version = raw.get("file_version")
+    if not isinstance(version, str) or re.fullmatch(
+        r"[0-9]+[.][0-9]+[.][0-9]+", version
+    ) is None:
+        raise ValueError("Configuration bootstrap file_version must be MAJOR.MINOR.PATCH")
     allowed_root = {
         "schema_version",
         "file_version",
@@ -138,6 +143,8 @@ def load_settings(path: Path) -> ServerSettings:
         sources[principal] = name.removeprefix("env:")
     if set(sources) != set(identities):
         raise ValueError("token source and permission principals must agree")
+    if len(set(sources.values())) != len(sources):
+        raise ValueError("Configuration principals require separate token sources")
     return ServerSettings(
         service_id=_text(raw["service_id"], "service_id"),
         host=_text(grpc_config["host"], "grpc.host"),
