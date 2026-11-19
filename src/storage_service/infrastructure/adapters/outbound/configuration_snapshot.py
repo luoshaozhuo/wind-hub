@@ -58,6 +58,18 @@ class StorageBundleSnapshot:
         if bundle.revision_id <= 0 or not bundle.point_table_versions:
             raise ConfigHistoryUnavailable("cannot persist an incomplete Storage snapshot")
         content = self._encode(bundle)
+        if self._path.exists():
+            previous = self.load()
+            if previous.revision_id > bundle.revision_id:
+                raise ConfigHistoryUnavailable(
+                    "refusing to replace accepted Configuration revision with an older one"
+                )
+            if previous.revision_id == bundle.revision_id:
+                if self._path.read_bytes() != content:
+                    raise ConfigHistoryUnavailable(
+                        "same Configuration revision has changed its immutable closure"
+                    )
+                return
         staging: str | None = None
         try:
             with tempfile.NamedTemporaryFile(
