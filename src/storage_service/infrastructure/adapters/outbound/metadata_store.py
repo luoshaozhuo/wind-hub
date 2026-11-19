@@ -117,6 +117,13 @@ class MetadataStore:
                 size_bytes INTEGER NOT NULL DEFAULT 0,
                 sha256 TEXT NOT NULL DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS semantic_pins (
+                point_table_id TEXT PRIMARY KEY,
+                config_id TEXT NOT NULL,
+                version_id TEXT NOT NULL,
+                business_config_id TEXT NOT NULL DEFAULT '',
+                business_version_id TEXT NOT NULL DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS retry_requests (
                 request_id TEXT PRIMARY KEY,
                 topic TEXT NOT NULL,
@@ -354,6 +361,61 @@ class MetadataStore:
                            ensure_ascii=False, separators=(",", ":")).encode()
             ).hexdigest()[:24] == database.removeprefix("wh_")
         ]
+
+    def register_semantic_pins(
+        self, *, point_table_versions: dict[str, tuple[str, str]],
+        business_points_pin: tuple[str, str] | None,
+    ) -> None:
+        """Never rebind a historical sample identity to another YAML closure."""
+        with self._mutex:
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                for full_id, (config_id, version_id) in point_table_versions.items():
+                    business_id, business_version = business_points_pin or ("", "")
+                    identity = (
+                        config_id, version_id, business_id, business_version,
+                    )
+                    prior = db.execute(
+                        """SELECT config_id, version_id,
+                                  business_config_id, business_version_id
+                           FROM semantic_pins WHERE point_table_id=?""",
+                        (full_id,),
+                    ).fetchone()
+                    if prior is not None and tuple(prior) != identity:
+                        raise MetadataConflict(
+                            "immutable PointTable semantic closure cannot be rebound"
+                        )
+                    if prior is None:
+                        db.execute(
+                            """INSERT INTO semantic_pins
+                               (point_table_id, config_id, version_id,
+                                business_config_id, business_version_id)
+                               VALUES (?, ?, ?, ?, ?)""",
+                            (full_id, *identity),
+                        )
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+
+    def list_semantic_pins(
+        self,
+    ) -> dict[str, tuple[tuple[str, str], tuple[str, str] | None]]:
+        with self._mutex:
+            rows = self._db().execute(
+                """SELECT point_table_id, config_id, version_id,
+                          business_config_id, business_version_id
+                   FROM semantic_pins ORDER BY point_table_id"""
+            ).fetchall()
+        return {
+            str(full_id): (
+                (str(config_id), str(version_id)),
+                (str(business_id), str(business_version))
+                if business_id and business_version else None,
+            )
+            for full_id, config_id, version_id, business_id, business_version in rows
+        }
 
     def get_task(
         self, task_id: str, *, kind: str, owner_id: str
