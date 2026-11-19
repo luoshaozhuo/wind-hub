@@ -19,7 +19,14 @@ class PublisherEvidence(Protocol):
     def connected(self) -> bool: ...
     @property
     def delivery_mode(self) -> str: ...
-    def validate_encoding(self, device_id: str, sample: ProtocolSample) -> None: ...
+    def validate_encoding(
+        self,
+        device_id: str,
+        sample: ProtocolSample,
+        *,
+        device_type: str,
+        point_table_id: str,
+    ) -> None: ...
 
 
 class NetworkProbe(Protocol):
@@ -177,7 +184,12 @@ class CollectorDiagnostics:
                         encoding_failed = False
                         for sample in samples:
                             try:
-                                self._publisher.validate_encoding(target_id, sample)
+                                self._publisher.validate_encoding(
+                                    target_id,
+                                    sample,
+                                    device_type=worker.plan.device_type,
+                                    point_table_id=worker.plan.point_table_id,
+                                )
                             except (ValueError, TypeError) as exc:
                                 encoding_failed = True
                                 detail = f"sample encoding failed: {exc}"
