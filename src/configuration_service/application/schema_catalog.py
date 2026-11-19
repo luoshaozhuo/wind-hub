@@ -89,6 +89,7 @@ _FIELDS: dict[str, dict[str, str]] = {
         "services": "object",
         "tls_profiles": "object",
         "network_probe": "object",
+        "auth": "object",
         "kafka": "object",
         "tdengine": "object",
         "configuration": "object",
