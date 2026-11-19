@@ -453,7 +453,6 @@ class ConfigurationApplication:
         """Resolve path-based loader sources to pinned versions at publication time."""
         from pathlib import PurePosixPath
 
-        members = self.repository.get_revision_members(revision_id) if revision_id > 0 else {}
         staged = {
             doc.identity: new_ids[
                 (doc.identity.config_type, doc.identity.config_id, doc.file_version)
@@ -476,7 +475,7 @@ class ConfigurationApplication:
                 raise ValueError("unsupported config_sources instance reference")
             config_id = PurePosixPath(raw_path).stem
             identity = ConfigIdentity(name_types[name], config_id)
-            version_id = staged.get(identity) or members.get(identity)
+            version_id = staged.get(identity)
             if version_id is None:
                 raise RepositoryConflictError(f"missing pinned configuration reference: {raw_path}")
             resolved.append((version_id, "config_sources.instances"))
@@ -510,10 +509,9 @@ class ConfigurationApplication:
                 raise RepositoryConflictError(
                     "unrecognized templates.root; explicit pinned references required"
                 )
-            selected = {**members, **staged}
             template_versions = [
                 version_id
-                for identity, version_id in selected.items()
+                for identity, version_id in staged.items()
                 if identity.config_type in template_types
             ]
             if not template_versions:
