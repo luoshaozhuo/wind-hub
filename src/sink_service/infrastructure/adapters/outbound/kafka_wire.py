@@ -15,7 +15,7 @@ from typing import Literal
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.application.historical_point_table import BusinessValue
+from sink_service.application.business_projection import BusinessValue
 
 DataLevel = Literal["raw", "protocol", "business"]
 
