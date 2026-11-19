@@ -14,10 +14,10 @@ class GatewayWriter(GatewayOutputCoordinator):
         timeout: float = 3.0,
         max_points: int = 1000,
         max_inflight: int = 1,
-        gateway_tls: dict[str, str] | None = None,
+        gateway_token_ref: str,
     ) -> None:
         super().__init__(
-            GatewayRpcClient(gateway_tls),
+            GatewayRpcClient(gateway_token_ref),
             timeout=timeout,
             max_points=max_points,
             max_inflight=max_inflight,
