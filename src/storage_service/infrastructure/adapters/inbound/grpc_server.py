@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import os
@@ -275,10 +276,10 @@ class StorageServicer(rpc.StorageServiceServicer):
             raise QueryRejected("aggregation requires one device and one PointTable")
         if request.window_ms == 0 or request.window_ms > 31 * 86400000:
             raise QueryRejected("aggregation window must be 1ms..31 days")
-        if request.page_token:
-            # A native server-side aggregate cursor is required for giant histories.
-            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "aggregate cursor not enabled")
-            raise AssertionError("abort must terminate RPC")
+        page_size = request.page_size or 200
+        if not 1 <= page_size <= self._config.query.max_page_size:
+            raise QueryRejected("aggregate page_size exceeds configured bound")
+        start_index = self._decode_aggregate_cursor(request, filter_)
         # This bounded implementation never returns a partial aggregate as complete.
         # If the record budget is exceeded, callers must narrow the time window.
         result: dict[tuple[int, str, str, str, str], list[float]] = {}
@@ -319,12 +320,11 @@ class StorageServicer(rpc.StorageServiceServicer):
             if page.complete:
                 break
             offset = page.next_page_token
-        if len(counts) > (request.page_size or 200):
-            await context.abort(
-                grpc.StatusCode.RESOURCE_EXHAUSTED, "aggregate result exceeds one page"
-            )
+        ordered = sorted(counts)
+        if start_index > len(ordered):
+            raise QueryRejected("aggregate cursor is beyond available results")
         response = pb.QueryAggregatesResponse()
-        for key in sorted(counts):
+        for key in ordered[start_index:start_index + page_size]:
             begin, point_id, business_id, table_id, _device_id = key
             good_count, missing_count = counts[key]
             item = response.items.add(
@@ -351,7 +351,58 @@ class StorageServicer(rpc.StorageServiceServicer):
                     item.result = max(values)
                 else:
                     item.result = math.fsum(values) / len(values)
+        if start_index + page_size < len(ordered):
+            response.next_page_token = self._encode_aggregate_cursor(
+                request, filter_, start_index + page_size
+            )
         return response
+
+    def _aggregate_fingerprint(
+        self, request: pb.QueryAggregatesRequest, filter_: HistoryFilter
+    ) -> str:
+        payload = json.dumps(
+            [filter_.fingerprint(), request.aggregation, request.window_ms],
+            separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    def _encode_aggregate_cursor(
+        self, request: pb.QueryAggregatesRequest,
+        filter_: HistoryFilter, index: int,
+    ) -> str:
+        data = json.dumps(
+            [self._aggregate_fingerprint(request, filter_), index, int(time.time()) + 900],
+            separators=(",", ":"),
+        ).encode()
+        signature = hmac.digest(self._secret, data, "sha256")
+        return base64.urlsafe_b64encode(signature + data).decode("ascii")
+
+    def _decode_aggregate_cursor(
+        self, request: pb.QueryAggregatesRequest, filter_: HistoryFilter
+    ) -> int:
+        if not request.page_token:
+            return 0
+        if len(request.page_token) > 4096:
+            raise QueryRejected("aggregate cursor exceeds 4 KiB")
+        try:
+            packed = base64.b64decode(
+                request.page_token.encode(), altchars=b"-_", validate=True
+            )
+            signature, raw = packed[:32], packed[32:]
+            if len(signature) != 32 or not hmac.compare_digest(
+                signature, hmac.digest(self._secret, raw, "sha256")
+            ):
+                raise QueryRejected("aggregate cursor signature invalid")
+            identity, index, expires = json.loads(raw)
+            if (
+                identity != self._aggregate_fingerprint(request, filter_)
+                or type(index) is not int or index < 0
+                or type(expires) is not int or expires < time.time()
+            ):
+                raise QueryRejected("aggregate cursor expired or bound to another request")
+            return index
+        except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+            raise QueryRejected("aggregate cursor malformed") from exc
 
     @guarded
     async def CreateExport(
