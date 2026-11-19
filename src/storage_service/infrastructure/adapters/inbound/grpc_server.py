@@ -26,6 +26,7 @@ from storage_service.application.query import (
 )
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceeded
 from storage_service.domain.sample import DataLevel
+from storage_service.domain.tasks import TaskRecord
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
@@ -35,7 +36,6 @@ from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflict,
     MetadataStore,
-    TaskRecord,
 )
 from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
     TDengineSchemaConflict,
