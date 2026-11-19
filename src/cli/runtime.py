@@ -281,10 +281,9 @@ class Runtime:
     @staticmethod
     def collector_admin_metadata() -> tuple[tuple[str, str], ...]:
         """Load the Collector management credential only from the process environment."""
-        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
-        if not token:
-            raise PermissionError("Collector management RPC requires admin credentials")
-        return (("x-windhub-admin-token", token),)
+        from core.infrastructure.grpc_bearer import bearer_metadata
+
+        return bearer_metadata("env:WIND_HUB_COLLECTOR_ADMIN_TOKEN")
 
     def get_rpc_metadata(self, service: str, method: str) -> tuple[tuple[str, str], ...] | None:
         """Apply Collector's protected RPC policy to every CLI call path."""
