@@ -136,16 +136,13 @@ def validate_service_technology(service: dict[str, Any]) -> None:
             "repository_endpoint",
             "repository_token_ref",
             "approved_point_table_manifests",
+            "poll_interval_seconds",
         }),
     )
-    repo_keys = {
-        "repository_endpoint",
-        "repository_token_ref",
-        "approved_point_table_manifests",
-    }
+    repo_keys = {"repository_endpoint", "repository_token_ref"}
     if repo_keys & set(sync):
         if not repo_keys.issubset(sync):
-            raise ConfigurationError("repository configuration must be complete")
+            raise ConfigurationError("repository endpoint and token must be supplied together")
         endpoint = expect_nonempty_str(
             sync["repository_endpoint"], "config_sync.repository_endpoint"
         )
@@ -158,9 +155,10 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         if re.fullmatch(r"env:[A-Za-z_][A-Za-z0-9_]*", reference) is None:
             raise ConfigurationError("repository token requires an env: Secret")
         approved = expect_mapping(
-            sync["approved_point_table_manifests"], "approved_point_table_manifests"
+            sync.get("approved_point_table_manifests", {}),
+            "approved_point_table_manifests",
         )
-        if not approved or len(approved) > 128 or any(
+        if len(approved) > 128 or any(
             not isinstance(point_table_id, str)
             or re.fullmatch(
                 r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+",
@@ -172,6 +170,14 @@ def validate_service_technology(service: dict[str, Any]) -> None:
             for point_table_id, digest in approved.items()
         ):
             raise ConfigurationError("invalid approved historical PointTable manifests")
+    if "approved_point_table_manifests" in sync and not repo_keys.issubset(sync):
+        raise ConfigurationError("approved PointTable list requires repository connection")
+    if "poll_interval_seconds" in sync:
+        interval = sync["poll_interval_seconds"]
+        if type(interval) is not int or not 5 <= interval <= 3600:
+            raise ConfigurationError("config_sync.poll_interval_seconds must be 5..3600")
+        if not repo_keys.issubset(sync):
+            raise ConfigurationError("Configuration polling requires repository connection")
     shutdown = expect_mapping(service.get("shutdown"), "service.shutdown")
     require_keys(shutdown, "shutdown", frozenset({"grace_seconds"}))
     expect_positive_int(shutdown.get("grace_seconds"), "shutdown.grace_seconds")
