@@ -69,7 +69,7 @@ class ReliableDeliveryEngine:
         """Implemented by the JetStream metadata adapter."""
         raise NotImplementedError
 
-    def _encode_kafka_points(
+    async def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
         """Implemented by the Kafka output serialization adapter."""
@@ -173,7 +173,7 @@ class ReliableDeliveryEngine:
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
                 chunk_items = selected[start : start + 500]
-                payloads = self._encode_kafka_points(batch, chunk_items)
+                payloads = await self._encode_kafka_points(batch, chunk_items)
                 chunk_length = len(chunk_items)
             else:
                 chunk = samples[start : start + 500]
