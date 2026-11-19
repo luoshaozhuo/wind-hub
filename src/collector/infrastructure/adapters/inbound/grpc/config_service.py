@@ -183,8 +183,8 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         if len(expected.encode("utf-8")) < 32:
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token missing")
         metadata = tuple(
-            entry.value for entry in context.invocation_metadata()
-            if entry.key.lower() == "authorization"
+            value for key, value in context.invocation_metadata()
+            if key.lower() == "authorization"
         )
         if len(metadata) != 1 or not isinstance(metadata[0], str):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token required")
