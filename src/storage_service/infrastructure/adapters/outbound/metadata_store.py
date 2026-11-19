@@ -91,6 +91,12 @@ class MetadataStore:
                 full_sha256 TEXT NOT NULL,
                 identity_json TEXT NOT NULL,
                 schema_fingerprint TEXT NOT NULL,
+                logical_identity_hash TEXT NOT NULL,
+                physical_database TEXT NOT NULL,
+                stable_name TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                closure_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 state TEXT NOT NULL CHECK (state IN ('CREATING', 'READY'))
             );
             CREATE TABLE IF NOT EXISTS blocked_partitions (
@@ -141,35 +147,54 @@ class MetadataStore:
         return self._connection
 
     def reserve_object(
-        self, name: str, full_sha256: str, identity_json: str, schema_fingerprint: str
+        self, name: str, full_sha256: str, identity_json: str,
+        schema_fingerprint: str, *,
+        physical_database: str, stable_name: str, table_name: str,
+        closure_hash: str,
     ) -> ObjectRegistration:
-        """Reserve before DDL; CREATING must be reconciled on restart."""
+        """Reserve full logical/physical identity before issuing any TDengine DDL."""
+        details = (
+            full_sha256, identity_json, schema_fingerprint, full_sha256,
+            physical_database, stable_name, table_name, closure_hash,
+        )
+        if any(
+            not isinstance(value, str) or not value
+            for value in (name, full_sha256, identity_json, schema_fingerprint,
+                          physical_database, closure_hash)
+        ):
+            raise ValueError("physical object metadata is incomplete")
         with self._mutex:
             db = self._db()
             db.execute("BEGIN IMMEDIATE")
             try:
                 record = db.execute(
-                    """SELECT full_sha256, identity_json, schema_fingerprint, state
+                    """SELECT full_sha256, identity_json, schema_fingerprint,
+                              logical_identity_hash, physical_database,
+                              stable_name, table_name, closure_hash, state
                        FROM storage_objects WHERE name = ?""",
                     (name,),
                 ).fetchone()
                 if record is None:
                     db.execute(
                         """INSERT INTO storage_objects
-                           (name, full_sha256, identity_json, schema_fingerprint, state)
-                           VALUES (?, ?, ?, ?, 'CREATING')""",
-                        (name, full_sha256, identity_json, schema_fingerprint),
+                           (name, full_sha256, identity_json, schema_fingerprint,
+                            logical_identity_hash, physical_database,
+                            stable_name, table_name, closure_hash, created_at, state)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CREATING')""",
+                        (name, *details, datetime.now(UTC).isoformat()),
                     )
                     state: Literal["CREATING", "READY"] = "CREATING"
                 else:
-                    if record[:3] != (full_sha256, identity_json, schema_fingerprint):
-                        raise MetadataConflict(f"physical name collision: {name}")
-                    state = record[3]
+                    if tuple(record[:8]) != details:
+                        raise MetadataConflict(f"physical object identity collision: {name}")
+                    state = record[8]
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
-            return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
+            return ObjectRegistration(
+                name, full_sha256, identity_json, schema_fingerprint, state
+            )
 
     def mark_ready(self, registration: ObjectRegistration, *, verified: bool) -> None:
         """Only call after live TDengine schema and ownership have been checked."""
