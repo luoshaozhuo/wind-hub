@@ -69,11 +69,18 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 raise RuntimeError(
                     "Storage cannot consume until the Service bundle pins PointTable versions"
                 )
+            # Persist verified closure identities before consuming any Kafka
+            # data; historical mappings survive all later service restarts.
+            metadata.register_semantic_pins(
+                point_table_versions=bundle.point_table_versions,
+                business_points_pin=bundle.business_points_pin,
+            )
             point_tables = ConfigurationPointTableResolver(
                 fetcher=configuration,
                 archive=archive,
                 point_table_versions=bundle.point_table_versions,
                 business_points_version=bundle.business_points_pin,
+                historical_pins=metadata.list_semantic_pins(),
             )
             storage = TDengineBackend(config=bundle.configuration, metadata=metadata)
             await storage.open()
@@ -112,7 +119,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 watcher = StorageConfigurationWatcher(
                     client=configuration, resolver=point_tables,
                     bundle=bundle, service_id=bootstrap.service_id,
-                    servers=bootstrap.nats.servers,
+                    servers=bootstrap.nats.servers, metadata=metadata,
                 )
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
