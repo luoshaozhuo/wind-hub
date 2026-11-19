@@ -8,7 +8,7 @@ import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from core.application import (
