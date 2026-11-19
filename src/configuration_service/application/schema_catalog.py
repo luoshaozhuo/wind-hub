@@ -87,7 +87,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "config_root": "string",
         "cli": "object",
         "services": "object",
-        "tls_profiles": "object",
         "network_probe": "object",
         "allowed_wind_farms": "array",
         "auth": "object",
