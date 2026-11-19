@@ -1,4 +1,4 @@
-"""Configuration Service executable: local YAML bootstrap and mTLS gRPC."""
+"""Configuration Service executable: token-authorized gRPC on trusted networks."""
 
 from __future__ import annotations
 
@@ -37,16 +37,6 @@ from configuration_service.settings import ServerSettings, load_settings
 from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
 
 _LOG = logging.getLogger(__name__)
-
-
-def _credentials(settings: ServerSettings) -> grpc.ServerCredentials:
-    """Require validated client certificates on every externally exposed RPC."""
-    ca = settings.ca_file.read_bytes()
-    cert = settings.cert_file.read_bytes()
-    key = settings.key_file.read_bytes()
-    return grpc.ssl_server_credentials(
-        [(key, cert)], root_certificates=ca, require_client_auth=True
-    )
 
 
 def serve(settings: ServerSettings, bootstrap: Path) -> None:
@@ -121,6 +111,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         repository_servicer = RepositoryServicer(
             application,
             permissions=settings.permissions,
+            token_sources=settings.token_sources,
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
             metrics=rpc_metrics,
@@ -151,8 +142,8 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         )
         common_pb2_grpc.add_CommonServiceServicer_to_server(common_servicer, server)
         bind = f"{settings.host}:{settings.port}"
-        if server.add_secure_port(bind, _credentials(settings)) == 0:
-            raise RuntimeError("failed to bind secure Configuration Service endpoint")
+        if server.add_insecure_port(bind) == 0:
+            raise RuntimeError("failed to bind Configuration Service endpoint")
         server.start()
         _LOG.info("Configuration Service listening at %s", bind)
         should_stop = False
