@@ -5,10 +5,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 from pathlib import Path
 
 from storage_service.application.ingestion import IngestionService
+from storage_service.application.query import CursorCodec, HistoryQueryService
+from storage_service.application.tasks import AsyncStorageTasks
+from storage_service.infrastructure.adapters.inbound.grpc_server import (
+    build_storage_grpc_server,
+)
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
     ImmutableConfigArchive,
@@ -79,7 +85,31 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     ingestion=ingestion,
                     metadata=metadata,
                 )
+                cursor_secret = os.getenv("WIND_HUB_STORAGE_CURSOR_SECRET", "").encode()
+                if len(cursor_secret) < 32:
+                    raise RuntimeError(
+                        "WIND_HUB_STORAGE_CURSOR_SECRET must contain 32+ bytes"
+                    )
+                history = HistoryQueryService(
+                    backend=storage, codec=CursorCodec(cursor_secret),
+                    max_page_size=bundle.configuration.query.max_page_size,
+                    max_range_days=bundle.configuration.query.max_range_days,
+                )
+                jobs = AsyncStorageTasks(
+                    config=bundle.configuration, metadata=metadata, history=history
+                )
+                server = build_storage_grpc_server(
+                    config=bundle.configuration,
+                    metadata=metadata, query=history, jobs=jobs,
+                    point_tables=point_tables, consumer=consumer,
+                    cursor_secret=cursor_secret,
+                )
                 await consumer.start()
+                try:
+                    await server.start()
+                except BaseException:
+                    await consumer.stop()
+                    raise
                 consume = asyncio.create_task(
                     consumer.run(), name="storage-kafka-ingest"
                 )
@@ -95,9 +125,16 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                         await consume
                 finally:
                     consumer.request_stop()
+                    await server.stop(grace=3)
                     stopping.cancel()
                     await asyncio.gather(stopping, return_exceptions=True)
-                    await consume
+                    try:
+                        await asyncio.wait_for(consume, timeout=10)
+                    except TimeoutError:
+                        consume.cancel()
+                        await asyncio.gather(consume, return_exceptions=True)
+                        raise RuntimeError("Storage Kafka worker failed to stop in deadline")
+                    await jobs.close()
             finally:
                 await storage.close()
         finally:
