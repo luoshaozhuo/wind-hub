@@ -238,3 +238,48 @@ class ConfigurationPointTableResolver:
                 entry = business_points[sample.business_point_id]
                 if not isinstance(entry, dict) or entry.get("unit") != sample.unit:
                     raise ConfigHistoryUnavailable("business point unit does not match catalog")
+
+    async def get_unit(
+        self, *,
+        point_table_id: str, point_id: str, business_point_id: str,
+        data_level: DataLevel,
+    ) -> str:
+        """Resolve original or standardized units from immutable configuration history."""
+        if data_level == DataLevel.RAW:
+            return ""
+        version = self._pins.get(point_table_id)
+        if not version:
+            raise ConfigHistoryUnavailable("query PointTable has no pinned version")
+        document = await self._load(
+            config_type="point_table", config_id=point_table_id, version_id=version
+        )
+        points = document.get("points")
+        if not isinstance(points, dict):
+            raise ConfigHistoryUnavailable("PointTable has no immutable points mapping")
+        point = points.get(point_id)
+        if not isinstance(point, dict):
+            raise ConfigHistoryUnavailable("historical point was removed or malformed")
+        if data_level == DataLevel.PROTOCOL:
+            unit = point.get("unit")
+            if not isinstance(unit, str) or not unit:
+                raise ConfigHistoryUnavailable("source point unit unavailable")
+            return unit
+        if self._business_pin is None:
+            raise ConfigHistoryUnavailable("business semantic catalog not pinned")
+        if point.get("business_point_id", point_id) != business_point_id:
+            raise ConfigHistoryUnavailable("historical source point mapping disagrees")
+        catalog_id, catalog_version = self._business_pin
+        catalog = await self._load(
+            config_type="business_points",
+            config_id=catalog_id, version_id=catalog_version,
+        )
+        entries = catalog.get("business_points")
+        if not isinstance(entries, dict):
+            raise ConfigHistoryUnavailable("business catalog malformed")
+        definition = entries.get(business_point_id)
+        if not isinstance(definition, dict):
+            raise ConfigHistoryUnavailable("business semantic point is unknown")
+        unit = definition.get("unit")
+        if not isinstance(unit, str) or not unit:
+            raise ConfigHistoryUnavailable("standard business unit unavailable")
+        return unit
