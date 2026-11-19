@@ -546,6 +546,10 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         )
         if previous is not None:
             result.previous_version_id = previous
+        try:
+            self.notify_revision(revision)
+        except Exception:
+            _LOG.warning("recommended-version NATS hint unavailable")
         return result
 
     @guarded
@@ -562,6 +566,10 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             reason=request.reason,
             expected_revision=request.expected_revision_id,
         )
+        try:
+            self.notify_revision(revision)
+        except Exception:
+            _LOG.warning("deprecated-version NATS hint unavailable")
         return pb.DeprecateConfigVersionResponse(
             revision_id=revision,
             version_id=request.version_id,
