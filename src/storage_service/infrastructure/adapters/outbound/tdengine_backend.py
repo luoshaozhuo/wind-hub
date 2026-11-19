@@ -17,6 +17,7 @@ from importlib import import_module
 from typing import Any, Protocol, Sequence, cast
 
 from storage_service.application.config import StorageConfig
+from storage_service.application.query import HistoryFilter, HistoryRow
 from storage_service.domain.naming import StorageObjectNames, get_object_names
 from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
@@ -343,3 +344,186 @@ class TDengineBackend:
                         raise RuntimeError("TDengine reported a negative affected count")
                 finally:
                     statement.close()
+
+    async def fetch_history(
+        self, filter_: HistoryFilter, *,
+        after: tuple[int, str, str] | None, limit: int,
+    ) -> list[HistoryRow]:
+        """Read only previously registered physical tables and bounded result pages."""
+        return await asyncio.to_thread(self._fetch_history_sync, filter_, after, limit)
+
+    @staticmethod
+    def _sql_filter(value: str) -> str:
+        """Reject ambiguous SQL quoting instead of interpolating arbitrary identifiers."""
+        if not re.fullmatch(r"[A-Za-z0-9_./:-]{1,256}", value):
+            raise ValueError("unsupported SQL query identity characters")
+        return f"'{value}'"
+
+    @staticmethod
+    def _datetime_us(value: object) -> int:
+        from datetime import UTC, datetime
+
+        if isinstance(value, int):
+            return value
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                raise TDengineSchemaConflict("TDengine returned a timezone-naive timestamp")
+            moment = value.astimezone(UTC)
+            epoch = datetime(1970, 1, 1, tzinfo=UTC)
+            delta = moment - epoch
+            return ((delta.days * 86400 + delta.seconds) * 1_000_000
+                    + delta.microseconds)
+        raise TDengineSchemaConflict("TDengine returned an invalid timestamp representation")
+
+    @staticmethod
+    def _decode_record(
+        row: Sequence[object], identity: tuple[str, ...],
+    ) -> HistoryRow:
+        if len(row) != 17 or len(identity) != 6:
+            raise TDengineSchemaConflict("TDengine history row/schema shape mismatch")
+        kind = int(row[7])
+        value_columns = {2: 8, 3: 9, 4: 10, 5: 11, 6: 12, 7: 13}
+        if kind == 1:
+            value: int | float | bool | str | bytes | None = None
+            if any(row[idx] is not None for idx in range(8, 14)):
+                raise TDengineSchemaConflict("MISSING row has nonempty value columns")
+        else:
+            index = value_columns.get(kind)
+            if index is None:
+                raise TDengineSchemaConflict("unknown TDengine value kind")
+            if any(row[idx] is not None for idx in range(8, 14) if idx != index):
+                raise TDengineSchemaConflict("multiple TDengine value columns are set")
+            raw = row[index]
+            if raw is None:
+                raise TDengineSchemaConflict("typed row has NULL value")
+            if kind in (2, 3):
+                if isinstance(raw, bool) or not isinstance(raw, int):
+                    raise TDengineSchemaConflict("stored integer lost its type")
+                value = raw
+            elif kind == 4:
+                if isinstance(raw, bool) or not isinstance(raw, float | int):
+                    raise TDengineSchemaConflict("stored DOUBLE lost its type")
+                value = float(raw)
+            elif kind == 5:
+                if not isinstance(raw, bool):
+                    raise TDengineSchemaConflict("stored BOOL lost its type")
+                value = raw
+            elif kind == 6:
+                if not isinstance(raw, str):
+                    raise TDengineSchemaConflict("stored TEXT lost its type")
+                value = raw
+            else:
+                if not isinstance(raw, bytes | bytearray | memoryview):
+                    raise TDengineSchemaConflict("stored BYTES lost its type")
+                value = bytes(raw)
+        quality = {1: "good", 2: "bad", 3: "uncertain"}.get(int(row[14]))
+        if quality is None:
+            raise TDengineSchemaConflict("unknown stored quality")
+        logical = str(row[1])
+        content = str(row[2])
+        if not _HEX.fullmatch(logical) or not _HEX.fullmatch(content):
+            raise TDengineSchemaConflict("invalid stored logical/content digest")
+        return HistoryRow(
+            ts_us=TDengineBackend._datetime_us(row[0]),
+            logical_key=logical,
+            content_sha256=content,
+            identity=identity,
+            sample_id=str(row[3]),
+            point_id=str(row[4]),
+            business_point_id=str(row[5]),
+            value_kind=kind,
+            value=value,
+            quality=quality,
+            publish_time_us=TDengineBackend._datetime_us(row[15]),
+            receive_time_us=(
+                TDengineBackend._datetime_us(row[16]) if row[16] is not None else None
+            ),
+        )
+
+    def _fetch_history_sync(
+        self, filter_: HistoryFilter, after: tuple[int, str, str] | None, limit: int
+    ) -> list[HistoryRow]:
+        if not 1 <= limit <= 1001:
+            raise ValueError("SQL query limit must be 1..1001")
+        # hashlib naming uses the exact same canonical JSON as database identity.
+        db_hash = hashlib.sha256(
+            json.dumps((filter_.wind_farm_id,), ensure_ascii=False,
+                       separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        db_name = f"wh_{db_hash[:24]}"
+        registrations = self._metadata.list_tables(database=db_name)
+        if len(registrations) > 1024:
+            raise RuntimeError("query matches too many registered tables")
+        output: list[HistoryRow] = []
+        with self._lock:
+            connection, _ = self._resources()
+            for entry in registrations:
+                identity_value = json.loads(entry.identity_json)
+                if not isinstance(identity_value, list) or len(identity_value) != 6:
+                    raise TDengineSchemaConflict("invalid persisted table identity")
+                identity = tuple(str(part) for part in identity_value)
+                if (
+                    identity[0] != filter_.wind_farm_id
+                    or identity[4] != filter_.data_level.value
+                    or (filter_.device_type and identity[1] != filter_.device_type)
+                    or (filter_.device_id and identity[2] != filter_.device_id)
+                    or (filter_.point_table_id and identity[3] != filter_.point_table_id)
+                ):
+                    continue
+                if entry.schema_fingerprint != SCHEMA_FINGERPRINT:
+                    raise TDengineSchemaConflict("unsupported historical physical schema")
+                table = f"{db_name}.{entry.name}"
+                filters = [f"ts >= {filter_.start_us}", f"ts < {filter_.end_us}"]
+                if filter_.point_id:
+                    filters.append(f"point_id = {self._sql_filter(filter_.point_id)}")
+                if filter_.business_point_id:
+                    filters.append(
+                        f"business_point_id = {self._sql_filter(filter_.business_point_id)}"
+                    )
+                if filter_.qualities:
+                    qualities = ", ".join(str(_QUALITY[q]) for q in filter_.qualities)
+                    filters.append(f"quality IN ({qualities})")
+                if after:
+                    ts, logical, content = after
+                    if not _HEX.fullmatch(logical) or not _HEX.fullmatch(content):
+                        raise ValueError("invalid query cursor key digest")
+                    filters.append(
+                        f"(ts > {ts} OR (ts = {ts} AND "
+                        f"(logical_key > '{logical}' OR "
+                        f"(logical_key = '{logical}' "
+                        f"AND content_sha256 > '{content}'))))"
+                    )
+                # Column order must exactly match _decode_record.
+                columns = (
+                    "ts, logical_key, content_sha256, sample_id, point_id, "
+                    "business_point_id, data_level, value_kind, value_i64, "
+                    "value_u64, value_f64, value_bool, value_text, "
+                    "payload_bytes, quality, publish_time, receive_time"
+                )
+                sql = (
+                    f"SELECT {columns} FROM {table} "
+                    f"WHERE {' AND '.join(filters)} "
+                    f"ORDER BY ts, logical_key, content_sha256 LIMIT {limit}"
+                )
+                rows = list(connection.query(sql))
+                for row in rows:
+                    if int(row[6]) != _LEVEL[filter_.data_level]:
+                        raise TDengineSchemaConflict("row level mismatches physical table")
+                    output.append(self._decode_record(row, identity))
+                # Never return a logical conflict as a valid measurement.
+                keys = sorted({item.logical_key for item in output if item.identity == identity})
+                for begin in range(0, len(keys), 128):
+                    selected = keys[begin:begin + 128]
+                    literals = ", ".join(f"'{key}'" for key in selected)
+                    hashes: dict[str, set[str]] = defaultdict(set)
+                    for key, digest in connection.query(
+                        f"SELECT logical_key, content_sha256 FROM {table} "
+                        f"WHERE logical_key IN ({literals})"
+                    ):
+                        hashes[str(key)].add(str(digest))
+                    if any(len(values) != 1 for values in hashes.values()):
+                        raise TDengineSchemaConflict(
+                            "SAMPLE_CONFLICT: historical query contains inconsistent samples"
+                        )
+        output.sort(key=lambda item: item.sort_key)
+        return output[:limit]
