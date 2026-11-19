@@ -55,10 +55,11 @@ def read_complete_directory(root: Path, *, max_bytes: int = 64 * 1024 * 1024,
             files += 1
             if files > max_files:
                 raise ValueError("Configuration root contains too many YAML files")
-            # Both CLI and Configuration bootstrap are local, not repository content.
+            # Local bootstrap files and deployment examples are never published.
             if group == "services" and (
-                path.name == "cli.example.yaml"
+                path.name.endswith(".example.yaml")
                 or path.name.startswith("service_configuration_")
+                or path.name.startswith("storage_bootstrap_")
             ):
                 continue
             match = _VERSION.fullmatch(path.name)
