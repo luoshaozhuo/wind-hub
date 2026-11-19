@@ -10,7 +10,7 @@ import logging
 import time
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import nats
 from nats.aio.client import Client
@@ -27,7 +27,7 @@ from sink_service.application.ports.reliable import ReliableMessagePort
 from sink_service.application.reliable_engine import ReliableDeliveryEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.adapters.inbound.reliable_message import JetStreamMessage
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
+from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel, encode_kafka_points
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         delivery_template = _template(
             snapshot, "deliveries", delivery["template_id"], delivery["template_version"]
         )
-        self._data_level = delivery_template["output"]["data_level"]
+        self._data_level = cast(DataLevel, delivery_template["output"]["data_level"])
         self.last_error = ""
         self.received_total = 0
         self.received_batches_total = 0
