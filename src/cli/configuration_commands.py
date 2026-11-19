@@ -40,6 +40,82 @@ def _identity(config_type: str, config_id: str) -> pb.ConfigId:
     return pb.ConfigId(config_type=config_type, config_id=config_id)
 
 
+@configuration.command("sync")
+def sync_directory(
+    root: Path,
+    service: str = "configuration",
+    request_id: str = "",
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Atomically replace the entire Configuration revision with one configs/ root."""
+    from cli.configuration_directory import read_complete_directory
+    from cli.safety import confirm_mutation
+
+    documents = read_complete_directory(root)
+    confirm_mutation(
+        f"Replace Configuration current directory with {len(documents)} objects?",
+        yes,
+        command="configuration sync",
+    )
+
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
+
+        configured = runtime()
+        client = rpc.ConfigurationRepositoryServiceStub(configured.channel(service))
+        metadata = configured.get_rpc_metadata(service, "CreateCandidate")
+        timeout = configured.target(service).timeout
+        listing = await client.ListConfigs(
+            pb.ListConfigsRequest(page_size=1),
+            timeout=timeout,
+            metadata=metadata,
+        )
+        revision = listing.snapshot_revision_id
+        operation_id = request_id or uuid.uuid4().hex
+        candidate = await client.CreateCandidate(
+            pb.CreateCandidateRequest(
+                request_id=operation_id + ":candidate",
+                expected_revision_id=revision,
+                documents=[
+                    pb.ConfigDocumentInput(
+                        config_id=_identity(item.config_type, item.config_id),
+                        file_name=item.filename,
+                        yaml_bytes=item.content,
+                    )
+                    for item in documents
+                ],
+            ),
+            timeout=timeout,
+            metadata=metadata,
+        )
+        if not candidate.valid or not candidate.candidate_id:
+            raise ValueError(
+                "Configuration rejected complete root: "
+                + str([issue.message for issue in candidate.issues])
+            )
+        published = await client.PublishCandidate(
+            pb.PublishCandidateRequest(
+                candidate_id=candidate.candidate_id,
+                expected_revision_id=revision,
+                request_id=operation_id + ":publish",
+            ),
+            timeout=timeout,
+            metadata=metadata,
+        )
+        if not published.revision_id:
+            raise RuntimeError("Configuration publish has no committed revision")
+        return {
+            "revision_id": published.revision_id,
+            "files": len(documents),
+            "already_applied": published.already_applied,
+            "replacement": "complete",
+        }
+
+    from cli.main import _run
+
+    _run("configuration sync", invoke())
+
+
 @configuration.command("candidate")
 def candidate(
     config_type: str,
