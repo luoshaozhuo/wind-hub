@@ -349,7 +349,7 @@ class Runtime:
             "ReadPoints",
             "InterrogateDevice",
         }
-        if service == "configuration":
+        if self.target(service).service_id == "configuration":
             token = os.getenv("WIND_HUB_CONFIG_CLI_ADMIN_TOKEN", "")
             if len(token) < 32 or token.strip() != token:
                 raise PermissionError("Configuration CLI requires its authorized token")

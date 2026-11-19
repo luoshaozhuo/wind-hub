@@ -608,6 +608,25 @@ class ConfigurationApplication:
                     references=tuple(sorted(set(references))),
                 )
             )
+        # The preview must reject dependency cycles, not report a valid
+        # candidate that will inevitably fail the SQLite publication gate.
+        edges = {
+            version.version_id: {
+                target_id for target_id, _relation in version.references
+            }
+            for version in versions
+        }
+        remaining = set(edges)
+        while remaining:
+            ready = {
+                version_id for version_id in remaining
+                if not (edges[version_id] & remaining)
+            }
+            if not ready:
+                raise RepositoryConflictError(
+                    "configuration directory has cyclic pinned references"
+                )
+            remaining.difference_update(ready)
         return tuple(versions)
 
     def _resolve_legacy_sources(
