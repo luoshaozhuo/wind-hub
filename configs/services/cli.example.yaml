@@ -1,4 +1,4 @@
-# Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
+# Configuration CLI requires WIND_HUB_CONFIG_CLI_ADMIN_TOKEN (32+ chars)\n# Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
 # in the CLI process environment. Never put the token value in this YAML.
 schema_version: 1
 file_version: "1.0.0"
@@ -16,7 +16,6 @@ cli:
 services:
   configuration:
     grpc_endpoint: "127.0.0.1:51060"
-    tls_profile: local
     manager: process
     target: configuration
     process:

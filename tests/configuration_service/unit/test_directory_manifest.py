@@ -6,10 +6,10 @@ import pytest
 
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
 
+from core.configuration.publication_identity import resolve_publication_identity
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     build_directory_manifest,
-    resolve_publication_identity,
 )
 
 

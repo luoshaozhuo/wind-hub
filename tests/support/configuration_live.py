@@ -141,7 +141,7 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
             "token_sources": {
                 "client-viewer": "env:WIND_HUB_CONFIG_VIEWER_TOKEN",
                 "client-ops": "env:WIND_HUB_CONFIG_OPS_TOKEN",
-                "client-deployer": "env:WIND_HUB_CONFIG_DEPLOYER_TOKEN",
+                "client-deployer": "env:WIND_HUB_CONFIG_CLI_ADMIN_TOKEN",
             },
             "permissions": {
                 "client-viewer": ["query"],
@@ -169,7 +169,11 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
         "deployer": "configuration-deployer-credential-000003",
     }
     for role, token in tokens.items():
-        os.environ[f"WIND_HUB_CONFIG_{role.upper()}_TOKEN"] = token
+        variable = (
+            "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN" if role == "deployer"
+            else f"WIND_HUB_CONFIG_{role.upper()}_TOKEN"
+        )
+        os.environ[variable] = token
     bootstrap.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
     bootstrap.chmod(0o600)
     cli_path = root / "cli.yaml"

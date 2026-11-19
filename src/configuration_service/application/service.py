@@ -9,11 +9,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from core.configuration.publication_identity import resolve_publication_identity
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     DirectoryManifest,
     build_directory_manifest,
-    resolve_publication_identity,
 )
 from configuration_service.application.ports import (
     BackupPort,

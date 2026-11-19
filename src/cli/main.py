@@ -24,7 +24,6 @@ from typer._click import exceptions as typer_click_exceptions
 from typer._click.core import Exit as _TyperClickExit  # type: ignore[attr-defined]
 
 from .business_commands import collector, commander
-from .common_commands import config as remote_config
 from .configuration_commands import configuration
 from .diagnose_commands import diagnose
 from .directory_diff import compare_directories
@@ -40,9 +39,8 @@ config_app = typer.Typer(help="CLI-local configuration comparison.")
 net_app = typer.Typer(help="One-shot local network probes.")
 app.add_typer(service_app, name="service")
 app.add_typer(config_app, name="config")
-app.add_typer(configuration, name="configuration")
-for _remote_command in remote_config.registered_commands:
-    config_app.registered_commands.append(_remote_command)
+for _repository_command in configuration.registered_commands:
+    config_app.registered_commands.append(_repository_command)
 app.add_typer(net_app, name="net")
 app.add_typer(collector, name="collector")
 app.add_typer(commander, name="commander")
