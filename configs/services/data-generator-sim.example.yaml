@@ -40,8 +40,8 @@ security:
     cli: env:WIND_HUB_GENERATOR_CLI_TOKEN
     gateway: env:WIND_HUB_GENERATOR_INPUT_TOKEN
   permissions:
-    cli: [variables_read, variables_update]
-    gateway: [variables_read, variables_update]
+    cli: [variables_read, variables_update, query, config_read, config_write]
+    gateway: [variables_read, variables_update, query]
 
 # 版本化场景归属本服务；设备固有参数从 device_models 装配。
 scenarios:
