@@ -15,6 +15,7 @@ from contracts import common_pb2
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from contracts.scalar_codec import encode_scalar
+from core.infrastructure.grpc_bearer import bearer_metadata
 from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,
@@ -35,12 +36,7 @@ class GatewaySimulationSession:
     async def connect(self) -> None:
         if self._client is not None:
             return
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=self._target.ca_cert.read_bytes(),
-            private_key=self._target.client_key.read_bytes(),
-            certificate_chain=self._target.client_cert.read_bytes(),
-        )
-        channel = grpc.aio.secure_channel(self._target.endpoint, credentials)
+        channel = grpc.aio.insecure_channel(self._target.endpoint)
         try:
             await asyncio.wait_for(channel.channel_ready(), timeout=3.0)
         except BaseException:
@@ -74,6 +70,7 @@ class GatewaySimulationSession:
         gateway_info = await client.GetGateway(
             common_pb2.ObjectId(id=self._target.gateway_id),
             timeout=3.0,
+            metadata=bearer_metadata(self._target.token_env),
         )
         revision = gateway_info.gateway.revision
         if not revision:
@@ -91,6 +88,7 @@ class GatewaySimulationSession:
                 expires_at=timestamp,
             ),
             timeout=max(0.001, (expiry - datetime.now(UTC)).total_seconds()),
+            metadata=bearer_metadata(self._target.token_env),
         )
         if not response.accepted and response.state == "REJECTED":
             return ProtocolWriteResult(
@@ -118,6 +116,7 @@ class GatewaySimulationSession:
                     request_id=command.command_id,
                 ),
                 timeout=remaining,
+                metadata=bearer_metadata(self._target.token_env),
             )
         if response.accepted and response.state == "APPLIED":
             return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_SUCCESS)
