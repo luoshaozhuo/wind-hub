@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import uuid
@@ -302,6 +303,76 @@ def bundle(
     from cli.main import _run
 
     _run("configuration bundle", invoke())
+
+
+@configuration.command("revision")
+def current_revision(service: str = "configuration") -> None:
+    """Read the authoritative current directory revision and manifest digest."""
+    _request("GetCurrentRevision", pb.GetCurrentRevisionRequest(), service)
+
+
+@configuration.command("point-table-bundle")
+def point_table_bundle(
+    point_table_id: str,
+    service: str = "configuration",
+    expected_manifest_sha256: str = "",
+) -> None:
+    """Verify one immutable historical PointTable interpretation closure."""
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
+
+        session = runtime()
+        client = rpc.ConfigurationRepositoryServiceStub(session.channel(service))
+        result = await client.GetPointTableBundle(
+            pb.GetPointTableBundleRequest(
+                point_table_id=point_table_id,
+                expected_manifest_sha256=expected_manifest_sha256,
+            ),
+            timeout=session.target(service).timeout,
+            metadata=session.get_rpc_metadata(service, "GetPointTableBundle"),
+        )
+        paths: set[str] = set()
+        entries: list[dict[str, str]] = []
+        for doc in result.documents:
+            validate_relative_path(doc.relative_path)
+            if doc.relative_path in paths:
+                raise RuntimeError("duplicate historical PointTable bundle path")
+            if hashlib.sha256(doc.yaml_bytes).hexdigest() != doc.yaml_sha256:
+                raise RuntimeError("historical PointTable YAML checksum mismatch")
+            paths.add(doc.relative_path)
+            entries.append(
+                {
+                    "config_type": doc.config_id.config_type,
+                    "config_id": doc.config_id.config_id,
+                    "version_id": doc.version_id,
+                    "content_sha256": doc.content_sha256,
+                    "yaml_sha256": doc.yaml_sha256,
+                    "relative_path": doc.relative_path,
+                }
+            )
+        entries.sort(
+            key=lambda item: (
+                item["config_type"], item["config_id"], item["version_id"]
+            )
+        )
+        actual = hashlib.sha256(
+            json.dumps(
+                entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        if not entries or actual != result.manifest_sha256:
+            raise RuntimeError("historical PointTable manifest checksum mismatch")
+        return {
+            "point_table_id": result.point_table_id,
+            "device_type": result.device_type,
+            "manifest_sha256": result.manifest_sha256,
+            "documents": len(entries),
+            "total_bytes": sum(len(doc.yaml_bytes) for doc in result.documents),
+        }
+
+    from cli.main import _run
+
+    _run("configuration point-table-bundle", invoke())
 
 
 @configuration.command("references")

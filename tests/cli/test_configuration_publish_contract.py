@@ -13,7 +13,7 @@ def test_config_publish_is_registered_without_push_or_apply() -> None:
     available = {
         command.name for command in config_app.registered_commands if command.name
     }
-    assert {"publish", "get", "bundle", "diff"} <= available
+    assert {"publish", "revision", "point-table-bundle", "get", "bundle", "diff"} <= available
     assert "candidate" not in available
     assert "apply" not in available
     assert "push" not in available
