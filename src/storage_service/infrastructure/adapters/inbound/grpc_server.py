@@ -20,6 +20,7 @@ from contracts import storage_service_pb2 as pb
 from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import ConfigHistoryUnavailable
+from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import (
     HistoryFilter,
     HistoryQueryService,
@@ -205,6 +206,7 @@ class StorageServicer(rpc.StorageServiceServicer):
         consumer: KafkaStorageConsumer,
         cursor_secret: bytes,
         config_status: Callable[[], str],
+        metrics: StorageRuntimeMetrics,
     ) -> None:
         self._auth = AuthorizationPolicy(config)
         self._config = config
@@ -217,6 +219,7 @@ class StorageServicer(rpc.StorageServiceServicer):
             raise ValueError("Storage cursor secret needs 256 bits")
         self._secret = cursor_secret
         self._config_status = config_status
+        self._metrics = metrics
 
     @guarded
     async def QuerySamples(
@@ -482,7 +485,16 @@ class StorageServicer(rpc.StorageServiceServicer):
             farm=request.wind_farm_id or None,
             global_scope=True,
         )
-        response = pb.GetStorageStatsResponse(service_state=self._config_status())
+        counters = self._metrics.snapshot()
+        response = pb.GetStorageStatsResponse(
+            service_state=self._config_status(),
+            persisted_points_total=counters.persisted_points,
+            write_unknown_total=counters.write_unknown,
+            schema_conflicts_total=counters.schema_conflicts,
+            active_queries=self._query.active_queries,
+            active_exports=self._jobs.active_exports,
+            active_backups=self._jobs.active_backups,
+        )
         for item in await self._consumer.snapshot_progress():
             response.partitions.add(
                 topic=item[0], partition=item[1],
@@ -577,6 +589,7 @@ def build_storage_grpc_server(
     point_tables: ConfigurationPointTableResolver,
     consumer: KafkaStorageConsumer, cursor_secret: bytes,
     config_status: Callable[[], str],
+    metrics: StorageRuntimeMetrics,
 ) -> grpc.aio.Server:
     """Build but do not start the service; outer runtime manages lifecycle."""
     server = grpc.aio.server(
@@ -592,6 +605,7 @@ def build_storage_grpc_server(
             config=config, metadata=metadata, query=query, jobs=jobs,
             point_tables=point_tables, consumer=consumer,
             cursor_secret=cursor_secret, config_status=config_status,
+            metrics=metrics,
         ),
         server,
     )
