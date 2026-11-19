@@ -13,6 +13,8 @@ from typing import Any
 import yaml
 
 SERVICE_NAMES = (
+    "configuration",
+    "storage",
     "gateway",
     "data-generator",
     "collector_realtime",
@@ -22,6 +24,8 @@ SERVICE_NAMES = (
 )
 
 DEFAULT_FILES = {
+    "configuration": "service_configuration_v1.0.0.yaml",
+    "storage": "storage_bootstrap_v1.0.0.yaml",
     "gateway": "industrial_gateway-sim.example.yaml",
     "data-generator": "data-generator-sim.example.yaml",
     "collector_realtime": "collector-realtime.yaml",
@@ -31,6 +35,8 @@ DEFAULT_FILES = {
 }
 
 PORTS = {
+    "configuration": 51060,
+    "storage": 51110,
     "gateway": 50073,
     "data-generator": 50061,
     "collector_realtime": 50051,
@@ -88,9 +94,11 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
         delivery = _section(docs[name], "messaging", name).get("delivery")
         if delivery != expected:
             raise ValueError(f"{name}: expected messaging.delivery={expected}")
-    for name in ("gateway", "data-generator", "commander", "sink"):
+    for name in ("configuration", "gateway", "data-generator", "commander", "sink"):
         doc = docs[name]
-        if name == "data-generator":
+        if name == "configuration":
+            actual = _section(doc, "grpc", name).get("port")
+        elif name == "data-generator":
             raw = _section(doc, "service", name).get("grpc_bind", "")
             if not isinstance(raw, str):
                 raise ValueError(f"{name}: service.grpc_bind must be a string")
@@ -104,6 +112,8 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
         if actual != PORTS[name]:
             raise ValueError(f"{name}: gRPC listen port {actual} differs from {PORTS[name]}")
     for name, doc in docs.items():
+        if name in {"configuration", "storage"}:
+            continue
         sources = doc.get("config_sources", {})
         if not isinstance(sources, dict):
             raise ValueError(f"{name}: config_sources must be a mapping")
@@ -121,6 +131,10 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
 
 def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[str]:
     base = [str(python), "-m"]
+    if name == "configuration":
+        return [*base, "configuration_service", "--config", str(paths[name])]
+    if name == "storage":
+        return [*base, "storage_service.main", "--bootstrap", str(paths[name])]
     if name == "gateway":
         return [
             *base,
