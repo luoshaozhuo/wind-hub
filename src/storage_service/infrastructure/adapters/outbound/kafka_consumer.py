@@ -147,7 +147,7 @@ class KafkaStorageConsumer:
                     tp.topic, tp.partition,
                 )
                 await asyncio.sleep(self._config.retry.initial_ms / 1000)
-            except RuntimeError as exc:
+            except RuntimeError:
                 # Revocation can arrive during TDengine I/O. No old generation
                 # response can be committed, but a normal revoke is not a
                 # process-wide fatal error.
