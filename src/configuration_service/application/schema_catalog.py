@@ -36,7 +36,7 @@ def _field(name: str, kind: str = "object", *, required: bool = False) -> dict[s
 # nested rules without changing the transport or storage schema.
 _FIELDS: dict[str, dict[str, str]] = {
     "units": {"quantities": "object", "units": "object"},
-    "business_points": {"business_points": "object", "device_type": "string"},
+    "business_points": {"business_points": "object"},
     "point_table": {
         "template_id": "string",
         "device_type": "string",
@@ -44,8 +44,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "points": "object",
         "parent": "object",
         "remove_points": "array",
-        "parent_version_id": "string",
-        "parent_point_table_id": "string",
     },
     "device": {"devices": "object", "revision": "string"},
     "device_model": {
