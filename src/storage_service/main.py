@@ -107,11 +107,17 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                         config=bundle.configuration, metadata=metadata,
                     ),
                 )
+                watcher = StorageConfigurationWatcher(
+                    client=configuration, resolver=point_tables,
+                    bundle=bundle, service_id=bootstrap.service_id,
+                    servers=bootstrap.nats.servers,
+                )
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
                     metadata=metadata, query=history, jobs=jobs,
                     point_tables=point_tables, consumer=consumer,
                     cursor_secret=cursor_secret,
+                    config_status=lambda: watcher.status,
                 )
                 await consumer.start()
                 try:
@@ -119,11 +125,6 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 except BaseException:
                     await consumer.stop()
                     raise
-                watcher = StorageConfigurationWatcher(
-                    client=configuration, resolver=point_tables,
-                    bundle=bundle, service_id=bootstrap.service_id,
-                    servers=bootstrap.nats.servers,
-                )
                 watching = asyncio.create_task(
                     watcher.run(stop_event), name="storage-configuration-watch"
                 )
