@@ -18,6 +18,7 @@ from storage_service.infrastructure.adapters.outbound.configuration_grpc import 
     ConfigurationGrpcClient,
     StorageBundle,
 )
+from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _LOG = logging.getLogger(__name__)
 _CONFIG_CHANGED_SUBJECT = "wh.config.changed"
@@ -32,7 +33,7 @@ class StorageConfigurationWatcher:
         resolver: ConfigurationPointTableResolver,
         bundle: StorageBundle,
         service_id: str,
-        servers: Sequence[str],
+        servers: Sequence[str], metadata: MetadataStore,
     ) -> None:
         if not servers:
             raise ValueError("NATS Core servers must be explicitly configured")
@@ -41,6 +42,7 @@ class StorageConfigurationWatcher:
         self._active = bundle
         self._service_id = service_id
         self._servers = list(servers)
+        self._metadata = metadata
         self._changed = asyncio.Event()
         self.status = "READY"
 
@@ -60,6 +62,12 @@ class StorageConfigurationWatcher:
                 self._active.revision_id,
             )
             return
+        # SQLite commit precedes any in-memory generation switch.
+        await asyncio.to_thread(
+            self._metadata.register_semantic_pins,
+            point_table_versions=updated.point_table_versions,
+            business_points_pin=updated.business_points_pin,
+        )
         self._resolver.add_immutable_pins(
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
