@@ -118,6 +118,11 @@
 #
 # [配置生效与退出]
 # config_sync.apply_timeout_ms — Main 等待 Worker 配置生效响应的时限；
+# config_sync.repository_endpoint — Configuration Repository 内网地址，host:port；可选。
+# config_sync.repository_token_ref — Repository 查询 Token 环境引用，env:NAME；与 endpoint 成对。
+# config_sync.poll_interval_seconds — 定期对账间隔，整数 5..3600 s，默认 30 s。
+# config_sync.approved_point_table_manifests — 已审查点表到 SHA-256 的映射；
+#   仅 BUSINESS 必需；未审查映射不得列入。不配置 Repository 时同步器关闭。
 #   正整数 ms，如 10000；超时不代表配置一定未执行。
 # shutdown.grace_seconds — 服务优雅关闭允许的时间；
 #   正整数 s，如 10；未结束的目标 I/O 不能被误判为已完成。
@@ -146,9 +151,12 @@ grpc:
 
 security:
   callers:
-    - caller_id: maintenance
-      token_env: env:WH_SINK_MAINT_TOKEN
+    - caller_id: cli
+      token_env: env:WIND_HUB_SINK_CLI_TOKEN
       permissions: [query, control, config]
+    - caller_id: web_server
+      token_env: env:WIND_HUB_SINK_WEB_TOKEN
+      permissions: [query, control]
 
 nats:
   servers: [nats://127.0.0.1:4222]
