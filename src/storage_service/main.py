@@ -174,11 +174,14 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 )
                 try:
                     finished, _ = await asyncio.wait(
-                        {consume, stopping}, return_when=asyncio.FIRST_COMPLETED
+                        {consume, watching, stopping},
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
                     if consume in finished:
-                        # A failed worker cannot be hidden behind an idle process.
+                        # A failed writer must never leave an apparently healthy server.
                         await consume
+                    if watching in finished:
+                        await watching
                 finally:
                     stop_event.set()
                     consumer.request_stop()
