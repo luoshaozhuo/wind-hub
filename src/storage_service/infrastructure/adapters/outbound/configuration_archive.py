@@ -230,6 +230,23 @@ class ConfigurationPointTableResolver:
                     self._loaded[key] = parsed
         return self._loaded[key]
 
+    @staticmethod
+    def _require_table_identity(
+        *, point_table_id: str, config_id: str, document: Mapping[str, Any],
+    ) -> None:
+        template_id = document.get("template_id")
+        file_version = document.get("file_version")
+        schema_version = document.get("schema_version")
+        if (
+            template_id != config_id
+            or type(schema_version) is not int or schema_version != 1
+            or not isinstance(file_version, str)
+            or point_table_id != f"point_table_{template_id}_v{file_version}"
+        ):
+            raise ConfigHistoryUnavailable(
+                "pinned PointTable YAML identity is inconsistent with Kafka identity"
+            )
+
     async def require_exact_versions(self, samples: Sequence[StorageSample]) -> None:
         for sample in samples:
             pin = self._pins.get(sample.point_table_id)
@@ -242,12 +259,23 @@ class ConfigurationPointTableResolver:
                 config_type="point_table", config_id=config_id,
                 version_id=version_id,
             )
+            self._require_table_identity(
+                point_table_id=sample.point_table_id,
+                config_id=config_id,
+                document=document,
+            )
             points = document.get("points")
             if not isinstance(points, dict) or sample.point_id not in points:
                 raise ConfigHistoryUnavailable("sample point not defined by pinned PointTable")
             point = points[sample.point_id]
             if not isinstance(point, dict):
                 raise ConfigHistoryUnavailable("source point has invalid semantic definition")
+            if sample.data_level == DataLevel.PROTOCOL:
+                expected_unit = point.get("unit")
+                if not isinstance(expected_unit, str) or sample.unit != expected_unit:
+                    raise ConfigHistoryUnavailable(
+                        "PROTOCOL point unit disagrees with pinned PointTable"
+                    )
             if sample.data_level == DataLevel.BUSINESS:
                 source_business_id = point.get("business_point_id", sample.point_id)
                 if source_business_id != sample.business_point_id:
@@ -288,6 +316,9 @@ class ConfigurationPointTableResolver:
         config_id, version_id = pin
         document = await self._load(
             config_type="point_table", config_id=config_id, version_id=version_id
+        )
+        self._require_table_identity(
+            point_table_id=point_table_id, config_id=config_id, document=document
         )
         points = document.get("points")
         if not isinstance(points, dict):
