@@ -492,8 +492,7 @@ class TDengineBackend:
         if len(registrations) > 1024:
             raise RuntimeError("query matches too many registered tables")
         output: list[HistoryRow] = []
-        with self._lock:
-            connection, _ = self._resources()
+        with self._borrow_connection() as (connection, _):
             for entry in registrations:
                 identity_value = json.loads(entry.identity_json)
                 if not isinstance(identity_value, list) or len(identity_value) != 6:
