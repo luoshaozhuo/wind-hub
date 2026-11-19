@@ -84,6 +84,7 @@ class GatewayRpcClient:
                     lease_ms=lease_ms,
                 ),
                 timeout=timeout,
+                metadata=gateway_rpc_metadata(self._token_ref),
             )
         except grpc.RpcError as exc:
             raise self._error(exc) from exc
@@ -111,6 +112,7 @@ class GatewayRpcClient:
                     ],
                 ),
                 timeout=timeout,
+                metadata=gateway_rpc_metadata(self._token_ref),
             )
         except grpc.RpcError as exc:
             raise self._error(exc) from exc
