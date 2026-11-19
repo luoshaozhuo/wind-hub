@@ -6,6 +6,8 @@ No task is reported SUCCEEDED without an fsync'ed, hash-verified artifact.
 from __future__ import annotations
 
 import asyncio
+import base64
+import logging
 import csv
 import hashlib
 import json
@@ -18,6 +20,9 @@ from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
 from typing import Protocol
 from storage_service.domain.tasks import TaskRecord
+
+
+_LOG = logging.getLogger(__name__)
 
 
 class TaskStore(Protocol):
@@ -96,7 +101,7 @@ class AsyncStorageTasks:
                 self._run_export(task_id, filter_), name=f"storage-export-{task_id}"
             )
             self._pending.add(worker)
-            worker.add_done_callback(self._pending.discard)
+            worker.add_done_callback(self._completed)
         return record
 
     async def _run_export(self, task_id: str, filter_: HistoryFilter) -> None:
@@ -153,17 +158,24 @@ class AsyncStorageTasks:
                     )
                     for row in page.rows:
                         value = row.value
-                        # Guard against spreadsheet formula execution on CSV open.
-                        if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
-                            value = "'" + value
-                        writer.writerow([
+                        if isinstance(value, bytes):
+                            value = base64.b64encode(value).decode("ascii")
+                        cells: list[object] = [
                             *row.identity[:5], row.ts_us, row.sample_id,
                             row.point_id, row.business_point_id,
                             row.value_kind, value, row.quality,
                             row.logical_key, row.content_sha256,
-                        ])
+                        ]
+                        # Neutralize spreadsheet formulas in user-supplied identifiers.
+                        safe = [
+                            "'" + cell if isinstance(cell, str) and cell.lstrip().startswith(
+                                ("=", "+", "-", "@")
+                            ) else cell
+                            for cell in cells
+                        ]
+                        writer.writerow(safe)
                     file.flush()
-                    if file.tell() > self._config.export.max_bytes:
+                    if os.fstat(file.fileno()).st_size > self._config.export.max_bytes:
                         raise ExportQuotaExceeded("CSV export exceeded configured quota")
                     if page.complete:
                         break
@@ -218,7 +230,7 @@ class AsyncStorageTasks:
                 name=f"storage-backup-{task_id}",
             )
             self._pending.add(job)
-            job.add_done_callback(self._pending.discard)
+            job.add_done_callback(self._completed)
         return record
 
     async def _run_backup(self, task_id: str, wind_farm_id: str) -> None:
@@ -241,6 +253,16 @@ class AsyncStorageTasks:
                 )
                 raise
 
+    def _completed(self, future: asyncio.Task[None]) -> None:
+        self._pending.discard(future)
+        if future.cancelled():
+            return
+        error = future.exception()
+        if error is not None:
+            _LOG.error("Storage background task failed: %s", type(error).__name__)
+
     async def close(self) -> None:
+        for future in tuple(self._pending):
+            future.cancel()
         if self._pending:
             await asyncio.gather(*self._pending, return_exceptions=True)
