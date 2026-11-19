@@ -141,7 +141,7 @@ class SampleBatch(BaseModel):
     def _point_table_identity(cls, value: str) -> str:
         if (
             _is_unsafe_identifier(value)
-            or re.fullmatch(r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\\.[0-9]+\\.[0-9]+", value)
+            or re.fullmatch(r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+", value)
             is None
         ):
             raise ValueError("invalid immutable point_table_id")
