@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import IntEnum, StrEnum
-from typing import Any
+from typing import Any, TypeAlias
 
 from core.domain.sample_value import Quality
 
@@ -33,7 +33,7 @@ class ValueKind(IntEnum):
     BYTES = 7
 
 
-type SampleScalar = int | float | bool | str | bytes | None
+SampleScalar: TypeAlias = int | float | bool | str | bytes | None
 
 
 def _canonical(values: list[object]) -> bytes:
