@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import queue
 import re
@@ -72,6 +73,7 @@ class _TaosModule(Protocol):
 
 _HOST_PORT = re.compile(r"(?P<host>[a-zA-Z0-9.-]+):(?P<port>[0-9]{1,5})\Z")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
+_LOG = logging.getLogger(__name__)
 _QUALITY = {"good": 1, "bad": 2, "uncertain": 3}
 _LEVEL = {DataLevel.RAW: 1, DataLevel.PROTOCOL: 2, DataLevel.BUSINESS: 3}
 
@@ -500,31 +502,46 @@ class TDengineBackend:
             quality=quality,
             publish_time_us=TDengineBackend._datetime_us(row[15]),
             receive_time_us=(
-                TDengineBackend._datetime_us(row[16]) if row[16] is not None else None
-            ),
-        )
-
-    def _fetch_history_sync(
+                TDengineBackend._datetime_us(row[16]) if row[16    def _fetch_history_sync(
         self, filter_: HistoryFilter, after: tuple[int, str, str] | None, limit: int
     ) -> list[HistoryRow]:
+        """Keyset-scan managed tables; exclude every sample conflict candidate."""
         if not 1 <= limit <= 1001:
             raise ValueError("SQL query limit must be 1..1001")
-        # hashlib naming uses the exact same canonical JSON as database identity.
         db_hash = hashlib.sha256(
-            json.dumps((filter_.wind_farm_id,), ensure_ascii=False,
-                       separators=(",", ":")).encode("utf-8")
+            json.dumps(
+                (filter_.wind_farm_id,), ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode()
         ).hexdigest()
-        db_name = f"wh_{db_hash[:24]}"
-        registrations = self._metadata.list_tables(database=db_name)
+        database = f"wh_{db_hash[:24]}"
+        registrations = self._metadata.list_tables(database=database)
         if len(registrations) > 1024:
-            raise RuntimeError("query matches too many registered tables")
+            raise RuntimeError("history query exceeds managed-table budget")
         output: list[HistoryRow] = []
+        columns = (
+            "ts, logical_key, content_sha256, sample_id, point_id, "
+            "business_point_id, data_level, value_kind, value_i64, "
+            "value_u64, value_f64, value_bool, value_text, "
+            "payload_bytes, quality, publish_time, receive_time"
+        )
         with self._borrow_connection() as (connection, _):
             for entry in registrations:
-                identity_value = json.loads(entry.identity_json)
-                if not isinstance(identity_value, list) or len(identity_value) != 6:
-                    raise TDengineSchemaConflict("invalid persisted table identity")
-                identity = tuple(str(part) for part in identity_value)
+                if (
+                    re.fullmatch(r"tb_[0-9a-f]{24}", entry.name) is None
+                    or entry.schema_fingerprint != SCHEMA_FINGERPRINT
+                ):
+                    raise TDengineSchemaConflict("untrusted historical physical table name")
+                try:
+                    decoded = json.loads(entry.identity_json)
+                except (ValueError, TypeError) as exc:
+                    raise TDengineSchemaConflict("corrupt registered table identity") from exc
+                if (
+                    not isinstance(decoded, list) or len(decoded) != 6
+                    or any(not isinstance(item, str) for item in decoded)
+                ):
+                    raise TDengineSchemaConflict("corrupt registered table identity")
+                identity = tuple(decoded)
                 if (
                     identity[0] != filter_.wind_farm_id
                     or identity[4] != filter_.data_level.value
@@ -533,60 +550,105 @@ class TDengineBackend:
                     or (filter_.point_table_id and identity[3] != filter_.point_table_id)
                 ):
                     continue
-                if entry.schema_fingerprint != SCHEMA_FINGERPRINT:
-                    raise TDengineSchemaConflict("unsupported historical physical schema")
-                table = f"{db_name}.{entry.name}"
-                filters = [f"ts >= {filter_.start_us}", f"ts < {filter_.end_us}"]
+                table = f"{database}.{entry.name}"
+                predicates = [
+                    f"ts >= {filter_.start_us}",
+                    f"ts < {filter_.end_us}",
+                ]
                 if filter_.point_id:
-                    filters.append(f"point_id = {self._sql_filter(filter_.point_id)}")
+                    predicates.append(
+                        f"point_id = {self._sql_filter(filter_.point_id)}"
+                    )
                 if filter_.business_point_id:
-                    filters.append(
-                        f"business_point_id = {self._sql_filter(filter_.business_point_id)}"
+                    predicates.append(
+                        "business_point_id = "
+                        f"{self._sql_filter(filter_.business_point_id)}"
                     )
                 if filter_.qualities:
-                    qualities = ", ".join(str(_QUALITY[q]) for q in filter_.qualities)
-                    filters.append(f"quality IN ({qualities})")
-                if after:
-                    ts, logical, content = after
-                    if not _HEX.fullmatch(logical) or not _HEX.fullmatch(content):
-                        raise ValueError("invalid query cursor key digest")
-                    filters.append(
-                        f"(ts > {ts} OR (ts = {ts} AND "
-                        f"(logical_key > '{logical}' OR "
-                        f"(logical_key = '{logical}' "
-                        f"AND content_sha256 > '{content}'))))"
-                    )
-                # Column order must exactly match _decode_record.
-                columns = (
-                    "ts, logical_key, content_sha256, sample_id, point_id, "
-                    "business_point_id, data_level, value_kind, value_i64, "
-                    "value_u64, value_f64, value_bool, value_text, "
-                    "payload_bytes, quality, publish_time, receive_time"
-                )
-                sql = (
-                    f"SELECT {columns} FROM {table} "
-                    f"WHERE {' AND '.join(filters)} "
-                    f"ORDER BY ts, logical_key, content_sha256 LIMIT {limit}"
-                )
-                rows = list(connection.query(sql))
-                for row in rows:
-                    if int(row[6]) != _LEVEL[filter_.data_level]:
-                        raise TDengineSchemaConflict("row level mismatches physical table")
-                    output.append(self._decode_record(row, identity))
-                # Never return a logical conflict as a valid measurement.
-                keys = sorted({item.logical_key for item in output if item.identity == identity})
-                for begin in range(0, len(keys), 128):
-                    selected = keys[begin:begin + 128]
-                    literals = ", ".join(f"'{key}'" for key in selected)
-                    hashes: dict[str, set[str]] = defaultdict(set)
-                    for key, digest in connection.query(
-                        f"SELECT logical_key, content_sha256 FROM {table} "
-                        f"WHERE logical_key IN ({literals})"
-                    ):
-                        hashes[str(key)].add(str(digest))
-                    if any(len(values) != 1 for values in hashes.values()):
-                        raise TDengineSchemaConflict(
-                            "SAMPLE_CONFLICT: historical query contains inconsistent samples"
+                    quality_values = ",".join(str(_QUALITY[q]) for q in filter_.qualities)
+                    predicates.append(f"quality IN ({quality_values})")
+
+                cursor = after
+                scanned = 0
+                valid: list[HistoryRow] = []
+                # Scan at most 4096 physical candidates per table and page.
+                while len(valid) < limit:
+                    remaining = limit - len(valid)
+                    fetch_size = min(256, max(32, remaining + 16))
+                    where = list(predicates)
+                    if cursor is not None:
+                        timestamp, logical, content = cursor
+                        if not _HEX.fullmatch(logical) or not _HEX.fullmatch(content):
+                            raise ValueError("invalid history cursor digest")
+                        where.append(
+                            f"(ts > {timestamp} OR "
+                            f"(ts = {timestamp} AND "
+                            f"(logical_key > '{logical}' OR "
+                            f"(logical_key = '{logical}' AND "
+                            f"content_sha256 > '{content}'))))"
                         )
-        output.sort(key=lambda item: item.sort_key)
+                    sql = (
+                        f"SELECT {columns} FROM {table} "
+                        f"WHERE {' AND '.join(where)} "
+                        "ORDER BY ts, logical_key, content_sha256 "
+                        f"LIMIT {fetch_size}"
+                    )
+                    raw_rows = list(connection.query(sql))
+                    if len(raw_rows) > fetch_size:
+                        raise TDengineSchemaConflict("TDengine exceeded query limit")
+                    if not raw_rows:
+                        break
+                    scanned += len(raw_rows)
+                    if scanned > 4096:
+                        raise TDengineSchemaConflict(
+                            "too many conflicting candidates in one history page"
+                        )
+                    candidates: list[HistoryRow] = []
+                    for row in raw_rows:
+                        if int(row[6]) != _LEVEL[filter_.data_level]:
+                            raise TDengineSchemaConflict("row level differs from table")
+                        candidates.append(self._decode_record(row, identity))
+                    if any(
+                        a.sort_key >= b.sort_key
+                        for a, b in zip(candidates, candidates[1:], strict=False)
+                    ):
+                        raise TDengineSchemaConflict("history order not monotonic")
+                    cursor = candidates[-1].sort_key
+                    conflicts: set[str] = set()
+                    keys = sorted({item.logical_key for item in candidates})
+                    for begin in range(0, len(keys), 128):
+                        part = keys[begin:begin + 128]
+                        literals = ",".join(f"'{key}'" for key in part)
+                        observed: dict[str, set[str]] = defaultdict(set)
+                        for logical, digest in connection.query(
+                            f"SELECT logical_key, content_sha256 FROM {table} "
+                            f"WHERE logical_key IN ({literals})"
+                        ):
+                            key = str(logical)
+                            content_hash = str(digest)
+                            if key not in part or not _HEX.fullmatch(content_hash):
+                                raise TDengineSchemaConflict(
+                                    "invalid logical-key verification response"
+                                )
+                            observed[key].add(content_hash)
+                        if any(not observed.get(key) for key in part):
+                            raise TDengineSchemaConflict(
+                                "cannot prove all logical-key candidates"
+                            )
+                        conflicts.update(
+                            key for key, hashes in observed.items() if len(hashes) > 1
+                        )
+                    if conflicts:
+                        _LOG.warning(
+                            "Storage history excluded %d conflicting logical keys",
+                            len(conflicts),
+                        )
+                    valid.extend(
+                        candidate for candidate in candidates
+                        if candidate.logical_key not in conflicts
+                    )
+                    if len(raw_rows) < fetch_size:
+                        break
+                output.extend(valid[:limit])
+        output.sort(key=lambda row: row.sort_key)
         return output[:limit]
