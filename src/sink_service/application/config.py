@@ -406,10 +406,42 @@ def _validate_delivery(
             f"deliveries.{delivery_id}.output",
             frozenset({"data_level"}),
         )
-        if reliable_output["data_level"] != "protocol":
+        level = reliable_output["data_level"]
+        if level not in ("protocol", "business"):
             raise ConfigurationError(
-                f"deliveries.{delivery_id}: only verified PROTOCOL output is currently supported"
+                f"deliveries.{delivery_id}: RAW requires an original undecoded payload"
             )
+        if level == "business":
+            if kind != "kafka":
+                raise ConfigurationError(
+                    f"deliveries.{delivery_id}: BUSINESS needs a verified Kafka encoder"
+                )
+            sync = expect_mapping(service.get("config_sync"), "service.config_sync")
+            endpoint = expect_nonempty_str(
+                sync.get("repository_endpoint"), "config_sync.repository_endpoint"
+            )
+            host, sep, port = endpoint.rpartition(":")
+            if not sep or not host or not port.isdecimal() or not 1 <= int(port) <= 65535:
+                raise ConfigurationError("config_sync.repository_endpoint must be host:port")
+            token = expect_nonempty_str(
+                sync.get("repository_token_ref"), "config_sync.repository_token_ref"
+            )
+            if not token.startswith("env:"):
+                raise ConfigurationError("Configuration repository requires env: token")
+            approved = expect_mapping(
+                sync.get("approved_point_table_manifests"),
+                "config_sync.approved_point_table_manifests",
+            )
+            if not approved or any(
+                not isinstance(point_table_id, str)
+                or not point_table_id.startswith("point_table_")
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[a-f0-9]{64}", digest) is None
+                for point_table_id, digest in approved.items()
+            ):
+                raise ConfigurationError(
+                    "BUSINESS requires approved exact PointTable manifest digests"
+                )
         if kind == "kafka" and caps["supports_concurrent_write"] and len(source["devices"]) != 1:
             raise ConfigurationError(
                 f"deliveries.{delivery_id}: concurrent Kafka requires one explicit device"
