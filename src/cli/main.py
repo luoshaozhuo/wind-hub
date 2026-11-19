@@ -31,6 +31,7 @@ from .directory_diff import compare_directories
 from .history import SafeHistory
 from .network_probe import industrial_probe, ping_probe, scan_cidr, tcp_probe
 from .plant_commands import data_generator, gateway, sink
+from .storage_commands import storage
 from .process_manager import manage_service_process
 from .runtime import Runtime
 
@@ -47,6 +48,7 @@ app.add_typer(net_app, name="net")
 app.add_typer(collector, name="collector")
 app.add_typer(commander, name="commander")
 app.add_typer(sink, name="sink")
+app.add_typer(storage, name="storage")
 app.add_typer(gateway, name="gateway")
 app.add_typer(data_generator, name="data-generator")
 app.add_typer(diagnose, name="diagnose")
