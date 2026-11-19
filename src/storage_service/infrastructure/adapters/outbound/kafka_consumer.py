@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
 
@@ -63,6 +61,8 @@ class KafkaStorageConsumer:
             enable_auto_commit=False,
             auto_offset_reset="none",
             max_poll_records=configuration.kafka.max_poll_records,
+            fetch_max_bytes=configuration.kafka.max_buffer_bytes,
+            max_partition_fetch_bytes=min(1048576, configuration.kafka.max_buffer_bytes),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
         self._generation = 0
@@ -136,6 +136,8 @@ class KafkaStorageConsumer:
                         )
                         for msg in messages
                     ]
+                    if sum(len(record.value) for record in records) > self._config.kafka.max_buffer_bytes:
+                        raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
                     try:
                         await self._ingestion.process(
                             generation=current_generation,
