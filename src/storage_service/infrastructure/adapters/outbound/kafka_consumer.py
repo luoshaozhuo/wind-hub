@@ -110,8 +110,65 @@ class KafkaStorageConsumer:
                 self._consumer.pause(tp)
             self._assignments[tp] = current
 
+    async def _process_partition(
+        self, tp: TopicPartition, messages: list[KafkaRecord],
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Never have more than one in-flight batch per assigned partition."""
+        async with semaphore:
+            state = self._assignments.get(tp)
+            if state is None or state.blocked or not messages:
+                return
+            generation = state.generation
+            try:
+                await self._ingestion.process(
+                    generation=generation,
+                    offsets=state.offsets,
+                    records=messages,
+                )
+            except IngestionBlocked:
+                if self._assignments.get(tp) is not state:
+                    return
+                state.blocked = True
+                if tp in self._consumer.assignment():
+                    self._consumer.pause(tp)
+                _LOG.error(
+                    "Storage Kafka partition blocked: topic=%s partition=%d",
+                    tp.topic, tp.partition,
+                )
+            except (WriteUnconfirmed, OSError, TimeoutError):
+                _LOG.warning(
+                    "Storage Kafka write unconfirmed: topic=%s partition=%d",
+                    tp.topic, tp.partition,
+                )
+                await asyncio.sleep(self._config.retry.initial_ms / 1000)
+            except RuntimeError as exc:
+                # Revocation can arrive during TDengine I/O. No old generation
+                # response can be committed, but a normal revoke is not a
+                # process-wide fatal error.
+                if self._assignments.get(tp) is not state:
+                    return
+                raise
+            if (
+                self._assignments.get(tp) is not state
+                or generation != state.generation
+                or tp not in self._consumer.assignment()
+            ):
+                return
+            # Kafka commits the next unread offset, only after durable readback.
+            await self._consumer.commit({tp: state.offsets.next_commit_offset})
+            if not state.blocked:
+                # Replay any unconfirmed tail. The domain deduplicates content.
+                self._consumer.seek(tp, state.offsets.next_commit_offset)
+                state.offsets = PartitionOffsets(
+                    partition=tp.partition,
+                    generation=generation,
+                    next_commit_offset=state.offsets.next_commit_offset,
+                )
+
     async def run(self) -> None:
-        """Process real Kafka records, never treating delivery as persistence ACK."""
+        """Parallelize partitions, while each partition remains strictly FIFO."""
+        semaphore = asyncio.Semaphore(self._config.kafka.max_partition_workers)
         try:
             while not self._stop.is_set():
                 batches = await self._consumer.getmany(
@@ -121,63 +178,34 @@ class KafkaStorageConsumer:
                 if not batches:
                     await asyncio.sleep(0)
                     continue
-                for tp, messages in batches.items():
-                    state = self._assignments.get(tp)
-                    if state is None or state.blocked or not messages:
+                bytes_received = 0
+                workload: list[tuple[TopicPartition, list[KafkaRecord]]] = []
+                for tp, batch in batches.items():
+                    if not batch:
                         continue
-                    current_generation = state.generation
                     records = [
                         KafkaRecord(
-                            topic=msg.topic,
-                            partition=msg.partition,
-                            offset=msg.offset,
-                            key=msg.key,
-                            value=msg.value,
+                            topic=message.topic,
+                            partition=message.partition,
+                            offset=message.offset,
+                            key=message.key,
+                            value=message.value,
                         )
-                        for msg in messages
+                        for message in batch
                     ]
-                    if sum(len(record.value) for record in records) > self._config.kafka.max_buffer_bytes:
-                        raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
-                    try:
-                        await self._ingestion.process(
-                            generation=current_generation,
-                            offsets=state.offsets,
-                            records=records,
+                    bytes_received += sum(len(record.value) for record in records)
+                    workload.append((tp, records))
+                if bytes_received > self._config.kafka.max_buffer_bytes:
+                    # Fatal fail-closed: do not commit any Kafka offsets.
+                    raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
+                # One task per partition and one poll per iteration means
+                # no duplicate in-flight writes to the same partition.
+                async with asyncio.TaskGroup() as group:
+                    for tp, records in workload:
+                        group.create_task(
+                            self._process_partition(tp, records, semaphore),
+                            name=f"storage-partition-{tp.partition}",
                         )
-                    except IngestionBlocked:
-                        state.blocked = True
-                        if tp in self._consumer.assignment():
-                            self._consumer.pause(tp)
-                        _LOG.error(
-                            "Storage Kafka partition blocked: topic=%s partition=%d",
-                            tp.topic,
-                            tp.partition,
-                        )
-                    except (WriteUnconfirmed, OSError, TimeoutError):
-                        _LOG.warning(
-                            "Storage Kafka write unconfirmed: topic=%s partition=%d",
-                            tp.topic,
-                            tp.partition,
-                        )
-                        await asyncio.sleep(self._config.retry.initial_ms / 1000)
-                    if (
-                        self._assignments.get(tp) is state
-                        and state.generation == current_generation
-                        and tp in self._consumer.assignment()
-                    ):
-                        # Commit the contiguous proved prefix (next-offset rule).
-                        await self._consumer.commit({
-                            tp: state.offsets.next_commit_offset
-                        })
-                        if not state.blocked:
-                            # Rewind any unconfirmed tail; records may be written
-                            # but not acknowledged, so stable sample keys dedup.
-                            self._consumer.seek(tp, state.offsets.next_commit_offset)
-                            state.offsets = PartitionOffsets(
-                                partition=tp.partition,
-                                generation=current_generation,
-                                next_commit_offset=state.offsets.next_commit_offset,
-                            )
         finally:
             await self._consumer.stop()
 
@@ -209,7 +237,6 @@ class KafkaStorageConsumer:
             state.blocked = False
             self._consumer.resume(tp)
         return True
-
 
     async def snapshot_progress(self) -> list[tuple[str, int, int, int, int, str]]:
         """Read broker end offsets for observed lag; never silently report zero lag."""
