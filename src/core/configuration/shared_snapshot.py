@@ -82,6 +82,11 @@ _PROTOCOL_PARSERS = {
 }
 
 
+def _point_table_identity(template_id: str, file_version: str) -> str:
+    """Match immutable PointTable IDs used by Contracts and Configuration."""
+    return f"point_table_{template_id}_v{file_version}"
+
+
 def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
     """Resolve entities and validate references; never access the network."""
     units = parse_unit_catalog(_content(documents.units))
@@ -99,11 +104,15 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         if protocol not in {"ads", "modbus", "iec104"}:
             raise ConfigError(f"{device_id}: unsupported protocol")
         table = definition.templates.point_table
-        table_id = f"{table.reference.template_id}@{table.reference.file_version}"
+        table_id = _point_table_identity(
+            table.reference.template_id, table.reference.file_version
+        )
         parents = tuple(reversed(definition.templates.inherited_tables))
         for index, parent in enumerate(parents):
             parent_data = _content(parent.document)
-            parent_id = f"{parent.reference.template_id}@{parent.reference.file_version}"
+            parent_id = _point_table_identity(
+                parent.reference.template_id, parent.reference.file_version
+            )
             entry: dict[str, Any] = {
                 "protocol": protocol,
                 "points": parent_data.get("points", {}),
@@ -111,7 +120,9 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
             }
             if index:
                 earlier = parents[index - 1].reference
-                entry["parent_id"] = f"{earlier.template_id}@{earlier.file_version}"
+                entry["parent_id"] = _point_table_identity(
+                    earlier.template_id, earlier.file_version
+                )
             definitions[parent_id] = entry
 
         table_data = _content(table.document)
@@ -122,7 +133,9 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         }
         if definition.templates.inherited_tables:
             immediate = definition.templates.inherited_tables[0].reference
-            entry["parent_id"] = f"{immediate.template_id}@{immediate.file_version}"
+            entry["parent_id"] = _point_table_identity(
+                immediate.template_id, immediate.file_version
+            )
         definitions[table_id] = entry
 
         type_id = DeviceTypeId(str(model_data.get("device_type_id", "generic")))

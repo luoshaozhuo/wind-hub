@@ -488,9 +488,12 @@ class ConfigurationApplication:
                         isinstance(table, dict)
                         and table.get("id") == document.identity.config_id
                         and table.get("version") == document.file_version
-                        and isinstance(model_data.get("device_type_id"), str)
                     ):
-                        possible.add(model_data["device_type_id"])
+                        device_type = model_data.get(
+                            "device_type_id", model_data.get("device_type")
+                        )
+                        if isinstance(device_type, str) and device_type:
+                            possible.add(device_type)
                 if len(possible) > 1:
                     raise RepositoryConflictError("point table maps to conflicting device types")
                 if possible:
