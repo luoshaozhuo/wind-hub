@@ -318,9 +318,7 @@ class Runtime:
                     private_key=profile.client_key.read_bytes(),
                     certificate_chain=profile.client_cert.read_bytes(),
                 )
-                channel = grpc.aio.secure_channel(
-                    endpoint, credentials, options=options
-                )
+                channel = grpc.aio.secure_channel(endpoint, credentials, options=options)
             self._channels[target.service_id] = channel
         return self._channels[target.service_id]
 

@@ -21,7 +21,7 @@ def _remove_table(ddl: str, table_name: str) -> str:
     prefix = f"CREATE TABLE {table_name} ("
     start = ddl.index(prefix)
     end = ddl.index("\n);", start) + len("\n);")
-    return ddl[:start] + ddl[end + 1:]
+    return ddl[:start] + ddl[end + 1 :]
 
 
 def _replace_table(ddl: str, table_name: str, replacement: str) -> str:
@@ -135,9 +135,10 @@ DDL = DDL.replace(
     "CREATE TABLE config_references (",
     _DIRECTORY_TABLES + "CREATE TABLE config_references (",
 )
-IMMUTABLE_TABLES = tuple(
-    table for table in IMMUTABLE_TABLES_V1 if table != "semantic_points"
-) + ("revision_files", "revision_manifests")
+IMMUTABLE_TABLES = tuple(table for table in IMMUTABLE_TABLES_V1 if table != "semantic_points") + (
+    "revision_files",
+    "revision_manifests",
+)
 
 
 def _immutable_trigger_sql(table: str, operation: str) -> str:
@@ -177,11 +178,10 @@ def _verify_schema(connection: sqlite3.Connection, *, legacy: bool = False) -> N
         raise RuntimeError("SQLite user_version differs from db_meta")
     migration = connection.execute(
         "SELECT from_version, to_version, checksum FROM schema_migrations "
-        "WHERE migration_id = ?", (migration_id,),
+        "WHERE migration_id = ?",
+        (migration_id,),
     ).fetchone()
-    if migration is None or tuple(migration) != (
-        version - 1, version, _schema_signature(ddl)
-    ):
+    if migration is None or tuple(migration) != (version - 1, version, _schema_signature(ddl)):
         raise RuntimeError("database schema migration record mismatch")
     required = {
         statement.split()[2]
@@ -189,7 +189,8 @@ def _verify_schema(connection: sqlite3.Connection, *, legacy: bool = False) -> N
         if statement.strip().startswith(("CREATE TABLE ", "CREATE INDEX "))
     }
     existing = {
-        row[0] for row in connection.execute(
+        row[0]
+        for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table','index')"
         )
     }
@@ -263,16 +264,24 @@ def _migrate_v1(connection: sqlite3.Connection) -> None:
         connection.execute("DROP TABLE candidate_documents")
         connection.execute("DROP TABLE candidates")
         names = (
-            "candidates", "candidate_documents", "revision_files", "revision_manifests",
-            "business_points", "point_tables", "point_mappings",
+            "candidates",
+            "candidate_documents",
+            "revision_files",
+            "revision_manifests",
+            "business_points",
+            "point_tables",
+            "point_mappings",
         )
         for statement in DDL.split(";"):
             statement = statement.strip()
             if any(statement.startswith(f"CREATE TABLE {name} (") for name in names):
                 connection.execute(statement)
         for table in (
-            "revision_files", "revision_manifests", "business_points",
-            "point_tables", "point_mappings"
+            "revision_files",
+            "revision_manifests",
+            "business_points",
+            "point_tables",
+            "point_mappings",
         ):
             for operation in ("UPDATE", "DELETE"):
                 connection.execute(_immutable_trigger_sql(table, operation))

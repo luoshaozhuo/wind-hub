@@ -178,11 +178,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
 
     def _actor(self, context: grpc.ServicerContext, role: str) -> str:
         metadata = context.invocation_metadata()
-        authorization = [
-            item.value
-            for item in metadata
-            if item.key.lower() == "authorization"
-        ]
+        authorization = [item[1] for item in metadata if item[0].lower() == "authorization"]
         if (
             len(authorization) != 1
             or not isinstance(authorization[0], str)
@@ -238,7 +234,9 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             raise ValueError("expected_revision_id must be provided")
         data = tuple(
             DocumentInput(
-                _identity(item.config_id), item.file_name, item.yaml_bytes,
+                _identity(item.config_id),
+                item.file_name,
+                item.yaml_bytes,
                 relative_path=item.relative_path,
             )
             for item in request.documents
@@ -267,10 +265,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 issues=[pb.ValidationIssue(error_code="SCHEMA_INVALID", message=str(exc))],
             )
         manifest = build_directory_manifest(
-            tuple(
-                DirectoryFile(item.relative_path, item.yaml_bytes)
-                for item in request.documents
-            ),
+            tuple(DirectoryFile(item.relative_path, item.yaml_bytes) for item in request.documents),
             max_documents=self.app.limits.max_documents_per_publication,
             max_bytes=self.app.limits.max_request_bytes,
         )
@@ -333,9 +328,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         del request
         self._actor(context, "query")
         revision, manifest, committed = self.app.repository.get_current_manifest()
-        response = pb.GetCurrentRevisionResponse(
-            revision_id=revision, manifest_sha256=manifest
-        )
+        response = pb.GetCurrentRevisionResponse(revision_id=revision, manifest_sha256=manifest)
         if committed is not None:
             response.committed_at.CopyFrom(_timestamp(committed))
         return response
@@ -350,16 +343,15 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             expected_manifest_sha256=request.expected_manifest_sha256 or None,
         )
         root = [
-            item for item in documents
+            item
+            for item in documents
             if item.identity.config_type == "point_table"
-            and request.point_table_id ==
-            f"point_table_{item.identity.config_id}_v{item.file_version}"
+            and request.point_table_id
+            == f"point_table_{item.identity.config_id}_v{item.file_version}"
         ]
         if len(root) != 1:
             raise RepositoryConflictError("immutable PointTable root is ambiguous")
-        typed_rows = self.app.repository.get_projection_rows(
-            root[0].version_id, "point_tables"
-        )
+        typed_rows = self.app.repository.get_projection_rows(root[0].version_id, "point_tables")
         if len(typed_rows) != 1:
             raise RepositoryConflictError("PointTable typed identity is incomplete")
         return pb.GetPointTableBundleResponse(

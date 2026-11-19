@@ -48,5 +48,3 @@ async def _disk_revision(service: str) -> str:
     if not isinstance(revision, str) or not revision:
         raise RuntimeError("remote DISK snapshot has no revision")
     return revision
-
-

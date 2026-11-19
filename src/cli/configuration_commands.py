@@ -11,16 +11,15 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from google.protobuf.json_format import MessageToDict
 
+from contracts import configuration_repository_pb2 as pb
+from contracts import configuration_repository_pb2_grpc as rpc
 from core.configuration.publication_identity import (
     resolve_publication_identity,
     validate_relative_path,
 )
 from core.infrastructure.config import ConfigOperationError, parse_yaml
-from google.protobuf.json_format import MessageToDict
-
-from contracts import configuration_repository_pb2 as pb
-from contracts import configuration_repository_pb2_grpc as rpc
 
 configuration = typer.Typer(help="Manage versioned configuration repository.")
 
@@ -318,6 +317,7 @@ def point_table_bundle(
     expected_manifest_sha256: str = "",
 ) -> None:
     """Verify one immutable historical PointTable interpretation closure."""
+
     async def invoke() -> dict[str, Any]:
         from cli.main import runtime
 
@@ -350,15 +350,11 @@ def point_table_bundle(
                     "relative_path": doc.relative_path,
                 }
             )
-        entries.sort(
-            key=lambda item: (
-                item["config_type"], item["config_id"], item["version_id"]
-            )
-        )
+        entries.sort(key=lambda item: (item["config_type"], item["config_id"], item["version_id"]))
         actual = hashlib.sha256(
-            json.dumps(
-                entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ).encode("utf-8")
+            json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
         ).hexdigest()
         if not entries or actual != result.manifest_sha256:
             raise RuntimeError("historical PointTable manifest checksum mismatch")
@@ -467,5 +463,3 @@ def backup(service: str = "configuration", label: str = "", request_id: str = ""
 @configuration.command("backup-status")
 def backup_status(task_id: str, service: str = "configuration") -> None:
     _request("GetBackupTask", pb.GetBackupTaskRequest(task_id=task_id), service)
-
-

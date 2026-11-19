@@ -104,9 +104,7 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         if protocol not in {"ads", "modbus", "iec104"}:
             raise ConfigError(f"{device_id}: unsupported protocol")
         table = definition.templates.point_table
-        table_id = _point_table_identity(
-            table.reference.template_id, table.reference.file_version
-        )
+        table_id = _point_table_identity(table.reference.template_id, table.reference.file_version)
         parents = tuple(reversed(definition.templates.inherited_tables))
         for index, parent in enumerate(parents):
             parent_data = _content(parent.document)

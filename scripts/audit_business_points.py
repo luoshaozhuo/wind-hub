@@ -28,9 +28,7 @@ def _strict_mapping(loader: _StrictLoader, node: yaml.MappingNode) -> dict[Any, 
     return mapping
 
 
-_StrictLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _strict_mapping
-)
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _strict_mapping)
 
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 _TABLE_FILE = re.compile(r"^point_table_(?P<id>.+)_v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)\.yaml$")
@@ -86,10 +84,11 @@ def _validate_references(root: Path, documents: dict[Path, dict[str, Any]]) -> N
                     raise ValueError(f"invalid model identity for device {device_id}: {path}")
                 if _VERSION.fullmatch(version) is None or "/" in identity or ".." in identity:
                     raise ValueError(f"unsafe model identity for device {device_id}: {path}")
-                target = template_root / "device_models" / f"device_model_{identity}_v{version}.yaml"
+                target = (
+                    template_root / "device_models" / f"device_model_{identity}_v{version}.yaml"
+                )
                 if target not in documents:
                     raise ValueError(f"missing model target {target} from {path}:{device_id}")
-
 
 
 def _resolve_points(
@@ -174,9 +173,7 @@ def audit(root: Path, output: Path) -> int:
             raise ValueError(f"PointTable filename/file_version mismatch: {path}")
         points = _resolve_points(path, loaded, cache, set())
         counts = Counter(
-            item.get("business_point_id")
-            for item in points.values()
-            if isinstance(item, dict)
+            item.get("business_point_id") for item in points.values() if isinstance(item, dict)
         )
         for point_id, item in points.items():
             if not isinstance(item, dict):
@@ -204,9 +201,7 @@ def audit(root: Path, output: Path) -> int:
                     "plc_symbol": str(symbol),
                     "issues": ";".join(issues),
                     "verification": (
-                        "PENDING_FIELD_VERIFICATION"
-                        if issues or symbol
-                        else "STRUCTURAL_ONLY"
+                        "PENDING_FIELD_VERIFICATION" if issues or symbol else "STRUCTURAL_ONLY"
                     ),
                 }
             )

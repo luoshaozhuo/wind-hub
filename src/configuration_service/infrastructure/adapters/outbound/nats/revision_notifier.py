@@ -31,6 +31,9 @@ class RevisionBroadcaster:
         self._servers = servers
         self._subject = subject
         self._timeout = connect_timeout_ms / 1000
+        # nats-py flush() is typed with an integer-second deadline; ceil so the
+        # flush window is never shorter than the configured millisecond budget.
+        self._flush_timeout = max(1, (connect_timeout_ms + 999) // 1000)
         self._queue: queue.Queue[int] = queue.Queue(maxsize=queue_capacity)
         self._closing = threading.Event()
         self._thread = threading.Thread(
@@ -54,9 +57,7 @@ class RevisionBroadcaster:
         try:
             self._queue.put_nowait(revision_id)
         except queue.Full:
-            _LOG.error(
-                "NATS revision notice dropped (queue full): revision=%s", revision_id
-            )
+            _LOG.error("NATS revision notice dropped (queue full): revision=%s", revision_id)
 
     async def _publish_once(self, revision_id: int) -> None:
         client = await nats.connect(
@@ -65,11 +66,11 @@ class RevisionBroadcaster:
             max_reconnect_attempts=0,
         )
         try:
-            payload = json.dumps(
-                {"revision_id": revision_id}, separators=(",", ":")
-            ).encode("utf-8")
+            payload = json.dumps({"revision_id": revision_id}, separators=(",", ":")).encode(
+                "utf-8"
+            )
             await client.publish(self._subject, payload)
-            await client.flush(timeout=self._timeout)
+            await client.flush(timeout=self._flush_timeout)
         finally:
             await client.close()
 

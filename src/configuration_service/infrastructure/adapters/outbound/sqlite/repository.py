@@ -25,7 +25,6 @@ from configuration_service.domain.models import (
     RepositoryCapacityExceededError,
     RepositoryConflictError,
     RepositoryNotFoundError,
-    RepositoryVersionExistsError,
     RevisionConflictError,
 )
 from configuration_service.infrastructure.adapters.outbound.sqlite.schema import (
@@ -252,9 +251,7 @@ class SQLiteRepository:
                 (revision_id,),
             ).fetchone()
             if row is None:
-                raise RepositoryConflictError(
-                    "current revision has no complete directory manifest"
-                )
+                raise RepositoryConflictError("current revision has no complete directory manifest")
             return revision_id, str(row["manifest_sha256"]), str(row["created_at"])
 
     @staticmethod
@@ -402,8 +399,7 @@ class SQLiteRepository:
                 return str(replay["candidate_id"])
             self._check_expected(connection, expected_revision)
             active = connection.execute(
-                "SELECT COUNT(*) FROM candidates "
-                "WHERE status = 'VALID' AND expires_at > ?",
+                "SELECT COUNT(*) FROM candidates " "WHERE status = 'VALID' AND expires_at > ?",
                 (_now(),),
             ).fetchone()[0]
             if active >= max_candidates:
@@ -454,7 +450,11 @@ class SQLiteRepository:
                 revision_id=None,
             )
             self._save_replay(
-                connection, actor_id, "CreateCandidate", request_id, payload_hash,
+                connection,
+                actor_id,
+                "CreateCandidate",
+                request_id,
+                payload_hash,
                 {"candidate_id": candidate_id},
             )
             return candidate_id
@@ -600,8 +600,12 @@ class SQLiteRepository:
                     connection.execute(
                         "INSERT INTO config_versions VALUES (?, ?, ?, ?, ?, ?)",
                         (
-                            version.version_id, document_id, doc.schema_ref,
-                            doc.file_version, doc.content_sha256, _now(),
+                            version.version_id,
+                            document_id,
+                            doc.schema_ref,
+                            doc.file_version,
+                            doc.content_sha256,
+                            _now(),
                         ),
                     )
                     newly_inserted.append(version)
@@ -641,9 +645,7 @@ class SQLiteRepository:
                 ).fetchone()
                 for _item, version in ordered
             ):
-                raise RepositoryConflictError(
-                    "directory publication includes a deprecated version"
-                )
+                raise RepositoryConflictError("directory publication includes a deprecated version")
             for version in newly_inserted:
                 self._insert_projection(connection, version)
             fresh_ids = {version.version_id for version in newly_inserted}
@@ -656,7 +658,9 @@ class SQLiteRepository:
                             "AND event_type = 'DEPRECATED'",
                             (target_version_id,),
                         ).fetchone():
-                            raise RepositoryConflictError("new dependency refers to deprecated version")
+                            raise RepositoryConflictError(
+                                "new dependency refers to deprecated version"
+                            )
                         connection.execute(
                             "INSERT INTO config_references VALUES (?, ?, ?)",
                             (version.version_id, target_version_id, relation),
@@ -697,14 +701,17 @@ class SQLiteRepository:
                 raise RepositoryConflictError(
                     "published directory differs from the validated candidate manifest"
                 )
-            if _digest(
-                _canonical_json(
-                    {
-                        "expected_revision": expected_revision,
-                        "manifest_sha256": digest,
-                    }
+            if (
+                _digest(
+                    _canonical_json(
+                        {
+                            "expected_revision": expected_revision,
+                            "manifest_sha256": digest,
+                        }
+                    )
                 )
-            ) != candidate["payload_sha256"]:
+                != candidate["payload_sha256"]
+            ):
                 raise RepositoryConflictError("candidate payload integrity check failed")
             total_bytes = sum(len(item["yaml_bytes"]) for item, _version in ordered)
             selected: dict[str, PreparedVersion] = {}
@@ -712,10 +719,8 @@ class SQLiteRepository:
                 key = _document_id(version.document.identity)
                 previous = selected.get(key)
                 current_version = tuple(int(i) for i in version.document.file_version.split("."))
-                if (
-                    previous is None
-                    or current_version
-                    > tuple(int(i) for i in previous.document.file_version.split("."))
+                if previous is None or current_version > tuple(
+                    int(i) for i in previous.document.file_version.split(".")
                 ):
                     selected[key] = version
             old_manifest = None
@@ -747,15 +752,17 @@ class SQLiteRepository:
                     "VALUES (?, ?, ?, ?)",
                     (expected_revision or None, actor_id, request_id, _now()),
                 )
-                revision_id = int(
-                    connection.execute("SELECT last_insert_rowid()").fetchone()[0]
-                )
+                revision_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
                 for item, version in ordered:
                     connection.execute(
                         "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
                         (
-                            revision_id, item["relative_path"], item["document_id"],
-                            version.version_id, item["yaml_sha256"], item["yaml_bytes"],
+                            revision_id,
+                            item["relative_path"],
+                            item["document_id"],
+                            version.version_id,
+                            item["yaml_sha256"],
+                            item["yaml_bytes"],
                         ),
                     )
                 connection.execute(
@@ -774,11 +781,18 @@ class SQLiteRepository:
             )
             version_ids = tuple(version.version_id for _item, version in ordered)
             self._audit(
-                connection, actor_id=actor_id, operation="PublishCandidate",
-                target_id=candidate_id, revision_id=revision_id,
+                connection,
+                actor_id=actor_id,
+                operation="PublishCandidate",
+                target_id=candidate_id,
+                revision_id=revision_id,
             )
             self._save_replay(
-                connection, actor_id, "PublishCandidate", request_id, payload_hash,
+                connection,
+                actor_id,
+                "PublishCandidate",
+                request_id,
+                payload_hash,
                 {"revision_id": revision_id, "version_ids": version_ids},
             )
             return CommitResult(
@@ -1023,9 +1037,7 @@ class SQLiteRepository:
                 if row is None:
                     raise RepositoryNotFoundError("root configuration not found at revision")
                 pending.append(str(row["version_id"]))
-            return self._load_version_closure(
-                connection, pending, max_versions=max_versions
-            )
+            return self._load_version_closure(connection, pending, max_versions=max_versions)
 
     def get_schema_by_type(self, config_type: str, document_schema_version: int) -> dict[str, Any]:
         """Look up the exact registered schema version without exposing SQL."""

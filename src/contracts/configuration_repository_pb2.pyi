@@ -103,10 +103,10 @@ Global___ConfigId: _TypeAlias = ConfigId  # noqa: Y015
 class ConfigDocumentInput(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    RELATIVE_PATH_FIELD_NUMBER: _builtins.int
     CONFIG_ID_FIELD_NUMBER: _builtins.int
     FILE_NAME_FIELD_NUMBER: _builtins.int
     YAML_BYTES_FIELD_NUMBER: _builtins.int
+    RELATIVE_PATH_FIELD_NUMBER: _builtins.int
     file_name: _builtins.str
     yaml_bytes: _builtins.bytes
     relative_path: _builtins.str
@@ -117,12 +117,12 @@ class ConfigDocumentInput(_message.Message):
         *,
         config_id: Global___ConfigId | None = ...,
         file_name: _builtins.str = ...,
-        relative_path: _builtins.str = ...,
         yaml_bytes: _builtins.bytes = ...,
+        relative_path: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["config_id", b"config_id"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["relative_path", b"relative_path", "config_id", b"config_id", "file_name", b"file_name", "yaml_bytes", b"yaml_bytes"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config_id", b"config_id", "file_name", b"file_name", "relative_path", b"relative_path", "yaml_bytes", b"yaml_bytes"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -218,7 +218,6 @@ Global___DocumentValidationResult: _TypeAlias = DocumentValidationResult  # noqa
 class ConfigYamlDocument(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    RELATIVE_PATH_FIELD_NUMBER: _builtins.int
     CONFIG_ID_FIELD_NUMBER: _builtins.int
     VERSION_ID_FIELD_NUMBER: _builtins.int
     SCHEMA_VERSION_FIELD_NUMBER: _builtins.int
@@ -229,6 +228,7 @@ class ConfigYamlDocument(_message.Message):
     CONTENT_SHA256_FIELD_NUMBER: _builtins.int
     YAML_SHA256_FIELD_NUMBER: _builtins.int
     SCHEMA_REF_FIELD_NUMBER: _builtins.int
+    RELATIVE_PATH_FIELD_NUMBER: _builtins.int
     version_id: _builtins.str
     schema_version: _builtins.int
     file_version: _builtins.str
@@ -253,12 +253,12 @@ class ConfigYamlDocument(_message.Message):
         yaml_bytes: _builtins.bytes = ...,
         content_sha256: _builtins.str = ...,
         yaml_sha256: _builtins.str = ...,
-        relative_path: _builtins.str = ...,
         schema_ref: _builtins.str = ...,
+        relative_path: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["config_id", b"config_id"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["relative_path", b"relative_path", "config_id", b"config_id", "content_sha256", b"content_sha256", "file_name", b"file_name", "file_version", b"file_version", "revision_id", b"revision_id", "schema_ref", b"schema_ref", "schema_version", b"schema_version", "version_id", b"version_id", "yaml_bytes", b"yaml_bytes", "yaml_sha256", b"yaml_sha256"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config_id", b"config_id", "content_sha256", b"content_sha256", "file_name", b"file_name", "file_version", b"file_version", "relative_path", b"relative_path", "revision_id", b"revision_id", "schema_ref", b"schema_ref", "schema_version", b"schema_version", "version_id", b"version_id", "yaml_bytes", b"yaml_bytes", "yaml_sha256", b"yaml_sha256"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -383,12 +383,12 @@ Global___CreateCandidateRequest: _TypeAlias = CreateCandidateRequest  # noqa: Y0
 class CreateCandidateResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    MANIFEST_SHA256_FIELD_NUMBER: _builtins.int
     CANDIDATE_ID_FIELD_NUMBER: _builtins.int
     VALID_FIELD_NUMBER: _builtins.int
     BASE_REVISION_ID_FIELD_NUMBER: _builtins.int
     ISSUES_FIELD_NUMBER: _builtins.int
     DOCUMENT_RESULTS_FIELD_NUMBER: _builtins.int
+    MANIFEST_SHA256_FIELD_NUMBER: _builtins.int
     candidate_id: _builtins.str
     valid: _builtins.bool
     base_revision_id: _builtins.int
@@ -404,12 +404,12 @@ class CreateCandidateResponse(_message.Message):
         valid: _builtins.bool = ...,
         base_revision_id: _builtins.int = ...,
         issues: _abc.Iterable[Global___ValidationIssue] | None = ...,
-        manifest_sha256: _builtins.str = ...,
         document_results: _abc.Iterable[Global___DocumentValidationResult] | None = ...,
+        manifest_sha256: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["manifest_sha256", b"manifest_sha256", "base_revision_id", b"base_revision_id", "candidate_id", b"candidate_id", "document_results", b"document_results", "issues", b"issues", "valid", b"valid"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["base_revision_id", b"base_revision_id", "candidate_id", b"candidate_id", "document_results", b"document_results", "issues", b"issues", "manifest_sha256", b"manifest_sha256", "valid", b"valid"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1115,9 +1115,10 @@ class GetBackupTaskResponse(_message.Message):
 
 Global___GetBackupTaskResponse: _TypeAlias = GetBackupTaskResponse  # noqa: Y015
 
-
 @_typing.final
 class GetPointTableBundleRequest(_message.Message):
+    """Stable immutable point-interpretation bundle independent of moving recommendations."""
+
     DESCRIPTOR: _descriptor.Descriptor
 
     POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
@@ -1125,20 +1126,18 @@ class GetPointTableBundleRequest(_message.Message):
     point_table_id: _builtins.str
     expected_manifest_sha256: _builtins.str
     def __init__(
-        self, *,
+        self,
+        *,
         point_table_id: _builtins.str = ...,
         expected_manifest_sha256: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal[
-        "point_table_id", b"point_table_id",
-        "expected_manifest_sha256", b"expected_manifest_sha256",
-    ]
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["expected_manifest_sha256", b"expected_manifest_sha256", "point_table_id", b"point_table_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___GetPointTableBundleRequest: _TypeAlias = GetPointTableBundleRequest
+Global___GetPointTableBundleRequest: _TypeAlias = GetPointTableBundleRequest  # noqa: Y015
 
 @_typing.final
 class GetPointTableBundleResponse(_message.Message):
@@ -1154,35 +1153,37 @@ class GetPointTableBundleResponse(_message.Message):
     @_builtins.property
     def documents(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigYamlDocument]: ...
     def __init__(
-        self, *,
+        self,
+        *,
         point_table_id: _builtins.str = ...,
         device_type: _builtins.str = ...,
         documents: _abc.Iterable[Global___ConfigYamlDocument] | None = ...,
         manifest_sha256: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal[
-        "point_table_id", b"point_table_id", "device_type", b"device_type",
-        "documents", b"documents", "manifest_sha256", b"manifest_sha256",
-    ]
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_type", b"device_type", "documents", b"documents", "manifest_sha256", b"manifest_sha256", "point_table_id", b"point_table_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___GetPointTableBundleResponse: _TypeAlias = GetPointTableBundleResponse
+Global___GetPointTableBundleResponse: _TypeAlias = GetPointTableBundleResponse  # noqa: Y015
 
 @_typing.final
 class GetCurrentRevisionRequest(_message.Message):
+    """The only authoritative reconciliation cursor for all config subscribers."""
+
     DESCRIPTOR: _descriptor.Descriptor
 
-    def __init__(self) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___GetCurrentRevisionRequest: _TypeAlias = GetCurrentRevisionRequest
+Global___GetCurrentRevisionRequest: _TypeAlias = GetCurrentRevisionRequest  # noqa: Y015
 
 @_typing.final
 class GetCurrentRevisionResponse(_message.Message):
@@ -1196,18 +1197,16 @@ class GetCurrentRevisionResponse(_message.Message):
     @_builtins.property
     def committed_at(self) -> _timestamp_pb2.Timestamp: ...
     def __init__(
-        self, *,
+        self,
+        *,
         revision_id: _builtins.int = ...,
         manifest_sha256: _builtins.str = ...,
         committed_at: _timestamp_pb2.Timestamp | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["committed_at", b"committed_at"]
+    _HasFieldArgType: _TypeAlias = _typing.Literal["committed_at", b"committed_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal[
-        "revision_id", b"revision_id", "manifest_sha256", b"manifest_sha256",
-        "committed_at", b"committed_at",
-    ]
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["committed_at", b"committed_at", "manifest_sha256", b"manifest_sha256", "revision_id", b"revision_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___GetCurrentRevisionResponse: _TypeAlias = GetCurrentRevisionResponse
+Global___GetCurrentRevisionResponse: _TypeAlias = GetCurrentRevisionResponse  # noqa: Y015

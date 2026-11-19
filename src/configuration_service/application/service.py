@@ -9,7 +9,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from core.configuration.publication_identity import resolve_publication_identity
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     DirectoryManifest,
@@ -29,6 +28,7 @@ from configuration_service.domain.models import (
     RepositoryConflictError,
     RepositoryNotFoundError,
 )
+from core.configuration.publication_identity import resolve_publication_identity
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,9 +221,7 @@ class ConfigurationApplication:
         prepared: list[PreparedDocument] = []
         seen: set[tuple[ConfigIdentity, str]] = set()
         for item in manifest.files:
-            raw = self.codec.parse_yaml(
-                item.yaml_bytes, max_bytes=self.limits.max_request_bytes
-            )
+            raw = self.codec.parse_yaml(item.yaml_bytes, max_bytes=self.limits.max_request_bytes)
             location = resolve_publication_identity(item.relative_path, raw)
             identity = ConfigIdentity(location.config_type, location.config_id)
             key = (identity, location.file_version)
@@ -254,9 +252,7 @@ class ConfigurationApplication:
         """Stage exactly one bounded, complete root snapshot, never a YAML patch."""
         if not documents:
             raise ValueError("full-directory publication cannot be empty")
-        paths = tuple(
-            DirectoryFile(item.relative_path, item.yaml_bytes) for item in documents
-        )
+        paths = tuple(DirectoryFile(item.relative_path, item.yaml_bytes) for item in documents)
         manifest, prepared = self.prepare_directory(paths)
         submitted = {item.relative_path: item for item in documents}
         for file, document in zip(manifest.files, prepared, strict=True):
@@ -276,9 +272,7 @@ class ConfigurationApplication:
                 )
             except RepositoryNotFoundError:
                 continue
-            old_version = self.repository.get_version(
-                document.identity, version_id=version_id
-            )
+            old_version = self.repository.get_version(document.identity, version_id=version_id)
             if (
                 str(old_version["content_sha256"]) != document.content_sha256
                 or str(old_version["schema_ref"]) != document.schema_ref
@@ -370,9 +364,7 @@ class ConfigurationApplication:
                     ) or self.repository.resolve_version(identity, file_version)
                     references.append((target_id, "config_sources"))
             elif isinstance(sources, dict):
-                references.extend(
-                    self._resolve_legacy_sources(sources, documents, new_ids)
-                )
+                references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
             else:
                 raise ValueError("config_sources must be a mapping or list")
             # Stable published interpretation of every PointTable is pinned
@@ -385,26 +377,31 @@ class ConfigurationApplication:
                 )
                 for config_type in required:
                     standards = [
-                        item for item in documents
+                        item
+                        for item in documents
                         if item.identity.config_type == config_type
                         and item.identity.config_id == "standard"
                     ]
                     if not standards:
                         raise ValueError(f"missing standard {config_type} document")
                     declared = document.canonical_payload.get("config_sources", [])
-                    pinned = [
-                        source for source in declared
-                        if isinstance(source, dict)
-                        and source.get("config_type") == config_type
-                        and source.get("config_id") == "standard"
-                    ] if isinstance(declared, list) else []
+                    pinned = (
+                        [
+                            source
+                            for source in declared
+                            if isinstance(source, dict)
+                            and source.get("config_type") == config_type
+                            and source.get("config_id") == "standard"
+                        ]
+                        if isinstance(declared, list)
+                        else []
+                    )
                     if len(pinned) > 1:
                         raise ValueError(f"duplicate {config_type} standard binding")
                     if pinned:
                         standard_version = str(pinned[0].get("file_version", ""))
                         targets = [
-                            item for item in standards
-                            if item.file_version == standard_version
+                            item for item in standards if item.file_version == standard_version
                         ]
                     else:
                         targets = standards
@@ -421,7 +418,7 @@ class ConfigurationApplication:
                         )
                     )
             if document.identity.config_type in {"point_table", "device_model"}:
-                reference_fields = (("parent", "point_table"),)
+                reference_fields: tuple[tuple[str, str], ...] = (("parent", "point_table"),)
                 # DeviceModel also pins its driver protocol and optional Task.
                 if document.identity.config_type == "device_model":
                     reference_fields = (
@@ -440,10 +437,10 @@ class ConfigurationApplication:
                     if not file_version:
                         raise ValueError(f"missing {field_name} template version")
                     key = (identity.config_type, identity.config_id, file_version)
-                    target_id = new_ids.get(key)
-                    if target_id is None:
-                        target_id = self.repository.resolve_version(identity, file_version)
-                    references.append((target_id, f"template.{field_name}"))
+                    resolved_id = new_ids.get(key)
+                    if resolved_id is None:
+                        resolved_id = self.repository.resolve_version(identity, file_version)
+                    references.append((resolved_id, f"template.{field_name}"))
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
@@ -535,14 +532,14 @@ class ConfigurationApplication:
             dependency_versions: dict[str, str] = {}
             ambiguous_types: set[str] = set()
             for target_version_id, _relation in references:
-                config_type = version_types.get(target_version_id)
-                if config_type is None:
+                resolved_type = version_types.get(target_version_id)
+                if resolved_type is None:
                     identity = self.repository.get_version_identity(target_version_id)
-                    config_type = identity.config_type
-                previous = dependency_versions.get(config_type)
+                    resolved_type = identity.config_type
+                previous = dependency_versions.get(resolved_type)
                 if previous is not None and previous != target_version_id:
-                    ambiguous_types.add(config_type)
-                dependency_versions[config_type] = target_version_id
+                    ambiguous_types.add(resolved_type)
+                dependency_versions[resolved_type] = target_version_id
             for config_type in ambiguous_types:
                 del dependency_versions[config_type]
             point_table_parent: tuple[str, str] | None = None
@@ -558,9 +555,7 @@ class ConfigurationApplication:
                         parent_vid = self.repository.resolve_version(
                             ConfigIdentity("point_table", parent_id), parent_version
                         )
-                    point_table_parent = (
-                        parent_vid, f"point_table_{parent_id}_v{parent_version}"
-                    )
+                    point_table_parent = (parent_vid, f"point_table_{parent_id}_v{parent_version}")
             projections = self.codec.create_projections(
                 document,
                 dependency_versions=dependency_versions,
@@ -571,9 +566,7 @@ class ConfigurationApplication:
             for projection in projections:
                 columns = projection.columns
                 if projection.table == "business_points":
-                    references.append(
-                        (str(columns["standard_unit_version_id"]), "business.unit")
-                    )
+                    references.append((str(columns["standard_unit_version_id"]), "business.unit"))
                 elif projection.table == "point_tables":
                     parent = columns.get("parent_version_id")
                     if parent is not None:
@@ -588,9 +581,7 @@ class ConfigurationApplication:
                         (str(columns["business_config_version_id"]), "point.business")
                     )
                     references.append((str(columns["source_unit_version_id"]), "point.unit"))
-            if any(
-                target not in included_versions for target, _relation in references
-            ):
+            if any(target not in included_versions for target, _relation in references):
                 raise RepositoryConflictError(
                     "published directory is missing a pinned current dependency"
                 )
@@ -611,17 +602,12 @@ class ConfigurationApplication:
         # The preview must reject dependency cycles, not report a valid
         # candidate that will inevitably fail the SQLite publication gate.
         edges = {
-            version.version_id: {
-                target_id for target_id, _relation in version.references
-            }
+            version.version_id: {target_id for target_id, _relation in version.references}
             for version in versions
         }
         remaining = set(edges)
         while remaining:
-            ready = {
-                version_id for version_id in remaining
-                if not (edges[version_id] & remaining)
-            }
+            ready = {version_id for version_id in remaining if not (edges[version_id] & remaining)}
             if not ready:
                 raise RepositoryConflictError(
                     "configuration directory has cyclic pinned references"
@@ -647,9 +633,7 @@ class ConfigurationApplication:
             ):
                 selected[doc.identity] = doc
         staged = {
-            identity: new_ids[
-                (identity.config_type, identity.config_id, doc.file_version)
-            ]
+            identity: new_ids[(identity.config_type, identity.config_id, doc.file_version)]
             for identity, doc in selected.items()
         }
         resolved: list[tuple[str, str]] = []
@@ -668,9 +652,7 @@ class ConfigurationApplication:
                 raise ValueError("unsupported config_sources instance reference")
             # The key describes the role; simulation may select devices_sim.
             # Only published instance names are accepted, never arbitrary paths.
-            allowed_names = {"devices": {"devices", "devices_sim"}}.get(
-                name, {name}
-            )
+            allowed_names = {"devices": {"devices", "devices_sim"}}.get(name, {name})
             path = PurePosixPath(raw_path)
             if (
                 path.parent.as_posix() != "configs/instances"
@@ -678,9 +660,7 @@ class ConfigurationApplication:
                 or path.stem not in allowed_names
                 or path.as_posix() != raw_path
             ):
-                raise ValueError(
-                    f"invalid config_sources.instances.{name} path: {raw_path}"
-                )
+                raise ValueError(f"invalid config_sources.instances.{name} path: {raw_path}")
             identity = ConfigIdentity(name_types[name], path.stem)
             version_id = staged.get(identity)
             if version_id is None:
@@ -738,13 +718,9 @@ class ConfigurationApplication:
             expected_sha256=str(row["content_sha256"]),
         )
         self._validate_schema(expected, json.loads(str(schema["schema_json"])))
-        source = self.repository.get_version_source(
-            version_id, revision_id=revision_id
-        )
+        source = self.repository.get_version_source(version_id, revision_id=revision_id)
         if source is None:
-            raise RepositoryConflictError(
-                "published configuration version has no source YAML file"
-            )
+            raise RepositoryConflictError("published configuration version has no source YAML file")
         relative_path, data, yaml_sha256 = source
         if len(data) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration YAML exceeds response limit")
@@ -864,12 +840,8 @@ class ConfigurationApplication:
             }
             for item in records
         ]
-        entries.sort(
-            key=lambda item: (item["config_type"], item["config_id"], item["version_id"])
-        )
-        manifest = hashlib.sha256(
-            self.codec.canonical_json(entries).encode("utf-8")
-        ).hexdigest()
+        entries.sort(key=lambda item: (item["config_type"], item["config_id"], item["version_id"]))
+        manifest = hashlib.sha256(self.codec.canonical_json(entries).encode("utf-8")).hexdigest()
         if expected_manifest_sha256 and expected_manifest_sha256 != manifest:
             raise RepositoryConflictError("PointTable immutable manifest hash mismatch")
         return records, manifest

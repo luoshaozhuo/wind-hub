@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+
 from core.configuration.publication_identity import validate_relative_path
 
 
@@ -61,9 +62,7 @@ def build_directory_manifest(
         }
         for item in ordered
     ]
-    encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return DirectoryManifest(ordered, hashlib.sha256(encoded).hexdigest(), total)
-
-

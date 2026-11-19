@@ -145,13 +145,15 @@ def create_projections(
 
     elif config_type == "point_table":
         declared_type = raw.get("device_type")
-        if declared_type is not None and table_device_type is not None:
-            if declared_type != table_device_type:
-                raise ValueError("PointTable device_type conflicts with referenced DeviceModel")
+        if (
+            declared_type is not None
+            and table_device_type is not None
+            and declared_type != table_device_type
+        ):
+            raise ValueError("PointTable device_type conflicts with referenced DeviceModel")
         point_table_device_type = declared_type or table_device_type
         immutable_id = (
-            f"point_table_{_text(raw['template_id'], 'template_id')}"
-            f"_v{document.file_version}"
+            f"point_table_{_text(raw['template_id'], 'template_id')}" f"_v{document.file_version}"
         )
         rows.append(
             RowProjection(

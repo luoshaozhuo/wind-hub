@@ -135,8 +135,12 @@ def load_settings(path: Path) -> ServerSettings:
             raise ValueError("token source must use env:UPPERCASE_NAME")
         token_sources[actor] = source[4:]
     servers = nats["servers"]
-    if not isinstance(servers, list) or not servers or any(
-        not isinstance(server, str) or not server.startswith("nats://") for server in servers
+    if (
+        not isinstance(servers, list)
+        or not servers
+        or any(
+            not isinstance(server, str) or not server.startswith("nats://") for server in servers
+        )
     ):
         raise ValueError("NATS servers must be nonempty nats:// addresses")
     if nats["subject"] != "wh.config.changed":

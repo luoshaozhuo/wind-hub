@@ -72,10 +72,10 @@ def resolve_publication_identity(
         return PublicationIdentity(config_type, logical_id, version)
     if len(parts) == 2 and parts[0] == "instances":
         name = parts[1].removesuffix(".yaml")
-        config_type = _INSTANCE_TYPES.get(name)
-        if config_type is None:
+        instance_type = _INSTANCE_TYPES.get(name)
+        if instance_type is None:
             raise ValueError(f"unsupported instance file: {relative_path}")
-        return PublicationIdentity(config_type, name, version)
+        return PublicationIdentity(instance_type, name, version)
     if len(parts) == 2 and parts[0] == "services":
         name = parts[1].removesuffix(".yaml")
         if name.startswith("service_configuration_v"):
