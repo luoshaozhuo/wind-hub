@@ -199,7 +199,8 @@ class KafkaStorageConsumer:
         state = self._assignments.get(tp)
         if state is not None and state.blocked and tp in self._consumer.assignment():
             # Restart at the exact failed record. Never resume at the next offset.
-            self._consumer.seek(tp, expected_offset)
+            # Revisit any earlier not-yet-committed records before the bad record.
+            self._consumer.seek(tp, state.offsets.next_commit_offset)
             state.offsets = PartitionOffsets(
                 partition=partition,
                 generation=state.generation,
