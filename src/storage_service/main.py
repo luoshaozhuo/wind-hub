@@ -215,8 +215,13 @@ def main() -> int:
         if arguments.check_bootstrap:
             return 0
         asyncio.run(run_service(bootstrap))
-    except (OSError, ValueError, RuntimeError) as exc:
-        _LOG.error("Storage startup or runtime blocked: %s", exc)
+    except Exception as exc:
+        # TaskGroup propagates ExceptionGroup, which is still a normal
+        # Exception. A failed worker must never leave the process healthy.
+        _LOG.error(
+            "Storage startup or runtime blocked: %s",
+            type(exc).__name__,
+        )
         return 1
     return 0
 
