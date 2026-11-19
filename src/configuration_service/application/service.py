@@ -341,7 +341,7 @@ class ConfigurationApplication:
                     references.append((target_id, "config_sources"))
             elif isinstance(sources, dict):
                 references.extend(
-                    self._resolve_legacy_sources(sources, expected_revision, documents, new_ids)
+                    self._resolve_legacy_sources(sources, documents, new_ids)
                 )
             else:
                 raise ValueError("config_sources must be a mapping or list")
@@ -577,7 +577,6 @@ class ConfigurationApplication:
     def _resolve_legacy_sources(
         self,
         sources: dict[str, Any],
-        revision_id: int,
         documents: Sequence[PreparedDocument],
         new_ids: dict[tuple[str, str, str], str],
     ) -> list[tuple[str, str]]:
@@ -585,8 +584,6 @@ class ConfigurationApplication:
         from pathlib import PurePosixPath
 
         # A complete replacement never silently resolves to an omitted older file.
-        members: dict[ConfigIdentity, str] = {}
-        staged: dict[ConfigIdentity, str] = {}
         selected: dict[ConfigIdentity, PreparedDocument] = {}
         for doc in documents:
             older = selected.get(doc.identity)
@@ -614,9 +611,23 @@ class ConfigurationApplication:
         for name, raw_path in instances.items():
             if name not in name_types or not isinstance(raw_path, str):
                 raise ValueError("unsupported config_sources instance reference")
-            config_id = PurePosixPath(raw_path).stem
-            identity = ConfigIdentity(name_types[name], config_id)
-            version_id = staged.get(identity) or members.get(identity)
+            # The key describes the role; simulation may select devices_sim.
+            # Only published instance names are accepted, never arbitrary paths.
+            allowed_names = {"devices": {"devices", "devices_sim"}}.get(
+                name, {name}
+            )
+            path = PurePosixPath(raw_path)
+            if (
+                path.parent.as_posix() != "configs/instances"
+                or path.suffix != ".yaml"
+                or path.stem not in allowed_names
+                or path.as_posix() != raw_path
+            ):
+                raise ValueError(
+                    f"invalid config_sources.instances.{name} path: {raw_path}"
+                )
+            identity = ConfigIdentity(name_types[name], path.stem)
+            version_id = staged.get(identity)
             if version_id is None:
                 raise RepositoryConflictError(f"missing pinned configuration reference: {raw_path}")
             resolved.append((version_id, "config_sources.instances"))
@@ -649,10 +660,9 @@ class ConfigurationApplication:
                 raise RepositoryConflictError(
                     "unrecognized templates.root; explicit pinned references required"
                 )
-            selected = {**members, **staged}
             template_versions = [
                 version_id
-                for identity, version_id in selected.items()
+                for identity, version_id in staged.items()
                 if identity.config_type in template_types
             ]
             if not template_versions:
