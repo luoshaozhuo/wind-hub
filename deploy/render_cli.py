@@ -1,7 +1,4 @@
-"""Create a deterministic, explicit CLI service map for a prepared deployment.
-
-This does not create containers, change certificates, or launch any business process.
-"""
+"""Create a deterministic bearer-authenticated CLI service map without TLS material."""
 
 from __future__ import annotations
 
@@ -41,57 +38,6 @@ PORTS = {
     "sink": 50053,
     "commander": 50052,
 }
-
-COLLECTOR_ENV_KEYS = frozenset(
-    {
-        "WIND_HUB_COLLECTOR_TLS_CERT",
-        "WIND_HUB_COLLECTOR_TLS_KEY",
-        "WIND_HUB_COLLECTOR_TLS_CA",
-        "WIND_HUB_COLLECTOR_ADMIN_TOKEN",
-    }
-)
-
-
-def _collector_environment(
-    path: Path | None, *, required: bool, check_files: bool
-) -> dict[str, str]:
-    """读取 Collector 的正式 mTLS 与管理身份，绝不输出密钥或 Token 内容。"""
-    if path is None:
-        if required:
-            raise ValueError("Collector mTLS requires --collector-env-file")
-        return {}
-    if not path.is_absolute() or not path.is_file() or path.is_symlink():
-        raise ValueError("Collector env file must be an absolute regular file")
-    if path.stat().st_mode & 0o077:
-        raise ValueError("Collector env file must be private (0600)")
-    result: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line or line.startswith("#"):
-            continue
-        key, separator, value = line.partition("=")
-        if not separator or key not in COLLECTOR_ENV_KEYS or key in result or not value:
-            raise ValueError("Collector env file has invalid or duplicate entries")
-        result[key] = value
-    if set(result) != COLLECTOR_ENV_KEYS:
-        raise ValueError("Collector env file requires TLS cert, key, CA and admin token")
-    for key in (
-        "WIND_HUB_COLLECTOR_TLS_CERT",
-        "WIND_HUB_COLLECTOR_TLS_KEY",
-        "WIND_HUB_COLLECTOR_TLS_CA",
-    ):
-        credential = Path(result[key])
-        if not credential.is_absolute():
-            raise ValueError(f"{key} must be an absolute path")
-        if check_files and (not credential.is_file() or credential.is_symlink()):
-            raise ValueError(f"{key} must reference a regular non-symlinked file")
-        if (
-            check_files
-            and key == "WIND_HUB_COLLECTOR_TLS_KEY"
-            and credential.stat().st_mode & 0o077
-        ):
-            raise ValueError("Collector TLS private key must not be group/other accessible")
-    return result
-
 
 def _document(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
@@ -212,13 +158,6 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         root, {name: getattr(args, name.replace("-", "_")) for name in SERVICE_NAMES}
     )
     _validate_bindings(root, paths, args.mode)
-    certs = (args.ca, args.client_cert, args.client_key)
-    for cert in certs:
-        if not cert.is_file() or cert.is_symlink():
-            raise ValueError(f"missing or symlinked TLS credential: {cert}")
-    if args.client_key.stat().st_mode & 0o077:
-        raise ValueError("TLS client key must not be accessible by group or other users")
-
     if args.mode == "containerd" and (not args.socket.is_absolute() or not args.namespace):
         raise ValueError("containerd requires an absolute socket and a namespace")
     if args.mode == "isulad" and not args.isula.is_absolute():
@@ -227,33 +166,10 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         python = args.python.resolve(strict=True)
         if not python.is_file() or not os.access(python, os.X_OK):
             raise ValueError(f"invalid Python executable: {python}")
-        collector_env = _collector_environment(
-            args.collector_env_file, required=True, check_files=True
-        )
-        collector_env.pop("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
-    else:
-        if args.collector_env_file is not None:
-            raise ValueError("--collector-env-file is supported only for process mode")
-        collector_env = {}
-
-    if args.runtime_prefix is not None and (
-        args.mode != "rpc" or not args.runtime_prefix.is_absolute()
-    ):
-        raise ValueError("--runtime-prefix is supported only for RPC-only CLI mode")
-
-    def client_path(path: Path) -> str:
-        source = path.resolve(strict=True)
-        if args.runtime_prefix is None:
-            return str(source)
-        if not source.is_relative_to(root):
-            raise ValueError(f"TLS material must be under root for container path mapping: {path}")
-        return str(args.runtime_prefix / source.relative_to(root))
-
     services: dict[str, Any] = {}
     for name in SERVICE_NAMES:
         row: dict[str, Any] = {
             "grpc_endpoint": f"127.0.0.1:{PORTS[name]}",
-            "tls_profile": "local",
         }
         if args.mode == "process":
             row.update(
@@ -263,7 +179,7 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
                     "process": {
                         "argv": _argv(name, paths, root, python),
                         "cwd": str(root),
-                        "env": collector_env if name.startswith("collector_") else {},
+                        "env": {},
                         "state_dir": str(root / "state" / "cli-processes"),
                         "log_file": str(root / "logs" / f"{name}.log"),
                     },
@@ -289,20 +205,13 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         services[name] = row
     services["collector"] = {
         "grpc_endpoint": services["collector_realtime"]["grpc_endpoint"],
-        "tls_profile": "local",
     }
     return {
         "schema_version": 1,
         "file_version": "1.0.0",
         "cli": {"timeout_seconds": 30, "output_format": "json"},
         "services": services,
-        "tls_profiles": {
-            "local": {
-                "ca_cert": client_path(args.ca),
-                "client_cert": client_path(args.client_cert),
-                "client_key": client_path(args.client_key),
-            }
-        },
+
     }
 
 
@@ -317,11 +226,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--isula", type=Path, default=Path(shutil.which("isula") or "/usr/bin/isula")
     )
-    parser.add_argument("--ca", type=Path, required=True)
-    parser.add_argument("--client-cert", type=Path, required=True)
-    parser.add_argument("--client-key", type=Path, required=True)
-    parser.add_argument("--collector-env-file", type=Path)
-    parser.add_argument("--runtime-prefix", type=Path, default=None)
     for name, default in DEFAULT_FILES.items():
         parser.add_argument(f"--{name.replace('_', '-')}", default=default)
     args = parser.parse_args(argv)
