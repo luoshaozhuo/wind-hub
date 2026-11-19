@@ -157,10 +157,17 @@ def guarded(
         except MetadataConflict:
             await context.abort(grpc.StatusCode.ALREADY_EXISTS, "Storage idempotency conflict")
             raise AssertionError("abort must terminate RPC")
-        except (ConfigHistoryUnavailable, TDengineSchemaConflict):
+        except TDengineSchemaConflict:
+            self._metrics.record_schema_conflict()
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
-                "historical configuration or storage schema is unavailable",
+                "Storage physical schema or historical conflict is invalid",
+            )
+            raise AssertionError("abort must terminate RPC")
+        except ConfigHistoryUnavailable:
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "historical Configuration closure is unavailable",
             )
             raise AssertionError("abort must terminate RPC")
         except ExportQuotaExceeded:
