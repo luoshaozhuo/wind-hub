@@ -201,7 +201,17 @@ class ConfigurationPointTableResolver:
             points = document.get("points")
             if not isinstance(points, dict) or sample.point_id not in points:
                 raise ConfigHistoryUnavailable("sample point not defined by pinned PointTable")
+            point = points[sample.point_id]
+            if not isinstance(point, dict):
+                raise ConfigHistoryUnavailable("source point has invalid semantic definition")
             if sample.data_level == DataLevel.BUSINESS:
+                source_business_id = point.get("business_point_id")
+                if source_business_id != sample.business_point_id:
+                    # A one-to-many mapping must be explicitly represented by an
+                    # immutable mapping closure; no implicit guessing is allowed.
+                    raise ConfigHistoryUnavailable(
+                        "business point is not bound by this pinned source point"
+                    )
                 if self._business_pin is None:
                     raise ConfigHistoryUnavailable("business point catalog is not pinned")
                 business_id, business_version = self._business_pin
