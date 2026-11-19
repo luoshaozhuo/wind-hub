@@ -15,8 +15,10 @@ from storage_service.application.ingestion import (
     KafkaRecord,
     WriteUnconfirmed,
 )
+from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+from storage_service.infrastructure.adapters.outbound.tdengine_backend import TDengineSchemaConflict
 
 
 _LOG = logging.getLogger(__name__)
@@ -49,12 +51,14 @@ class KafkaStorageConsumer:
         bootstrap_servers: str,
         ingestion: IngestionService,
         metadata: MetadataStore,
+        metrics: StorageRuntimeMetrics,
     ) -> None:
         if not bootstrap_servers:
             raise ValueError("Kafka bootstrap_servers is required")
         self._config = configuration
         self._ingestion = ingestion
         self._metadata = metadata
+        self._metrics = metrics
         self._consumer = AIOKafkaConsumer(
             bootstrap_servers=bootstrap_servers,
             group_id=configuration.kafka.group_id,
@@ -141,6 +145,9 @@ class KafkaStorageConsumer:
                     "Storage Kafka partition blocked: topic=%s partition=%d",
                     tp.topic, tp.partition,
                 )
+            except TDengineSchemaConflict:
+                self._metrics.record_schema_conflict()
+                raise
             except (WriteUnconfirmed, OSError, TimeoutError):
                 _LOG.warning(
                     "Storage Kafka write unconfirmed: topic=%s partition=%d",
