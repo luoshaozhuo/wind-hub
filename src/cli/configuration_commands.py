@@ -116,55 +116,6 @@ def sync_directory(
     _run("configuration sync", invoke())
 
 
-@configuration.command("candidate")
-def candidate(
-    config_type: str,
-    config_id: str,
-    file: Path,
-    expected_revision: int,
-    service: str = "configuration",
-    request_id: str = "",
-    validate_only: bool = False,
-) -> None:
-    """Validate or stage a YAML document at a fixed repository revision."""
-    data = file.read_bytes()
-    _request(
-        "CreateCandidate",
-        pb.CreateCandidateRequest(
-            request_id=request_id or uuid.uuid4().hex,
-            expected_revision_id=expected_revision,
-            documents=[
-                pb.ConfigDocumentInput(
-                    config_id=_identity(config_type, config_id),
-                    file_name=file.name,
-                    yaml_bytes=data,
-                )
-            ],
-            validate_only=validate_only,
-        ),
-        service,
-    )
-
-
-@configuration.command("publish")
-def publish(
-    candidate_id: str,
-    expected_revision: int,
-    service: str = "configuration",
-    request_id: str = "",
-) -> None:
-    """Publish a frozen candidate atomically, without applying business modules."""
-    _request(
-        "PublishCandidate",
-        pb.PublishCandidateRequest(
-            candidate_id=candidate_id,
-            expected_revision_id=expected_revision,
-            request_id=request_id or uuid.uuid4().hex,
-        ),
-        service,
-    )
-
-
 @configuration.command("list")
 def list_configs(
     service: str = "configuration",
