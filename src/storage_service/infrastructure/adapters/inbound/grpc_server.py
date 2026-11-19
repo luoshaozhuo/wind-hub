@@ -133,7 +133,9 @@ class AuthorizationPolicy:
         raise AuthorizationFailure("invalid bearer token")
 
 
-def guarded(operation: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., Coroutine[Any, Any, T]]:
+def guarded(
+    operation: Callable[..., Coroutine[Any, Any, T]],
+) -> Callable[..., Coroutine[Any, Any, T]]:
     """Fail closed with stable gRPC statuses, hiding internal SQL and file paths."""
 
     @wraps(operation)
