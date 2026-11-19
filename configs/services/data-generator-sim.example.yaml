@@ -13,12 +13,8 @@ service:
 output:
   max_inflight: 1
   grpc_timeout_seconds: 3.0
-  # 与 industrial_gateway-sim.example.yaml 的 mTLS 信任根匹配。
-  # 证书由部署/测试设施生成；以下绝对路径不是仓库自带资产。
-  gateway_tls:
-    ca_file: /etc/wind-hub/certs/ca.pem
-    cert_file: /etc/wind-hub/certs/generator.pem
-    key_file: /etc/wind-hub/certs/generator.key
+  # Required bearer credential for outbound Gateway RPC on the controlled network.
+  gateway_token_ref: env:WIND_HUB_GENERATOR_GATEWAY_TOKEN
 buffer:
   max_batches: 128
   max_points_per_batch: 1000
@@ -38,13 +34,11 @@ metrics:
   retain_seconds: 3600
   max_series: 2000
 
-# 安全配置示例：证书需由部署环境提供，且对端证书 CN 与权限键严格匹配。
-# 模型变量写入 RPC 必须通过身份和权限验证，不允许明文访问。
+# Internal gRPC caller identities and operation grants; tokens are env-only.
 security:
-  tls:
-    cert_file: /etc/wind-hub/certs/data-generator.pem
-    key_file: /etc/wind-hub/certs/data-generator.key
-    ca_file: /etc/wind-hub/certs/ca.pem
+  token_sources:
+    cli: env:WIND_HUB_GENERATOR_CLI_TOKEN
+    gateway: env:WIND_HUB_GENERATOR_INPUT_TOKEN
   permissions:
     cli: [variables_read, variables_update]
     gateway: [variables_read, variables_update]
