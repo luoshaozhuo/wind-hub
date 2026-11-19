@@ -16,12 +16,17 @@ class PartitionOffsets:
     _confirmed: set[int] = field(default_factory=set)
     _active: bool = True
 
+    def __post_init__(self) -> None:
+        if self.next_commit_offset < 0:
+            raise ValueError("committed offset must be nonnegative")
+        self.highest_delivered_offset = self.next_commit_offset - 1
+
     def observe(self, *, generation: int, offset: int) -> None:
         self._require_active(generation)
         if offset < self.next_commit_offset:
             raise ValueError("offset already committed")
-        if offset <= self.highest_delivered_offset:
-            raise ValueError("offset delivered out of order")
+        if offset != self.highest_delivered_offset + 1:
+            raise ValueError("offset gap or out-of-order delivery")
         self.highest_delivered_offset = offset
 
     def confirm(self, *, generation: int, offset: int) -> int:
