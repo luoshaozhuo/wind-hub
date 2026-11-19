@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 from typing import Any
 
 import grpc
@@ -21,33 +20,24 @@ class SinkGrpcClient:
         self._timeout = timeout
 
     @staticmethod
-    def _credentials() -> grpc.ChannelCredentials:
-        names = (
-            "WIND_HUB_SINK_CA_CERT",
-            "WIND_HUB_SINK_CLIENT_CERT",
-            "WIND_HUB_SINK_CLIENT_KEY",
-        )
-        paths = tuple(os.environ.get(name) for name in names)
-        if any(not path for path in paths):
-            raise PermissionError("Sink mTLS client credentials are required")
-        ca, cert, key = (Path(path) for path in paths if path is not None)
-        return grpc.ssl_channel_credentials(
-            root_certificates=ca.read_bytes(),
-            private_key=key.read_bytes(),
-            certificate_chain=cert.read_bytes(),
-        )
+    def _authorization() -> tuple[tuple[str, str], ...]:
+        token = os.environ.get("WIND_HUB_SINK_WEB_TOKEN", "")
+        if len(token) < 32 or token.strip() != token:
+            raise PermissionError("Sink web client requires an authorized Bearer token")
+        return (("authorization", f"Bearer {token}"),)
 
     async def list_deliveries(self) -> list[dict[str, Any]]:
         """Read complete paginated Delivery states from the official protobuf API."""
         rows: list[dict[str, Any]] = []
         token = ""
         seen: set[str] = set()
-        async with grpc.aio.secure_channel(self._endpoint, self._credentials()) as channel:
+        async with grpc.aio.insecure_channel(self._endpoint) as channel:
             stub = sink_service_pb2_grpc.SinkServiceStub(channel)
             for _ in range(100):
                 response = await stub.ListDeliveries(
                     sink_service_pb2.ListDeliveriesRequest(page_size=500, page_token=token),
                     timeout=self._timeout,
+                    metadata=self._authorization(),
                 )
                 rows.extend(
                     MessageToDict(
@@ -72,7 +62,7 @@ class SinkGrpcClient:
         """Persist an optimistic-concurrency-checked operator intent."""
         if not revision:
             raise ValueError("Delivery revision is required for a control operation")
-        async with grpc.aio.secure_channel(self._endpoint, self._credentials()) as channel:
+        async with grpc.aio.insecure_channel(self._endpoint) as channel:
             stub = sink_service_pb2_grpc.SinkServiceStub(channel)
             operation = stub.StartDelivery if start else stub.StopDelivery
             result = await operation(
@@ -81,6 +71,7 @@ class SinkGrpcClient:
                     expected_revision=revision,
                 ),
                 timeout=self._timeout,
+                metadata=self._authorization(),
             )
             return MessageToDict(
                 result,
