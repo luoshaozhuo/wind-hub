@@ -162,7 +162,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
             {"gateway_id", "endpoint", "ca_cert", "client_cert", "client_key"},
             f"simulation_targets.{device_id}",
         )
-        fields = ("gateway_id", "endpoint", "ca_cert", "client_cert", "client_key")
+        fields = ("gateway_id", "endpoint", "token_env")
         if any(
             not isinstance(target.get(field), str) or not target[field].strip() for field in fields
         ):
@@ -171,16 +171,12 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         host, separator, port = endpoint.rpartition(":")
         if not separator or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
             raise ValueError(f"simulation_targets.{device_id}: invalid endpoint")
-        paths = (Path(target[field]) for field in ("ca_cert", "client_cert", "client_key"))
-        ca_cert, client_cert, client_key = (
-            p if p.is_absolute() else Path(path).resolve().parent / p for p in paths
-        )
+        if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", target["token_env"]) is None:
+            raise ValueError("simulation target requires env:NAME bearer token")
         simulation_targets[device_id] = SimulationGatewayTarget(
             gateway_id=target["gateway_id"],
             endpoint=endpoint,
-            ca_cert=ca_cert,
-            client_cert=client_cert,
-            client_key=client_key,
+            token_env=target["token_env"],
         )
     dispatch = _mapping(raw.get("dispatcher", {}), "dispatcher")
     timeouts = _mapping(raw.get("timeouts", {}), "timeouts")
