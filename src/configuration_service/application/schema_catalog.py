@@ -180,6 +180,7 @@ _NESTED_FIELDS: dict[str, dict[str, str]] = {
     },
     "security": {
         "callers": "array",
+        "token_sources": "object",
         "permissions": "object",
     },
     "repository": {
