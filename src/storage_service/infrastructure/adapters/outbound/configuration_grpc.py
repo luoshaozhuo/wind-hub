@@ -1,8 +1,7 @@
-"""Read-only Configuration Repository client and immutable Storage bundle loader.
+"""Read-only bearer-authorized Configuration client and immutable bundle loader.
 
-The current repository server still uses mTLS. This adapter intentionally has
-no certificate fallback; connection failure is a deployment gate until the
-repository implements the new trusted-network/token contract.
+No certificate-based fallback, anonymous gRPC call, or latest-version alias is
+allowed. Configuration publishes exact immutable versions for Storage.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import hashlib
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 import grpc
 
