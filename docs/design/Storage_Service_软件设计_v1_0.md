@@ -622,7 +622,7 @@ System Test 必须遵守以下规定：
 
 ## 3.1 系统边界与基线
 
-Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。**这是用户确认的下一阶段目标契约**：当前 main 的 Contracts v1_38 仍采用 `raw/engineering/business`，且 RAW 为协议驱动解码后的标量；新 `raw` 若表示未解码协议载荷，需要 Sink/Collector 后续联合明确数据载荷类型和传输可行性。本版只修改 Storage 设计，不宣称上游改造已经实现。
+Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。**这是用户确认的下一阶段目标契约**：当前 main 的 Contracts v1_38 仍采用 `raw/engineering/business`，且 RAW 为协议驱动解码后的标量；新 `raw` 若表示未解码协议载荷，需要 Sink/Collector 后续联合明确数据载荷类型和传输可行性。本版同步新增 Contracts v1_39 的 Storage RPC 设计，不宣称上游 Producer 已改造。
 
 设计目标依照 `main@dc6af967653bf74d274e8302fe70d4a6015f3417`：总体逻辑架构 v1_22、Collector v1_35、Sink v1_70、Contracts v1_38、Configuration Service v1_15。**不修改上游模块生产代码；Storage 专用接口由 Contracts v1_39 定义，Storage 实现 Server，CLI 在编码阶段实现客户端**；本文件同时规定 Storage 自身内部实现目标；新增 Storage 对外接口统一由 Contracts v1_39 定义，并在未来编码阶段生成 Proto。上述设计中若有尚未落地的消息格式或订阅服务，本文件明确列为集成前置，不称作已可运行。
 
@@ -920,7 +920,7 @@ flowchart TB
 - BUSINESS 存储使用标准 `business_point_id` 和标准 `unit`；RAW/PROTOCOL 使用来源 `point_id` 及本等级定义的值/单位身份，不能混写为同一标准业务列。
 - `data_level` 是**数据处理等级**，与 Kafka `schema_version`（消息结构版本）以及 `point_table_id`（不可变解释规则版本）严格分离。
 
-当前 `src/contracts/sample_batch.py` 仍为 v2，而最新设计规定 Collector→Sink v3 和 Kafka 输出 v2。Storage 设计以目标 Kafka JSON v2 为输入，但**这不是当前 Sink 已经输出的格式**；部署前需要证明实际 Kafka Record 符合该既定目标契约。按用户要求，本次不修改 Sink 或 Contracts。
+当前 `src/contracts/sample_batch.py` 仍为 v2，而最新设计规定 Collector→Sink v3 和 Kafka 输出 v2。Storage 设计以目标 Kafka JSON v2 为输入，但**这不是当前 Sink 已经输出的格式**；部署前需要证明实际 Kafka Record 符合该既定目标契约。本轮不修改 Sink 生产代码或既有 Kafka 契约；仅在 Contracts v1_39 中新增 Storage 专属 RPC。
 
 ## 6.2 PointTable 与版本索引
 
@@ -928,7 +928,7 @@ flowchart TB
 
 Configuration 全局快照可能包含同一个逻辑模板的多个 `file_version`，只要闭包返回就必须分别保留；不得把多个版本按 `template_id` 合并。版本升级时旧记录仍按原 `point_table_id` 查询。
 
-## 6.3 TDengine 物理组织（首版候选，详见第 10 章）
+## 6.3 TDengine 物理组织（规范性 DDL 见 §16.2）
 
 | 层级 | 建议键 | 创建时机 |
 |---|---|---|
@@ -938,7 +938,7 @@ Configuration 全局快照可能包含同一个逻辑模板的多个 `file_versi
 
 SQL 对象名称按第 10 章所规定的版本化、全域唯一、可回查的确定性算法生成，原始身份和映射必须持久化；严禁直接将外部字符串拼接到 SQL 标识符。相同物理 PointTable 若升级只改变注释、不影响 Schema，是否复用超级表为性能选项；**即使物理表复用也必须保留原 `point_table_id` 的可查询身份**。首版优先分版本隔离，避免历史解析歧义。
 
-原 v0_1 提出的“宽表逐点部分列 UPDATE”存在同时间戳缺点覆盖风险。首版候选为**窄记录模型**：一个源样本对应一条逻辑记录，保留 `sample_time`、`sample_id`、测点身份、值、质量及版本关联；数据类型选择（统一变体列或类型化列）需按 TDengine 实际功能实测。不能假定 `(ts,sample_id)` 主键自然支持任意随机字符串或多主键；按 TDengine 3.3.6.13 的实际 DDL/插入实验冻结方案。
+原 v0_1 提出的“宽表逐点部分列 UPDATE”存在同时间戳缺点覆盖风险。首版冻结为**窄记录模型**：一个源样本对应一条逻辑记录，保留 `sample_time`、`sample_id`、测点身份、值、质量及版本关联；类型化列、数据上限及 DDL 统一见 §16.2，目标版本兼容性由 G-01 验证。不能假定 `(ts,sample_id)` 主键自然支持任意随机字符串或多主键；按 TDengine 3.3.6.13 的实际 DDL/插入实验冻结方案。
 
 ## 6.4 Schema 元数据与兼容性
 
@@ -1320,7 +1320,7 @@ flowchart TD
 
 ```sql
 CREATE DATABASE IF NOT EXISTS farm_a
-  PRECISION 'ms' DURATION 10d KEEP 365d
+  PRECISION 'us' DURATION 10d KEEP 365d
   CACHEMODEL 'none' CACHESIZE 1;
 
 ALTER DATABASE farm_a KEEP 365d;
@@ -1404,7 +1404,7 @@ wind_farm_id=farm-a
 
 ## 10.5 列、TAG 与原始身份保存
 
-首版采用**窄表候选**：每个 Kafka SampleItem 对应一条逻辑样本，存储 `sample_time`、样本唯一身份、强制 `data_level TINYINT`、源 `point_id`、BUSINESS `business_point_id`、该等级的类型化值或原始载荷、`quality` 及必要时间字段。列名由固定数据模型定义，例如 `ts`、`sample_key`、`sample_id`、`data_level`、`point_id`、`business_point_id`、`value_*`、`payload_*`、`quality`、`publish_time`、`receive_time`；数据类型由已验证 BusinessPoint 类型选择，**不允许根据任意 Kafka JSON Key 自动新增列**。`value_*` 的实际类型化列方案须在 3.3.6.13 上验证，不以一个 `DOUBLE` 强制承载 `bool`、`uint64` 和字符串而损失精度。
+首版采用**窄表模型**：每个 Kafka SampleItem 对应一条逻辑样本，存储 `sample_time`、样本唯一身份、强制 `data_level TINYINT`、源 `point_id`、BUSINESS `business_point_id`、该等级的类型化值或原始载荷、`quality` 及必要时间字段。列名由固定数据模型定义，例如 `ts`、`sample_key`、`sample_id`、`data_level`、`point_id`、`business_point_id`、`value_*`、`payload_*`、`quality`、`publish_time`、`receive_time`；数据类型由已验证 BusinessPoint 类型选择，**不允许根据任意 Kafka JSON Key 自动新增列**。`value_*` 的类型化列已在 §16.2 冻结，其数据库运行兼容性按 G-01 验证，不以一个 `DOUBLE` 强制承载 `bool`、`uint64` 和字符串而损失精度。
 
 TAG 至少需能够恢复完整设备身份、PointTable ID 和等级语义；如果 TDengine TAG 字节上限不足以直接保存全部字段，则通过受控、持久的**身份映射元数据**保存全值，TAG 保留可校验的稳定键。源 `point_id` 与 `business_point_id` 必须分开保留，且映射从固定版本闭包获得。数据库与表映射不得只放在进程内 LRU；重启后必须可恢复并证明所有权。
 
@@ -1595,7 +1595,7 @@ Kafka Topic/Group、TDengine 地址/认证、DDL 并发、消费背压、查询/
 # kafka.group_id: 必填，非空 Consumer Group
 # tdengine.endpoint: 必填，受控 TDengine 服务地址
 # tdengine.credential_ref: 必填，凭据安全引用，禁止明文
-# tdengine.database.precision: 必填，枚举 ms/us/ns，仅首次建库
+# tdengine.database.precision: 必填，首版固定 us，仅首次建库
 # tdengine.database.duration: 必填，TDengine 时长，如 10d，仅首次建库
 # tdengine.database.keep: 必填，数据保留期，如 365d；须 >= 3*duration
 # tdengine.database.cachemodel: 必填，none/last_row/last_value/both
@@ -1616,7 +1616,7 @@ tdengine:
   endpoint: 127.0.0.1:6041
   credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
   database:
-    precision: ms
+    precision: us
     duration: 10d
     keep: 365d
     cachemodel: none
