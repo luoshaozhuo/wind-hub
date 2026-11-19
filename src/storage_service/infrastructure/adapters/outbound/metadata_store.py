@@ -140,6 +140,20 @@ class MetadataStore:
             PRAGMA user_version=1;
             """
         )
+        expected = {
+            "name", "full_sha256", "identity_json", "schema_fingerprint",
+            "logical_identity_hash", "physical_database", "stable_name",
+            "table_name", "closure_hash", "created_at", "state",
+        }
+        observed = {
+            str(row[1]) for row in connection.execute(
+                "PRAGMA table_info(storage_objects)"
+            ).fetchall()
+        }
+        if observed != expected:
+            raise MetadataConflict(
+                "existing Storage metadata schema requires an explicit migration"
+            )
 
     def _db(self) -> sqlite3.Connection:
         if self._connection is None:
