@@ -27,6 +27,9 @@ from sink_service.application.ports.reliable import ReliableMessagePort
 from sink_service.application.reliable_engine import ReliableDeliveryEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.adapters.inbound.reliable_message import JetStreamMessage
+from sink_service.infrastructure.adapters.outbound.historical_point_table import (
+    HistoricalPointTableClient,
+)
 from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel, encode_kafka_points
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
@@ -66,6 +69,14 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             snapshot, "deliveries", delivery["template_id"], delivery["template_version"]
         )
         self._data_level = cast(DataLevel, delivery_template["output"]["data_level"])
+        sync = snapshot.service.get("config_sync", {})
+        endpoint = sync.get("repository_endpoint", "")
+        token_ref = sync.get("repository_token_ref", "")
+        self._history = (
+            HistoricalPointTableClient(endpoint, token_ref)
+            if endpoint and token_ref
+            else None
+        )
         self.last_error = ""
         self.received_total = 0
         self.received_batches_total = 0
@@ -370,9 +381,17 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         except (NatsTimeoutError, TimeoutError) as exc:
             raise TimeoutError from exc
 
-    def _encode_kafka_points(
+    async def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
+        if self._data_level == "business":
+            if self._history is None:
+                raise ConfigurationError("BUSINESS requires historical repository configuration")
+            table = await self._history.get(batch.point_table_id, batch.device_type)
+            values = {item.sample_id: table.project(item.point_id, item.value) for item in items}
+            return encode_kafka_points(
+                batch, items, data_level=self._data_level, business_values=values
+            )
         return encode_kafka_points(batch, items, data_level=self._data_level)
 
     async def _dead_letter(
