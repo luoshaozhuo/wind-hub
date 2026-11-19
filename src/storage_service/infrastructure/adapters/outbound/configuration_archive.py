@@ -156,6 +156,24 @@ class ConfigurationPointTableResolver:
         self._loaded: dict[tuple[str, str, str], Mapping[str, Any]] = {}
         self._lock = asyncio.Lock()
 
+    def add_immutable_pins(
+        self, *,
+        point_table_versions: Mapping[str, str],
+        business_points_pin: tuple[str, str] | None,
+    ) -> None:
+        """Apply additions only; existing immutable interpretation is never replaced."""
+        if business_points_pin != self._business_pin:
+            raise ConfigHistoryUnavailable(
+                "business semantic version changed; require an explicit migration"
+            )
+        for point_table_id, version_id in point_table_versions.items():
+            old = self._pins.get(point_table_id)
+            if old is not None and old != version_id:
+                raise ConfigHistoryUnavailable(
+                    "existing PointTable ID was rebound to a different immutable version"
+                )
+        self._pins.update(point_table_versions)
+
     async def _load(
         self, *, config_type: str, config_id: str, version_id: str
     ) -> Mapping[str, Any]:
