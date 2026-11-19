@@ -332,8 +332,10 @@ class ConfigurationApplication:
                             model_vid = self.repository.resolve_version(
                                 ConfigIdentity("device_model", model_id), model_version
                             )
-                        except RepositoryNotFoundError:
-                            continue  # External legacy template not yet imported.
+                        except RepositoryNotFoundError as exc:
+                            raise RepositoryConflictError(
+                                f"missing device model {model_id}@{model_version}"
+                            ) from exc
                     references.append((model_vid, "device.model"))
                     model_data = model_payloads.get((model_id, model_version))
                     if model_data is None:
@@ -359,8 +361,10 @@ class ConfigurationApplication:
                             table_vid = self.repository.resolve_version(
                                 ConfigIdentity("point_table", table_id), table_file_version
                             )
-                        except RepositoryNotFoundError:
-                            continue
+                        except RepositoryNotFoundError as exc:
+                            raise RepositoryConflictError(
+                                f"missing point table {table_id}@{table_file_version}"
+                            ) from exc
                     references.append((table_vid, "device.point_table"))
                     device_bindings[str(device_id)] = (model_vid, model_id, table_vid, table_id)
             table_device_type: str | None = None
