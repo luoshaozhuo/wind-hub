@@ -12,9 +12,7 @@ import json
 import os
 import tempfile
 import uuid
-from collections.abc import Callable
 from pathlib import Path
-from typing import Awaitable
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
@@ -46,12 +44,12 @@ class AsyncStorageTasks:
         payload = json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(payload).hexdigest()
 
-    def get_export(self, task_id: str) -> TaskRecord | None:
-        return self._metadata.get_task(task_id, kind="EXPORT")
+    def get_export(self, task_id: str, *, owner_id: str) -> TaskRecord | None:
+        return self._metadata.get_task(task_id, kind="EXPORT", owner_id=owner_id)
 
     async def create_export(
         self, *, request_id: str, filter_: HistoryFilter,
-        export_format: str,
+        export_format: str, owner_id: str,
     ) -> TaskRecord:
         if not request_id or len(request_id) > 256:
             raise ValueError("invalid export request_id")
@@ -64,8 +62,9 @@ class AsyncStorageTasks:
             self._metadata.register_task,
             task_id=task_id, request_id=request_id,
             request_sha256=fingerprint, kind="EXPORT",
+            wind_farm_id=filter_.wind_farm_id, owner_id=owner_id,
         )
-        record = self.get_export(existing)
+        record = self.get_export(existing, owner_id=owner_id)
         if record is None:
             raise RuntimeError("durable export task was not retrievable")
         if existing == task_id:
@@ -88,7 +87,7 @@ class AsyncStorageTasks:
                     task_id, state="SUCCEEDED",
                     artifact_id=artifact[0], size_bytes=artifact[1], sha256=artifact[2],
                 )
-            except Exception as exc:
+            except BaseException as exc:
                 await asyncio.to_thread(
                     self._metadata.set_task_state,
                     task_id, state="FAILED", error_code="EXPORT_FAILED",
@@ -154,7 +153,8 @@ class AsyncStorageTasks:
             if tmp_path is None:
                 raise RuntimeError("temporary export path missing")
             size = tmp_path.stat().st_size
-            digest = hashlib.file_digest(tmp_path.open("rb"), "sha256").hexdigest()
+            with tmp_path.open("rb") as artifact:
+                digest = hashlib.file_digest(artifact, "sha256").hexdigest()
             os.link(tmp_path, output)
             dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
             try:
