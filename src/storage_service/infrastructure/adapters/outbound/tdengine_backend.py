@@ -10,9 +10,12 @@ import asyncio
 import hashlib
 import json
 import os
+import queue
 import re
 import threading
 from collections import defaultdict
+from contextlib import contextmanager
+from collections.abc import Iterator
 from importlib import import_module
 from typing import Any, Protocol, Sequence, cast
 
@@ -117,14 +120,18 @@ def _columns(samples: Sequence[StorageSample], module: _TaosModule) -> list[obje
 
 
 class TDengineBackend:
-    """Single-instance initial adapter; all calls serialized on one connection."""
+    """Bounded taosws connection pool with separately serialized schema DDL."""
 
     def __init__(self, *, config: StorageConfig, metadata: MetadataStore) -> None:
         self._config = config
         self._metadata = metadata
         self._driver: _TaosModule | None = None
-        self._connection: _TaosConnection | None = None
+        self._pool: queue.Queue[_TaosConnection] = queue.Queue(
+            maxsize=config.tdengine.max_inflight_sql
+        )
+        self._pool_size = 0
         self._lock = threading.RLock()
+        self._ddl_lock = threading.RLock()
         self._verified_tables: set[str] = set()
 
     async def open(self) -> None:
@@ -145,28 +152,61 @@ class TDengineBackend:
             raise ValueError("TDengine username or credential environment is missing")
         module = cast(_TaosModule, import_module("taosws"))
         with self._lock:
-            if self._connection is not None:
+            if self._pool_size:
                 raise RuntimeError("TDengine adapter is already open")
-            self._connection = module.connect(
-                user=user, password=password, host=host, port=port
-            )
+            opened: list[_TaosConnection] = []
+            try:
+                for _ in range(self._config.tdengine.max_inflight_sql):
+                    opened.append(
+                        module.connect(user=user, password=password, host=host, port=port)
+                    )
+            except BaseException:
+                for conn in opened:
+                    conn.close()
+                raise
             self._driver = module
+            for conn in opened:
+                self._pool.put_nowait(conn)
+            self._pool_size = len(opened)
 
     async def close(self) -> None:
         await asyncio.to_thread(self._close_sync)
 
     def _close_sync(self) -> None:
         with self._lock:
-            if self._connection is not None:
-                self._connection.close()
-            self._connection = None
+            pool_size = self._pool_size
+            self._pool_size = 0
             self._driver = None
             self._verified_tables.clear()
+        for _ in range(pool_size):
+            try:
+                conn = self._pool.get(
+                    timeout=self._config.tdengine.write_timeout_ms / 1000
+                )
+            except queue.Empty as exc:
+                raise RuntimeError(
+                    "cannot close TDengine: outstanding database operations"
+                ) from exc
+            conn.close()
 
-    def _resources(self) -> tuple[_TaosConnection, _TaosModule]:
-        if self._connection is None or self._driver is None:
-            raise RuntimeError("TDengine connection is not open")
-        return self._connection, self._driver
+    @contextmanager
+    def _borrow_connection(
+        self,
+    ) -> Iterator[tuple[_TaosConnection, _TaosModule]]:
+        with self._lock:
+            driver = self._driver
+        if driver is None:
+            raise RuntimeError("TDengine adapter is not open")
+        try:
+            connection = self._pool.get(
+                timeout=self._config.tdengine.write_timeout_ms / 1000
+            )
+        except queue.Empty as exc:
+            raise TimeoutError("TDengine connection pool exhausted") from exc
+        try:
+            yield connection, driver
+        finally:
+            self._pool.put_nowait(connection)
 
     async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
         await asyncio.to_thread(self._ensure_tables_sync, samples)
@@ -176,8 +216,7 @@ class TDengineBackend:
         return json.dumps(values, ensure_ascii=False, separators=(",", ":"))
 
     def _ensure_tables_sync(self, samples: Sequence[StorageSample]) -> None:
-        with self._lock:
-            connection, _ = self._resources()
+        with self._ddl_lock, self._borrow_connection() as (connection, _):
             retention = DatabaseRetention.parse(
                 duration=self._config.tdengine.database.duration,
                 keep=self._config.tdengine.database.keep,
@@ -288,8 +327,7 @@ class TDengineBackend:
             names = get_object_names(sample, SCHEMA_FINGERPRINT)
             grouped[f"{names.database}.{names.table}"].append(sample)
             result.setdefault(sample.logical_key, set())
-        with self._lock:
-            connection, _ = self._resources()
+        with self._borrow_connection() as (connection, _):
             for table, entries in grouped.items():
                 # TDengine can push the time predicate to partition pruning.
                 # Keep each IN list short and distinct to bound statement size.
@@ -324,8 +362,7 @@ class TDengineBackend:
         for sample in samples:
             names = get_object_names(sample, SCHEMA_FINGERPRINT)
             groups[f"{names.database}.{names.table}"].append(sample)
-        with self._lock:
-            connection, driver = self._resources()
+        with self._borrow_connection() as (connection, driver):
             for table_name, batch in groups.items():
                 if len(batch) > self._config.tdengine.batch_max_records:
                     raise ValueError("TDengine batch record count exceeds configured maximum")
