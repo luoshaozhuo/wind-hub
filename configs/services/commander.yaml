@@ -27,6 +27,9 @@ security:
     - caller_id: gateway
       token_env: env:WIND_HUB_COMMANDER_GATEWAY_TOKEN
       permissions: [control, query]
+    - caller_id: cli
+      token_env: env:WIND_HUB_COMMANDER_OPERATOR_TOKEN
+      permissions: [query, control, reload, recover]
   # recovery:
   #   url: "https://control-fencing.example.invalid:8443/verify-and-fence"
   #   instance_id: "commander-site-a-instance-1"
