@@ -61,6 +61,11 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self._subscription: Any = None
         self._adapter: Any = None
         self._kafka_target = False
+        delivery = snapshot.deliveries[definition.delivery_id]
+        delivery_template = _template(
+            snapshot, "deliveries", delivery["template_id"], delivery["template_version"]
+        )
+        self._data_level = delivery_template["output"]["data_level"]
         self.last_error = ""
         self.received_total = 0
         self.received_batches_total = 0
@@ -368,7 +373,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
     def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
-        return encode_kafka_points(batch, items)
+        return encode_kafka_points(batch, items, data_level=self._data_level)
 
     async def _dead_letter(
         self,
