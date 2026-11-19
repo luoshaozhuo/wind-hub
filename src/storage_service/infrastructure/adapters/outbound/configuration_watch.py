@@ -19,6 +19,9 @@ from storage_service.infrastructure.adapters.outbound.configuration_grpc import 
     StorageBundle,
 )
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+    StorageBundleSnapshot,
+)
 
 _LOG = logging.getLogger(__name__)
 _CONFIG_CHANGED_SUBJECT = "wh.config.changed"
@@ -34,6 +37,7 @@ class StorageConfigurationWatcher:
         bundle: StorageBundle,
         service_id: str,
         servers: Sequence[str], metadata: MetadataStore,
+        snapshot: StorageBundleSnapshot,
     ) -> None:
         if not servers:
             raise ValueError("NATS Core servers must be explicitly configured")
@@ -43,6 +47,7 @@ class StorageConfigurationWatcher:
         self._service_id = service_id
         self._servers = list(servers)
         self._metadata = metadata
+        self._snapshot = snapshot
         self._changed = asyncio.Event()
         self.status = "READY"
 
@@ -68,6 +73,7 @@ class StorageConfigurationWatcher:
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
         )
+        await asyncio.to_thread(self._snapshot.store, updated)
         self._resolver.add_immutable_pins(
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
