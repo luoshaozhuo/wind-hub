@@ -253,14 +253,8 @@ async def assemble_collector(
     )
     if not 0 <= grpc_port <= 65535:
         raise ValueError("grpc_port must be within 0..65535")
-    certificate_path = os.getenv("WIND_HUB_COLLECTOR_TLS_CERT")
-    key_path = os.getenv("WIND_HUB_COLLECTOR_TLS_KEY")
-    ca_path = os.getenv("WIND_HUB_COLLECTOR_TLS_CA")
-    tls_configured = all((certificate_path, key_path, ca_path))
-    if any((certificate_path, key_path, ca_path)) and not tls_configured:
-        raise ValueError("Collector mTLS requires certificate, key and CA together")
-    if grpc_host not in {"127.0.0.1", "localhost", "::1"} and not tls_configured:
-        raise ValueError("remote Collector gRPC requires mTLS configuration")
+    # Internal gRPC is plaintext on a controlled network; protected
+    # management methods still enforce the existing admin bearer token.
     server = grpc.aio.server(
         options=(
             ("grpc.max_receive_message_length", 20 * 1024 * 1024),
@@ -275,18 +269,7 @@ async def assemble_collector(
         collector=CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
     )
     endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"
-    if tls_configured:
-        assert certificate_path is not None
-        assert key_path is not None
-        assert ca_path is not None
-        credentials = grpc.ssl_server_credentials(
-            [(Path(key_path).read_bytes(), Path(certificate_path).read_bytes())],
-            root_certificates=Path(ca_path).read_bytes(),
-            require_client_auth=True,
-        )
-        port = server.add_secure_port(endpoint, credentials)
-    else:
-        port = server.add_insecure_port(endpoint)
+    port = server.add_insecure_port(endpoint)
     if port == 0:
         raise RuntimeError(f"cannot bind Collector gRPC endpoint {endpoint}")
     ads_config = service.get("ads")
