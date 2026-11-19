@@ -64,6 +64,7 @@ _FIELDS: dict[str, dict[str, str]] = {
         "grpc": "object",
         "security": "object",
         "repository": "object",
+        "simulation_targets": "object",
         "audit": "object",
         "timeouts": "object",
         "shutdown": "object",
@@ -182,6 +183,7 @@ _NESTED_FIELDS: dict[str, dict[str, str]] = {
         "callers": "array",
         "token_sources": "object",
         "permissions": "object",
+        "recovery": "object",
     },
     "repository": {
         "sqlite_path": "string",
