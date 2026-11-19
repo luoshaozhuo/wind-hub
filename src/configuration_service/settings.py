@@ -16,6 +16,7 @@ class ServerSettings:
     host: str
     port: int
     token_sources: dict[str, str]
+    nats_servers: tuple[str, ...]
     sqlite_path: Path
     backup_root: Path
     cursor_secret_file: Path
@@ -73,6 +74,7 @@ def load_settings(path: Path) -> ServerSettings:
         "repository",
         "limits",
         "security",
+        "nats",
     }
     if set(raw) != allowed_root:
         raise ValueError("invalid bootstrap configuration root fields")
@@ -80,6 +82,7 @@ def load_settings(path: Path) -> ServerSettings:
     repository = _mapping(raw["repository"], "repository")
     limits = _mapping(raw["limits"], "limits")
     security = _mapping(raw["security"], "security")
+    nats_config = _mapping(raw["nats"], "nats")
 
     def assert_fields(value: dict[str, Any], allowed: set[str], name: str) -> None:
         unexpected = set(value) - allowed
@@ -89,6 +92,12 @@ def load_settings(path: Path) -> ServerSettings:
     assert_fields(grpc_config, {"host", "port"}, "grpc")
     assert_fields(repository, {"sqlite_path", "backup_root"}, "repository")
     assert_fields(security, {"cursor_secret_file", "token_sources", "permissions"}, "security")
+    assert_fields(nats_config, {"servers"}, "nats")
+    servers = nats_config["servers"]
+    if not isinstance(servers, list) or not servers or any(
+        not isinstance(item, str) or not item.startswith("nats://") for item in servers
+    ):
+        raise ValueError("nats.servers must be nonempty nats:// endpoints")
     assert_fields(
         limits,
         {
@@ -134,6 +143,7 @@ def load_settings(path: Path) -> ServerSettings:
         host=_text(grpc_config["host"], "grpc.host"),
         port=_number(grpc_config["port"], "grpc.port", 1, 65535),
         token_sources=sources,
+        nats_servers=tuple(servers),
         sqlite_path=_file(repository["sqlite_path"], "repository.sqlite_path"),
         backup_root=_file(repository["backup_root"], "repository.backup_root"),
         cursor_secret_file=_file(security["cursor_secret_file"], "security.cursor_secret_file"),
