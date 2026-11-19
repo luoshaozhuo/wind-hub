@@ -249,6 +249,7 @@ async def test_e2e_08_executes_all_73_cli_leaves(full_chain: FullChainHarness) -
     left.mkdir(exist_ok=True)
     right.mkdir(exist_ok=True)
     empty_snapshot.mkdir(exist_ok=True)
+    (empty_snapshot / "snapshot_probe.yaml").write_text("probe: true\n", encoding="utf-8")
     await execute("config diff", "config", "diff", str(left), str(right))
     await execute("config get", "config", "get", "gateway", "--scope", "disk")
     await execute(
