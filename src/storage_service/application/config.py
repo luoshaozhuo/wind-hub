@@ -138,12 +138,40 @@ class ReconciliationConfig(_StrictModel):
     owner_instance_id: str = Field(min_length=1, max_length=256)
 
 
+class GrpcConfig(_StrictModel):
+    listen_host: Literal["127.0.0.1", "::1"] = "127.0.0.1"
+    listen_port: int = Field(default=51110, ge=1, le=65535)
+    max_active_rpcs: int = Field(default=64, ge=1, le=512)
+
+
+class CallerPermission(_StrictModel):
+    token_env: str
+    permissions: list[Literal[
+        "storage.read", "storage.export", "storage.backup",
+        "storage.inspect", "storage.operate", "storage.admin",
+    ]] = Field(min_length=1)
+    wind_farms: list[str] = Field(min_length=1)
+
+    @field_validator("token_env")
+    @classmethod
+    def validate_token_env(cls, value: str) -> str:
+        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", value) is None:
+            raise ValueError("caller token_env must be an environment variable name")
+        return value
+
+
+class AuthConfig(_StrictModel):
+    callers: list[CallerPermission] = Field(min_length=1)
+
+
 class StorageConfig(_StrictModel):
     schema_version: Literal[1]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
     config_sources: list[FixedConfigSource] = Field(default_factory=list)
     kafka: KafkaConfig
+    grpc: GrpcConfig
+    auth: AuthConfig
     tdengine: TDengineConfig
     configuration: ConfigurationConfig
     query: QueryConfig
@@ -161,6 +189,9 @@ class StorageConfig(_StrictModel):
 
     @model_validator(mode="after")
     def check_identity(self) -> StorageConfig:
+        names = [item.token_env for item in self.auth.callers]
+        if len(names) != len(set(names)):
+            raise ValueError("caller token environment names must be unique")
         identities = [(item.config_type, item.config_id) for item in self.config_sources]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate exact ConfigSource identities")
