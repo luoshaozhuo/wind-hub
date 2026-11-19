@@ -171,6 +171,7 @@ class StorageConfig(_StrictModel):
     schema_version: Literal[1]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
+    allowed_wind_farms: list[str] = Field(min_length=1)
     config_sources: list[FixedConfigSource] = Field(default_factory=list)
     kafka: KafkaConfig
     grpc: GrpcConfig
@@ -192,6 +193,11 @@ class StorageConfig(_StrictModel):
 
     @model_validator(mode="after")
     def check_identity(self) -> StorageConfig:
+        if any(
+            not farm or len(farm.encode("utf-8")) > 256
+            for farm in self.allowed_wind_farms
+        ) or len(set(self.allowed_wind_farms)) != len(self.allowed_wind_farms):
+            raise ValueError("allowed_wind_farms must be unique bounded identities")
         names = [item.token_env for item in self.auth.callers]
         if len(names) != len(set(names)):
             raise ValueError("caller token environment names must be unique")
