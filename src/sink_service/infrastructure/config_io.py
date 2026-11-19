@@ -37,7 +37,11 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
     except (UnicodeError, ConfigOperationError) as exc:
         raise ConfigurationError(f"{item.path}: invalid YAML") from exc
     doc = expect_mapping(raw, item.path)
-    require_version(doc, item.path)
+    if item.path == "configs/services/sink_service.yaml":
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != 2:
+            raise ConfigurationError("Sink Service requires token-security schema")
+    else:
+        require_version(doc, item.path)
     if item.path.startswith("configs/templates/sinks/"):
         require_keys(
             doc,
