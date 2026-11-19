@@ -5,6 +5,7 @@
 # grpc.host: 必填；监听主机/IP
 # grpc.port: 必填；1..65535
 # grpc: 受控内网 gRPC，不启用 TLS/mTLS；跨主机必须通过网络隔离保障安全。
+# nats.servers: 必填非空 nats:// URI 列表，NATS Core 广播主题固定 wh.config.changed。
 # repository.sqlite_path: 必填；SQLite 数据库绝对路径
 # repository.backup_root: 必填；受控备份根目录绝对路径
 # security.cursor_secret_file: 必填；绝对路径；至少 32 字节随机密钥
@@ -27,6 +28,8 @@ service_id: configuration-main
 grpc:
   host: 127.0.0.1
   port: 51060
+nats:
+  servers: [nats://127.0.0.1:4222]
 repository:
   sqlite_path: /var/lib/wind-hub/configuration/configuration.db
   backup_root: /var/backups/wind-hub/configuration
