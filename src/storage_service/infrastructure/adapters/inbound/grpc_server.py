@@ -96,6 +96,7 @@ class AuthorizationPolicy:
 
     def __init__(self, config: StorageConfig) -> None:
         self._callers = config.auth.callers
+        self._farms = frozenset(config.allowed_wind_farms)
         supplied = [os.environ.get(caller.token_env) for caller in self._callers]
         if any(not token or len(token) < 32 for token in supplied):
             raise ValueError("all Storage caller tokens require 32+ bytes")
@@ -126,6 +127,8 @@ class AuthorizationPolicy:
             if farm is None:
                 if global_scope and "storage.admin" not in caller.permissions:
                     raise AuthorizationFailure("global operation requires Storage admin")
+            elif farm not in self._farms:
+                raise AuthorizationFailure("Storage is not provisioned for this wind farm")
             elif farm not in caller.wind_farms and not (
                 "*" in caller.wind_farms and "storage.admin" in caller.permissions
             ):
