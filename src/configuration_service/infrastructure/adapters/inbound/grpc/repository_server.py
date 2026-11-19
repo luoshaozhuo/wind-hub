@@ -146,11 +146,13 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         token_sources: dict[str, str],
         cursor_secret: bytes,
         submit_backup: Callable[[str], None],
+        notify_revision: Callable[[int], None],
         metrics: RpcMetrics,
     ) -> None:
         self.app = application
         self.metrics = metrics
         self.submit_backup = submit_backup
+        self.notify_revision = notify_revision
         self.permissions = permissions
         self.token_sources = token_sources
         if set(permissions) != set(token_sources):
@@ -276,6 +278,11 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             )
             for doc, version_id in zip(docs, result.version_ids, strict=True)
         ]
+        if not result.replayed:
+            try:
+                self.notify_revision(result.revision_id)
+            except Exception:
+                _LOG.warning("NATS hint enqueue failed; published revision remains durable")
         return pb.PublishCandidateResponse(
             revision_id=result.revision_id,
             published=items,
