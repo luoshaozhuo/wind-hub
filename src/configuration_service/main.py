@@ -24,6 +24,9 @@ from configuration_service.infrastructure.adapters.inbound.grpc.common_server im
 from configuration_service.infrastructure.adapters.inbound.grpc.repository_server import (
     RepositoryServicer,
 )
+from configuration_service.infrastructure.adapters.outbound.nats_revision_publisher import (
+    NatsRevisionPublisher,
+)
 from configuration_service.infrastructure.adapters.outbound.sqlite.backup import (
     SQLiteBackupManager,
 )
@@ -55,6 +58,8 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
     )
     backups = SQLiteBackupManager(repository, settings.backup_root)
     server: grpc.Server | None = None
+    publisher = NatsRevisionPublisher(servers=settings.nats_servers)
+    publisher.start()
     try:
         interrupted = backups.recover()
         if interrupted:
@@ -114,6 +119,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             token_sources=settings.token_sources,
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
+            notify_revision=publisher.enqueue,
             metrics=rpc_metrics,
         )
         common_servicer = CommonServicer(
@@ -157,6 +163,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         while not should_stop:
             signal.pause()
     finally:
+        publisher.close()
         if server is not None:
             server.stop(grace=5).wait(timeout=10)
         backup_pool.shutdown(wait=True, cancel_futures=False)
