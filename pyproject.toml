@@ -256,6 +256,24 @@ root_packages = [
 
 
 [[tool.importlinter.contracts]]
+name = "storage-service 三层依赖方向"
+type = "layers"
+layers = [
+    "storage_service.infrastructure",
+    "storage_service.application",
+    "storage_service.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "storage-service 不得依赖其他业务进程包"
+type = "forbidden"
+source_modules = ["storage_service"]
+forbidden_modules = [
+    "collector", "commander", "cli", "sink_service", "data_generator",
+    "industrial_gateway", "web_server", "configuration_service",
+]
+
+[[tool.importlinter.contracts]]
 name = "configuration-service 三层依赖方向"
 type = "layers"
 layers = [
