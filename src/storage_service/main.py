@@ -22,6 +22,9 @@ from storage_service.infrastructure.adapters.outbound.configuration_archive impo
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
 )
+from storage_service.infrastructure.adapters.outbound.configuration_watch import (
+    StorageConfigurationWatcher,
+)
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
@@ -116,6 +119,14 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 except BaseException:
                     await consumer.stop()
                     raise
+                watcher = StorageConfigurationWatcher(
+                    client=configuration, resolver=point_tables,
+                    bundle=bundle, service_id=bootstrap.service_id,
+                    servers=bootstrap.nats.servers,
+                )
+                watching = asyncio.create_task(
+                    watcher.run(stop_event), name="storage-configuration-watch"
+                )
                 consume = asyncio.create_task(
                     consumer.run(), name="storage-kafka-ingest"
                 )
@@ -130,6 +141,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                         # A failed worker cannot be hidden behind an idle process.
                         await consume
                 finally:
+                    stop_event.set()
                     consumer.request_stop()
                     await server.stop(grace=3)
                     stopping.cancel()
@@ -140,6 +152,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                         consume.cancel()
                         await asyncio.gather(consume, return_exceptions=True)
                         raise RuntimeError("Storage Kafka worker failed to stop in deadline")
+                    await asyncio.wait_for(watching, timeout=10)
                     await jobs.close()
             finally:
                 await storage.close()
