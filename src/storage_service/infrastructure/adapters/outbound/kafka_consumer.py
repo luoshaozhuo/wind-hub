@@ -181,6 +181,34 @@ class KafkaStorageConsumer:
         finally:
             await self._consumer.stop()
 
+    async def retry_blocked_partition(
+        self, *, request_id: str, topic: str, partition: int, expected_offset: int
+    ) -> bool:
+        """Accept a retry only when durable blocked evidence still matches."""
+        if topic != self._config.kafka.topic or partition < 0:
+            raise ValueError("partition is not part of this Storage consumer")
+        accepted = self._metadata.request_partition_retry(
+            request_id=request_id,
+            topic=topic,
+            partition=partition,
+            expected_offset=expected_offset,
+        )
+        if not accepted:
+            return False
+        tp = TopicPartition(topic, partition)
+        state = self._assignments.get(tp)
+        if state is not None and state.blocked and tp in self._consumer.assignment():
+            # Restart at the exact failed record. Never resume at the next offset.
+            self._consumer.seek(tp, expected_offset)
+            state.offsets = PartitionOffsets(
+                partition=partition,
+                generation=state.generation,
+                next_commit_offset=state.offsets.next_commit_offset,
+            )
+            state.blocked = False
+            self._consumer.resume(tp)
+        return True
+
     def request_stop(self) -> None:
         self._stop.set()
 
