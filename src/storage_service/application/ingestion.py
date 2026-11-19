@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
@@ -155,6 +154,3 @@ class IngestionService:
             replayed_records=replayed,
         )
 
-
-def record_digest(record: KafkaRecord) -> str:
-    return hashlib.sha256(record.value).hexdigest()
