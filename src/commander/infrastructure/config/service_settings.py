@@ -159,7 +159,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         target = _mapping(raw_target, f"simulation_targets.{device_id}")
         _keys(
             target,
-            {"gateway_id", "endpoint", "ca_cert", "client_cert", "client_key"},
+            {"gateway_id", "endpoint", "token_env"},
             f"simulation_targets.{device_id}",
         )
         fields = ("gateway_id", "endpoint", "token_env")
