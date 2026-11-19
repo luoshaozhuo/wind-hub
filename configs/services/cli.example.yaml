@@ -1,5 +1,9 @@
 # Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
 # in the CLI process environment. Never put the token value in this YAML.
+# Configuration CLI RPC: WIND_HUB_CONFIG_CLI_TOKEN (32+ secret bytes).
+# Storage CLI RPC: WIND_HUB_STORAGE_OPERATOR_TOKEN (32+ secret bytes).
+# Configuration and Storage use internal plaintext gRPC with bearer authorization;
+# business service TLS configurations remain separate pending coordinated migration.
 schema_version: 1
 file_version: "1.0.0"
 cli:
