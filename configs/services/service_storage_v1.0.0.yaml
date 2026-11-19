@@ -1,6 +1,9 @@
 # Storage Service v1: central Configuration business document.
 # schema_version: required int 1; file_version: required semantic triple MAJOR.MINOR.PATCH.
 # service_id: required nonempty string <= 256 bytes.
+# config_sources: optional list of fixed Configuration references {config_type,config_id,file_version};
+#   valid config_type: point_table|business_points|units; each identity/version must be pinned.
+#   Empty list disables ingestion until the real site templates are explicitly referenced.
 # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
 #   max_partition_workers [1,64] partitions; max_buffer_records [100,100000] records;
 #   max_buffer_bytes [1048576,536870912] bytes; commit_interval_ms [100,10000] ms.
@@ -26,6 +29,7 @@
 schema_version: 1
 file_version: 1.0.0
 service_id: storage-main
+config_sources: []
 kafka:
   topic: windhub-history
   group_id: storage-main
