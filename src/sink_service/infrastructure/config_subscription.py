@@ -83,10 +83,7 @@ def _payloads(bundle: pb.GetConfigBundleResponse) -> dict[str, bytes]:
         if hashlib.sha256(semantic).hexdigest() != item.content_sha256:
             raise ConfigurationError("Configuration bundle semantic hash mismatch")
         files[path] = data
-    if (
-        digest.hexdigest() != bundle.manifest_sha256
-        or total != bundle.total_bytes
-    ):
+    if digest.hexdigest() != bundle.manifest_sha256 or total != bundle.total_bytes:
         raise ConfigurationError("Configuration bundle manifest mismatch")
     return files
 
@@ -124,9 +121,7 @@ def _local_snapshot(files: Mapping[str, bytes]) -> tuple[SnapshotFile, ...]:
 class ConfigurationSubscriber:
     """Converge independently after reconnect or lost broadcast."""
 
-    def __init__(
-        self, manager: ConfigManager, service: dict[str, Any]
-    ) -> None:
+    def __init__(self, manager: ConfigManager, service: dict[str, Any]) -> None:
         sync = service["config_sync"]
         self._endpoint: str = sync["repository_endpoint"]
         self._token_ref: str = sync["repository_token_ref"]
@@ -169,15 +164,16 @@ class ConfigurationSubscriber:
             self._revision = current.revision_id
             return
         wire = [
-            (item.path, item.content, len(item.content), hashlib.sha256(item.content).hexdigest())
+            (
+                item.path,
+                item.content,
+                len(item.content),
+                hashlib.sha256(item.content).hexdigest(),
+            )
             for item in local
         ]
-        candidate_id, _ = await self._manager.push(
-            wire, self._manager.disk.revision
-        )
-        result = await self._manager.apply(
-            candidate_id, self._manager.disk.revision
-        )
+        candidate_id, _ = await self._manager.push(wire, self._manager.disk.revision)
+        result = await self._manager.apply(candidate_id, self._manager.disk.revision)
         self._revision = current.revision_id
         if result.restart_required or result.pending or result.error:
             _LOG.warning(
@@ -210,7 +206,10 @@ class ConfigurationSubscriber:
                         await client.subscribe(_SUBJECT, cb=on_notice)
                         wake.set()
                     except Exception:
-                        _LOG.warning("Sink revision broadcast unavailable; polling", exc_info=True)
+                        _LOG.warning(
+                            "Sink revision broadcast unavailable; polling",
+                            exc_info=True,
+                        )
                         if client is not None:
                             await client.close()
                         client = None
