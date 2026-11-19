@@ -33,11 +33,13 @@ class DatabaseConfig(_StrictModel):
 
     @model_validator(mode="after")
     def validate_retention(self) -> DatabaseConfig:
-        from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
-            DatabaseRetention,
-        )
-
-        DatabaseRetention.parse(duration=self.duration, keep=self.keep)
+        pattern = r"[1-9][0-9]*d"
+        if not re.fullmatch(pattern, self.duration) or not re.fullmatch(pattern, self.keep):
+            raise ValueError("retention requires positive integer days")
+        duration_days = int(self.duration[:-1])
+        keep_days = int(self.keep[:-1])
+        if keep_days < 3 * duration_days:
+            raise ValueError("KEEP must cover at least three DURATION intervals")
         return self
 
 
