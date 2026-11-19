@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -30,7 +31,7 @@ class StorageBundle:
 
     configuration: StorageConfig
     revision_id: int
-    point_table_versions: dict[str, str]
+    point_table_versions: dict[str, tuple[str, str]]
     business_points_pin: tuple[str, str] | None
 
 
@@ -172,11 +173,18 @@ class ConfigurationGrpcClient:
         # Persist complete closure before acknowledging the new config generation.
         for document in objects.values():
             await asyncio.to_thread(self._archive.persist, document)
-        points = {
-            key[1]: document.version_id
-            for key, document in objects.items()
-            if key[0] == "point_table" and key in required
-        }
+        points: dict[str, tuple[str, str]] = {}
+        for key, document in objects.items():
+            if key[0] != "point_table" or key not in required:
+                continue
+            # A source sample identifies the *full* immutable PointTable:
+            # point_table_<template_id>_v<file_version>, not a repository
+            # config_id or random UUID version_id.
+            file_version = file_versions[key]
+            table_identity = f"point_table_{key[1]}_v{file_version}"
+            if len(table_identity.encode("utf-8")) > 256:
+                raise ConfigHistoryUnavailable("PointTable identity exceeds wire limit")
+            points[table_identity] = (key[1], document.version_id)
         business = [key for key in objects if key[0] == "business_points"]
         if len(business) > 1:
             raise ConfigHistoryUnavailable("ambiguous business point catalog")
