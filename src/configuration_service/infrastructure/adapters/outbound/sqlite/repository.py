@@ -615,7 +615,7 @@ class SQLiteRepository:
                             "immutable document file_version redefined with different semantics"
                         )
                     original = connection.execute(
-                        "SELECT yaml_sha256 FROM revision_files "
+                        "SELECT relative_path, yaml_sha256 FROM revision_files "
                         "WHERE version_id = ? ORDER BY revision_id, relative_path LIMIT 1",
                         (version.version_id,),
                     ).fetchone()
@@ -626,6 +626,10 @@ class SQLiteRepository:
                     if str(original["yaml_sha256"]) != str(_item["yaml_sha256"]):
                         raise RepositoryConflictError(
                             "immutable file_version YAML bytes changed; publish a new version"
+                        )
+                    if str(original["relative_path"]) != str(_item["relative_path"]):
+                        raise RepositoryConflictError(
+                            "immutable file_version path changed; publish a new version"
                         )
             # An immutable version can remain in historical queries after
             # deprecation, but cannot be silently reactivated by a new root.

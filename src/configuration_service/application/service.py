@@ -291,6 +291,10 @@ class ConfigurationApplication:
                 raise RepositoryConflictError(
                     "immutable YAML bytes changed; increment file_version"
                 )
+            if old_source[0] != source_file.relative_path:
+                raise RepositoryConflictError(
+                    "immutable configuration path changed; increment file_version"
+                )
         if validate_only:
             return "", prepared
         candidate_id = self.repository.create_candidate(

@@ -165,7 +165,8 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             repository_servicer, server
         )
         common_pb2_grpc.add_CommonServiceServicer_to_server(common_servicer, server)
-        bind = f"{settings.host}:{settings.port}"
+        host = f"[{settings.host}]" if ":" in settings.host else settings.host
+        bind = f"{host}:{settings.port}"
         if server.add_insecure_port(bind) == 0:
             raise RuntimeError("failed to bind Configuration Service endpoint")
         server.start()
