@@ -11,12 +11,12 @@ from sink_service.domain.config import (
     expect_nonempty_str,
     expect_positive_int,
     require_keys,
-    require_version,
 )
 
 
 def validate_service(service: dict[str, Any]) -> None:
-    require_version(service, "service")
+    if type(service.get("schema_version")) is not int or service["schema_version"] != 2:
+        raise ConfigurationError("Sink Service requires the token-security service schema")
     for field in ("service_id", "wind_farm_id", "deployment_id"):
         expect_nonempty_str(service.get(field), f"service.{field}")
     config_sources(service)
