@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import NoReturn, Protocol
 
+from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.domain.sample import StorageSample
 
@@ -85,6 +86,7 @@ class IngestionService:
         storage: StorageBackend,
         point_tables: PointTableResolver,
         evidence: PoisonEvidence,
+        metrics: StorageRuntimeMetrics,
         max_batch_records: int = 1000,
         max_batch_bytes: int = 1048576,
     ) -> None:
@@ -93,6 +95,7 @@ class IngestionService:
         self._storage = storage
         self._point_tables = point_tables
         self._evidence = evidence
+        self._metrics = metrics
         self._max_batch_records = max_batch_records
         self._max_batch_bytes = max_batch_bytes
 
@@ -172,6 +175,7 @@ class IngestionService:
                 await self._storage.insert_batch(tuple(missing.values()))
             except Exception as exc:
                 # UNKNOWN is not FAILURE: verify every durable row before progressing.
+                self._metrics.record_unknown()
                 failed = exc
 
         try:
@@ -192,6 +196,7 @@ class IngestionService:
         # Readback proves *every* logical key before a single offset advances.
         for entry in batch:
             offsets.confirm(generation=generation, offset=entry.record.offset)
+        self._metrics.record_persisted(len(missing))
         return len(batch), replayed
 
     async def process(
