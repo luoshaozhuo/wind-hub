@@ -253,8 +253,9 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
     for name in SERVICE_NAMES:
         row: dict[str, Any] = {
             "grpc_endpoint": f"127.0.0.1:{PORTS[name]}",
-            "tls_profile": "local",
         }
+        if name != "sink":
+            row["tls_profile"] = "local"
         if args.mode == "process":
             row.update(
                 {
@@ -293,7 +294,7 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
     }
     return {
         "schema_version": 1,
-        "file_version": "1.0.0",
+        "file_version": "1.1.0",
         "cli": {"timeout_seconds": 30, "output_format": "json"},
         "services": services,
         "tls_profiles": {
