@@ -427,6 +427,14 @@ class ConfigurationApplication:
                         (str(columns["business_config_version_id"]), "point.business")
                     )
                     references.append((str(columns["source_unit_version_id"]), "point.unit"))
+            # The active directory revision must own the entire referenced
+            # closure. Historical immutable versions remain queryable, but
+            # cannot silently satisfy a missing current-directory file.
+            staged_version_ids = set(new_ids.values())
+            if any(target not in staged_version_ids for target, _ in references):
+                raise RepositoryConflictError(
+                    "full-directory publication omitted a required dependency"
+                )
             canonical_refs = tuple(sorted(set(references)))
             version_key = (
                 document.identity.config_type,
