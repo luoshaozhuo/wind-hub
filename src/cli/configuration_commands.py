@@ -196,13 +196,26 @@ def versions(
 @configuration.command("get")
 def get(
     config_type: str,
-    config_id: str,
-    output: Path,
+    config_id: str = "",
+    output: Path | None = None,
     version_id: str = "",
     revision_id: int = -1,
     service: str = "configuration",
+    scope: str = "",
+    candidate_id: str = "",
 ) -> None:
-    """Save verified full-Header YAML from an exact version or revision."""
+    """Export Repository YAML, or explicitly query a service snapshot with --scope."""
+    if scope:
+        if config_id or version_id or revision_id >= 0:
+            raise typer.BadParameter("snapshot scope cannot use Repository selectors")
+        from .snapshot_commands import get_snapshot
+
+        get_snapshot(config_type, scope, output, candidate_id)
+        return
+    if candidate_id:
+        raise typer.BadParameter("--candidate-id requires --scope candidate")
+    if not config_id or output is None:
+        raise typer.BadParameter("Repository get requires config_id and output")
     if (not version_id) == (revision_id < 0):
         raise typer.BadParameter("provide exactly one of version_id or revision_id")
     req = pb.GetConfigRequest(config_id=_identity(config_type, config_id))
@@ -463,3 +476,23 @@ def backup(service: str = "configuration", label: str = "", request_id: str = ""
 @configuration.command("backup-status")
 def backup_status(task_id: str, service: str = "configuration") -> None:
     _request("GetBackupTask", pb.GetBackupTaskRequest(task_id=task_id), service)
+
+@configuration.command("push")
+def push_snapshot_command(target: str, directory: Path) -> None:
+    """Stage a complete configuration snapshot in one service."""
+    from .snapshot_commands import push_snapshot
+
+    push_snapshot(target, directory)
+
+
+@configuration.command("apply")
+def apply_snapshot_command(
+    target: str,
+    candidate_id: str,
+    expected_revision: str = "",
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Apply a staged service snapshot with explicit confirmation."""
+    from .snapshot_commands import apply_snapshot
+
+    apply_snapshot(target, candidate_id, expected_revision, yes)
