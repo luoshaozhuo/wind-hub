@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import grpc
 import yaml
 
 from storage_service.domain.sample import DataLevel, StorageSample
@@ -174,6 +175,18 @@ class ConfigurationPointTableResolver:
                             raise ConfigHistoryUnavailable("repository returned wrong version")
                         await asyncio.to_thread(self._archive.persist, document)
                     except (OSError, ConnectionError, TimeoutError):
+                        document = await asyncio.to_thread(
+                            self._archive.load,
+                            config_type=config_type, config_id=config_id,
+                            version_id=version_id,
+                        )
+                    except grpc.RpcError as exc:
+                        if exc.code() not in (
+                            grpc.StatusCode.UNAVAILABLE,
+                            grpc.StatusCode.DEADLINE_EXCEEDED,
+                            grpc.StatusCode.NOT_FOUND,
+                        ):
+                            raise
                         document = await asyncio.to_thread(
                             self._archive.load,
                             config_type=config_type, config_id=config_id,
