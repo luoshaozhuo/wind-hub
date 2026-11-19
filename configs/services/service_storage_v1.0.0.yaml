@@ -28,6 +28,7 @@
 #   max_concurrent [1,32]; timeout_ms [100,120000] ms.
 # export.root: authorized absolute directory; max_jobs [1,16];
 #   max_bytes [1048576,10737418240] bytes.
+# backup.enabled: false until target TDengine 3.3.6.13 secure taosdump auth/restore Spike passes.
 # backup.root: authorized absolute directory; max_jobs [1,4];
 #   max_bytes [1048576,1099511627776] bytes; timeout_s [30,14400] seconds.
 # retry.initial_ms [100,60000], max_ms [1000,600000] and >= initial_ms;
@@ -86,6 +87,7 @@ export:
   max_jobs: 2
   max_bytes: 1073741824
 backup:
+  enabled: false
   root: /var/lib/wind-hub/storage/backups
   max_jobs: 1
   max_bytes: 53687091200
