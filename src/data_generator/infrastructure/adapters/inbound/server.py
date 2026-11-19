@@ -465,7 +465,7 @@ class CommonService(common_rpc.CommonServiceServicer):
                 for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
                 if (
                     m.name not in {"ListVariables", "UpdateVariables", "GetInputExecution"}
-                    or bool(self.runtime.settings.service.get("security", {}).get("tls"))
+                    or bool(self.runtime.settings.service.get("security", {}).get("token_sources"))
                 )
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
