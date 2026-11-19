@@ -246,6 +246,9 @@ class TDengineBackend:
                     for name, digest, identity in identities
                 ]
                 connection.execute(create_database_sql(names, retention))
+                # IF NOT EXISTS is never evidence of matching deployed retention.
+                # Require the physical DB to report the expected us/DURATION/KEEP.
+                self._verify_database(connection, names, retention)
                 connection.execute(create_stable_sql(names))
                 connection.execute(
                     create_table_sql(
@@ -276,6 +279,29 @@ class TDengineBackend:
                 # Single managed process: once readback verified, future batches
                 # must not emit DDL or repeat expensive schema/ownership checks.
                 self._verified_tables.add(names.table)
+
+    @staticmethod
+    def _verify_database(
+        connection: _TaosConnection, names: StorageObjectNames,
+        retention: DatabaseRetention,
+    ) -> None:
+        """Refuse to adopt an existing database with unknown destructive settings."""
+        rows = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
+        if len(rows) != 1 or len(rows[0]) < 2:
+            raise TDengineSchemaConflict("database DDL readback failed")
+        definition = str(rows[0][-1]).upper().replace("`", "")
+        if not (
+            re.search(r"\\bPRECISION\\s+['\\\"]?US['\\\"]?", definition)
+            and re.search(
+                rf"\\bDURATION\\s+{retention.duration_days}D\\b", definition
+            )
+            and re.search(
+                rf"\\bKEEP\\s+{retention.keep_days}D\\b", definition
+            )
+        ):
+            raise TDengineSchemaConflict(
+                "TDengine database precision or retention differs from frozen policy"
+            )
 
     @staticmethod
     def _verify_table(
