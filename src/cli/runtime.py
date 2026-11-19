@@ -219,9 +219,10 @@ def load_config(path: Path) -> CLIConfig:
             and (not isinstance(isula_binary, str) or not Path(isula_binary).is_absolute())
         ):
             raise ValueError(f"{name}.isula_binary must be absolute")
-        if name == "configuration" and profile is not None:
-            raise ValueError("Configuration internal gRPC no longer supports TLS profiles")
-        if endpoint is not None and name != "configuration" and profile is None:
+        internal_token_services = {"configuration", "sink"}
+        if name in internal_token_services and profile is not None:
+            raise ValueError(f"{name} internal gRPC no longer supports TLS profiles")
+        if endpoint is not None and name not in internal_token_services and profile is None:
             raise ValueError(f"{name}.tls_profile is required")
         targets[name] = ServiceTarget(
             name,
@@ -304,7 +305,7 @@ class Runtime:
                 ("grpc.max_send_message_length", max_message),
                 ("grpc.max_receive_message_length", max_message),
             )
-            if target.service_id == "configuration":
+            if target.service_id in {"configuration", "sink"}:
                 # The Configuration endpoint must be reachable only on the
                 # deployment's isolated internal network; the CLI supplies
                 # per-caller bearer authorization via RPC metadata.
@@ -343,10 +344,16 @@ class Runtime:
             "ReadPoints",
             "InterrogateDevice",
         }
-        if self.target(service).service_id == "configuration":
-            token = os.getenv("WIND_HUB_CONFIG_CLI_ADMIN_TOKEN", "")
+        token_service = self.target(service).service_id
+        if token_service in {"configuration", "sink"}:
+            env_key = (
+                "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN"
+                if token_service == "configuration"
+                else "WIND_HUB_SINK_CLI_TOKEN"
+            )
+            token = os.getenv(env_key, "")
             if len(token) < 32 or token.strip() != token:
-                raise PermissionError("Configuration CLI requires its authorized token")
+                raise PermissionError(f"{token_service} CLI requires its authorized token")
             return (("authorization", f"Bearer {token}"),)
         if service == "collector" and method in protected:
             return self.collector_admin_metadata()
