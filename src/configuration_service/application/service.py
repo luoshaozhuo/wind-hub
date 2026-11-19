@@ -266,10 +266,27 @@ class ConfigurationApplication:
         # Existing target versions are immutable; the repository rechecks FK and
         # deprecation status atomically at commit.
         versions: list[PreparedVersion] = []
-        new_ids = {
-            (doc.identity.config_type, doc.identity.config_id, doc.file_version): uuid.uuid4().hex
-            for doc in documents
-        }
+        # Full-root uploads repeat unchanged YAML on each publication. Reuse
+        # immutable version IDs rather than re-inserting a published file_version.
+        new_ids: dict[tuple[str, str, str], str] = {}
+        for doc in documents:
+            key = (doc.identity.config_type, doc.identity.config_id, doc.file_version)
+            if key in new_ids:
+                raise ValueError("duplicate immutable configuration version")
+            try:
+                prior_id = self.repository.resolve_version(doc.identity, doc.file_version)
+            except RepositoryNotFoundError:
+                prior_id = None
+            if prior_id is not None:
+                prior = self.repository.get_version(doc.identity, version_id=prior_id)
+                if (
+                    prior["content_sha256"] != doc.content_sha256
+                    or prior["schema_ref"] != doc.schema_ref
+                ):
+                    raise RepositoryConflictError(
+                        "existing immutable file_version has different content or schema"
+                    )
+            new_ids[key] = prior_id or uuid.uuid4().hex
         for document in documents:
             references: list[tuple[str, str]] = []
             sources = document.canonical_payload.get("config_sources", {})
