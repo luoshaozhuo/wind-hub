@@ -248,9 +248,8 @@ class TDengineBackend:
                     for name, digest, identity in identities
                 ]
                 connection.execute(create_database_sql(names, retention))
-                # IF NOT EXISTS is never evidence of matching deployed retention.
-                # Require the physical DB to report the expected us/DURATION/KEEP.
-                self._verify_database(connection, names, retention)
+                # IF NOT EXISTS cannot mutate existing KEEP. Changes are controlled.
+                self._reconcile_database_retention(connection, names, retention)
                 connection.execute(create_stable_sql(names))
                 connection.execute(
                     create_table_sql(
@@ -282,29 +281,51 @@ class TDengineBackend:
                 # must not emit DDL or repeat expensive schema/ownership checks.
                 self._verified_tables.add(names.table)
 
-    @staticmethod
-    def _verify_database(
-        connection: _TaosConnection, names: StorageObjectNames,
+    def _reconcile_database_retention(
+        self, connection: _TaosConnection, names: StorageObjectNames,
         retention: DatabaseRetention,
     ) -> None:
-        """Refuse to adopt an existing database with unknown destructive settings."""
+        """Only increase KEEP under explicit policy; shrink is fail-closed."""
         rows = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
         if len(rows) != 1 or len(rows[0]) < 2:
-            raise TDengineSchemaConflict("database DDL readback failed")
-        definition = "".join(
-            str(rows[0][-1]).upper().replace("`", "").replace("'", "").replace('"', "").split()
+            raise TDengineSchemaConflict("TDengine database readback failed")
+        normalized = "".join(
+            str(rows[0][-1]).upper().replace(chr(96), "")
+            .replace("'", "").replace('"', "").split()
         )
-        if not all(
-            expression in definition
-            for expression in (
-                "PRECISIONUS",
-                f"DURATION{retention.duration_days}D",
-                f"KEEP{retention.keep_days}D",
-            )
-        ):
+        if "PRECISIONUS" not in normalized:
+            raise TDengineSchemaConflict("database precision differs from us")
+        duration = re.search(r"DURATION([1-9][0-9]*)D", normalized)
+        keep = re.search(r"KEEP([1-9][0-9]*)D", normalized)
+        if duration is None or keep is None:
+            raise TDengineSchemaConflict("database DURATION/KEEP unavailable")
+        if int(duration.group(1)) != retention.duration_days:
             raise TDengineSchemaConflict(
-                "TDengine database precision or retention differs from frozen policy"
+                "changing database DURATION requires a validated migration"
             )
+        current_keep = int(keep.group(1))
+        if current_keep == retention.keep_days:
+            return
+        if current_keep > retention.keep_days:
+            raise TDengineSchemaConflict(
+                "retention shrink needs one-use authenticated database-specific evidence"
+            )
+        if not self._config.reconciliation.auto_alter:
+            raise TDengineSchemaConflict(
+                "database KEEP increase requires reconciliation.auto_alter=true"
+            )
+        connection.execute(
+            f"ALTER DATABASE {names.database} KEEP {retention.keep_days}d"
+        )
+        after = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
+        if len(after) != 1 or len(after[0]) < 2:
+            raise TDengineSchemaConflict("database KEEP ALTER readback failed")
+        checked = "".join(
+            str(after[0][-1]).upper().replace(chr(96), "")
+            .replace("'", "").replace('"', "").split()
+        )
+        if f"KEEP{retention.keep_days}D" not in checked:
+            raise TDengineSchemaConflict("database KEEP ALTER did not converge")
 
     @staticmethod
     def _verify_table(
