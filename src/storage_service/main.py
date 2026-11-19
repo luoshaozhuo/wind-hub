@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import grpc
 import asyncio
 import logging
 import os
 import signal
 from pathlib import Path
+
+import grpc
 
 from storage_service.application.ingestion import IngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
@@ -24,11 +25,11 @@ from storage_service.infrastructure.adapters.outbound.configuration_archive impo
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
 )
-from storage_service.infrastructure.adapters.outbound.configuration_watch import (
-    StorageConfigurationWatcher,
-)
 from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
     StorageBundleSnapshot,
+)
+from storage_service.infrastructure.adapters.outbound.configuration_watch import (
+    StorageConfigurationWatcher,
 )
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
