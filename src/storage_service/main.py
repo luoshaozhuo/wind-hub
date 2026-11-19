@@ -151,9 +151,11 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     except TimeoutError:
                         consume.cancel()
                         await asyncio.gather(consume, return_exceptions=True)
-                        raise RuntimeError("Storage Kafka worker failed to stop in deadline")
-                    await asyncio.wait_for(watching, timeout=10)
-                    await jobs.close()
+                        _LOG.error("Storage Kafka worker exceeded shutdown deadline")
+                    finally:
+                        watching.cancel()
+                        await asyncio.gather(watching, return_exceptions=True)
+                        await jobs.close()
             finally:
                 await storage.close()
         finally:
