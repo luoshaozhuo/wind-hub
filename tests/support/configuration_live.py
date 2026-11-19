@@ -51,9 +51,7 @@ class LiveConfiguration:
     def channel(self, identity: str = "deployer") -> grpc.aio.Channel:
         token = self.tokens.get(identity)
         interceptors = [_BearerInterceptor(token)] if token is not None else []
-        return grpc.aio.insecure_channel(
-            f"127.0.0.1:{self.port}", interceptors=interceptors
-        )
+        return grpc.aio.insecure_channel(f"127.0.0.1:{self.port}", interceptors=interceptors)
 
     def stubs(
         self, identity: str = "deployer"
@@ -168,7 +166,8 @@ def write_live_configuration(root: Path, port: int) -> LiveConfiguration:
     }
     for role, token in tokens.items():
         variable = (
-            "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN" if role == "deployer"
+            "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN"
+            if role == "deployer"
             else f"WIND_HUB_CONFIG_{role.upper()}_TOKEN"
         )
         os.environ[variable] = token
@@ -201,7 +200,6 @@ def write_live_configuration(root: Path, port: int) -> LiveConfiguration:
                         },
                     }
                 },
-
             },
             sort_keys=False,
         ),

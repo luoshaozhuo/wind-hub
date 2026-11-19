@@ -30,7 +30,7 @@ from tests.configuration_service.conftest import document_input, publish_documen
 pytestmark = pytest.mark.component
 
 
-def test_initial_schema_has_23_tables_constraints_and_consistent_metadata(
+def test_initial_schema_has_24_tables_constraints_and_consistent_metadata(
     repository: SQLiteRepository,
 ) -> None:
     with repository.read() as connection:
@@ -40,15 +40,20 @@ def test_initial_schema_has_23_tables_constraints_and_consistent_metadata(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        assert len(tables) == 23
-        assert len(DDL.split("CREATE TABLE ")) - 1 == 23
+        assert len(tables) == 24
+        assert len(DDL.split("CREATE TABLE ")) - 1 == 24
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert (
             connection.execute("SELECT schema_version FROM db_meta").fetchone()[0] == SCHEMA_VERSION
         )
-        assert connection.execute(
-            "SELECT from_version, to_version FROM schema_migrations"
-        ).fetchone()[:] == (0, SCHEMA_VERSION)
+        # Fresh repositories are created at v1 then atomically upgraded to v2,
+        # so the migration ledger records both stages of the history.
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT from_version, to_version FROM schema_migrations ORDER BY to_version"
+            )
+        ] == [(0, 1), (1, SCHEMA_VERSION)]
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         triggers = connection.execute(
@@ -67,7 +72,7 @@ def test_composite_foreign_keys_and_immutable_history_are_enforced(
     repository: SQLiteRepository, app: ConfigurationApplication
 ) -> None:
     _, (version_id,) = publish_documents(
-        app, (document_input("site", "alpha", "1.0.0"),), request_id="constraints"
+        app, (document_input("task", "alpha", "1.0.0"),), request_id="constraints"
     )
     with repository.write() as connection:
         with pytest.raises(sqlite3.IntegrityError):
@@ -114,7 +119,7 @@ def test_backup_is_independent_verified_snapshot_with_stable_metadata(
     backups: SQLiteBackupManager,
 ) -> None:
     _, (version_id,) = publish_documents(
-        app, (document_input("site", "alpha", "1.0.0"),), request_id="backup-source"
+        app, (document_input("task", "alpha", "1.0.0"),), request_id="backup-source"
     )
     task_id = app.create_backup("admin", "backup-request", "acceptance")
     assert app.create_backup("admin", "backup-request", "acceptance") == task_id
@@ -140,7 +145,7 @@ def test_backup_is_independent_verified_snapshot_with_stable_metadata(
     restored = SQLiteRepository(backup_path, application_version="test")
     restored.initialize()
     try:
-        identity = document_input("site", "alpha", "1.0.0").identity
+        identity = document_input("task", "alpha", "1.0.0").identity
         assert restored.get_version(identity, version_id=version_id)["version_id"] == version_id
         assert restored.current_revision() == 1
         assert len(restored.list_audit_events()) >= 3

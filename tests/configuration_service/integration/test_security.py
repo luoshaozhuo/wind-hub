@@ -91,7 +91,6 @@ async def test_query_identity_cannot_read_self_configuration(
         await channel.close()
 
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("interface", ["repository", "common"])
 async def test_missing_authorization_token_is_unauthenticated(
@@ -121,13 +120,9 @@ async def test_invalid_bearer_token_is_unauthenticated(
         with pytest.raises(grpc.aio.AioRpcError) as denied:
             metadata = (("authorization", "Bearer invalid-credential-with-32-characters"),)
             if interface == "repository":
-                await repository.ListConfigs(
-                    pb.ListConfigsRequest(), timeout=10, metadata=metadata
-                )
+                await repository.ListConfigs(pb.ListConfigsRequest(), timeout=10, metadata=metadata)
             else:
-                await common.GetServiceStatus(
-                    common_pb2.Empty(), timeout=10, metadata=metadata
-                )
+                await common.GetServiceStatus(common_pb2.Empty(), timeout=10, metadata=metadata)
         assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()

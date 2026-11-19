@@ -1,4 +1,4 @@
-"""Immutable file-version conflict mapped to the public contract."""
+"""Immutable file-version conflicts are rejected as early as candidate staging."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 
 
 @pytest.mark.asyncio
-async def test_same_file_version_with_different_content_is_already_exists(
+async def test_same_file_version_with_different_content_is_failed_precondition(
     live: LiveConfiguration,
 ) -> None:
     repository, _common, channel = live.stubs("deployer")
@@ -34,23 +34,17 @@ async def test_same_file_version_with_different_content_is_already_exists(
             ),
             timeout=10,
         )
-        conflicting = await repository.CreateCandidate(
-            pb.CreateCandidateRequest(
-                request_id="version-conflict",
-                expected_revision_id=1,
-                documents=[document("versioned", "1.0.0", name="different")],
-            ),
-            timeout=10,
-        )
+        # The immutable file_version guard runs while staging the directory,
+        # before any candidate id or SQLite write is admitted.
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
-            await repository.PublishCandidate(
-                pb.PublishCandidateRequest(
-                    request_id="version-conflict-publish",
-                    candidate_id=conflicting.candidate_id,
+            await repository.CreateCandidate(
+                pb.CreateCandidateRequest(
+                    request_id="version-conflict",
                     expected_revision_id=1,
+                    documents=[document("versioned", "1.0.0", name="different")],
                 ),
                 timeout=10,
             )
-        assert rejected.value.code() == grpc.StatusCode.ALREADY_EXISTS
+        assert rejected.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     finally:
         await channel.close()

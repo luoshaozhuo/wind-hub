@@ -52,7 +52,7 @@ def test_failed_transport_does_not_crash_broadcast_worker(
 ) -> None:
     published: list[int] = []
 
-    async def fail(revision_id: int) -> None:
+    async def fail(self: object, revision_id: int) -> None:
         published.append(revision_id)
         raise ConnectionError("NATS unavailable")
 

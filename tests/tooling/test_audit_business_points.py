@@ -51,8 +51,7 @@ def test_audit_flags_duplicate_business_identity(tmp_path: Path) -> None:
     root = _root(tmp_path)
     path = root / "templates/point_tables/point_table_wtg_v1.0.0.yaml"
     path.write_text(
-        path.read_text(encoding="utf-8")
-        + "  p2:\n    business_point_id: active_power\n"
+        path.read_text(encoding="utf-8") + "  p2:\n    business_point_id: active_power\n"
         "    unit: kilowatt\n    data_type: float32\n",
         encoding="utf-8",
     )
@@ -110,8 +109,7 @@ def test_audit_rejects_point_table_inheritance_cycle(tmp_path: Path) -> None:
     root = _root(tmp_path)
     base = root / "templates/point_tables/point_table_wtg_v1.0.0.yaml"
     base.write_text(
-        base.read_text(encoding="utf-8")
-        + "parent:\n  id: child\n  version: 1.0.0\n",
+        base.read_text(encoding="utf-8") + "parent:\n  id: child\n  version: 1.0.0\n",
         encoding="utf-8",
     )
     _write(

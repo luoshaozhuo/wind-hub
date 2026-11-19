@@ -9,9 +9,12 @@ from configuration_service.application.schema_catalog import iter_schemas
 from configuration_service.application.service import ConfigurationApplication, DocumentInput
 from configuration_service.domain.models import RepositoryConflictError
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import emit_yaml, parse_yaml
-from tests.configuration_service.component.test_shipped_yaml_repository import input_for
+from tests.configuration_service.component.test_shipped_yaml_repository import (
+    input_for,
+    original_file_version,
+)
 from tests.configuration_service.conftest import document_input, publish_documents
-from tests.configuration_service.unit.test_yaml_acceptance import ROOT
+from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FILES
 
 pytestmark = pytest.mark.component
 
@@ -19,22 +22,24 @@ pytestmark = pytest.mark.component
 def test_existing_commander_caller_array_is_admitted_and_reconstructed(
     app: ConfigurationApplication,
 ) -> None:
+    # Full-directory publication admits the shipped root as one complete
+    # closure; the nested caller array survives as frozen, parseable YAML.
+    documents = tuple(input_for(path) for path in YAML_FILES)
+    revision, _ = publish_documents(app, documents, request_id="caller-array")
     item = input_for(ROOT / "configs/services/commander.yaml")
-    dependencies = [
-        input_for(path)
-        for path in sorted((ROOT / "configs/instances").glob("*.yaml"))
-        if path.stem in {"site", "devices"}
-    ]
-    dependencies.extend(
-        input_for(path)
-        for path in sorted((ROOT / "configs/templates").rglob("*.yaml"))
-        if "device_models" not in path.parts and "point_tables" not in path.parts
+    version_id = app.repository.resolve_version(
+        item.identity, original_file_version(ROOT / "configs/services/commander.yaml")
     )
-    documents = {document.identity: document for document in (*dependencies, item)}
-    revision, _ = publish_documents(app, tuple(documents.values()), request_id="caller-array")
-    restored = app.get_config(item.identity, revision_id=revision)
+    restored = app.get_config(item.identity, version_id=version_id)
+    source = (ROOT / "configs/services/commander.yaml").read_bytes()
     assert isinstance(restored.yaml_bytes, bytes)
-    assert b"# security.callers:" in restored.yaml_bytes
+    assert restored.yaml_bytes == source
+    reparsed = parse_yaml(restored.yaml_bytes, max_bytes=64 * 1024 * 1024)
+    assert (
+        reparsed["security"]["callers"]
+        == parse_yaml(source, max_bytes=64 * 1024 * 1024)["security"]["callers"]
+    )
+    assert revision > 0
 
 
 @pytest.mark.parametrize("root", ["configs/other", "../configs/templates", "/configs/templates"])
@@ -102,6 +107,7 @@ def nested_service_item(caller: dict[str, object]) -> DocumentInput:
         identity=item.identity,
         file_name=item.file_name,
         yaml_bytes=yaml.safe_dump(payload).encode(),
+        relative_path=item.relative_path,
     )
 
 
@@ -164,6 +170,7 @@ def test_array_schema_without_items_fails_closed(app: ConfigurationApplication) 
         identity=item.identity,
         file_name=item.file_name,
         yaml_bytes=yaml.safe_dump(payload).encode(),
+        relative_path=item.relative_path,
     )
     with pytest.raises(ValueError, match="items"):
         app.create_candidate(

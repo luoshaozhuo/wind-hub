@@ -19,9 +19,13 @@ def test_revision_reconciliation_and_point_table_query_descriptors() -> None:
     service = pb.DESCRIPTOR.services_by_name["ConfigurationRepositoryService"]
     assert "GetCurrentRevision" in service.methods_by_name
     assert "GetPointTableBundle" in service.methods_by_name
-    assert pb.GetCurrentRevisionResponse.DESCRIPTOR.fields_by_name[
-        "committed_at"
-    ].message_type.full_name == "google.protobuf.Timestamp"
-    assert pb.GetPointTableBundleResponse.DESCRIPTOR.fields_by_name[
-        "documents"
-    ].message_type.full_name == "windhub.configuration.v1.ConfigYamlDocument"
+    assert (
+        pb.GetCurrentRevisionResponse.DESCRIPTOR.fields_by_name[
+            "committed_at"
+        ].message_type.full_name
+        == "google.protobuf.Timestamp"
+    )
+    assert (
+        pb.GetPointTableBundleResponse.DESCRIPTOR.fields_by_name["documents"].message_type.full_name
+        == "windhub.configuration.v1.ConfigYamlDocument"
+    )

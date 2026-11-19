@@ -62,7 +62,9 @@ async def test_full_root_publish_noop_removal_and_historical_query(
         )
         assert historical.device_type == "turbine"
         assert {d.config_id.config_type for d in historical.documents} == {
-            "units", "business_points", "point_table"
+            "units",
+            "business_points",
+            "point_table",
         }
         assert len(historical.manifest_sha256) == 64
     finally:

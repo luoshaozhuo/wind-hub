@@ -56,16 +56,24 @@ def test_historical_yaml_source_is_bounded_by_requested_revision(tmp_path: Path)
                 )
 
         assert repository.get_version_source("site-v1", revision_id=1) == (
-            "instances/site.yaml", original, hashlib.sha256(original).hexdigest()
+            "instances/site.yaml",
+            original,
+            hashlib.sha256(original).hexdigest(),
         )
         assert repository.get_version_source("site-v1", revision_id=2) == (
-            "instances/site.yaml", original, hashlib.sha256(original).hexdigest()
+            "instances/site.yaml",
+            original,
+            hashlib.sha256(original).hexdigest(),
         )
         assert repository.get_version_source("site-v1", revision_id=3) == (
-            "archive/site.yaml", renamed, hashlib.sha256(renamed).hexdigest()
+            "archive/site.yaml",
+            renamed,
+            hashlib.sha256(renamed).hexdigest(),
         )
         assert repository.get_version_source("site-v1") == (
-            "archive/site.yaml", renamed, hashlib.sha256(renamed).hexdigest()
+            "archive/site.yaml",
+            renamed,
+            hashlib.sha256(renamed).hexdigest(),
         )
         assert repository.get_version_source("site-v2", revision_id=2) is None
         assert repository.get_version_source("site-v2", revision_id=3) is not None

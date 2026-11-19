@@ -34,7 +34,7 @@ def reference(config_type: str, config_id: str, file_version: str) -> dict[str, 
 def test_candidate_idempotency_and_request_payload_conflict(
     app: ConfigurationApplication,
 ) -> None:
-    item = document_input("site", "alpha", "1.0.0")
+    item = document_input("task", "alpha", "1.0.0")
     first, _ = app.create_candidate(
         actor_id="publisher",
         request_id="same",
@@ -50,7 +50,7 @@ def test_candidate_idempotency_and_request_payload_conflict(
         validate_only=False,
     )
     assert replay == first
-    changed = document_input("site", "alpha", "1.0.0", name="changed")
+    changed = document_input("task", "alpha", "1.0.0", point_group="changed")
     with pytest.raises(IdempotencyConflictError):
         app.create_candidate(
             actor_id="publisher",
@@ -64,7 +64,7 @@ def test_candidate_idempotency_and_request_payload_conflict(
 def test_publish_replay_is_stable_and_reused_request_is_rejected(
     app: ConfigurationApplication,
 ) -> None:
-    item = document_input("site", "alpha", "1.0.0")
+    item = document_input("task", "alpha", "1.0.0")
     candidate, _ = app.create_candidate(
         actor_id="publisher",
         request_id="create",
@@ -93,7 +93,7 @@ def test_publish_replay_is_stable_and_reused_request_is_rejected(
         actor_id="publisher",
         request_id="create-other",
         expected_revision=1,
-        documents=(document_input("site", "other", "1.0.0"),),
+        documents=(document_input("task", "other", "1.0.0"),),
         validate_only=False,
     )
     with pytest.raises(IdempotencyConflictError):
@@ -113,7 +113,7 @@ def test_only_one_cas_candidate_can_publish(app: ConfigurationApplication) -> No
             actor_id="publisher",
             request_id=f"create-{name}",
             expected_revision=0,
-            documents=(document_input("site", name, "1.0.0"),),
+            documents=(document_input("task", name, "1.0.0"),),
             validate_only=False,
         )
         candidates.append(candidate)
@@ -140,7 +140,7 @@ def test_concurrent_publish_has_one_cas_winner(app: ConfigurationApplication) ->
             actor_id="publisher",
             request_id=f"create-{name}",
             expected_revision=0,
-            documents=(document_input("site", name, "1.0.0"),),
+            documents=(document_input("task", name, "1.0.0"),),
             validate_only=False,
         )
         candidates.append(candidate)
@@ -165,7 +165,7 @@ def test_concurrent_publish_has_one_cas_winner(app: ConfigurationApplication) ->
 
 
 def test_expired_candidate_cannot_publish(app: ConfigurationApplication) -> None:
-    item = document_input("site", "alpha", "1.0.0")
+    item = document_input("task", "alpha", "1.0.0")
     candidate, _ = app.create_candidate(
         actor_id="publisher",
         request_id="create",
@@ -192,8 +192,8 @@ def test_failed_projection_rolls_back_entire_publication(
     app: ConfigurationApplication,
 ) -> None:
     documents = (
-        document_input("site", "one", "1.0.0"),
-        document_input("site", "two", "1.0.0"),
+        document_input("task", "one", "1.0.0"),
+        document_input("task", "two", "1.0.0"),
     )
     candidate, prepared = app.create_candidate(
         actor_id="publisher",
@@ -230,26 +230,26 @@ def test_failed_projection_rolls_back_entire_publication(
 def test_full_revision_snapshot_and_recommendation_keep_history_immutable(
     app: ConfigurationApplication,
 ) -> None:
-    identity = document_input("site", "alpha", "1.0.0").identity
-    revision1, (version1,) = publish_documents(
-        app,
-        (document_input("site", "alpha", "1.0.0", name="v1"),),
-        request_id="v1",
-    )
+    identity = document_input("task", "alpha", "1.0.0").identity
+    alpha_v1 = document_input("task", "alpha", "1.0.0", point_group="v1")
+    alpha_v2 = document_input("task", "alpha", "2.0.0", point_group="v2")
+    beta = document_input("task", "beta", "1.0.0")
+    revision1, (version1,) = publish_documents(app, (alpha_v1,), request_id="v1")
+    # Both immutable alpha versions coexist in the complete root; the highest
+    # version becomes the recommended one.
     revision2, version_ids = publish_documents(
         app,
-        (
-            document_input("site", "alpha", "2.0.0", name="v2"),
-            document_input("site", "beta", "1.0.0"),
-        ),
+        (alpha_v1, alpha_v2, beta),
         expected_revision=revision1,
         request_id="v2",
     )
-    assert len(version_ids) == 2
+    assert len(version_ids) == 3
     version2 = app.get_config(identity, revision_id=revision2).version_id
     assert app.get_config(identity, revision_id=revision1).file_version == "1.0.0"
     assert app.get_config(identity, revision_id=revision2).file_version == "2.0.0"
     assert app.get_config(identity, version_id=version1).file_version == "1.0.0"
+    # Recommendation only accepts a version present in the current complete
+    # directory; v1 is still part of the root, so the explicit switch is legal.
     revision3, previous = app.repository.set_recommended_version(
         actor_id="publisher",
         request_id="recommend",
@@ -296,19 +296,28 @@ def test_deprecated_dependency_cannot_be_newly_bound(
         expected_revision=revision2,
     )
     consumer = document_input(
-        "site",
+        "task",
         "consumer",
         "1.0.0",
         config_sources=[reference("units", "standard", "1.0.0")],
+    )
+    # Full-directory snapshots restate the pinned closure; the commit guard
+    # refuses to reactivate a deprecated immutable version inside a new root.
+    deprecated_units = document_input(
+        "units",
+        "standard",
+        "1.0.0",
+        quantities={"power": {"base_unit": "watt"}},
+        units={"watt": {"quantity": "power", "symbol": "W"}},
     )
     candidate, prepared = app.create_candidate(
         actor_id="publisher",
         request_id="consumer-create",
         expected_revision=revision3,
-        documents=(consumer,),
+        documents=(deprecated_units, consumer),
         validate_only=False,
     )
-    with pytest.raises(RepositoryConflictError, match="deprecated reference"):
+    with pytest.raises(RepositoryConflictError, match="deprecated"):
         app.repository.publish_candidate(
             actor_id="publisher",
             request_id="consumer-publish",
@@ -321,35 +330,33 @@ def test_deprecated_dependency_cannot_be_newly_bound(
 def test_shared_diamond_closure_is_deduplicated_and_topological(
     app: ConfigurationApplication,
 ) -> None:
-    rev1, (a_version,) = publish_documents(
-        app,
-        (document_input("site", "a", "1.0.0"),),
-        request_id="a",
-    )
+    a_doc = document_input("task", "a", "1.0.0")
+    rev1, (a_version,) = publish_documents(app, (a_doc,), request_id="a")
+    b_doc = document_input("task", "b", "1.0.0", config_sources=[reference("task", "a", "1.0.0")])
+    c_doc = document_input("task", "c", "1.0.0", config_sources=[reference("task", "a", "1.0.0")])
+    # Every publication is a complete root snapshot, so the unchanged closure
+    # is restated; immutable versions resolve back to their existing ids.
     rev2, ids = publish_documents(
         app,
-        (
-            document_input("site", "b", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
-            document_input("site", "c", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
-        ),
+        (a_doc, b_doc, c_doc),
         expected_revision=rev1,
         request_id="bc",
     )
-    rev3, (d_version,) = publish_documents(
+    d_doc = document_input(
+        "task",
+        "d",
+        "1.0.0",
+        config_sources=[reference("task", "b", "1.0.0"), reference("task", "c", "1.0.0")],
+    )
+    rev3, rev3_ids = publish_documents(
         app,
-        (
-            document_input(
-                "site",
-                "d",
-                "1.0.0",
-                config_sources=[reference("site", "b", "1.0.0"), reference("site", "c", "1.0.0")],
-            ),
-        ),
+        (a_doc, b_doc, c_doc, d_doc),
         expected_revision=rev2,
         request_id="d",
     )
+    d_version = rev3_ids[-1]
     bundle = app.repository.get_bundle_versions(
-        (document_input("site", "d", "1.0.0").identity,),
+        (document_input("task", "d", "1.0.0").identity,),
         rev3,
         max_versions=4,
     )
@@ -360,7 +367,7 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
     assert set(ids).issubset(ordered)
     with pytest.raises(RepositoryCapacityExceededError, match="exceeds limit"):
         app.repository.get_bundle_versions(
-            (document_input("site", "d", "1.0.0").identity,),
+            (document_input("task", "d", "1.0.0").identity,),
             rev3,
             max_versions=3,
         )
@@ -368,23 +375,18 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
 
 def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) -> None:
     documents = (
-        document_input("site", "a", "1.0.0", config_sources=[reference("site", "b", "1.0.0")]),
-        document_input("site", "b", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
+        document_input("task", "a", "1.0.0", config_sources=[reference("task", "b", "1.0.0")]),
+        document_input("task", "b", "1.0.0", config_sources=[reference("task", "a", "1.0.0")]),
     )
-    candidate, prepared = app.create_candidate(
-        actor_id="publisher",
-        request_id="cycle-create",
-        expected_revision=0,
-        documents=documents,
-        validate_only=False,
-    )
+    # Cycles are rejected while staging the full directory, before a candidate
+    # id is issued or any SQLite write becomes visible.
     with pytest.raises(RepositoryConflictError, match="cyclic"):
-        app.repository.publish_candidate(
+        app.create_candidate(
             actor_id="publisher",
-            request_id="cycle-publish",
-            candidate_id=candidate,
+            request_id="cycle-create",
             expected_revision=0,
-            versions=app._compile_versions(prepared, 0),
+            documents=documents,
+            validate_only=False,
         )
     assert app.repository.current_revision() == 0
 
@@ -392,7 +394,7 @@ def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) 
 def test_restart_preserves_versions_and_releases_ownership(
     repository: SQLiteRepository, app: ConfigurationApplication, tmp_path
 ) -> None:
-    item = document_input("site", "alpha", "1.0.0")
+    item = document_input("task", "alpha", "1.0.0")
     _, (version_id,) = publish_documents(app, (item,), request_id="restart")
     app.get_config(item.identity, version_id=version_id)
     repository.close()

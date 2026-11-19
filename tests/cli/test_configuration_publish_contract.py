@@ -10,9 +10,7 @@ from core.configuration.publication_identity import (
 
 
 def test_config_publish_is_registered_without_push_or_apply() -> None:
-    available = {
-        command.name for command in config_app.registered_commands if command.name
-    }
+    available = {command.name for command in config_app.registered_commands if command.name}
     assert {"publish", "revision", "point-table-bundle", "get", "bundle", "diff"} <= available
     assert "candidate" not in available
     assert "apply" not in available
@@ -29,5 +27,7 @@ def test_publication_identity_is_shared_with_configuration_service() -> None:
         path, {"file_version": "1.0.0", "template_id": "modbus_wtg_sim"}
     )
     assert (identity.config_type, identity.config_id, identity.file_version) == (
-        "point_table", "modbus_wtg_sim", "1.0.0"
+        "point_table",
+        "modbus_wtg_sim",
+        "1.0.0",
     )

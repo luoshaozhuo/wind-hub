@@ -35,6 +35,8 @@ _ALLOWED_PB2_PREFIXES = (
     "industrial_gateway/infrastructure/adapters/outbound/grpc/",
     "sink_service/infrastructure/adapters/inbound/grpc_server.py",
     "sink_service/infrastructure/adapters/outbound/gateway.py",
+    "configuration_service/main.py",
+    "configuration_service/infrastructure/adapters/inbound/grpc/",
 )
 
 # application/domain 一律不感知 wire 形态。

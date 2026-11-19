@@ -42,8 +42,7 @@ def test_rejects_duplicate_logical_file_version(
     )
     template = DirectoryFile(
         "templates/sinks/sink_sinks_v1.0.0.yaml",
-        b"schema_version: 1\nfile_version: 1.0.0\n"
-        b"template_id: sinks\nkind: redis\n",
+        b"schema_version: 1\nfile_version: 1.0.0\n" b"template_id: sinks\nkind: redis\n",
     )
     with pytest.raises(ValueError, match="duplicate configuration document identity"):
         app.prepare_directory((instance, template))
@@ -54,8 +53,7 @@ def test_rejects_configuration_service_bootstrap_in_full_root(
 ) -> None:
     bootstrap = DirectoryFile(
         "services/service_configuration_v1.0.0.yaml",
-        b"schema_version: 1\nfile_version: 1.0.0\n"
-        b"service_id: configuration-main\n",
+        b"schema_version: 1\nfile_version: 1.0.0\n" b"service_id: configuration-main\n",
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.prepare_directory((bootstrap,))
@@ -96,17 +94,31 @@ def test_republishing_a_version_with_mutated_yaml_is_rejected(
     assert source is not None
     assert source[1] == payload
 
-    changed_id = stage(
-        payload + b"# same semantic payload, new bytes\n",
-        revision=first.revision_id,
-        request="changed",
-    )
+    # Immutable source bytes (including comments) are rejected as early as
+    # candidate staging, so no candidate id is ever issued for a redefined
+    # file_version: validate_only and commit enforce the same violation.
+    mutated = payload + b"# same semantic payload, new bytes\n"
     with pytest.raises(RepositoryConflictError, match="YAML bytes changed"):
-        app.publish_candidate(
-            actor_id="publisher",
-            request_id="changed-publish",
-            candidate_id=changed_id,
-            expected_revision=first.revision_id,
+        stage(
+            mutated,
+            revision=first.revision_id,
+            request="changed",
         )
+    with pytest.raises(RepositoryConflictError, match="YAML bytes changed"):
+        app.create_candidate(
+            actor_id="publisher",
+            request_id="changed-dry-run",
+            expected_revision=first.revision_id,
+            documents=(
+                DocumentInput(
+                    identity=identity,
+                    file_name="site.yaml",
+                    yaml_bytes=mutated,
+                    relative_path="instances/site.yaml",
+                ),
+            ),
+            validate_only=True,
+        )
+    # The dry run must leave no candidate and no new revision behind.
     assert app.repository.current_revision() == first.revision_id
     assert app.repository.get_version_source(first.version_ids[0]) == source

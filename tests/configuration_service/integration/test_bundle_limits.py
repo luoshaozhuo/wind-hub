@@ -48,7 +48,7 @@ def restart_with_limits(
 
 async def publish(
     repository: object,
-    item: object,
+    items: object,
     *,
     request_id: str,
     expected_revision: int,
@@ -57,7 +57,7 @@ async def publish(
         pb.CreateCandidateRequest(
             request_id=f"{request_id}-candidate",
             expected_revision_id=expected_revision,
-            documents=[item],
+            documents=items,
         )
     )
     await repository.PublishCandidate(
@@ -70,18 +70,28 @@ async def publish(
 
 
 async def publish_dependency_pair(repository: object) -> None:
-    await publish(repository, document("root", "1.0.0"), request_id="root", expected_revision=0)
-    dependent = document("dependent", "1.0.0")
+    # Pad both documents so their byte size stays above the 1024-byte minimum
+    # enforced for configured bundle quotas, keeping exact-boundary tests legal.
+    padding = {"point_group": "p" * 1200}
+    root = document("root", "1.0.0", **padding)
+    await publish(repository, [root], request_id="root", expected_revision=0)
+    dependent = document("dependent", "1.0.0", **padding)
     payload = yaml.safe_load(dependent.yaml_bytes)
     payload["config_sources"] = [
-        {"config_type": "site", "config_id": "root", "file_version": "1.0.0"}
+        {"config_type": "task", "config_id": "root", "file_version": "1.0.0"}
     ]
     dependent.yaml_bytes = yaml.safe_dump(payload).encode()
-    await publish(repository, dependent, request_id="dependent", expected_revision=1)
+    # Full-directory snapshots restate the pinned root in the same revision.
+    await publish(
+        repository,
+        [root, dependent],
+        request_id="dependent",
+        expected_revision=1,
+    )
 
 
 def identity(config_id: str) -> pb.ConfigId:
-    return pb.ConfigId(config_type="site", config_id=config_id)
+    return pb.ConfigId(config_type="task", config_id=config_id)
 
 
 @pytest.mark.asyncio
@@ -93,9 +103,9 @@ async def test_single_document_export_limit_is_resource_exhausted(
     try:
         oversized = document("oversized", "1.0.0")
         payload = yaml.safe_load(oversized.yaml_bytes)
-        payload["name"] = "x" * 1500
+        payload["point_group"] = "x" * 1500
         oversized.yaml_bytes = yaml.safe_dump(payload).encode()
-        await publish(repository, oversized, request_id="oversized", expected_revision=0)
+        await publish(repository, [oversized], request_id="oversized", expected_revision=0)
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
             await repository.GetConfig(
                 pb.GetConfigRequest(config_id=identity("oversized"), revision_id=1)

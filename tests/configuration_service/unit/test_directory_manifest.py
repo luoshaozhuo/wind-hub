@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
-
-from core.configuration.publication_identity import resolve_publication_identity
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     build_directory_manifest,
 )
+from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
+from core.configuration.publication_identity import resolve_publication_identity
 
 
 def _file(path: str, payload: bytes = b"schema_version: 1\n") -> DirectoryFile:
@@ -34,8 +35,17 @@ def test_manifest_is_order_independent_and_content_bound() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ("../a.yaml", "a/../b.yaml", "./a.yaml", "/root/a.yaml", "a\\b.yaml",
-     "a//b.yaml", "a.yaml/", "a.yml", ""),
+    (
+        "../a.yaml",
+        "a/../b.yaml",
+        "./a.yaml",
+        "/root/a.yaml",
+        "a\\b.yaml",
+        "a//b.yaml",
+        "a.yaml/",
+        "a.yml",
+        "",
+    ),
 )
 def test_rejects_unsafe_manifest_paths(path: str) -> None:
     with pytest.raises(ValueError, match="relative_path"):
@@ -44,9 +54,7 @@ def test_rejects_unsafe_manifest_paths(path: str) -> None:
 
 def test_rejects_casefold_duplicate_and_empty_publication() -> None:
     with pytest.raises(ValueError, match="duplicate"):
-        build_directory_manifest(
-            (_file("a.yaml"), _file("A.yaml")), max_documents=2, max_bytes=100
-        )
+        build_directory_manifest((_file("a.yaml"), _file("A.yaml")), max_documents=2, max_bytes=100)
     with pytest.raises(ValueError, match="empty"):
         build_directory_manifest((), max_documents=2, max_bytes=100)
 
@@ -55,25 +63,30 @@ def test_rejects_limits_and_non_utf8_content() -> None:
     with pytest.raises(ValueError, match="UTF-8"):
         _file("a.yaml", b"\xff")
     with pytest.raises(ValueError, match="byte limit"):
-        build_directory_manifest(
-            (_file("a.yaml", b"a" * 100),), max_documents=1, max_bytes=99
-        )
+        build_directory_manifest((_file("a.yaml", b"a" * 100),), max_documents=1, max_bytes=99)
     with pytest.raises(ValueError, match="document count"):
-        build_directory_manifest(
-            (_file("a.yaml"), _file("b.yaml")), max_documents=1, max_bytes=100
-        )
+        build_directory_manifest((_file("a.yaml"), _file("b.yaml")), max_documents=1, max_bytes=100)
 
 
 @pytest.mark.parametrize(
     ("path", "version", "template_id", "expected_type", "expected_id"),
     [
-        ("templates/point_tables/point_table_modbus_wtg_sim_v1.0.0.yaml",
-         "1.0.0", "modbus_wtg_sim", "point_table", "modbus_wtg_sim"),
-        ("templates/device_models/device_model_wtg_sim_v2.0.0.yaml",
-         "2.0.0", "wtg_sim", "device_model", "wtg_sim"),
+        (
+            "templates/point_tables/point_table_modbus_wtg_sim_v1.0.0.yaml",
+            "1.0.0",
+            "modbus_wtg_sim",
+            "point_table",
+            "modbus_wtg_sim",
+        ),
+        (
+            "templates/device_models/device_model_wtg_sim_v2.0.0.yaml",
+            "2.0.0",
+            "wtg_sim",
+            "device_model",
+            "wtg_sim",
+        ),
         ("instances/devices_sim.yaml", "1.0.0", None, "device", "devices_sim"),
-        ("templates/business_points_standard.yaml", "1.3.0", None,
-         "business_points", "standard"),
+        ("templates/business_points_standard.yaml", "1.3.0", None, "business_points", "standard"),
         ("templates/units_standard.yaml", "1.1.0", None, "units", "standard"),
         ("services/sink_service.yaml", "1.0.1", None, "service", "sink_service"),
     ],
@@ -90,7 +103,9 @@ def test_publication_identity_is_derived_from_exact_path(
         source["template_id"] = template_id
     identity = resolve_publication_identity(path, source)
     assert (identity.config_type, identity.config_id, identity.file_version) == (
-        expected_type, expected_id, version
+        expected_type,
+        expected_id,
+        version,
     )
 
 
@@ -98,10 +113,14 @@ def test_publication_identity_is_derived_from_exact_path(
     ("path", "source"),
     [
         ("services/service_configuration_v1.0.0.yaml", {"file_version": "1.0.0"}),
-        ("templates/point_tables/point_table_wtg_v1.0.0.yaml",
-         {"file_version": "1.0.0", "template_id": "other"}),
-        ("templates/point_tables/point_table_wtg_v1.0.0.yaml",
-         {"file_version": "1.0.1", "template_id": "wtg"}),
+        (
+            "templates/point_tables/point_table_wtg_v1.0.0.yaml",
+            {"file_version": "1.0.0", "template_id": "other"},
+        ),
+        (
+            "templates/point_tables/point_table_wtg_v1.0.0.yaml",
+            {"file_version": "1.0.1", "template_id": "wtg"},
+        ),
         ("instances/unrecognized.yaml", {"file_version": "1.0.0"}),
     ],
 )

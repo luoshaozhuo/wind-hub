@@ -44,11 +44,7 @@ def test_reject_invalid_business_point(definition: dict[str, object]) -> None:
 def test_point_requires_explicit_business_identity() -> None:
     units = minimal_unit_catalog()
     catalog = parse_business_points(
-        {
-            "business_points": {
-                "active_power": {"data_type": "float32", "unit": "kilowatt"}
-            }
-        },
+        {"business_points": {"active_power": {"data_type": "float32", "unit": "kilowatt"}}},
         units,
     )
     entry = {

@@ -25,7 +25,12 @@ async def test_common_rpc_success_matrix(live: LiveConfiguration) -> None:
         assert status.health == "HEALTHY"
         assert status.dependencies[0].name == "sqlite"
         capabilities = await common.GetCapabilities(pb.Empty(), timeout=10)
-        assert len(capabilities.rpc_names) == 21
+        # Fourteen repository RPCs plus the Common service surface.
+        assert len(capabilities.rpc_names) == 23
+        assert {
+            "GetCurrentRevision",
+            "GetPointTableBundle",
+        } <= set(capabilities.rpc_names)
         assert "sqlite-online-backup" in capabilities.features
         disk = await common.GetConfigSnapshot(
             pb.GetConfigSnapshotRequest(scope=pb.SNAPSHOT_SCOPE_DISK), timeout=10

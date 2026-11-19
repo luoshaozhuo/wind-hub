@@ -23,13 +23,15 @@ def test_business_identity_is_global_not_device_scoped() -> None:
         _document(
             "business_points",
             "standard",
-            {"business_points": {
-                "active_power": {
-                    "data_type": "float32",
-                    "unit": "kilowatt",
-                    "description": "Active power",
+            {
+                "business_points": {
+                    "active_power": {
+                        "data_type": "float32",
+                        "unit": "kilowatt",
+                        "description": "Active power",
+                    }
                 }
-            }},
+            },
         ),
         dependency_versions={"units": "fixed-units-version"},
         device_bindings={},
