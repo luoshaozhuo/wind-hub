@@ -4,7 +4,6 @@ template_id: "realtime_power"
 delivery_mode: realtime            # realtime | reliable
 source_filter: {} # 不配置质量过滤；good/bad/uncertain 均须派发
 output:
-  data_level: protocol # 已解码标量；未经业务单位转换
   policy: change_with_heartbeat    # periodic | on_change | change_with_heartbeat
   period_ms: 100                  # 正整数毫秒；10 Hz 示例（保底周期同此参数）
   absolute_threshold: 1.0        # >=0；目标点工程单位
