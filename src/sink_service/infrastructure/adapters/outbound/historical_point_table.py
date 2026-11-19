@@ -61,9 +61,13 @@ class HistoricalPointTableClient:
                     metadata=(("authorization", f"Bearer {token}"),),
                     timeout=10.0,
                 )
+            if response.manifest_sha256 != self._approved[point_table_id]:
+                raise ConfigurationError("unapproved historical PointTable manifest")
             result = parse_point_table_bundle(
                 response, expected_id=point_table_id, expected_type=device_type
             )
+            if result.manifest_sha256 != self._approved[point_table_id]:
+                raise ConfigurationError("historical PointTable evidence changed")
             if len(self._cached) >= 128:
                 self._cached.clear()
             self._cached[key] = result
