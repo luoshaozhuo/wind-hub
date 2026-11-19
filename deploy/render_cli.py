@@ -28,8 +28,8 @@ DEFAULT_FILES = {
     "storage": "storage_bootstrap_v1.0.0.yaml",
     "gateway": "industrial_gateway-sim.example.yaml",
     "data-generator": "data-generator-sim.example.yaml",
-    "collector_realtime": "collector-realtime.yaml",
-    "collector_reliable": "collector-reliable.yaml",
+    "collector_realtime": "collector.yaml",
+    "collector_reliable": "service_collector_reliable_v1.0.0.yaml",
     "sink": "sink_service.yaml",
     "commander": "commander.yaml",
 }
