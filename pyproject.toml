@@ -121,6 +121,7 @@ extend-immutable-calls = [
 "src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py" = ["N802"]
 "src/configuration_service/infrastructure/adapters/inbound/grpc/repository_server.py" = ["N802"]
 "src/configuration_service/infrastructure/adapters/inbound/grpc/common_server.py" = ["N802"]
+"src/storage_service/infrastructure/adapters/inbound/grpc_server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
