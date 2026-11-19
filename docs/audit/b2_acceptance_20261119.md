@@ -129,7 +129,7 @@
 | 新增 snapshot 本地单测 | 11 passed |
 | Configuration 全树（unit 106/component 95/integration 36/reliability 3） | 240 passed，与上轮基线一致无回归 |
 | contracts + core/config + tooling | 258 passed（与 Configuration 合计 498，持平上轮） |
-| `tests/cli` 全量 | 242 passed / 0 failed / 13 skipped（上轮 225+7 失败；新增 11 单测、原 7 失败转绿） |
+| `tests/cli` 全量 | 243 passed / 0 failed / 13 skipped（整改后基线 232；新增 11 单测、原 7 失败转绿；skip 全为 containerd/iSulad 环境缺失） |
 | `pytest tests -m "unit or component or contract"` | 2832 passed / 0 failed / 1024 deselected |
 | full_chain 整目录（58 收集） | 整目录满载复跑 55 passed，3 个时序用例失败（见 P2）；3 个失败单独复跑全部通过 |
 | E2E-08 73 CLI 叶 | 73/73 真实进入处理路径（无 --help/解析错误/skip 伪装），`execute()` 断言 No such command/Usage 不出现且返回码 ∈ {0,1,2,3} |
