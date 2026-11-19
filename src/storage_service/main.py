@@ -113,6 +113,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     point_tables=point_tables,
                     evidence=metadata,
                     metrics=metrics,
+                    allowed_wind_farms=frozenset(
+                        bundle.configuration.allowed_wind_farms
+                    ),
                     max_batch_records=bundle.configuration.tdengine.batch_max_records,
                     max_batch_bytes=bundle.configuration.tdengine.batch_max_bytes,
                 )
