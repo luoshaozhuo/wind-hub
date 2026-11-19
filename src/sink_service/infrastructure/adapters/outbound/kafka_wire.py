@@ -14,7 +14,6 @@ from datetime import datetime
 from typing import Literal
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.business_projection import BusinessValue
 
 DataLevel = Literal["raw", "protocol", "business"]
@@ -109,48 +108,4 @@ def encode_kafka_points(
             )
         )
         for item in items
-    )
-
-
-def encode_kafka_point(
-    batch: SampleBatch,
-    item: SampleItem,
-    *,
-    data_level: DataLevel,
-    business_value: BusinessValue | None = None,
-) -> bytes:
-    """Single-record wrapper for the same strict Kafka v2 schema."""
-    values = {item.sample_id: business_value} if business_value is not None else None
-    return encode_kafka_points(
-        batch, (item,), data_level=data_level, business_values=values
-    )[0]
-
-
-def encode_delivery_point(point: DeliveryPoint, *, data_level: DataLevel) -> bytes:
-    """Encode a validated DeliveryPoint with the same Kafka v2 schema."""
-    _require_protocol(data_level)
-    if data_level != "protocol":
-        raise ValueError("DeliveryPoint BUSINESS requires historical projection")
-    item = SampleItem(
-        point_id=point.point_id,
-        sample_id=point.sample_id,
-        value=point.value,
-        quality=point.quality,
-        sample_time=point.sample_time,
-        receive_time=point.receive_time,
-        max_staleness_ms=point.max_staleness_ms,
-    )
-    return _encode(
-        _record(
-            wind_farm_id=point.wind_farm_id,
-            collector_id=point.collector_id,
-            task_id=point.task_id,
-            device_type=point.device_type,
-            device_id=point.device_id,
-            point_table_id=point.point_table_id,
-            batch_id=point.batch_id,
-            item=item,
-            publish_time=point.publish_time,
-            data_level=data_level,
-        )
     )
