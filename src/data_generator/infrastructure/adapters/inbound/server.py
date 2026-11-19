@@ -420,6 +420,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.Empty,
         context: Any,
     ) -> common.GetServiceInfoResponse:
+        await _authorize_variables(context, self.runtime, "query")
         return common.GetServiceInfoResponse(
             service_id="data_generator",
             process_role="generator",
@@ -433,6 +434,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.Empty,
         context: Any,
     ) -> common.GetServiceStatusResponse:
+        await _authorize_variables(context, self.runtime, "query")
         failed = any(state.actual_state == "FAILED" for state in self.runtime.generations.values())
         unsafe = self.runtime.writer.unsafe_gateways
         gateways = {
@@ -458,6 +460,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.Empty,
         context: Any,
     ) -> common.GetCapabilitiesResponse:
+        await _authorize_variables(context, self.runtime, "query")
         return common.GetCapabilitiesResponse(
             rpc_names=[
                 m.name
@@ -477,6 +480,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.GetConfigSnapshotRequest,
         context: Any,
     ) -> common.GetConfigSnapshotResponse:
+        await _authorize_variables(context, self.runtime, "config_read")
         scope = common.SnapshotScope.Name(request.scope).removeprefix("SNAPSHOT_SCOPE_")
         try:
             snapshot = await self._configuration.get(scope, request.candidate_id)
@@ -510,6 +514,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.PushConfigSnapshotRequest,
         context: Any,
     ) -> common.PushConfigSnapshotResponse:
+        await _authorize_variables(context, self.runtime, "config_write")
         # The transaction owns the lock after client cancellation.
         return await asyncio.shield(asyncio.create_task(self._push_snapshot(request)))
 
@@ -548,6 +553,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.ApplyConfigSnapshotRequest,
         context: Any,
     ) -> common.ApplyConfigSnapshotResponse:
+        await _authorize_variables(context, self.runtime, "config_write")
         # Cancellation of the caller cannot release a live file-commit lock.
         return await asyncio.shield(asyncio.create_task(self._apply_snapshot(request)))
 
@@ -596,6 +602,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.GetMetricsRequest,
         context: Any,
     ) -> common.GetMetricsResponse:
+        await _authorize_variables(context, self.runtime, "query")
         try:
             return metric_snapshot(self.runtime, request.scope, request.window_ms)
         except ValueError as exc:
@@ -605,6 +612,7 @@ class CommonService(common_rpc.CommonServiceServicer):
     async def GetEvents(
         self, request: common.GetEventsRequest, context: Any
     ) -> common.GetEventsResponse:
+        await _authorize_variables(context, self.runtime, "query")
         try:
             offset = int(request.page_token or "0")
             if offset < 0:
@@ -657,6 +665,7 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.DiagnoseRequest,
         context: Any,
     ) -> common.DiagnoseResponse:
+        await _authorize_variables(context, self.runtime, "query")
         try:
             await asyncio.wait_for(
                 self._diagnostics_permits.acquire(),
@@ -718,7 +727,10 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
     permissions = security["permissions"]
     if not isinstance(token_sources, dict) or not isinstance(permissions, dict):
         raise GeneratorError("security bearer fields must be mappings")
-    supported = {"variables_read", "variables_update"}
+    supported = {
+        "variables_read", "variables_update", "query",
+        "config_read", "config_write",
+    }
     if any(
         not isinstance(rights, list) or not rights
         or any(right not in supported for right in rights)
