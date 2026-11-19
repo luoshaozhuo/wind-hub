@@ -200,6 +200,8 @@ class StorageConfig(_StrictModel):
             raise ValueError("duplicate exact ConfigSource identities")
         if self.service_id != self.reconciliation.owner_instance_id:
             raise ValueError("Storage owner_instance_id must equal service_id in v1")
+        if self.kafka.max_poll_records > self.kafka.max_buffer_records:
+            raise ValueError("Kafka fetch records exceed bounded record buffer")
         if self.tdengine.batch_max_records > self.kafka.max_buffer_records:
             raise ValueError("batch exceeds maximum record buffer")
         if self.tdengine.batch_max_bytes > self.kafka.max_buffer_bytes:
