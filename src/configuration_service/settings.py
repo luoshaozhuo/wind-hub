@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
@@ -14,9 +15,7 @@ class ServerSettings:
     service_id: str
     host: str
     port: int
-    ca_file: Path
-    cert_file: Path
-    key_file: Path
+    token_sources: dict[str, str]
     sqlite_path: Path
     backup_root: Path
     cursor_secret_file: Path
@@ -78,7 +77,6 @@ def load_settings(path: Path) -> ServerSettings:
     if set(raw) != allowed_root:
         raise ValueError("invalid bootstrap configuration root fields")
     grpc_config = _mapping(raw["grpc"], "grpc")
-    tls = _mapping(grpc_config["tls"], "grpc.tls")
     repository = _mapping(raw["repository"], "repository")
     limits = _mapping(raw["limits"], "limits")
     security = _mapping(raw["security"], "security")
@@ -88,10 +86,9 @@ def load_settings(path: Path) -> ServerSettings:
         if unexpected:
             raise ValueError(f"unknown {name} fields: {sorted(unexpected)}")
 
-    assert_fields(grpc_config, {"host", "port", "tls"}, "grpc")
-    assert_fields(tls, {"ca_file", "cert_file", "key_file"}, "grpc.tls")
+    assert_fields(grpc_config, {"host", "port"}, "grpc")
     assert_fields(repository, {"sqlite_path", "backup_root"}, "repository")
-    assert_fields(security, {"cursor_secret_file", "permissions"}, "security")
+    assert_fields(security, {"cursor_secret_file", "token_sources", "permissions"}, "security")
     assert_fields(
         limits,
         {
@@ -121,14 +118,22 @@ def load_settings(path: Path) -> ServerSettings:
             raise ValueError("client permissions must be a nonempty role list")
         identities[name] = frozenset(roles)
     if not identities:
-        raise ValueError("at least one authorized mTLS client is required")
+        raise ValueError("at least one authenticated token principal is required")
+    configured_sources = _mapping(security["token_sources"], "security.token_sources")
+    sources: dict[str, str] = {}
+    for actor, reference in configured_sources.items():
+        principal = _text(actor, "token actor")
+        name = _text(reference, "security token source")
+        if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", name) is None:
+            raise ValueError("token source must reference a controlled environment variable")
+        sources[principal] = name.removeprefix("env:")
+    if set(sources) != set(identities):
+        raise ValueError("token source and permission principals must agree")
     return ServerSettings(
         service_id=_text(raw["service_id"], "service_id"),
         host=_text(grpc_config["host"], "grpc.host"),
         port=_number(grpc_config["port"], "grpc.port", 1, 65535),
-        ca_file=_file(tls["ca_file"], "grpc.tls.ca_file"),
-        cert_file=_file(tls["cert_file"], "grpc.tls.cert_file"),
-        key_file=_file(tls["key_file"], "grpc.tls.key_file"),
+        token_sources=sources,
         sqlite_path=_file(repository["sqlite_path"], "repository.sqlite_path"),
         backup_root=_file(repository["backup_root"], "repository.backup_root"),
         cursor_secret_file=_file(security["cursor_secret_file"], "security.cursor_secret_file"),
