@@ -10,6 +10,7 @@ import signal
 from pathlib import Path
 
 from storage_service.application.ingestion import IngestionService
+from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import CursorCodec, HistoryQueryService
 from storage_service.application.tasks import AsyncStorageTasks
 from storage_service.infrastructure.adapters.inbound.grpc_server import (
@@ -82,6 +83,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 business_points_version=bundle.business_points_pin,
                 historical_pins=metadata.list_semantic_pins(),
             )
+            metrics = StorageRuntimeMetrics()
             storage = TDengineBackend(config=bundle.configuration, metadata=metadata)
             await storage.open()
             try:
@@ -89,6 +91,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     storage=storage,
                     point_tables=point_tables,
                     evidence=metadata,
+                    metrics=metrics,
                     max_batch_records=bundle.configuration.tdengine.batch_max_records,
                     max_batch_bytes=bundle.configuration.tdengine.batch_max_bytes,
                 )
@@ -97,6 +100,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     bootstrap_servers=bundle.configuration.kafka.bootstrap_servers,
                     ingestion=ingestion,
                     metadata=metadata,
+                    metrics=metrics,
                 )
                 cursor_secret = os.getenv("WIND_HUB_STORAGE_CURSOR_SECRET", "").encode()
                 if len(cursor_secret) < 32:
@@ -127,6 +131,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     point_tables=point_tables, consumer=consumer,
                     cursor_secret=cursor_secret,
                     config_status=lambda: watcher.status,
+                    metrics=metrics,
                 )
                 await consumer.start()
                 try:
