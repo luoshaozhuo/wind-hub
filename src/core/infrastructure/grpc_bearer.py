@@ -82,7 +82,8 @@ class BearerAuthorizer:
             for caller_id, reference in sorted(credentials.items())
         ))
 
-    def require(self, context: GrpcIdentityContext, permission: str) -> str:
+    def identify(self, context: GrpcIdentityContext) -> CallerGrant:
+        """Return authenticated principal only after uniquely matching one secret."""
         values = [
             str(getattr(item, "value", ""))
             for item in context.invocation_metadata()
@@ -98,6 +99,10 @@ class BearerAuthorizer:
                 matched = caller
         if matched is None:
             raise BearerAuthenticationError("invalid bearer credentials")
-        if permission not in matched.permissions and "admin" not in matched.permissions:
+        return matched
+
+    def require(self, context: GrpcIdentityContext, permission: str) -> str:
+        principal = self.identify(context)
+        if permission not in principal.permissions and "admin" not in principal.permissions:
             raise BearerAuthorizationError("caller is not authorized for operation")
-        return matched.caller_id
+        return principal.caller_id
