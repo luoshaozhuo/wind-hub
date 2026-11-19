@@ -53,15 +53,27 @@ class HistoricalPointTable:
         if value is None:
             return BusinessValue(str(business.business_point_id), business.standard_unit.unit_id, None)
         try:
-            engineering = engineering_value(point, value)
-            if isinstance(engineering, (int, float)) and not isinstance(engineering, bool):
-                if not isfinite(float(engineering)):
-                    raise ValueError("nonfinite engineering value")
-                converted: object = convert_value(
-                    float(engineering), point.source_unit, business.standard_unit
-                )
+            if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and point.scale == 1.0
+                and point.offset == 0.0
+                and point.source_unit == business.standard_unit
+            ):
+                # Avoid float round-trip for exact int64/uint64 protocol values.
+                converted: object = value
             else:
-                converted = engineering
+                engineering = engineering_value(point, value)
+                if isinstance(engineering, (int, float)) and not isinstance(engineering, bool):
+                    if not isfinite(float(engineering)):
+                        raise ValueError("nonfinite engineering value")
+                    if isinstance(engineering, int) and abs(engineering) > 2**53:
+                        raise ValueError("large integer cannot be converted losslessly")
+                    converted = convert_value(
+                        float(engineering), point.source_unit, business.standard_unit
+                    )
+                else:
+                    converted = engineering
             result = business.coerce(converted)
         except (ValueError, TypeError, OverflowError) as exc:
             raise ConfigurationError(f"business conversion failed for {point_id}: {exc}") from exc
