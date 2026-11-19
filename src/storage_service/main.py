@@ -100,6 +100,8 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     backend=storage, codec=CursorCodec(cursor_secret),
                     max_page_size=bundle.configuration.query.max_page_size,
                     max_range_days=bundle.configuration.query.max_range_days,
+                    max_concurrent=bundle.configuration.query.max_concurrent,
+                    timeout_ms=bundle.configuration.query.timeout_ms,
                 )
                 jobs = AsyncStorageTasks(
                     config=bundle.configuration, metadata=metadata, history=history,
