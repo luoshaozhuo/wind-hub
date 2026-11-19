@@ -427,6 +427,26 @@ class ConfigurationApplication:
                         (str(columns["business_config_version_id"]), "point.business")
                     )
                     references.append((str(columns["source_unit_version_id"]), "point.unit"))
+            canonical_refs = tuple(sorted(set(references)))
+            version_key = (
+                document.identity.config_type,
+                document.identity.config_id,
+                document.file_version,
+            )
+            # Reusing a version with a different dependency graph would
+            # silently reinterpret historical PointTable semantics.
+            try:
+                published = self.repository.resolve_version(
+                    document.identity, document.file_version
+                )
+            except RepositoryNotFoundError:
+                published = None
+            if published is not None and (
+                self.repository.get_version_references(published) != canonical_refs
+            ):
+                raise RepositoryConflictError(
+                    "immutable config dependency graph changed: bump file_version"
+                )
             versions.append(
                 PreparedVersion(
                     document=document,
@@ -438,7 +458,7 @@ class ConfigurationApplication:
                         )
                     ],
                     projections=projections,
-                    references=tuple(sorted(set(references))),
+                    references=canonical_refs,
                 )
             )
         return tuple(versions)
