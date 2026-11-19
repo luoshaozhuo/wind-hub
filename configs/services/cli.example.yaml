@@ -1,3 +1,4 @@
+# Internal operations require principal-scoped 32+ byte bearer tokens.
 # Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
 # in the CLI process environment. Never put the token value in this YAML.
 # Configuration CLI RPC: WIND_HUB_CONFIG_CLI_TOKEN (32+ secret bytes).
@@ -38,20 +39,17 @@ services:
       log_file: "/var/log/wind-hub/storage.log"
   collector:
     grpc_endpoint: "127.0.0.1:50051"
-    tls_profile: local
     manager: containerd
     target: collector
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
   commander:
     grpc_endpoint: "127.0.0.1:50052"
-    tls_profile: local
     manager: isulad
     isula_binary: "/usr/bin/isula"
     target: commander
   sink:
     grpc_endpoint: "127.0.0.1:50053"
-    tls_profile: local
     manager: process
     target: sink
     process:
@@ -61,14 +59,12 @@ services:
       log_file: "/var/log/wind-hub/sink.log"
   gateway:
     grpc_endpoint: "127.0.0.1:50073"
-    tls_profile: local
     manager: containerd
     target: gateway
     namespace: default
     manager_socket: "/run/containerd/containerd.sock"
   data-generator:
     grpc_endpoint: "127.0.0.1:50061"
-    tls_profile: local
     manager: process
     target: data-generator
     process:
@@ -76,11 +72,6 @@ services:
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/data-generator.log"
-tls_profiles:
-  local:
-    ca_cert: "/etc/wind-hub/certs/ca.crt"
-    client_cert: "/etc/wind-hub/certs/cli.crt"
-    client_key: "/etc/wind-hub/certs/cli.key"
 network_probe:
   max_hosts: 1024
   max_concurrency: 64
