@@ -289,14 +289,15 @@ class TDengineBackend:
         rows = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
         if len(rows) != 1 or len(rows[0]) < 2:
             raise TDengineSchemaConflict("database DDL readback failed")
-        definition = str(rows[0][-1]).upper().replace("`", "")
-        if not (
-            re.search(r"\\bPRECISION\\s+['\\\"]?US['\\\"]?", definition)
-            and re.search(
-                rf"\\bDURATION\\s+{retention.duration_days}D\\b", definition
-            )
-            and re.search(
-                rf"\\bKEEP\\s+{retention.keep_days}D\\b", definition
+        definition = "".join(
+            str(rows[0][-1]).upper().replace("`", "").replace("'", "").replace('"', "").split()
+        )
+        if not all(
+            expression in definition
+            for expression in (
+                "PRECISIONUS",
+                f"DURATION{retention.duration_days}D",
+                f"KEEP{retention.keep_days}D",
             )
         ):
             raise TDengineSchemaConflict(
