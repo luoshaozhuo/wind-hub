@@ -6,6 +6,7 @@ registered Storage-owned tables. Never query arbitrary database objects.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -167,6 +168,8 @@ class HistoryQueryService:
         self, backend: HistoryBackend, codec: CursorCodec, *,
         max_page_size: int = 1000,
         max_range_days: int = 31,
+        max_concurrent: int = 4,
+        timeout_ms: int = 30000,
     ) -> None:
         if not 1 <= max_page_size <= 1000:
             raise ValueError("max page size must be 1..1000")
@@ -174,6 +177,10 @@ class HistoryQueryService:
         self._codec = codec
         self._max_page_size = max_page_size
         self._max_range_days = max_range_days
+        if not 1 <= max_concurrent <= 32 or not 100 <= timeout_ms <= 120000:
+            raise ValueError("query concurrency or timeout out of bounds")
+        self._limit = asyncio.Semaphore(max_concurrent)
+        self._timeout = timeout_ms / 1000
 
     async def query(
         self, filter_: HistoryFilter, *, page_size: int = 200,
@@ -197,9 +204,16 @@ class HistoryQueryService:
         )
         if bounded.end_us <= bounded.start_us:
             return HistoryPage((), "", True)
-        rows = tuple(await self._backend.fetch_history(
-            bounded, after=after, limit=page_size + 1,
-        ))
+        async with self._limit:
+            try:
+                rows = tuple(await asyncio.wait_for(
+                    self._backend.fetch_history(
+                        bounded, after=after, limit=page_size + 1,
+                    ),
+                    timeout=self._timeout,
+                ))
+            except TimeoutError as exc:
+                raise RuntimeError("Storage historical query exceeded deadline") from exc
         if len(rows) > page_size + 1:
             raise RuntimeError("backend violated bounded page contract")
         selected = rows[:page_size]
