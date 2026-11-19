@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -339,29 +340,46 @@ class MetadataStore:
             return [(str(a), int(b), int(c), str(d)) for a, b, c, d in rows]
 
     def list_tables(
-        self, *, database: str | None = None
+        self, *, database: str | None = None,
     ) -> list[ObjectRegistration]:
-        """Read durable identities; queries must never discover arbitrary unmanaged tables."""
+        """Return only integrity-checked registered and READY physical objects."""
         with self._mutex:
             rows = self._db().execute(
-                """SELECT name, full_sha256, identity_json, schema_fingerprint, state
-                   FROM storage_objects WHERE name LIKE 'tb_%' AND state='READY'
-                   ORDER BY name"""
+                """SELECT name, full_sha256, identity_json,
+                          schema_fingerprint, state
+                   FROM storage_objects
+                   WHERE name LIKE 'tb_%' AND state='READY' ORDER BY name"""
             ).fetchall()
-        records = [
-            ObjectRegistration(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4])
-            for row in rows
-        ]
-        if database is None:
-            return records
-        return [
-            record for record in records
-            if record.name.startswith("tb_") and isinstance(record.identity_json, str)
-            and hashlib.sha256(
-                json.dumps([json.loads(record.identity_json)[0]],
-                           ensure_ascii=False, separators=(",", ":")).encode()
-            ).hexdigest()[:24] == database.removeprefix("wh_")
-        ]
+        records: list[ObjectRegistration] = []
+        for name, digest, canonical, fingerprint, state in rows:
+            if (
+                not isinstance(name, str)
+                or re.fullmatch(r"tb_[0-9a-f]{24}", name) is None
+                or not isinstance(canonical, str)
+                or hashlib.sha256(canonical.encode("utf-8")).hexdigest() != digest
+            ):
+                raise MetadataConflict("stored physical identity is not trustworthy")
+            try:
+                identity = json.loads(canonical)
+            except (ValueError, TypeError) as exc:
+                raise MetadataConflict("stored physical identity is malformed") from exc
+            if (
+                not isinstance(identity, list) or len(identity) != 6
+                or any(not isinstance(item, str) or not item for item in identity)
+            ):
+                raise MetadataConflict("stored table identity has invalid components")
+            if name != f"tb_{digest[:24]}":
+                raise MetadataConflict("physical table name differs from identity hash")
+            farm_hash = hashlib.sha256(
+                json.dumps([identity[0]], ensure_ascii=False,
+                           separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if database is not None and database != f"wh_{farm_hash[:24]}":
+                continue
+            records.append(ObjectRegistration(
+                name, digest, canonical, fingerprint, state,
+            ))
+        return records
 
     def register_semantic_pins(
         self, *, point_table_versions: dict[str, tuple[str, str]],
