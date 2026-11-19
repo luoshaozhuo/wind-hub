@@ -91,7 +91,9 @@ class BatchBuilder:
         start = 0
         while start < len(items):
             count = min(self._max_samples, len(items) - start)
-            candidate = self._batch(device_id, device_type, point_table_id, items[start : start + count])
+            candidate = self._batch(
+                device_id, device_type, point_table_id, items[start : start + count]
+            )
             while count:
                 try:
                     candidate.encode(max_samples=self._max_samples, max_bytes=self._max_bytes)
@@ -100,7 +102,9 @@ class BatchBuilder:
                     if count == 1:
                         raise
                     count //= 2
-                    candidate = self._batch(device_id, device_type, point_table_id, items[start : start + count])
+                    candidate = self._batch(
+                device_id, device_type, point_table_id, items[start : start + count]
+            )
             batches.append(candidate)
             start += count
         return batches
