@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from contracts.configuration_repository_pb2 import GetPointTableBundleResponse
+from core.application.errors import ConfigError
 from core.configuration.business_points import parse_business_points
 from core.configuration.shared_point_tables import _point_tables
 from core.configuration.units import parse_unit_catalog
@@ -91,30 +92,33 @@ def parse_point_table_bundle(
     business_docs = [doc for key, doc in documents.items() if key[0] == "business_points"]
     if len(unit_docs) != 1 or len(business_docs) != 1:
         raise ConfigurationError("ambiguous pinned Units/BusinessPoint versions")
-    units = parse_unit_catalog({
-        key: value for key, value in unit_docs[0].items()
-        if key not in {"schema_version", "file_version"}
-    })
-    business_points = parse_business_points(
-        {"business_points": business_docs[0]["business_points"]}, units
-    )
-    definitions: dict[str, dict[str, Any]] = {}
-    for (kind, config_id, version), doc in documents.items():
-        if kind != "point_table":
-            continue
-        table_id = f"point_table_{config_id}_v{version}"
-        source = {
-            "protocol": doc.get("protocol"),
-            "points": doc.get("points", {}),
-            "remove_points": doc.get("remove_points", []),
-        }
-        parent = doc.get("parent")
-        if parent is not None:
-            if not isinstance(parent, dict) or set(parent) != {"id", "version"}:
-                raise ConfigurationError("invalid historical parent reference")
-            source["parent_id"] = f"point_table_{parent['id']}_v{parent['version']}"
-        definitions[table_id] = source
-    tables = _point_tables({"point_tables": definitions}, business_points, units)
+    try:
+        units = parse_unit_catalog({
+            key: value for key, value in unit_docs[0].items()
+            if key not in {"schema_version", "file_version"}
+        })
+        business_points = parse_business_points(
+            {"business_points": business_docs[0]["business_points"]}, units
+        )
+        definitions: dict[str, dict[str, Any]] = {}
+        for (kind, config_id, version), doc in documents.items():
+            if kind != "point_table":
+                continue
+            table_id = f"point_table_{config_id}_v{version}"
+            source = {
+                "protocol": doc.get("protocol"),
+                "points": doc.get("points", {}),
+                "remove_points": doc.get("remove_points", []),
+            }
+            parent = doc.get("parent")
+            if parent is not None:
+                if not isinstance(parent, dict) or set(parent) != {"id", "version"}:
+                    raise ConfigurationError("invalid historical parent reference")
+                source["parent_id"] = f"point_table_{parent['id']}_v{parent['version']}"
+            definitions[table_id] = source
+        tables = _point_tables({"point_tables": definitions}, business_points, units)
+    except (ConfigError, KeyError, ValueError, TypeError) as exc:
+        raise ConfigurationError("invalid pinned PointTable interpretation closure") from exc
     root = tables.get(PointTableId(expected_id))
     if root is None:
         raise ConfigurationError("unable to resolve immutable PointTable")
@@ -122,9 +126,6 @@ def parse_point_table_bundle(
     declared_type = raw_root.get("device_type")
     if declared_type is not None and declared_type != expected_type:
         raise ConfigurationError("historical PointTable device type declaration mismatch")
-    business_ids = [point.business_point_id for point in root.points.values()]
-    if len(set(business_ids)) != len(business_ids):
-        raise ConfigurationError("historical PointTable contains repeated BusinessPoint IDs")
     return HistoricalPointTable(
         point_table_id=expected_id,
         device_type=expected_type,
