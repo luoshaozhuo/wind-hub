@@ -48,9 +48,9 @@ security:
     wind-hub-sink: [query]
     wind-hub-gateway: [query]
 limits:
-  max_request_bytes: 1048576
-  max_bundle_bytes: 4194304
-  max_documents_per_publication: 100
+  max_request_bytes: 67108864
+  max_bundle_bytes: 67108864
+  max_documents_per_publication: 1000
   max_dependencies: 1000
   candidate_ttl_seconds: 3600
   write_timeout_ms: 10000
