@@ -42,53 +42,30 @@ class ConfigSources(StrictModel):
     templates: TemplateSources
 
 
-class TlsConfig(StrictModel):
-    enabled: bool = False
-    cert_file: Path | None = None
-    key_file: Path | None = None
-    ca_file: Path | None = None
-
-    @model_validator(mode="after")
-    def validate_certificates(self) -> TlsConfig:
-        if self.enabled:
-            paths = (self.cert_file, self.key_file, self.ca_file)
-            if any(path is None or str(path) in {"", "."} for path in paths):
-                raise ValueError("enabled mTLS requires explicit certificate file paths")
-        return self
-
-
 class GrpcConfig(StrictModel):
     listen_host: str = "127.0.0.1"
     listen_port: int = Field(default=50073, ge=1, le=65535)
     max_active_rpcs: int = Field(default=64, ge=1)
     request_max_bytes: int = Field(default=2097152, ge=1)
-    tls: TlsConfig = Field(default_factory=TlsConfig)
-    permissions: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    token_sources: dict[str, str]
+    permissions: dict[str, tuple[str, ...]]
 
     @model_validator(mode="after")
     def validate_listener(self) -> GrpcConfig:
         if not self.listen_host.strip():
             raise ValueError("grpc.listen_host cannot be empty")
         allowed = {
-            "read",
-            "config_read",
-            "config_write",
-            "inject",
-            "simulation_execute",
-            "lifecycle",
-            "diagnose",
+            "read", "config_read", "config_write", "inject",
+            "simulation_execute", "lifecycle", "diagnose",
         }
+        if not self.token_sources or set(self.token_sources) != set(self.permissions):
+            raise ValueError("Gateway token_sources and permissions must match")
         for name, rights in self.permissions.items():
             if not name.strip() or not rights or not set(rights) <= allowed:
-                raise ValueError("invalid grpc identity permissions")
-        if self.tls.enabled and not self.permissions:
-            raise ValueError("production mTLS requires explicit identity permissions")
-        if not self.tls.enabled and self.listen_host not in {
-            "127.0.0.1",
-            "::1",
-            "localhost",
-        }:
-            raise ValueError("non-loopback gRPC requires mTLS")
+                raise ValueError("invalid Gateway permissions")
+        for name in self.token_sources.values():
+            if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", name) is None:
+                raise ValueError("Gateway token_sources values must reference env:NAME")
         return self
 
 
@@ -104,33 +81,25 @@ class TargetMapping(StrictModel):
 
 
 class SimulationTarget(StrictModel):
-    """Explicit Generator input endpoint used only after Commander authorization."""
+    """Authenticated Generator endpoint used after Commander authorization."""
 
     endpoint: str = Field(min_length=1)
-    tls: TlsConfig
+    token_env: str
     scenario_id: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_simulation(self) -> SimulationTarget:
         if not self.scenario_id.strip() or not self.endpoint.strip():
-            raise ValueError("simulation endpoint and Scenario must not be blank")
-        host, separator, port_text = self.endpoint.rpartition(":")
-        if (
-            not separator
-            or not host.strip()
-            or not port_text.isdecimal()
-            or not 1 <= int(port_text) <= 65535
-        ):
-            raise ValueError("simulation endpoint must be host:port")
-        if not self.tls.enabled:
-            raise ValueError("simulation model updates require mutual TLS")
+            raise ValueError("Generator endpoint and scenario are required")
+        if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", self.token_env) is None:
+            raise ValueError("Generator token_env must reference env:NAME")
         return self
 
 
 class ControlTarget(StrictModel):
     kind: Literal["commander", "none"]
     endpoint: str | None = None
-    tls: TlsConfig | None = None
+    token_env: str | None = None
     request_timeout_ms: int = Field(default=5000, ge=1, le=60000)
     queue_capacity: int = Field(default=1024, ge=1, le=65536)
     max_inflight: int = Field(default=1, ge=1, le=256)
@@ -138,27 +107,15 @@ class ControlTarget(StrictModel):
     @model_validator(mode="after")
     def validate_target(self) -> ControlTarget:
         if self.kind == "none":
-            if self.endpoint is not None or self.tls is not None:
+            if self.endpoint is not None or self.token_env is not None:
                 raise ValueError("none control target cannot declare an endpoint")
             return self
-        endpoint = self.endpoint
-        if not isinstance(endpoint, str) or not endpoint.strip():
-            raise ValueError("Commander control target endpoint must be configured")
-        host, separator, port_text = endpoint.rpartition(":")
-        if (
-            not separator
-            or not host.strip()
-            or not port_text.isdecimal()
-            or not 1 <= int(port_text) <= 65535
-        ):
-            raise ValueError("Commander endpoint must be host:port")
-        host = host.strip("[]")
-        if (not self.tls or not self.tls.enabled) and host not in {
-            "127.0.0.1",
-            "::1",
-            "localhost",
-        }:
-            raise ValueError("non-loopback Commander target requires mutual TLS")
+        if not self.endpoint or not self.endpoint.strip():
+            raise ValueError("Commander control target requires endpoint")
+        if not self.token_env or re.fullmatch(
+            r"env:[A-Z_][A-Z0-9_]*", self.token_env
+        ) is None:
+            raise ValueError("Commander target requires env:NAME token")
         return self
 
 
