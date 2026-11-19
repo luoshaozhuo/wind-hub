@@ -1,4 +1,4 @@
-"""Strict version-2 batched NATS telemetry contract.
+"""Strict version-3 batched NATS telemetry contract.
 
 The batch is the transport and JetStream acknowledgment unit; individual
 samples retain independent identities, timestamps, quality, and TTL.
@@ -118,20 +118,29 @@ class SampleBatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     batch_id: str
     mode: DeliveryMode
     wind_farm_id: str
     collector_id: str
     task_id: str
+    device_type: str
     device_id: str
+    point_table_id: str
     publish_time: datetime
     samples: tuple[SampleItem, ...]
 
-    @field_validator("wind_farm_id", "collector_id", "task_id", "device_id")
+    @field_validator("wind_farm_id", "collector_id", "task_id", "device_type", "device_id")
     @classmethod
     def _identity_token(cls, value: str) -> str:
         return validate_subject_token(value)
+
+    @field_validator("point_table_id")
+    @classmethod
+    def _point_table_identity(cls, value: str) -> str:
+        if _is_unsafe_identifier(value) or not value.startswith("point_table_") or "_v" not in value:
+            raise ValueError("invalid immutable point_table_id")
+        return value
 
     @field_validator("batch_id")
     @classmethod
@@ -165,13 +174,15 @@ class SampleBatch(BaseModel):
         return self
 
     @property
-    def identity(self) -> tuple[str, str, str, str, str, str]:
+    def identity(self) -> tuple[str, str, str, str, str, str, str, str]:
         """Scope a batch ID to its immutable producer identity."""
         return (
             self.wind_farm_id,
             self.collector_id,
             self.task_id,
+            self.device_type,
             self.device_id,
+            self.point_table_id,
             self.mode,
             self.batch_id,
         )
@@ -243,8 +254,8 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid UTF-8 JSON batch") from exc
         if not isinstance(raw, dict):
             raise ValueError("batch envelope must be an object")
-        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 2:
-            raise ValueError("explicit schema_version=2 required")
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 3:
+            raise ValueError("explicit schema_version=3 required")
         _require_wire_timestamp(raw.get("publish_time"), "publish_time")
         items = raw.get("samples")
         if not isinstance(items, list) or not 0 < len(items) <= max_samples:
