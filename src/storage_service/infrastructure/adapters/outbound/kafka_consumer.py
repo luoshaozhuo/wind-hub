@@ -210,6 +210,27 @@ class KafkaStorageConsumer:
             self._consumer.resume(tp)
         return True
 
+
+    async def snapshot_progress(self) -> list[tuple[str, int, int, int, int, str]]:
+        """Read broker end offsets for observed lag; never silently report zero lag."""
+        assignments = list(self._assignments)
+        if not assignments:
+            return []
+        last = await self._consumer.end_offsets(assignments)
+        result: list[tuple[str, int, int, int, int, str]] = []
+        for tp in assignments:
+            entry = self._assignments.get(tp)
+            if entry is None:
+                continue
+            next_offset = entry.offsets.next_commit_offset
+            end_offset = last[tp]
+            blocked = self._metadata.get_blocked_partition(tp.topic, tp.partition)
+            result.append((
+                tp.topic, tp.partition, next_offset, next_offset - 1,
+                max(0, end_offset - next_offset), blocked[1] if blocked else "",
+            ))
+        return sorted(result)
+
     def request_stop(self) -> None:
         self._stop.set()
 
