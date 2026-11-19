@@ -517,9 +517,9 @@ class StorageServicer(rpc.StorageServiceServicer):
                 committed_next_offset=item[2], last_confirmed_offset=item[3],
                 lag=item[4], block_reason=item[5],
             )
-        if (
-            response.service_state == "READY"
-            and any(item.block_reason for item in response.partitions)
+        if response.service_state == "READY" and (
+            any(item.block_reason for item in response.partitions)
+            or self._metadata.list_blocked(page_size=1)
         ):
             response.service_state = "DEGRADED"
         return response
