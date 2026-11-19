@@ -438,6 +438,12 @@ class StorageServicer(rpc.StorageServiceServicer):
         self._auth.require(
             context, permission="storage.backup", farm=request.wind_farm_id
         )
+        if not self._config.backup.enabled:
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "native TDengine backup is disabled until version-specific verification",
+            )
+            raise AssertionError("abort must terminate RPC")
         record = await self._jobs.create_backup(
             request_id=request.request_id, wind_farm_id=request.wind_farm_id,
             owner_id=self._auth.require(
