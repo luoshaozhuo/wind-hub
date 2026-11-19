@@ -49,6 +49,11 @@ def read_complete_directory(root: Path, *, max_bytes: int = 64 * 1024 * 1024,
         directory = root / group
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError(f"missing or unsafe Configuration directory: {group}")
+        for entry in directory.rglob("*"):
+            if entry.is_symlink():
+                raise ValueError(f"Configuration root contains a symbolic link: {entry}")
+            if entry.is_file() and entry.suffix == ".yml":
+                raise ValueError(f"Configuration YAML must use .yaml extension: {entry}")
         for path in sorted(directory.rglob("*.yaml")):
             if path.is_symlink() or not path.is_file():
                 raise ValueError(f"Configuration root contains unsafe YAML: {path}")
