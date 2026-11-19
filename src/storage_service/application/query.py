@@ -13,8 +13,8 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol, Sequence
+from datetime import UTC, datetime
+from typing import Protocol, Sequence
 
 from storage_service.domain.sample import DataLevel
 
