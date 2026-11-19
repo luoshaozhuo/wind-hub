@@ -21,13 +21,10 @@ from typing import Any, Protocol
 import grpc
 import yaml
 
+from storage_service.application.ingestion import ConfigHistoryUnavailable
 from storage_service.domain.sample import DataLevel, StorageSample
 
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
-
-
-class ConfigHistoryUnavailable(RuntimeError):
-    """An exact immutable configuration version cannot be proved or recovered."""
 
 
 @dataclass(frozen=True, slots=True)
