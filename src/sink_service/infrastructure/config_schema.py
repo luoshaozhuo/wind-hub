@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sink_service.domain.config import (
@@ -131,8 +132,50 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         identities.add(identity)
     sync = expect_mapping(service.get("config_sync"), "service.config_sync")
     expect_positive_int(sync.get("apply_timeout_ms"), "config_sync.apply_timeout_ms")
-    if set(sync) != {"apply_timeout_ms"}:
-        raise ConfigurationError("unsupported config_sync fields")
+    require_keys(
+        sync,
+        "config_sync",
+        frozenset({"apply_timeout_ms"}),
+        frozenset({
+            "repository_endpoint",
+            "repository_token_ref",
+            "approved_point_table_manifests",
+        }),
+    )
+    repo_keys = {
+        "repository_endpoint",
+        "repository_token_ref",
+        "approved_point_table_manifests",
+    }
+    if repo_keys & set(sync):
+        if not repo_keys.issubset(sync):
+            raise ConfigurationError("repository configuration must be complete")
+        endpoint = expect_nonempty_str(
+            sync["repository_endpoint"], "config_sync.repository_endpoint"
+        )
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host or not port.isdecimal() or not 1 <= int(port) <= 65535:
+            raise ConfigurationError("configuration repository endpoint must be host:port")
+        reference = expect_nonempty_str(
+            sync["repository_token_ref"], "config_sync.repository_token_ref"
+        )
+        if re.fullmatch(r"env:[A-Za-z_][A-Za-z0-9_]*", reference) is None:
+            raise ConfigurationError("repository token requires an env: Secret")
+        approved = expect_mapping(
+            sync["approved_point_table_manifests"], "approved_point_table_manifests"
+        )
+        if not approved or len(approved) > 128 or any(
+            not isinstance(point_table_id, str)
+            or re.fullmatch(
+                r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\\.[0-9]+\\.[0-9]+",
+                point_table_id,
+            )
+            is None
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[a-f0-9]{64}", digest) is None
+            for point_table_id, digest in approved.items()
+        ):
+            raise ConfigurationError("invalid approved historical PointTable manifests")
     shutdown = expect_mapping(service.get("shutdown"), "service.shutdown")
     require_keys(shutdown, "shutdown", frozenset({"grace_seconds"}))
     expect_positive_int(shutdown.get("grace_seconds"), "shutdown.grace_seconds")
