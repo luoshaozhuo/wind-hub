@@ -128,6 +128,8 @@ class CommonServicer(rpc.CommonServiceServicer):
                 "GetRepositoryStats",
                 "CreateBackup",
                 "GetBackupTask",
+                "GetCurrentRevision",
+                "GetPointTableBundle",
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
@@ -139,7 +141,13 @@ class CommonServicer(rpc.CommonServiceServicer):
                 "Diagnose",
             ],
             protocols=["grpc", "yaml", "sqlite"],
-            features=["immutable-config-revisions", "yaml-roundtrip", "sqlite-online-backup"],
+            features=[
+                "immutable-config-revisions",
+                "full-directory-manifests",
+                "historical-point-table-bundles",
+                "yaml-roundtrip",
+                "sqlite-online-backup",
+            ],
         )
 
     def GetConfigSnapshot(

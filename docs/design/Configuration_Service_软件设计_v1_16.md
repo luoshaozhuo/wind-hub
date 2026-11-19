@@ -1598,7 +1598,7 @@ semantic_points:
 # schema_version: 必填整数；当前服务配置 Schema=1
 # file_version: 必填；MAJOR.MINOR.PATCH
 # service_id: 必填唯一字符串
-# grpc.host: 必填回环地址 127.0.0.1、::1 或 localhost；示例 127.0.0.1
+# grpc.host: 必填受控内网监听地址；本机示例 127.0.0.1。非回环须在部署层隔离访问并配置防火墙
 # grpc.port: 必填 TCP 端口 1..65535
 # grpc: 内部标准 gRPC，不启用 TLS；跨主机必须使用隔离网络与防火墙
 # repository.sqlite_path: 必填；SQLite 数据库文件绝对路径
@@ -1653,7 +1653,7 @@ limits:
   max_workers: 16
 ```
 
-Configuration 的 `security.token_sources` 与 `permissions` 由本机引导配置定义，令牌仅从 `env:` 读取，调用方和权限集合必须完全对应。Configuration gRPC 只在 `127.0.0.1`、`::1` 或 `localhost` 回环地址提供明文传输；必须携带授权 Bearer 令牌，不允许向非回环网络暴露令牌。CLI 从 `WIND_HUB_CONFIG_CLI_ADMIN_TOKEN` 读取管理员令牌。
+Configuration 的 `security.token_sources` 与 `permissions` 由本机引导配置定义，令牌仅从 `env:` 读取，调用方和权限集合必须完全对应。Configuration gRPC 在受控内部网络提供无 mTLS 的明文传输，必须携带授权 Bearer 令牌；跨容器或跨主机部署时必须由网络隔离、ACL 和防火墙阻止未授权访问，严禁将端点暴露在公网。CLI 从 `WIND_HUB_CONFIG_CLI_ADMIN_TOKEN` 读取管理员令牌。
 
 **本引导配置不属于 CLI 根目录全量发布的业务 YAML。** 配置发布后，NATS 广播失败不回滚已提交的 SQLite 修订；模块依赖订阅后查询、重连和周期对账恢复。NATS 连接配置也须列入正式 Configuration 自身 Service Schema 与运维诊断。
 
@@ -1752,7 +1752,7 @@ Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Stora
 
 ## 14.2 测试目录与 Marker
 
-测试按 `tests/src/configuration_service/{unit,component,integration,system}/` 组织，分别标注现有 pytest `unit`、`component`、`integration`、`system` Marker；专题 Marker 必须先在项目配置登记。真实进程由 CLI 启动，测试管理其 SQLite 数据目录与证书环境。
+测试按 `tests/src/configuration_service/{unit,component,integration,system}/` 组织，分别标注现有 pytest `unit`、`component`、`integration`、`system` Marker；专题 Marker 必须先在项目配置登记。真实进程由 CLI 启动，测试管理其 SQLite 数据目录、Bearer Token 环境变量和受控内部网络。
 
 ## 14.3 测试文件矩阵
 
@@ -1806,4 +1806,4 @@ Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Stora
 本设计属于**目标行为基线**。Proto、SQLite DDL 及全量目录生产实现已进入开发分支；独立的生成一致性检查、静态门禁与真实运行测试仍须执行，不能把代码提交当作验收 PASS。进入实施前应以最新分支 HEAD 再次核实源码和配置样例；若 G1–G3 的实现映射出现新的未覆盖类型，先补齐设计、测试约束，再编码。
 ## 附录 B：内部 gRPC 适配范围
 
-本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。配置服务端、CLI 及测试环境必须使用令牌访问控制，不允许为了旧测试恢复 mTLS 或匿名回退。本模块不得削弱自身业务安全状态机和故障恢复规则。

@@ -141,11 +141,9 @@ def load_settings(path: Path) -> ServerSettings:
         raise ValueError("NATS servers must be nonempty nats:// addresses")
     if nats["subject"] != "wh.config.changed":
         raise ValueError("NATS configuration subject must be wh.config.changed")
+    # Configuration runs on an isolated internal service network; access
+    # control and firewall isolation are deployment preconditions.
     bind_host = _text(grpc_config["host"], "grpc.host")
-    if bind_host not in {"127.0.0.1", "::1", "localhost"}:
-        raise ValueError(
-            "Configuration bearer-token gRPC must bind to a loopback host"
-        )
     return ServerSettings(
         service_id=_text(raw["service_id"], "service_id"),
         host=bind_host,
