@@ -84,7 +84,7 @@ class SinkGrpcDirectory:
     """Reject ambiguous Delivery ownership, including unavailable endpoints."""
 
     def __init__(self) -> None:
-        raw = os.environ.get("WIND_HUB_SINK_GRPC_TARGETS", "127.0.0.1:50074")
+        raw = os.environ.get("WIND_HUB_SINK_GRPC_TARGETS", "127.0.0.1:50053")
         targets = [item.strip() for item in raw.split(",") if item.strip()]
         if not targets or len(targets) != len(set(targets)):
             raise ValueError("Sink targets must be unique and non-empty")
