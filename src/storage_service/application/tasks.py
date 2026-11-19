@@ -7,18 +7,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import logging
 import csv
 import hashlib
 import json
+import logging
 import os
 import tempfile
 import uuid
-from pathlib import Path
+from typing import Protocol
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
-from typing import Protocol
 from storage_service.domain.tasks import TaskRecord
 
 
