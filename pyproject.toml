@@ -9,6 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "contracts", from = "src" },
     { include = "configuration_service", from = "src" },
+    { include = "storage_service", from = "src" },
     { include = "collector", from = "src" },
     { include = "sink_service", from = "src" },
     { include = "commander", from = "src" },
@@ -82,6 +83,7 @@ wind-hub-server = "web_server.main:main"
 wind-hub-gateway = "industrial_gateway.main:main"
 wind-hub-data-generator = "data_generator.main:main"
 wind-hub-configuration-service = "configuration_service.main:main"
+wind-hub-storage-service = "storage_service.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -164,6 +166,8 @@ module = [
     "contracts.data_generator_pb2_grpc",
     "contracts.configuration_repository_pb2",
     "contracts.configuration_repository_pb2_grpc",
+    "contracts.storage_service_pb2",
+    "contracts.storage_service_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -248,6 +252,7 @@ root_packages = [
     "contracts",
     "sink_service",
     "configuration_service",
+    "storage_service",
 ]
 
 
