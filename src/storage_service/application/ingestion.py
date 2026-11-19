@@ -107,11 +107,8 @@ class IngestionService:
                     raise ValueError("Kafka record key is required")
                 # The currently frozen Sink JSON v2 partition-key convention.
                 # A future producer contract change must alter this validation.
-                from json import loads
-
-                payload = loads(record.value)
                 expected_key = (
-                    f"{sample.wind_farm_id}:{payload['collector_id']}:{sample.device_id}"
+                    f"{sample.wind_farm_id}:{sample.collector_id}:{sample.device_id}"
                 ).encode("utf-8")
                 if record.key != expected_key:
                     raise ValueError("Kafka key does not match stable producer key")
@@ -130,10 +127,14 @@ class IngestionService:
                         # Remote timeout/exception does not prove that INSERT failed.
                         observed = await self._storage.fetch_content_hashes((sample,))
                         if not self._confirmed((sample,), observed):
+                            if observed.get(sample.logical_key):
+                                raise IngestionBlocked("SAMPLE_CONFLICT") from exc
                             raise WriteUnconfirmed("TDengine result is UNKNOWN") from exc
                     observed = await self._storage.fetch_content_hashes((sample,))
                     if not self._confirmed((sample,), observed):
-                        raise IngestionBlocked("SAMPLE_CONFLICT_OR_UNCONFIRMED")
+                        if observed.get(sample.logical_key):
+                            raise IngestionBlocked("SAMPLE_CONFLICT")
+                        raise WriteUnconfirmed("post-insert readback did not confirm row")
                 accepted += 1
                 offsets.confirm(generation=generation, offset=record.offset)
             except (ValueError, KeyError, IngestionBlocked) as exc:
