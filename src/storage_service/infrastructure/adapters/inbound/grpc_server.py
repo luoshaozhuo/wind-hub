@@ -95,6 +95,11 @@ class AuthorizationPolicy:
 
     def __init__(self, config: StorageConfig) -> None:
         self._callers = config.auth.callers
+        supplied = [os.environ.get(caller.token_env) for caller in self._callers]
+        if any(not token or len(token) < 32 for token in supplied):
+            raise ValueError("all Storage caller tokens require 32+ bytes")
+        if len(set(supplied)) != len(supplied):
+            raise ValueError("Storage caller tokens must be distinct")
 
     def require(
         self, context: grpc.aio.ServicerContext[Any, Any],
