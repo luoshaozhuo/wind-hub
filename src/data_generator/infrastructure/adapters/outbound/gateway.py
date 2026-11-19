@@ -11,10 +11,10 @@ class GatewayWriter(GatewayOutputCoordinator):
 
     def __init__(
         self,
+        gateway_token_ref: str,
         timeout: float = 3.0,
         max_points: int = 1000,
         max_inflight: int = 1,
-        gateway_token_ref: str,
     ) -> None:
         super().__init__(
             GatewayRpcClient(gateway_token_ref),
