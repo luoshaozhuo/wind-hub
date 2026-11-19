@@ -53,7 +53,20 @@ class StorageConfigurationWatcher:
 
     async def _reconcile(self) -> None:
         updated = await self._client.fetch_service_bundle(service_id=self._service_id)
-        if updated.revision_id <= self._active.revision_id:
+        if updated.revision_id < self._active.revision_id:
+            raise ConfigHistoryUnavailable(
+                "Configuration authority revision moved backwards"
+            )
+        if updated.revision_id == self._active.revision_id:
+            if (
+                updated.configuration != self._active.configuration
+                or updated.point_table_versions != self._active.point_table_versions
+                or updated.business_points_pin != self._active.business_points_pin
+            ):
+                raise ConfigHistoryUnavailable(
+                    "Configuration authority changed an immutable revision"
+                )
+            self.status = "READY"
             return
         # Changing brokers, DB credentials, retention, security or export limits
         # requires a controlled restart. No hot reconfiguration of in-flight IO.
