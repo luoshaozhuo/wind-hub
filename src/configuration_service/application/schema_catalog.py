@@ -175,15 +175,11 @@ _NESTED_FIELDS: dict[str, dict[str, str]] = {
         "request_max_bytes": "integer",
         "max_request_bytes": "integer",
         "default_deadline_ms": "integer",
-        "tls": "object",
+        "token_sources": "object",
         "permissions": "object",
     },
     "security": {
-        "ca_cert": "string",
-        "server_cert": "string",
-        "server_key": "string",
         "callers": "array",
-        "tls": "object",
         "permissions": "object",
     },
     "repository": {
@@ -215,13 +211,13 @@ def _nested_definition(group: str) -> tuple[dict[str, Any], dict[str, Any]]:
         if group == "security" and name == "callers":
             caller_fields = {
                 "caller_id": {"type": "string"},
-                "certificate_identity": {"type": "string"},
+                "token_env": {"type": "string"},
                 "permissions": {"type": "array", "items": {"type": "string"}},
             }
             rule["items"] = {
                 "type": "object",
                 "properties": caller_fields,
-                "required": ["caller_id", "certificate_identity", "permissions"],
+                "required": ["caller_id", "token_env", "permissions"],
                 "additionalProperties": False,
             }
             note["properties"] = {
