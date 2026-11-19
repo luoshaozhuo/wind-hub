@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sink_service.domain.config import (
@@ -115,7 +116,7 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         identity = expect_nonempty_str(
             caller["token_env"], f"{location}.token_env"
         )
-        if not identity.startswith("env:") or not identity[4:].isidentifier():
+        if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", identity) is None:
             raise ConfigurationError(f"{location}.token_env must reference env:NAME")
         permissions = caller["permissions"]
         if (
