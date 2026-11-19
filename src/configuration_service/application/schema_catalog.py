@@ -204,16 +204,21 @@ def _nested_definition(group: str) -> tuple[dict[str, Any], dict[str, Any]]:
             caller_fields = {
                 "caller_id": {"type": "string"},
                 "certificate_identity": {"type": "string"},
+                "token_env": {"type": "string"},
                 "permissions": {"type": "array", "items": {"type": "string"}},
             }
             rule["items"] = {
                 "type": "object",
                 "properties": caller_fields,
-                "required": ["caller_id", "certificate_identity", "permissions"],
+                "required": ["caller_id", "permissions"],
                 "additionalProperties": False,
             }
             note["properties"] = {
-                key: _field(key, "array" if key == "permissions" else "string", required=True)
+                key: _field(
+                    key,
+                    "array" if key == "permissions" else "string",
+                    required=key in {"caller_id", "permissions"},
+                )
                 for key in caller_fields
             }
             note["properties"]["permissions"]["items"] = {
