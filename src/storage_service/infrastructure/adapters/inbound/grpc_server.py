@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
-import hashlib
 import hmac
 import json
 import os
 import time
 from datetime import UTC, datetime, timedelta
 from functools import wraps
-from typing import Any, Callable, Coroutine, TypeVar
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -21,7 +20,6 @@ from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import ConfigHistoryUnavailable
 from storage_service.application.query import (
-    CursorCodec,
     HistoryFilter,
     HistoryQueryService,
     QueryRejected,
@@ -414,15 +412,17 @@ class StorageServicer(rpc.StorageServiceServicer):
         self._auth.require(
             context, permission="storage.inspect",
             farm=request.wind_farm_id or None,
-            global_scope=not bool(request.wind_farm_id),
+            global_scope=True,
         )
         response = pb.GetStorageStatsResponse(service_state="READY")
-        for item in self._consumer.snapshot_progress():
+        for item in await self._consumer.snapshot_progress():
             response.partitions.add(
                 topic=item[0], partition=item[1],
                 committed_next_offset=item[2], last_confirmed_offset=item[3],
                 lag=item[4], block_reason=item[5],
             )
+        if any(item.block_reason for item in response.partitions):
+            response.service_state = "DEGRADED"
         return response
 
     @guarded
