@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Literal, Self
+from typing import BinaryIO, Literal, Self
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +32,7 @@ class MetadataStore:
         if not path.is_absolute():
             raise ValueError("metadata path must be absolute")
         self._path = path
-        self._lock_file: object | None = None
+        self._lock_file: BinaryIO | None = None
         self._connection: sqlite3.Connection | None = None
 
     def __enter__(self) -> Self:
