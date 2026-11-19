@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Mapping
 
 import grpc
 
@@ -19,15 +21,25 @@ from sink_service.infrastructure.secrets import resolve_secret
 class HistoricalPointTableClient:
     """Load exact source versions; never substitute current recommendations."""
 
-    def __init__(self, endpoint: str, token_ref: str) -> None:
+    def __init__(
+        self, endpoint: str, token_ref: str, approved_manifests: Mapping[str, str]
+    ) -> None:
         if not endpoint or not token_ref.startswith("env:"):
             raise ConfigurationError("historical repository endpoint/token are required")
+        if not approved_manifests or any(
+            re.fullmatch(r"[a-f0-9]{64}", digest) is None
+            for digest in approved_manifests.values()
+        ):
+            raise ConfigurationError("BUSINESS requires approved manifest SHA-256 identities")
+        self._approved = dict(approved_manifests)
         self._endpoint = endpoint
         self._token_ref = token_ref
         self._cached: dict[tuple[str, str], HistoricalPointTable] = {}
         self._lock = asyncio.Lock()
 
     async def get(self, point_table_id: str, device_type: str) -> HistoricalPointTable:
+        if point_table_id not in self._approved:
+            raise ConfigurationError("PointTable has no approved field mapping evidence")
         key = (point_table_id, device_type)
         cached = self._cached.get(key)
         if cached is not None:
@@ -42,7 +54,10 @@ class HistoricalPointTableClient:
             async with grpc.aio.insecure_channel(self._endpoint) as channel:
                 stub = rpc.ConfigurationRepositoryServiceStub(channel)
                 response = await stub.GetPointTableBundle(
-                    pb.GetPointTableBundleRequest(point_table_id=point_table_id),
+                    pb.GetPointTableBundleRequest(
+                        point_table_id=point_table_id,
+                        expected_manifest_sha256=self._approved[point_table_id],
+                    ),
                     metadata=(("authorization", f"Bearer {token}"),),
                     timeout=10.0,
                 )
