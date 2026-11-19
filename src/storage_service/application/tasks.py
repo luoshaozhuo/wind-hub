@@ -16,10 +16,25 @@ from pathlib import Path
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
-from storage_service.infrastructure.adapters.outbound.metadata_store import (
-    MetadataStore,
-    TaskRecord,
-)
+from typing import Protocol
+from storage_service.domain.tasks import TaskRecord
+
+
+class TaskStore(Protocol):
+    def register_task(
+        self, *, task_id: str, request_id: str, request_sha256: str,
+        kind: str, wind_farm_id: str, owner_id: str,
+    ) -> str: ...
+
+    def get_task(
+        self, task_id: str, *, kind: str, owner_id: str,
+    ) -> TaskRecord | None: ...
+
+    def set_task_state(
+        self, task_id: str, *, state: str, artifact_id: str = "",
+        size_bytes: int = 0, sha256: str = "", error_code: str = "",
+        message: str = "",
+    ) -> None: ...
 
 
 class ExportQuotaExceeded(RuntimeError):
@@ -30,7 +45,7 @@ class AsyncStorageTasks:
     """One process-owned task coordinator, with SQLite idempotency and budgets."""
 
     def __init__(
-        self, *, config: StorageConfig, metadata: MetadataStore,
+        self, *, config: StorageConfig, metadata: TaskStore,
         history: HistoryQueryService,
     ) -> None:
         self._config = config
