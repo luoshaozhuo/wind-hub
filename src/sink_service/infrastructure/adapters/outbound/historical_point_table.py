@@ -10,8 +10,8 @@ import grpc
 
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
-from sink_service.application.historical_point_table import (
-    HistoricalPointTable,
+from sink_service.application.business_projection import HistoricalPointTable
+from sink_service.infrastructure.adapters.outbound.historical_bundle_codec import (
     parse_point_table_bundle,
 )
 from sink_service.domain.config import ConfigurationError
