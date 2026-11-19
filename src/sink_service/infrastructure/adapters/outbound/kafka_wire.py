@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from collections.abc import Mapping
 from typing import Literal
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.historical_point_table import BusinessValue
 
 DataLevel = Literal["raw", "protocol", "business"]
 
@@ -27,9 +29,7 @@ def _json_timestamp(value: datetime | None) -> str | None:
 def _require_protocol(level: DataLevel) -> None:
     if level == "raw":
         raise ValueError("RAW requires original undecoded protocol payload, unavailable")
-    if level == "business":
-        raise ValueError("BUSINESS requires verified immutable PointTable/Units projection")
-    if level != "protocol":
+    if level not in ("protocol", "business"):
         raise ValueError("data_level must be raw, protocol or business")
 
 
@@ -44,12 +44,14 @@ def _record(
     batch_id: str,
     item: SampleItem,
     publish_time: datetime,
+    data_level: DataLevel,
+    business_value: BusinessValue | None = None,
 ) -> dict[str, object]:
     if not device_type or not point_table_id or not batch_id:
         raise ValueError("v3 source identity required")
     return {
         "schema_version": 2,
-        "data_level": "protocol",
+        "data_level": data_level,
         "wind_farm_id": wind_farm_id,
         "collector_id": collector_id,
         "task_id": task_id,
@@ -58,10 +60,10 @@ def _record(
         "point_table_id": point_table_id,
         "batch_id": batch_id,
         "point_id": item.point_id,
-        "business_point_id": None,
+        "business_point_id": business_value.business_point_id if business_value else None,
         "sample_id": item.sample_id,
-        "value": item.value,
-        "unit": None,
+        "value": business_value.value if business_value else item.value,
+        "unit": business_value.unit if business_value else None,
         "quality": item.quality,
         "sample_time": _json_timestamp(item.sample_time),
         "publish_time": _json_timestamp(publish_time),
@@ -77,10 +79,19 @@ def _encode(record: dict[str, object]) -> bytes:
 
 
 def encode_kafka_points(
-    batch: SampleBatch, items: tuple[SampleItem, ...], *, data_level: DataLevel
+    batch: SampleBatch,
+    items: tuple[SampleItem, ...],
+    *,
+    data_level: DataLevel,
+    business_values: Mapping[str, BusinessValue] | None = None,
 ) -> tuple[bytes, ...]:
-    """Encode one Kafka v2 record per source item, preserving per-item ACK identity."""
+    """Encode verified v2 records; missing BUSINESS projection is a hard failure."""
     _require_protocol(data_level)
+    if data_level == "business":
+        if business_values is None or set(business_values) != {item.sample_id for item in items}:
+            raise ValueError("BUSINESS requires complete sample-specific verified projection")
+    elif business_values is not None:
+        raise ValueError("PROTOCOL must not carry BUSINESS projection")
     return tuple(
         _encode(
             _record(
@@ -93,6 +104,8 @@ def encode_kafka_points(
                 batch_id=batch.batch_id,
                 item=item,
                 publish_time=batch.publish_time,
+                data_level=data_level,
+                business_value=business_values[item.sample_id] if business_values else None,
             )
         )
         for item in items
@@ -100,15 +113,24 @@ def encode_kafka_points(
 
 
 def encode_kafka_point(
-    batch: SampleBatch, item: SampleItem, *, data_level: DataLevel
+    batch: SampleBatch,
+    item: SampleItem,
+    *,
+    data_level: DataLevel,
+    business_value: BusinessValue | None = None,
 ) -> bytes:
     """Single-record wrapper for the same strict Kafka v2 schema."""
-    return encode_kafka_points(batch, (item,), data_level=data_level)[0]
+    values = {item.sample_id: business_value} if business_value is not None else None
+    return encode_kafka_points(
+        batch, (item,), data_level=data_level, business_values=values
+    )[0]
 
 
 def encode_delivery_point(point: DeliveryPoint, *, data_level: DataLevel) -> bytes:
     """Encode a validated DeliveryPoint with the same Kafka v2 schema."""
     _require_protocol(data_level)
+    if data_level != "protocol":
+        raise ValueError("DeliveryPoint BUSINESS requires historical projection")
     item = SampleItem(
         point_id=point.point_id,
         sample_id=point.sample_id,
@@ -129,5 +151,6 @@ def encode_delivery_point(point: DeliveryPoint, *, data_level: DataLevel) -> byt
             batch_id=point.batch_id,
             item=item,
             publish_time=point.publish_time,
+            data_level=data_level,
         )
     )
