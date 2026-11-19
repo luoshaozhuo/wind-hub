@@ -9,8 +9,8 @@ and cannot be encoded from unprojected samples.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Literal
 
 from contracts.sample_batch import SampleBatch, SampleItem
