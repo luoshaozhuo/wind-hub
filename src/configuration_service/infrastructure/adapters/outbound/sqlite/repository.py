@@ -605,14 +605,28 @@ class SQLiteRepository:
                         ),
                     )
                     newly_inserted.append(version)
-                elif (
-                    str(prior["version_id"]) != version.version_id
-                    or str(prior["schema_ref"]) != doc.schema_ref
-                    or str(prior["content_sha256"]) != doc.content_sha256
-                ):
-                    raise RepositoryConflictError(
-                        "immutable document file_version redefined with different semantics"
-                    )
+                else:
+                    if (
+                        str(prior["version_id"]) != version.version_id
+                        or str(prior["schema_ref"]) != doc.schema_ref
+                        or str(prior["content_sha256"]) != doc.content_sha256
+                    ):
+                        raise RepositoryConflictError(
+                            "immutable document file_version redefined with different semantics"
+                        )
+                    original = connection.execute(
+                        "SELECT yaml_sha256 FROM revision_files "
+                        "WHERE version_id = ? ORDER BY revision_id, relative_path LIMIT 1",
+                        (version.version_id,),
+                    ).fetchone()
+                    if original is None:
+                        raise RepositoryConflictError(
+                            "immutable version has no original published YAML"
+                        )
+                    if str(original["yaml_sha256"]) != str(_item["yaml_sha256"]):
+                        raise RepositoryConflictError(
+                            "immutable file_version YAML bytes changed; publish a new version"
+                        )
             for version in newly_inserted:
                 self._insert_projection(connection, version)
             fresh_ids = {version.version_id for version in newly_inserted}

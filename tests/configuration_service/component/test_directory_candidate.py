@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from configuration_service.application.directory_manifest import DirectoryFile
-from configuration_service.application.service import ConfigurationApplication
+from configuration_service.application.service import ConfigurationApplication, DocumentInput
+from configuration_service.domain.models import ConfigIdentity, RepositoryConflictError
 
 
 def test_prepares_sorted_directory_with_pinned_file_versions(
@@ -58,3 +59,54 @@ def test_rejects_configuration_service_bootstrap_in_full_root(
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.prepare_directory((bootstrap,))
+
+
+def test_republishing_a_version_with_mutated_yaml_is_rejected(
+    app: ConfigurationApplication,
+) -> None:
+    """Even comments cannot silently change the source of an immutable version."""
+    payload = b"schema_version: 1\nfile_version: 1.0.0\nsite_id: site-a\n"
+    identity = ConfigIdentity("site", "site")
+
+    def stage(content: bytes, *, revision: int, request: str) -> str:
+        candidate, _ = app.create_candidate(
+            actor_id="publisher",
+            request_id=f"{request}-stage",
+            expected_revision=revision,
+            documents=(
+                DocumentInput(
+                    identity=identity,
+                    file_name="site.yaml",
+                    yaml_bytes=content,
+                    relative_path="instances/site.yaml",
+                ),
+            ),
+            validate_only=False,
+        )
+        return candidate
+
+    first_id = stage(payload, revision=0, request="first")
+    first = app.publish_candidate(
+        actor_id="publisher",
+        request_id="first-publish",
+        candidate_id=first_id,
+        expected_revision=0,
+    )
+    source = app.repository.get_version_source(first.version_ids[0])
+    assert source is not None
+    assert source[1] == payload
+
+    changed_id = stage(
+        payload + b"# same semantic payload, new bytes\n",
+        revision=first.revision_id,
+        request="changed",
+    )
+    with pytest.raises(RepositoryConflictError, match="YAML bytes changed"):
+        app.publish_candidate(
+            actor_id="publisher",
+            request_id="changed-publish",
+            candidate_id=changed_id,
+            expected_revision=first.revision_id,
+        )
+    assert app.repository.current_revision() == first.revision_id
+    assert app.repository.get_version_source(first.version_ids[0]) == source
