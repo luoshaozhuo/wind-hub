@@ -26,12 +26,13 @@ class NatsRevisionPublisher:
         if not servers or capacity < 1:
             raise ValueError("Configuration NATS endpoints and queue required")
         self._servers = list(servers)
-        self._queue: queue.Queue[int | None] = queue.Queue(maxsize=capacity)
+        self._queue: queue.Queue[int] = queue.Queue(maxsize=capacity)
+        self._closed = threading.Event()
         self._worker: threading.Thread | None = None
 
     def start(self) -> None:
-        if self._worker is not None:
-            raise RuntimeError("NATS publisher already running")
+        if self._worker is not None or self._closed.is_set():
+            raise RuntimeError("NATS publisher already running or closed")
         self._worker = threading.Thread(
             target=self._run, name="configuration-revision-publisher", daemon=True
         )
@@ -41,6 +42,8 @@ class NatsRevisionPublisher:
         """Never block a successful Configuration publish on its notification."""
         if revision_id <= 0:
             raise ValueError("revision_id must be positive")
+        if self._closed.is_set():
+            return
         try:
             self._queue.put_nowait(revision_id)
         except queue.Full:
@@ -48,10 +51,11 @@ class NatsRevisionPublisher:
 
     def _run(self) -> None:
         async def publish_all() -> None:
-            while True:
-                revision = await asyncio.to_thread(self._queue.get)
-                if revision is None:
-                    break
+            while not self._closed.is_set():
+                try:
+                    revision = await asyncio.to_thread(self._queue.get, True, 1.0)
+                except queue.Empty:
+                    continue
                 connection = None
                 try:
                     connection = await nats.connect(
@@ -81,12 +85,7 @@ class NatsRevisionPublisher:
         worker = self._worker
         if worker is None:
             return
-        try:
-            self._queue.put_nowait(None)
-        except queue.Full:
-            # No blocking publication on shutdown; bounded worker should still
-            # terminate after a hint is consumed.
-            self._queue.put(None, timeout=10)
+        self._closed.set()
         worker.join(timeout=10)
         if worker.is_alive():
             _LOG.warning("NATS notification worker did not exit before shutdown deadline")
