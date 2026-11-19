@@ -128,16 +128,37 @@ class CollectorPublisher:
         if self._task is None:
             self._task = asyncio.create_task(self._run())
 
-    def validate_encoding(self, device_id: str, sample: ProtocolSample) -> None:
-        """Validate the actual batch transport schema without sending it."""
-        self._builder.pack(device_id, (sample,))
+    def validate_encoding(
+        self,
+        device_id: str,
+        sample: ProtocolSample,
+        *,
+        device_type: str,
+        point_table_id: str,
+    ) -> None:
+        """Validate the actual v3 transport schema without sending it."""
+        self._builder.pack(
+            device_id, (sample,), device_type=device_type, point_table_id=point_table_id
+        )
 
-    async def publish(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> None:
+    async def publish(
+        self,
+        device_id: str,
+        samples: tuple[ProtocolSample, ...],
+        *,
+        device_type: str,
+        point_table_id: str,
+    ) -> None:
         """Queue each complete source batch; reject invalid or duplicate points."""
         if not samples:
             return
         try:
-            batches = self._builder.pack(device_id, samples)
+            batches = self._builder.pack(
+                device_id,
+                samples,
+                device_type=device_type,
+                point_table_id=point_table_id,
+            )
         except (ValueError, TypeError) as exc:
             self.last_error = str(exc)
             self.failed += 1
