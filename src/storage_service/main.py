@@ -29,6 +29,9 @@ from storage_service.infrastructure.adapters.outbound.metadata_store import Meta
 from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
     TDengineBackend,
 )
+from storage_service.infrastructure.adapters.outbound.tdengine_backup import (
+    NativeTDengineBackup,
+)
 from storage_service.settings import StorageBootstrap, load_bootstrap
 
 _LOG = logging.getLogger(__name__)
@@ -96,7 +99,10 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     max_range_days=bundle.configuration.query.max_range_days,
                 )
                 jobs = AsyncStorageTasks(
-                    config=bundle.configuration, metadata=metadata, history=history
+                    config=bundle.configuration, metadata=metadata, history=history,
+                    backup=NativeTDengineBackup(
+                        config=bundle.configuration, metadata=metadata,
+                    ),
                 )
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
