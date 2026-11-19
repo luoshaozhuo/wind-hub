@@ -76,11 +76,13 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
             return handler
         name = handler_call_details.method.rsplit("/", maxsplit=1)[-1]
         permission = _PERMISSIONS.get(name)
-        if permission is None:
-            return handler
         behavior: Callable[..., Any] = handler.unary_unary
 
         async def authorized(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
+            if permission is None:
+                await context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED, "unsupported management RPC"
+                )
             supplied = [
                 item[1]
                 for item in context.invocation_metadata()
