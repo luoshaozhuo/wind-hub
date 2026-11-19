@@ -95,6 +95,25 @@ class ReliableDeliveryEngine:
                     logger.warning("DLQ source ACK extension failed", exc_info=True)
         await asyncio.shield(transfer)
 
+    async def _encode_with_heartbeat(
+        self,
+        message: ReliableMessagePort,
+        batch: SampleBatch,
+        items: tuple[SampleItem, ...],
+    ) -> tuple[bytes, ...]:
+        """Keep source ownership while a historical mapping is fetched and verified."""
+        task = asyncio.create_task(self._encode_kafka_points(batch, items))
+        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+            except TimeoutError:
+                try:
+                    await message.extend()
+                except Exception:
+                    logger.warning("source ACK extension during mapping failed", exc_info=True)
+        return await asyncio.shield(task)
+
     async def _write_with_heartbeat(
         self,
         message: Any,
@@ -173,7 +192,9 @@ class ReliableDeliveryEngine:
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
                 chunk_items = selected[start : start + 500]
-                payloads = await self._encode_kafka_points(batch, chunk_items)
+                payloads = await self._encode_with_heartbeat(
+                    message, batch, chunk_items
+                )
                 chunk_length = len(chunk_items)
             else:
                 chunk = samples[start : start + 500]
