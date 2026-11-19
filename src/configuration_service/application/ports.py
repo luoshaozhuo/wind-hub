@@ -216,6 +216,7 @@ class DocumentCodecPort(Protocol):
         dependency_versions: Mapping[str, str],
         device_bindings: Mapping[str, tuple[str, str, str, str]],
         table_device_type: str | None,
+        point_table_parent: tuple[str, str] | None,
     ) -> tuple[RowProjection, ...]: ...
 
     def reconstruct_document(

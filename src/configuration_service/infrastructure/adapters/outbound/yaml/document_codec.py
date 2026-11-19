@@ -58,12 +58,14 @@ class YamlDocumentCodec:
         dependency_versions: Mapping[str, str],
         device_bindings: Mapping[str, tuple[str, str, str, str]],
         table_device_type: str | None,
+        point_table_parent: tuple[str, str] | None,
     ) -> tuple[RowProjection, ...]:
         return create_projections(
             document,
             dependency_versions=dependency_versions,
             device_bindings=device_bindings,
             table_device_type=table_device_type,
+            point_table_parent=point_table_parent,
         )
 
     def reconstruct_document(

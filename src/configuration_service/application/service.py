@@ -512,11 +512,28 @@ class ConfigurationApplication:
                 dependency_versions[config_type] = target_version_id
             for config_type in ambiguous_types:
                 del dependency_versions[config_type]
+            point_table_parent: tuple[str, str] | None = None
+            if document.identity.config_type == "point_table":
+                raw_parent = document.canonical_payload.get("parent")
+                if raw_parent is not None:
+                    if not isinstance(raw_parent, dict):
+                        raise ValueError("PointTable parent must be a versioned identity")
+                    parent_id = str(raw_parent.get("id", ""))
+                    parent_version = str(raw_parent.get("version", ""))
+                    parent_vid = new_ids.get(("point_table", parent_id, parent_version))
+                    if parent_vid is None:
+                        parent_vid = self.repository.resolve_version(
+                            ConfigIdentity("point_table", parent_id), parent_version
+                        )
+                    point_table_parent = (
+                        parent_vid, f"point_table_{parent_id}_v{parent_version}"
+                    )
             projections = self.codec.create_projections(
                 document,
                 dependency_versions=dependency_versions,
                 device_bindings=device_bindings,
                 table_device_type=table_device_type,
+                point_table_parent=point_table_parent,
             )
             for projection in projections:
                 columns = projection.columns

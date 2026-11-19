@@ -360,7 +360,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             raise RepositoryConflictError("PointTable typed identity is incomplete")
         return pb.GetPointTableBundleResponse(
             point_table_id=request.point_table_id,
-            device_type=str(typed_rows[0]["device_type"]),
+            device_type=str(typed_rows[0]["device_type"] or ""),
             documents=[_yaml_output(item) for item in documents],
             manifest_sha256=manifest,
         )

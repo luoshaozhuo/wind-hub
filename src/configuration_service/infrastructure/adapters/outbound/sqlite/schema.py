@@ -79,6 +79,19 @@ _BUSINESS_POINTS = """CREATE TABLE business_points (
         REFERENCES unit_definitions(config_version_id, unit_id)
 );"""
 
+_POINT_TABLES = """CREATE TABLE point_tables (
+    config_version_id TEXT NOT NULL REFERENCES config_versions(version_id),
+    point_table_id TEXT NOT NULL,
+    device_type TEXT,
+    protocol TEXT NOT NULL,
+    parent_version_id TEXT,
+    parent_point_table_id TEXT,
+    PRIMARY KEY (config_version_id, point_table_id),
+    FOREIGN KEY (parent_version_id, parent_point_table_id)
+        REFERENCES point_tables(config_version_id, point_table_id),
+    CHECK ((parent_version_id IS NULL) = (parent_point_table_id IS NULL))
+);"""
+
 _POINT_MAPPINGS = """CREATE TABLE point_mappings (
     config_version_id TEXT NOT NULL,
     point_table_id TEXT NOT NULL,
@@ -104,6 +117,7 @@ _POINT_MAPPINGS = """CREATE TABLE point_mappings (
 DDL = _replace_table(DDL_V1, "candidate_documents", _NEW_CANDIDATE)
 DDL = _remove_table(DDL, "semantic_points")
 DDL = _replace_table(DDL, "business_points", _BUSINESS_POINTS)
+DDL = _replace_table(DDL, "point_tables", _POINT_TABLES)
 DDL = _replace_table(DDL, "point_mappings", _POINT_MAPPINGS)
 DDL = DDL.replace(
     "CREATE TABLE config_references (",
@@ -231,19 +245,21 @@ def _migrate_v1(connection: sqlite3.Connection) -> None:
         # The historical database is empty: projection tables can be replaced
         # without altering a published interpretation or deleting history.
         connection.execute("DROP TABLE point_mappings")
+        connection.execute("DROP TABLE point_tables")
         connection.execute("DROP TABLE business_points")
         connection.execute("DROP TABLE semantic_points")
         connection.execute("DROP TABLE candidate_documents")
         names = (
             "candidate_documents", "revision_files", "revision_manifests",
-            "business_points", "point_mappings",
+            "business_points", "point_tables", "point_mappings",
         )
         for statement in DDL.split(";"):
             statement = statement.strip()
             if any(statement.startswith(f"CREATE TABLE {name} (") for name in names):
                 connection.execute(statement)
         for table in (
-            "revision_files", "revision_manifests", "business_points", "point_mappings"
+            "revision_files", "revision_manifests", "business_points",
+            "point_tables", "point_mappings"
         ):
             for operation in ("UPDATE", "DELETE"):
                 connection.execute(_immutable_trigger_sql(table, operation))
