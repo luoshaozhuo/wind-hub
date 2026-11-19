@@ -64,6 +64,7 @@ class DocumentInput:
     identity: ConfigIdentity
     file_name: str
     yaml_bytes: bytes
+    relative_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +79,7 @@ class DocumentOutput:
     yaml_sha256: str
     yaml_bytes: bytes
     file_name: str
+    relative_path: str
 
 
 class ConfigurationApplication:
@@ -234,6 +236,7 @@ class ConfigurationApplication:
                         identity=identity,
                         file_name=item.relative_path.rsplit("/", 1)[-1],
                         yaml_bytes=item.yaml_bytes,
+                        relative_path=item.relative_path,
                     )
                 )
             )
@@ -248,11 +251,20 @@ class ConfigurationApplication:
         documents: tuple[DocumentInput, ...],
         validate_only: bool,
     ) -> tuple[str, tuple[PreparedDocument, ...]]:
-        if len(documents) > self.limits.max_documents_per_publication:
-            raise ValueError("candidate exceeds document count limit")
-        if sum(len(doc.yaml_bytes) for doc in documents) > self.limits.max_request_bytes:
-            raise ValueError("candidate exceeds byte limit")
-        prepared = tuple(self._prepare(item) for item in documents)
+        """Stage exactly one bounded, complete root snapshot, never a YAML patch."""
+        if not documents:
+            raise ValueError("full-directory publication cannot be empty")
+        paths = tuple(
+            DirectoryFile(item.relative_path, item.yaml_bytes) for item in documents
+        )
+        manifest, prepared = self.prepare_directory(paths)
+        submitted = {item.relative_path: item for item in documents}
+        for file, document in zip(manifest.files, prepared, strict=True):
+            item = submitted[file.relative_path]
+            if item.identity != document.identity:
+                raise ValueError("caller ConfigId does not match the source YAML path")
+            if item.file_name != file.relative_path.rsplit("/", 1)[-1]:
+                raise ValueError("candidate filename must match its relative_path")
         self._compile_versions(prepared, expected_revision)
         if validate_only:
             return "", prepared
@@ -261,6 +273,7 @@ class ConfigurationApplication:
             request_id=request_id,
             expected_revision=expected_revision,
             documents=prepared,
+            manifest=manifest,
             ttl_seconds=self.limits.candidate_ttl_seconds,
             max_candidates=self.limits.max_candidates,
         )
@@ -304,10 +317,15 @@ class ConfigurationApplication:
         # Existing target versions are immutable; the repository rechecks FK and
         # deprecation status atomically at commit.
         versions: list[PreparedVersion] = []
-        new_ids = {
-            (doc.identity.config_type, doc.identity.config_id, doc.file_version): uuid.uuid4().hex
-            for doc in documents
-        }
+        new_ids: dict[tuple[str, str, str], str] = {}
+        for doc in documents:
+            key = (doc.identity.config_type, doc.identity.config_id, doc.file_version)
+            if key in new_ids:
+                raise ValueError("duplicate configuration identity/file_version")
+            try:
+                new_ids[key] = self.repository.resolve_version(doc.identity, doc.file_version)
+            except RepositoryNotFoundError:
+                new_ids[key] = uuid.uuid4().hex
         for document in documents:
             references: list[tuple[str, str]] = []
             sources = document.canonical_payload.get("config_sources", {})
@@ -327,6 +345,75 @@ class ConfigurationApplication:
                 )
             else:
                 raise ValueError("config_sources must be a mapping or list")
+            # Stable published interpretation of every PointTable is pinned
+            # to exactly the standard catalog files in this complete directory.
+            if document.identity.config_type in {"business_points", "point_table"}:
+                required = (
+                    ("units",)
+                    if document.identity.config_type == "business_points"
+                    else ("units", "business_points")
+                )
+                for config_type in required:
+                    standards = [
+                        item for item in documents
+                        if item.identity.config_type == config_type
+                        and item.identity.config_id == "standard"
+                    ]
+                    if not standards:
+                        raise ValueError(f"missing standard {config_type} document")
+                    declared = document.canonical_payload.get("config_sources", [])
+                    pinned = [
+                        source for source in declared
+                        if isinstance(source, dict)
+                        and source.get("config_type") == config_type
+                        and source.get("config_id") == "standard"
+                    ] if isinstance(declared, list) else []
+                    if len(pinned) > 1:
+                        raise ValueError(f"duplicate {config_type} standard binding")
+                    if pinned:
+                        standard_version = str(pinned[0].get("file_version", ""))
+                        targets = [
+                            item for item in standards
+                            if item.file_version == standard_version
+                        ]
+                    else:
+                        targets = standards
+                    if len(targets) != 1:
+                        raise ValueError(
+                            f"ambiguous {config_type} catalog version; "
+                            "pin file_version in config_sources"
+                        )
+                    target = targets[0]
+                    references.append(
+                        (
+                            new_ids[(config_type, "standard", target.file_version)],
+                            f"{document.identity.config_type}.standard",
+                        )
+                    )
+            if document.identity.config_type in {"point_table", "device_model"}:
+                reference_fields = (("parent", "point_table"),)
+                # DeviceModel also pins its driver protocol and optional Task.
+                if document.identity.config_type == "device_model":
+                    reference_fields = (
+                        ("point_table", "point_table"),
+                        ("protocol", "protocol"),
+                        ("task", "task"),
+                    )
+                for field_name, config_type in reference_fields:
+                    ref = document.canonical_payload.get(field_name)
+                    if ref is None:
+                        continue
+                    if not isinstance(ref, dict):
+                        raise ValueError(f"invalid {field_name} template reference")
+                    identity = ConfigIdentity(config_type, str(ref.get("id", "")))
+                    file_version = str(ref.get("version", ""))
+                    if not file_version:
+                        raise ValueError(f"missing {field_name} template version")
+                    key = (identity.config_type, identity.config_id, file_version)
+                    target_id = new_ids.get(key)
+                    if target_id is None:
+                        target_id = self.repository.resolve_version(identity, file_version)
+                    references.append((target_id, f"template.{field_name}"))
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
@@ -353,8 +440,8 @@ class ConfigurationApplication:
                             model_vid = self.repository.resolve_version(
                                 ConfigIdentity("device_model", model_id), model_version
                             )
-                        except RepositoryNotFoundError:
-                            continue  # External legacy template not yet imported.
+                        except RepositoryNotFoundError as exc:
+                            raise ValueError("device model reference is absent") from exc
                     references.append((model_vid, "device.model"))
                     model_data = model_payloads.get((model_id, model_version))
                     if model_data is None:
@@ -380,10 +467,15 @@ class ConfigurationApplication:
                             table_vid = self.repository.resolve_version(
                                 ConfigIdentity("point_table", table_id), table_file_version
                             )
-                        except RepositoryNotFoundError:
-                            continue
+                        except RepositoryNotFoundError as exc:
+                            raise ValueError("device PointTable reference is absent") from exc
                     references.append((table_vid, "device.point_table"))
-                    device_bindings[str(device_id)] = (model_vid, model_id, table_vid, table_id)
+                    device_bindings[str(device_id)] = (
+                        model_vid,
+                        model_id,
+                        table_vid,
+                        f"point_table_{table_id}_v{table_file_version}",
+                    )
             table_device_type: str | None = None
             if document.identity.config_type == "point_table":
                 possible: set[str] = set()
@@ -428,11 +520,9 @@ class ConfigurationApplication:
             )
             for projection in projections:
                 columns = projection.columns
-                if projection.table == "semantic_points":
-                    references.append((str(columns["standard_unit_version_id"]), "semantic.unit"))
-                elif projection.table == "business_points":
+                if projection.table == "business_points":
                     references.append(
-                        (str(columns["semantic_config_version_id"]), "business.semantic")
+                        (str(columns["standard_unit_version_id"]), "business.unit")
                     )
                 elif projection.table == "point_tables":
                     parent = columns.get("parent_version_id")
@@ -474,12 +564,21 @@ class ConfigurationApplication:
         """Resolve path-based loader sources to pinned versions at publication time."""
         from pathlib import PurePosixPath
 
-        members = self.repository.get_revision_members(revision_id) if revision_id > 0 else {}
+        # A complete replacement never silently resolves to an omitted older file.
+        members: dict[ConfigIdentity, str] = {}
+        staged: dict[ConfigIdentity, str] = {}
+        selected: dict[ConfigIdentity, PreparedDocument] = {}
+        for doc in documents:
+            older = selected.get(doc.identity)
+            if older is None or tuple(int(v) for v in doc.file_version.split(".")) > tuple(
+                int(v) for v in older.file_version.split(".")
+            ):
+                selected[doc.identity] = doc
         staged = {
-            doc.identity: new_ids[
-                (doc.identity.config_type, doc.identity.config_id, doc.file_version)
+            identity: new_ids[
+                (identity.config_type, identity.config_id, doc.file_version)
             ]
-            for doc in documents
+            for identity, doc in selected.items()
         }
         resolved: list[tuple[str, str]] = []
         instances = sources.get("instances", {})
@@ -514,7 +613,6 @@ class ConfigurationApplication:
                 "configs/templates": frozenset(
                     {
                         "units",
-                        "semantic_points",
                         "business_points",
                         "point_table",
                         "device_model",
@@ -547,18 +645,29 @@ class ConfigurationApplication:
         return sorted(set(resolved))
 
     def _restore(self, row: dict[str, Any], *, revision_id: int) -> DocumentOutput:
+        """Return the exact uploaded YAML with verified semantic content and path."""
         version_id = str(row["version_id"])
         schema = self.repository.get_document_schema(str(row["schema_ref"]))
-        rows = self.repository.get_projection_rows(version_id, "config_entries")
-        raw = self.codec.reconstruct_document(rows, expected_sha256=str(row["content_sha256"]))
-        self._validate_schema(raw, json.loads(str(schema["schema_json"])))
-        header = json.loads(str(schema["header_definition_json"]))
-        data = self.codec.emit_yaml(raw, header)
+        expected = self.codec.reconstruct_document(
+            self.repository.get_projection_rows(version_id, "config_entries"),
+            expected_sha256=str(row["content_sha256"]),
+        )
+        self._validate_schema(expected, json.loads(str(schema["schema_json"])))
+        source = self.repository.get_version_source(
+            version_id, revision_id=revision_id
+        )
+        if source is None:
+            raise RepositoryConflictError(
+                "published configuration version has no source YAML file"
+            )
+        relative_path, data, yaml_sha256 = source
         if len(data) > self.limits.max_bundle_bytes:
-            raise RepositoryCapacityExceededError("configuration YAML response exceeds limit")
-        reconstructed = self.codec.parse_yaml(data, max_bytes=self.limits.max_bundle_bytes)
-        if self.codec.canonical_json(raw) != self.codec.canonical_json(reconstructed):
-            raise RuntimeError("YAML reconstruction changed a configuration field or type")
+            raise RepositoryCapacityExceededError("configuration YAML exceeds response limit")
+        restored = self.codec.parse_yaml(data, max_bytes=self.limits.max_bundle_bytes)
+        if self.codec.canonical_json(expected) != self.codec.canonical_json(restored):
+            raise RepositoryConflictError(
+                "immutable source YAML and stored canonical projection differ"
+            )
         identity = ConfigIdentity(str(row["config_type"]), str(row["config_id"]))
         return DocumentOutput(
             identity=identity,
@@ -566,13 +675,12 @@ class ConfigurationApplication:
             file_version=str(row["file_version"]),
             schema_version=int(schema["document_schema_version"]),
             revision_id=revision_id,
-            schema_ref=str(schema["schema_ref"]),
+            schema_ref=str(row["schema_ref"]),
             content_sha256=str(row["content_sha256"]),
-            yaml_sha256=hashlib.sha256(data).hexdigest(),
+            yaml_sha256=yaml_sha256,
             yaml_bytes=data,
-            file_name=(
-                f"{identity.config_type}_{identity.config_id}_" f"v{row['file_version']}.yaml"
-            ),
+            file_name=relative_path.rsplit("/", 1)[-1],
+            relative_path=relative_path,
         )
 
     def get_config(

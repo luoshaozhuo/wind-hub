@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from configuration_service.application.directory_manifest import DirectoryManifest
 from configuration_service.domain.models import (
     CommitResult,
     ConfigIdentity,
@@ -205,6 +206,47 @@ class SQLiteRepository:
         with self.read() as connection:
             return self._current_revision(connection)
 
+    def get_version_source(
+        self, version_id: str, *, revision_id: int = 0
+    ) -> tuple[str, bytes, str] | None:
+        """Read original YAML bytes and path pinned to a revision where possible."""
+        if not version_id or revision_id < 0:
+            raise ValueError("version and nonnegative revision are required")
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT relative_path, yaml_bytes, yaml_sha256 "
+                "FROM revision_files WHERE version_id = ? "
+                "ORDER BY (revision_id = ?) DESC, revision_id DESC, relative_path "
+                "LIMIT 1",
+                (version_id, revision_id),
+            ).fetchone()
+            if row is None:
+                return None
+            payload = bytes(row["yaml_bytes"])
+            checksum = str(row["yaml_sha256"])
+            if hashlib.sha256(payload).hexdigest() != checksum:
+                raise RepositoryConflictError("stored historical YAML hash mismatch")
+            return str(row["relative_path"]), payload, checksum
+
+    def get_current_manifest(self) -> tuple[int, str, str | None]:
+        """Read the authoritative published revision and root Manifest together."""
+        with self.read() as connection:
+            revision_id = self._current_revision(connection)
+            if revision_id == 0:
+                return 0, "", None
+            row = connection.execute(
+                "SELECT m.manifest_sha256, r.created_at "
+                "FROM revisions AS r "
+                "JOIN revision_manifests AS m USING (revision_id) "
+                "WHERE r.revision_id = ?",
+                (revision_id,),
+            ).fetchone()
+            if row is None:
+                raise RepositoryConflictError(
+                    "current revision has no complete directory manifest"
+                )
+            return revision_id, str(row["manifest_sha256"]), str(row["created_at"])
+
     @staticmethod
     def _check_expected(connection: sqlite3.Connection, expected: int) -> None:
         if expected != SQLiteRepository._current_revision(connection):
@@ -322,25 +364,26 @@ class SQLiteRepository:
         request_id: str,
         expected_revision: int,
         documents: Sequence[PreparedDocument],
+        manifest: DirectoryManifest,
         ttl_seconds: int,
         max_candidates: int,
     ) -> str:
-        """Persist an already validated candidate and its typed canonical payload."""
+        """Stage the entire validated directory atomically with its raw YAML bytes."""
         if not actor_id or not request_id or not documents or ttl_seconds < 1:
-            raise ValueError("actor, request, documents, and positive TTL are required")
-        identities = [doc.identity for doc in documents]
+            raise ValueError("actor, request, documents and positive TTL are required")
+        if len(documents) != len(manifest.files):
+            raise ValueError("candidate and directory manifest differ in length")
+        identities = [(doc.identity, doc.file_version) for doc in documents]
         if len(set(identities)) != len(identities):
-            raise ValueError("duplicate config identity in candidate")
-        payload = _canonical_json(
-            {
-                "expected_revision": expected_revision,
-                "documents": sorted(
-                    (_document_payload(doc) for doc in documents),
-                    key=lambda item: (item["config_type"], item["config_id"]),
-                ),
-            }
+            raise ValueError("duplicate document identity and file_version")
+        payload_hash = _digest(
+            _canonical_json(
+                {
+                    "expected_revision": expected_revision,
+                    "manifest_sha256": manifest.sha256,
+                }
+            )
         )
-        payload_hash = _digest(payload)
         with self.write() as connection:
             replay = self._load_replay(
                 connection, actor_id, "CreateCandidate", request_id, payload_hash
@@ -349,7 +392,8 @@ class SQLiteRepository:
                 return str(replay["candidate_id"])
             self._check_expected(connection, expected_revision)
             active = connection.execute(
-                "SELECT COUNT(*) FROM candidates " "WHERE status = 'VALID' AND expires_at > ?",
+                "SELECT COUNT(*) FROM candidates "
+                "WHERE status = 'VALID' AND expires_at > ?",
                 (_now(),),
             ).fetchone()[0]
             if active >= max_candidates:
@@ -367,17 +411,19 @@ class SQLiteRepository:
                     (now + timedelta(seconds=ttl_seconds)).isoformat(),
                 ),
             )
-            for document in documents:
+            for file, document in zip(manifest.files, documents, strict=True):
                 schema = connection.execute(
                     "SELECT config_type FROM config_schemas WHERE schema_ref = ?",
                     (document.schema_ref,),
                 ).fetchone()
                 if schema is None or schema[0] != document.identity.config_type:
                     raise RepositoryConflictError("candidate document schema is not registered")
+                yaml_sha = hashlib.sha256(file.yaml_bytes).hexdigest()
                 connection.execute(
-                    "INSERT INTO candidate_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO candidate_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         candidate_id,
+                        file.relative_path,
                         _document_id(document.identity),
                         document.identity.config_type,
                         document.identity.config_id,
@@ -385,6 +431,8 @@ class SQLiteRepository:
                         document.schema_ref,
                         _canonical_json(document.canonical_payload),
                         document.content_sha256,
+                        yaml_sha,
+                        file.yaml_bytes,
                     ),
                 )
             self._audit(
@@ -395,11 +443,7 @@ class SQLiteRepository:
                 revision_id=None,
             )
             self._save_replay(
-                connection,
-                actor_id,
-                "CreateCandidate",
-                request_id,
-                payload_hash,
+                connection, actor_id, "CreateCandidate", request_id, payload_hash,
                 {"candidate_id": candidate_id},
             )
             return candidate_id
@@ -466,17 +510,13 @@ class SQLiteRepository:
         expected_revision: int,
         versions: Sequence[PreparedVersion],
     ) -> CommitResult:
-        """Atomically commit typed versions, fixed references and full revision."""
+        """Commit the entire candidate directory as one immutable SQLite revision."""
         if not actor_id or not request_id or not candidate_id or not versions:
             raise ValueError("publication requires actor, request, candidate and versions")
-        # Internal version IDs and typed projections may be regenerated on retry.
-        # The public operation identity is the immutable candidate and CAS value.
         payload_hash = _digest(
             _canonical_json({"candidate_id": candidate_id, "expected_revision": expected_revision})
         )
         with self.write() as connection:
-            # Every version and projection is inserted atomically. Defer cross-version
-            # foreign keys until COMMIT so input ordering cannot alter validity.
             connection.execute("PRAGMA defer_foreign_keys = ON")
             replay = self._load_replay(
                 connection, actor_id, "PublishCandidate", request_id, payload_hash
@@ -500,111 +540,196 @@ class SQLiteRepository:
             if datetime.fromisoformat(candidate["expires_at"]) <= datetime.now(UTC):
                 raise RepositoryConflictError("candidate expired")
             if (candidate["base_revision_id"] or 0) != expected_revision:
-                raise RevisionConflictError("candidate was validated against another revision")
-            actual = {
-                row["document_id"]: row
-                for row in connection.execute(
-                    "SELECT * FROM candidate_documents WHERE candidate_id = ?",
+                raise RevisionConflictError("candidate validated against another revision")
+            staged = tuple(
+                connection.execute(
+                    "SELECT * FROM candidate_documents WHERE candidate_id = ? "
+                    "ORDER BY relative_path",
                     (candidate_id,),
                 )
+            )
+            prepared = {
+                (version.document.identity, version.document.file_version): version
+                for version in versions
             }
-            if len(actual) != len(versions):
-                raise RepositoryConflictError("prepared versions do not match staged documents")
-            for version in versions:
+            if len(staged) != len(versions) or len(prepared) != len(versions):
+                raise RepositoryConflictError("prepared versions differ from staged directory")
+            ordered: list[tuple[sqlite3.Row, PreparedVersion]] = []
+            for item in staged:
+                identity = ConfigIdentity(str(item["config_type"]), str(item["config_id"]))
+                version = prepared.get((identity, str(item["file_version"])))
+                if version is None:
+                    raise RepositoryConflictError("staged directory identity differs")
                 doc = version.document
-                item = actual.get(_document_id(doc.identity))
                 if (
-                    item is None
-                    or item["config_type"] != doc.identity.config_type
-                    or item["config_id"] != doc.identity.config_id
-                    or item["file_version"] != doc.file_version
+                    item["document_id"] != _document_id(doc.identity)
                     or item["schema_ref"] != doc.schema_ref
                     or item["content_sha256"] != doc.content_sha256
                     or item["canonical_payload_json"] != _canonical_json(doc.canonical_payload)
+                    or hashlib.sha256(item["yaml_bytes"]).hexdigest() != item["yaml_sha256"]
                 ):
-                    raise RepositoryConflictError("version differs from frozen candidate")
+                    raise RepositoryConflictError("prepared content differs from frozen candidate")
+                ordered.append((item, version))
+            newly_inserted: list[PreparedVersion] = []
+            for _item, version in ordered:
+                doc = version.document
+                document_id = _document_id(doc.identity)
                 connection.execute(
                     "INSERT INTO config_documents VALUES (?, ?, ?) "
                     "ON CONFLICT(document_id) DO NOTHING",
-                    (_document_id(doc.identity), doc.identity.config_type, doc.identity.config_id),
+                    (document_id, doc.identity.config_type, doc.identity.config_id),
                 )
                 prior = connection.execute(
-                    "SELECT 1 FROM config_versions " "WHERE document_id = ? AND file_version = ?",
-                    (_document_id(doc.identity), doc.file_version),
+                    "SELECT version_id, schema_ref, content_sha256 "
+                    "FROM config_versions WHERE document_id = ? AND file_version = ?",
+                    (document_id, doc.file_version),
                 ).fetchone()
-                if prior is not None:
-                    raise RepositoryVersionExistsError(
-                        "the document file_version has already been published"
-                    )
-                connection.execute(
-                    "INSERT INTO config_versions VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        version.version_id,
-                        _document_id(doc.identity),
-                        doc.schema_ref,
-                        doc.file_version,
-                        doc.content_sha256,
-                        _now(),
-                    ),
-                )
-            for version in versions:
-                self._insert_projection(connection, version)
-            for version in versions:
-                for target_version_id, relation in version.references:
-                    if connection.execute(
-                        "SELECT 1 FROM version_events WHERE version_id = ? "
-                        "AND event_type = 'DEPRECATED'",
-                        (target_version_id,),
-                    ).fetchone():
-                        raise RepositoryConflictError("cannot publish a new deprecated reference")
+                if prior is None:
                     connection.execute(
-                        "INSERT INTO config_references VALUES (?, ?, ?)",
-                        (version.version_id, target_version_id, relation),
+                        "INSERT INTO config_versions VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            version.version_id, document_id, doc.schema_ref,
+                            doc.file_version, doc.content_sha256, _now(),
+                        ),
                     )
-            self._check_reference_cycles(connection, [version.version_id for version in versions])
-            connection.execute(
-                "INSERT INTO revisions (parent_revision_id, publisher, request_id, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (expected_revision or None, actor_id, request_id, _now()),
+                    newly_inserted.append(version)
+                elif (
+                    str(prior["version_id"]) != version.version_id
+                    or str(prior["schema_ref"]) != doc.schema_ref
+                    or str(prior["content_sha256"]) != doc.content_sha256
+                ):
+                    raise RepositoryConflictError(
+                        "immutable document file_version redefined with different semantics"
+                    )
+            for version in newly_inserted:
+                self._insert_projection(connection, version)
+            fresh_ids = {version.version_id for version in newly_inserted}
+            for _item, version in ordered:
+                dependencies = set(version.references)
+                if version.version_id in fresh_ids:
+                    for target_version_id, relation in sorted(dependencies):
+                        if connection.execute(
+                            "SELECT 1 FROM version_events WHERE version_id = ? "
+                            "AND event_type = 'DEPRECATED'",
+                            (target_version_id,),
+                        ).fetchone():
+                            raise RepositoryConflictError("new dependency refers to deprecated version")
+                        connection.execute(
+                            "INSERT INTO config_references VALUES (?, ?, ?)",
+                            (version.version_id, target_version_id, relation),
+                        )
+                else:
+                    original = {
+                        (str(row[0]), str(row[1]))
+                        for row in connection.execute(
+                            "SELECT target_version_id, relation FROM config_references "
+                            "WHERE source_version_id = ?",
+                            (version.version_id,),
+                        )
+                    }
+                    if original != dependencies:
+                        raise RepositoryConflictError(
+                            "immutable document dependency closure has changed"
+                        )
+            self._check_reference_cycles(
+                connection, [version.version_id for version in newly_inserted]
             )
-            revision_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
-            for version in versions:
-                connection.execute(
-                    "INSERT INTO revision_members VALUES (?, ?, ?)",
-                    (revision_id, _document_id(version.document.identity), version.version_id),
-                )
+            # Full snapshots cannot silently drop a file still needed by a current
+            # live configuration. Historical versions remain queryable separately.
+            included = {version.version_id for _item, version in ordered}
+            for _item, version in ordered:
+                if any(target not in included for target, _kind in version.references):
+                    raise RepositoryConflictError(
+                        "full directory is missing a pinned current dependency"
+                    )
+            manifest_entries = [
+                {
+                    "relative_path": str(item["relative_path"]),
+                    "yaml_sha256": str(item["yaml_sha256"]),
+                }
+                for item, _version in ordered
+            ]
+            digest = _digest(_canonical_json(manifest_entries))
+            total_bytes = sum(len(item["yaml_bytes"]) for item, _version in ordered)
+            selected: dict[str, PreparedVersion] = {}
+            for _item, version in ordered:
+                key = _document_id(version.document.identity)
+                previous = selected.get(key)
+                current_version = tuple(int(i) for i in version.document.file_version.split("."))
+                if (
+                    previous is None
+                    or current_version
+                    > tuple(int(i) for i in previous.document.file_version.split("."))
+                ):
+                    selected[key] = version
+            old_manifest = None
+            old_selection: dict[str, str] = {}
             if expected_revision:
+                old_manifest = connection.execute(
+                    "SELECT manifest_sha256 FROM revision_manifests WHERE revision_id = ?",
+                    (expected_revision,),
+                ).fetchone()
+                old_selection = {
+                    str(row["document_id"]): str(row["version_id"])
+                    for row in connection.execute(
+                        "SELECT document_id, version_id FROM revision_members "
+                        "WHERE revision_id = ?",
+                        (expected_revision,),
+                    )
+                }
+            selected_ids = {key: version.version_id for key, version in selected.items()}
+            if (
+                old_manifest is not None
+                and old_manifest["manifest_sha256"] == digest
+                and old_selection == selected_ids
+            ):
+                revision_id = expected_revision
+                unchanged = True
+            else:
                 connection.execute(
-                    "INSERT INTO revision_members (revision_id, document_id, version_id) "
-                    "SELECT ?, previous.document_id, previous.version_id "
-                    "FROM revision_members AS previous "
-                    "WHERE previous.revision_id = ? AND NOT EXISTS ("
-                    "SELECT 1 FROM revision_members AS current "
-                    "WHERE current.revision_id = ? "
-                    "AND current.document_id = previous.document_id)",
-                    (revision_id, expected_revision, revision_id),
+                    "INSERT INTO revisions (parent_revision_id, publisher, request_id, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (expected_revision or None, actor_id, request_id, _now()),
                 )
+                revision_id = int(
+                    connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+                )
+                for item, version in ordered:
+                    connection.execute(
+                        "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            revision_id, item["relative_path"], item["document_id"],
+                            version.version_id, item["yaml_sha256"], item["yaml_bytes"],
+                        ),
+                    )
+                connection.execute(
+                    "INSERT INTO revision_manifests VALUES (?, ?, ?, ?)",
+                    (revision_id, digest, total_bytes, len(ordered)),
+                )
+                for document_id, version in selected.items():
+                    connection.execute(
+                        "INSERT INTO revision_members VALUES (?, ?, ?)",
+                        (revision_id, document_id, version.version_id),
+                    )
+                unchanged = False
             connection.execute(
                 "UPDATE candidates SET status = 'PUBLISHED' WHERE candidate_id = ?",
                 (candidate_id,),
             )
-            version_ids = tuple(version.version_id for version in versions)
+            version_ids = tuple(version.version_id for _item, version in ordered)
             self._audit(
-                connection,
-                actor_id=actor_id,
-                operation="PublishCandidate",
-                target_id=candidate_id,
-                revision_id=revision_id,
+                connection, actor_id=actor_id, operation="PublishCandidate",
+                target_id=candidate_id, revision_id=revision_id,
             )
             self._save_replay(
-                connection,
-                actor_id,
-                "PublishCandidate",
-                request_id,
-                payload_hash,
+                connection, actor_id, "PublishCandidate", request_id, payload_hash,
                 {"revision_id": revision_id, "version_ids": version_ids},
             )
-            return CommitResult(revision_id=revision_id, version_ids=version_ids)
+            return CommitResult(
+                revision_id=revision_id,
+                version_ids=version_ids,
+                replayed=unchanged,
+            )
 
     def get_revision_timestamp(self, revision_id: int) -> str:
         """Return the immutable publication timestamp, including idempotent replays."""
@@ -880,7 +1005,7 @@ class SQLiteRepository:
             if row is None:
                 raise RepositoryNotFoundError("candidate does not exist for this actor")
             documents = connection.execute(
-                "SELECT * FROM candidate_documents WHERE candidate_id = ? " "ORDER BY document_id",
+                "SELECT * FROM candidate_documents WHERE candidate_id = ? ORDER BY relative_path",
                 (candidate_id,),
             ).fetchall()
             return {
@@ -928,6 +1053,20 @@ class SQLiteRepository:
                 "SELECT ?, old.document_id, old.version_id FROM revision_members AS old "
                 "WHERE old.revision_id = ? AND (? IS NULL OR old.document_id != ?)",
                 (revision_id, expected_revision, document_id, document_id),
+            )
+            connection.execute(
+                "INSERT INTO revision_files "
+                "(revision_id, relative_path, document_id, version_id, yaml_sha256, yaml_bytes) "
+                "SELECT ?, relative_path, document_id, version_id, yaml_sha256, yaml_bytes "
+                "FROM revision_files WHERE revision_id = ?",
+                (revision_id, expected_revision),
+            )
+            connection.execute(
+                "INSERT INTO revision_manifests "
+                "(revision_id, manifest_sha256, total_bytes, file_count) "
+                "SELECT ?, manifest_sha256, total_bytes, file_count "
+                "FROM revision_manifests WHERE revision_id = ?",
+                (revision_id, expected_revision),
             )
         return revision_id
 
