@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -59,12 +60,19 @@ class MetadataStore:
         if self._connection is not None:
             raise RuntimeError("metadata store is already open")
         self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = self._path.with_suffix(self._path.suffix + ".lock").open("a+b")
+        if self._path.is_symlink() or self._path.parent.is_symlink():
+            raise ValueError("Storage metadata path must not use symbolic links")
+        lock_path = self._path.with_suffix(self._path.suffix + ".lock")
+        fd_number = os.open(
+            lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
+        )
+        fd = os.fdopen(fd_number, "a+b")
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             connection = sqlite3.connect(
                 self._path, isolation_level=None, timeout=10.0, check_same_thread=False
             )
+            os.chmod(self._path, 0o600)
             try:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA synchronous=FULL")
