@@ -555,16 +555,11 @@ class ConfigurationApplication:
                 raise RepositoryConflictError(
                     "unrecognized templates.root; explicit pinned references required"
                 )
-            template_versions = [
-                version_id
-                for identity, version_id in staged.items()
-                if identity.config_type in template_types
-            ]
-            if not template_versions:
-                raise RepositoryConflictError("template root has no registered pinned templates")
-            resolved.extend(
-                (version_id, "config_sources.templates") for version_id in sorted(template_versions)
-            )
+            if not any(identity.config_type in template_types for identity in staged):
+                raise RepositoryConflictError("template root has no staged templates")
+            # A directory root is a discovery location, not an immutable dependency
+            # on every template it contains. Pinned dependencies are expressed by
+            # explicit config_sources entries or concrete device/template bindings.
         if set(sources) - {"instances", "templates"}:
             raise ValueError("unknown config_sources groups")
         return sorted(set(resolved))
