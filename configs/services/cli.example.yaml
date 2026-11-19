@@ -16,7 +16,6 @@ cli:
 services:
   configuration:
     grpc_endpoint: "127.0.0.1:51060"
-    tls_profile: local
     manager: process
     target: configuration
     process:
@@ -24,6 +23,15 @@ services:
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/configuration.log"
+  storage:
+    grpc_endpoint: "127.0.0.1:51110"
+    manager: process
+    target: storage
+    process:
+      argv: ["/usr/bin/python3", "-m", "storage_service.main", "--bootstrap", "/etc/wind-hub/services/storage_bootstrap_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/storage.log"
   collector:
     grpc_endpoint: "127.0.0.1:50051"
     tls_profile: local
