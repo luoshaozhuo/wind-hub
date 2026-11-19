@@ -9,8 +9,8 @@ from typing import Any
 
 import yaml
 
-_VERSION = re.compile(r"^(?P<stem>.+)_v(?P<version>(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*))\\.yaml$")
-_SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)")
+_VERSION = re.compile(r"^(?P<stem>.+)_v(?P<version>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\.yaml$")
+_SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 _TEMPLATE_DIRECTORIES = {
     "point_tables": "point_table",
     "device_models": "device_model",
