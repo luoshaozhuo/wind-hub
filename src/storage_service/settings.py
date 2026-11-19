@@ -37,6 +37,20 @@ class LocalCache(_Settings):
         return value
 
 
+class NatsEndpoint(_Settings):
+    servers: list[str] = Field(min_length=1)
+
+    @field_validator("servers")
+    @classmethod
+    def validate_servers(cls, value: list[str]) -> list[str]:
+        if any(
+            not isinstance(item, str) or not item.startswith("nats://")
+            or len(item) > 512 for item in value
+        ):
+            raise ValueError("NATS server URLs must use explicit nats:// addresses")
+        return value
+
+
 class StorageBootstrap(_Settings):
     """No business Kafka/TDengine options: those must come from Configuration."""
 
@@ -44,6 +58,7 @@ class StorageBootstrap(_Settings):
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
     configuration: ConfigurationEndpoint
+    nats: NatsEndpoint
     cache: LocalCache
 
     @field_validator("file_version")
