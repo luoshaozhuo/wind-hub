@@ -4,7 +4,7 @@
 # Configuration CLI RPC: WIND_HUB_CONFIG_CLI_TOKEN (32+ secret bytes).
 # Storage CLI RPC: WIND_HUB_STORAGE_OPERATOR_TOKEN (32+ secret bytes).
 # Configuration and Storage use internal plaintext gRPC with bearer authorization;
-# business service TLS configurations remain separate pending coordinated migration.
+# External recovery-authority TLS is independent of internal gRPC authentication.
 schema_version: 1
 file_version: "1.0.0"
 cli:
@@ -68,7 +68,7 @@ services:
     manager: process
     target: data-generator
     process:
-      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/services/data-generator.yaml"]
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/services/data-generator-service.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/data-generator.log"
