@@ -117,8 +117,8 @@ class MetadataStore:
     def reserve_object(
         self, name: str, full_sha256: str, identity_json: str, schema_fingerprint: str
     ) -> ObjectRegistration:
+        """Reserve before DDL; CREATING must be reconciled on restart."""
         with self._mutex:
-            """Reserve before DDL; CREATING must be reconciled on restart."""
             db = self._db()
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -146,8 +146,8 @@ class MetadataStore:
             return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
 
     def mark_ready(self, registration: ObjectRegistration, *, verified: bool) -> None:
+        """Only call after live TDengine schema and ownership have been checked."""
         with self._mutex:
-            """Only call after live TDengine schema and ownership have been checked."""
             if not verified:
                 raise ValueError("live TDengine verification is mandatory")
             db = self._db()
@@ -166,8 +166,8 @@ class MetadataStore:
     def block_partition(
         self, topic: str, partition: int, offset: int, reason: str, payload: bytes
     ) -> None:
+        """Retain the original poison record; never replace an earlier blocker."""
         with self._mutex:
-            """Retain the original poison record; never replace an earlier blocker."""
             import hashlib
 
             if not topic or partition < 0 or offset < 0 or len(payload) > 4 * 1024 * 1024:
@@ -218,8 +218,8 @@ class MetadataStore:
     def register_task(
         self, *, task_id: str, request_id: str, request_sha256: str, kind: str
     ) -> str:
+        """Create idempotently: same request ID with different content is fatal."""
         with self._mutex:
-            """Create idempotently: same request ID with different content is fatal."""
             db = self._db()
             db.execute("BEGIN IMMEDIATE")
             try:
