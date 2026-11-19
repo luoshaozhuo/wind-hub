@@ -167,7 +167,7 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         if not approved or len(approved) > 128 or any(
             not isinstance(point_table_id, str)
             or re.fullmatch(
-                r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\\.[0-9]+\\.[0-9]+",
+                r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+",
                 point_table_id,
             )
             is None
