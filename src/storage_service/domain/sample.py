@@ -136,6 +136,9 @@ class StorageSample:
     """A validated single-point sample with collision-safe content key."""
 
     wind_farm_id: str
+    collector_id: str
+    task_id: str
+    batch_id: str
     device_type: str
     device_id: str
     point_table_id: str
@@ -176,9 +179,9 @@ class StorageSample:
         point_table_id = _required_text(data, "point_table_id")
         point_id = _required_text(data, "point_id")
         sample_id = _required_text(data, "sample_id")
-        _required_text(data, "collector_id")
-        _required_text(data, "task_id")
-        _required_text(data, "batch_id")
+        collector_id = _required_text(data, "collector_id")
+        task_id = _required_text(data, "task_id")
+        batch_id = _required_text(data, "batch_id")
 
         business_point_id = _optional_text(data, "business_point_id")
         unit = _optional_text(data, "unit")
@@ -210,6 +213,9 @@ class StorageSample:
         sample_key = _sha256([logical_key, content_sha256])
         return cls(
             wind_farm_id=wind_farm_id,
+            collector_id=collector_id,
+            task_id=task_id,
+            batch_id=batch_id,
             device_type=device_type,
             device_id=device_id,
             point_table_id=point_table_id,
