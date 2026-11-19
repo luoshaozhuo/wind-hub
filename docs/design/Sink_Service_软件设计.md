@@ -2902,7 +2902,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # 字段说明：名称 — 作用；合法取值；示例/缺省
 #
 # [身份与配置来源]
-# schema_version — 配置结构版本；固定 1。
+# schema_version — Service 的安全与配置结构契约；固定 2。
 # file_version — 文件版本；X.Y.Z 数字字符串，如 1.0.0。
 # service_id — 当前服务实例的逻辑标识；非空字符串，如 sink-west。
 # wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
@@ -3007,8 +3007,8 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 #
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
-schema_version: 1
-file_version: 1.0.0
+schema_version: 2
+file_version: 1.1.0
 service_id: sink-west
 wind_farm_id: farm-a
 deployment_id: prod-a
@@ -3022,16 +3022,19 @@ config_sources:
 
 grpc:
   listen_host: 127.0.0.1
-  listen_port: 50061
+  listen_port: 50053
   max_active_rpcs: 64
   max_request_bytes: 2097152
   default_deadline_ms: 5000
 
 security:
   callers:
-    - caller_id: maintenance
-      token_env: env:WH_SINK_MAINT_TOKEN
+    - caller_id: cli
+      token_env: env:WIND_HUB_SINK_CLI_TOKEN
       permissions: [query, control, config]
+    - caller_id: web_server
+      token_env: env:WIND_HUB_SINK_WEB_TOKEN
+      permissions: [query, control]
 
 nats:
   servers: [nats://127.0.0.1:4222]
@@ -3971,6 +3974,12 @@ lint-imports
 Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
 
 ## A.2 广播、拉取、对账和独立生效
+
+Sink Main 已实现可选的 Repository 订阅对账：首先订阅 `wh.config.changed`，然后以 `GetCurrentRevision` 的权威修订进行定时核对；需要更新时通过 `GetConfigBundle` 获取完整 YAML 依赖闭包，验证逐文件哈希、全体 Manifest 及 Semantic Hash，筛选当前 Sink Service 的精确引用并使用既有单写入方 CAS/Apply 提交。NATS 广播只负责唤醒，丢失通知或网络重连不能跳过周期对账。下游其他业务模块是否具备同样能力须独立验收；本设计不将 Sink 单模块实现夸称为全仓完成。
+
+`config_sync.repository_endpoint` 与 `repository_token_ref` 必须成对；`repository_token_ref` 只能引用环境变量。可配置 `poll_interval_seconds`（整数 5..3600，省略则 30 秒），`approved_point_table_manifests` 为 BUSINESS 专用的已核验映射清单。存储提交成功但 Worker 未生效时必须公开 pending/restart 状态，而不是报告一致生效。
+
+
 
 ```mermaid
 sequenceDiagram
