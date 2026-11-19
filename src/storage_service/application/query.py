@@ -181,6 +181,11 @@ class HistoryQueryService:
             raise ValueError("query concurrency or timeout out of bounds")
         self._limit = asyncio.Semaphore(max_concurrent)
         self._timeout = timeout_ms / 1000
+        self._active_queries = 0
+
+    @property
+    def active_queries(self) -> int:
+        return self._active_queries
 
     async def query(
         self, filter_: HistoryFilter, *, page_size: int = 200,
@@ -205,15 +210,21 @@ class HistoryQueryService:
         if bounded.end_us <= bounded.start_us:
             return HistoryPage((), "", True)
         async with self._limit:
+            self._active_queries += 1
             try:
-                rows = tuple(await asyncio.wait_for(
-                    self._backend.fetch_history(
-                        bounded, after=after, limit=page_size + 1,
-                    ),
-                    timeout=self._timeout,
-                ))
-            except TimeoutError as exc:
-                raise RuntimeError("Storage historical query exceeded deadline") from exc
+                try:
+                    rows = tuple(await asyncio.wait_for(
+                        self._backend.fetch_history(
+                            bounded, after=after, limit=page_size + 1,
+                        ),
+                        timeout=self._timeout,
+                    ))
+                except TimeoutError as exc:
+                    raise RuntimeError(
+                        "Storage historical query exceeded deadline"
+                    ) from exc
+            finally:
+                self._active_queries -= 1
         if len(rows) > page_size + 1:
             raise RuntimeError("backend violated bounded page contract")
         selected = rows[:page_size]
