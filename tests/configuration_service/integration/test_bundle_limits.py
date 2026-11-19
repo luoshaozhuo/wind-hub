@@ -10,7 +10,6 @@ import pytest
 import yaml
 
 from contracts import configuration_repository_pb2 as pb
-from tests.commander.grpc_harness import build_pki
 from tests.configuration_service.integration.test_repository_rpc import document
 from tests.support.configuration_live import (
     LiveConfiguration,
@@ -23,8 +22,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 
 @pytest.fixture
 def configurable_live(tmp_path: Path) -> Iterator[LiveConfiguration]:
-    (tmp_path / "pki").mkdir()
-    live = write_live_configuration(tmp_path, build_pki(tmp_path / "pki"), reserve_port())
+    live = write_live_configuration(tmp_path, reserve_port())
     try:
         yield live
     finally:

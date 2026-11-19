@@ -9,7 +9,6 @@ import pytest
 from configuration_service.infrastructure.adapters.outbound.sqlite.repository import (
     SQLiteRepository,
 )
-from tests.commander.grpc_harness import build_pki
 from tests.support.configuration_live import (
     LiveConfiguration,
     reserve_port,
@@ -20,8 +19,7 @@ from tests.support.configuration_live import (
 @pytest.fixture(scope="module")
 def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveConfiguration]:
     root = tmp_path_factory.mktemp("configuration-live")
-    (root / "pki").mkdir()
-    live_service = write_live_configuration(root, build_pki(root / "pki"), reserve_port())
+    live_service = write_live_configuration(root, reserve_port())
     started = live_service.cli("service", "start", "configuration", "--yes", check=False)
     if started["exit_code"] != 0:
         log_path = root / "configuration.log"

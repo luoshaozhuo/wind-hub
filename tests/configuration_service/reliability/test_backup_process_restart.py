@@ -14,7 +14,6 @@ import pytest
 from configuration_service.infrastructure.adapters.outbound.sqlite.repository import (
     SQLiteRepository,
 )
-from tests.commander.grpc_harness import build_pki
 from tests.support.configuration_live import reserve_port, write_live_configuration
 
 pytestmark = [pytest.mark.reliability, pytest.mark.real_service]
@@ -23,8 +22,7 @@ pytestmark = [pytest.mark.reliability, pytest.mark.real_service]
 def test_killed_process_marks_unfinished_backup_interrupted_and_releases_lock(
     tmp_path,
 ) -> None:
-    (tmp_path / "pki").mkdir()
-    live = write_live_configuration(tmp_path, build_pki(tmp_path / "pki"), reserve_port())
+    live = write_live_configuration(tmp_path, reserve_port())
     live.cli("service", "start", "configuration", "--yes")
     task_id = uuid.uuid4().hex
     with sqlite3.connect(live.database_path) as connection:
@@ -58,8 +56,7 @@ def test_killed_process_marks_unfinished_backup_interrupted_and_releases_lock(
 def test_candidate_and_idempotent_publish_survive_real_process_restarts(tmp_path) -> None:
     from tests.configuration_service.integration.test_repository_rpc import document
 
-    (tmp_path / "pki").mkdir()
-    live = write_live_configuration(tmp_path, build_pki(tmp_path / "pki"), reserve_port())
+    live = write_live_configuration(tmp_path, reserve_port())
     live.cli("service", "start", "configuration", "--yes")
     try:
         source = live.root / "restart-site.yaml"
@@ -100,8 +97,7 @@ def test_candidate_and_idempotent_publish_survive_real_process_restarts(tmp_path
 
 
 def test_corrupt_database_cli_start_fails_closed(tmp_path) -> None:
-    (tmp_path / "pki").mkdir()
-    live = write_live_configuration(tmp_path, build_pki(tmp_path / "pki"), reserve_port())
+    live = write_live_configuration(tmp_path, reserve_port())
     live.database_path.parent.mkdir(parents=True)
     live.database_path.write_bytes(b"not-a-sqlite-database")
     started = live.cli("service", "start", "configuration", "--yes", check=False)

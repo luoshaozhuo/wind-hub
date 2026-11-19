@@ -1,4 +1,4 @@
-"""Real Configuration Service process, PKI and CLI integration harness."""
+"""Real Configuration Service process and token-authorized CLI harness."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ import grpc
 import yaml
 
 from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
-from tests.commander.grpc_harness import Pki
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -43,7 +42,6 @@ class _BearerInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
 @dataclass
 class LiveConfiguration:
     root: Path
-    pki: Pki
     port: int
     tokens: dict[str, str]
     cli_path: Path
@@ -112,7 +110,7 @@ def reserve_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfiguration:
+def write_live_configuration(root: Path, port: int) -> LiveConfiguration:
     database = root / "state/configuration.sqlite3"
     bootstrap = root / "service/configuration.yaml"
     secret = root / "service/cursor.secret"
@@ -210,4 +208,4 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
         encoding="utf-8",
     )
     cli_path.chmod(0o600)
-    return LiveConfiguration(root, pki, port, tokens, cli_path, bootstrap, database)
+    return LiveConfiguration(root, port, tokens, cli_path, bootstrap, database)
