@@ -4,6 +4,13 @@
 # config_sources: optional list of fixed Configuration references {config_type,config_id,file_version};
 #   valid config_type: point_table|business_points|units; each identity/version must be pinned.
 #   Empty list disables ingestion until the real site templates are explicitly referenced.
+# grpc.listen_host: loopback 127.0.0.1 or ::1; listen_port [1,65535];
+#   max_active_rpcs [1,512]. The service uses plaintext within an isolated network.
+# auth.callers: required list of {token_env, permissions, wind_farms}; each token_env
+#   refers to a unique environment variable; wind_farms must explicitly list
+#   authorized farm IDs (use "*" only for admin operations).
+#   permissions: storage.read|storage.export|storage.backup|storage.inspect|
+#   storage.operate|storage.admin. No plaintext secrets in YAML.
 # kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
 # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
 #   max_partition_workers [1,64] partitions; max_buffer_records [100,100000] records;
@@ -31,6 +38,15 @@ schema_version: 1
 file_version: 1.0.0
 service_id: storage-main
 config_sources: []
+grpc:
+  listen_host: 127.0.0.1
+  listen_port: 51110
+  max_active_rpcs: 64
+auth:
+  callers:
+    - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
+      permissions: [storage.read, storage.export, storage.backup, storage.inspect, storage.operate]
+      wind_farms: [farm-a]
 kafka:
   bootstrap_servers: 127.0.0.1:9092
   topic: windhub-history
