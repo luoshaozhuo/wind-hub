@@ -1,7 +1,7 @@
 # Gateway Realtime output. No Reliable delivery and no direct industrial command.
 # The Sink instance supplies endpoint, gateway_id and credential_ref.
-# credential_ref must be env:VARIABLE containing a JSON object with
-# ca_pem, client_cert_pem and client_key_pem as PEM strings.
+# credential_ref must be env:VARIABLE containing a 32+ byte caller bearer token.
+# No TLS certificates or JSON secret envelopes are used for internal gRPC.
 # The corresponding Delivery supplies explicit target_mappings.
 schema_version: 1
 file_version: "1.0.0"
