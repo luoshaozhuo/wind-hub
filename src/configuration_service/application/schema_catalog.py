@@ -204,21 +204,16 @@ def _nested_definition(group: str) -> tuple[dict[str, Any], dict[str, Any]]:
             caller_fields = {
                 "caller_id": {"type": "string"},
                 "certificate_identity": {"type": "string"},
-                "token_env": {"type": "string"},
                 "permissions": {"type": "array", "items": {"type": "string"}},
             }
             rule["items"] = {
                 "type": "object",
                 "properties": caller_fields,
-                "required": ["caller_id", "permissions"],
+                "required": ["caller_id", "certificate_identity", "permissions"],
                 "additionalProperties": False,
             }
             note["properties"] = {
-                key: _field(
-                    key,
-                    "array" if key == "permissions" else "string",
-                    required=key in {"caller_id", "permissions"},
-                )
+                key: _field(key, "array" if key == "permissions" else "string", required=True)
                 for key in caller_fields
             }
             note["properties"]["permissions"]["items"] = {
@@ -273,3 +268,43 @@ def iter_schemas() -> Iterator[SchemaSpec]:
             },
             header=header,
         )
+        if config_type == "service":
+            from copy import deepcopy
+
+            updated = deepcopy(properties)
+            updated_header = deepcopy(header)
+            caller_schema = updated["security"]["properties"]["callers"]["items"]
+            caller_fields = {
+                "caller_id": {"type": "string"},
+                "token_env": {"type": "string"},
+                "permissions": {"type": "array", "items": {"type": "string"}},
+            }
+            caller_schema["properties"] = caller_fields
+            caller_schema["required"] = ["caller_id", "token_env", "permissions"]
+            caller_header = updated_header["security"]["properties"]["callers"]
+            caller_header["properties"] = {
+                key: _field(
+                    key,
+                    "array" if key == "permissions" else "string",
+                    required=True,
+                )
+                for key in caller_fields
+            }
+            caller_header["properties"]["permissions"]["items"] = {
+                "type": "string",
+                "description": "调用者权限名称",
+                "example": "query",
+            }
+            updated_header["schema_version"] = _field(
+                "配置结构版本 2", "integer", required=True
+            )
+            yield SchemaSpec(
+                config_type="service",
+                schema_version=2,
+                fields={
+                    "properties": updated,
+                    "required": ["schema_version", "file_version"],
+                    "additionalProperties": False,
+                },
+                header=updated_header,
+            )
