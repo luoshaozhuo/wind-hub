@@ -109,6 +109,7 @@ class ExportConfig(_StrictModel):
 
 
 class BackupConfig(_StrictModel):
+    enabled: bool = False
     root: Path
     max_jobs: int = Field(default=1, ge=1, le=4)
     max_bytes: int = Field(default=53687091200, ge=1048576, le=1099511627776)
