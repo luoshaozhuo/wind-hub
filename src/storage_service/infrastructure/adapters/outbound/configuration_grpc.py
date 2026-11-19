@@ -142,6 +142,7 @@ class ConfigurationGrpcClient:
             raise ConfigHistoryUnavailable("Configuration bundle revision mismatch")
         digest = hashlib.sha256()
         objects: dict[tuple[str, str], RepositoryDocument] = {}
+        file_versions: dict[tuple[str, str], str] = {}
         for item in response.files:
             digest.update(item.version_id.encode("utf-8"))
             digest.update(item.yaml_sha256.encode("utf-8"))
@@ -150,6 +151,7 @@ class ConfigurationGrpcClient:
             if key in objects:
                 raise ConfigHistoryUnavailable("duplicate config identity in one closure")
             objects[key] = document
+            file_versions[key] = item.file_version
         if digest.hexdigest() != response.manifest_sha256:
             raise ConfigHistoryUnavailable("Configuration bundle manifest SHA256 mismatch")
         if sum(len(d.yaml_bytes) for d in objects.values()) != response.total_bytes:
@@ -160,12 +162,22 @@ class ConfigurationGrpcClient:
         configuration = load_storage_config(service.yaml_bytes)
         if configuration.service_id != service_id:
             raise ConfigHistoryUnavailable("service config identity mismatch")
+        required = {
+            (item.config_type, item.config_id): item.file_version
+            for item in configuration.config_sources
+        }
+        for key, version in required.items():
+            if key not in file_versions or file_versions[key] != version:
+                raise ConfigHistoryUnavailable(
+                    "Configuration bundle omitted an explicitly pinned historical dependency"
+                )
         # Persist complete closure before acknowledging the new config generation.
         for document in objects.values():
             await asyncio.to_thread(self._archive.persist, document)
         points = {
             key[1]: document.version_id
-            for key, document in objects.items() if key[0] == "point_table"
+            for key, document in objects.items()
+            if key[0] == "point_table" and key in required
         }
         business = [key for key in objects if key[0] == "business_points"]
         if len(business) > 1:
