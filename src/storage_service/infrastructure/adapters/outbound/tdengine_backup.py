@@ -44,6 +44,8 @@ class NativeTDengineBackup:
     async def backup(
         self, *, task_id: str, wind_farm_id: str,
     ) -> tuple[str, int, str]:
+        if not self._config.backup.enabled:
+            raise NativeBackupFailure("native backup requires explicit verified enablement")
         if not _SAFE_IDENTIFIER.fullmatch(task_id):
             raise ValueError("backup task ID is not a generated UUID hex")
         database = self._database_for_farm(wind_farm_id)
