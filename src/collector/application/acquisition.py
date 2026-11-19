@@ -21,7 +21,7 @@ from core.application import (
     SubscriptionHandle,
     validate_read_many_results,
 )
-from core.domain import Device, PointAccess, PointTable, engineering_value
+from core.domain import Device, PointAccess, PointTable
 
 from .ports.acquisition import MetricsSubjectPort, SampleSink
 from .telemetry import CollectorTelemetry
@@ -282,17 +282,13 @@ class DeviceWorker:
             or self.actual_state in {"RECOVERING", "STOPPING"}
         ):
             return
-        converted: list[ProtocolSample] = []
-        for sample in samples:
-            point = self.plan.point_table.points.get(sample.point_id)
-            if point is None:
-                continue
-            try:
-                value = engineering_value(point, sample.value)
-                converted.append(replace(sample, value=value))
-            except (ValueError, TypeError, OverflowError) as exc:
-                self.last_error = f"{sample.point_id}: {exc}"
-                converted.append(replace(sample, quality=Quality.BAD))
+        # Preserve protocol-decoded scalars. Scale/offset and BusinessPoint
+        # conversion belong to Sink, using the immutable PointTable closure.
+        converted = [
+            sample
+            for sample in samples
+            if sample.point_id in self.plan.point_table.points
+        ]
         if any(sample.quality is Quality.GOOD for sample in converted):
             if self._recovery_started is not None:
                 if self.telemetry is not None:
