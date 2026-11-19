@@ -1420,7 +1420,7 @@ message StorageSample {
     string value_text = 14;
     bytes payload_bytes = 15;
   }
-  int32 quality = 16;
+  string quality = 16;
   google.protobuf.Timestamp sample_time = 17;
   google.protobuf.Timestamp publish_time = 18;
   google.protobuf.Timestamp receive_time = 19;
@@ -1438,7 +1438,7 @@ message StorageFilter {
   string business_point_id = 7;
   google.protobuf.Timestamp start_time = 8;
   google.protobuf.Timestamp end_time = 9;
-  repeated int32 qualities = 10;
+  repeated string qualities = 10;
 }
 message QuerySamplesRequest {
   StorageFilter filter = 1;
@@ -1573,7 +1573,7 @@ service StorageService {
 
 授权范围还须与请求场站匹配；权限拒绝不能泄露其他场站资源是否存在。查询分页采用不透明签名游标，绑定过滤条件、排序位置、初始查询时间上界与 15 分钟有效期。并发历史补写不承诺跨页 MVCC 一致快照；分页遍历采用 (ts,logical_key,content_sha256) 稳定顺序，同参数连续请求无遗漏已可见的键，晚到历史数据仅在新查询可见。
 
-StorageSample 的 value_kind=MISSING 时 oneof 未设置，其他类别 oneof 恰好包含对应值；bytes 只能用于正式 RAW 载荷。Aggregate 没有合法数值时 result 字段 absent，不能以 0 冒充均值。跨等级、跨不兼容单位、跨语义版本聚合一律拒绝。
+quality 只能为 Core Quality 已发布的 good/bad/uncertain；不可定义与 Core 不同的整数枚举或静默映射。StorageSample 的 value_kind=MISSING 时 oneof 未设置，其他类别 oneof 恰好包含对应值；bytes 只能用于正式 RAW 载荷。Aggregate 没有合法数值时 result 字段 absent，不能以 0 冒充均值。跨等级、跨不兼容单位、跨语义版本聚合一律拒绝。
 
 CreateExport/CreateBackup 的 request_id 在持久任务仓库中幂等：同 ID 同参数返回相同任务，异参 ALREADY_EXISTS。执行期以 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED 表示，重启后必须核查在途任务并确定恢复状态。导出只在服务端固定授权目录生成 CSV，返回 artifact_id，不支持客户端任意服务器路径；首版下载可由运维 CLI 访问同机受控结果目录，远端文件流下载不在接口承诺内。备份依赖 TDengine 官方支持的可恢复备份机制，不能用 CSV 充当数据库备份。
 
