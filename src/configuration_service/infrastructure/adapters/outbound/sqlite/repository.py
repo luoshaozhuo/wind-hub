@@ -1111,6 +1111,14 @@ class SQLiteRepository:
                 (version_id,),
             ).fetchone():
                 raise RepositoryConflictError("cannot recommend a deprecated version")
+            if not connection.execute(
+                "SELECT 1 FROM revision_files "
+                "WHERE revision_id = ? AND document_id = ? AND version_id = ?",
+                (expected_revision, str(record["document_id"]), version_id),
+            ).fetchone():
+                raise RepositoryConflictError(
+                    "recommended version must be present in the current complete directory"
+                )
             document_id = str(record["document_id"])
             if connection.execute(
                 "SELECT 1 FROM config_references AS r "
@@ -1201,6 +1209,16 @@ class SQLiteRepository:
                 (expected_revision, version_id),
             ).fetchone():
                 raise RepositoryConflictError("cannot deprecate the current recommended version")
+            # The current snapshot may publish more than one immutable version.
+            # Non-recommended versions still form part of the active root and
+            # must not be deprecated while physically present in that root.
+            if connection.execute(
+                "SELECT 1 FROM revision_files WHERE revision_id = ? AND version_id = ?",
+                (expected_revision, version_id),
+            ).fetchone():
+                raise RepositoryConflictError(
+                    "cannot deprecate a version present in the current directory"
+                )
             refs = connection.execute(
                 "SELECT COUNT(*) FROM config_references WHERE target_version_id = ?",
                 (version_id,),

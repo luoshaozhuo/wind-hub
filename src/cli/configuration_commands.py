@@ -260,8 +260,10 @@ def bundle(
             data = item.yaml_bytes
             if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
                 raise RuntimeError("bundle contains incorrect YAML checksum")
-            manifest.update(item.version_id.encode("utf-8"))
-            manifest.update(item.yaml_sha256.encode("ascii"))
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                manifest.update(len(encoded).to_bytes(4, "big"))
+                manifest.update(encoded)
             names.add(name)
             files.append((name, data))
         if (

@@ -399,8 +399,12 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         )
         digest = hashlib.sha256()
         for item in result:
-            digest.update(item.version_id.encode())
-            digest.update(item.yaml_sha256.encode())
+            # The manifest authenticates the exact path, immutable version
+            # and bytes, not merely the document's logical identity.
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                digest.update(len(encoded).to_bytes(4, "big"))
+                digest.update(encoded)
         return pb.GetConfigBundleResponse(
             revision_id=request.revision_id,
             files=[_yaml_output(item) for item in result],
