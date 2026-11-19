@@ -313,7 +313,7 @@ class Runtime:
             from core.infrastructure.grpc_bearer import bearer_metadata
 
             return bearer_metadata(f"env:{variable}")
-        if service == "collector" and method in protected:
+        if (service == "collector" or service.startswith("collector_")) and method in protected:
             return self.collector_admin_metadata()
         return None
 
