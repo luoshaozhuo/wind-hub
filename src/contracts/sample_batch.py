@@ -138,7 +138,11 @@ class SampleBatch(BaseModel):
     @field_validator("point_table_id")
     @classmethod
     def _point_table_identity(cls, value: str) -> str:
-        if _is_unsafe_identifier(value) or not value.startswith("point_table_") or "_v" not in value:
+        if (
+            _is_unsafe_identifier(value)
+            or not value.startswith("point_table_")
+            or "_v" not in value
+        ):
             raise ValueError("invalid immutable point_table_id")
         return value
 
