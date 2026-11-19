@@ -137,6 +137,14 @@ def get_snapshot(
         if output is not None:
             _write_snapshot(output, result.files)
         data: dict[str, Any] = MessageToDict(result, preserving_proto_field_name=True)
+        data["files"] = [
+            {
+                "relative_path": item.relative_path,
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+            }
+            for item in result.files
+        ]
         if output is not None:
             data["output"] = str(output)
         return data
@@ -166,7 +174,9 @@ def push_snapshot(target: str, directory: Path) -> None:
                 expected_revision=current.revision,
             ),
         )
-        return MessageToDict(staged, preserving_proto_field_name=True)
+        data: dict[str, Any] = MessageToDict(staged, preserving_proto_field_name=True)
+        data["valid"] = staged.valid
+        return data
 
     from .main import _run
 
