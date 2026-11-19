@@ -146,13 +146,28 @@ class ConfigurationPointTableResolver:
         archive: ImmutableConfigArchive,
         point_table_versions: Mapping[str, tuple[str, str]],
         business_points_version: tuple[str, str] | None = None,
+        historical_pins: Mapping[
+            str, tuple[tuple[str, str], tuple[str, str] | None]
+        ] | None = None,
     ) -> None:
         if not point_table_versions:
             raise ValueError("explicitly pinned point table versions are required")
         self._fetcher = fetcher
         self._archive = archive
         self._pins = dict(point_table_versions)
-        self._business_pin = business_points_version
+        self._business_pins = {
+            table_id: business_points_version for table_id in point_table_versions
+        }
+        for table_id, (pinned, semantic_pin) in (historical_pins or {}).items():
+            old = self._pins.get(table_id)
+            if old is not None and (
+                old != pinned or self._business_pins[table_id] != semantic_pin
+            ):
+                raise ConfigHistoryUnavailable(
+                    "historical PointTable semantic closure conflicts with active bundle"
+                )
+            self._pins[table_id] = pinned
+            self._business_pins[table_id] = semantic_pin
         self._loaded: dict[tuple[str, str, str], Mapping[str, Any]] = {}
         self._lock = asyncio.Lock()
 
@@ -162,17 +177,17 @@ class ConfigurationPointTableResolver:
         business_points_pin: tuple[str, str] | None,
     ) -> None:
         """Apply additions only; existing immutable interpretation is never replaced."""
-        if business_points_pin != self._business_pin:
-            raise ConfigHistoryUnavailable(
-                "business semantic version changed; require an explicit migration"
-            )
         for point_table_id, pin in point_table_versions.items():
             old = self._pins.get(point_table_id)
-            if old is not None and old != pin:
+            if old is not None and (
+                old != pin or self._business_pins[point_table_id] != business_points_pin
+            ):
                 raise ConfigHistoryUnavailable(
                     "existing PointTable ID was rebound to a different immutable version"
                 )
-        self._pins.update(point_table_versions)
+        for point_table_id, pin in point_table_versions.items():
+            self._pins[point_table_id] = pin
+            self._business_pins[point_table_id] = business_points_pin
 
     async def _load(
         self, *, config_type: str, config_id: str, version_id: str
@@ -241,9 +256,10 @@ class ConfigurationPointTableResolver:
                     raise ConfigHistoryUnavailable(
                         "business point is not bound by this pinned source point"
                     )
-                if self._business_pin is None:
+                catalog_pin = self._business_pins.get(sample.point_table_id)
+                if catalog_pin is None:
                     raise ConfigHistoryUnavailable("business point catalog is not pinned")
-                business_id, business_version = self._business_pin
+                business_id, business_version = catalog_pin
                 business_document = await self._load(
                     config_type="business_points", config_id=business_id,
                     version_id=business_version,
@@ -284,11 +300,12 @@ class ConfigurationPointTableResolver:
             if not isinstance(unit, str) or not unit:
                 raise ConfigHistoryUnavailable("source point unit unavailable")
             return unit
-        if self._business_pin is None:
+        catalog_pin = self._business_pins.get(point_table_id)
+        if catalog_pin is None:
             raise ConfigHistoryUnavailable("business semantic catalog not pinned")
         if point.get("business_point_id", point_id) != business_point_id:
             raise ConfigHistoryUnavailable("historical source point mapping disagrees")
-        catalog_id, catalog_version = self._business_pin
+        catalog_id, catalog_version = catalog_pin
         catalog = await self._load(
             config_type="business_points",
             config_id=catalog_id, version_id=catalog_version,
