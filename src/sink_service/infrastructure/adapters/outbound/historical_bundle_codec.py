@@ -18,7 +18,7 @@ from sink_service.domain.config import ConfigurationError
 
 _MAX_BUNDLE_BYTES = 4 * 1024 * 1024
 _MAX_DOCUMENTS = 128
-_POINT_TABLE_ID = re.compile(r"point_table_([A-Za-z0-9_.-]+)_v([0-9]+\\.[0-9]+\\.[0-9]+)")
+_POINT_TABLE_ID = re.compile(r"point_table_([A-Za-z0-9_.-]+)_v([0-9]+\.[0-9]+\.[0-9]+)")
 
 
 def _canonical(value: object) -> bytes:
