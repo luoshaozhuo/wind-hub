@@ -22,7 +22,7 @@ class FixedConfigSource(_StrictModel):
     @field_validator("file_version")
     @classmethod
     def validate_version(cls, value: str) -> str:
-        if re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", value) is None:
+        if re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", value) is None:
             raise ValueError("source file_version must be MAJOR.MINOR.PATCH")
         return value
 
