@@ -179,14 +179,20 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
 
     @staticmethod
     async def _authorize(context: grpc.aio.ServicerContext[Any, Any]) -> None:
-        expected = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
-        if not expected:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration access disabled")
-        supplied = dict(context.invocation_metadata() or ()).get("x-windhub-admin-token", "")
-        # metadata 值类型为 str | bytes；二进制令牌不可能匹配 str 配置，
-        # 显式归入拒绝路径，保证 compare_digest 两侧恒为 str（恒定时间比较）。
-        if not isinstance(supplied, str) or not hmac.compare_digest(expected or "", supplied):
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration access denied")
+        expected = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "")
+        if len(expected.encode("utf-8")) < 32:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token missing")
+        metadata = tuple(
+            entry.value for entry in context.invocation_metadata()
+            if entry.key.lower() == "authorization"
+        )
+        if len(metadata) != 1 or not isinstance(metadata[0], str):
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token required")
+        value = metadata[0]
+        if not value.startswith("Bearer ") or not hmac.compare_digest(
+            expected, value[7:]
+        ):
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid collector token")
 
     def _read_candidate(self, candidate_id: str) -> tuple[str, dict[str, bytes]]:
         return (
