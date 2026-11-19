@@ -1934,7 +1934,7 @@ CREATE TABLE IF NOT EXISTS <table_name>
 
 ## 16.3 幂等键、冲突与重复写
 
-所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,sample_time,sample_id]，其中 sample_time 统一表示为 UTC 微秒整数，其他 ID 为原始 UTF-8 字符串；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
+所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,business_point_id,sample_time,sample_id]，其中 business_point_id 在 RAW/PROTOCOL 为固定空字符串，在 BUSINESS 必须为精确业务点 ID（允许一来源点映射多个业务点而不误判为冲突），sample_time 统一表示为 UTC 微秒整数，其他 ID 为原始 UTF-8 字符串；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
 
 content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,quality,business_point_id,unit]（publish_time、receive_time 属传输观测时间，不能参与逻辑内容指纹，否则同一采样事件重新投递可能被误判成异值冲突）；字节按原始字节流，浮点按确定性 IEEE-754 位型编码（负零规范化）；对参与字段不做静默省略。sample_key 摘要输入为 [logical_key,content_sha256]。将内容纳入复合主键的目的：即使 TDengine 同键 INSERT 具有覆盖语义，异值记录也不会覆盖原先内容。
 
@@ -2080,4 +2080,4 @@ reconciliation:
 | G-06 E2E | Unit/Component/Integration/System 对应测试证据；未改造的 Sink 格式全链标 NOT_RUN |
 | G-07 质量 | ruff、mypy、lint-imports、pytest、proto 一致性独立复测，无伪造 PASS |
 
-**设计内容已经给出可实施决策，但 G-01/G-02 的目标数据库 Spike 和 G-04 的 Proto 编译尚未执行；在取得证据前，不得声称生产编码准入已经全部通过。** ChatGPT 负责开发和缺陷修复，Claude Code 负责独立测试及复测。此版不修改生产代码、不创建 PR、不合并 main。
+**设计准入裁决：允许开始编码，首个编码阶段必须执行 G-01/G-02 的目标数据库 Spike，再实现完整写入路径。G-04 的 Proto 编译必须先于 Storage Server 编码。上述验证尚未执行，不得把设计通过误报为测试 PASS，更不得在失败时继续依赖不成立的 Schema 假设。** ChatGPT 负责开发和缺陷修复，Claude Code 负责独立测试及复测。此版不修改生产代码、不创建 PR、不合并 main。
