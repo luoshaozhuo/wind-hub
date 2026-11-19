@@ -275,21 +275,38 @@ class TDengineBackend:
     def _fetch_content_hashes_sync(
         self, samples: Sequence[StorageSample]
     ) -> dict[str, frozenset[str]]:
+        """Batch readback using bounded time ranges and generated SHA-256 keys."""
+        grouped: dict[str, list[StorageSample]] = defaultdict(list)
+        result: dict[str, set[str]] = {}
+        for sample in samples:
+            names = get_object_names(sample, SCHEMA_FINGERPRINT)
+            grouped[f"{names.database}.{names.table}"].append(sample)
+            result.setdefault(sample.logical_key, set())
         with self._lock:
             connection, _ = self._resources()
-            result: dict[str, frozenset[str]] = {}
-            for sample in samples:
-                names = get_object_names(sample, SCHEMA_FINGERPRINT)
-                # All interpolated values are internally calculated integers/hash hex.
-                rows = connection.query(
-                    f"SELECT content_sha256 FROM {names.database}.{names.table} "
-                    f"WHERE ts = {sample.sample_time_us} "
-                    f"AND logical_key = '{sample.logical_key}'"
-                )
-                result[sample.logical_key] = frozenset(
-                    str(row[0]) for row in rows
-                )
-            return result
+            for table, entries in grouped.items():
+                # TDengine can push the time predicate to partition pruning.
+                # Keep each IN list short and distinct to bound statement size.
+                unique = list({entry.logical_key: entry for entry in entries}.values())
+                for begin in range(0, len(unique), 128):
+                    chunk = unique[begin: begin + 128]
+                    first_us = min(entry.sample_time_us for entry in chunk)
+                    last_us = max(entry.sample_time_us for entry in chunk)
+                    keys = ", ".join(f"'{entry.logical_key}'" for entry in chunk)
+                    rows = connection.query(
+                        f"SELECT logical_key, content_sha256 FROM {table} "
+                        f"WHERE ts >= {first_us} AND ts <= {last_us} "
+                        f"AND logical_key IN ({keys})"
+                    )
+                    for row in rows:
+                        logical_key = str(row[0])
+                        value_hash = str(row[1])
+                        if logical_key not in result:
+                            raise TDengineSchemaConflict("unexpected logical key from database")
+                        if not _HEX.fullmatch(value_hash):
+                            raise TDengineSchemaConflict("invalid content hash in database")
+                        result[logical_key].add(value_hash)
+        return {key: frozenset(values) for key, values in result.items()}
 
     async def insert_batch(self, samples: Sequence[StorageSample]) -> None:
         await asyncio.to_thread(self._insert_batch_sync, samples)
