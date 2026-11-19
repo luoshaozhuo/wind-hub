@@ -31,9 +31,9 @@ from .directory_diff import compare_directories
 from .history import SafeHistory
 from .network_probe import industrial_probe, ping_probe, scan_cidr, tcp_probe
 from .plant_commands import data_generator, gateway, sink
-from .storage_commands import storage
 from .process_manager import manage_service_process
 from .runtime import Runtime
+from .storage_commands import storage
 
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 service_app = typer.Typer(help="Configured service targets and public gRPC status.")
