@@ -7,9 +7,9 @@ import hmac
 import json
 import os
 import time
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from functools import wraps
-from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 import grpc
