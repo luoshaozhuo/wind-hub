@@ -19,7 +19,7 @@ class BearerAuthorizationError(PermissionError):
 
 
 class GrpcIdentityContext(Protocol):
-    def invocation_metadata(self) -> Sequence[object]:
+    def invocation_metadata(self) -> Sequence[tuple[str, str | bytes]]:
         """Expose transport metadata without trusting caller-declared identity."""
 
 
@@ -84,12 +84,16 @@ class BearerAuthorizer:
 
     def identify(self, context: GrpcIdentityContext) -> CallerGrant:
         """Return authenticated principal only after uniquely matching one secret."""
+        # grpc.aio.Metadata iterates (key, value) pairs, not objects with
+        # .key/.value attributes. Reject repeated or binary credentials.
         values = [
-            str(getattr(item, "value", ""))
-            for item in context.invocation_metadata()
-            if getattr(item, "key", "").lower() == "authorization"
+            value for key, value in context.invocation_metadata()
+            if key.lower() == "authorization"
         ]
-        if len(values) != 1 or not values[0].startswith("Bearer "):
+        if (
+            len(values) != 1 or not isinstance(values[0], str)
+            or not values[0].startswith("Bearer ")
+        ):
             raise BearerAuthenticationError("missing or ambiguous bearer credentials")
         candidate = values[0][7:]
         matched: CallerGrant | None = None
