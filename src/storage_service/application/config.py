@@ -28,6 +28,7 @@ class FixedConfigSource(_StrictModel):
 
 
 class KafkaConfig(_StrictModel):
+    bootstrap_servers: str = Field(min_length=1, max_length=2048)
     topic: str = Field(min_length=1, max_length=256)
     group_id: str = Field(min_length=1, max_length=256)
     max_poll_records: int = Field(default=500, ge=1, le=5000)
