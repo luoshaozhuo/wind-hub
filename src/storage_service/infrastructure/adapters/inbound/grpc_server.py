@@ -202,6 +202,7 @@ class StorageServicer(rpc.StorageServiceServicer):
         point_tables: ConfigurationPointTableResolver,
         consumer: KafkaStorageConsumer,
         cursor_secret: bytes,
+        config_status: Callable[[], str],
     ) -> None:
         self._auth = AuthorizationPolicy(config)
         self._config = config
@@ -213,6 +214,7 @@ class StorageServicer(rpc.StorageServiceServicer):
         if len(cursor_secret) < 32:
             raise ValueError("Storage cursor secret needs 256 bits")
         self._secret = cursor_secret
+        self._config_status = config_status
 
     @guarded
     async def QuerySamples(
@@ -478,14 +480,17 @@ class StorageServicer(rpc.StorageServiceServicer):
             farm=request.wind_farm_id or None,
             global_scope=True,
         )
-        response = pb.GetStorageStatsResponse(service_state="READY")
+        response = pb.GetStorageStatsResponse(service_state=self._config_status())
         for item in await self._consumer.snapshot_progress():
             response.partitions.add(
                 topic=item[0], partition=item[1],
                 committed_next_offset=item[2], last_confirmed_offset=item[3],
                 lag=item[4], block_reason=item[5],
             )
-        if any(item.block_reason for item in response.partitions):
+        if (
+            response.service_state == "READY"
+            and any(item.block_reason for item in response.partitions)
+        ):
             response.service_state = "DEGRADED"
         return response
 
@@ -569,6 +574,7 @@ def build_storage_grpc_server(
     query: HistoryQueryService, jobs: AsyncStorageTasks,
     point_tables: ConfigurationPointTableResolver,
     consumer: KafkaStorageConsumer, cursor_secret: bytes,
+    config_status: Callable[[], str],
 ) -> grpc.aio.Server:
     """Build but do not start the service; outer runtime manages lifecycle."""
     server = grpc.aio.server(
@@ -583,7 +589,7 @@ def build_storage_grpc_server(
         StorageServicer(
             config=config, metadata=metadata, query=query, jobs=jobs,
             point_tables=point_tables, consumer=consumer,
-            cursor_secret=cursor_secret,
+            cursor_secret=cursor_secret, config_status=config_status,
         ),
         server,
     )
