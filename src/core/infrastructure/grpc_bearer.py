@@ -95,11 +95,13 @@ class BearerAuthorizer:
             or not values[0].startswith("Bearer ")
         ):
             raise BearerAuthenticationError("missing or ambiguous bearer credentials")
-        candidate = values[0][7:]
+        candidate = values[0][7:].encode("utf-8")
+        if not 32 <= len(candidate) <= 4096:
+            raise BearerAuthenticationError("invalid bearer credential length")
         matched: CallerGrant | None = None
         for caller in self._callers:
             secret = os.getenv(token_environment(caller.token_env), "")
-            if secret and hmac.compare_digest(candidate, secret):
+            if secret and hmac.compare_digest(candidate, secret.encode("utf-8")):
                 matched = caller
         if matched is None:
             raise BearerAuthenticationError("invalid bearer credentials")
