@@ -43,7 +43,7 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
     _keys(grpc, {"listen_host", "listen_port", "max_active_rpcs"}, "grpc")
     _keys(
         security,
-        {"ca_cert", "server_cert", "server_key", "callers", "recovery"},
+        {"callers", "recovery"},
         "security",
     )
     host = grpc.get("listen_host")
@@ -55,26 +55,24 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
         raise ValueError("grpc.listen_port must be in 1..65535")
     if type(max_rpcs) is not int or max_rpcs < 1:
         raise ValueError("grpc.max_active_rpcs must be positive")
-    for name in ("ca_cert", "server_cert", "server_key"):
-        value = security.get(name)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"security.{name} pathname is required")
     callers = security.get("callers")
     if not isinstance(callers, list) or not callers:
         raise ValueError("security.callers must be a nonempty list")
     seen_ids: set[str] = set()
-    seen_certificates: set[str] = set()
+    seen_sources: set[str] = set()
     for index, candidate in enumerate(callers):
         caller = _mapping(candidate, f"security.callers[{index}]")
-        _keys(caller, {"caller_id", "certificate_identity", "permissions"}, "caller")
-        identity = caller.get("certificate_identity")
+        _keys(caller, {"caller_id", "token_env", "permissions"}, "caller")
+        token_env = caller.get("token_env")
         caller_id = caller.get("caller_id")
         permissions = caller.get("permissions")
-        if not isinstance(identity, str) or not identity.strip():
-            raise ValueError("caller certificate_identity is required")
+        if not isinstance(token_env, str) or re.fullmatch(
+            r"env:[A-Z_][A-Z0-9_]*", token_env
+        ) is None:
+            raise ValueError("caller token_env must reference env:NAME")
         if not isinstance(caller_id, str) or not caller_id.strip():
             raise ValueError("caller_id is required")
-        if identity in seen_certificates or caller_id in seen_ids:
+        if token_env in seen_sources or caller_id in seen_ids:
             raise ValueError("duplicate caller identity or caller_id")
         if (
             not isinstance(permissions, list)
@@ -86,7 +84,7 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
             or len(permissions) != len(set(permissions))
         ):
             raise ValueError("invalid caller permissions")
-        seen_certificates.add(identity)
+        seen_sources.add(token_env)
         seen_ids.add(caller_id)
 
 
