@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -124,6 +126,12 @@ class MetadataStore:
                 finished_at TEXT,
                 size_bytes INTEGER NOT NULL DEFAULT 0,
                 sha256 TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS retry_requests (
+                request_id TEXT PRIMARY KEY,
+                topic TEXT NOT NULL,
+                partition_id INTEGER NOT NULL,
+                offset_id INTEGER NOT NULL
             );
             PRAGMA user_version=1;
             """
@@ -269,6 +277,51 @@ class MetadataStore:
             return result
 
 
+    def request_partition_retry(
+        self, *, request_id: str, topic: str, partition: int, expected_offset: int
+    ) -> bool:
+        """Transactionally unlock only the exact blocked offset, idempotently."""
+        if not request_id or not topic or partition < 0 or expected_offset < 0:
+            raise ValueError("invalid partition retry request")
+        with self._mutex:
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                previous = db.execute(
+                    """SELECT topic, partition_id, offset_id
+                       FROM retry_requests WHERE request_id=?""",
+                    (request_id,),
+                ).fetchone()
+                requested = (topic, partition, expected_offset)
+                if previous is not None:
+                    if tuple(previous) != requested:
+                        raise MetadataConflict("retry request ID reused with different arguments")
+                    db.execute("COMMIT")
+                    return True
+                current = db.execute(
+                    """SELECT offset_id FROM blocked_partitions
+                       WHERE topic=? AND partition_id=?""",
+                    (topic, partition),
+                ).fetchone()
+                if current is None or current[0] != expected_offset:
+                    db.execute("COMMIT")
+                    return False
+                db.execute(
+                    """INSERT INTO retry_requests
+                       (request_id, topic, partition_id, offset_id) VALUES (?,?,?,?)""",
+                    (request_id, topic, partition, expected_offset),
+                )
+                db.execute(
+                    """DELETE FROM blocked_partitions
+                       WHERE topic=? AND partition_id=? AND offset_id=?""",
+                    (topic, partition, expected_offset),
+                )
+                db.execute("COMMIT")
+                return True
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+
     def list_blocked(self, *, page_size: int, after: tuple[str, int] | None = None
     ) -> list[tuple[str, int, int, str]]:
         """List blocked partitions in deterministic order."""
@@ -303,7 +356,11 @@ class MetadataStore:
             return records
         return [
             record for record in records
-            if isinstance(record.identity_json, str) and database in record.identity_json
+            if record.name.startswith("tb_") and isinstance(record.identity_json, str)
+            and hashlib.sha256(
+                json.dumps([json.loads(record.identity_json)[0]],
+                           ensure_ascii=False, separators=(",", ":")).encode()
+            ).hexdigest()[:24] == database.removeprefix("wh_")
         ]
 
     def get_task(self, task_id: str, *, kind: str) -> TaskRecord | None:
