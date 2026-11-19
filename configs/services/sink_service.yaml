@@ -18,7 +18,7 @@
 # 字段说明：名称 — 作用；合法取值；示例/缺省
 #
 # [身份与配置来源]
-# schema_version — 配置结构版本；固定 1。
+# schema_version — Service 配置结构版本；固定 2。
 # file_version — 文件版本；X.Y.Z 数字字符串，如 1.0.0。
 # service_id — 当前服务实例的逻辑标识；非空字符串，如 sink-west。
 # wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
@@ -129,7 +129,7 @@
 #
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
-schema_version: 1
+schema_version: 2
 file_version: 1.1.0
 service_id: sink-west
 wind_farm_id: farm-a
