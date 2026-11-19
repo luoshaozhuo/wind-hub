@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from time import perf_counter
 
@@ -15,7 +14,6 @@ from contracts.scalar_codec import encode_scalar
 from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError
-from sink_service.infrastructure.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +28,6 @@ class GatewayOutput:
         self,
         *,
         endpoint: str,
-        credential_ref: str,
         gateway_id: str,
         owner_id: str,
         mappings: TargetMap,
@@ -39,7 +36,6 @@ class GatewayOutput:
         max_batch_size: int,
     ) -> None:
         self._endpoint = endpoint
-        self._credential_ref = credential_ref
         self._gateway_id = gateway_id
         self._owner_id = owner_id
         self._mappings = mappings
@@ -55,31 +51,12 @@ class GatewayOutput:
         self._renew_task: asyncio.Task[None] | None = None
         self._unhealthy = False
 
-    def _credentials(self) -> grpc.ChannelCredentials:
-        secret = resolve_secret(self._credential_ref)
-        if secret is None:
-            raise ConfigurationError("Gateway output requires an explicit mTLS Secret")
-        try:
-            document = json.loads(secret)
-            if not isinstance(document, dict):
-                raise ValueError("not a mapping")
-            keys = ("ca_pem", "client_cert_pem", "client_key_pem")
-            if any(not isinstance(document.get(key), str) or not document[key] for key in keys):
-                raise ValueError("missing certificate material")
-            return grpc.ssl_channel_credentials(
-                root_certificates=document["ca_pem"].encode("utf-8"),
-                private_key=document["client_key_pem"].encode("utf-8"),
-                certificate_chain=document["client_cert_pem"].encode("utf-8"),
-            )
-        except (TypeError, ValueError) as exc:
-            raise ConfigurationError("invalid Gateway mTLS Secret payload") from exc
-
     async def open(self) -> None:
         if self._client is not None:
             return
         if not self._variable_ids:
             raise ConfigurationError("Gateway requires at least one mapped variable")
-        channel = grpc.aio.secure_channel(self._endpoint, self._credentials())
+        channel = grpc.aio.insecure_channel(self._endpoint)
         self._channel = channel
         self._client = gateway_rpc.IndustrialGatewayServiceStub(channel)
         try:
