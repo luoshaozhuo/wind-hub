@@ -6,17 +6,17 @@
 # servers[].control.enabled: false by default in this safe example.
 # servers[].control.target.kind: none | commander.
 #   none has no outbound command execution; disable control and leave mappings empty.
-#   commander: specify endpoint, optional loopback plaintext TLS configuration,
+#   commander: specify endpoint and scoped bearer token,
 #     request_timeout_ms (1..60000), queue_capacity (1..65536), max_inflight (1..256).
 # servers[].control.simulation: optional dedicated Generator INPUT binding; usable
-#   only through Commander-authorized ExecuteSimulationCommand with mTLS.
+#   only through Commander-authorized ExecuteSimulationCommand with bearer authentication.
 #   Direct protocol-write forwarding to Generator is prohibited.
 # servers[].control.mappings: variable_id is a writable industrial protocol point;
 #   target_point_id must be authorized by Commander; IDs unique.
 #   Normal Gateway gRPC variable injection never invokes protocol-write callbacks.
 # A successful industrial protocol ACK does not mean outbound command accepted.
 # Forwarding is best-effort, bounded and non-persistent; no retry on unknown result.
-# All target credentials and trust roots must be provisioned by deployment.
+# All internal gRPC bearer tokens must be provisioned via environment variables.
 schema_version: 1
 file_version: "1.1.0"
 
@@ -31,8 +31,14 @@ grpc:
   listen_port: 50073
   max_active_rpcs: 64
   request_max_bytes: 2097152
-  tls:
-    enabled: false
+  token_sources:
+    operator: env:WIND_HUB_GATEWAY_OPERATOR_TOKEN
+    commander: env:WIND_HUB_GATEWAY_COMMANDER_TOKEN
+    generator: env:WIND_HUB_GENERATOR_GATEWAY_TOKEN
+  permissions:
+    operator: [read, lifecycle, diagnose, config_read, config_write]
+    commander: [simulation_execute, read]
+    generator: [inject, read]
 
 servers:
   - server_id: gateway-tz01
