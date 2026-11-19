@@ -1659,7 +1659,7 @@ Configuration 的 `security.token_sources` 与 `permissions` 由本机引导配�
 
 ## 11.2.1 启动配置的不可动态变更项
 
-SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略均属于独立的**重启生效**引导配置，不经 Configuration 业务目录发布。CLI 向配置库发布使用 `config publish --root`，调用 `CreateCandidate` / `PublishCandidate`；旧的逐模块 `PushConfigSnapshot` / `ApplyConfigSnapshot` 不得作为 Configuration 发布路径。引导文件只能由授权本机运维维护，不能通过配置库的普通读写接口覆盖；令牌和敏感路径不得向普通查询方返回。
+SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略均属于独立的**重启生效**引导配置，不经 Configuration 业务目录发布。CLI 向配置库发布使用 `config publish --root`，调用 `CreateCandidate` / `PublishCandidate`；查询当前修订使用 `config revision`，核验不可变 PointTable 历史闭包使用 `config point-table-bundle`。旧的逐模块 `PushConfigSnapshot` / `ApplyConfigSnapshot` 不得作为 Configuration 发布路径。引导文件只能由授权本机运维维护，不能通过配置库的普通读写接口覆盖；令牌和敏感路径不得向普通查询方返回。
 
 ## 11.3 配置读取、修改与应用
 
