@@ -14,6 +14,19 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
 
+class FixedConfigSource(_StrictModel):
+    config_type: Literal["point_table", "business_points", "units"]
+    config_id: str = Field(min_length=1, max_length=256)
+    file_version: str
+
+    @field_validator("file_version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", value) is None:
+            raise ValueError("source file_version must be MAJOR.MINOR.PATCH")
+        return value
+
+
 class KafkaConfig(_StrictModel):
     topic: str = Field(min_length=1, max_length=256)
     group_id: str = Field(min_length=1, max_length=256)
@@ -128,6 +141,7 @@ class StorageConfig(_StrictModel):
     schema_version: Literal[1]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
+    config_sources: list[FixedConfigSource] = Field(default_factory=list)
     kafka: KafkaConfig
     tdengine: TDengineConfig
     configuration: ConfigurationConfig
@@ -146,6 +160,9 @@ class StorageConfig(_StrictModel):
 
     @model_validator(mode="after")
     def check_identity(self) -> StorageConfig:
+        identities = [(item.config_type, item.config_id) for item in self.config_sources]
+        if len(identities) != len(set(identities)):
+            raise ValueError("duplicate exact ConfigSource identities")
         if self.service_id != self.reconciliation.owner_instance_id:
             raise ValueError("Storage owner_instance_id must equal service_id in v1")
         if self.tdengine.batch_max_records > self.kafka.max_buffer_records:
