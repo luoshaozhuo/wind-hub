@@ -68,6 +68,20 @@ class AsyncStorageTasks:
         self._semaphore = asyncio.Semaphore(config.export.max_jobs)
         self._pending: set[asyncio.Task[None]] = set()
 
+    @property
+    def active_exports(self) -> int:
+        return sum(
+            not job.done() and job.get_name().startswith("storage-export-")
+            for job in self._pending
+        )
+
+    @property
+    def active_backups(self) -> int:
+        return sum(
+            not job.done() and job.get_name().startswith("storage-backup-")
+            for job in self._pending
+        )
+
     @staticmethod
     def _request_digest(values: list[object]) -> str:
         payload = json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
