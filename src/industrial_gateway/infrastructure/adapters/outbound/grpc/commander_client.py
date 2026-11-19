@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -14,42 +13,35 @@ from contracts import common_pb2 as common
 from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.forwarding import CommandQuery, SubmissionReceipt
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.schema import (
-    ControlTarget,
-    TlsConfig,
-    service_path,
-)
+from industrial_gateway.infrastructure.config.schema import ControlTarget
+from core.infrastructure.grpc_bearer import bearer_metadata
 
 
 class CommanderRpcClient:
     """Hold Commander channel and translate protobufs into primitive results."""
 
-    def __init__(self, config: ControlTarget, project_root: Path) -> None:
+    def __init__(self, config: ControlTarget) -> None:
         self._config = config
         if config.endpoint is None:
             raise ValueError("Commander endpoint required")
         self._endpoint = config.endpoint
-        self._project_root = project_root
         self._channel: grpc.aio.Channel | None = None
         self._stub: rpc.CommanderServiceAsyncStub | None = None
 
     def start(self) -> None:
         if self._stub is not None:
             raise RuntimeError("Commander channel already started")
-        tls = self._config.tls or TlsConfig()
-        if tls.enabled:
-            if tls.ca_file is None or tls.cert_file is None or tls.key_file is None:
-                raise ValueError("Commander mTLS requires CA, certificate and key")
-            credentials = grpc.ssl_channel_credentials(
-                root_certificates=service_path(self._project_root, tls.ca_file).read_bytes(),
-                private_key=service_path(self._project_root, tls.key_file).read_bytes(),
-                certificate_chain=service_path(self._project_root, tls.cert_file).read_bytes(),
-            )
-            channel = grpc.aio.secure_channel(self._endpoint, credentials)
-        else:
-            channel = grpc.aio.insecure_channel(self._endpoint)
+        if self._config.token_env is None:
+            raise ValueError("Commander control token is not provisioned")
+        bearer_metadata(self._config.token_env)
+        channel = grpc.aio.insecure_channel(self._endpoint)
         self._channel = channel
         self._stub = rpc.CommanderServiceStub(channel)
+
+    def _metadata(self) -> tuple[tuple[str, str], ...]:
+        if self._config.token_env is None:
+            raise RuntimeError("Commander client has no bearer credentials")
+        return bearer_metadata(self._config.token_env)
 
     def _ready(self) -> rpc.CommanderServiceAsyncStub:
         if self._stub is None:
@@ -57,7 +49,7 @@ class CommanderRpcClient:
         return self._stub
 
     async def get_revision(self, device_id: str, timeout: float) -> str:
-        response = await self._ready().GetDevice(common.ObjectId(id=device_id), timeout=timeout)
+        response = await self._ready().GetDevice(common.ObjectId(id=device_id), timeout=timeout, metadata=self._metadata())
         return response.device.revision
 
     async def submit(
@@ -83,6 +75,7 @@ class CommanderRpcClient:
                 request_id=request_id,
             ),
             timeout=timeout,
+            metadata=self._metadata(),
         )
         return SubmissionReceipt(
             accepted=response.accepted,
