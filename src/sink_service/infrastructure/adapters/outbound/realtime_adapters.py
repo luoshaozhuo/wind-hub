@@ -21,7 +21,6 @@ from pymodbus.datastore import ModbusServerContext
 from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_delivery_point
 from sink_service.infrastructure.secrets import resolve_secret
 
 
@@ -471,14 +470,11 @@ class KafkaOutput:
                 try:
                     started = time.perf_counter()
                     if key is None:
-                        sample = cast(DeliveryPoint, item)
-                        record_key = ":".join(
-                            (sample.wind_farm_id, sample.collector_id, sample.device_id)
-                        ).encode("utf-8")
-                        payload = encode_delivery_point(sample)
-                    else:
-                        record_key = key
-                        payload = cast(bytes, item)
+                        raise ConfigurationError(
+                            "Kafka requires explicitly encoded Reliable records and record key"
+                        )
+                    record_key = key
+                    payload = cast(bytes, item)
                     partition = self._partition_cache.get(record_key)
                     confirmation = await self._producer.send(
                         self._topic,
