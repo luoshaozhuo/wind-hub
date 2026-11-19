@@ -17,9 +17,9 @@ from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from contracts.scalar_codec import encode_scalar
 from data_generator.application.models import generate_values
 from data_generator.domain.scenario import Scenario, Settings, resolve_history
-from data_generator.infrastructure.gateway_tls import (
-    create_gateway_channel,
-    gateway_credentials,
+from data_generator.infrastructure.gateway_auth import (
+    gateway_channel,
+    gateway_rpc_metadata,
 )
 
 
@@ -52,8 +52,8 @@ class Diagnostics:
         self.settings = settings
         options = settings.service.get("diagnose", {})
         self._max_seconds = float(options.get("timeout_seconds", 10.0))
-        self._gateway_credentials = gateway_credentials(
-            settings.service.get("output", {}).get("gateway_tls")
+        self._gateway_token_ref = settings.service.get("output", {}).get(
+            "gateway_token_ref", ""
         )
 
     def _scenario(self, target_id: str) -> Scenario | None:
@@ -80,7 +80,7 @@ class Diagnostics:
             if mapping.target.gateway_id == gateway_id
         }
         actual: dict[str, tuple[str, bool]] = {}
-        async with create_gateway_channel(endpoint, self._gateway_credentials) as channel:
+        async with gateway_channel(endpoint, self._gateway_token_ref) as channel:
             stub = gateway_rpc.IndustrialGatewayServiceStub(channel)
             token = ""
             for _ in range(100):
@@ -90,7 +90,8 @@ class Diagnostics:
                             gateway_id=gateway_id,
                             page_size=1000,
                             page_token=token,
-                        )
+                        ),
+                        metadata=gateway_rpc_metadata(self._gateway_token_ref),
                     ),
                     timeout,
                 )
