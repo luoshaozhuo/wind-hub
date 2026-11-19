@@ -105,8 +105,7 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
             raise ValueError("Gateway has no authorized simulation binding")
         return GeneratorRpcClient(
             endpoint=target.endpoint,
-            tls=target.tls,
-            project_root=self._runtime.config.project_root,
+            token_env=target.token_env,
             scenario_id=target.scenario_id,
         )
 
