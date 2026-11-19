@@ -241,9 +241,29 @@ class TDengineBackend:
                       sample.point_table_id, sample.data_level.value,
                       SCHEMA_FINGERPRINT)),
                 )
+                registered = self._metadata.list_semantic_pins().get(
+                    sample.point_table_id
+                )
+                if registered is None:
+                    raise TDengineSchemaConflict(
+                        "physical table has no durable semantic closure ownership"
+                    )
+                closure_digest = hashlib.sha256(
+                    self._identity_json((
+                        sample.point_table_id, *registered[0],
+                        *(registered[1] or ("", "")),
+                    )).encode("utf-8")
+                ).hexdigest()
                 registrations = [
                     self._metadata.reserve_object(
-                        name, digest, self._identity_json(identity), SCHEMA_FINGERPRINT
+                        name, digest, self._identity_json(identity), SCHEMA_FINGERPRINT,
+                        physical_database=names.database,
+                        stable_name=names.stable if name != names.database else "",
+                        table_name=names.table if name == names.table else "",
+                        closure_hash=(
+                            names.database_identity_sha256
+                            if name == names.database else closure_digest
+                        ),
                     )
                     for name, digest, identity in identities
                 ]
