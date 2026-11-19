@@ -31,7 +31,8 @@ class RevisionBroadcaster:
         self._servers = servers
         self._subject = subject
         self._timeout = connect_timeout_ms / 1000
-        self._queue: queue.Queue[int | None] = queue.Queue(maxsize=queue_capacity)
+        self._queue: queue.Queue[int] = queue.Queue(maxsize=queue_capacity)
+        self._closing = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name="configuration-revision-broadcast", daemon=True
         )
@@ -47,6 +48,9 @@ class RevisionBroadcaster:
         """Never raise into a committed publication transaction."""
         if revision_id < 1:
             raise ValueError("revision_id must be positive")
+        if not self._started or self._closing.is_set():
+            _LOG.warning("NATS revision notice ignored during shutdown: %s", revision_id)
+            return
         try:
             self._queue.put_nowait(revision_id)
         except queue.Full:
@@ -70,28 +74,40 @@ class RevisionBroadcaster:
             await client.close()
 
     def _run(self) -> None:
-        while True:
-            revision_id = self._queue.get()
+        while not self._closing.is_set():
             try:
-                if revision_id is None:
-                    return
-                try:
-                    asyncio.run(self._publish_once(revision_id))
-                except Exception:
-                    _LOG.exception(
-                        "NATS revision broadcast failed after SQLite commit: revision=%s",
-                        revision_id,
-                    )
+                revision_id = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                asyncio.run(self._publish_once(revision_id))
+            except Exception:
+                _LOG.exception(
+                    "NATS revision broadcast failed after SQLite commit: revision=%s",
+                    revision_id,
+                )
             finally:
                 self._queue.task_done()
 
     def close(self, timeout: float = 5.0) -> None:
+        """Stop boundedly even when the pending notice queue is completely full."""
         if not self._started:
             return
-        try:
-            self._queue.put_nowait(None)
-        except queue.Full:
-            _LOG.warning("revision broadcaster shutdown while queue is full")
+        self._closing.set()
         self._thread.join(timeout=timeout)
         if self._thread.is_alive():
             _LOG.warning("revision broadcaster did not stop within shutdown deadline")
+        dropped = 0
+        while True:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
+            self._queue.task_done()
+            dropped += 1
+        if dropped:
+            _LOG.warning(
+                "discarded %s best-effort NATS notices on shutdown; "
+                "subscribers must reconcile their revision",
+                dropped,
+            )
