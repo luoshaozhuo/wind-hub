@@ -277,3 +277,4 @@ class KafkaStorageConsumer:
 
     async def stop(self) -> None:
         self._stop.set()
+        await self._consumer.stop()
