@@ -31,7 +31,6 @@ class ProcessSpec:
 class ServiceTarget:
     service_id: str
     grpc_endpoint: str | None
-    tls_profile: str | None
     manager: str | None
     target: str | None
     namespace: str | None
@@ -42,16 +41,8 @@ class ServiceTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class TLSProfile:
-    ca_cert: Path
-    client_cert: Path
-    client_key: Path
-
-
-@dataclass(frozen=True, slots=True)
 class CLIConfig:
     services: dict[str, ServiceTarget]
-    profiles: dict[str, TLSProfile]
     timeout: float
     output_format: str
     max_hosts: int
@@ -83,12 +74,6 @@ def _int_range(value: Any, name: str, minimum: int, maximum: int) -> int:
     return value
 
 
-def _path(config_path: Path, raw: Any, name: str) -> Path:
-    if not isinstance(raw, str) or not raw:
-        raise ValueError(f"{name} requires a path")
-    return (config_path.parent / raw).resolve()
-
-
 def load_config(path: Path) -> CLIConfig:
     """Validate the separate cli.yaml without loading service business YAML."""
     if not path.is_file():
@@ -112,9 +97,10 @@ def load_config(path: Path) -> CLIConfig:
     cli = raw.get("cli", {})
     probes = raw.get("network_probe", {})
     services = raw.get("services", {})
-    tls = raw.get("tls_profiles", {})
-    if not all(isinstance(obj, dict) for obj in (cli, probes, services, tls)):
-        raise ValueError("cli/services/tls_profiles/network_probe must be mappings")
+    if "tls_profiles" in raw:
+        raise ValueError("CLI TLS profiles are retired; use bearer token environments")
+    if not all(isinstance(obj, dict) for obj in (cli, probes, services)):
+        raise ValueError("cli/services/network_probe must be mappings")
     timeout = _range(cli.get("timeout_seconds", 5), "cli.timeout_seconds", 1, 120)
     output_format = cli.get("output_format", "table")
     if output_format not in ("table", "json"):
@@ -139,15 +125,6 @@ def load_config(path: Path) -> CLIConfig:
     diff_max_output_lines = _int_range(
         cli.get("diff_max_output_lines", 10000), "diff_max_output_lines", 1, 10000
     )
-    profiles: dict[str, TLSProfile] = {}
-    for name, item in tls.items():
-        if not isinstance(item, dict):
-            raise ValueError(f"invalid TLS profile {name}")
-        profiles[name] = TLSProfile(
-            _path(path, item.get("ca_cert"), "ca_cert"),
-            _path(path, item.get("client_cert"), "client_cert"),
-            _path(path, item.get("client_key"), "client_key"),
-        )
     targets: dict[str, ServiceTarget] = {}
     for name, item in services.items():
         if not isinstance(name, str) or not name or not isinstance(item, dict):
@@ -157,9 +134,8 @@ def load_config(path: Path) -> CLIConfig:
             raise ValueError(f"{name}.rpc_via is not supported")
         if endpoint is not None and (not isinstance(endpoint, str) or not endpoint):
             raise ValueError(f"{name}.grpc_endpoint must be non-empty")
-        profile = item.get("tls_profile")
-        if profile is not None and profile not in profiles:
-            raise ValueError(f"{name} references unknown tls_profile {profile}")
+        if "tls_profile" in item:
+            raise ValueError(f"{name}.tls_profile is retired")
         manager = item.get("manager")
         if manager is not None and manager not in ("containerd", "isulad", "process"):
             raise ValueError(f"{name}.manager is unsupported")
@@ -219,16 +195,9 @@ def load_config(path: Path) -> CLIConfig:
             and (not isinstance(isula_binary, str) or not Path(isula_binary).is_absolute())
         ):
             raise ValueError(f"{name}.isula_binary must be absolute")
-        if name in {"configuration", "storage"} and profile is not None:
-            raise ValueError(f"{name}.tls_profile is unsupported for token gRPC")
-        if endpoint is not None and profile is None and name not in {
-            "configuration", "storage",
-        }:
-            raise ValueError(f"{name}.tls_profile is required for mTLS")
         targets[name] = ServiceTarget(
             name,
             endpoint,
-            profile,
             manager,
             target,
             namespace,
@@ -251,7 +220,6 @@ def load_config(path: Path) -> CLIConfig:
         raise ValueError("network_probe.industrial_tcp_ports must contain unique valid ports")
     return CLIConfig(
         targets,
-        profiles,
         timeout,
         output_format,
         _int_range(probes.get("max_hosts", 1024), "max_hosts", 1, 4096),
@@ -306,24 +274,7 @@ class Runtime:
                 ("grpc.max_send_message_length", max_message),
                 ("grpc.max_receive_message_length", max_message),
             )
-            if name in {"configuration", "storage"}:
-                if target.tls_profile is not None:
-                    raise ValueError(
-                        f"{name} no longer accepts mTLS profiles; update the CLI target"
-                    )
-                channel = grpc.aio.insecure_channel(endpoint, options=options)
-            else:
-                if target.tls_profile is None:
-                    raise ValueError(f"mTLS profile is required for {name}")
-                profile = self.config().profiles[target.tls_profile]
-                credentials = grpc.ssl_channel_credentials(
-                    root_certificates=profile.ca_cert.read_bytes(),
-                    private_key=profile.client_key.read_bytes(),
-                    certificate_chain=profile.client_cert.read_bytes(),
-                )
-                channel = grpc.aio.secure_channel(
-                    endpoint, credentials, options=options,
-                )
+            channel = grpc.aio.insecure_channel(endpoint, options=options)
             self._channels[target.service_id] = channel
         return self._channels[target.service_id]
 
@@ -348,19 +299,20 @@ class Runtime:
             "ReadPoints",
             "InterrogateDevice",
         }
-        if service in {"configuration", "storage"}:
-            name = (
-                "WIND_HUB_CONFIG_CLI_TOKEN" if service == "configuration"
-                else "WIND_HUB_STORAGE_OPERATOR_TOKEN"
-            )
-            token = os.getenv(name)
-            if not token or len(token.encode("utf-8")) < 32:
-                raise PermissionError(
-                    f"{service} requires a bearer token of at least 32 bytes"
-                )
-            if any(character in token for character in "\r\n"):
-                raise PermissionError(f"{service} bearer token contains invalid controls")
-            return (("authorization", f"Bearer {token}"),)
+        bearer_names = {
+            "configuration": "WIND_HUB_CONFIG_CLI_TOKEN",
+            "storage": "WIND_HUB_STORAGE_OPERATOR_TOKEN",
+            "commander": "WIND_HUB_COMMANDER_OPERATOR_TOKEN",
+            "sink": "WIND_HUB_SINK_OPERATOR_TOKEN",
+            "gateway": "WIND_HUB_GATEWAY_OPERATOR_TOKEN",
+            "data-generator": "WIND_HUB_GENERATOR_CLI_TOKEN",
+            "data_generator": "WIND_HUB_GENERATOR_CLI_TOKEN",
+        }
+        variable = bearer_names.get(service)
+        if variable is not None:
+            from core.infrastructure.grpc_bearer import bearer_metadata
+
+            return bearer_metadata(f"env:{variable}")
         if service == "collector" and method in protected:
             return self.collector_admin_metadata()
         return None
