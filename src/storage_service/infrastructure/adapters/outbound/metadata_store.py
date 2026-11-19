@@ -13,6 +13,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Literal, Self
 
+from storage_service.domain.tasks import TaskRecord
+
 
 @dataclass(frozen=True, slots=True)
 class ObjectRegistration:
@@ -23,22 +25,6 @@ class ObjectRegistration:
     identity_json: str
     schema_fingerprint: str
     state: Literal["CREATING", "READY"]
-
-
-@dataclass(frozen=True, slots=True)
-class TaskRecord:
-    task_id: str
-    kind: str
-    wind_farm_id: str
-    owner_id: str
-    state: str
-    created_at: str
-    finished_at: str | None
-    artifact_id: str
-    size_bytes: int
-    sha256: str
-    error_code: str
-    message: str
 
 
 class MetadataConflict(RuntimeError):
