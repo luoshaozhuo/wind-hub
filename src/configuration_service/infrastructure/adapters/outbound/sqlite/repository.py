@@ -400,12 +400,13 @@ class SQLiteRepository:
             candidate_id = uuid.uuid4().hex
             now = datetime.now(UTC)
             connection.execute(
-                "INSERT INTO candidates VALUES (?, ?, ?, 'VALID', ?, ?, ?)",
+                "INSERT INTO candidates VALUES (?, ?, ?, 'VALID', ?, ?, ?, ?)",
                 (
                     candidate_id,
                     actor_id,
                     expected_revision or None,
                     payload_hash,
+                    manifest.sha256,
                     now.isoformat(),
                     (now + timedelta(seconds=ttl_seconds)).isoformat(),
                 ),
@@ -649,6 +650,19 @@ class SQLiteRepository:
                 for item, _version in ordered
             ]
             digest = _digest(_canonical_json(manifest_entries))
+            if digest != candidate["manifest_sha256"]:
+                raise RepositoryConflictError(
+                    "published directory differs from the validated candidate manifest"
+                )
+            if _digest(
+                _canonical_json(
+                    {
+                        "expected_revision": expected_revision,
+                        "manifest_sha256": digest,
+                    }
+                )
+            ) != candidate["payload_sha256"]:
+                raise RepositoryConflictError("candidate payload integrity check failed")
             total_bytes = sum(len(item["yaml_bytes"]) for item, _version in ordered)
             selected: dict[str, PreparedVersion] = {}
             for _item, version in ordered:

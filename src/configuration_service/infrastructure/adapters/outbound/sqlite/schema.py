@@ -32,6 +32,17 @@ def _replace_table(ddl: str, table_name: str, replacement: str) -> str:
     return ddl[:start] + replacement + ddl[end:]
 
 
+_NEW_CANDIDATES = """CREATE TABLE candidates (
+    candidate_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    base_revision_id INTEGER REFERENCES revisions(revision_id),
+    status TEXT NOT NULL CHECK (status IN ('VALID', 'REJECTED', 'PUBLISHED', 'EXPIRED')),
+    payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+    manifest_sha256 TEXT NOT NULL CHECK (length(manifest_sha256) = 64),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);"""
+
 _NEW_CANDIDATE = """CREATE TABLE candidate_documents (
     candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
     relative_path TEXT NOT NULL CHECK (length(relative_path) > 0),
@@ -114,7 +125,8 @@ _POINT_MAPPINGS = """CREATE TABLE point_mappings (
         REFERENCES unit_definitions(config_version_id, unit_id)
 );"""
 
-DDL = _replace_table(DDL_V1, "candidate_documents", _NEW_CANDIDATE)
+DDL = _replace_table(DDL_V1, "candidates", _NEW_CANDIDATES)
+DDL = _replace_table(DDL, "candidate_documents", _NEW_CANDIDATE)
 DDL = _remove_table(DDL, "semantic_points")
 DDL = _replace_table(DDL, "business_points", _BUSINESS_POINTS)
 DDL = _replace_table(DDL, "point_tables", _POINT_TABLES)
@@ -249,8 +261,9 @@ def _migrate_v1(connection: sqlite3.Connection) -> None:
         connection.execute("DROP TABLE business_points")
         connection.execute("DROP TABLE semantic_points")
         connection.execute("DROP TABLE candidate_documents")
+        connection.execute("DROP TABLE candidates")
         names = (
-            "candidate_documents", "revision_files", "revision_manifests",
+            "candidates", "candidate_documents", "revision_files", "revision_manifests",
             "business_points", "point_tables", "point_mappings",
         )
         for statement in DDL.split(";"):
