@@ -96,10 +96,8 @@ def validate_service_technology(service: dict[str, Any]) -> None:
     require_keys(
         security,
         "security",
-        frozenset({"ca_cert", "server_cert", "server_key", "callers"}),
+        frozenset({"callers"}),
     )
-    for field in ("ca_cert", "server_cert", "server_key"):
-        expect_nonempty_str(security.get(field), f"security.{field}")
     callers = security.get("callers")
     if not isinstance(callers, list) or not callers:
         raise ConfigurationError("security.callers: expected non-empty list")
@@ -111,12 +109,14 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         require_keys(
             caller,
             location,
-            frozenset({"caller_id", "certificate_identity", "permissions"}),
+            frozenset({"caller_id", "token_env", "permissions"}),
         )
         caller_id = expect_nonempty_str(caller["caller_id"], f"{location}.caller_id")
         identity = expect_nonempty_str(
-            caller["certificate_identity"], f"{location}.certificate_identity"
+            caller["token_env"], f"{location}.token_env"
         )
+        if not identity.startswith("env:") or not identity[4:].isidentifier():
+            raise ConfigurationError(f"{location}.token_env must reference env:NAME")
         permissions = caller["permissions"]
         if (
             not isinstance(permissions, list)
