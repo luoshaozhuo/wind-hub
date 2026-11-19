@@ -31,7 +31,7 @@ def create_projections(
     dependency_versions: Mapping[str, str],
     device_bindings: Mapping[str, tuple[str, str, str, str]],
     table_device_type: str | None,
-    point_table_parent: tuple[str, str] | None,
+    point_table_parent: tuple[str, str] | None = None,
 ) -> tuple[RowProjection, ...]:
     """Project normalized entities, binding cross-document keys to exact versions."""
     raw = document.canonical_payload
