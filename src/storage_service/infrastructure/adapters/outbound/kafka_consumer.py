@@ -106,6 +106,11 @@ class KafkaStorageConsumer:
             )
             block = self._metadata.get_blocked_partition(tp.topic, tp.partition)
             if block is not None:
+                if block[0] < committed:
+                    raise RuntimeError(
+                        "blocked Kafka offset is older than committed cursor; "
+                        "manual reconciliation is mandatory"
+                    )
                 current.blocked = True
                 self._consumer.pause(tp)
             self._assignments[tp] = current
@@ -226,7 +231,9 @@ class KafkaStorageConsumer:
         tp = TopicPartition(topic, partition)
         state = self._assignments.get(tp)
         if state is not None and state.blocked and tp in self._consumer.assignment():
-            # Restart at the exact failed record. Never resume at the next offset.
+            if expected_offset < state.offsets.next_commit_offset:
+                raise RuntimeError("blocked retry cannot rewind before committed cursor")
+            # Restart from contiguous prefix; never skip an unconfirmed record.
             # Revisit any earlier not-yet-committed records before the bad record.
             self._consumer.seek(tp, state.offsets.next_commit_offset)
             state.offsets = PartitionOffsets(
