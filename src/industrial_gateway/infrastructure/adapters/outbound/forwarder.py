@@ -58,6 +58,6 @@ class CommandForwarder(ApplicationCommandForwarder):
         super().__init__(
             config,
             observer=observer,
-            client=CommanderRpcClient(config, project_root),
+            client=CommanderRpcClient(config),
             definitive_rejection=_definitive_rpc_rejection,
         )
