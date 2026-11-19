@@ -303,19 +303,12 @@ def validate_service_limits(service: dict[str, Any]) -> None:
             ):
                 raise GeneratorError(f"invalid {section}.{key}: must be within {lower}..{upper}")
     output = service.get("output", {})
-    gateway_tls = output.get("gateway_tls")
-    if gateway_tls is not None:
-        if not isinstance(gateway_tls, dict) or set(gateway_tls) != {
-            "ca_file",
-            "cert_file",
-            "key_file",
-        }:
-            raise GeneratorError("output.gateway_tls requires ca_file, cert_file and key_file")
-        if any(
-            not isinstance(value, str) or not Path(value).is_absolute()
-            for value in gateway_tls.values()
-        ):
-            raise GeneratorError("output.gateway_tls paths must be absolute")
+    gateway_token_ref = output.get("gateway_token_ref")
+    if (
+        not isinstance(gateway_token_ref, str)
+        or re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", gateway_token_ref) is None
+    ):
+        raise GeneratorError("output.gateway_token_ref must be env:NAME")
 
     recording = service.get("recording", {})
     if not isinstance(recording, dict):
