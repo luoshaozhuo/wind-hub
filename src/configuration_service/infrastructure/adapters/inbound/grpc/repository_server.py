@@ -15,6 +15,10 @@ from typing import Any, TypeVar
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from configuration_service.application.directory_manifest import (
+    DirectoryFile,
+    build_directory_manifest,
+)
 from configuration_service.application.metrics import RpcMetrics
 from configuration_service.application.service import (
     ConfigurationApplication,
@@ -68,6 +72,7 @@ def _yaml_output(value: DocumentOutput) -> pb.ConfigYamlDocument:
         content_sha256=value.content_sha256,
         yaml_sha256=value.yaml_sha256,
         schema_ref=value.schema_ref,
+        relative_path=value.relative_path,
     )
 
 
@@ -222,7 +227,10 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected_revision_id must be provided")
         data = tuple(
-            DocumentInput(_identity(item.config_id), item.file_name, item.yaml_bytes)
+            DocumentInput(
+                _identity(item.config_id), item.file_name, item.yaml_bytes,
+                relative_path=item.relative_path,
+            )
             for item in request.documents
         )
         if not request.request_id:
@@ -248,10 +256,19 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 base_revision_id=request.expected_revision_id,
                 issues=[pb.ValidationIssue(error_code="SCHEMA_INVALID", message=str(exc))],
             )
+        manifest = build_directory_manifest(
+            tuple(
+                DirectoryFile(item.relative_path, item.yaml_bytes)
+                for item in request.documents
+            ),
+            max_documents=self.app.limits.max_documents_per_publication,
+            max_bytes=self.app.limits.max_request_bytes,
+        )
         return pb.CreateCandidateResponse(
             candidate_id=candidate_id,
             valid=True,
             base_revision_id=request.expected_revision_id,
+            manifest_sha256=manifest.sha256,
             document_results=[
                 pb.DocumentValidationResult(
                     config_id=_config_id(doc.identity),
@@ -303,6 +320,49 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             published=items,
             committed_at=_timestamp(self.app.repository.get_revision_timestamp(result.revision_id)),
             already_applied=result.replayed,
+        )
+
+    @guarded
+    def GetCurrentRevision(
+        self, request: pb.GetCurrentRevisionRequest, context: grpc.ServicerContext
+    ) -> pb.GetCurrentRevisionResponse:
+        del request
+        self._actor(context, "query")
+        revision, manifest, committed = self.app.repository.get_current_manifest()
+        response = pb.GetCurrentRevisionResponse(
+            revision_id=revision, manifest_sha256=manifest
+        )
+        if committed is not None:
+            response.committed_at.CopyFrom(_timestamp(committed))
+        return response
+
+    @guarded
+    def GetPointTableBundle(
+        self, request: pb.GetPointTableBundleRequest, context: grpc.ServicerContext
+    ) -> pb.GetPointTableBundleResponse:
+        self._actor(context, "query")
+        documents, manifest = self.app.get_point_table_bundle(
+            request.point_table_id,
+            expected_manifest_sha256=request.expected_manifest_sha256 or None,
+        )
+        root = [
+            item for item in documents
+            if item.identity.config_type == "point_table"
+            and request.point_table_id ==
+            f"point_table_{item.identity.config_id}_v{item.file_version}"
+        ]
+        if len(root) != 1:
+            raise RepositoryConflictError("immutable PointTable root is ambiguous")
+        typed_rows = self.app.repository.get_projection_rows(
+            root[0].version_id, "point_tables"
+        )
+        if len(typed_rows) != 1:
+            raise RepositoryConflictError("PointTable typed identity is incomplete")
+        return pb.GetPointTableBundleResponse(
+            point_table_id=request.point_table_id,
+            device_type=str(typed_rows[0]["device_type"]),
+            documents=[_yaml_output(item) for item in documents],
+            manifest_sha256=manifest,
         )
 
     @guarded
