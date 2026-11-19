@@ -99,7 +99,7 @@ class AuthorizationPolicy:
 
     def require(
         self, context: grpc.aio.ServicerContext[Any, Any],
-        *, permission: str, farm: str | None,
+        *, permission: str, farm: str | None, global_scope: bool = False,
     ) -> str:
         headers = dict(context.invocation_metadata())
         header = headers.get("authorization", "")
@@ -119,7 +119,7 @@ class AuthorizationPolicy:
             if not authorized:
                 raise AuthorizationFailure("missing Storage permission")
             if farm is None:
-                if "storage.admin" not in caller.permissions:
+                if global_scope and "storage.admin" not in caller.permissions:
                     raise AuthorizationFailure("global operation requires Storage admin")
             elif farm not in caller.wind_farms and not (
                 "*" in caller.wind_farms and "storage.admin" in caller.permissions
@@ -273,6 +273,8 @@ class StorageServicer(rpc.StorageServiceServicer):
             pb.STORAGE_AGGREGATION_MAX, pb.STORAGE_AGGREGATION_AVG,
         ):
             raise QueryRejected("aggregation must select count/min/max/avg")
+        if not filter_.device_id or not filter_.point_table_id:
+            raise QueryRejected("aggregation requires one device and one PointTable")
         if request.window_ms == 0 or request.window_ms > 31 * 86400000:
             raise QueryRejected("aggregation window must be 1ms..31 days")
         if request.page_token:
@@ -412,10 +414,11 @@ class StorageServicer(rpc.StorageServiceServicer):
         self._auth.require(
             context, permission="storage.inspect",
             farm=request.wind_farm_id or None,
+            global_scope=not bool(request.wind_farm_id),
         )
         response = pb.GetStorageStatsResponse(service_state="READY")
         for item in self._consumer.snapshot_progress():
-            progress = response.partitions.add(
+            response.partitions.add(
                 topic=item[0], partition=item[1],
                 committed_next_offset=item[2], last_confirmed_offset=item[3],
                 lag=item[4], block_reason=item[5],
@@ -428,7 +431,7 @@ class StorageServicer(rpc.StorageServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.ListBlockedPartitionsResponse:
         # Bad JSON may have no reliable farm ID. Only a global admin can inspect it.
-        self._auth.require(context, permission="storage.operate", farm=None)
+        self._auth.require(context, permission="storage.operate", farm=None, global_scope=True)
         size = request.page_size or 100
         if not 1 <= size <= 1000:
             raise QueryRejected("blocked partition page_size must be 1..1000")
