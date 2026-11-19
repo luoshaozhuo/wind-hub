@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -34,6 +35,7 @@ class MetadataStore:
         self._path = path
         self._lock_file: BinaryIO | None = None
         self._connection: sqlite3.Connection | None = None
+        self._mutex = threading.RLock()
 
     def __enter__(self) -> Self:
         self.open()
@@ -54,7 +56,9 @@ class MetadataStore:
         fd = self._path.with_suffix(self._path.suffix + ".lock").open("a+b")
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            connection = sqlite3.connect(self._path, isolation_level=None, timeout=10.0)
+            connection = sqlite3.connect(
+                self._path, isolation_level=None, timeout=10.0, check_same_thread=False
+            )
             try:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA synchronous=FULL")
@@ -113,134 +117,141 @@ class MetadataStore:
     def reserve_object(
         self, name: str, full_sha256: str, identity_json: str, schema_fingerprint: str
     ) -> ObjectRegistration:
-        """Reserve before DDL; CREATING must be reconciled on restart."""
-        db = self._db()
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            record = db.execute(
-                """SELECT full_sha256, identity_json, schema_fingerprint, state
-                   FROM storage_objects WHERE name = ?""",
-                (name,),
-            ).fetchone()
-            if record is None:
-                db.execute(
-                    """INSERT INTO storage_objects
-                       (name, full_sha256, identity_json, schema_fingerprint, state)
-                       VALUES (?, ?, ?, ?, 'CREATING')""",
-                    (name, full_sha256, identity_json, schema_fingerprint),
-                )
-                state: Literal["CREATING", "READY"] = "CREATING"
-            else:
-                if record[:3] != (full_sha256, identity_json, schema_fingerprint):
-                    raise MetadataConflict(f"physical name collision: {name}")
-                state = record[3]
-            db.execute("COMMIT")
-        except BaseException:
-            db.execute("ROLLBACK")
-            raise
-        return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
+        with self._mutex:
+            """Reserve before DDL; CREATING must be reconciled on restart."""
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                record = db.execute(
+                    """SELECT full_sha256, identity_json, schema_fingerprint, state
+                       FROM storage_objects WHERE name = ?""",
+                    (name,),
+                ).fetchone()
+                if record is None:
+                    db.execute(
+                        """INSERT INTO storage_objects
+                           (name, full_sha256, identity_json, schema_fingerprint, state)
+                           VALUES (?, ?, ?, ?, 'CREATING')""",
+                        (name, full_sha256, identity_json, schema_fingerprint),
+                    )
+                    state: Literal["CREATING", "READY"] = "CREATING"
+                else:
+                    if record[:3] != (full_sha256, identity_json, schema_fingerprint):
+                        raise MetadataConflict(f"physical name collision: {name}")
+                    state = record[3]
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+            return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
 
     def mark_ready(self, registration: ObjectRegistration, *, verified: bool) -> None:
-        """Only call after live TDengine schema and ownership have been checked."""
-        if not verified:
-            raise ValueError("live TDengine verification is mandatory")
-        db = self._db()
-        cursor = db.execute(
-            """UPDATE storage_objects SET state = 'READY'
-               WHERE name = ? AND full_sha256 = ?
-                 AND identity_json = ? AND schema_fingerprint = ?""",
-            (
-                registration.name, registration.full_sha256,
-                registration.identity_json, registration.schema_fingerprint,
-            ),
-        )
-        if cursor.rowcount != 1:
-            raise MetadataConflict("reservation changed or disappeared")
+        with self._mutex:
+            """Only call after live TDengine schema and ownership have been checked."""
+            if not verified:
+                raise ValueError("live TDengine verification is mandatory")
+            db = self._db()
+            cursor = db.execute(
+                """UPDATE storage_objects SET state = 'READY'
+                   WHERE name = ? AND full_sha256 = ?
+                     AND identity_json = ? AND schema_fingerprint = ?""",
+                (
+                    registration.name, registration.full_sha256,
+                    registration.identity_json, registration.schema_fingerprint,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise MetadataConflict("reservation changed or disappeared")
 
     def block_partition(
         self, topic: str, partition: int, offset: int, reason: str, payload: bytes
     ) -> None:
-        """Retain the original poison record; never replace an earlier blocker."""
-        import hashlib
+        with self._mutex:
+            """Retain the original poison record; never replace an earlier blocker."""
+            import hashlib
 
-        if not topic or partition < 0 or offset < 0 or len(payload) > 4 * 1024 * 1024:
-            raise ValueError("invalid blocked partition evidence")
-        digest = hashlib.sha256(payload).hexdigest()
-        db = self._db()
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            previous = db.execute(
-                """SELECT offset_id, payload_sha256 FROM blocked_partitions
+            if not topic or partition < 0 or offset < 0 or len(payload) > 4 * 1024 * 1024:
+                raise ValueError("invalid blocked partition evidence")
+            digest = hashlib.sha256(payload).hexdigest()
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                previous = db.execute(
+                    """SELECT offset_id, payload_sha256 FROM blocked_partitions
+                       WHERE topic = ? AND partition_id = ?""",
+                    (topic, partition),
+                ).fetchone()
+                if previous is not None and previous != (offset, digest):
+                    raise MetadataConflict("cannot overwrite an earlier blocked Kafka record")
+                if previous is None:
+                    db.execute(
+                        """INSERT INTO blocked_partitions
+                           (topic, partition_id, offset_id, reason, payload_sha256, payload)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (topic, partition, offset, reason, digest, payload),
+                    )
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+
+    def get_blocked_partition(self, topic: str, partition: int) -> tuple[int, str] | None:
+        with self._mutex:
+            row = self._db().execute(
+                """SELECT offset_id, reason FROM blocked_partitions
                    WHERE topic = ? AND partition_id = ?""",
                 (topic, partition),
             ).fetchone()
-            if previous is not None and previous != (offset, digest):
-                raise MetadataConflict("cannot overwrite an earlier blocked Kafka record")
-            if previous is None:
-                db.execute(
-                    """INSERT INTO blocked_partitions
-                       (topic, partition_id, offset_id, reason, payload_sha256, payload)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (topic, partition, offset, reason, digest, payload),
-                )
-            db.execute("COMMIT")
-        except BaseException:
-            db.execute("ROLLBACK")
-            raise
-
-    def get_blocked_partition(self, topic: str, partition: int) -> tuple[int, str] | None:
-        row = self._db().execute(
-            """SELECT offset_id, reason FROM blocked_partitions
-               WHERE topic = ? AND partition_id = ?""",
-            (topic, partition),
-        ).fetchone()
-        return (int(row[0]), str(row[1])) if row is not None else None
+            return (int(row[0]), str(row[1])) if row is not None else None
 
     def clear_blocked_partition(
         self, topic: str, partition: int, *, expected_offset: int
     ) -> bool:
-        cursor = self._db().execute(
-            """DELETE FROM blocked_partitions
-               WHERE topic = ? AND partition_id = ? AND offset_id = ?""",
-            (topic, partition, expected_offset),
-        )
-        return cursor.rowcount == 1
+        with self._mutex:
+            cursor = self._db().execute(
+                """DELETE FROM blocked_partitions
+                   WHERE topic = ? AND partition_id = ? AND offset_id = ?""",
+                (topic, partition, expected_offset),
+            )
+            return cursor.rowcount == 1
 
     def register_task(
         self, *, task_id: str, request_id: str, request_sha256: str, kind: str
     ) -> str:
-        """Create idempotently: same request ID with different content is fatal."""
-        db = self._db()
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            row = db.execute(
-                "SELECT task_id, request_sha256, kind FROM tasks WHERE request_id = ?",
-                (request_id,),
-            ).fetchone()
-            if row is not None:
-                if row[1:] != (request_sha256, kind):
-                    raise MetadataConflict("request_id reused with different parameters")
-                result = str(row[0])
-            else:
-                db.execute(
-                    """INSERT INTO tasks
-                       (task_id, request_id, request_sha256, kind, state)
-                       VALUES (?, ?, ?, ?, 'QUEUED')""",
-                    (task_id, request_id, request_sha256, kind),
-                )
-                result = task_id
-            db.execute("COMMIT")
-        except BaseException:
-            db.execute("ROLLBACK")
-            raise
-        return result
+        with self._mutex:
+            """Create idempotently: same request ID with different content is fatal."""
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT task_id, request_sha256, kind FROM tasks WHERE request_id = ?",
+                    (request_id,),
+                ).fetchone()
+                if row is not None:
+                    if row[1:] != (request_sha256, kind):
+                        raise MetadataConflict("request_id reused with different parameters")
+                    result = str(row[0])
+                else:
+                    db.execute(
+                        """INSERT INTO tasks
+                           (task_id, request_id, request_sha256, kind, state)
+                           VALUES (?, ?, ?, ?, 'QUEUED')""",
+                        (task_id, request_id, request_sha256, kind),
+                    )
+                    result = task_id
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+            return result
 
     def close(self) -> None:
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
-        fd = getattr(self, "_lock_file", None)
-        if fd is not None:
-            fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
-            fd.close()
-            self._lock_file = None
+        with self._mutex:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+            fd = getattr(self, "_lock_file", None)
+            if fd is not None:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+                fd.close()
+                self._lock_file = None
