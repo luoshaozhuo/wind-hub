@@ -477,6 +477,7 @@ def backup(service: str = "configuration", label: str = "", request_id: str = ""
 def backup_status(task_id: str, service: str = "configuration") -> None:
     _request("GetBackupTask", pb.GetBackupTaskRequest(task_id=task_id), service)
 
+
 @configuration.command("push")
 def push_snapshot_command(target: str, directory: Path, expected_revision: str = "") -> None:
     """Stage a complete configuration snapshot in one service."""

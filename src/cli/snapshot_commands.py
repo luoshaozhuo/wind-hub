@@ -108,9 +108,7 @@ def _write_snapshot(destination: Path, files: Any) -> None:
         os.rename(staged, destination)
 
 
-def get_snapshot(
-    target: str, scope: str, output: Path | None, candidate_id: str = ""
-) -> None:
+def get_snapshot(target: str, scope: str, output: Path | None, candidate_id: str = "") -> None:
     """Read a service's disk/runtime/candidate snapshot through CommonService."""
     normalized = scope.lower()
     scopes = {
@@ -188,9 +186,7 @@ def push_snapshot(target: str, directory: Path, expected_revision: str = "") -> 
     _run("config push", invoke())
 
 
-def apply_snapshot(
-    target: str, candidate_id: str, expected_revision: str, yes: bool
-) -> None:
+def apply_snapshot(target: str, candidate_id: str, expected_revision: str, yes: bool) -> None:
     """Apply a staged snapshot once; transport uncertainty is not retried."""
     if not candidate_id:
         raise typer.BadParameter("candidate_id must be nonempty")
