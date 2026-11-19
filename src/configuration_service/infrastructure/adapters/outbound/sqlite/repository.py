@@ -37,7 +37,6 @@ _LOG = logging.getLogger(__name__)
 _PROJECTION_TABLES = frozenset(
     {
         "unit_definitions",
-        "semantic_points",
         "business_points",
         "point_tables",
         "point_mappings",

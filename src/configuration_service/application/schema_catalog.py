@@ -36,14 +36,14 @@ def _field(name: str, kind: str = "object", *, required: bool = False) -> dict[s
 # nested rules without changing the transport or storage schema.
 _FIELDS: dict[str, dict[str, str]] = {
     "units": {"quantities": "object", "units": "object"},
-    "semantic_points": {"semantic_points": "object"},
     "business_points": {"business_points": "object", "device_type": "string"},
     "point_table": {
         "template_id": "string",
         "device_type": "string",
         "protocol": "string",
         "points": "object",
-        "inherits": "object",
+        "parent": "object",
+        "remove_points": "array",
         "parent_version_id": "string",
         "parent_point_table_id": "string",
     },
@@ -136,7 +136,6 @@ _FIELDS: dict[str, dict[str, str]] = {
 }
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "units": ("quantities", "units"),
-    "semantic_points": ("semantic_points",),
     "business_points": ("business_points",),
     "point_table": ("template_id", "protocol", "points"),
     "device": ("devices",),
@@ -248,7 +247,9 @@ def iter_schemas() -> Iterator[SchemaSpec]:
         for name, kind in kinds.items():
             properties[name] = {"type": kind}
             if kind == "array":
-                properties[name]["items"] = {"type": "object"}
+                properties[name]["items"] = {
+                    "type": "string" if name == "remove_points" else "object"
+                }
             header[name] = _field(name, kind, required=name in _REQUIRED.get(config_type, ()))
             if config_type == "service" and name in _NESTED_FIELDS:
                 nested_schema, nested_header = _nested_definition(name)

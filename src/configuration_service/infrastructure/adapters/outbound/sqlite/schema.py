@@ -16,6 +16,14 @@ MIGRATION_ID = "full_directory_snapshot_v2"
 INITIAL_MIGRATION_ID = "initial_configuration_repository"
 
 
+def _remove_table(ddl: str, table_name: str) -> str:
+    """Remove only an obsolete, unpopulated v1 projection table definition."""
+    prefix = f"CREATE TABLE {table_name} ("
+    start = ddl.index(prefix)
+    end = ddl.index("\n);", start) + len("\n);")
+    return ddl[:start] + ddl[end + 1:]
+
+
 def _replace_table(ddl: str, table_name: str, replacement: str) -> str:
     """Replace the single exact DDL declaration, never alter the v1 archive."""
     prefix = f"CREATE TABLE {table_name} ("
@@ -59,9 +67,51 @@ CREATE TABLE revision_manifests (
 );
 """
 
+_BUSINESS_POINTS = """CREATE TABLE business_points (
+    config_version_id TEXT NOT NULL REFERENCES config_versions(version_id),
+    business_point_id TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    standard_unit_version_id TEXT NOT NULL,
+    standard_unit_id TEXT NOT NULL,
+    description TEXT,
+    PRIMARY KEY (config_version_id, business_point_id),
+    FOREIGN KEY (standard_unit_version_id, standard_unit_id)
+        REFERENCES unit_definitions(config_version_id, unit_id)
+);"""
+
+_POINT_MAPPINGS = """CREATE TABLE point_mappings (
+    config_version_id TEXT NOT NULL,
+    point_table_id TEXT NOT NULL,
+    point_id TEXT NOT NULL,
+    business_config_version_id TEXT NOT NULL,
+    business_point_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_unit_version_id TEXT NOT NULL,
+    source_unit_id TEXT NOT NULL,
+    scale TEXT NOT NULL,
+    offset TEXT NOT NULL,
+    address_json TEXT NOT NULL CHECK (json_valid(address_json)),
+    point_groups_json TEXT NOT NULL CHECK (json_valid(point_groups_json)),
+    PRIMARY KEY (config_version_id, point_table_id, point_id),
+    FOREIGN KEY (config_version_id, point_table_id)
+        REFERENCES point_tables(config_version_id, point_table_id),
+    FOREIGN KEY (business_config_version_id, business_point_id)
+        REFERENCES business_points(config_version_id, business_point_id),
+    FOREIGN KEY (source_unit_version_id, source_unit_id)
+        REFERENCES unit_definitions(config_version_id, unit_id)
+);"""
+
 DDL = _replace_table(DDL_V1, "candidate_documents", _NEW_CANDIDATE)
-DDL = DDL.replace("CREATE TABLE config_references (", _DIRECTORY_TABLES + "CREATE TABLE config_references (")
-IMMUTABLE_TABLES = IMMUTABLE_TABLES_V1 + ("revision_files", "revision_manifests")
+DDL = _remove_table(DDL, "semantic_points")
+DDL = _replace_table(DDL, "business_points", _BUSINESS_POINTS)
+DDL = _replace_table(DDL, "point_mappings", _POINT_MAPPINGS)
+DDL = DDL.replace(
+    "CREATE TABLE config_references (",
+    _DIRECTORY_TABLES + "CREATE TABLE config_references (",
+)
+IMMUTABLE_TABLES = tuple(
+    table for table in IMMUTABLE_TABLES_V1 if table != "semantic_points"
+) + ("revision_files", "revision_manifests")
 
 
 def _immutable_trigger_sql(table: str, operation: str) -> str:
@@ -178,13 +228,23 @@ def _migrate_v1(connection: sqlite3.Connection) -> None:
             )
     connection.execute("BEGIN IMMEDIATE")
     try:
+        # The historical database is empty: projection tables can be replaced
+        # without altering a published interpretation or deleting history.
+        connection.execute("DROP TABLE point_mappings")
+        connection.execute("DROP TABLE business_points")
+        connection.execute("DROP TABLE semantic_points")
         connection.execute("DROP TABLE candidate_documents")
-        names = ("candidate_documents", "revision_files", "revision_manifests")
+        names = (
+            "candidate_documents", "revision_files", "revision_manifests",
+            "business_points", "point_mappings",
+        )
         for statement in DDL.split(";"):
             statement = statement.strip()
             if any(statement.startswith(f"CREATE TABLE {name} (") for name in names):
                 connection.execute(statement)
-        for table in ("revision_files", "revision_manifests"):
+        for table in (
+            "revision_files", "revision_manifests", "business_points", "point_mappings"
+        ):
             for operation in ("UPDATE", "DELETE"):
                 connection.execute(_immutable_trigger_sql(table, operation))
         now = _utc_now()
