@@ -510,6 +510,11 @@ class SQLiteRepository:
             }
             if len(actual) != len(versions):
                 raise RepositoryConflictError("prepared versions do not match staged documents")
+            original_version_ids = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT version_id FROM config_versions"
+                )
+            }
             for version in versions:
                 doc = version.document
                 item = actual.get(_document_id(doc.identity))
@@ -529,27 +534,41 @@ class SQLiteRepository:
                     (_document_id(doc.identity), doc.identity.config_type, doc.identity.config_id),
                 )
                 prior = connection.execute(
-                    "SELECT 1 FROM config_versions " "WHERE document_id = ? AND file_version = ?",
+                    """SELECT version_id, schema_ref, content_sha256
+                       FROM config_versions
+                       WHERE document_id = ? AND file_version = ?""",
                     (_document_id(doc.identity), doc.file_version),
                 ).fetchone()
                 if prior is not None:
-                    raise RepositoryVersionExistsError(
-                        "the document file_version has already been published"
+                    if (
+                        prior["version_id"] != version.version_id
+                        or prior["schema_ref"] != doc.schema_ref
+                        or prior["content_sha256"] != doc.content_sha256
+                    ):
+                        raise RepositoryVersionExistsError(
+                            "immutable file_version cannot be reused for changed content"
+                        )
+                else:
+                    connection.execute(
+                        "INSERT INTO config_versions VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            version.version_id,
+                            _document_id(doc.identity),
+                            doc.schema_ref,
+                            doc.file_version,
+                            doc.content_sha256,
+                            _now(),
+                        ),
                     )
-                connection.execute(
-                    "INSERT INTO config_versions VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        version.version_id,
-                        _document_id(doc.identity),
-                        doc.schema_ref,
-                        doc.file_version,
-                        doc.content_sha256,
-                        _now(),
-                    ),
-                )
+            # New versions are projected once. Existing immutable versions keep
+            # their original projection and foreign-key edges unchanged.
             for version in versions:
+                if version.version_id in original_version_ids:
+                    continue
                 self._insert_projection(connection, version)
             for version in versions:
+                if version.version_id in original_version_ids:
+                    continue
                 for target_version_id, relation in version.references:
                     if connection.execute(
                         "SELECT 1 FROM version_events WHERE version_id = ? "
@@ -573,17 +592,9 @@ class SQLiteRepository:
                     "INSERT INTO revision_members VALUES (?, ?, ?)",
                     (revision_id, _document_id(version.document.identity), version.version_id),
                 )
-            if expected_revision:
-                connection.execute(
-                    "INSERT INTO revision_members (revision_id, document_id, version_id) "
-                    "SELECT ?, previous.document_id, previous.version_id "
-                    "FROM revision_members AS previous "
-                    "WHERE previous.revision_id = ? AND NOT EXISTS ("
-                    "SELECT 1 FROM revision_members AS current "
-                    "WHERE current.revision_id = ? "
-                    "AND current.document_id = previous.document_id)",
-                    (revision_id, expected_revision, revision_id),
-                )
+            # Directory publication is a complete replacement, not an
+            # incremental merge. Omitted members disappear from the new
+            # revision but their immutable historical versions remain readable.
             connection.execute(
                 "UPDATE candidates SET status = 'PUBLISHED' WHERE candidate_id = ?",
                 (candidate_id,),
