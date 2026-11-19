@@ -9,12 +9,11 @@ from core.configuration.publication_identity import (
 )
 
 
-def test_config_publish_is_registered_without_push_or_apply() -> None:
+def test_repository_publish_and_service_snapshot_commands_are_registered() -> None:
     available = {command.name for command in config_app.registered_commands if command.name}
     assert {"publish", "revision", "point-table-bundle", "get", "bundle", "diff"} <= available
     assert "candidate" not in available
-    assert "apply" not in available
-    assert "push" not in available
+    assert {"apply", "push"} <= available
     groups = {group.name for group in app.registered_groups}
     assert "config" in groups
     assert "configuration" not in groups
