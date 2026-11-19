@@ -694,6 +694,20 @@ class SQLiteRepository:
                 raise RepositoryNotFoundError("referenced configuration version not found")
             return str(row["version_id"])
 
+    def get_version_references(
+        self, version_id: str,
+    ) -> tuple[tuple[str, str], ...]:
+        """Return frozen dependency edges for an immutable published version."""
+        with self.read() as connection:
+            rows = connection.execute(
+                """SELECT target_version_id, relation
+                   FROM config_references
+                   WHERE source_version_id = ?
+                   ORDER BY target_version_id, relation""",
+                (version_id,),
+            ).fetchall()
+            return tuple((str(row[0]), str(row[1])) for row in rows)
+
     def get_version_identity(self, version_id: str) -> ConfigIdentity:
         """Resolve the stable document identity for a historical version."""
         with self.read() as connection:
