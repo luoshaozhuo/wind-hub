@@ -166,6 +166,16 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             raise ValueError("cursor secret must be at least 32 bytes")
         self.secret = cursor_secret
 
+    def _notify_revision(self, revision_id: int) -> None:
+        """Broadcast an already-committed revision without weakening its durability."""
+        try:
+            self.revision_notify(revision_id)
+        except Exception:
+            _LOG.exception(
+                "could not schedule NATS revision notice: revision=%s",
+                revision_id,
+            )
+
     def _actor(self, context: grpc.ServicerContext, role: str) -> str:
         metadata = context.invocation_metadata()
         authorization = [
@@ -296,13 +306,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         # A committed revision survives notification failure. Offline subscribers
         # reconcile with the repository on start, reconnect and periodic refresh.
         if not result.replayed:
-            try:
-                self.revision_notify(result.revision_id)
-            except Exception:
-                _LOG.exception(
-                    "could not schedule NATS revision notice: revision=%s",
-                    result.revision_id,
-                )
+            self._notify_revision(result.revision_id)
         # Request ordering is the durable candidate document ordering.
         staged = self.app.repository.get_candidate(request.candidate_id, actor)
         docs = staged["documents"]
@@ -606,6 +610,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         actor = self._actor(context, "publish")
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected revision required")
+        prior_revision = self.app.repository.current_revision()
         revision, previous = self.app.repository.set_recommended_version(
             actor_id=actor,
             request_id=request.request_id,
@@ -620,6 +625,8 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         )
         if previous is not None:
             result.previous_version_id = previous
+        if revision > prior_revision:
+            self._notify_revision(revision)
         return result
 
     @guarded
@@ -629,6 +636,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         actor = self._actor(context, "admin")
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected revision required")
+        prior_revision = self.app.repository.current_revision()
         revision, count = self.app.repository.deprecate_version(
             actor_id=actor,
             request_id=request.request_id,
@@ -636,6 +644,8 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             reason=request.reason,
             expected_revision=request.expected_revision_id,
         )
+        if revision > prior_revision:
+            self._notify_revision(revision)
         return pb.DeprecateConfigVersionResponse(
             revision_id=revision,
             version_id=request.version_id,
