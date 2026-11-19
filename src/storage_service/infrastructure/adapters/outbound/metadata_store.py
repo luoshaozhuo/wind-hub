@@ -6,6 +6,7 @@ import fcntl
 import sqlite3
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Literal, Self
@@ -20,6 +21,20 @@ class ObjectRegistration:
     identity_json: str
     schema_fingerprint: str
     state: Literal["CREATING", "READY"]
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRecord:
+    task_id: str
+    kind: str
+    state: str
+    created_at: str
+    finished_at: str | None
+    artifact_id: str
+    size_bytes: int
+    sha256: str
+    error_code: str
+    message: str
 
 
 class MetadataConflict(RuntimeError):
@@ -103,7 +118,12 @@ class MetadataStore:
                 kind TEXT NOT NULL CHECK (kind IN ('EXPORT', 'BACKUP')),
                 state TEXT NOT NULL,
                 artifact_id TEXT NOT NULL DEFAULT '',
-                error_code TEXT NOT NULL DEFAULT ''
+                error_code TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                finished_at TEXT,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                sha256 TEXT NOT NULL DEFAULT ''
             );
             PRAGMA user_version=1;
             """
@@ -234,9 +254,12 @@ class MetadataStore:
                 else:
                     db.execute(
                         """INSERT INTO tasks
-                           (task_id, request_id, request_sha256, kind, state)
-                           VALUES (?, ?, ?, ?, 'QUEUED')""",
-                        (task_id, request_id, request_sha256, kind),
+                           (task_id, request_id, request_sha256, kind, state, created_at)
+                           VALUES (?, ?, ?, ?, 'QUEUED', ?)""",
+                        (
+                            task_id, request_id, request_sha256, kind,
+                            datetime.now(UTC).isoformat(),
+                        ),
                     )
                     result = task_id
                 db.execute("COMMIT")
@@ -244,6 +267,105 @@ class MetadataStore:
                 db.execute("ROLLBACK")
                 raise
             return result
+
+
+    def list_blocked(self, *, page_size: int, after: tuple[str, int] | None = None
+    ) -> list[tuple[str, int, int, str]]:
+        """List blocked partitions in deterministic order."""
+        if not 1 <= page_size <= 1001:
+            raise ValueError("invalid page size")
+        cursor = after or ("", -1)
+        with self._mutex:
+            rows = self._db().execute(
+                """SELECT topic, partition_id, offset_id, reason
+                   FROM blocked_partitions
+                   WHERE topic > ? OR (topic = ? AND partition_id > ?)
+                   ORDER BY topic, partition_id LIMIT ?""",
+                (cursor[0], cursor[0], cursor[1], page_size),
+            ).fetchall()
+            return [(str(a), int(b), int(c), str(d)) for a, b, c, d in rows]
+
+    def list_tables(
+        self, *, database: str | None = None
+    ) -> list[ObjectRegistration]:
+        """Read durable identities; queries must never discover arbitrary unmanaged tables."""
+        with self._mutex:
+            rows = self._db().execute(
+                """SELECT name, full_sha256, identity_json, schema_fingerprint, state
+                   FROM storage_objects WHERE name LIKE 'tb_%' AND state='READY'
+                   ORDER BY name"""
+            ).fetchall()
+        records = [
+            ObjectRegistration(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4])
+            for row in rows
+        ]
+        if database is None:
+            return records
+        return [
+            record for record in records
+            if isinstance(record.identity_json, str) and database in record.identity_json
+        ]
+
+    def get_task(self, task_id: str, *, kind: str) -> TaskRecord | None:
+        if not task_id or kind not in {"EXPORT", "BACKUP"}:
+            raise ValueError("invalid task query")
+        with self._mutex:
+            row = self._db().execute(
+                """SELECT task_id, kind, state, created_at, finished_at,
+                          artifact_id, size_bytes, sha256, error_code, message
+                   FROM tasks WHERE task_id=? AND kind=?""",
+                (task_id, kind),
+            ).fetchone()
+            return TaskRecord(*row) if row else None
+
+    def set_task_state(
+        self, task_id: str, *, state: str, artifact_id: str = "",
+        size_bytes: int = 0, sha256: str = "", error_code: str = "",
+        message: str = "",
+    ) -> None:
+        """Persistent state transition; terminal jobs cannot be reopened."""
+        valid = {
+            "QUEUED": {"RUNNING", "FAILED", "INTERRUPTED"},
+            "RUNNING": {"SUCCEEDED", "FAILED", "INTERRUPTED"},
+        }
+        if state not in {"RUNNING", "SUCCEEDED", "FAILED", "INTERRUPTED"}:
+            raise ValueError("invalid task state transition")
+        with self._mutex:
+            db = self._db()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT state FROM tasks WHERE task_id=?", (task_id,)
+                ).fetchone()
+                if row is None or state not in valid.get(row[0], set()):
+                    raise MetadataConflict("task state transition is not allowed")
+                terminal = state != "RUNNING"
+                db.execute(
+                    """UPDATE tasks
+                       SET state=?, artifact_id=?, size_bytes=?, sha256=?,
+                           error_code=?, message=?, finished_at=?
+                       WHERE task_id=?""",
+                    (
+                        state, artifact_id, size_bytes, sha256, error_code,
+                        message[:1024], datetime.now(UTC).isoformat() if terminal else None,
+                        task_id,
+                    ),
+                )
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+
+    def interrupt_unfinished(self) -> int:
+        """On crash recovery, durable QUEUED/RUNNING jobs must not remain stuck."""
+        with self._mutex:
+            result = self._db().execute(
+                """UPDATE tasks SET state='INTERRUPTED',
+                    finished_at=?, error_code='PROCESS_RESTART'
+                   WHERE state IN ('QUEUED', 'RUNNING')""",
+                (datetime.now(UTC).isoformat(),),
+            )
+            return int(result.rowcount)
 
     def close(self) -> None:
         with self._mutex:
