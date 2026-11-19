@@ -266,6 +266,31 @@ class ConfigurationApplication:
             if item.file_name != file.relative_path.rsplit("/", 1)[-1]:
                 raise ValueError("candidate filename must match its relative_path")
         self._compile_versions(prepared, expected_revision)
+        # A dry-run must reject the same immutable-version violations as commit.
+        # Validate source bytes as well as canonical semantics: YAML comments
+        # are part of the frozen historical artifact.
+        for source_file, document in zip(manifest.files, prepared, strict=True):
+            try:
+                version_id = self.repository.resolve_version(
+                    document.identity, document.file_version
+                )
+            except RepositoryNotFoundError:
+                continue
+            old_version = self.repository.get_version(
+                document.identity, version_id=version_id
+            )
+            if (
+                str(old_version["content_sha256"]) != document.content_sha256
+                or str(old_version["schema_ref"]) != document.schema_ref
+            ):
+                raise RepositoryConflictError(
+                    "immutable configuration file_version cannot be redefined"
+                )
+            old_source = self.repository.get_version_source(version_id)
+            if old_source is None or old_source[1] != source_file.yaml_bytes:
+                raise RepositoryConflictError(
+                    "immutable YAML bytes changed; increment file_version"
+                )
         if validate_only:
             return "", prepared
         candidate_id = self.repository.create_candidate(
@@ -326,6 +351,7 @@ class ConfigurationApplication:
                 new_ids[key] = self.repository.resolve_version(doc.identity, doc.file_version)
             except RepositoryNotFoundError:
                 new_ids[key] = uuid.uuid4().hex
+        included_versions = frozenset(new_ids.values())
         for document in documents:
             references: list[tuple[str, str]] = []
             sources = document.canonical_payload.get("config_sources", {})
@@ -558,6 +584,12 @@ class ConfigurationApplication:
                         (str(columns["business_config_version_id"]), "point.business")
                     )
                     references.append((str(columns["source_unit_version_id"]), "point.unit"))
+            if any(
+                target not in included_versions for target, _relation in references
+            ):
+                raise RepositoryConflictError(
+                    "published directory is missing a pinned current dependency"
+                )
             versions.append(
                 PreparedVersion(
                     document=document,

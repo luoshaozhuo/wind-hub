@@ -627,6 +627,19 @@ class SQLiteRepository:
                         raise RepositoryConflictError(
                             "immutable file_version YAML bytes changed; publish a new version"
                         )
+            # An immutable version can remain in historical queries after
+            # deprecation, but cannot be silently reactivated by a new root.
+            if any(
+                connection.execute(
+                    "SELECT 1 FROM version_events "
+                    "WHERE version_id = ? AND event_type = 'DEPRECATED'",
+                    (version.version_id,),
+                ).fetchone()
+                for _item, version in ordered
+            ):
+                raise RepositoryConflictError(
+                    "directory publication includes a deprecated version"
+                )
             for version in newly_inserted:
                 self._insert_projection(connection, version)
             fresh_ids = {version.version_id for version in newly_inserted}

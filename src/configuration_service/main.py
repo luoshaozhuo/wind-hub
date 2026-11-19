@@ -154,7 +154,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             worker_pool,
             maximum_concurrent_rpcs=settings.max_concurrent_queries,
             options=[
-                ("grpc.max_receive_message_length", settings.max_request_bytes),
+                ("grpc.max_receive_message_length", settings.max_request_bytes + protobuf_headroom),
                 (
                     "grpc.max_send_message_length",
                     settings.max_bundle_bytes + protobuf_headroom,
