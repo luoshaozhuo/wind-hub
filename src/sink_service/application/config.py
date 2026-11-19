@@ -145,13 +145,13 @@ def _validate_sink(
         "redis": {"host", "port"},
         "kafka": {"bootstrap_servers"},
         "modbus_tcp": {"listen_host", "port"},
-        "gateway": {"endpoint", "gateway_id", "credential_ref"},
+        "gateway": {"endpoint", "gateway_id"},
     }
     require_keys(
         connection,
         f"sinks.{sink_id}.connection",
         frozenset(connection_keys[str(kind)]),
-        frozenset({"credential_ref"}),
+        frozenset({"credential_ref"} if kind in ("redis", "kafka") else ()),
     )
     output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
     output_keys = {
@@ -215,8 +215,6 @@ def _validate_sink(
         if not delimiter or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
             raise ConfigurationError(f"sinks.{sink_id}: Gateway endpoint must be host:port")
         expect_nonempty_str(connection.get("gateway_id"), f"sinks.{sink_id}.gateway_id")
-        if not reference:
-            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires mTLS credential_ref")
         expect_positive_int(output.get("lease_ms"), f"sinks.{sink_id}.lease_ms", 60000)
         if output["lease_ms"] < 1000:
             raise ConfigurationError(f"sinks.{sink_id}: lease_ms below 1000")
