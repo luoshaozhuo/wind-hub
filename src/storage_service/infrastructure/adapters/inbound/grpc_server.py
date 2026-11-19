@@ -387,11 +387,13 @@ class StorageServicer(rpc.StorageServiceServicer):
         self._auth.require(
             context, permission="storage.backup", farm=request.wind_farm_id
         )
-        await context.abort(
-            grpc.StatusCode.UNIMPLEMENTED,
-            "TDengine native backup requires verified target-version taosdump support",
+        record = await self._jobs.create_backup(
+            request_id=request.request_id, wind_farm_id=request.wind_farm_id,
+            owner_id=self._auth.require(
+                context, permission="storage.backup", farm=request.wind_farm_id
+            ),
         )
-        raise AssertionError("abort must terminate RPC")
+        return _task(record)
 
     @guarded
     async def GetBackupTask(
@@ -399,7 +401,7 @@ class StorageServicer(rpc.StorageServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         owner = self._auth.require(context, permission="storage.backup", farm=None)
-        record = self._metadata.get_task(request.task_id, kind="BACKUP", owner_id=owner)
+        record = self._jobs.get_backup(request.task_id, owner_id=owner)
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "backup task not visible")
         return _task(record)
