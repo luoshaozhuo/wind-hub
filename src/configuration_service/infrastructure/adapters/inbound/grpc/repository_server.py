@@ -155,6 +155,11 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         self.notify_revision = notify_revision
         self.permissions = permissions
         self.token_sources = token_sources
+        live_tokens = [os.environ.get(name) for name in token_sources.values()]
+        if any(not value or len(value) < 32 for value in live_tokens):
+            raise ValueError("Configuration bearer credentials must be 32+ bytes")
+        if len(set(live_tokens)) != len(live_tokens):
+            raise ValueError("Configuration principals cannot share bearer credentials")
         if set(permissions) != set(token_sources):
             raise ValueError("token sources and permissions must match")
         if len(cursor_secret) < 32:
