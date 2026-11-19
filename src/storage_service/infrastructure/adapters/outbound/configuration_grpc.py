@@ -68,8 +68,10 @@ class ConfigurationGrpcClient:
 
     def _metadata(self) -> Sequence[tuple[str, str]]:
         token = os.getenv(self._token_env)
-        if not token:
-            raise ConfigHistoryUnavailable("Configuration service token missing")
+        if not token or len(token.encode("utf-8")) < 32:
+            raise ConfigHistoryUnavailable("Configuration bearer token is missing or too short")
+        if any(character in token for character in "\r\n"):
+            raise ConfigHistoryUnavailable("Configuration bearer token contains invalid controls")
         return (("authorization", f"Bearer {token}"),)
 
     async def open(self) -> None:
