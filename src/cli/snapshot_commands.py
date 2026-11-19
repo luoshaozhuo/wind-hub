@@ -20,9 +20,7 @@ _MAX_FILES = 1000
 _MAX_BYTES = 64 * 1024 * 1024
 
 
-async def _invoke(
-    target: str, method: str, request: Any
-) -> Any:
+async def _invoke(target: str, method: str, request: Any) -> Any:
     from .main import runtime
 
     session = runtime()
@@ -138,9 +136,7 @@ def get_snapshot(
         )
         if output is not None:
             _write_snapshot(output, result.files)
-        data: dict[str, Any] = MessageToDict(
-            result, preserving_proto_field_name=True
-        )
+        data: dict[str, Any] = MessageToDict(result, preserving_proto_field_name=True)
         if output is not None:
             data["output"] = str(output)
         return data
@@ -158,9 +154,7 @@ def push_snapshot(target: str, directory: Path) -> None:
         current = await _invoke(
             target,
             "GetConfigSnapshot",
-            common_pb2.GetConfigSnapshotRequest(
-                scope=common_pb2.SNAPSHOT_SCOPE_DISK
-            ),
+            common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
         )
         if not current.revision:
             raise RuntimeError("target DISK snapshot has no revision")
@@ -197,9 +191,7 @@ def apply_snapshot(
             current = await _invoke(
                 target,
                 "GetConfigSnapshot",
-                common_pb2.GetConfigSnapshotRequest(
-                    scope=common_pb2.SNAPSHOT_SCOPE_DISK
-                ),
+                common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
             )
             revision = current.revision
         if not revision:
@@ -212,9 +204,7 @@ def apply_snapshot(
                 expected_revision=revision,
             ),
         )
-        return MessageToDict(
-            response, preserving_proto_field_name=True
-        )
+        return MessageToDict(response, preserving_proto_field_name=True)
 
     from .main import _run
 
