@@ -352,9 +352,13 @@ def _validate_delivery(
         require_keys(
             output,
             f"deliveries.{delivery_id}.output",
-            frozenset({"policy", "period_ms"}),
+            frozenset({"policy", "period_ms", "data_level"}),
             frozenset({"absolute_threshold", "relative_threshold"}),
         )
+        if output.get("data_level") != "protocol":
+            raise ConfigurationError(
+                f"deliveries.{delivery_id}: only verified PROTOCOL output is currently supported"
+            )
         if output.get("policy") not in ("periodic", "on_change", "change_with_heartbeat"):
             raise ConfigurationError(f"deliveries.{delivery_id}: unknown output policy")
         expect_positive_int(output.get("period_ms"), f"deliveries.{delivery_id}.period_ms")
@@ -391,10 +395,23 @@ def _validate_delivery(
                     "template_id",
                     "delivery_mode",
                     "source_filter",
+                    "output",
                     "reliable",
                 }
             ),
         )
+        reliable_output = expect_mapping(
+            template.get("output"), f"deliveries.{delivery_id}.output"
+        )
+        require_keys(
+            reliable_output,
+            f"deliveries.{delivery_id}.output",
+            frozenset({"data_level"}),
+        )
+        if reliable_output["data_level"] != "protocol":
+            raise ConfigurationError(
+                f"deliveries.{delivery_id}: only verified PROTOCOL output is currently supported"
+            )
         if kind == "kafka" and caps["supports_concurrent_write"] and len(source["devices"]) != 1:
             raise ConfigurationError(
                 f"deliveries.{delivery_id}: concurrent Kafka requires one explicit device"
