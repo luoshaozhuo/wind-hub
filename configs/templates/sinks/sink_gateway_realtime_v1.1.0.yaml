@@ -1,0 +1,20 @@
+# Gateway Realtime output. No Reliable delivery and no direct industrial command.
+# The Sink instance supplies endpoint and gateway_id.
+# The gRPC channel uses trusted internal networking without TLS/mTLS.
+# Sink still uses Gateway target-lease fencing and authoritative UpdateVariables.
+# The corresponding Delivery supplies explicit target_mappings.
+schema_version: 1
+file_version: "1.1.0"
+template_id: gateway_realtime
+kind: gateway
+capabilities:
+  realtime: true
+  reliable: false
+  idempotent: false
+  supports_concurrent_write: false
+  max_safe_inflight: 1
+connection: {}
+output:
+  write_timeout_ms: 2000
+  lease_ms: 15000
+  max_batch_size: 500
