@@ -51,7 +51,9 @@ class HistoricalPointTable:
         if business is None:
             raise ConfigurationError("missing pinned BusinessPoint")
         if value is None:
-            return BusinessValue(str(business.business_point_id), business.standard_unit.unit_id, None)
+            return BusinessValue(
+                str(business.business_point_id), business.standard_unit.unit_id, None
+            )
         try:
             if (
                 isinstance(value, int)
@@ -118,7 +120,10 @@ def parse_point_table_bundle(
             decoded = parse_yaml(item.yaml_bytes.decode("utf-8", errors="strict"))
         except (UnicodeError, ConfigOperationError) as exc:
             raise ConfigurationError("invalid historical YAML") from exc
-        if decoded.get("file_version") != version or decoded.get("schema_version") != item.schema_version:
+        if (
+            decoded.get("file_version") != version
+            or decoded.get("schema_version") != item.schema_version
+        ):
             raise ConfigurationError("historical YAML header mismatch")
         if hashlib.sha256(_canonical(decoded)).hexdigest() != item.content_sha256:
             raise ConfigurationError("historical canonical hash mismatch")
