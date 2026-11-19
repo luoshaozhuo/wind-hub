@@ -37,6 +37,8 @@ class ConfigurationRepositoryServiceStub:
     ListConfigVersions: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListConfigVersionsRequest, _configuration_repository_pb2.ListConfigVersionsResponse]
     GetConfig: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigRequest, _configuration_repository_pb2.GetConfigResponse]
     GetConfigBundle: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigBundleRequest, _configuration_repository_pb2.GetConfigBundleResponse]
+    GetCurrentRevision: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetCurrentRevisionRequest, _configuration_repository_pb2.GetCurrentRevisionResponse]
+    GetPointTableBundle: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetPointTableBundleRequest, _configuration_repository_pb2.GetPointTableBundleResponse]
     ListReferences: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListReferencesRequest, _configuration_repository_pb2.ListReferencesResponse]
     SetRecommendedVersion: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.SetRecommendedVersionRequest, _configuration_repository_pb2.SetRecommendedVersionResponse]
     DeprecateConfigVersion: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.DeprecateConfigVersionRequest, _configuration_repository_pb2.DeprecateConfigVersionResponse]
@@ -53,6 +55,8 @@ class ConfigurationRepositoryServiceAsyncStub(ConfigurationRepositoryServiceStub
     ListConfigVersions: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListConfigVersionsRequest, _configuration_repository_pb2.ListConfigVersionsResponse]  # type: ignore[assignment]
     GetConfig: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigRequest, _configuration_repository_pb2.GetConfigResponse]  # type: ignore[assignment]
     GetConfigBundle: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigBundleRequest, _configuration_repository_pb2.GetConfigBundleResponse]  # type: ignore[assignment]
+    GetCurrentRevision: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetCurrentRevisionRequest, _configuration_repository_pb2.GetCurrentRevisionResponse]  # type: ignore[assignment]
+    GetPointTableBundle: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetPointTableBundleRequest, _configuration_repository_pb2.GetPointTableBundleResponse]  # type: ignore[assignment]
     ListReferences: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListReferencesRequest, _configuration_repository_pb2.ListReferencesResponse]  # type: ignore[assignment]
     SetRecommendedVersion: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.SetRecommendedVersionRequest, _configuration_repository_pb2.SetRecommendedVersionResponse]  # type: ignore[assignment]
     DeprecateConfigVersion: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.DeprecateConfigVersionRequest, _configuration_repository_pb2.DeprecateConfigVersionResponse]  # type: ignore[assignment]
@@ -102,6 +106,20 @@ class ConfigurationRepositoryServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _configuration_repository_pb2.GetConfigBundleRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_configuration_repository_pb2.GetConfigBundleResponse, _abc.Awaitable[_configuration_repository_pb2.GetConfigBundleResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetPointTableBundle(
+        self,
+        request: _configuration_repository_pb2.GetPointTableBundleRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_configuration_repository_pb2.GetPointTableBundleResponse, _abc.Awaitable[_configuration_repository_pb2.GetPointTableBundleResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetCurrentRevision(
+        self,
+        request: _configuration_repository_pb2.GetCurrentRevisionRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_configuration_repository_pb2.GetCurrentRevisionResponse, _abc.Awaitable[_configuration_repository_pb2.GetCurrentRevisionResponse]]: ...
 
     @_abc_1.abstractmethod
     def ListReferences(
