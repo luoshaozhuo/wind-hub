@@ -12,6 +12,11 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from commander.application.diagnostics import CommanderDiagnostics
 from commander.application.service_lifecycle import CommanderService
+from core.infrastructure.grpc_bearer import (
+    BearerAuthenticationError,
+    BearerAuthorizationError,
+    BearerAuthorizer,
+)
 from commander.application.submission import CommanderSubmission, request_state
 from commander.domain.command import (
     CommandResult,
@@ -74,36 +79,18 @@ def _scalar(value: common_pb2.ScalarValue) -> bool | int | float | str:
 
 class _Authorized:
     def __init__(
-        self,
-        service: CommanderService,
-        permissions: dict[str, tuple[str, frozenset[str]]],
+        self, service: CommanderService, permissions: BearerAuthorizer,
     ) -> None:
         self.service = service
         self.permissions = permissions
 
     async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
-        auth = context.auth_context()
-        identities = auth.get("x509_subject_alternative_name", [])
-        matched: set[str] = set()
-        authorized: set[str] = set()
-        for candidate in identities:
-            identity = candidate.decode("utf-8", errors="strict")
-            registered = self.permissions.get(identity)
-            if registered is not None:
-                caller_id, grants = registered
-                matched.add(caller_id)
-                if scope in grants:
-                    authorized.add(caller_id)
-        if len(matched) > 1:
-            await context.abort(
-                grpc.StatusCode.PERMISSION_DENIED,
-                "certificate identifies multiple configured callers",
-            )
-        if len(matched) == 1 and matched == authorized:
-            return next(iter(matched))
-        if identities:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "caller lacks permission")
-        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client certificate identity missing")
+        try:
+            return self.permissions.require(context, scope)
+        except BearerAuthenticationError as exc:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
+        except BearerAuthorizationError as exc:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
         raise RuntimeError("unreachable")
 
     async def invalid(self, context: grpc.aio.ServicerContext[Any, Any], exc: Exception) -> None:
@@ -606,7 +593,7 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
 def register_services(
     server: grpc.aio.Server,
     service: CommanderService,
-    permissions: dict[str, tuple[str, frozenset[str]]],
+    permissions: BearerAuthorizer,
     snapshots: Any,
     authority: IsolationAuthorityClient | None = None,
 ) -> None:
