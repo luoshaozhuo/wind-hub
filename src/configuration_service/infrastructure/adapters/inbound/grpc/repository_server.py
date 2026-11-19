@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -38,7 +39,7 @@ T = TypeVar("T")
 
 
 class AuthenticationError(Exception):
-    """Authenticated mTLS client certificate is missing or invalid."""
+    """Bearer token is missing or invalid."""
 
 
 def _timestamp(value: str | None = None) -> Timestamp:
@@ -111,12 +112,10 @@ def guarded(
         except grpc.RpcError:
             raise
         except Exception as exc:
-            names = context.auth_context().get("x509_common_name", ())
-            actor = (
-                names[0].decode("utf-8", "replace")
-                if names and isinstance(names[0], bytes) and names[0]
-                else "unauthenticated"
-            )
+            try:
+                actor = self.identify_actor(context)
+            except AuthenticationError:
+                actor = "unauthenticated"
             try:
                 self.app.repository.record_rejected_operation(
                     actor_id=actor,
@@ -137,13 +136,14 @@ def guarded(
 
 
 class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
-    """Serve all twelve repository RPCs with mandatory mTLS authorization."""
+    """Serve repository RPCs with explicit bearer identity and permissions."""
 
     def __init__(
         self,
         application: ConfigurationApplication,
         *,
         permissions: dict[str, frozenset[str]],
+        token_sources: dict[str, str],
         cursor_secret: bytes,
         submit_backup: Callable[[str], None],
         metrics: RpcMetrics,
@@ -152,20 +152,29 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         self.metrics = metrics
         self.submit_backup = submit_backup
         self.permissions = permissions
+        self.token_sources = token_sources
+        if set(permissions) != set(token_sources):
+            raise ValueError("token sources and permissions must match")
         if len(cursor_secret) < 32:
             raise ValueError("cursor secret must be at least 32 bytes")
         self.secret = cursor_secret
 
+    def identify_actor(self, context: grpc.ServicerContext) -> str:
+        metadata = dict(context.invocation_metadata())
+        value = metadata.get("authorization", "")
+        if not value.startswith("Bearer ") or not 7 < len(value) <= 4103:
+            raise AuthenticationError("missing bearer authentication")
+        candidate = value[7:]
+        for actor, environment_name in self.token_sources.items():
+            secret = os.environ.get(environment_name)
+            if secret and hmac.compare_digest(candidate, secret):
+                return actor
+        raise AuthenticationError("bearer token identity not recognized")
+
     def _actor(self, context: grpc.ServicerContext, role: str) -> str:
-        certificate = context.auth_context()
-        names = certificate.get("x509_common_name", ())
-        if not names or not isinstance(names[0], bytes) or not names[0].strip():
-            raise AuthenticationError("valid mTLS identity required")
-        actor = names[0].decode("utf-8").strip()
-        if not actor:
-            raise AuthenticationError("valid mTLS identity required")
-        roles = self.permissions.get(actor, frozenset())
-        if role not in roles and "admin" not in roles:
+        actor = self.identify_actor(context)
+        permissions = self.permissions.get(actor, frozenset())
+        if role not in permissions and "admin" not in permissions:
             raise PermissionError("missing repository permission")
         return actor
 
