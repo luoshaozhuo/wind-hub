@@ -195,14 +195,18 @@ class ConfigurationSubscriber:
             while not stop.is_set():
                 if client is None:
                     try:
+                        async def on_reconnect() -> None:
+                            wake.set()
+
+                        async def on_notice(_message: Any) -> None:
+                            wake.set()
+
                         client = await nats.connect(
                             servers=self._servers,
                             connect_timeout=2,
                             max_reconnect_attempts=-1,
-                            reconnected_cb=lambda: wake.set(),
+                            reconnected_cb=on_reconnect,
                         )
-                        async def on_notice(_message: Any) -> None:
-                            wake.set()
                         await client.subscribe(_SUBJECT, cb=on_notice)
                         wake.set()
                     except Exception:
@@ -214,11 +218,20 @@ class ConfigurationSubscriber:
                     await self._reconcile()
                 except Exception:
                     _LOG.warning("Sink Configuration reconciliation deferred", exc_info=True)
+                wake_task = asyncio.create_task(wake.wait())
+                stop_task = asyncio.create_task(stop.wait())
                 try:
-                    await asyncio.wait_for(wake.wait(), timeout=self._interval)
+                    await asyncio.wait(
+                        (wake_task, stop_task),
+                        timeout=self._interval,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
                     wake.clear()
-                except TimeoutError:
-                    pass
+                finally:
+                    for task in (wake_task, stop_task):
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(wake_task, stop_task, return_exceptions=True)
         finally:
             if client is not None:
                 await client.close()
