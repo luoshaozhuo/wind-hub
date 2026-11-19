@@ -3,8 +3,6 @@ file_version: "1.0.0"
 template_id: "reliable_history"
 delivery_mode: reliable
 source_filter: {} # 历史输出不按质量静默过滤
-output:
-  data_level: protocol # 已解码标量；RAW/BUSINESS 缺少证明链时拒绝
 reliable:
   max_deliver: -1               # 与服务级一致；有效值和消费者行为须经所部署 JetStream 版本验证
   retry_base_ms: 1000           # >0
