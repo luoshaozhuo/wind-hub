@@ -1,12 +1,19 @@
-"""mTLS peer identity authorization for management RPCs."""
+"""Scoped bearer authorization interceptor for all Sink management RPCs."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import Any
 
 import grpc
 
+from core.infrastructure.grpc_bearer import (
+    BearerAuthenticationError,
+    BearerAuthorizationError,
+    BearerAuthorizer,
+    CallerGrant,
+)
 from sink_service.domain.config import ConfigurationError
 
 _PERMISSIONS = {
@@ -25,30 +32,33 @@ _PERMISSIONS = {
     "StopDelivery": "control",
 }
 
+_CURRENT_CALLER: ContextVar[str] = ContextVar("sink_current_caller", default="")
+
+
+def current_caller() -> str:
+    """Return the caller ID verified by the Sink RPC interceptor."""
+    return _CURRENT_CALLER.get() or "unidentified"
+
 
 class PeerAuthorization(grpc.aio.ServerInterceptor):
-    """Authorize the URI SAN of a mutually authenticated client certificate."""
+    """Enforce declared operation grants for every registered Sink unary RPC."""
 
     def __init__(self, callers: object) -> None:
         if not isinstance(callers, list) or not callers:
             raise ConfigurationError("security.callers must be a non-empty list")
-        identities: dict[str, frozenset[str]] = {}
+        grants: list[CallerGrant] = []
         for caller in callers:
             if not isinstance(caller, dict):
                 raise ConfigurationError("invalid security caller")
-            identity = caller.get("certificate_identity")
-            permissions = caller.get("permissions")
-            if (
-                not isinstance(identity, str)
-                or not identity.startswith("spiffe://")
-                or not isinstance(permissions, list)
-                or not permissions
-                or set(permissions) - {"query", "control", "config"}
-                or identity in identities
-            ):
-                raise ConfigurationError("invalid or duplicate caller identity")
-            identities[identity] = frozenset(permissions)
-        self._identities = identities
+            rights = caller.get("permissions")
+            if not isinstance(rights, list):
+                raise ConfigurationError("invalid security caller rights")
+            grants.append(CallerGrant(
+                caller_id=str(caller.get("caller_id", "")),
+                token_env=str(caller.get("token_env", "")),
+                permissions=frozenset(rights),
+            ))
+        self._authorizer = BearerAuthorizer(grants)
 
     async def intercept_service(
         self,
@@ -62,21 +72,27 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
             return handler
         name = handler_call_details.method.rsplit("/", maxsplit=1)[-1]
         permission = _PERMISSIONS.get(name)
-        if permission is None:
-            return handler
         behavior: Callable[..., Any] = handler.unary_unary
 
-        async def authorized(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
-            peer = context.auth_context() or {}
-            identities = peer.get("x509_subject_alternative_name", ())
-            allowed = any(
-                permission
-                in self._identities.get(identity.decode("utf-8", errors="strict"), frozenset())
-                for identity in identities
-            )
-            if not allowed:
-                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "not authorized")
-            return await behavior(request, context)
+        async def authorized(
+            request: Any, context: grpc.aio.ServicerContext[Any, Any]
+        ) -> Any:
+            if permission is None:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "unknown RPC operation")
+                raise RuntimeError("gRPC abort returned")
+            try:
+                actor = self._authorizer.require(context, permission)
+            except BearerAuthenticationError as exc:
+                await context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
+                raise RuntimeError("gRPC abort returned") from exc
+            except BearerAuthorizationError as exc:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+                raise RuntimeError("gRPC abort returned") from exc
+            token = _CURRENT_CALLER.set(actor)
+            try:
+                return await behavior(request, context)
+            finally:
+                _CURRENT_CALLER.reset(token)
 
         return grpc.unary_unary_rpc_method_handler(
             authorized,
