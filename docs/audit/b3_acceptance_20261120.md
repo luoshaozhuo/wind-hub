@@ -104,3 +104,9 @@
 - **生产提交**：`7b00b91de9a04cf955f1f0ec763f0f3da9382378`。
 - **独立验证**：尚未执行；必须新增/迁移准入拒绝测试并覆盖配置加载、Push/Apply 和运行时启动入口。该生产修改不能直接将 B3 FAIL 改判 PASS。
 - **其余阻断未关闭**：217 failed、10 collection errors、历史编解码与订阅器正向测试缺口，以及报告原列出的 NOT_RUN。
+
+## 本轮生产修复补充
+
+- `5d315c84d7e83cac21d28f936d42bace9a651f1b`：Reliable historical mapping 编码期间使用后台 Task 保活 JetStream 消费者租约；修复取消/关闭时尚在等待的只读历史配置查询 Task 可能继续存活的问题。结束时取消并收敛 Task；已经提交的目标写入仍遵循原有不盲目取消约束。
+- P1-PROD-01 的配置准入修复见 `7b00b91de9a04cf955f1f0ec763f0f3da9382378`；不得恢复 Realtime Kafka 旧编码接口，只允许 Reliable Kafka。
+- **验证仍为 NOT_RUN**：以上生产修复未经 Claude 独立复测，先前 `2066 passed / 217 failed / 10 collection errors` 为旧 HEAD 的结果，不得视为当前 HEAD 的测试结果。
