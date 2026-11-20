@@ -197,7 +197,7 @@ class KafkaStorageConsumer:
                     raise
                 delay_ms = min(
                     self._config.retry.max_ms,
-                    self._config.retry.initial_ms * (2 ** (failures - 1)),
+                    self._config.retry.initial_ms * (2 ** min(failures - 1, 32)),
                 )
                 await asyncio.sleep(delay_ms / 1000)
                 if (
