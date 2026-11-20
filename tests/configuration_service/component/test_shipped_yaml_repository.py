@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -67,20 +68,26 @@ def test_shipped_yaml_sqlite_yaml_roundtrip(app: ConfigurationApplication, path:
         documents=documents,
         validate_only=False,
     )
-    committed = app.publish_candidate(
+    app.publish_candidate(
         actor_id="publisher",
         request_id=f"publish-{path}",
         candidate_id=candidate_id,
         expected_revision=0,
     )
-    restored = app.get_config(item.identity, revision_id=committed.revision_id)
     original = parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
+    exact_version = app.repository.resolve_version(item.identity, str(original["file_version"]))
+    restored = app.get_config(item.identity, version_id=exact_version)
     reparsed = parse_yaml(restored.yaml_bytes, max_bytes=64 * 1024 * 1024)
     assert canonical_json(reparsed) == canonical_json(original)
-    prepared_item = next(document for document in validated if document.identity == item.identity)
+    prepared_item = next(
+        document
+        for document in validated
+        if document.identity == item.identity and document.file_version == original["file_version"]
+    )
     assert restored.content_sha256 == prepared_item.content_sha256
     assert reparsed == original
-    assert all(f"# {field}:".encode() in restored.yaml_bytes for field in original)
+    assert restored.yaml_bytes == path.read_bytes()
+    assert restored.yaml_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_own_bootstrap_cannot_be_admitted_to_repository(

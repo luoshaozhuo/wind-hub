@@ -26,7 +26,7 @@ def test_existing_commander_caller_array_is_admitted_and_reconstructed(
     revision, _ = publish_documents(app, DIRECTORY_INPUTS, request_id="caller-array")
     restored = app.get_config(item.identity, revision_id=revision)
     assert isinstance(restored.yaml_bytes, bytes)
-    assert b"# security.callers:" in restored.yaml_bytes
+    assert restored.yaml_bytes == (ROOT / "configs/services/commander.yaml").read_bytes()
 
 
 @pytest.mark.parametrize("root", ["configs/other", "../configs/templates", "/configs/templates"])

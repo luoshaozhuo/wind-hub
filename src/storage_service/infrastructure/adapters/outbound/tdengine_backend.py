@@ -389,7 +389,7 @@ class TDengineBackend:
             expected_base = wanted_type.split("(")[0].split(" ")[0]
             if str(observed[1]).upper() != expected_base:
                 raise TDengineSchemaConflictError(f"mismatched TDengine type: {wanted_name}")
-            declared_length = re.search(r"\\((\\d+)\\)", wanted_type)
+            declared_length = re.search(r"\((\d+)\)", wanted_type)
             if declared_length is not None:
                 if len(observed) < 3:
                     raise TDengineSchemaConflictError(

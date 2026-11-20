@@ -73,6 +73,20 @@ def _document_payload(document: PreparedDocument) -> dict[str, Any]:
         "schema_ref": document.schema_ref,
         "file_version": document.file_version,
         "content_sha256": document.content_sha256,
+        "relative_path": document.relative_path,
+        "yaml_sha256": document.yaml_sha256,
+        "payload": document.canonical_payload,
+    }
+
+
+def _legacy_document_payload(document: PreparedDocument) -> dict[str, Any]:
+    """Return the pre-Manifest v1 request body used by persisted idempotency keys."""
+    return {
+        "config_type": document.identity.config_type,
+        "config_id": document.identity.config_id,
+        "schema_ref": document.schema_ref,
+        "file_version": document.file_version,
+        "content_sha256": document.content_sha256,
         "payload": document.canonical_payload,
     }
 
@@ -131,7 +145,11 @@ class SQLiteRepository:
             previous_umask = os.umask(0o077)
             try:
                 with self._connection() as connection:
-                    initialize_database(connection, self._application_version)
+                    initialize_database(
+                        connection,
+                        self._application_version,
+                        self._path.with_name(self._path.name + ".pre-v2-backup.sqlite3"),
+                    )
             finally:
                 os.umask(previous_umask)
             if os.name == "posix":
@@ -328,22 +346,49 @@ class SQLiteRepository:
         """Persist an already validated candidate and its typed canonical payload."""
         if not actor_id or not request_id or not documents or ttl_seconds < 1:
             raise ValueError("actor, request, documents, and positive TTL are required")
-        identities = [doc.identity for doc in documents]
-        if len(set(identities)) != len(identities):
-            raise ValueError("duplicate config identity in candidate")
+        version_keys = [
+            (doc.identity.config_type, doc.identity.config_id, doc.file_version)
+            for doc in documents
+        ]
+        if len(set(version_keys)) != len(version_keys):
+            raise ValueError("duplicate immutable configuration version in candidate")
+        relative_paths = [doc.relative_path for doc in documents]
+        if any(not path for path in relative_paths) or len(set(relative_paths)) != len(
+            relative_paths
+        ):
+            raise ValueError(f"duplicate or empty relative path in candidate: {relative_paths}")
+        if any(not doc.yaml_bytes or not doc.yaml_sha256 for doc in documents):
+            raise ValueError("candidate requires original YAML bytes and digest")
         payload = _canonical_json(
             {
                 "documents": sorted(
                     (_document_payload(doc) for doc in documents),
-                    key=lambda item: (item["config_type"], item["config_id"]),
+                    key=lambda item: item["relative_path"],
                 )
             }
         )
         payload_hash = _digest(payload)
+        legacy_payload = _canonical_json(
+            {
+                "documents": sorted(
+                    (_legacy_document_payload(doc) for doc in documents),
+                    key=lambda item: (item["config_type"], item["config_id"]),
+                )
+            }
+        )
+        legacy_payload_hash = _digest(legacy_payload)
         with self.write() as connection:
-            replay = self._load_replay(
-                connection, actor_id, "CreateCandidate", request_id, payload_hash
-            )
+            try:
+                replay = self._load_replay(
+                    connection, actor_id, "CreateCandidate", request_id, payload_hash
+                )
+            except IdempotencyConflictError:
+                # v1 requests did not include file paths or YAML byte digests.
+                # This read-only fallback preserves their committed response;
+                # all newly persisted requests use only the v2 Manifest hash.
+                replay = self._load_replay(
+                    connection, actor_id, "CreateCandidate", request_id, legacy_payload_hash
+                )
             if replay is not None:
                 candidate_id = str(replay["candidate_id"])
                 existing = connection.execute(
@@ -387,15 +432,18 @@ class SQLiteRepository:
                 if schema is None or schema[0] != document.identity.config_type:
                     raise RepositoryConflictError("candidate document schema is not registered")
                 connection.execute(
-                    "INSERT INTO candidate_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO candidate_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         candidate_id,
+                        document.relative_path,
                         _document_id(document.identity),
                         document.identity.config_type,
                         document.identity.config_id,
                         document.file_version,
                         document.schema_ref,
                         _canonical_json(document.canonical_payload),
+                        document.yaml_bytes,
+                        document.yaml_sha256,
                         document.content_sha256,
                     ),
                 )
@@ -469,6 +517,49 @@ class SQLiteRepository:
                 graph[node] = tuple(str(row[0]) for row in rows)
             stack.extend((target, False) for target in reversed(graph[node]))
 
+    @staticmethod
+    def _recommended_version_ids(
+        connection: sqlite3.Connection,
+        versions: Sequence[PreparedVersion],
+        expected_revision: int,
+    ) -> tuple[str, ...]:
+        """Select only proven root versions; never infer the highest semver."""
+        candidates: dict[str, set[str]] = {}
+        referenced: set[str] = set()
+        for version in versions:
+            candidates.setdefault(_document_id(version.document.identity), set()).add(
+                version.version_id
+            )
+            referenced.update(target for target, _relation in version.references)
+        previous = (
+            {
+                str(row[0]): str(row[1])
+                for row in connection.execute(
+                    "SELECT document_id, version_id FROM revision_members WHERE revision_id = ?",
+                    (expected_revision,),
+                )
+            }
+            if expected_revision
+            else {}
+        )
+        selected: list[str] = []
+        for document_id in sorted(candidates):
+            choices = candidates[document_id]
+            prior = previous.get(document_id)
+            if prior in choices:
+                selected.append(str(prior))
+                continue
+            pinned = choices & referenced
+            if len(pinned) == 1:
+                selected.append(next(iter(pinned)))
+            elif len(choices) == 1:
+                selected.append(next(iter(choices)))
+            else:
+                # Multiple independently referenced versions are valid directory
+                # members. An ambiguous identity simply has no recommended root.
+                continue
+        return tuple(selected)
+
     def publish_candidate(
         self,
         *,
@@ -514,7 +605,7 @@ class SQLiteRepository:
             if (candidate["base_revision_id"] or 0) != expected_revision:
                 raise RevisionConflictError("candidate was validated against another revision")
             actual = {
-                row["document_id"]: row
+                (row["document_id"], row["file_version"]): row
                 for row in connection.execute(
                     "SELECT * FROM candidate_documents WHERE candidate_id = ?",
                     (candidate_id,),
@@ -527,12 +618,15 @@ class SQLiteRepository:
             }
             for version in versions:
                 doc = version.document
-                item = actual.get(_document_id(doc.identity))
+                item = actual.get((_document_id(doc.identity), doc.file_version))
                 if (
                     item is None
                     or item["config_type"] != doc.identity.config_type
                     or item["config_id"] != doc.identity.config_id
                     or item["file_version"] != doc.file_version
+                    or item["relative_path"] != doc.relative_path
+                    or item["yaml_sha256"] != doc.yaml_sha256
+                    or bytes(item["yaml_bytes"]) != doc.yaml_bytes
                     or item["schema_ref"] != doc.schema_ref
                     or item["content_sha256"] != doc.content_sha256
                     or item["canonical_payload_json"] != _canonical_json(doc.canonical_payload)
@@ -598,19 +692,24 @@ class SQLiteRepository:
             self._check_reference_cycles(connection, [version.version_id for version in versions])
             version_ids = tuple(version.version_id for version in versions)
             if expected_revision:
-                current_members = {
-                    (row[0], row[1])
+                current_files = {
+                    (row[0], row[1], row[2], row[3])
                     for row in connection.execute(
-                        "SELECT document_id, version_id FROM revision_members "
-                        "WHERE revision_id = ?",
+                        "SELECT document_id, version_id, relative_path, yaml_sha256 "
+                        "FROM revision_files WHERE revision_id = ?",
                         (expected_revision,),
                     )
                 }
-                desired_members = {
-                    (_document_id(version.document.identity), version.version_id)
+                desired_files = {
+                    (
+                        _document_id(version.document.identity),
+                        version.version_id,
+                        version.document.relative_path,
+                        version.document.yaml_sha256,
+                    )
                     for version in versions
                 }
-                if current_members == desired_members:
+                if current_files == desired_files:
                     connection.execute(
                         "UPDATE candidates SET status = 'PUBLISHED' WHERE candidate_id = ?",
                         (candidate_id,),
@@ -634,10 +733,24 @@ class SQLiteRepository:
                 (expected_revision or None, actor_id, request_id, _now()),
             )
             revision_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
-            for version in versions:
+            recommended_ids = self._recommended_version_ids(connection, versions, expected_revision)
+            for version_id in recommended_ids:
+                version = next(item for item in versions if item.version_id == version_id)
                 connection.execute(
                     "INSERT INTO revision_members VALUES (?, ?, ?)",
                     (revision_id, _document_id(version.document.identity), version.version_id),
+                )
+            for version in versions:
+                connection.execute(
+                    "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        revision_id,
+                        version.document.relative_path,
+                        _document_id(version.document.identity),
+                        version.version_id,
+                        version.document.yaml_sha256,
+                        version.document.yaml_bytes,
+                    ),
                 )
             # Directory publication is a complete replacement, not an
             # incremental merge. Omitted members disappear from the new
@@ -696,6 +809,27 @@ class SQLiteRepository:
                 for row in rows
             }
 
+    def get_revision_files(self, revision_id: int) -> tuple[dict[str, Any], ...]:
+        """Return the complete ordered Manifest for one immutable revision."""
+        if revision_id < 1:
+            raise ValueError("revision_id must reference a committed revision")
+        with self.read() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM revisions WHERE revision_id = ?", (revision_id,)
+            ).fetchone()
+            if exists is None:
+                raise RepositoryNotFoundError("revision does not exist")
+            rows = connection.execute(
+                "SELECT d.config_type, d.config_id, f.relative_path, f.document_id, "
+                "f.version_id, f.yaml_sha256, f.yaml_bytes "
+                "FROM revision_files AS f "
+                "JOIN config_documents AS d ON d.document_id = f.document_id "
+                "WHERE f.revision_id = ? "
+                "ORDER BY f.relative_path",
+                (revision_id,),
+            ).fetchall()
+            return tuple(dict(row) for row in rows)
+
     def get_version(
         self,
         identity: ConfigIdentity,
@@ -709,16 +843,24 @@ class SQLiteRepository:
         with self.read() as connection:
             if version_id is not None:
                 row = connection.execute(
-                    "SELECT v.*, d.config_type, d.config_id FROM config_versions AS v "
+                    "SELECT v.*, d.config_type, d.config_id, "
+                    "f.relative_path, f.yaml_bytes, f.yaml_sha256 "
+                    "FROM config_versions AS v "
                     "JOIN config_documents AS d ON d.document_id = v.document_id "
-                    "WHERE d.config_type = ? AND d.config_id = ? AND v.version_id = ?",
+                    "LEFT JOIN revision_files AS f ON f.version_id = v.version_id "
+                    "WHERE d.config_type = ? AND d.config_id = ? AND v.version_id = ? "
+                    "ORDER BY f.revision_id DESC LIMIT 1",
                     (identity.config_type, identity.config_id, version_id),
                 ).fetchone()
             else:
                 row = connection.execute(
-                    "SELECT v.*, d.config_type, d.config_id FROM revision_members AS m "
+                    "SELECT v.*, d.config_type, d.config_id, "
+                    "f.relative_path, f.yaml_bytes, f.yaml_sha256 "
+                    "FROM revision_members AS m "
                     "JOIN config_versions AS v ON v.version_id = m.version_id "
                     "JOIN config_documents AS d ON d.document_id = m.document_id "
+                    "JOIN revision_files AS f ON f.version_id = m.version_id "
+                    "AND f.revision_id = m.revision_id "
                     "WHERE m.revision_id = ? AND d.config_type = ? AND d.config_id = ?",
                     (revision_id, identity.config_type, identity.config_id),
                 ).fetchone()
@@ -838,11 +980,14 @@ class SQLiteRepository:
                         "configuration dependency closure exceeds limit"
                     )
                 row = connection.execute(
-                    "SELECT v.*, d.config_type, d.config_id "
+                    "SELECT v.*, d.config_type, d.config_id, "
+                    "f.relative_path, f.yaml_bytes, f.yaml_sha256 "
                     "FROM config_versions AS v "
                     "JOIN config_documents AS d ON d.document_id = v.document_id "
+                    "JOIN revision_files AS f ON f.version_id = v.version_id "
+                    "AND f.revision_id = ? "
                     "WHERE v.version_id = ?",
-                    (version_id,),
+                    (revision_id, version_id),
                 ).fetchone()
                 if row is None:
                     raise RepositoryNotFoundError("historical configuration reference is broken")
@@ -959,6 +1104,49 @@ class SQLiteRepository:
                 "WHERE old.revision_id = ? AND (? IS NULL OR old.document_id != ?)",
                 (revision_id, expected_revision, document_id, document_id),
             )
+            connection.execute(
+                "INSERT INTO revision_files "
+                "(revision_id, relative_path, document_id, version_id, yaml_sha256, yaml_bytes) "
+                "SELECT ?, relative_path, document_id, version_id, yaml_sha256, yaml_bytes "
+                "FROM revision_files WHERE revision_id = ?",
+                (revision_id, expected_revision),
+            )
+        if document_id is not None and version_id is not None:
+            present = connection.execute(
+                "SELECT 1 FROM revision_files WHERE revision_id = ? AND document_id = ? "
+                "AND version_id = ?",
+                (revision_id, document_id, version_id),
+            ).fetchone()
+            if present is None:
+                source = connection.execute(
+                    "SELECT relative_path, yaml_sha256, yaml_bytes FROM revision_files "
+                    "WHERE document_id = ? AND version_id = ? "
+                    "ORDER BY revision_id DESC LIMIT 1",
+                    (document_id, version_id),
+                ).fetchone()
+                if source is None:
+                    raise RepositoryConflictError(
+                        "recommended version has no verifiable historical directory file"
+                    )
+                collision = connection.execute(
+                    "SELECT 1 FROM revision_files WHERE revision_id = ? AND relative_path = ?",
+                    (revision_id, source["relative_path"]),
+                ).fetchone()
+                if collision is not None:
+                    raise RepositoryConflictError(
+                        "historical version path collides with the current directory"
+                    )
+                connection.execute(
+                    "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        revision_id,
+                        source["relative_path"],
+                        document_id,
+                        version_id,
+                        source["yaml_sha256"],
+                        source["yaml_bytes"],
+                    ),
+                )
         return revision_id
 
     def set_recommended_version(

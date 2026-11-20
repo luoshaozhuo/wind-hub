@@ -25,7 +25,7 @@ def document(config_id: str, version: str, *, name: str | None = None) -> pb.Con
     }
     return pb.ConfigDocumentInput(
         config_id=pb.ConfigId(config_type="site", config_id=config_id),
-        file_name=f"{config_id}.yaml",
+        file_name=f"{config_id}_v{version}.yaml",
         yaml_bytes=yaml.safe_dump(payload, sort_keys=False).encode(),
     )
 
@@ -209,7 +209,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         )
         assert stats.version_count == 3
         assert stats.revision_count == 5
-        assert stats.db_schema_version == 1
+        assert stats.db_schema_version == 2
         assert stats.HasField("db_file_bytes")
         backup = await repository.CreateBackup(
             pb.CreateBackupRequest(request_id="rpc-backup", label="integration"),

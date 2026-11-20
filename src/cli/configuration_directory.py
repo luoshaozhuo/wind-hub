@@ -93,7 +93,7 @@ def _classify(path: Path, group: str) -> tuple[str, str]:
 def _explicit_references(
     document: DirectoryDocument,
 ) -> set[tuple[str, str, str]]:
-    """Extract typed version pins that constrain current-directory selection."""
+    """Extract exact typed version references that must exist in the full tree."""
     payload = yaml.safe_load(document.content)
     references: set[tuple[str, str, str]] = set()
 
@@ -154,14 +154,14 @@ def _explicit_references(
 def read_complete_directory(
     root: Path, *, max_bytes: int = 64 * 1024 * 1024, max_files: int = 1000
 ) -> tuple[DirectoryDocument, ...]:
-    """Select pinned versions first, then latest versions for unpinned identities."""
+    """Return every immutable file/version with its root-relative POSIX path."""
     if root.is_symlink() or not root.is_dir():
         raise ValueError("Configuration root must be a real directory")
     if not 1 <= max_files <= 10000 or max_bytes < 1024:
         raise ValueError("invalid Configuration directory limits")
 
     available: dict[tuple[str, str, str], DirectoryDocument] = {}
-    latest: dict[tuple[str, str], DirectoryDocument] = {}
+    paths: set[str] = set()
     scanned_bytes = 0
     file_count = 0
     for group in ("instances", "templates", "services"):
@@ -232,44 +232,23 @@ def read_complete_directory(
                     if not isinstance(service_id, str) or not service_id:
                         raise ValueError(f"invalid service_id: {path}")
                     config_id = service_id
-            normalized_name = f"{kind}_{config_id}_v{declared}.yaml"
-            selected = DirectoryDocument(kind, config_id, normalized_name, version, content)
-            key = (kind, config_id)
+            relative_path = path.relative_to(root).as_posix()
+            if relative_path in paths:
+                raise ValueError(f"duplicate Configuration relative path: {relative_path}")
+            paths.add(relative_path)
+            selected = DirectoryDocument(kind, config_id, relative_path, version, content)
             version_key = (kind, config_id, declared)
             previous_version = available.get(version_key)
-            if previous_version is not None and content != previous_version.content:
-                raise ValueError(f"immutable Configuration version conflict: {path}")
+            if previous_version is not None:
+                raise ValueError(f"duplicate immutable Configuration version: {path}")
             available[version_key] = selected
-            previous = latest.get(key)
-            if previous is None or version > previous.file_version:
-                latest[key] = selected
     if not available:
         raise ValueError("Configuration root contains no eligible YAML documents")
 
-    chosen = dict(latest)
-    for _ in range(len(available) + 1):
-        required: dict[tuple[str, str], set[str]] = {}
-        for document in chosen.values():
-            for config_type, config_id, file_version in _explicit_references(document):
-                required.setdefault((config_type, config_id), set()).add(file_version)
-        updated: dict[tuple[str, str], DirectoryDocument] = {}
-        for key in sorted(latest.keys() | required.keys()):
-            versions = required.get(key, set())
-            if len(versions) > 1:
+    for document in available.values():
+        for config_type, config_id, file_version in _explicit_references(document):
+            if (config_type, config_id, file_version) not in available:
                 raise ValueError(
-                    f"conflicting current Configuration versions for {key[0]}:{key[1]}"
+                    f"missing pinned Configuration {config_type}:{config_id}@{file_version}"
                 )
-            if not versions:
-                latest_document = latest.get(key)
-                if latest_document is not None:
-                    updated[key] = latest_document
-                continue
-            file_version = next(iter(versions))
-            pinned = available.get((key[0], key[1], file_version))
-            if pinned is None:
-                raise ValueError(f"missing pinned Configuration {key[0]}:{key[1]}@{file_version}")
-            updated[key] = pinned
-        if updated == chosen:
-            return tuple(chosen[key] for key in sorted(chosen))
-        chosen = updated
-    raise ValueError("cyclic Configuration version selection is ambiguous")
+    return tuple(available[key] for key in sorted(available))

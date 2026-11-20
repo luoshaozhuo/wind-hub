@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from configuration_service.application.ports import (
@@ -176,8 +176,18 @@ class ConfigurationApplication:
         validate(document, schema, "document")
 
     def _prepare(self, item: DocumentInput) -> PreparedDocument:
-        if not item.file_name.endswith(".yaml") or "/" in item.file_name:
-            raise ValueError("configuration filename must be a local YAML filename")
+        from pathlib import PurePosixPath
+
+        path = PurePosixPath(item.file_name)
+        if (
+            not item.file_name.endswith(".yaml")
+            or path.is_absolute()
+            or path.as_posix() != item.file_name
+            or "\\" in item.file_name
+            or "\x00" in item.file_name
+            or any(part in {".", ".."} for part in path.parts)
+        ):
+            raise ValueError("configuration filename must be a root-relative POSIX YAML path")
         raw = self.codec.parse_yaml(item.yaml_bytes, max_bytes=self.limits.max_request_bytes)
         if item.identity.config_type == "service" and (
             item.identity.config_id == self.own_service_id
@@ -194,12 +204,18 @@ class ConfigurationApplication:
                 parse_unit_catalog({"quantities": raw["quantities"], "units": raw["units"]})
             except (ConfigError, KeyError) as exc:
                 raise ValueError(f"invalid unit catalog: {exc}") from exc
-        return self.codec.prepare_document(
+        prepared = self.codec.prepare_document(
             item.identity,
             item.yaml_bytes,
             schema_ref=str(registered["schema_ref"]),
             schema_version=int(registered["document_schema_version"]),
             max_bytes=self.limits.max_request_bytes,
+        )
+        return replace(
+            prepared,
+            relative_path=item.file_name,
+            yaml_bytes=item.yaml_bytes,
+            yaml_sha256=hashlib.sha256(item.yaml_bytes).hexdigest(),
         )
 
     def create_candidate(
@@ -249,6 +265,9 @@ class ConfigurationApplication:
                     file_version=str(item["file_version"]),
                     content_sha256=str(item["content_sha256"]),
                     canonical_payload=payload,
+                    relative_path=str(item["relative_path"]),
+                    yaml_bytes=bytes(item["yaml_bytes"]),
+                    yaml_sha256=str(item["yaml_sha256"]),
                 )
             )
         return self.repository.publish_candidate(
@@ -551,12 +570,11 @@ class ConfigurationApplication:
         """Resolve path-based loader sources to pinned versions at publication time."""
         from pathlib import PurePosixPath
 
-        staged = {
-            doc.identity: new_ids[
+        staged: dict[ConfigIdentity, dict[str, str]] = {}
+        for doc in documents:
+            staged.setdefault(doc.identity, {})[doc.file_version] = new_ids[
                 (doc.identity.config_type, doc.identity.config_id, doc.file_version)
             ]
-            for doc in documents
-        }
         resolved: list[tuple[str, str]] = []
         instances = sources.get("instances", {})
         if not isinstance(instances, dict):
@@ -575,6 +593,7 @@ class ConfigurationApplication:
             # Historical filename version is not part of repository config_id.
             # The immutable file_version lives in config_versions instead.
             base = file_stem
+            declared_version: str | None = None
             if "_v" in base:
                 prefix, sep, suffix = base.rpartition("_v")
                 if (
@@ -583,13 +602,22 @@ class ConfigurationApplication:
                     and (len(suffix.split(".")) == 3)
                 ):
                     base = prefix
+                    declared_version = suffix
             kind = name_types[name]
             # Legacy filenames are complete identities (devices_sim -> devices_sim).
             # Only the canonical singular type prefix is stripped when present.
             if base.startswith(kind + "_"):
                 base = base[len(kind) + 1 :]
             identity = ConfigIdentity(kind, base)
-            version_id = staged.get(identity)
+            candidates = staged.get(identity, {})
+            if declared_version is not None:
+                version_id = candidates.get(declared_version)
+            elif len(candidates) == 1:
+                version_id = next(iter(candidates.values()))
+            else:
+                raise RepositoryConflictError(
+                    f"unversioned configuration reference is ambiguous: {raw_path}"
+                )
             if version_id is None:
                 raise RepositoryConflictError(f"missing pinned configuration reference: {raw_path}")
             resolved.append((version_id, "config_sources.instances"))
@@ -639,7 +667,19 @@ class ConfigurationApplication:
         raw = self.codec.reconstruct_document(rows, expected_sha256=str(row["content_sha256"]))
         self._validate_schema(raw, json.loads(str(schema["schema_json"])))
         header = json.loads(str(schema["header_definition_json"]))
-        data = self.codec.emit_yaml(raw, header)
+        emitted = self.codec.emit_yaml(raw, header)
+        original = row.get("yaml_bytes")
+        relative_path = row.get("relative_path")
+        if original is not None and relative_path is not None:
+            data = bytes(original)
+            if hashlib.sha256(data).hexdigest() != row["yaml_sha256"]:
+                raise RuntimeError("stored original YAML digest mismatch")
+            file_name = str(relative_path)
+        else:
+            # v1 immutable versions that never joined a directory have no raw
+            # file record; use the validated deterministic projection instead.
+            data = emitted
+            file_name = f"{row['config_type']}_{row['config_id']}_v{row['file_version']}.yaml"
         if len(data) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration YAML response exceeds limit")
         reconstructed = self.codec.parse_yaml(data, max_bytes=self.limits.max_bundle_bytes)
@@ -656,9 +696,7 @@ class ConfigurationApplication:
             content_sha256=str(row["content_sha256"]),
             yaml_sha256=hashlib.sha256(data).hexdigest(),
             yaml_bytes=data,
-            file_name=(
-                f"{identity.config_type}_{identity.config_id}_" f"v{row['file_version']}.yaml"
-            ),
+            file_name=file_name,
         )
 
     def get_config(

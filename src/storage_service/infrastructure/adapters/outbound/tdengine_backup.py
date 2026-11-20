@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+from contextlib import suppress
 from pathlib import Path
 
 from storage_service.application.config import StorageConfig
@@ -113,10 +114,8 @@ class NativeTDengineBackup:
             raise
         finally:
             watcher.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await watcher
-            except asyncio.CancelledError:
-                pass
         if result is None:
             raise NativeBackupError("native backup exit state is unknown")
         if result != 0:

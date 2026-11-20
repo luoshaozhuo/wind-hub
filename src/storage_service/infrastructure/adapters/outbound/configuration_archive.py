@@ -77,7 +77,9 @@ class ImmutableConfigArchive:
             raise ValueError("archive byte limit must be positive")
         with self._lock:
             if self._used_bytes() > value:
-                raise ConfigHistoryUnavailableError("archive already exceeds configured cache limit")
+                raise ConfigHistoryUnavailableError(
+                    "archive already exceeds configured cache limit"
+                )
             self._max_bytes = value
 
     def persist(self, document: RepositoryDocument) -> None:
@@ -107,7 +109,9 @@ class ImmutableConfigArchive:
             )
             added = sum(len(payload) for path, payload in expected if not path.exists())
             if self._used_bytes() + added > self._max_bytes:
-                raise ConfigHistoryUnavailableError("immutable configuration archive quota exceeded")
+                raise ConfigHistoryUnavailableError(
+                    "immutable configuration archive quota exceeded"
+                )
             item_dir.mkdir(mode=0o700, exist_ok=True)
             for path, payload in expected:
                 self._write_once(path, payload)

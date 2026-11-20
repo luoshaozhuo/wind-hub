@@ -48,6 +48,9 @@ from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
 
 T = TypeVar("T")
 
+_AGGREGATE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024
+_AGGREGATE_SNAPSHOT_MAX_ENTRIES = 16
+
 
 def _date(us: int) -> Timestamp:
     result = Timestamp()
@@ -459,8 +462,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         snapshot_id, start_index = self._decode_aggregate_cursor(request, filter_)
         if snapshot_id:
             cached = self._aggregate_snapshots.get(snapshot_id)
-            if cached is None or cached[0] < time.time() or (
-                cached[1] != self._aggregate_fingerprint(request, filter_)
+            if (
+                cached is None
+                or cached[0] < time.time()
+                or (cached[1] != self._aggregate_fingerprint(request, filter_))
             ):
                 raise QueryRejectedError("aggregate snapshot expired or unavailable")
             return self._aggregate_page(
@@ -550,19 +555,28 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         # Materialize one bounded immutable result, preventing later Kafka
         # backfill from changing page membership or previously computed sums.
         rows = tuple(item.SerializeToString() for item in response.items)
-        if sum(map(len, rows)) > 16 * 1024 * 1024:
+        snapshot_bytes = sum(map(len, rows))
+        if snapshot_bytes > _AGGREGATE_SNAPSHOT_MAX_BYTES:
             raise QueryRejectedError("aggregate snapshot exceeds memory budget")
         now = time.time()
         self._aggregate_snapshots = {
-            key: value for key, value in self._aggregate_snapshots.items()
-            if value[0] > now
+            key: value for key, value in self._aggregate_snapshots.items() if value[0] > now
         }
-        if len(self._aggregate_snapshots) >= 16:
-            oldest = min(self._aggregate_snapshots, key=lambda key: self._aggregate_snapshots[key][0])
+        cached_bytes = sum(sum(map(len, value[2])) for value in self._aggregate_snapshots.values())
+        while self._aggregate_snapshots and (
+            len(self._aggregate_snapshots) >= _AGGREGATE_SNAPSHOT_MAX_ENTRIES
+            or cached_bytes + snapshot_bytes > _AGGREGATE_SNAPSHOT_MAX_BYTES
+        ):
+            oldest = min(
+                self._aggregate_snapshots, key=lambda key: self._aggregate_snapshots[key][0]
+            )
+            cached_bytes -= sum(map(len, self._aggregate_snapshots[oldest][2]))
             del self._aggregate_snapshots[oldest]
         snapshot_id = uuid.uuid4().hex
         self._aggregate_snapshots[snapshot_id] = (
-            now + 900, self._aggregate_fingerprint(request, filter_), rows
+            now + 900,
+            self._aggregate_fingerprint(request, filter_),
+            rows,
         )
         return self._aggregate_page(request, filter_, snapshot_id, rows, 0, page_size)
 
@@ -603,7 +617,12 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         index: int,
     ) -> str:
         data = json.dumps(
-            [self._aggregate_fingerprint(request, filter_), snapshot_id, index, int(time.time()) + 900],
+            [
+                self._aggregate_fingerprint(request, filter_),
+                snapshot_id,
+                index,
+                int(time.time()) + 900,
+            ],
             separators=(",", ":"),
         ).encode()
         signature = hmac.digest(self._secret, data, "sha256")

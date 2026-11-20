@@ -21,7 +21,7 @@ def _tree(root: Path) -> Path:
 
 
 def _site(root: Path, config_id: str, version: str, name: str) -> None:
-    (root / "instances" / f"{config_id}.yaml").write_text(
+    (root / "instances" / f"{config_id}_v{version}.yaml").write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
@@ -78,11 +78,12 @@ def test_sync_complete_tree_query_recommend_deprecate_backup_and_replay(
     assert second["data"]["revision_id"] == 2
     versions = live.cli("configuration", "versions", "site", "site_test")
     by_version = {item["file_version"]: item["version_id"] for item in versions["data"]["versions"]}
+    live.cli("configuration", "recommend", "site", "site_test", by_version["2.0.0"], "2")
     recommended = live.cli(
-        "configuration", "recommend", "site", "site_test", by_version["1.0.0"], "2"
+        "configuration", "recommend", "site", "site_test", by_version["1.0.0"], "3"
     )
-    assert recommended["data"]["revision_id"] == "3"
-    deprecated = live.cli("configuration", "deprecate", by_version["2.0.0"], "superseded", "3")
+    assert recommended["data"]["revision_id"] == "4"
+    deprecated = live.cli("configuration", "deprecate", by_version["2.0.0"], "superseded", "4")
     assert deprecated["data"]["deprecated"] is True
     stats = live.cli("configuration", "stats")
     assert stats["data"]["version_count"] == "3"
@@ -117,7 +118,7 @@ def test_sync_complete_tree_query_recommend_deprecate_backup_and_replay(
 def test_real_shipped_sync_keeps_pinned_kafka_100(live: LiveConfiguration) -> None:
     current = live.cli("configuration", "list")["data"]["snapshot_revision_id"]
     published = _sync(live, ROOT / "configs", "sync-shipped-configs")
-    assert published["data"]["files"] == 41
+    assert published["data"]["files"] == 42
     revision = int(published["data"]["revision_id"])
     assert revision > int(current)
     output = live.root / "kafka-history.yaml"
@@ -135,8 +136,8 @@ def test_real_shipped_sync_keeps_pinned_kafka_100(live: LiveConfiguration) -> No
     bundle_dir = live.root / "sink-bundle"
     bundle = live.cli("configuration", "bundle", "sink", "sinks", str(revision), str(bundle_dir))
     assert bundle["data"]["files"] == 4
-    assert (bundle_dir / "sink_kafka_history_v1.0.0.yaml").is_file()
-    assert not (bundle_dir / "sink_kafka_history_v1.1.0.yaml").exists()
+    assert (bundle_dir / "templates/sinks/sink_kafka_history_v1.0.0.yaml").is_file()
+    assert not (bundle_dir / "templates/sinks/sink_kafka_history_v1.1.0.yaml").exists()
 
 
 def test_retired_candidate_publish_apply_commands_remain_unavailable(

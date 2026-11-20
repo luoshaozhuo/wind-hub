@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 
-SCHEMA_VERSION = 1
-MIGRATION_ID = "initial_configuration_repository"
+from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
+    emit_yaml,
+    reconstruct_document,
+)
 
-DDL = """
+SCHEMA_VERSION = 2
+INITIAL_MIGRATION_ID = "initial_configuration_repository"
+MIGRATION_ID = "configuration_revision_files"
+V1_SCHEMA_VERSION = 1
+
+V1_DDL = """
 CREATE TABLE db_meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     schema_version INTEGER NOT NULL CHECK (schema_version > 0),
@@ -246,6 +255,58 @@ CREATE TABLE config_entries (
 );
 """
 
+_V1_CANDIDATE_DOCUMENTS_DDL = """CREATE TABLE candidate_documents (
+    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+    document_id TEXT NOT NULL,
+    config_type TEXT NOT NULL CHECK (length(config_type) > 0),
+    config_id TEXT NOT NULL CHECK (length(config_id) > 0),
+    file_version TEXT NOT NULL,
+    schema_ref TEXT NOT NULL REFERENCES config_schemas(schema_ref),
+    canonical_payload_json TEXT NOT NULL CHECK (json_valid(canonical_payload_json)),
+    content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+    PRIMARY KEY (candidate_id, document_id)
+)"""
+
+_CANDIDATE_DOCUMENTS_DDL = """CREATE TABLE candidate_documents (
+    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+    relative_path TEXT NOT NULL CHECK (length(relative_path) > 0),
+    document_id TEXT NOT NULL,
+    config_type TEXT NOT NULL CHECK (length(config_type) > 0),
+    config_id TEXT NOT NULL CHECK (length(config_id) > 0),
+    file_version TEXT NOT NULL,
+    schema_ref TEXT NOT NULL REFERENCES config_schemas(schema_ref),
+    canonical_payload_json TEXT NOT NULL CHECK (json_valid(canonical_payload_json)),
+    yaml_bytes BLOB NOT NULL,
+    yaml_sha256 TEXT NOT NULL CHECK (length(yaml_sha256) = 64),
+    content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+    PRIMARY KEY (candidate_id, relative_path)
+)"""
+
+_REVISION_FILES_DDL = """CREATE TABLE revision_files (
+    revision_id INTEGER NOT NULL REFERENCES revisions(revision_id),
+    relative_path TEXT NOT NULL CHECK (length(relative_path) > 0),
+    document_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    yaml_sha256 TEXT NOT NULL CHECK (length(yaml_sha256) = 64),
+    yaml_bytes BLOB NOT NULL,
+    PRIMARY KEY (revision_id, relative_path),
+    FOREIGN KEY (document_id, version_id)
+        REFERENCES config_versions(document_id, version_id)
+);
+CREATE INDEX ix_revision_files_version ON revision_files(version_id, revision_id DESC);
+"""
+
+DDL = V1_DDL.replace(
+    _V1_CANDIDATE_DOCUMENTS_DDL,
+    _CANDIDATE_DOCUMENTS_DDL,
+).replace(
+    "CREATE TABLE config_references",
+    _REVISION_FILES_DDL + "CREATE TABLE config_references",
+    1,
+)
+if DDL == V1_DDL or _CANDIDATE_DOCUMENTS_DDL not in DDL or _REVISION_FILES_DDL not in DDL:
+    raise RuntimeError("failed to derive Configuration Schema v2")
+
 IMMUTABLE_TABLES = (
     "schema_migrations",
     "config_schemas",
@@ -253,6 +314,7 @@ IMMUTABLE_TABLES = (
     "config_versions",
     "revisions",
     "revision_members",
+    "revision_files",
     "config_references",
     "unit_definitions",
     "semantic_points",
@@ -267,6 +329,7 @@ IMMUTABLE_TABLES = (
     "audit_events",
     "idempotency_requests",
 )
+LEGACY_IMMUTABLE_TABLES = tuple(name for name in IMMUTABLE_TABLES if name != "revision_files")
 
 
 def _immutable_trigger_sql(table: str, operation: str) -> str:
@@ -281,8 +344,8 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _schema_signature() -> str:
-    return hashlib.sha256(DDL.encode("utf-8")).hexdigest()
+def _schema_signature(ddl: str = DDL) -> str:
+    return hashlib.sha256(ddl.encode("utf-8")).hexdigest()
 
 
 def _check_integrity(connection: sqlite3.Connection) -> None:
@@ -292,30 +355,16 @@ def _check_integrity(connection: sqlite3.Connection) -> None:
         raise RuntimeError("SQLite foreign key check failed")
 
 
-def _verify_schema(connection: sqlite3.Connection) -> None:
-    meta = connection.execute(
-        "SELECT schema_version, migration_id FROM db_meta WHERE id = 1"
-    ).fetchone()
-    if meta is None or meta[0] != SCHEMA_VERSION or meta[1] != MIGRATION_ID:
-        raise RuntimeError("unsupported database schema version")
-    if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-        raise RuntimeError("SQLite user_version differs from db_meta")
-    row = connection.execute(
-        "SELECT from_version, to_version, checksum FROM schema_migrations "
-        "WHERE migration_id = ?",
-        (MIGRATION_ID,),
-    ).fetchone()
-    if row is None or tuple(row) != (0, SCHEMA_VERSION, _schema_signature()):
-        raise RuntimeError("database schema migration record mismatch")
-    required = set(_table_names())
+def _verify_ddl_schema(
+    connection: sqlite3.Connection, ddl: str, immutable_tables: tuple[str, ...]
+) -> None:
+    required = set(_table_names(ddl))
     actual = {
         row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     if not required.issubset(actual):
         raise RuntimeError("database schema has missing tables")
-    # Detect drift in column definitions, indexes and foreign-key clauses as well
-    # as table names. The stored checksum alone cannot detect manual DDL edits.
-    for statement in DDL.split(";"):
+    for statement in ddl.split(";"):
         statement = statement.strip()
         if not statement:
             continue
@@ -328,7 +377,7 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
         ).fetchone()
         if row is None or row[0] != statement:
             raise RuntimeError(f"database schema drift: {object_name}")
-    for table in IMMUTABLE_TABLES:
+    for table in immutable_tables:
         for operation in ("UPDATE", "DELETE"):
             name = f"immutable_{table}_{operation.lower()}"
             row = connection.execute(
@@ -340,15 +389,188 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
     _check_integrity(connection)
 
 
-def _table_names() -> tuple[str, ...]:
-    return tuple(line.split()[2] for line in DDL.splitlines() if line.startswith("CREATE TABLE "))
+def _verify_migration_row(
+    connection: sqlite3.Connection,
+    migration_id: str,
+    from_version: int,
+    to_version: int,
+    checksum: str,
+) -> None:
+    row = connection.execute(
+        "SELECT from_version, to_version, checksum FROM schema_migrations "
+        "WHERE migration_id = ?",
+        (migration_id,),
+    ).fetchone()
+    if row is None or tuple(row) != (from_version, to_version, checksum):
+        raise RuntimeError("database schema migration record mismatch")
 
 
-def initialize_database(connection: sqlite3.Connection, application_version: str) -> None:
-    """Initialize an empty database or verify its supported existing schema.
+def _verify_legacy_schema(connection: sqlite3.Connection) -> None:
+    meta = connection.execute(
+        "SELECT schema_version, migration_id FROM db_meta WHERE id = 1"
+    ).fetchone()
+    if meta is None or tuple(meta) != (V1_SCHEMA_VERSION, INITIAL_MIGRATION_ID):
+        raise RuntimeError("unsupported legacy database schema")
+    if connection.execute("PRAGMA user_version").fetchone()[0] != V1_SCHEMA_VERSION:
+        raise RuntimeError("legacy SQLite user_version differs from db_meta")
+    _verify_migration_row(
+        connection,
+        INITIAL_MIGRATION_ID,
+        0,
+        V1_SCHEMA_VERSION,
+        _schema_signature(V1_DDL),
+    )
+    _verify_ddl_schema(connection, V1_DDL, LEGACY_IMMUTABLE_TABLES)
 
-    The caller must hold an exclusive deployment-level ownership lock.
-    """
+
+def _verify_schema(connection: sqlite3.Connection) -> None:
+    meta = connection.execute(
+        "SELECT schema_version, migration_id FROM db_meta WHERE id = 1"
+    ).fetchone()
+    if meta is None or tuple(meta) != (SCHEMA_VERSION, MIGRATION_ID):
+        raise RuntimeError("unsupported database schema version")
+    if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+        raise RuntimeError("SQLite user_version differs from db_meta")
+    _verify_migration_row(
+        connection,
+        INITIAL_MIGRATION_ID,
+        0,
+        V1_SCHEMA_VERSION,
+        _schema_signature(V1_DDL),
+    )
+    _verify_migration_row(
+        connection, MIGRATION_ID, V1_SCHEMA_VERSION, SCHEMA_VERSION, _schema_signature()
+    )
+    _verify_ddl_schema(connection, DDL, IMMUTABLE_TABLES)
+
+
+def _table_names(ddl: str) -> tuple[str, ...]:
+    return tuple(line.split()[2] for line in ddl.splitlines() if line.startswith("CREATE TABLE "))
+
+
+def _canonical_path(config_type: str, config_id: str, file_version: str) -> str:
+    if not config_type or not config_id or not file_version:
+        raise RuntimeError("legacy file identity is incomplete")
+    return f"{config_type}_{config_id}_v{file_version}.yaml"
+
+
+def _candidate_yaml(row: sqlite3.Row) -> bytes:
+    connection_schema = row["header_definition_json"]
+    if not isinstance(connection_schema, str):
+        raise RuntimeError("legacy candidate header is missing")
+    payload = json.loads(row["canonical_payload_json"])
+    if not isinstance(payload, dict):
+        raise RuntimeError("legacy candidate payload is not a document")
+    return emit_yaml(payload, json.loads(connection_schema))
+
+
+def _version_yaml(connection: sqlite3.Connection, version_id: str) -> bytes:
+    version = connection.execute(
+        "SELECT v.content_sha256, s.header_definition_json FROM config_versions AS v "
+        "JOIN config_schemas AS s ON s.schema_ref = v.schema_ref WHERE v.version_id = ?",
+        (version_id,),
+    ).fetchone()
+    if version is None:
+        raise RuntimeError("legacy version has no registered schema")
+    rows = connection.execute(
+        "SELECT object_type, object_id, properties_json FROM config_entries "
+        "WHERE config_version_id = ? ORDER BY rowid",
+        (version_id,),
+    ).fetchall()
+    payload = reconstruct_document(
+        tuple(dict(row) for row in rows),
+        expected_sha256=str(version["content_sha256"]),
+    )
+    return emit_yaml(payload, json.loads(str(version["header_definition_json"])))
+
+
+def _migrate_v1_to_v2(
+    connection: sqlite3.Connection, application_version: str, backup_path: Path | None
+) -> None:
+    if backup_path is None:
+        raise RuntimeError("legacy migration requires a verified backup path")
+    if backup_path.exists() or backup_path.is_symlink():
+        raise RuntimeError("refusing to overwrite an existing pre-migration backup")
+    connection.execute("VACUUM INTO ?", (str(backup_path),))
+    now = _utc_now()
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute("ALTER TABLE candidate_documents RENAME TO candidate_documents_v1")
+        connection.execute(_CANDIDATE_DOCUMENTS_DDL)
+        legacy_candidates = connection.execute(
+            "SELECT c.*, s.header_definition_json FROM candidate_documents_v1 AS c "
+            "JOIN config_schemas AS s ON s.schema_ref = c.schema_ref"
+        ).fetchall()
+        for row in legacy_candidates:
+            yaml_bytes = _candidate_yaml(row)
+            relative_path = _canonical_path(
+                str(row["config_type"]), str(row["config_id"]), str(row["file_version"])
+            )
+            connection.execute(
+                "INSERT INTO candidate_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row["candidate_id"],
+                    relative_path,
+                    row["document_id"],
+                    row["config_type"],
+                    row["config_id"],
+                    row["file_version"],
+                    row["schema_ref"],
+                    row["canonical_payload_json"],
+                    yaml_bytes,
+                    hashlib.sha256(yaml_bytes).hexdigest(),
+                    row["content_sha256"],
+                ),
+            )
+        connection.execute("DROP TABLE candidate_documents_v1")
+        for statement in _REVISION_FILES_DDL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        members = connection.execute(
+            "SELECT m.revision_id, m.document_id, m.version_id, d.config_type, d.config_id, "
+            "v.file_version FROM revision_members AS m "
+            "JOIN config_documents AS d ON d.document_id = m.document_id "
+            "JOIN config_versions AS v ON v.version_id = m.version_id"
+        ).fetchall()
+        for row in members:
+            yaml_bytes = _version_yaml(connection, str(row["version_id"]))
+            relative_path = _canonical_path(
+                str(row["config_type"]), str(row["config_id"]), str(row["file_version"])
+            )
+            connection.execute(
+                "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    row["revision_id"],
+                    relative_path,
+                    row["document_id"],
+                    row["version_id"],
+                    hashlib.sha256(yaml_bytes).hexdigest(),
+                    yaml_bytes,
+                ),
+            )
+        for operation in ("UPDATE", "DELETE"):
+            connection.execute(_immutable_trigger_sql("revision_files", operation))
+        connection.execute(
+            "UPDATE db_meta SET schema_version = ?, migration_id = ?, migrated_at = ?, "
+            "application_version = ? WHERE id = 1",
+            (SCHEMA_VERSION, MIGRATION_ID, now, application_version),
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (?, ?, ?, ?, ?)",
+            (MIGRATION_ID, V1_SCHEMA_VERSION, SCHEMA_VERSION, now, _schema_signature()),
+        )
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        _verify_schema(connection)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
+def initialize_database(
+    connection: sqlite3.Connection, application_version: str, backup_path: Path | None = None
+) -> None:
+    """Initialize v2, or atomically migrate a verified v1 database with a backup."""
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise RuntimeError("SQLite foreign keys must be enabled")
@@ -357,10 +579,14 @@ def initialize_database(connection: sqlite3.Connection, application_version: str
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
     ).fetchall()
     if existing:
-        if version != SCHEMA_VERSION:
-            raise RuntimeError(f"unsupported SQLite database schema version: {version}")
-        _verify_schema(connection)
-        return
+        if version == V1_SCHEMA_VERSION:
+            _verify_legacy_schema(connection)
+            _migrate_v1_to_v2(connection, application_version, backup_path)
+            return
+        if version == SCHEMA_VERSION:
+            _verify_schema(connection)
+            return
+        raise RuntimeError(f"unsupported SQLite database schema version: {version}")
     if version != 0:
         raise RuntimeError("nonempty schema version without database tables")
 
@@ -379,7 +605,11 @@ def initialize_database(connection: sqlite3.Connection, application_version: str
         )
         connection.execute(
             "INSERT INTO schema_migrations VALUES (?, 0, ?, ?, ?)",
-            (MIGRATION_ID, SCHEMA_VERSION, now, _schema_signature()),
+            (INITIAL_MIGRATION_ID, V1_SCHEMA_VERSION, now, _schema_signature(V1_DDL)),
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (?, ?, ?, ?, ?)",
+            (MIGRATION_ID, V1_SCHEMA_VERSION, SCHEMA_VERSION, now, _schema_signature()),
         )
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         connection.commit()

@@ -72,8 +72,9 @@ async def publish(
 
 
 async def publish_dependency_pair(repository: object) -> None:
-    await publish(repository, document("root", "1.0.0"), request_id="root", expected_revision=0)
-    dependent = document("dependent", "1.0.0")
+    root = document("root", "1.0.0", name="root-" + "x" * 1500)
+    await publish(repository, root, request_id="root", expected_revision=0)
+    dependent = document("dependent", "1.0.0", name="dependent-" + "y" * 1500)
     payload = yaml.safe_load(dependent.yaml_bytes)
     payload["config_sources"] = [
         {"config_type": "site", "config_id": "root", "file_version": "1.0.0"}
@@ -81,7 +82,7 @@ async def publish_dependency_pair(repository: object) -> None:
     dependent.yaml_bytes = yaml.safe_dump(payload).encode()
     await publish(
         repository,
-        [document("root", "1.0.0"), dependent],
+        [root, dependent],
         request_id="dependent",
         expected_revision=1,
     )

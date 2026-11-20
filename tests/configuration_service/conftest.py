@@ -87,7 +87,7 @@ def document_input(
     data = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False).encode()
     return DocumentInput(
         identity=ConfigIdentity(config_type, config_id),
-        file_name=f"{config_id}.yaml",
+        file_name=f"{config_type}/{config_id}_v{file_version}.yaml",
         yaml_bytes=data,
     )
 

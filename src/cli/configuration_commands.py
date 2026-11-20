@@ -6,7 +6,7 @@ import hashlib
 import os
 import tempfile
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import typer
@@ -227,12 +227,14 @@ def bundle(
         files: list[tuple[str, bytes]] = []
         for item in response.files:
             name = item.file_name
+            relative = PurePosixPath(name)
             if (
                 not name.endswith(".yaml")
                 or name in names
-                or name != Path(name).name
+                or relative.is_absolute()
+                or relative.as_posix() != name
                 or "\\" in name
-                or name in (".", "..")
+                or any(part in {".", ".."} for part in relative.parts)
             ):
                 raise ValueError("duplicate or unsafe configuration filename")
             data = item.yaml_bytes
@@ -254,6 +256,7 @@ def bundle(
             staging = Path(directory)
             for name, data in files:
                 path = staging / name
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(data)

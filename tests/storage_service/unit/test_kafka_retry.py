@@ -14,7 +14,10 @@ from storage_service.application.config import load_storage_config
 from storage_service.application.ingestion import WriteUnconfirmedError
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
-from storage_service.infrastructure.adapters.outbound.kafka_consumer import KafkaStorageConsumer
+from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
+    KafkaStorageConsumer,
+    _AssignedPartition,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 pytestmark = pytest.mark.unit
@@ -59,7 +62,7 @@ async def test_retry_uses_backoff_and_honors_max_attempts(
         metadata=cast(Any, SimpleNamespace()),
         metrics=StorageRuntimeMetrics(),
     )
-    consumer._assignments[tp] = SimpleNamespace(
+    consumer._assignments[tp] = _AssignedPartition(
         offsets=PartitionOffsets(partition=0, generation=1, next_commit_offset=0),
         generation=1,
         blocked=False,
