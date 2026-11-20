@@ -53,7 +53,9 @@ class _TaosConnection(Protocol):
 
 
 class _TaosModule(Protocol):
-    def connect(self, *, user: str, password: str, host: str, port: int) -> _TaosConnection: ...
+    def connect(
+        self, *, user: str, password: str, host: str, port: int, read_timeout: int
+    ) -> _TaosConnection: ...
 
     def stmt2_bind_param_view(
         self, *, table_name: str | None, tags: list[object] | None, columns: list[object]
