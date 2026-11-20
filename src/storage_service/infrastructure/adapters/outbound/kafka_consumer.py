@@ -173,6 +173,22 @@ class KafkaStorageConsumer:
                     self._config.retry.initial_ms * (2 ** (failures - 1)),
                 )
                 await asyncio.sleep(delay_ms / 1000)
+                if (
+                    self._assignments.get(tp) is state
+                    and tp in self._consumer.assignment()
+                    and not state.blocked
+                ):
+                    # getmany has already advanced the local fetch position.
+                    # Rewind the *whole* uncommitted suffix before the next poll;
+                    # the previous batch may have written partially or entirely.
+                    # Readback deduplication makes replay safe.
+                    cursor = state.offsets.next_commit_offset
+                    self._consumer.seek(tp, cursor)
+                    state.offsets = PartitionOffsets(
+                        partition=tp.partition,
+                        generation=generation,
+                        next_commit_offset=cursor,
+                    )
                 return
             except RuntimeError:
                 # Revocation can arrive during TDengine I/O. No old generation
