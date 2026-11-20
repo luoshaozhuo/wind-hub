@@ -420,7 +420,9 @@ class SinkSystemHarness:
             wind_farm_id=WIND_FARM_ID,
             collector_id=COLLECTOR_ID,
             task_id="task-qa",
+            device_type="wtg",
             device_id=device_id,
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
             publish_time=now,
             samples=samples,
         )
