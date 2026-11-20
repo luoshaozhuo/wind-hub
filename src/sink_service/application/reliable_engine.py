@@ -104,15 +104,24 @@ class ReliableDeliveryEngine:
         """Keep source ownership while a historical mapping is fetched and verified."""
         task = asyncio.create_task(self._encode_kafka_points(batch, items))
         interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
-        while not task.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=interval)
-            except TimeoutError:
+        try:
+            while not task.done():
                 try:
-                    await message.extend()
-                except Exception:
-                    logger.warning("source ACK extension during mapping failed", exc_info=True)
-        return await asyncio.shield(task)
+                    await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+                except TimeoutError:
+                    try:
+                        await message.extend()
+                    except Exception:
+                        logger.warning(
+                            "source ACK extension during mapping failed", exc_info=True
+                        )
+            return await asyncio.shield(task)
+        finally:
+            # Unlike an already submitted target write, a pending read-only
+            # metadata query can be cancelled safely on Delivery shutdown.
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     async def _write_with_heartbeat(
         self,
