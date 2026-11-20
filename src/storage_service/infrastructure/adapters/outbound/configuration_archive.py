@@ -14,7 +14,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -211,6 +211,11 @@ class ConfigurationPointTableResolver:
             self._business_pins[table_id] = semantic_pin
         self._loaded: dict[tuple[str, str, str], Mapping[str, Any]] = {}
         self._lock = asyncio.Lock()
+        self._refresh_hook: Callable[[], Awaitable[None]] | None = None
+
+    def set_refresh_hook(self, refresh: Callable[[], Awaitable[None]]) -> None:
+        """Enable one authoritative reconciliation before rejecting unknown IDs."""
+        self._refresh_hook = refresh
 
     def add_immutable_pins(
         self,
@@ -299,6 +304,17 @@ class ConfigurationPointTableResolver:
     async def require_exact_versions(self, samples: Sequence[StorageSample]) -> None:
         for sample in samples:
             pin = self._pins.get(sample.point_table_id)
+            if not pin and self._refresh_hook is not None:
+                # A previously unseen PointTable can be part of a newly published
+                # Configuration revision. Refresh the *whole* verified closure;
+                # never guess a version or bind by the latest filename.
+                try:
+                    await self._refresh_hook()
+                except Exception as exc:
+                    raise ConfigHistoryUnavailableError(
+                        "authoritative Configuration refresh failed for unknown PointTable"
+                    ) from exc
+                pin = self._pins.get(sample.point_table_id)
             if not pin:
                 raise ConfigHistoryUnavailableError(
                     f"no pinned immutable version for {sample.point_table_id}"
