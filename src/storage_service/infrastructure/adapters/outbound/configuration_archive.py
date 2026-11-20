@@ -101,8 +101,10 @@ class ImmutableConfigArchive:
         name = hashlib.sha256(manifest).hexdigest()
         item_dir = self._directory / name
         with self._lock:
-            expected = ((item_dir / "document.yaml", document.yaml_bytes),
-                        (item_dir / "manifest.json", manifest))
+            expected = (
+                (item_dir / "document.yaml", document.yaml_bytes),
+                (item_dir / "manifest.json", manifest),
+            )
             added = sum(len(payload) for path, payload in expected if not path.exists())
             if self._used_bytes() + added > self._max_bytes:
                 raise ConfigHistoryUnavailableError("immutable configuration archive quota exceeded")
