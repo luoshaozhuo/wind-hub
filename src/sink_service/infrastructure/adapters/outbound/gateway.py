@@ -172,6 +172,7 @@ class GatewayOutput:
                     lease_token=self._lease_token,
                 ),
                 timeout=self._timeout,
+                metadata=self._metadata,
             )
         except Exception:
             # A transport error may hide partial variable updates. Do not retry blindly.
