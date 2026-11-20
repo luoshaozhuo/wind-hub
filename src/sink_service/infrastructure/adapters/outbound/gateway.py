@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from time import perf_counter
 
 import grpc
@@ -45,6 +46,10 @@ class GatewayOutput:
         self._timeout = timeout_ms / 1000
         self._lease_ms = lease_ms
         self._max_batch = max_batch_size
+        token = os.environ.get("WIND_HUB_GATEWAY_SINK_TOKEN", "")
+        if token and (len(token) < 32 or token.strip() != token):
+            raise ConfigurationError("Gateway Sink token is invalid")
+        self._metadata = (("authorization", f"Bearer {token}"),) if token else ()
         self._channel: grpc.aio.Channel | None = None
         self._client: gateway_rpc.IndustrialGatewayServiceAsyncStub | None = None
         self._lease_token = ""
@@ -87,6 +92,7 @@ class GatewayOutput:
                 lease_ms=lease_ms,
             ),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
 
     async def _renew(self) -> None:
