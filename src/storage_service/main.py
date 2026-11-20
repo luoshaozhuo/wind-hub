@@ -87,6 +87,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     "using verified previous Configuration revision %d while unavailable",
                     bundle.revision_id,
                 )
+            await asyncio.to_thread(
+                archive.set_max_bytes, bundle.configuration.configuration.cache_max_bytes
+            )
             if not bundle.point_table_versions:
                 raise RuntimeError(
                     "Storage cannot consume until the Service bundle pins PointTable versions"
