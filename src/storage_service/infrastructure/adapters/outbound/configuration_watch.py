@@ -52,7 +52,13 @@ class StorageConfigurationWatcher:
         self._metadata = metadata
         self._snapshot = snapshot
         self._changed = asyncio.Event()
+        self._reconcile_lock = asyncio.Lock()
         self.status = "READY"
+
+    async def refresh_now(self) -> None:
+        """Serialize periodic and demand-driven Configuration reconciliation."""
+        async with self._reconcile_lock:
+            await self._reconcile()
 
     async def _reconcile(self) -> None:
         updated = await self._client.fetch_service_bundle(service_id=self._service_id)
@@ -131,7 +137,7 @@ class StorageConfigurationWatcher:
             if stop.is_set():
                 break
             try:
-                await self._reconcile()
+                await self.refresh_now()
             except ConfigHistoryUnavailableError:
                 self.status = "CONFIG_HISTORY_UNAVAILABLE"
                 _LOG.warning("Storage rejected an incomplete immutable configuration revision")
