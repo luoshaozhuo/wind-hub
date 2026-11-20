@@ -96,21 +96,33 @@ class NativeTDengineBackup:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        watcher = asyncio.create_task(self._watch_output(process, path))
         try:
             await asyncio.wait_for(
                 process.communicate((password + "\n").encode("utf-8")),
                 timeout=self._config.backup.timeout_s,
             )
+            # Propagate a quota violation even if taosdump has already exited.
+            if watcher.done() and not watcher.cancelled():
+                watcher.result()
             result = process.returncode
-        except (TimeoutError, asyncio.CancelledError):
+        except BaseException:
             if process.returncode is None:
                 process.kill()
             await asyncio.shield(process.wait())
             raise
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
         if result is None:
             raise NativeBackupError("native backup exit state is unknown")
         if result != 0:
             raise NativeBackupError(f"TDengine taosdump returned a nonzero exit code ({result})")
+        if await asyncio.to_thread(self._output_size, path, self._config.backup.max_bytes):
+            raise NativeBackupError("native backup exceeded configured byte budget")
 
         manifest, bytes_written, digest = await asyncio.to_thread(
             self._verify_backup,
@@ -131,6 +143,28 @@ class NativeTDengineBackup:
         finally:
             os.close(directory)
         return task_id, bytes_written, digest
+
+    @staticmethod
+    def _output_size(path: Path, limit: int) -> bool:
+        """Report an exceeded quota without following backup-created links."""
+        used = 0
+        for entry in path.rglob("*"):
+            if entry.is_symlink() or (not entry.is_file() and not entry.is_dir()):
+                raise NativeBackupError("native backup created an unsafe output entry")
+            if entry.is_file():
+                used += entry.stat().st_size
+                if used > limit:
+                    return True
+        return False
+
+    async def _watch_output(self, process: asyncio.subprocess.Process, path: Path) -> None:
+        """Stop taosdump while it runs, not after it has exhausted the disk."""
+        while process.returncode is None:
+            if await asyncio.to_thread(self._output_size, path, self._config.backup.max_bytes):
+                if process.returncode is None:
+                    process.kill()
+                raise NativeBackupError("native backup exceeded configured byte budget")
+            await asyncio.sleep(0.2)
 
     @staticmethod
     def _split_endpoint(address: str) -> tuple[str, int]:
