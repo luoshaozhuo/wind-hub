@@ -113,7 +113,8 @@ async def test_normal_backup_reaps_taosdump(
     task_id = uuid.uuid4().hex
     artifact, size, digest = await backup.backup(task_id=task_id, wind_farm_id="farm-1")
     assert artifact == task_id
-    assert size == len(b"verified-avro-payload")
+    manifest_size = (root / task_id / "storage_manifest.json").stat().st_size
+    assert size == len(b"verified-avro-payload") + manifest_size
     assert len(digest) == 64
     assert (root / task_id / "storage_manifest.json").is_file()
     _assert_reaped(_read_pid(root, task_id))

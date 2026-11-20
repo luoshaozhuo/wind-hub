@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 
 from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
+from aiokafka.errors import KafkaError
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import (
@@ -66,7 +68,7 @@ class KafkaStorageConsumer:
             bootstrap_servers=bootstrap_servers,
             group_id=configuration.kafka.group_id,
             enable_auto_commit=False,
-            auto_offset_reset="none",
+            auto_offset_reset="earliest",
             max_poll_records=configuration.kafka.max_poll_records,
             fetch_max_bytes=configuration.kafka.max_buffer_bytes,
             max_partition_fetch_bytes=min(1048576, configuration.kafka.max_buffer_bytes),
@@ -96,15 +98,22 @@ class KafkaStorageConsumer:
             if tp in self._assignments:
                 continue
             committed = await self._consumer.committed(tp)
+            beginning = await self._consumer.beginning_offsets([tp])
+            earliest = beginning[tp]
+            end = await self._consumer.end_offsets([tp])
+            if committed is not None and committed > end[tp]:
+                raise RuntimeError("OFFSET_GAP: committed offset exceeds Kafka log end")
             if committed is None:
-                beginning = await self._consumer.beginning_offsets([tp])
-                earliest = beginning[tp]
                 # Initial group bootstrap is safe only when nothing was
                 # previously trimmed; an existing offset gap is never reset.
                 if earliest != 0:
                     raise RuntimeError("OFFSET_GAP: no committed offset and Kafka earliest > 0")
-                self._consumer.seek(tp, 0)
                 committed = 0
+            elif committed < earliest:
+                raise RuntimeError("OFFSET_GAP: committed offset is older than Kafka earliest")
+            # Reassignment must discard the previous owner's uncommitted fetch
+            # position; otherwise its already-polled suffix can skip records.
+            self._consumer.seek(tp, committed)
             current = _AssignedPartition(
                 offsets=PartitionOffsets(
                     partition=tp.partition,
@@ -124,6 +133,55 @@ class KafkaStorageConsumer:
                 self._consumer.pause(tp)
             self._assignments[tp] = current
 
+    async def _retry_unconfirmed(
+        self,
+        tp: TopicPartition,
+        *,
+        state: _AssignedPartition,
+        generation: int,
+        cursor: int,
+        error: Exception,
+    ) -> None:
+        if (
+            self._stop.is_set()
+            or self._assignments.get(tp) is not state
+            or generation != state.generation
+            or tp not in self._consumer.assignment()
+        ):
+            return
+        failures = self._retry_failures.get(tp, 0) + 1
+        self._retry_failures[tp] = failures
+        _LOG.warning(
+            "Storage Kafka write/commit unconfirmed: topic=%s partition=%d attempt=%d",
+            tp.topic,
+            tp.partition,
+            failures,
+        )
+        maximum = self._config.retry.max_attempts
+        if maximum and failures > maximum:
+            raise error
+        delay_ms = min(
+            self._config.retry.max_ms,
+            self._config.retry.initial_ms * (2 ** min(failures - 1, 32)),
+        )
+        with suppress(TimeoutError):
+            await asyncio.wait_for(self._stop.wait(), delay_ms / 1000)
+        if (
+            not self._stop.is_set()
+            and self._assignments.get(tp) is state
+            and generation == state.generation
+            and tp in self._consumer.assignment()
+            and not state.blocked
+        ):
+            # getmany has already advanced the local fetch position. Rewind the
+            # whole uncommitted suffix; readback deduplication makes replay safe.
+            self._consumer.seek(tp, cursor)
+            state.offsets = PartitionOffsets(
+                partition=tp.partition,
+                generation=generation,
+                next_commit_offset=cursor,
+            )
+
     async def _process_partition(
         self,
         tp: TopicPartition,
@@ -133,9 +191,10 @@ class KafkaStorageConsumer:
         """Never have more than one in-flight batch per assigned partition."""
         async with semaphore:
             state = self._assignments.get(tp)
-            if state is None or state.blocked or not messages:
+            if self._stop.is_set() or state is None or state.blocked or not messages:
                 return
             generation = state.generation
+            retry_cursor = state.offsets.next_commit_offset
             try:
                 await self._ingestion.process(
                     generation=generation,
@@ -153,6 +212,7 @@ class KafkaStorageConsumer:
                     tp.topic,
                     tp.partition,
                 )
+                return
             except TDengineSchemaConflictError:
                 self._metrics.record_schema_conflict()
                 if self._assignments.get(tp) is not state:
@@ -183,39 +243,14 @@ class KafkaStorageConsumer:
                     pending_offset,
                 )
                 return
-            except (WriteUnconfirmedError, OSError, TimeoutError):
-                failures = self._retry_failures.get(tp, 0) + 1
-                self._retry_failures[tp] = failures
-                _LOG.warning(
-                    "Storage Kafka write unconfirmed: topic=%s partition=%d attempt=%d",
-                    tp.topic,
-                    tp.partition,
-                    failures,
+            except (WriteUnconfirmedError, OSError, TimeoutError) as error:
+                await self._retry_unconfirmed(
+                    tp,
+                    state=state,
+                    generation=generation,
+                    cursor=state.offsets.next_commit_offset,
+                    error=error,
                 )
-                maximum = self._config.retry.max_attempts
-                if maximum and failures > maximum:
-                    raise
-                delay_ms = min(
-                    self._config.retry.max_ms,
-                    self._config.retry.initial_ms * (2 ** min(failures - 1, 32)),
-                )
-                await asyncio.sleep(delay_ms / 1000)
-                if (
-                    self._assignments.get(tp) is state
-                    and tp in self._consumer.assignment()
-                    and not state.blocked
-                ):
-                    # getmany has already advanced the local fetch position.
-                    # Rewind the *whole* uncommitted suffix before the next poll;
-                    # the previous batch may have written partially or entirely.
-                    # Readback deduplication makes replay safe.
-                    cursor = state.offsets.next_commit_offset
-                    self._consumer.seek(tp, cursor)
-                    state.offsets = PartitionOffsets(
-                        partition=tp.partition,
-                        generation=generation,
-                        next_commit_offset=cursor,
-                    )
                 return
             except RuntimeError:
                 # Revocation can arrive during TDengine I/O. No old generation
@@ -225,13 +260,35 @@ class KafkaStorageConsumer:
                     return
                 raise
             if (
-                self._assignments.get(tp) is not state
+                self._stop.is_set()
+                or self._assignments.get(tp) is not state
                 or generation != state.generation
                 or tp not in self._consumer.assignment()
             ):
                 return
             # Kafka commits the next unread offset, only after durable readback.
-            await self._consumer.commit({tp: state.offsets.next_commit_offset})
+            try:
+                await self._consumer.commit({tp: state.offsets.next_commit_offset})
+            except (KafkaError, OSError, TimeoutError) as error:
+                # The write is confirmed but the commit is not. Replay from the
+                # cursor captured before this batch, not from its successful end.
+                await self._retry_unconfirmed(
+                    tp,
+                    state=state,
+                    generation=generation,
+                    cursor=retry_cursor,
+                    error=error,
+                )
+                return
+            # The commit itself awaits broker I/O. Ownership may have changed
+            # while it was in flight, so fence every subsequent local mutation.
+            if (
+                self._stop.is_set()
+                or self._assignments.get(tp) is not state
+                or generation != state.generation
+                or tp not in self._consumer.assignment()
+            ):
+                return
             self._retry_failures.pop(tp, None)
             if not state.blocked:
                 # Replay any unconfirmed tail. The domain deduplicates content.
@@ -313,6 +370,7 @@ class KafkaStorageConsumer:
                 next_commit_offset=state.offsets.next_commit_offset,
             )
             state.blocked = False
+            self._retry_failures.pop(tp, None)
             self._consumer.resume(tp)
         return True
 
@@ -344,7 +402,8 @@ class KafkaStorageConsumer:
 
     def request_stop(self) -> None:
         self._stop.set()
+        self.revoke(set(self._assignments))
 
     async def stop(self) -> None:
-        self._stop.set()
+        self.request_stop()
         await self._consumer.stop()

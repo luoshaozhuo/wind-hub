@@ -82,3 +82,44 @@ def test_partial_entry_consumes_quota_before_completion(tmp_path: Path) -> None:
     with pytest.raises(ConfigHistoryUnavailableError, match="already exceeds"):
         archive.set_max_bytes(_used_bytes(tmp_path) - 1)
     assert (item_dir / "unrelated.evidence").read_bytes() == b"still counted"
+
+
+def test_fixed_version_cannot_be_rebound_to_different_content(tmp_path: Path) -> None:
+    original = _document("table-1", b"points: {one: {unit: W}}")
+    changed = RepositoryDocument(
+        config_type=original.config_type,
+        config_id=original.config_id,
+        version_id=original.version_id,
+        revision_id=2,
+        yaml_bytes=b"points: {one: {unit: kW}}",
+        yaml_sha256=hashlib.sha256(b"points: {one: {unit: kW}}").hexdigest(),
+    )
+    archive = ImmutableConfigArchive(tmp_path)
+    archive.persist(original)
+
+    with pytest.raises(ConfigHistoryUnavailableError, match="rebound"):
+        archive.persist(changed)
+    assert (
+        archive.load(config_type="point_table", config_id="table-1", version_id="version-1")
+        == original
+    )
+
+
+def test_same_fixed_version_is_stable_across_bundle_revisions(tmp_path: Path) -> None:
+    original = _document("table-1", b"points: {one: {unit: W}}")
+    archive = ImmutableConfigArchive(tmp_path)
+    archive.persist(original)
+    duplicate = RepositoryDocument(
+        config_type=original.config_type,
+        config_id=original.config_id,
+        version_id=original.version_id,
+        revision_id=2,
+        yaml_bytes=original.yaml_bytes,
+        yaml_sha256=original.yaml_sha256,
+    )
+    archive.persist(duplicate)
+
+    restored = archive.load(config_type="point_table", config_id="table-1", version_id="version-1")
+    assert restored.revision_id == original.revision_id
+    assert restored.yaml_bytes == original.yaml_bytes
+    assert len(list(tmp_path.iterdir())) == 1

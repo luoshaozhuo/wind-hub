@@ -53,12 +53,35 @@ class StorageConfigurationWatcher:
         self._snapshot = snapshot
         self._changed = asyncio.Event()
         self._reconcile_lock = asyncio.Lock()
+        self._reconcile_generation = 0
+        self._reconcile_error: BaseException | None = None
         self.status = "READY"
 
     async def refresh_now(self) -> None:
-        """Serialize periodic and demand-driven Configuration reconciliation."""
+        """Coalesce concurrent hints and unknown-ID requests into one authoritative pull."""
+        generation = self._reconcile_generation
         async with self._reconcile_lock:
-            await self._reconcile()
+            if generation != self._reconcile_generation:
+                if self._reconcile_error is not None:
+                    raise self._reconcile_error
+                return
+            try:
+                await self._reconcile()
+            except ConfigHistoryUnavailableError as exc:
+                self.status = "CONFIG_HISTORY_UNAVAILABLE"
+                self._reconcile_error = exc
+                raise
+            except Exception as exc:
+                self.status = "CONFIG_RECONCILE_DEGRADED"
+                self._reconcile_error = exc
+                raise
+            except BaseException as exc:
+                self._reconcile_error = exc
+                raise
+            else:
+                self._reconcile_error = None
+            finally:
+                self._reconcile_generation += 1
 
     async def _reconcile(self) -> None:
         updated = await self._client.fetch_service_bundle(service_id=self._service_id)
@@ -139,10 +162,8 @@ class StorageConfigurationWatcher:
             try:
                 await self.refresh_now()
             except ConfigHistoryUnavailableError:
-                self.status = "CONFIG_HISTORY_UNAVAILABLE"
                 _LOG.warning("Storage rejected an incomplete immutable configuration revision")
             except Exception:
-                self.status = "CONFIG_RECONCILE_DEGRADED"
                 _LOG.warning("Storage Configuration reconciliation unavailable")
         if connection is not None:
             await connection.close()

@@ -50,6 +50,14 @@ def test_decode_history_row_preserves_optional_receive_time() -> None:
     assert decoded_without_receive.receive_time_us is None
 
 
+def test_datetime_us_decodes_target_websocket_timestamp_string() -> None:
+    assert TDengineBackend._datetime_us("2027-01-15 16:00:00.123456 +08:00") == (
+        1_800_000_000_123_456
+    )
+    with pytest.raises(TDengineSchemaConflictError, match="timezone-naive"):
+        TDengineBackend._datetime_us("2027-01-15 16:00:00.123456")
+
+
 def test_decode_history_row_rejects_string_typed_integer() -> None:
     row = _row()
     row[7] = "2"
@@ -72,7 +80,7 @@ class _DescribeConnection:
         if sql.startswith("DESCRIBE"):
             rows: list[tuple[object, ...]] = []
             for name, declaration in expected_columns():
-                base = declaration.split("(")[0].split(" ")[0]
+                base = declaration.split("(")[0].split(" ")[0].replace("UBIGINT", "BIGINT UNSIGNED")
                 length = 8
                 if "(" in declaration:
                     length = int(declaration.split("(")[1].split(")")[0])

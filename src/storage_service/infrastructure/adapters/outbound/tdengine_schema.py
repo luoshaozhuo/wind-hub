@@ -72,12 +72,27 @@ class DatabaseRetention:
         return cls(duration_days=int(duration[:-1]), keep_days=int(keep[:-1]))
 
 
-def create_database_sql(names: StorageObjectNames, retention: DatabaseRetention) -> str:
+def create_database_sql(
+    names: StorageObjectNames,
+    retention: DatabaseRetention,
+    *,
+    cachemodel: str | None = None,
+    cachesize: int | None = None,
+) -> str:
     database = _identifier(names.database)
-    return (
+    sql = (
         f"CREATE DATABASE IF NOT EXISTS {database} PRECISION 'us' "
         f"DURATION {retention.duration_days}d KEEP {retention.keep_days}d"
     )
+    if cachemodel is not None:
+        if cachemodel not in {"none", "last_row", "last_value", "both"}:
+            raise ValueError("unsupported TDengine CACHEMODEL")
+        sql += f" CACHEMODEL '{cachemodel}'"
+    if cachesize is not None:
+        if not 1 <= cachesize <= 65536:
+            raise ValueError("TDengine CACHESIZE must be 1..65536")
+        sql += f" CACHESIZE {cachesize}"
+    return sql
 
 
 def create_stable_sql(names: StorageObjectNames) -> str:

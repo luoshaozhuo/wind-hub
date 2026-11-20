@@ -452,6 +452,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             pb.STORAGE_AGGREGATION_AVG,
         ):
             raise QueryRejectedError("aggregation must select count/min/max/avg")
+        if not filter_.device_type:
+            raise QueryRejectedError("aggregation requires an explicit device_type")
         if not filter_.device_id or not filter_.point_table_id:
             raise QueryRejectedError("aggregation requires one device and one PointTable")
         if request.window_ms == 0 or request.window_ms > 31 * 86400000:

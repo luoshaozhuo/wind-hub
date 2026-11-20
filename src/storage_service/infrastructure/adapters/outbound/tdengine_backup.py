@@ -136,12 +136,17 @@ class NativeTDengineBackup:
             json.dump(manifest, stream, sort_keys=True, separators=(",", ":"))
             stream.flush()
             os.fsync(stream.fileno())
+        total_bytes = bytes_written + manifest_file.stat().st_size
+        if total_bytes > self._config.backup.max_bytes:
+            raise NativeBackupError("native backup exceeded configured byte budget")
+        if await asyncio.to_thread(self._output_size, path, self._config.backup.max_bytes):
+            raise NativeBackupError("native backup exceeded configured byte budget")
         directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
-        return task_id, bytes_written, digest
+        return task_id, total_bytes, digest
 
     @staticmethod
     def _output_size(path: Path, limit: int) -> bool:

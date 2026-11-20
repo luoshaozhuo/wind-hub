@@ -206,7 +206,9 @@ class StorageConfig(_StrictModel):
         names = [item.token_env for item in self.auth.callers]
         if len(names) != len(set(names)):
             raise ValueError("caller token environment names must be unique")
-        identities = [(item.config_type, item.config_id) for item in self.config_sources]
+        identities = [
+            (item.config_type, item.config_id, item.file_version) for item in self.config_sources
+        ]
         if len(identities) != len(set(identities)):
             raise ValueError("duplicate exact ConfigSource identities")
         if self.service_id != self.reconciliation.owner_instance_id:

@@ -97,6 +97,7 @@ def _request(
     return pb.QueryAggregatesRequest(
         filter=pb.StorageFilter(
             wind_farm_id="farm-a",
+            device_type="turbine",
             device_id="device-1",
             point_table_id="table-1",
             point_id=point_id,

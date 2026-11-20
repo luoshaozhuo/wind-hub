@@ -292,10 +292,21 @@ class TDengineBackend:
                     )
                     for name, digest, identity in identities
                 ]
-                connection.execute(create_database_sql(names, retention))
+                connection.execute(
+                    create_database_sql(
+                        names,
+                        retention,
+                        cachemodel=self._config.tdengine.database.cachemodel,
+                        cachesize=self._config.tdengine.database.cachesize,
+                    )
+                )
                 # IF NOT EXISTS cannot mutate existing KEEP. Changes are controlled.
                 self._reconcile_database_retention(connection, names, retention)
-                connection.execute(create_stable_sql(names))
+                connection.execute(
+                    create_stable_sql(names).replace(
+                        "value_u64 UBIGINT", "value_u64 BIGINT UNSIGNED"
+                    )
+                )
                 connection.execute(
                     create_table_sql(
                         names,
@@ -341,6 +352,12 @@ class TDengineBackend:
         )
         if "PRECISIONUS" not in normalized:
             raise TDengineSchemaConflictError("database precision differs from us")
+        expected_cachemodel = self._config.tdengine.database.cachemodel.upper()
+        if f"CACHEMODEL{expected_cachemodel}" not in normalized:
+            raise TDengineSchemaConflictError("database CACHEMODEL differs from configuration")
+        expected_cachesize = f"CACHESIZE{self._config.tdengine.database.cachesize}"
+        if expected_cachesize not in normalized:
+            raise TDengineSchemaConflictError("database CACHESIZE differs from configuration")
         duration = re.search(r"DURATION([1-9][0-9]*)D", normalized)
         keep = re.search(r"KEEP([1-9][0-9]*)D", normalized)
         if duration is None or keep is None:
@@ -386,7 +403,9 @@ class TDengineBackend:
         for observed, (wanted_name, wanted_type) in zip(columns, wanted, strict=False):
             if str(observed[0]).lower() != wanted_name:
                 raise TDengineSchemaConflictError(f"mismatched TDengine column: {wanted_name}")
-            expected_base = wanted_type.split("(")[0].split(" ")[0]
+            expected_base = (
+                wanted_type.split("(")[0].split(" ")[0].replace("UBIGINT", "BIGINT UNSIGNED")
+            )
             if str(observed[1]).upper() != expected_base:
                 raise TDengineSchemaConflictError(f"mismatched TDengine type: {wanted_name}")
             declared_length = re.search(r"\((\d+)\)", wanted_type)
@@ -478,9 +497,9 @@ class TDengineBackend:
                 statement = connection.stmt2_statement()
                 try:
                     placeholders = ", ".join("?" for _ in expected_columns())
-                    statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+                    statement.prepare(f"INSERT INTO {table_name} VALUES ({placeholders})")
                     binding = driver.stmt2_bind_param_view(
-                        table_name=table_name, tags=None, columns=_columns(batch, driver)
+                        table_name=None, tags=None, columns=_columns(batch, driver)
                     )
                     statement.bind([binding])
                     affected = statement.execute()
@@ -516,6 +535,13 @@ class TDengineBackend:
 
         if isinstance(value, int):
             return value
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise TDengineSchemaConflictError(
+                    "TDengine returned an invalid timestamp string"
+                ) from exc
         if isinstance(value, datetime):
             if value.tzinfo is None:
                 raise TDengineSchemaConflictError("TDengine returned a timezone-naive timestamp")

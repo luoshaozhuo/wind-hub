@@ -86,7 +86,7 @@ class ConfigurationGrpcClient:
             raise RuntimeError("Configuration channel already open")
         channel = grpc.aio.insecure_channel(self._endpoint)
         self._channel = channel
-        self._stub = rpc.ConfigurationRepositoryServiceAsyncStub(channel)
+        self._stub = rpc.ConfigurationRepositoryServiceStub(channel)
 
     async def close(self) -> None:
         if self._channel is not None:
@@ -153,33 +153,42 @@ class ConfigurationGrpcClient:
         if response.revision_id != revision:
             raise ConfigHistoryUnavailableError("Configuration bundle revision mismatch")
         digest = hashlib.sha256()
-        objects: dict[tuple[str, str], RepositoryDocument] = {}
-        file_versions: dict[tuple[str, str], str] = {}
+        objects: dict[tuple[str, str, str], RepositoryDocument] = {}
+        file_versions: dict[tuple[str, str], set[str]] = {}
         for item in response.files:
             digest.update(item.version_id.encode("utf-8"))
             digest.update(item.yaml_sha256.encode("utf-8"))
             document = _document(item)
-            key = (document.config_type, document.config_id)
+            key = (document.config_type, document.config_id, item.file_version)
             if key in objects:
-                raise ConfigHistoryUnavailableError("duplicate config identity in one closure")
+                raise ConfigHistoryUnavailableError("duplicate config version in one closure")
             objects[key] = document
-            file_versions[key] = item.file_version
+            document_identity = (document.config_type, document.config_id)
+            file_versions.setdefault(document_identity, set()).add(item.file_version)
         if digest.hexdigest() != response.manifest_sha256:
             raise ConfigHistoryUnavailableError("Configuration bundle manifest SHA256 mismatch")
         if sum(len(d.yaml_bytes) for d in objects.values()) != response.total_bytes:
             raise ConfigHistoryUnavailableError("Configuration bundle byte count mismatch")
-        service = objects.get(("service", service_id))
-        if service is None or service.version_id != roots[0].recommended_version_id:
+        service_entries = [
+            document
+            for (config_type, config_id, _version), document in objects.items()
+            if (config_type, config_id) == ("service", service_id)
+        ]
+        if len(service_entries) != 1:
+            raise ConfigHistoryUnavailableError("service config closure is ambiguous")
+        service = service_entries[0]
+        if service.version_id != roots[0].recommended_version_id:
             raise ConfigHistoryUnavailableError("service version differs from pinned revision")
         configuration = load_storage_config(service.yaml_bytes)
         if configuration.service_id != service_id:
             raise ConfigHistoryUnavailableError("service config identity mismatch")
-        required = {
-            (item.config_type, item.config_id): item.file_version
-            for item in configuration.config_sources
-        }
-        for key, version in required.items():
-            if key not in file_versions or file_versions[key] != version:
+        required: dict[tuple[str, str], set[str]] = {}
+        for source in configuration.config_sources:
+            required.setdefault((source.config_type, source.config_id), set()).add(
+                source.file_version
+            )
+        for required_key, versions in required.items():
+            if not versions <= file_versions.get(required_key, set()):
                 raise ConfigHistoryUnavailableError(
                     "Configuration bundle omitted an explicitly pinned historical dependency"
                 )
@@ -188,17 +197,18 @@ class ConfigurationGrpcClient:
             await asyncio.to_thread(self._archive.persist, document)
         points: dict[str, tuple[str, str]] = {}
         for key, document in objects.items():
-            if key[0] != "point_table" or key not in required:
+            point_identity = (key[0], key[1])
+            file_version = key[2]
+            if key[0] != "point_table" or file_version not in required.get(point_identity, set()):
                 continue
             # A source sample identifies the *full* immutable PointTable:
             # point_table_<template_id>_v<file_version>, not a repository
             # config_id or random UUID version_id.
-            file_version = file_versions[key]
             table_identity = f"point_table_{key[1]}_v{file_version}"
             if len(table_identity.encode("utf-8")) > 256:
                 raise ConfigHistoryUnavailableError("PointTable identity exceeds wire limit")
             points[table_identity] = (key[1], document.version_id)
-        business = [key for key in objects if key[0] == "business_points"]
+        business = [key for key in objects if key[0] == "business_points" and key[:2] in required]
         if len(business) > 1:
             raise ConfigHistoryUnavailableError("ambiguous business point catalog")
         pin = (business[0][1], objects[business[0]].version_id) if business else None

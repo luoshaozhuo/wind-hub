@@ -82,6 +82,23 @@ class ImmutableConfigArchive:
                 )
             self._max_bytes = value
 
+    def _matching_manifests(
+        self, *, config_type: str, config_id: str, version_id: str
+    ) -> list[tuple[Path, list[Any]]]:
+        matches: list[tuple[Path, list[Any]]] = []
+        for manifest_path in self._directory.glob("*/manifest.json"):
+            try:
+                fields = json.loads(manifest_path.read_bytes())
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ConfigHistoryUnavailableError("malformed historical archive") from exc
+            if (
+                isinstance(fields, list)
+                and len(fields) == 5
+                and fields[:3] == [config_type, config_id, version_id]
+            ):
+                matches.append((manifest_path, fields))
+        return matches
+
     def persist(self, document: RepositoryDocument) -> None:
         digest = hashlib.sha256(document.yaml_bytes).hexdigest()
         if not _HEX64.fullmatch(document.yaml_sha256) or digest != document.yaml_sha256:
@@ -89,20 +106,43 @@ class ImmutableConfigArchive:
         if not all((document.config_type, document.config_id, document.version_id)):
             raise ConfigHistoryUnavailableError("configuration document identity is missing")
 
+        manifest_fields = [
+            document.config_type,
+            document.config_id,
+            document.version_id,
+            document.revision_id,
+            document.yaml_sha256,
+        ]
         manifest = json.dumps(
+            manifest_fields,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        stable_identity = json.dumps(
             [
                 document.config_type,
                 document.config_id,
                 document.version_id,
-                document.revision_id,
                 document.yaml_sha256,
             ],
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
-        name = hashlib.sha256(manifest).hexdigest()
+        name = hashlib.sha256(stable_identity).hexdigest()
         item_dir = self._directory / name
         with self._lock:
+            existing = self._matching_manifests(
+                config_type=document.config_type,
+                config_id=document.config_id,
+                version_id=document.version_id,
+            )
+            if any(
+                fields[:3] != manifest_fields[:3] or fields[4] != manifest_fields[4]
+                for _, fields in existing
+            ):
+                raise ConfigHistoryUnavailableError(
+                    "immutable configuration identity was rebound to different content"
+                )
             expected = (
                 (item_dir / "document.yaml", document.yaml_bytes),
                 (item_dir / "manifest.json", manifest),
@@ -114,6 +154,8 @@ class ImmutableConfigArchive:
                 )
             item_dir.mkdir(mode=0o700, exist_ok=True)
             for path, payload in expected:
+                if path.name == "manifest.json" and path.exists():
+                    continue
                 self._write_once(path, payload)
             fd = os.open(item_dir, os.O_RDONLY | os.O_DIRECTORY)
             try:
@@ -147,24 +189,30 @@ class ImmutableConfigArchive:
 
     def load(self, *, config_type: str, config_id: str, version_id: str) -> RepositoryDocument:
         # An archive entry is not trusted merely because it exists on disk.
-        for manifest_path in self._directory.glob("*/manifest.json"):
+        matches = self._matching_manifests(
+            config_type=config_type, config_id=config_id, version_id=version_id
+        )
+        if len({fields[4] for _, fields in matches}) > 1:
+            raise ConfigHistoryUnavailableError("ambiguous immutable configuration identity")
+        if matches:
+            manifest_path, fields = matches[0]
             try:
-                fields = json.loads(manifest_path.read_bytes())
-                if (
-                    not isinstance(fields, list)
-                    or len(fields) != 5
-                    or fields[:3] != [config_type, config_id, version_id]
-                ):
-                    continue
                 content = (manifest_path.parent / "document.yaml").read_bytes()
                 if hashlib.sha256(content).hexdigest() != fields[4]:
                     raise ConfigHistoryUnavailableError("corrupted immutable YAML archive")
-                if (
-                    hashlib.sha256(
-                        json.dumps(fields, ensure_ascii=False, separators=(",", ":")).encode()
-                    ).hexdigest()
-                    != manifest_path.parent.name
-                ):
+                stable_manifest = json.dumps(
+                    [fields[0], fields[1], fields[2], fields[4]],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode()
+                legacy_manifest = json.dumps(
+                    fields, ensure_ascii=False, separators=(",", ":")
+                ).encode()
+                valid_names = {
+                    hashlib.sha256(stable_manifest).hexdigest(),
+                    hashlib.sha256(legacy_manifest).hexdigest(),
+                }
+                if manifest_path.parent.name not in valid_names:
                     raise ConfigHistoryUnavailableError("corrupted manifest identity")
                 return RepositoryDocument(
                     config_type=config_type,
@@ -174,7 +222,7 @@ class ImmutableConfigArchive:
                     yaml_bytes=content,
                     yaml_sha256=fields[4],
                 )
-            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            except (OSError, TypeError, ValueError) as exc:
                 raise ConfigHistoryUnavailableError("malformed historical archive") from exc
         raise ConfigHistoryUnavailableError(
             f"historical configuration unavailable: {config_type}:{config_id}:{version_id}"
