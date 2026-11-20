@@ -109,9 +109,7 @@ def validate_service_technology(service: dict[str, Any]) -> None:
             frozenset({"caller_id", "token_env", "permissions"}),
         )
         caller_id = expect_nonempty_str(caller["caller_id"], f"{location}.caller_id")
-        token_ref = expect_nonempty_str(
-            caller["token_env"], f"{location}.token_env"
-        )
+        token_ref = expect_nonempty_str(caller["token_env"], f"{location}.token_env")
         if re.fullmatch(r"env:[A-Za-z_][A-Za-z0-9_]*", token_ref) is None:
             raise ConfigurationError(f"{location}: invalid token environment reference")
         permissions = caller["permissions"]
@@ -132,12 +130,14 @@ def validate_service_technology(service: dict[str, Any]) -> None:
         sync,
         "config_sync",
         frozenset({"apply_timeout_ms"}),
-        frozenset({
-            "repository_endpoint",
-            "repository_token_ref",
-            "approved_point_table_manifests",
-            "poll_interval_seconds",
-        }),
+        frozenset(
+            {
+                "repository_endpoint",
+                "repository_token_ref",
+                "approved_point_table_manifests",
+                "poll_interval_seconds",
+            }
+        ),
     )
     repo_keys = {"repository_endpoint", "repository_token_ref"}
     if repo_keys & set(sync):

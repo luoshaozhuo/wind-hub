@@ -46,7 +46,9 @@ def parse_point_table_bundle(
     for item in response.documents:
         identity = item.config_id
         config_type, config_id, version = (
-            identity.config_type, identity.config_id, item.file_version
+            identity.config_type,
+            identity.config_id,
+            item.file_version,
         )
         key = (config_type, config_id, version)
         if not all(key) or key in documents or not item.version_id or not item.relative_path:
@@ -70,14 +72,16 @@ def parse_point_table_bundle(
         if config_type not in {"point_table", "business_points", "units"}:
             raise ConfigurationError("unexpected document in PointTable closure")
         documents[key] = decoded
-        manifest.append({
-            "config_type": config_type,
-            "config_id": config_id,
-            "version_id": item.version_id,
-            "content_sha256": item.content_sha256,
-            "yaml_sha256": item.yaml_sha256,
-            "relative_path": item.relative_path,
-        })
+        manifest.append(
+            {
+                "config_type": config_type,
+                "config_id": config_id,
+                "version_id": item.version_id,
+                "content_sha256": item.content_sha256,
+                "yaml_sha256": item.yaml_sha256,
+                "relative_path": item.relative_path,
+            }
+        )
     manifest.sort(key=lambda x: (x["config_type"], x["config_id"], x["version_id"]))
     manifest_hash = hashlib.sha256(_canonical(manifest)).hexdigest()
     if not response.manifest_sha256 or manifest_hash != response.manifest_sha256:
@@ -93,10 +97,13 @@ def parse_point_table_bundle(
     if len(unit_docs) != 1 or len(business_docs) != 1:
         raise ConfigurationError("ambiguous pinned Units/BusinessPoint versions")
     try:
-        units = parse_unit_catalog({
-            key: value for key, value in unit_docs[0].items()
-            if key not in {"schema_version", "file_version"}
-        })
+        units = parse_unit_catalog(
+            {
+                key: value
+                for key, value in unit_docs[0].items()
+                if key not in {"schema_version", "file_version"}
+            }
+        )
         business_points = parse_business_points(
             {"business_points": business_docs[0]["business_points"]}, units
         )

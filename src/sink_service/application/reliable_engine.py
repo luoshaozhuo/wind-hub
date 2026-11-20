@@ -192,9 +192,7 @@ class ReliableDeliveryEngine:
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
                 chunk_items = selected[start : start + 500]
-                payloads = await self._encode_with_heartbeat(
-                    message, batch, chunk_items
-                )
+                payloads = await self._encode_with_heartbeat(message, batch, chunk_items)
                 chunk_length = len(chunk_items)
             else:
                 chunk = samples[start : start + 500]

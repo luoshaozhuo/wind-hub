@@ -53,7 +53,7 @@ class HistoricalPointTable:
                 converted: object = value
             else:
                 engineering = engineering_value(point, value)
-                if isinstance(engineering, (int, float)) and not isinstance(engineering, bool):
+                if isinstance(engineering, int | float) and not isinstance(engineering, bool):
                     if not isfinite(float(engineering)):
                         raise ValueError("nonfinite engineering value")
                     if isinstance(engineering, int) and abs(engineering) > 2**53:
@@ -69,5 +69,3 @@ class HistoricalPointTable:
         return BusinessValue(
             str(business.business_point_id), business.standard_unit.unit_id, result
         )
-
-

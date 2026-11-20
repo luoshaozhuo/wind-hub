@@ -72,9 +72,9 @@ def _record(
 
 
 def _encode(record: dict[str, object]) -> bytes:
-    return json.dumps(
-        record, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-    ).encode("utf-8")
+    return json.dumps(record, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def encode_kafka_points(

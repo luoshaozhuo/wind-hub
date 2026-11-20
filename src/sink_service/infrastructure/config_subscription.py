@@ -191,6 +191,7 @@ class ConfigurationSubscriber:
             while not stop.is_set():
                 if client is None:
                     try:
+
                         async def on_reconnect() -> None:
                             wake.set()
 

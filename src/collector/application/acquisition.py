@@ -287,9 +287,7 @@ class DeviceWorker:
         # Preserve protocol-decoded scalars. Scale/offset and BusinessPoint
         # conversion belong to Sink, using the immutable PointTable closure.
         converted = [
-            sample
-            for sample in samples
-            if sample.point_id in self.plan.point_table.points
+            sample for sample in samples if sample.point_id in self.plan.point_table.points
         ]
         if any(sample.quality is Quality.GOOD for sample in converted):
             if self._recovery_started is not None:

@@ -295,9 +295,7 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                 "description": "调用者权限名称",
                 "example": "query",
             }
-            updated_header["schema_version"] = _field(
-                "配置结构版本 2", "integer", required=True
-            )
+            updated_header["schema_version"] = _field("配置结构版本 2", "integer", required=True)
             yield SchemaSpec(
                 config_type="service",
                 schema_version=2,

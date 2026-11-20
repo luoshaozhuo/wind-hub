@@ -11,10 +11,10 @@ import grpc
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
 from sink_service.application.business_projection import HistoricalPointTable
+from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure.adapters.outbound.historical_bundle_codec import (
     parse_point_table_bundle,
 )
-from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure.secrets import resolve_secret
 
 
@@ -27,8 +27,7 @@ class HistoricalPointTableClient:
         if not endpoint or not token_ref.startswith("env:"):
             raise ConfigurationError("historical repository endpoint/token are required")
         if not approved_manifests or any(
-            re.fullmatch(r"[a-f0-9]{64}", digest) is None
-            for digest in approved_manifests.values()
+            re.fullmatch(r"[a-f0-9]{64}", digest) is None for digest in approved_manifests.values()
         ):
             raise ConfigurationError("BUSINESS requires approved manifest SHA-256 identities")
         self._approved = dict(approved_manifests)

@@ -398,9 +398,7 @@ def _validate_delivery(
                 }
             ),
         )
-        reliable_output = expect_mapping(
-            template.get("output"), f"deliveries.{delivery_id}.output"
-        )
+        reliable_output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
         require_keys(
             reliable_output,
             f"deliveries.{delivery_id}.output",

@@ -71,6 +71,7 @@ def _peer_identity(_context: grpc.aio.ServicerContext[Any, Any]) -> str:
     """Do not log Bearer secrets or self-declared caller metadata."""
     return "authorized-bearer-caller"
 
+
 def _delivery(
     value: DeliveryView, configuration: dict[str, Any] | None = None
 ) -> sink_service_pb2.Delivery:

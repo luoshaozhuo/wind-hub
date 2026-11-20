@@ -76,9 +76,8 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await registry.refresh()
         # Every service reconciles independently; broadcast is only a wakeup.
         # The Repository's revision and complete dependency bundle are authoritative.
-        if (
-            service["config_sync"].get("repository_endpoint")
-            and service["config_sync"].get("repository_token_ref")
+        if service["config_sync"].get("repository_endpoint") and service["config_sync"].get(
+            "repository_token_ref"
         ):
             subscriber = ConfigurationSubscriber(manager, service)
             background.append(asyncio.create_task(subscriber.run(stop)))

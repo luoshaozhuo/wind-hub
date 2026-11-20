@@ -38,7 +38,9 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
         identities: dict[str, tuple[str, frozenset[str]]] = {}
         for caller in callers:
             if not isinstance(caller, dict) or set(caller) != {
-                "caller_id", "token_env", "permissions"
+                "caller_id",
+                "token_env",
+                "permissions",
             }:
                 raise ConfigurationError("invalid security caller")
             caller_id = caller["caller_id"]
@@ -80,14 +82,13 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
 
         async def authorized(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
             if permission is None:
-                await context.abort(
-                    grpc.StatusCode.PERMISSION_DENIED, "unsupported management RPC"
-                )
-            supplied = [
-                item[1]
-                for item in context.invocation_metadata()
-                if item[0].lower() == "authorization"
-            ]
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "unsupported management RPC")
+            metadata = context.invocation_metadata()
+            supplied = (
+                [item[1] for item in metadata if item[0].lower() == "authorization"]
+                if metadata
+                else []
+            )
             if len(supplied) != 1 or not isinstance(supplied[0], str):
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, "valid Bearer token required")
             candidate = supplied[0][7:] if supplied[0].startswith("Bearer ") else ""
