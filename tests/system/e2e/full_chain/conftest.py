@@ -49,7 +49,6 @@ from tests.cli.test_r1f3_strict_cli_e2e import (
 from tests.commander.grpc_harness import build_pki
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
 from tests.support.collector_config_tree import _dump
 from tests.support.commander_mtls import write_commander_service
@@ -729,7 +728,6 @@ def _build_and_start(
     _dump(commander_service, document)
 
     # ---------------- sink ----------------
-    bundle = write_mtls_bundle(root / "sink-pki")
     sink = SinkSystemHarness(
         root=root / "sink",
         stack=stack,
@@ -740,7 +738,6 @@ def _build_and_start(
         dlq_stream=f"WH_DLQ_FC_{harness.token.upper()}",
         dlq_subject=f"wh.fullchain.dlq.{harness.token}",
         token=harness.token,
-        bundle=bundle,
     )
     harness.sink = sink
     asyncio.run(_provision_kafka_topic(stack.kafka, sink.kafka_topic))
@@ -751,8 +748,7 @@ def _build_and_start(
     sink_service_document = _load(sink_service)
     sink_service_document["wind_farm_id"] = FARM
     _dump(sink_service, sink_service_document)
-    sink.bundle = write_mtls_bundle(sink.root)
-    bundle = sink.bundle
+    cli.sink_token = sink.auth_tokens["admin"]
     bounded_rt = {
         "wind_farm_id": FARM,
         "collector_id": harness.rt_collector,
@@ -956,6 +952,7 @@ def _build_and_start(
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             sink.root,
             {
+                "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
                 "WH_FULLCHAIN_GATEWAY_TLS": json.dumps(
                     {
                         "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
@@ -981,7 +978,6 @@ def _build_and_start(
         processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
     _write_cli(
         harness.cli_rel,
@@ -990,7 +986,6 @@ def _build_and_start(
         processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
 
     try:
