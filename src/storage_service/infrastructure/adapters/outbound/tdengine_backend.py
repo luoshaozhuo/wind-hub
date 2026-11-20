@@ -386,11 +386,25 @@ class TDengineBackend:
         for observed, (wanted_name, wanted_type) in zip(columns, wanted, strict=False):
             if str(observed[0]).lower() != wanted_name:
                 raise TDengineSchemaConflictError(f"mismatched TDengine column: {wanted_name}")
-            # Connector DESCRIBE supplies type name and length separately; the full
-            # tuple's precision/type compatibility is checked by the G-01 Spike.
             expected_base = wanted_type.split("(")[0].split(" ")[0]
             if str(observed[1]).upper() != expected_base:
                 raise TDengineSchemaConflictError(f"mismatched TDengine type: {wanted_name}")
+            declared_length = re.search(r"\\((\\d+)\\)", wanted_type)
+            if declared_length is not None:
+                if len(observed) < 3:
+                    raise TDengineSchemaConflictError(
+                        f"TDengine column length unavailable: {wanted_name}"
+                    )
+                try:
+                    actual_length = int(observed[2])
+                except (TypeError, ValueError) as exc:
+                    raise TDengineSchemaConflictError(
+                        f"invalid TDengine column length: {wanted_name}"
+                    ) from exc
+                if actual_length != int(declared_length.group(1)):
+                    raise TDengineSchemaConflictError(
+                        f"mismatched TDengine column length: {wanted_name}"
+                    )
 
         tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
         tag_map = {str(row[3]): str(row[5]) for row in tag_rows}
