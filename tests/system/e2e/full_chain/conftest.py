@@ -606,6 +606,8 @@ def _build_and_start(
     cli = StrictCliE2E(root)
     harness = FullChainHarness(root, stack, cli)
     ports = {name: reserve_port() for name in SERVICES}
+    ports["gateway_sink"] = reserve_port()
+    gateway_sink_token = os.urandom(32).hex()
     harness.ports = ports
     harness.endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
     harness.modbus_ports = {device_id: reserve_port() for device_id in E2E_DEVICES}
@@ -635,6 +637,7 @@ def _build_and_start(
 
     gateway_service = _write_gateway_service(plant, grpc_port=ports["gateway"], pki=pki)
     gateway_document = _load(gateway_service)
+    gateway_document["grpc"]["sink_listener_port"] = ports["gateway_sink"]
     servers = gateway_document["servers"]
     assert [item["device_id"] for item in servers] == list(SIM_DEVICES)
     servers.append(
@@ -831,7 +834,7 @@ def _build_and_start(
         "template_id": "gateway_realtime",
         "template_version": "1.0.0",
         "connection": {
-            "endpoint": harness.gw_grpc_endpoint,
+            "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
             "gateway_id": "gw-wtg_sim01",
         },
         "overrides": {},
@@ -848,7 +851,7 @@ def _build_and_start(
             "template_id": "gateway_realtime",
             "template_version": "1.0.0",
             "connection": {
-                "endpoint": harness.gw_grpc_endpoint,
+                "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
                 "gateway_id": f"gw-{suffix}",
             },
             "overrides": {},
@@ -951,13 +954,7 @@ def _build_and_start(
             sink.root,
             {
                 "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
-                "WH_FULLCHAIN_GATEWAY_TLS": json.dumps(
-                    {
-                        "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                        "client_cert_pem": clients["sink"][0].read_text(encoding="utf-8"),
-                        "client_key_pem": clients["sink"][1].read_text(encoding="utf-8"),
-                    }
-                ),
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
             },
         ),
         "commander": (
