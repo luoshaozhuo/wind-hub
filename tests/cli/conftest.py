@@ -149,6 +149,9 @@ class FakeRpcServer:
     def __init__(self, cert_files: dict[str, Path]) -> None:
         self.cert_files = cert_files
         self.port = _free_port()
+        # Token-secured internal services (Sink, Configuration) use plaintext
+        # channels on the isolated network, so expose a second insecure port.
+        self.insecure_port = _free_port()
         self.behaviors: dict[str, Behavior] = {}
         self.errors: dict[str, grpc.StatusCode] = {}
         self.calls: list[CallRecord] = []
@@ -221,6 +224,7 @@ class FakeRpcServer:
             require_client_auth=require_client,
         )
         server.add_secure_port(f"127.0.0.1:{self.port}", credentials)
+        server.add_insecure_port(f"127.0.0.1:{self.insecure_port}")
         await server.start()
         self._server = server
 
@@ -260,20 +264,32 @@ def fake_server(certs: dict[str, Path]):
 
 
 def _write_cli_yaml(
-    path: Path, cert_files: dict[str, Path], port: int, *, tls: bool = True
+    path: Path,
+    cert_files: dict[str, Path],
+    port: int,
+    *,
+    tls: bool = True,
+    insecure_port: int | None = None,
 ) -> Path:
-    services = "\n".join(
-        f"""  {name}:
-    grpc_endpoint: "localhost:{port}"
-    tls_profile: mtls"""
-        for name in (
-            "collector",
-            "commander",
-            "sink",
-            "gateway",
-            "data_generator",
-        )
+    # Sink and Configuration use internal Bearer-token channels and must not
+    # carry a TLS profile; the other management services remain mTLS-based.
+    token_services = {"sink", "configuration"}
+    service_names = (
+        "collector",
+        "commander",
+        "sink",
+        "gateway",
+        "data_generator",
+        "configuration",
     )
+    rendered = []
+    for name in service_names:
+        target_port = insecure_port if name in token_services and insecure_port else port
+        line = f'  {name}:\n    grpc_endpoint: "localhost:{target_port}"'
+        if name not in token_services:
+            line += "\n    tls_profile: mtls"
+        rendered.append(line)
+    services = "\n".join(rendered)
     profile = ""
     if tls:
         profile = f"""
@@ -330,7 +346,16 @@ def cli_env(
     # N-CLI-1：Collector 管理/读/诊断 RPC 客户端 fail-closed，
     # 测试环境必须提供管理员令牌（FakeRpcServer 不校验其值）。
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "cli-e2e-admin-token")
-    config_path = _write_cli_yaml(tmp_path / "cli.yaml", certs, fake_server.port)
+    # Internal Bearer-token channels; FakeRpcServer does not validate them but
+    # the Runtime refuses to build metadata without a sufficiently long secret.
+    monkeypatch.setenv("WIND_HUB_CONFIG_CLI_ADMIN_TOKEN", "cli-e2e-configuration-admin-token-0001")
+    monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", "cli-e2e-sink-management-token-0001")
+    config_path = _write_cli_yaml(
+        tmp_path / "cli.yaml",
+        certs,
+        fake_server.port,
+        insecure_port=fake_server.insecure_port,
+    )
     runner = CliRunner()
     previous = (
         main_module._config,

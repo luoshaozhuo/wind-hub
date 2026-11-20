@@ -180,6 +180,7 @@ _REALTIME_DELIVERY_TEMPLATE = {
         "period_ms": 100,
         "absolute_threshold": 1.0,
         "relative_threshold": 0.01,
+        "data_level": "protocol",
     },
     "staleness": {"max_age_ms": 60000},
 }
@@ -196,6 +197,7 @@ _RELIABLE_DELIVERY_TEMPLATE = {
         "retry_max_ms": 60000,
         "dead_letter_subject": "wh.dlq",
     },
+    "output": {"data_level": "protocol"},
 }
 
 

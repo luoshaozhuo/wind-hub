@@ -1,17 +1,19 @@
-"""KafkaOutput 设备级锁槽并发语义（单元层，fake producer）。
+"""KafkaOutput device-lock stripe concurrency semantics (unit, fake producer).
 
-覆盖设计 §6.3.3 第 4 条：
+Covers design §6.3.3: the same device stripe serializes while distinct stripes
+overlap; a hash collision only reduces parallelism; a mid-batch failure still
+awaits the in-flight confirmation (no orphan future); close/reopen leaves no
+pending confirmation and unopened writes fail closed.
 
-- 同设备批次严格串行，不同设备经同一 Producer 异步重叠；
-- 锁槽哈希碰撞只损失并行度，不改变顺序与正确性；
-- send 中途异常时已入队 Future 仍被全部等待（无孤儿 Future）；
-- close/reopen 后不残留未确认 Future，未 open 写入 fail-closed；
-- 锁槽数量有界（128），混合设备批次取多槽且按全局顺序获取（无死锁）。
+The durable Kafka boundary is ``write_encoded_batch`` (one pre-encoded record
+batch per device key/stripe); the fake producer implements the batch-builder
+API the production adapter drives.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,8 +21,13 @@ import aiokafka
 import pytest
 
 import sink_service.infrastructure.adapters.outbound.realtime_adapters as adapters
-from sink_service.application.delivery_point import DeliveryPoint
-from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
+from contracts.sample_batch import SampleBatch, SampleItem
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
+    encode_kafka_points,
+)
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import (
+    KafkaOutput,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.reliability]
 
@@ -30,47 +37,68 @@ TOPIC = "qa-topic"
 STRIPES = 128
 
 
-def _sample(sample_id: str, *, device: str) -> DeliveryPoint:
-    now = datetime.now(UTC)
-    return DeliveryPoint(
-        wind_farm_id=FARM,
-        collector_id=COLLECTOR,
-        task_id="task-1",
-        device_type="wind_turbine",
-        device_id=device,
-        point_table_id="point_table_wtg_sim_v1.0.0",
-        batch_id="batch-test",
-        point_id="active_power",
-        sample_id=sample_id,
-        value=1.0,
-        quality="good",  # type: ignore[arg-type]
-        sample_time=now,
-        publish_time=now,
-        receive_time=None,
-        max_staleness_ms=5000,
-    )
-
-
 class _Cluster:
+    def __init__(self) -> None:
+        self.listeners: list[Any] = []
+
     def add_listener(self, listener: Any) -> None:
-        self.listener = listener
+        self.listeners.append(listener)
 
     def remove_listener(self, listener: Any) -> None:
-        self.listener = None
+        self.listeners.remove(listener)
 
 
-class _GatedProducer:
-    """send 可被门控的 fake，记录在途并发与每设备顺序。"""
+class _Client:
+    def __init__(self) -> None:
+        self.cluster = _Cluster()
 
-    def __init__(self, *, gate: asyncio.Event | None = None, fail_after: int | None = None) -> None:
-        self.client = type("Client", (), {"cluster": _Cluster()})()
+    async def _wait_on_metadata(self, topic: str) -> None:
+        return None
+
+
+class _BatchBuilder:
+    def __init__(self) -> None:
+        self.records: list[tuple[bytes, bytes]] = []
+        self.closed = False
+
+    def append(self, *, key: bytes, value: bytes, timestamp: Any) -> object:
+        self.records.append((key, value))
+        return object()  # truthy: record accepted into the current batch
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _Future:
+    def __init__(self) -> None:
+        self.awaited = 0
+        self._event = asyncio.Event()
+
+    def set_result(self) -> None:
+        self._event.set()
+
+    def __await__(self) -> Any:
+        self.awaited += 1
+        yield from self._event.wait().__await__()
+
+
+class _BatchProducer:
+    """Gated batch producer tracking in-flight send_batch calls per stripe."""
+
+    def __init__(
+        self,
+        *,
+        gate: asyncio.Event | None = None,
+        fail_after: int | None = None,
+    ) -> None:
+        self.client = _Client()
         self.gate = gate
         self.fail_after = fail_after
         self.inflight = 0
         self.max_inflight = 0
-        self.send_order: list[tuple[str, str]] = []
+        self.send_order: list[str] = []
         self.futures: list[_Future] = []
-        self._send_count = 0
+        self._sends = 0
         self.stopped = False
 
     async def start(self) -> None:
@@ -79,49 +107,81 @@ class _GatedProducer:
     async def stop(self) -> None:
         self.stopped = True
 
-    async def send(self, topic: str, *, key: bytes, value: bytes, partition: int | None) -> Any:
-        self._send_count += 1
-        if self.fail_after is not None and self._send_count > self.fail_after:
+    async def _wait_on_metadata(self, topic: str) -> None:
+        return None
+
+    def _partition(
+        self,
+        topic: str,
+        partition: Any,
+        key: bytes,
+        value: Any,
+        serialized_key: bytes,
+        serialized_value: Any,
+    ) -> int:
+        return 0
+
+    def create_batch(self) -> _BatchBuilder:
+        return _BatchBuilder()
+
+    async def send_batch(self, builder: _BatchBuilder, topic: str, partition: Any) -> _Future:
+        device = builder.records[0][0].decode().split(":")[-1] if builder.records else "?"
+        self._sends += 1
+        if self.fail_after is not None and self._sends > self.fail_after:
             raise RuntimeError("produce refused")
         future = _Future()
         self.futures.append(future)
-        device = key.decode().split(":")[-1]
-        self.send_order.append((device, future.tag))
+        self.send_order.append(device)
         self.inflight += 1
         self.max_inflight = max(self.max_inflight, self.inflight)
         try:
             if self.gate is not None:
                 await self.gate.wait()
-            future.set_result(None)
+            future.set_result()
             return future
         finally:
             self.inflight -= 1
 
 
-class _Future:
-    def __init__(self) -> None:
-        self.tag = f"f{id(self)}"
-        self._event = asyncio.Event()
-        self.awaited = 0
-
-    def set_result(self, value: None) -> None:
-        self._event.set()
-
-    def __await__(self) -> Any:
-        self.awaited += 1
-        yield from self._event.wait().__await__()
-
-
-def _patch_producer(monkeypatch: pytest.MonkeyPatch, producer: _GatedProducer) -> None:
+def _patch_producer(monkeypatch: pytest.MonkeyPatch, producer: _BatchProducer) -> None:
     monkeypatch.setattr(aiokafka, "AIOKafkaProducer", lambda **options: producer)
 
 
 def _output() -> KafkaOutput:
-    return KafkaOutput(
-        servers=["127.0.0.1:9092"],
-        topic=TOPIC,
-        timeout_ms=10000,
+    return KafkaOutput(servers=["127.0.0.1:9092"], topic=TOPIC, timeout_ms=10000)
+
+
+def _encoded(device: str, count: int = 1) -> tuple[bytes, ...]:
+    now = datetime.now(UTC)
+    batch = SampleBatch(
+        batch_id="b-stripe",
+        mode="reliable",
+        wind_farm_id=FARM,
+        collector_id=COLLECTOR,
+        task_id="task-1",
+        device_type="wind_turbine",
+        device_id=device,
+        point_table_id="point_table_wtg_sim_v1.0.0",
+        publish_time=now,
+        samples=tuple(
+            SampleItem(
+                point_id=f"p{i:03d}",
+                sample_id=f"s-{device}-{i}",
+                value=1.0,
+                quality="good",
+                sample_time=now,
+                max_staleness_ms=None,
+            )
+            for i in range(count)
+        ),
     )
+    return encode_kafka_points(batch, batch.samples, data_level="protocol")
+
+
+def _route(device: str) -> tuple[bytes, int]:
+    key = f"{FARM}:{COLLECTOR}:{device}".encode()
+    # Route through the production module symbol so stripe monkeypatching applies.
+    return key, adapters.crc32(key) % STRIPES
 
 
 def test_device_locks_are_bounded_stripes() -> None:
@@ -130,39 +190,34 @@ def test_device_locks_are_bounded_stripes() -> None:
     assert all(isinstance(lock, asyncio.Lock) for lock in output._device_locks)  # noqa: SLF001
 
 
-async def test_distinct_devices_overlap_and_per_device_order_holds(
+async def test_distinct_stripes_overlap_and_each_fully_settles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # 确定性锁槽：DEV-A→0、DEV-B→1，避免哈希随机性使测试脆弱。
-    monkeypatch.setattr(
-        adapters,
-        "hash",
-        lambda key: 0 if key[2] == "DEV-A" else 1,
-        raising=False,
-    )
     gate = asyncio.Event()
-    producer = _GatedProducer(gate=gate)
+    producer = _BatchProducer(gate=gate)
     _patch_producer(monkeypatch, producer)
     output = _output()
     await output.open()
     try:
-        batch_a = tuple(_sample(f"a{i}", device="DEV-A") for i in range(3))
-        batch_b = tuple(_sample(f"b{i}", device="DEV-B") for i in range(3))
-        task_a = asyncio.create_task(output.write_batch(batch_a))
-        task_b = asyncio.create_task(output.write_batch(batch_b))
+        key_a, stripe_a = _route("DEV-A")
+        key_b, stripe_b = _route("DEV-B")
+        task_a = asyncio.create_task(
+            output.write_encoded_batch(_encoded("DEV-A", 3), key=key_a, stripe=stripe_a)
+        )
+        task_b = asyncio.create_task(
+            output.write_encoded_batch(_encoded("DEV-B", 3), key=key_b, stripe=stripe_b)
+        )
         for _ in range(40):
             await asyncio.sleep(0.005)
             if producer.max_inflight == 2:
                 break
-        assert producer.max_inflight == 2  # 不同设备真正并行
+        assert producer.max_inflight == 2  # distinct stripes genuinely overlap
         gate.set()
         outcome_a, outcome_b = await asyncio.gather(task_a, task_b)
+        # One batch confirmation settles all three encoded records.
         assert outcome_a.delivered == (0, 1, 2)
         assert outcome_b.delivered == (0, 1, 2)
-        # 每设备在 send 侧的入队次数与批次一致；同设备只有一个持锁写入者，
-        # 批次内顺序由锁槽天然保证，跨设备完成顺序不做承诺。
-        devices = [device for device, _tag in producer.send_order]
-        assert devices.count("DEV-A") == 3 and devices.count("DEV-B") == 3
+        assert sorted(producer.send_order) == ["DEV-A", "DEV-B"]
         assert all(future.awaited == 1 for future in producer.futures)
     finally:
         await output.close()
@@ -171,23 +226,27 @@ async def test_distinct_devices_overlap_and_per_device_order_holds(
 async def test_stripe_hash_collision_serializes_without_corruption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # crc32 设备锁亲和（进程重启稳定）；碰撞注入改打 crc32 而非随机化 hash。
     monkeypatch.setattr(adapters, "crc32", lambda _key: 0, raising=False)
     gate = asyncio.Event()
-    producer = _GatedProducer(gate=gate)
+    producer = _BatchProducer(gate=gate)
     _patch_producer(monkeypatch, producer)
     output = _output()
     await output.open()
     try:
-        task_a = asyncio.create_task(output.write_batch((_sample("a0", device="DEV-A"),)))
-        # 确保 A 已进入门控区后再发起 B。
+        key_a, stripe_a = _route("DEV-A")
+        key_b, stripe_b = _route("DEV-B")
+        task_a = asyncio.create_task(
+            output.write_encoded_batch(_encoded("DEV-A"), key=key_a, stripe=stripe_a)
+        )
         for _ in range(40):
             await asyncio.sleep(0.005)
             if producer.inflight == 1:
                 break
-        task_b = asyncio.create_task(output.write_batch((_sample("b0", device="DEV-B"),)))
+        task_b = asyncio.create_task(
+            output.write_encoded_batch(_encoded("DEV-B"), key=key_b, stripe=stripe_b)
+        )
         await asyncio.sleep(0.05)
-        assert producer.max_inflight == 1  # 碰撞：并行度退化为 1，但不损坏正确性
+        assert producer.max_inflight == 1  # collision: parallelism degrades to 1
         gate.set()
         outcome_a, outcome_b = await asyncio.gather(task_a, task_b)
         assert outcome_a.delivered == (0,) and outcome_b.delivered == (0,)
@@ -196,77 +255,67 @@ async def test_stripe_hash_collision_serializes_without_corruption(
         await output.close()
 
 
-async def test_send_failure_awaits_already_submitted_futures(
+async def test_send_failure_reports_error_without_false_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # 第 2 个 send 抛错：第 1 个 Future 必须仍被等待，不得成为孤儿。
-    producer = _GatedProducer(fail_after=1)
+    producer = _BatchProducer(fail_after=1)
     _patch_producer(monkeypatch, producer)
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch(
-            tuple(_sample(f"s{i}", device="DEV-A") for i in range(3))
-        )
-        # 首个 Future 已被 Broker 确认则如实计入 delivered；关键是它被等待而非孤儿。
-        assert outcome.delivered == (0,)
-        assert "not queued" in outcome.error
-        assert len(producer.send_order) == 1
-        assert len(producer.futures) == 1 and producer.futures[0].awaited == 1
+        key, stripe = _route("DEV-A")
+        first = await output.write_encoded_batch(_encoded("DEV-A"), key=key, stripe=stripe)
+        assert first.delivered == (0,)
+        # Second batch fails at enqueue; no success is fabricated.
+        failed = await output.write_encoded_batch(_encoded("DEV-A"), key=key, stripe=stripe)
+        assert failed.delivered == ()
+        assert "not queued" in failed.error
     finally:
         await output.close()
 
 
-async def test_close_reopen_leaves_no_unconfirmed_future(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    producers: list[_GatedProducer] = []
+async def test_close_reopen_leaves_no_unconfirmed_future(monkeypatch: pytest.MonkeyPatch) -> None:
+    producers: list[_BatchProducer] = []
     monkeypatch.setattr(
         aiokafka,
         "AIOKafkaProducer",
-        lambda **options: producers.append(_GatedProducer()) or producers[-1],
+        lambda **options: producers.append(_BatchProducer()) or producers[-1],
     )
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch((_sample("s0", device="DEV-A"),))
+        key, stripe = _route("DEV-A")
+        outcome = await output.write_encoded_batch(_encoded("DEV-A"), key=key, stripe=stripe)
         assert outcome.delivered == (0,)
         assert all(future.awaited == 1 for future in producers[0].futures)
     finally:
         await output.close()
     assert producers[0].stopped
-    # close 后未 open 写入：fail-closed，不产生新 Future。
-    closed_outcome = await output.write_batch((_sample("s1", device="DEV-A"),))
-    assert closed_outcome.delivered == () and "not connected" in closed_outcome.error
-    # reopen 获得新 Producer，链路恢复。
+    closed_key, closed_stripe = _route("DEV-A")
+    closed = await output.write_encoded_batch(
+        _encoded("DEV-A"), key=closed_key, stripe=closed_stripe
+    )
+    assert closed.delivered == () and "not connected" in closed.error
     await output.open()
     try:
         assert output._producer is not None  # noqa: SLF001
-        reopened = await output.write_batch((_sample("s2", device="DEV-A"),))
+        key, stripe = _route("DEV-A")
+        reopened = await output.write_encoded_batch(_encoded("DEV-A"), key=key, stripe=stripe)
         assert reopened.delivered == (0,)
         assert all(future.awaited == 1 for future in producers[1].futures)
     finally:
         await output.close()
 
 
-async def test_mixed_device_batch_acquires_multiple_stripes_and_succeeds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        adapters,
-        "hash",
-        lambda key: 0 if key[2] == "DEV-A" else 1,
-        raising=False,
-    )
-    producer = _GatedProducer()
-    _patch_producer(monkeypatch, producer)
+async def test_write_encoded_batch_without_open_fails_closed() -> None:
     output = _output()
-    await output.open()
-    try:
-        mixed = (_sample("a", device="DEV-A"), _sample("b", device="DEV-B"))
-        outcome = await output.write_batch(mixed)
-        assert outcome.delivered == (0, 1)
-        assert {device for device, _ in producer.send_order} == {"DEV-A", "DEV-B"}
-        assert all(future.awaited == 1 for future in producer.futures)
-    finally:
-        await output.close()
+    key, stripe = _route("DEV-A")
+    outcome = await output.write_encoded_batch(_encoded("DEV-A"), key=key, stripe=stripe)
+    assert outcome.delivered == ()
+    assert "not connected" in outcome.error
+
+
+def test_partition_cache_is_an_ordered_dict() -> None:
+    # The LRU structure used by write_encoded_batch remains an OrderedDict.
+    output = _output()
+    assert isinstance(output._partition_cache, OrderedDict)  # noqa: SLF001

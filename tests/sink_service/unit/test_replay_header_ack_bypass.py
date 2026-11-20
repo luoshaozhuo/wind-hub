@@ -80,7 +80,9 @@ def _reliable_batch() -> SampleBatch:
         wind_farm_id="farm-a",
         collector_id="collector-1",
         task_id="task-qa",
+        device_type="wind_turbine",
         device_id="WT001",
+        point_table_id="point_table_wtg_sim_v1.0.0",
         publish_time=now,
         samples=(
             SampleItem(

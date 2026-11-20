@@ -126,7 +126,7 @@ def test_caller_unknown_permission_rejected() -> None:
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                 "permissions": ["query", "root"],
             }
         ]
@@ -140,7 +140,7 @@ def test_caller_duplicate_permission_rejected() -> None:
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                 "permissions": ["query", "query"],
             }
         ]
@@ -152,11 +152,11 @@ def test_caller_duplicate_permission_rejected() -> None:
 def test_duplicate_caller_id_and_identity_rejected() -> None:
     base = {
         "caller_id": "maintenance",
-        "certificate_identity": "spiffe://wind-hub/maintenance",
+        "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
         "permissions": ["query"],
     }
     second = copy.deepcopy(base)
-    second["certificate_identity"] = "spiffe://wind-hub/other"
+    second["token_env"] = "env:WIND_HUB_SINK_WEB_TOKEN"
     doc = service_document(callers=[base, second])
     with pytest.raises(ConfigurationError, match="duplicat"):
         validate_service_technology(doc)
@@ -173,7 +173,7 @@ def test_caller_unknown_key_rejected() -> None:
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                 "permissions": ["query"],
                 "self_declared_role": "admin",
             }

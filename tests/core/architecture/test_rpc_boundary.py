@@ -35,6 +35,10 @@ _ALLOWED_PB2_PREFIXES = (
     "industrial_gateway/infrastructure/adapters/outbound/grpc/",
     "sink_service/infrastructure/adapters/inbound/grpc_server.py",
     "sink_service/infrastructure/adapters/outbound/gateway.py",
+    # Outbound Configuration Repository gRPC clients and their bundle codec.
+    "sink_service/infrastructure/config_subscription.py",
+    "sink_service/infrastructure/adapters/outbound/historical_point_table.py",
+    "sink_service/infrastructure/adapters/outbound/historical_bundle_codec.py",
     "configuration_service/main.py",
     "configuration_service/infrastructure/adapters/inbound/grpc/",
 )

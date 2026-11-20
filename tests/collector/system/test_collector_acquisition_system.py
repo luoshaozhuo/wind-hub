@@ -45,11 +45,13 @@ async def test_uc03_s01_poll_publishes_complete_envelope(
     batches = await collect_realtime(real_nats.url, count=6, timeout=10)
     # v2：一个采集周期形成一个设备级批次，信封与批次身份在批次层，逐点值在 samples 内。
     for batch in batches:
-        assert batch["schema_version"] == 2
+        assert batch["schema_version"] == 3
         assert batch["wind_farm_id"] == "site_alpha"
         assert batch["device_id"] == MODBUS
         assert batch["mode"] == "realtime"
         assert batch["batch_id"]
+        assert batch["point_table_id"]
+        assert batch["device_type"]
         assert batch["samples"]
     messages = point_docs(batches)
     by_point: dict[str, dict[str, Any]] = {}
