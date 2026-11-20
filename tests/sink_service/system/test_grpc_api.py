@@ -91,9 +91,7 @@ class TestBearerAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_unregistered_bearer_denied(
-        self, sink_harness: SinkSystemHarness
-    ) -> None:
+    async def test_unregistered_bearer_denied(self, sink_harness: SinkSystemHarness) -> None:
         """未注册 Bearer 身份无法访问任何 RPC。"""
         sink_harness.write_dual_channel_root(reliable=False, callers=_CALLERS)
         await sink_harness.provision_streams()
@@ -105,9 +103,7 @@ class TestBearerAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_missing_bearer_is_rejected(
-        self, sink_harness: SinkSystemHarness
-    ) -> None:
+    async def test_missing_bearer_is_rejected(self, sink_harness: SinkSystemHarness) -> None:
         """明文连接可达，但缺失 Bearer 必须得到 UNAUTHENTICATED。"""
         sink_harness.write_dual_channel_root(reliable=False)
         await sink_harness.provision_streams()

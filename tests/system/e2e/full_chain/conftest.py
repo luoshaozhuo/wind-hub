@@ -833,7 +833,6 @@ def _build_and_start(
         "connection": {
             "endpoint": harness.gw_grpc_endpoint,
             "gateway_id": "gw-wtg_sim01",
-            "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
         },
         "overrides": {},
     }
@@ -851,7 +850,6 @@ def _build_and_start(
             "connection": {
                 "endpoint": harness.gw_grpc_endpoint,
                 "gateway_id": f"gw-{suffix}",
-                "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
             },
             "overrides": {},
         }
@@ -959,7 +957,7 @@ def _build_and_start(
                         "client_cert_pem": clients["sink"][0].read_text(encoding="utf-8"),
                         "client_key_pem": clients["sink"][1].read_text(encoding="utf-8"),
                     }
-                )
+                ),
             },
         ),
         "commander": (

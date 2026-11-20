@@ -109,11 +109,13 @@ class SinkSystemHarness:
     dlq_stream: str
     dlq_subject: str
     token: str
-    auth_tokens: dict[str, str] = field(default_factory=lambda: {
-        "admin": secrets.token_hex(32),
-        "readonly": secrets.token_hex(32),
-        "outsider": secrets.token_hex(32),
-    })
+    auth_tokens: dict[str, str] = field(
+        default_factory=lambda: {
+            "admin": secrets.token_hex(32),
+            "readonly": secrets.token_hex(32),
+            "outsider": secrets.token_hex(32),
+        }
+    )
     staleness_ms: int = DEFAULT_STALENESS_MS
     process: CollectorProcess | None = field(default=None)
     _nc: Any = field(default=None, repr=False)
