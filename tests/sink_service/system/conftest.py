@@ -45,7 +45,6 @@ from tests.sink_service._stage1_fixtures import (
     template_path,
     write_tree,
 )
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.support.process import CollectorProcess, start_sink_service_from_root
 from tests.support.wait import wait_tcp_port
 
@@ -78,6 +77,25 @@ def qa_stack() -> r5_stack.R5Stack:
         r5_stack.down_stack(stack)
 
 
+class _BearerInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
+    """Attach the real production Bearer metadata to test gRPC calls."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    async def intercept_unary_unary(
+        self,
+        continuation: Any,
+        client_call_details: grpc.aio.ClientCallDetails,
+        request: Any,
+    ) -> Any:
+        metadata = tuple(client_call_details.metadata or ())
+        details = client_call_details._replace(
+            metadata=(*metadata, ("authorization", f"Bearer {self._token}")),
+        )
+        return await continuation(details, request)
+
+
 @dataclass
 class SinkSystemHarness:
     """一次系统用例独占的配置根、进程句柄与真实连接参数。"""
@@ -91,7 +109,11 @@ class SinkSystemHarness:
     dlq_stream: str
     dlq_subject: str
     token: str
-    bundle: dict[str, Path]
+    auth_tokens: dict[str, str] = field(default_factory=lambda: {
+        "admin": secrets.token_hex(32),
+        "readonly": secrets.token_hex(32),
+        "outsider": secrets.token_hex(32),
+    })
     staleness_ms: int = DEFAULT_STALENESS_MS
     process: CollectorProcess | None = field(default=None)
     _nc: Any = field(default=None, repr=False)
@@ -120,7 +142,6 @@ class SinkSystemHarness:
         kafka_bootstrap = kafka_bootstrap or self.stack.kafka
         redis_host, _, redis_port = redis_address.rpartition(":")
         self.root.mkdir(parents=True, exist_ok=True)
-        write_mtls_bundle(self.root)
 
         service = service_document(
             port=self.grpc_port,
@@ -129,7 +150,7 @@ class SinkSystemHarness:
             or [
                 {
                     "caller_id": "maintenance",
-                    "certificate_identity": "spiffe://wind-hub/maintenance",
+                    "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                     "permissions": ["query", "control", "config"],
                 }
             ],
@@ -280,7 +301,15 @@ class SinkSystemHarness:
     async def start(self) -> CollectorProcess:
         if self.process is not None:
             raise RuntimeError("harness already started")
-        proc = start_sink_service_from_root(self.root, grpc_port=self.grpc_port, log_dir=self.root)
+        proc = start_sink_service_from_root(
+            self.root,
+            grpc_port=self.grpc_port,
+            log_dir=self.root,
+            env_extra={
+                "WIND_HUB_SINK_CLI_TOKEN": self.auth_tokens["admin"],
+                "WIND_HUB_SINK_READONLY_TOKEN": self.auth_tokens["readonly"],
+            },
+        )
         self.process = proc
         await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
         await self.wait_grpc_ready()
@@ -324,17 +353,11 @@ class SinkSystemHarness:
         return await asyncio.to_thread(proc.terminate, timeout=30.0)
 
     def channel(self, *, caller: str = "admin") -> grpc.aio.Channel:
-        key = f"{caller}_key"
-        crt = f"{caller}_crt"
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=self.bundle["ca"].read_bytes(),
-            private_key=self.bundle[key].read_bytes(),
-            certificate_chain=self.bundle[crt].read_bytes(),
-        )
-        return grpc.aio.secure_channel(
+        """Actual plaintext transport with bearer identity on each unary RPC."""
+        token = self.auth_tokens[caller]
+        return grpc.aio.insecure_channel(
             f"127.0.0.1:{self.grpc_port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
+            interceptors=[_BearerInterceptor(token)],
         )
 
     async def wait_grpc_ready(self, *, timeout: float = 45.0) -> dict[str, Any]:
@@ -650,7 +673,6 @@ async def sink_harness(
 ) -> AsyncIterator[SinkSystemHarness]:
     token = secrets.token_hex(6)
     root = tmp_path / f"sink-root-{token}"
-    bundle = write_mtls_bundle(root)
     harness = SinkSystemHarness(
         root=root,
         stack=qa_stack,
@@ -661,7 +683,6 @@ async def sink_harness(
         dlq_stream=f"WH_DLQ_QA_{token[:8].upper()}",
         dlq_subject=f"wh.qa.dlq.{token}",
         token=token,
-        bundle=bundle,
     )
     try:
         yield harness
