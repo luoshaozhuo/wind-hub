@@ -1,4 +1,4 @@
-"""Sink Service v1_21 §14 系统测试夹具：真实三进程 + 真实消息/目标基础设施。
+"""Sink Service 系统测试夹具：真实三进程 + 真实消息/目标基础设施。
 
 所有系统用例只在进程与协议边界观察：
 
@@ -7,9 +7,9 @@
   容器（见 :mod:`tests.fixtures.services.r5_stack`），绝不使用 Mock 冒充
   NATS/JetStream 或服务进程；
 - 真实 ``wind-hub-sink-service`` 子进程（Main + realtime/reliable 两个
-  spawn worker），mTLS gRPC 控制面，配置根严格走生产校验器接受的
+  spawn worker），Bearer gRPC 控制面，配置根严格走生产校验器接受的
   canonical 文档树（复用阶段一夹具）；
-- 输入侧用独立 NATS 连接发布冻结的 SampleBatch v2，目标侧用独立 Redis/Kafka
+- 输入侧用独立 NATS 连接发布严格 SampleBatch v3，目标侧用独立 Redis/Kafka
   客户端做交付确认，不读取服务进程内部状态。
 
 Docker 不可用时整个模块 skip（NOT_RUN 的环境口径），绝不退化为内存替身。
