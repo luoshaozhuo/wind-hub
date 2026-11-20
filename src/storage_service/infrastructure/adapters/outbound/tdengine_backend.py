@@ -170,7 +170,17 @@ class TDengineBackend:
             try:
                 for _ in range(self._config.tdengine.max_inflight_sql):
                     opened.append(
-                        module.connect(user=user, password=password, host=host, port=port)
+                        module.connect(
+                            user=user,
+                            password=password,
+                            host=host,
+                            port=port,
+                            # Bound TDengine WebSocket responses, not only the pool wait.
+                            # The connector accepts read_timeout in whole seconds.
+                            read_timeout=max(
+                                1, (self._config.tdengine.write_timeout_ms + 999) // 1000
+                            ),
+                        )
                     )
             except BaseException:
                 for conn in opened:
