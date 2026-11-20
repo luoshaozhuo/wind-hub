@@ -61,9 +61,12 @@ def test_invalid_legacy_template_root_is_rejected(app: ConfigurationApplication,
 
 
 def register_nested_schema(app: ConfigurationApplication) -> None:
+    # service schema v2 is now the built-in token-security contract; use a free
+    # version slot to exercise the generic nested-array validator without
+    # colliding with an immutable registered definition.
     app.register_schema(
         config_type="service",
-        document_schema_version=2,
+        document_schema_version=4,
         fields={
             "type": "object",
             "properties": {
@@ -102,7 +105,7 @@ def register_nested_schema(app: ConfigurationApplication) -> None:
 def nested_service_item(caller: dict[str, object]) -> DocumentInput:
     item = document_input("service", "nested", "1.0.0", security={"callers": [caller]})
     payload = yaml.safe_load(item.yaml_bytes)
-    payload["schema_version"] = 2
+    payload["schema_version"] = 4
     return type(item)(
         identity=item.identity,
         file_name=item.file_name,
