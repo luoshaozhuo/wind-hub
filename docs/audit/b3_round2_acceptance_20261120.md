@@ -97,3 +97,15 @@ RAW 原始协议报文能力**尚未实现**：`kafka_wire._require_protocol` �
 ## 9. 准出建议
 
 **建议对“已实现功能”予以准出**：满足五项静态门禁全绿、权威 marker 0 failed/0 收集错误、新增模块具备正反测试、P1 生产缺陷关闭。前置跟进项为 P2 的 sink system harness token 化迁移（恢复 system E2E 与端到端 Kafka BUSINESS 证据）与 Subscriber/历史客户端集成测试补齐，这些不影响单元/组件/契约层的正确性结论，也不应在补齐前将相关 E2E 计为 PASS。
+
+## 10. 第三轮系统 Harness 生产交接整改（ChatGPT，待 Claude 独立复测）
+
+本段记录的是代码修改事实，不是测试 PASS 判定：
+
+- 共享 `SinkSystemHarness` 改为每实例独立随机 Bearer Token，真实 Sink 子进程通过环境变量获取维护及只读凭据，客户端 Unary RPC 使用鉴权 metadata；未注册调用方及缺失 Token 使用真实生产拦截器判定。
+- 修订真实系统授权矩阵、并行部署 Harness、Sink 恢复与稳定性测试、严格 CLI 六身份 E2E、完整跨模块链路及其分段配置重建调用方；不再给 Sink 控制面生成证书，也不向 CLI 的 Sink 服务项配置 `tls_profile`。
+- 恢复与稳定性测试改用 Bearer metadata 进行 StopDelivery/StartDelivery；实际 NATS、Kafka、CLI 进程边界不以 mock 替代。
+- 修订系统测试中仍使用 SampleBatch v2 或缺失类型身份的来源批次；Schema 不支持版本测试改为真正不受支持的版本，避免错误拒绝当前已支持的配置契约。
+- 清除退役的 `tests/sink_service/_stage1_tls.py` 以及这些系统 Harness 的旧调用方；代码与文档文件名保持无人工版本后缀。
+
+**准出前置检查仍未完成**：17 项 Sink system 测试、严格 CLI 单例系统测试、完整跨模块 CLI E2E、Subscriber/历史客户端真实集成、Kafka BUSINESS 实际持久投递，以及五项静态门禁在本轮最终 HEAD 的实际退出码。不得用第二轮 2582 passed 替代第三轮结果。
