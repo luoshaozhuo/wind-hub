@@ -155,7 +155,34 @@ class KafkaStorageConsumer:
                 )
             except TDengineSchemaConflictError:
                 self._metrics.record_schema_conflict()
-                raise
+                if self._assignments.get(tp) is not state:
+                    return
+                # A physical schema conflict belongs to the affected partition.
+                # Preserve its earliest unconfirmed record as durable evidence,
+                # rather than taking down unrelated wind farms and partitions.
+                pending_offset = state.offsets.next_commit_offset
+                first_pending = next(
+                    (record for record in messages if record.offset == pending_offset), None
+                )
+                if first_pending is None:
+                    raise RuntimeError("schema conflict has no provable Kafka offset") from None
+                self._metadata.block_partition(
+                    tp.topic,
+                    tp.partition,
+                    pending_offset,
+                    "TDENGINE_SCHEMA_CONFLICT",
+                    first_pending.value,
+                )
+                state.blocked = True
+                if tp in self._consumer.assignment():
+                    self._consumer.pause(tp)
+                _LOG.error(
+                    "Storage schema conflict blocked partition: topic=%s partition=%d offset=%d",
+                    tp.topic,
+                    tp.partition,
+                    pending_offset,
+                )
+                return
             except (WriteUnconfirmedError, OSError, TimeoutError):
                 failures = self._retry_failures.get(tp, 0) + 1
                 self._retry_failures[tp] = failures
