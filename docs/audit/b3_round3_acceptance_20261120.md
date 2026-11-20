@@ -112,3 +112,15 @@ RAW 原始报文字节链路**仍未实现且持续被禁止**：`kafka_wire._re
 - **单元/组件/契约层（权威 marker 2593/0/0、五项门禁全绿、34 项 Sink 系统测试通过）建议准出。**
 - **系统级全链路准出暂缓**，前置：ChatGPT 就 §4 P1 给出架构决策并修复 Gateway 传输，随后恢复 r1f3 与 full_chain gateway E2E、补齐 ConfigurationSubscriber/HistoricalPointTableClient 真实集成测试与 Kafka BUSINESS 端到端证据。
 - 最终是否准出、是否合并 main，由 ChatGPT 根据本报告裁决。
+
+## 11. ChatGPT 第四轮 P1 生产修复记录（待独立复测）
+
+**安全架构裁决**：采用双入口分离，**不修改现有 Gateway mTLS 管理面，也不为所有 Gateway/CLI/DG/Commander RPC 放开匿名明文**。
+
+- Gateway `GrpcConfig` 新增可选 `sink_listener_port`；只有在管理端启用 mTLS 时才能启用第二端口，第二端口固定绑定 `127.0.0.1`、与管理/工业协议端口互斥。
+- Gateway 从进程环境读取 `WIND_HUB_GATEWAY_SINK_TOKEN`（至少 32 字符）并对来自 loopback 的 Sink `inject` RPC 做常量时间精确 Token 校验；其余 RPC 保留原有证书授权。缺 Token 时拒绝启动双端口。
+- Sink GatewayOutput 的 `ClaimTargets` 和 `UpdateVariables` 发送 Bearer metadata；未配置 Token 的已有 loopback-only Gateway 模式保留原安全前提，禁止暴露为外网监听。
+- 严格 CLI E2E 与 full_chain 已改为由测试代码生成随机 Token、启动两个进程时注入相同 Token、Gateway Sink 目标指向专用内部端口。Gateway 既有 CLI/DG/Commander 管理连接仍走原 mTLS 主端口。
+- 仅定义同一 loopback 命名空间内的连接，**不证明跨容器/跨主机通信可用**；这类部署不允许依靠 `127.0.0.1` 假定进程共享网络命名空间。
+
+**重要：本轮生产修改及对应 Fixture 尚未执行静态检查、pytest 和真实进程复测。** P1 标记为 CODE_FIXED_PENDING_RETEST；不能以第三轮 `2593 passed` 作为本轮新 HEAD 的结论。B3 完整准出及 main 合并仍受 r1f3、full_chain、权限负向测试与缺失的历史配置端到端证据约束。
