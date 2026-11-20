@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import time
+import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from functools import wraps
@@ -249,6 +250,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config_status = config_status
         self._metrics = metrics
         self._started_at = datetime.now(UTC)
+        self._aggregate_snapshots: dict[str, tuple[float, str, tuple[bytes, ...]]] = {}
 
     @guarded
     async def GetServiceInfo(
@@ -454,7 +456,16 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         page_size = request.page_size or 200
         if not 1 <= page_size <= self._config.query.max_page_size:
             raise QueryRejectedError("aggregate page_size exceeds configured bound")
-        start_index = self._decode_aggregate_cursor(request, filter_)
+        snapshot_id, start_index = self._decode_aggregate_cursor(request, filter_)
+        if snapshot_id:
+            cached = self._aggregate_snapshots.get(snapshot_id)
+            if cached is None or cached[0] < time.time() or (
+                cached[1] != self._aggregate_fingerprint(request, filter_)
+            ):
+                raise QueryRejectedError("aggregate snapshot expired or unavailable")
+            return self._aggregate_page(
+                request, filter_, snapshot_id, cached[2], start_index, page_size
+            )
         # This bounded implementation never returns a partial aggregate as complete.
         # If the record budget is exceeded, callers must narrow the time window.
         result: dict[tuple[int, str, str, str, str], list[float]] = {}
@@ -503,7 +514,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         if start_index > len(ordered):
             raise QueryRejectedError("aggregate cursor is beyond available results")
         response = pb.QueryAggregatesResponse()
-        for key in ordered[start_index : start_index + page_size]:
+        for key in ordered:
             begin, point_id, business_id, table_id, _device_id = key
             good_count, missing_count = counts[key]
             item = response.items.add(
@@ -534,9 +545,44 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                     item.result = max(values)
                 else:
                     item.result = math.fsum(values) / len(values)
-        if start_index + page_size < len(ordered):
+        if len(response.items) <= page_size:
+            return response
+        # Materialize one bounded immutable result, preventing later Kafka
+        # backfill from changing page membership or previously computed sums.
+        rows = tuple(item.SerializeToString() for item in response.items)
+        if sum(map(len, rows)) > 16 * 1024 * 1024:
+            raise QueryRejectedError("aggregate snapshot exceeds memory budget")
+        now = time.time()
+        self._aggregate_snapshots = {
+            key: value for key, value in self._aggregate_snapshots.items()
+            if value[0] > now
+        }
+        if len(self._aggregate_snapshots) >= 16:
+            oldest = min(self._aggregate_snapshots, key=lambda key: self._aggregate_snapshots[key][0])
+            del self._aggregate_snapshots[oldest]
+        snapshot_id = uuid.uuid4().hex
+        self._aggregate_snapshots[snapshot_id] = (
+            now + 900, self._aggregate_fingerprint(request, filter_), rows
+        )
+        return self._aggregate_page(request, filter_, snapshot_id, rows, 0, page_size)
+
+    def _aggregate_page(
+        self,
+        request: pb.QueryAggregatesRequest,
+        filter_: HistoryFilter,
+        snapshot_id: str,
+        rows: tuple[bytes, ...],
+        index: int,
+        page_size: int,
+    ) -> pb.QueryAggregatesResponse:
+        if index >= len(rows):
+            raise QueryRejectedError("aggregate cursor is beyond the snapshot")
+        response = pb.QueryAggregatesResponse()
+        for row in rows[index : index + page_size]:
+            response.items.add().ParseFromString(row)
+        if index + page_size < len(rows):
             response.next_page_token = self._encode_aggregate_cursor(
-                request, filter_, start_index + page_size
+                request, filter_, snapshot_id, index + page_size
             )
         return response
 
@@ -553,10 +599,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self,
         request: pb.QueryAggregatesRequest,
         filter_: HistoryFilter,
+        snapshot_id: str,
         index: int,
     ) -> str:
         data = json.dumps(
-            [self._aggregate_fingerprint(request, filter_), index, int(time.time()) + 900],
+            [self._aggregate_fingerprint(request, filter_), snapshot_id, index, int(time.time()) + 900],
             separators=(",", ":"),
         ).encode()
         signature = hmac.digest(self._secret, data, "sha256")
@@ -564,9 +611,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
 
     def _decode_aggregate_cursor(
         self, request: pb.QueryAggregatesRequest, filter_: HistoryFilter
-    ) -> int:
+    ) -> tuple[str, int]:
         if not request.page_token:
-            return 0
+            return "", 0
         if len(request.page_token) > 4096:
             raise QueryRejectedError("aggregate cursor exceeds 4 KiB")
         try:
@@ -576,16 +623,18 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 signature, hmac.digest(self._secret, raw, "sha256")
             ):
                 raise QueryRejectedError("aggregate cursor signature invalid")
-            identity, index, expires = json.loads(raw)
+            identity, snapshot_id, index, expires = json.loads(raw)
             if (
                 identity != self._aggregate_fingerprint(request, filter_)
+                or not isinstance(snapshot_id, str)
+                or len(snapshot_id) != 32
                 or type(index) is not int
                 or index < 0
                 or type(expires) is not int
                 or expires < time.time()
             ):
                 raise QueryRejectedError("aggregate cursor expired or bound to another request")
-            return index
+            return snapshot_id, index
         except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
             raise QueryRejectedError("aggregate cursor malformed") from exc
 
