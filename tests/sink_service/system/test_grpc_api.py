@@ -1,4 +1,4 @@
-"""§14.3 test_grpc_api：正式 mTLS 接口可用性与 URI SAN 授权矩阵（真实进程）。
+"""§14.3 Sink Bearer 授权矩阵（真实进程）。
 
 表 14-3 要求 CommonService 9 项 + SinkService 4 项在真实 gRPC Server/Stub、
 mTLS 与授权拦截器下逐项可调用。本模块在真实三进程服务上验证认证/授权边界：
@@ -36,12 +36,12 @@ pytestmark = [
 _CALLERS = [
     {
         "caller_id": "maintenance",
-        "certificate_identity": "spiffe://wind-hub/maintenance",
+        "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
         "permissions": ["query", "control", "config"],
     },
     {
         "caller_id": "readonly",
-        "certificate_identity": "spiffe://wind-hub/readonly",
+        "token_env": "env:WIND_HUB_SINK_READONLY_TOKEN",
         "permissions": ["query"],
     },
 ]
@@ -65,7 +65,7 @@ async def _status_code(channel: grpc.aio.Channel, rpc: str) -> grpc.StatusCode |
     return None
 
 
-class TestMtlsAuthorizationMatrix:
+class TestBearerAuthorizationMatrix:
     async def test_full_permission_caller_reaches_all_rpc_classes(
         self, sink_harness: SinkSystemHarness
     ) -> None:
@@ -100,7 +100,7 @@ class TestMtlsAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_unregistered_certificate_denied_even_with_valid_ca(
+    async def test_unregistered_bearer_denied(
         self, sink_harness: SinkSystemHarness
     ) -> None:
         """outsider：CA 合法但身份未登记，query 同样 PERMISSION_DENIED。"""
@@ -114,7 +114,7 @@ class TestMtlsAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_plaintext_channel_is_rejected_before_any_handler(
+    async def test_missing_bearer_is_rejected(
         self, sink_harness: SinkSystemHarness
     ) -> None:
         """无客户端证书的明文通道在 TLS 握手期失败，业务方法不可达。"""
@@ -124,9 +124,6 @@ class TestMtlsAuthorizationMatrix:
         try:
             async with grpc.aio.insecure_channel(f"127.0.0.1:{sink_harness.grpc_port}") as channel:
                 code = await _status_code(channel, "query")
-                assert code in {
-                    grpc.StatusCode.UNAVAILABLE,
-                    grpc.StatusCode.UNAUTHENTICATED,
-                }
+                assert code == grpc.StatusCode.UNAUTHENTICATED
         finally:
             await sink_harness.stop()
