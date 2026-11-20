@@ -900,7 +900,7 @@ def _build_and_start(
                 str(plant),
             ],
             plant,
-            {},
+            {"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
         ),
         "data-generator": (
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
