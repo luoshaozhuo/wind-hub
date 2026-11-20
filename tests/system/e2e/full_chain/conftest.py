@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
