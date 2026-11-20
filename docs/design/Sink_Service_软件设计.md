@@ -4009,3 +4009,15 @@ sequenceDiagram
 ## 附录 B：内部 gRPC 适配范围
 
 遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。Sink Main 及 CLI 当前生产代码已切换至按调用方 Token 校验（无 mTLS），但测试、Fixture 和其他客户端的迁移仍需独立验证。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。
+
+### B.1 Industrial Gateway 注入端口与认证边界
+
+Industrial Gateway 管理/控制面可保留独立的 mTLS 入口供现有 Gateway 外部调用方使用，**Sink→Gateway 的内部写入链路不复用该入口**。在管理面启用 mTLS 的部署中，Gateway 可以显式配置 `grpc.sink_listener_port`：
+
+- 仅绑定 `127.0.0.1:<sink_listener_port>`，必须不同于管理端口和工业协议监听端口；不能暴露在公网或容器网络通配地址；跨容器部署须确保二者共享受控 loopback 命名空间，否则不得启用。
+- 启用前须在 Gateway 和 Sink 进程中注入一致的至少 32 字符 `WIND_HUB_GATEWAY_SINK_TOKEN`，令牌只从环境变量读取，不存储到 Service/Sink Instance 配置文档；不得在日志中打印。
+- Sink 对 `ClaimTargets`、`UpdateVariables` 附加 `Authorization: Bearer <token>`，Gateway 独立验证 loopback 来源、精确 Token 与 `inject` 权限；其余读、配置、诊断、生命周期及仿真控制 RPC 不因该 Token 获得权限。原有租约主体与变量范围约束继续生效。
+- Token 错误、缺失或目标连接失败均 fail-closed；不能通过禁用 Gateway 主管理面 mTLS、扩大 CLI 明文豁免或恢复旧证书字段绕过准入。
+- 对未启用 mTLS 的已有 loopback-only Gateway 部署，保持既有内网本地调用模式；禁止借此将匿名注入接口暴露至非 loopback 监听地址。
+
+此双入口边界为 Gateway 现行管理面与 Sink 内部数据面显式隔离，不代表恢复 Sink Main 的 mTLS。跨服务部署需另行设计受控互通通道及身份验证，不可将 loopback-only 能力延伸为远程明文调用。
