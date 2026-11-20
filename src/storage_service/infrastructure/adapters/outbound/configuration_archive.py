@@ -13,6 +13,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,11 +50,35 @@ class DocumentFetcher(Protocol):
 class ImmutableConfigArchive:
     """A content-addressed, fsync-durable archive with no implicit garbage collection."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, max_bytes: int = 2147483648) -> None:
         if not directory.is_absolute():
             raise ValueError("archive directory must be absolute")
+        if max_bytes < 1:
+            raise ValueError("archive byte limit must be positive")
         self._directory = directory
         self._directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self._max_bytes = max_bytes
+        self._lock = threading.Lock()
+
+    def _used_bytes(self) -> int:
+        used = 0
+        for entry in self._directory.rglob("*"):
+            if entry.is_symlink():
+                raise ConfigHistoryUnavailableError("archive contains a symbolic link")
+            if entry.is_file():
+                used += entry.stat().st_size
+            elif not entry.is_dir():
+                raise ConfigHistoryUnavailableError("archive contains an unsafe file")
+        return used
+
+    def set_max_bytes(self, value: int) -> None:
+        """Apply the configured cache budget before accepting live Kafka records."""
+        if value < 1:
+            raise ValueError("archive byte limit must be positive")
+        with self._lock:
+            if self._used_bytes() > value:
+                raise ConfigHistoryUnavailableError("archive already exceeds configured cache limit")
+            self._max_bytes = value
 
     def persist(self, document: RepositoryDocument) -> None:
         digest = hashlib.sha256(document.yaml_bytes).hexdigest()
@@ -75,14 +100,20 @@ class ImmutableConfigArchive:
         ).encode("utf-8")
         name = hashlib.sha256(manifest).hexdigest()
         item_dir = self._directory / name
-        item_dir.mkdir(mode=0o700, exist_ok=True)
-        self._write_once(item_dir / "document.yaml", document.yaml_bytes)
-        self._write_once(item_dir / "manifest.json", manifest)
-        fd = os.open(item_dir, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        with self._lock:
+            expected = ((item_dir / "document.yaml", document.yaml_bytes),
+                        (item_dir / "manifest.json", manifest))
+            added = sum(len(payload) for path, payload in expected if not path.exists())
+            if self._used_bytes() + added > self._max_bytes:
+                raise ConfigHistoryUnavailableError("immutable configuration archive quota exceeded")
+            item_dir.mkdir(mode=0o700, exist_ok=True)
+            for path, payload in expected:
+                self._write_once(path, payload)
+            fd = os.open(item_dir, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
     @staticmethod
     def _write_once(path: Path, payload: bytes) -> None:
