@@ -62,7 +62,6 @@ def _verified_sink_caller(
     return hmac.compare_digest(metadata[0], f"Bearer {token}")
 
 
-
 async def _authorize(
     context: grpc.aio.ServicerContext[Any, Any],
     runtime: GatewayRuntime,
