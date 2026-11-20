@@ -271,13 +271,9 @@ def _validate_delivery(
     # The Kafka adapter only accepts encoded, durable records. Realtime
     # DeliveryPoint writes have no valid Kafka wire path and must never start.
     if kind == "kafka" and mode != "reliable":
-        raise ConfigurationError(
-            f"deliveries.{delivery_id}: Kafka requires Reliable delivery"
-        )
+        raise ConfigurationError(f"deliveries.{delivery_id}: Kafka requires Reliable delivery")
     if kind != "kafka" and mode != "realtime":
-        raise ConfigurationError(
-            f"deliveries.{delivery_id}: {kind} requires Realtime delivery"
-        )
+        raise ConfigurationError(f"deliveries.{delivery_id}: {kind} requires Realtime delivery")
     if not caps[mode]:
         raise ConfigurationError(f"deliveries.{delivery_id}: incompatible Sink capability")
     if kind == "modbus_tcp" and mode == "reliable":

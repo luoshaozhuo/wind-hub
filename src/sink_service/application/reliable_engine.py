@@ -112,9 +112,7 @@ class ReliableDeliveryEngine:
                     try:
                         await message.extend()
                     except Exception:
-                        logger.warning(
-                            "source ACK extension during mapping failed", exc_info=True
-                        )
+                        logger.warning("source ACK extension during mapping failed", exc_info=True)
             return await asyncio.shield(task)
         finally:
             # Unlike an already submitted target write, a pending read-only
