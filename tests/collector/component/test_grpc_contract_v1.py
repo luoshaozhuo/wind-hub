@@ -17,12 +17,13 @@ from contracts import common_pb2_grpc as common_rpc
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs"
-AUTH = (("x-windhub-admin-token", "test-collector-admin"),)
+TOKEN = "test-collector-admin-012345678901234567890123456789"
+AUTH = (("authorization", f"Bearer {TOKEN}"),)
 
 
 @pytest.mark.asyncio
 async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", TOKEN)
     for folder in ("instances", "templates"):
         shutil.copytree(CONFIG_ROOT / folder, tmp_path / folder)
     service = yaml.safe_load(
@@ -93,11 +94,11 @@ async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.Mo
                 await devices.StartTask(
                     common.OperationRequest(id=device_id, expected_revision="bad")
                 )
-            assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+            assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
             with pytest.raises(grpc.aio.AioRpcError) as exc:
                 await devices.ReadPoints(collector.ReadPointsRequest(device_id=device_id))
-            assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+            assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
             with pytest.raises(grpc.aio.AioRpcError) as exc:
                 await shared.GetMetrics(common.GetMetricsRequest(window_ms=12345))
             assert exc.value.code() == grpc.StatusCode.INVALID_ARGUMENT

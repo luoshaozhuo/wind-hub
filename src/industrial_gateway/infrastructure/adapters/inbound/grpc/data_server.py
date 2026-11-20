@@ -43,9 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def _bearer(runtime: GatewayRuntime) -> BearerAuthorizer:
     policy = runtime.config.service.grpc
-    return BearerAuthorizer.from_mapping(
-        policy.token_sources, policy.permissions
-    )
+    return BearerAuthorizer.from_mapping(policy.token_sources, policy.permissions)
 
 
 async def _authorize(
@@ -436,7 +434,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Allow only Commander to request a model-input change."""
         await _authorize(context, self._runtime, "simulation_execute")
-            raise RuntimeError("abort unexpectedly returned") from None
         instance = await self._instance(request.gateway_id, context)
         control = instance.config.settings.control
         if not control.enabled or control.simulation is None:
@@ -486,7 +483,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Query known execution evidence; absent records remain UNKNOWN."""
         await _authorize(context, self._runtime, "simulation_execute")
-            raise RuntimeError("abort unexpectedly returned") from None
         await self._instance(request.gateway_id, context)
         if not request.request_id.strip():
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request_id is required")

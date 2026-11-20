@@ -13,6 +13,7 @@ from contracts import collector_pb2_grpc as pb_grpc
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_grpc
 from core.domain.sample_value import Quality
+from core.infrastructure.grpc_bearer import bearer_metadata
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.device.sample import PointValue
 from web_server.application.port.monitoring import (
@@ -81,10 +82,7 @@ class CollectorGrpcClient(GrpcClientBase):
 
     @staticmethod
     def _admin_metadata() -> tuple[tuple[str, str], ...]:
-        token = os.getenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN")
-        if not token:
-            raise PermissionError("Collector management RPC requires admin credentials")
-        return (("x-windhub-admin-token", token),)
+        return bearer_metadata("env:WIND_HUB_COLLECTOR_ADMIN_TOKEN")
 
     async def config_status(self) -> CollectorInfo:
         """服务实例标识由 Collector 的实际运行时身份提供。"""
@@ -147,7 +145,7 @@ class CollectorGrpcClient(GrpcClientBase):
                 result = await self._common.GetEvents(
                     common.GetEventsRequest(page_size=200, page_token=page_token),
                     timeout=self.default_timeout,
-                    metadata=(("x-windhub-admin-token", token),),
+                    metadata=self._admin_metadata(),
                 )
                 events.extend(
                     MonitoringEvent(

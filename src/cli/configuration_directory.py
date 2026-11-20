@@ -9,7 +9,9 @@ from typing import Any
 
 import yaml
 
-_VERSION = re.compile(r"^(?P<stem>.+)_v(?P<version>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\.yaml$")
+_VERSION = re.compile(
+    r"^(?P<stem>.+)_v(?P<version>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\.yaml$"
+)
 _SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 _TEMPLATE_DIRECTORIES = {
     "point_tables": "point_table",
@@ -74,7 +76,7 @@ def _classify(path: Path, group: str) -> tuple[str, str]:
             prefix = kind + "_"
             if not stem.startswith(prefix):
                 raise ValueError(f"template filename has incorrect prefix: {path}")
-            name = stem[len(prefix):]
+            name = stem[len(prefix) :]
             if not name:
                 raise ValueError(f"empty template identity: {path}")
             return kind, name
@@ -83,21 +85,83 @@ def _classify(path: Path, group: str) -> tuple[str, str]:
                 if stem == kind:
                     return kind, kind
                 if stem.startswith(kind + "_"):
-                    return kind, stem[len(kind) + 1:]
+                    return kind, stem[len(kind) + 1 :]
         raise ValueError(f"unknown template configuration: {path}")
     raise ValueError(f"unknown configuration group: {group}")
+
+
+def _explicit_references(
+    document: DirectoryDocument,
+) -> set[tuple[str, str, str]]:
+    """Extract typed version pins that constrain current-directory selection."""
+    payload = yaml.safe_load(document.content)
+    references: set[tuple[str, str, str]] = set()
+
+    def add(config_type: object, config_id: object, file_version: object) -> None:
+        if (
+            not isinstance(config_type, str)
+            or not config_type
+            or not isinstance(config_id, str)
+            or not config_id
+            or not isinstance(file_version, str)
+            or _SEMVER.fullmatch(file_version) is None
+        ):
+            raise ValueError(f"invalid typed Configuration reference in {document.filename}")
+        references.add((config_type, config_id, file_version))
+
+    sources = payload.get("config_sources", {})
+    if isinstance(sources, list):
+        for item in sources:
+            if not isinstance(item, dict):
+                raise ValueError(f"invalid config_sources entry in {document.filename}")
+            add(
+                item.get("config_type"),
+                item.get("config_id"),
+                item.get("file_version"),
+            )
+    if document.config_type == "device_model":
+        for field, target_type in (
+            ("protocol", "protocol"),
+            ("point_table", "point_table"),
+            ("task", "task"),
+        ):
+            target = payload.get(field)
+            if target is not None:
+                if not isinstance(target, dict):
+                    raise ValueError(f"invalid {field} reference in {document.filename}")
+                add(target_type, target.get("id"), target.get("version"))
+    elif document.config_type == "device":
+        devices = payload.get("devices", {})
+        if isinstance(devices, dict):
+            for entry in devices.values():
+                if isinstance(entry, dict) and isinstance(entry.get("model"), dict):
+                    model = entry["model"]
+                    add("device_model", model.get("id"), model.get("version"))
+    elif document.config_type in {"sink", "delivery"}:
+        entries_name = "deliveries" if document.config_type == "delivery" else "sinks"
+        entries = payload.get(entries_name, {})
+        if isinstance(entries, dict):
+            for entry in entries.values():
+                if isinstance(entry, dict) and "template_id" in entry:
+                    add(
+                        document.config_type,
+                        entry.get("template_id"),
+                        entry.get("template_version"),
+                    )
+    return references
 
 
 def read_complete_directory(
     root: Path, *, max_bytes: int = 64 * 1024 * 1024, max_files: int = 1000
 ) -> tuple[DirectoryDocument, ...]:
-    """Select one latest version per typed identity; reject unsafe or ambiguous input."""
+    """Select pinned versions first, then latest versions for unpinned identities."""
     if root.is_symlink() or not root.is_dir():
         raise ValueError("Configuration root must be a real directory")
     if not 1 <= max_files <= 10000 or max_bytes < 1024:
         raise ValueError("invalid Configuration directory limits")
 
-    chosen: dict[tuple[str, str], DirectoryDocument] = {}
+    available: dict[tuple[str, str, str], DirectoryDocument] = {}
+    latest: dict[tuple[str, str], DirectoryDocument] = {}
     scanned_bytes = 0
     file_count = 0
     for group in ("instances", "templates", "services"):
@@ -143,13 +207,21 @@ def read_complete_directory(
             declared = document.get("file_version")
             if not isinstance(declared, str) or _SEMVER.fullmatch(declared) is None:
                 raise ValueError(f"invalid Configuration file_version: {path}")
-            version = tuple(int(part) for part in declared.split("."))
+            version_parts = declared.split(".")
+            version = (
+                int(version_parts[0]),
+                int(version_parts[1]),
+                int(version_parts[2]),
+            )
             match = _VERSION.fullmatch(path.name)
             if match is not None and match["version"] != declared:
                 raise ValueError(f"Configuration filename/version mismatch: {path}")
             if match is None and re.search(r"_v[0-9]", path.stem):
                 raise ValueError(f"malformed Configuration filename version: {path}")
-            if kind in {"point_table", "device_model", "protocol", "sink", "delivery", "task"} and group == "templates":
+            if (
+                kind in {"point_table", "device_model", "protocol", "sink", "delivery", "task"}
+                and group == "templates"
+            ):
                 template_id = document.get("template_id")
                 if not isinstance(template_id, str) or not template_id:
                     raise ValueError(f"missing template_id: {path}")
@@ -163,11 +235,41 @@ def read_complete_directory(
             normalized_name = f"{kind}_{config_id}_v{declared}.yaml"
             selected = DirectoryDocument(kind, config_id, normalized_name, version, content)
             key = (kind, config_id)
-            previous = chosen.get(key)
-            if previous is None or version > previous.file_version:
-                chosen[key] = selected
-            elif version == previous.file_version and content != previous.content:
+            version_key = (kind, config_id, declared)
+            previous_version = available.get(version_key)
+            if previous_version is not None and content != previous_version.content:
                 raise ValueError(f"immutable Configuration version conflict: {path}")
-    if not chosen:
+            available[version_key] = selected
+            previous = latest.get(key)
+            if previous is None or version > previous.file_version:
+                latest[key] = selected
+    if not available:
         raise ValueError("Configuration root contains no eligible YAML documents")
-    return tuple(chosen[key] for key in sorted(chosen))
+
+    chosen = dict(latest)
+    for _ in range(len(available) + 1):
+        required: dict[tuple[str, str], set[str]] = {}
+        for document in chosen.values():
+            for config_type, config_id, file_version in _explicit_references(document):
+                required.setdefault((config_type, config_id), set()).add(file_version)
+        updated: dict[tuple[str, str], DirectoryDocument] = {}
+        for key in sorted(latest.keys() | required.keys()):
+            versions = required.get(key, set())
+            if len(versions) > 1:
+                raise ValueError(
+                    f"conflicting current Configuration versions for {key[0]}:{key[1]}"
+                )
+            if not versions:
+                latest_document = latest.get(key)
+                if latest_document is not None:
+                    updated[key] = latest_document
+                continue
+            file_version = next(iter(versions))
+            pinned = available.get((key[0], key[1], file_version))
+            if pinned is None:
+                raise ValueError(f"missing pinned Configuration {key[0]}:{key[1]}@{file_version}")
+            updated[key] = pinned
+        if updated == chosen:
+            return tuple(chosen[key] for key in sorted(chosen))
+        chosen = updated
+    raise ValueError("cyclic Configuration version selection is ambiguous")

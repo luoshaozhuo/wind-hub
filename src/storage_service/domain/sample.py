@@ -8,7 +8,7 @@ import math
 import re
 import struct
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 from typing import Any, TypeAlias
 
@@ -37,9 +37,9 @@ SampleScalar: TypeAlias = int | float | bool | str | bytes | None
 
 
 def _canonical(values: list[object]) -> bytes:
-    return json.dumps(
-        values, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
+    return json.dumps(values, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+        "utf-8"
+    )
 
 
 def _sha256(values: list[object]) -> str:
@@ -75,8 +75,8 @@ def _timestamp_us(value: object, name: str, *, optional: bool = False) -> int | 
         raise ValueError(f"{name}: invalid timestamp") from exc
     if dt.tzinfo is None or dt.utcoffset() is None:
         raise ValueError(f"{name}: timezone is required")
-    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-    delta = dt.astimezone(timezone.utc) - epoch
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = dt.astimezone(UTC) - epoch
     return (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
 
 
@@ -196,20 +196,23 @@ class StorageSample:
         kind, value, stable_value = _parse_value(data["value"])
         sample_time_us = _timestamp_us(data.get("sample_time"), "sample_time")
         publish_time_us = _timestamp_us(data.get("publish_time"), "publish_time")
-        receive_time_us = _timestamp_us(
-            data.get("receive_time"), "receive_time", optional=True
-        )
+        receive_time_us = _timestamp_us(data.get("receive_time"), "receive_time", optional=True)
         assert sample_time_us is not None
         assert publish_time_us is not None
         logical_key = _sha256(
             [
-                wind_farm_id, device_type, device_id, point_table_id,
-                level.value, point_id, business_point_id, sample_time_us, sample_id,
+                wind_farm_id,
+                device_type,
+                device_id,
+                point_table_id,
+                level.value,
+                point_id,
+                business_point_id,
+                sample_time_us,
+                sample_id,
             ]
         )
-        content_sha256 = _sha256(
-            [int(kind), stable_value, quality.value, business_point_id, unit]
-        )
+        content_sha256 = _sha256([int(kind), stable_value, quality.value, business_point_id, unit])
         sample_key = _sha256([logical_key, content_sha256])
         return cls(
             wind_farm_id=wind_farm_id,

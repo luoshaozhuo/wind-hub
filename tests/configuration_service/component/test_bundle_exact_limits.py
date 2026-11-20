@@ -39,7 +39,10 @@ def test_exact_single_document_and_bundle_limits_succeed(
     publish_documents(app, (document_input("site", "root", "1.0.0"),), request_id="exact-root")
     revision, _ = publish_documents(
         app,
-        (document_input("site", "dependent", "1.0.0", config_sources=[reference("root")]),),
+        (
+            document_input("site", "root", "1.0.0"),
+            document_input("site", "dependent", "1.0.0", config_sources=[reference("root")]),
+        ),
         expected_revision=1,
         request_id="exact-dependent",
     )

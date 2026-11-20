@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 import grpc
@@ -17,8 +16,8 @@ import grpc
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig, load_storage_config
+from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
-    ConfigHistoryUnavailable,
     ImmutableConfigArchive,
     RepositoryDocument,
 )
@@ -36,7 +35,7 @@ class StorageBundle:
 
 def _document(item: pb.ConfigYamlDocument) -> RepositoryDocument:
     if not item.version_id or not item.config_id.config_type or not item.config_id.config_id:
-        raise ConfigHistoryUnavailable("configuration response lacks stable identity")
+        raise ConfigHistoryUnavailableError("configuration response lacks stable identity")
     result = RepositoryDocument(
         config_type=item.config_id.config_type,
         config_id=item.config_id.config_id,
@@ -46,7 +45,7 @@ def _document(item: pb.ConfigYamlDocument) -> RepositoryDocument:
         yaml_sha256=item.yaml_sha256,
     )
     if hashlib.sha256(result.yaml_bytes).hexdigest() != result.yaml_sha256:
-        raise ConfigHistoryUnavailable("configuration repository YAML digest mismatch")
+        raise ConfigHistoryUnavailableError("configuration repository YAML digest mismatch")
     return result
 
 
@@ -54,7 +53,11 @@ class ConfigurationGrpcClient:
     """Request exact versions and revision-pinned bundle; never use a latest-version alias."""
 
     def __init__(
-        self, *, endpoint: str, token_env: str, archive: ImmutableConfigArchive,
+        self,
+        *,
+        endpoint: str,
+        token_env: str,
+        archive: ImmutableConfigArchive,
         timeout_s: float = 10.0,
     ) -> None:
         if not endpoint or not token_env or timeout_s <= 0:
@@ -64,14 +67,18 @@ class ConfigurationGrpcClient:
         self._archive = archive
         self._timeout = timeout_s
         self._channel: grpc.aio.Channel | None = None
-        self._stub: rpc.ConfigurationRepositoryServiceStub | None = None
+        self._stub: rpc.ConfigurationRepositoryServiceAsyncStub | None = None
 
-    def _metadata(self) -> Sequence[tuple[str, str]]:
+    def _metadata(self) -> tuple[tuple[str, str], ...]:
         token = os.getenv(self._token_env)
         if not token or len(token.encode("utf-8")) < 32:
-            raise ConfigHistoryUnavailable("Configuration bearer token is missing or too short")
+            raise ConfigHistoryUnavailableError(
+                "Configuration bearer token is missing or too short"
+            )
         if any(character in token for character in "\r\n"):
-            raise ConfigHistoryUnavailable("Configuration bearer token contains invalid controls")
+            raise ConfigHistoryUnavailableError(
+                "Configuration bearer token contains invalid controls"
+            )
         return (("authorization", f"Bearer {token}"),)
 
     async def open(self) -> None:
@@ -79,7 +86,7 @@ class ConfigurationGrpcClient:
             raise RuntimeError("Configuration channel already open")
         channel = grpc.aio.insecure_channel(self._endpoint)
         self._channel = channel
-        self._stub = rpc.ConfigurationRepositoryServiceStub(channel)
+        self._stub = rpc.ConfigurationRepositoryServiceAsyncStub(channel)
 
     async def close(self) -> None:
         if self._channel is not None:
@@ -87,7 +94,7 @@ class ConfigurationGrpcClient:
         self._channel = None
         self._stub = None
 
-    def _client(self) -> rpc.ConfigurationRepositoryServiceStub:
+    def _client(self) -> rpc.ConfigurationRepositoryServiceAsyncStub:
         if self._stub is None:
             raise RuntimeError("Configuration client not connected")
         return self._stub
@@ -105,9 +112,11 @@ class ConfigurationGrpcClient:
         )
         document = _document(response.document)
         if (document.config_type, document.config_id, document.version_id) != (
-            config_type, config_id, version_id
+            config_type,
+            config_id,
+            version_id,
         ):
-            raise ConfigHistoryUnavailable("configuration repository returned wrong version")
+            raise ConfigHistoryUnavailableError("configuration repository returned wrong version")
         await asyncio.to_thread(self._archive.persist, document)
         return document
 
@@ -115,19 +124,22 @@ class ConfigurationGrpcClient:
         """Resolve one authority revision then validate every returned YAML byte."""
         listing = await self._client().ListConfigs(
             pb.ListConfigsRequest(
-                config_type="service", config_id_prefix=service_id, page_size=100,
+                config_type="service",
+                config_id_prefix=service_id,
+                page_size=100,
             ),
             timeout=self._timeout,
             metadata=self._metadata(),
         )
         if listing.next_page_token:
-            raise ConfigHistoryUnavailable("service listing was truncated")
+            raise ConfigHistoryUnavailableError("service listing was truncated")
         roots = [
-            entry for entry in listing.items
+            entry
+            for entry in listing.items
             if entry.config_id.config_type == "service" and entry.config_id.config_id == service_id
         ]
         if len(roots) != 1 or listing.snapshot_revision_id <= 0:
-            raise ConfigHistoryUnavailable("service config absent or revision unspecified")
+            raise ConfigHistoryUnavailableError("service config absent or revision unspecified")
         revision = listing.snapshot_revision_id
         response = await self._client().GetConfigBundle(
             pb.GetConfigBundleRequest(
@@ -139,7 +151,7 @@ class ConfigurationGrpcClient:
             metadata=self._metadata(),
         )
         if response.revision_id != revision:
-            raise ConfigHistoryUnavailable("Configuration bundle revision mismatch")
+            raise ConfigHistoryUnavailableError("Configuration bundle revision mismatch")
         digest = hashlib.sha256()
         objects: dict[tuple[str, str], RepositoryDocument] = {}
         file_versions: dict[tuple[str, str], str] = {}
@@ -149,26 +161,26 @@ class ConfigurationGrpcClient:
             document = _document(item)
             key = (document.config_type, document.config_id)
             if key in objects:
-                raise ConfigHistoryUnavailable("duplicate config identity in one closure")
+                raise ConfigHistoryUnavailableError("duplicate config identity in one closure")
             objects[key] = document
             file_versions[key] = item.file_version
         if digest.hexdigest() != response.manifest_sha256:
-            raise ConfigHistoryUnavailable("Configuration bundle manifest SHA256 mismatch")
+            raise ConfigHistoryUnavailableError("Configuration bundle manifest SHA256 mismatch")
         if sum(len(d.yaml_bytes) for d in objects.values()) != response.total_bytes:
-            raise ConfigHistoryUnavailable("Configuration bundle byte count mismatch")
+            raise ConfigHistoryUnavailableError("Configuration bundle byte count mismatch")
         service = objects.get(("service", service_id))
         if service is None or service.version_id != roots[0].recommended_version_id:
-            raise ConfigHistoryUnavailable("service version differs from pinned revision")
+            raise ConfigHistoryUnavailableError("service version differs from pinned revision")
         configuration = load_storage_config(service.yaml_bytes)
         if configuration.service_id != service_id:
-            raise ConfigHistoryUnavailable("service config identity mismatch")
+            raise ConfigHistoryUnavailableError("service config identity mismatch")
         required = {
             (item.config_type, item.config_id): item.file_version
             for item in configuration.config_sources
         }
         for key, version in required.items():
             if key not in file_versions or file_versions[key] != version:
-                raise ConfigHistoryUnavailable(
+                raise ConfigHistoryUnavailableError(
                     "Configuration bundle omitted an explicitly pinned historical dependency"
                 )
         # Persist complete closure before acknowledging the new config generation.
@@ -184,15 +196,12 @@ class ConfigurationGrpcClient:
             file_version = file_versions[key]
             table_identity = f"point_table_{key[1]}_v{file_version}"
             if len(table_identity.encode("utf-8")) > 256:
-                raise ConfigHistoryUnavailable("PointTable identity exceeds wire limit")
+                raise ConfigHistoryUnavailableError("PointTable identity exceeds wire limit")
             points[table_identity] = (key[1], document.version_id)
         business = [key for key in objects if key[0] == "business_points"]
         if len(business) > 1:
-            raise ConfigHistoryUnavailable("ambiguous business point catalog")
-        pin = (
-            (business[0][1], objects[business[0]].version_id)
-            if business else None
-        )
+            raise ConfigHistoryUnavailableError("ambiguous business point catalog")
+        pin = (business[0][1], objects[business[0]].version_id) if business else None
         return StorageBundle(
             configuration=configuration,
             revision_id=revision,

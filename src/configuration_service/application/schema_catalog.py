@@ -256,7 +256,8 @@ def iter_schemas() -> Iterator[SchemaSpec]:
         for name, kind in kinds.items():
             properties[name] = {"type": kind}
             if kind == "array":
-                properties[name]["items"] = {"type": "object"}
+                item_type = "string" if name == "allowed_wind_farms" else "object"
+                properties[name]["items"] = {"type": item_type}
             header[name] = _field(name, kind, required=name in _REQUIRED.get(config_type, ()))
             if config_type == "service" and name in _NESTED_FIELDS:
                 nested_schema, nested_header = _nested_definition(name)

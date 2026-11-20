@@ -29,7 +29,7 @@ class ObjectRegistration:
     state: Literal["CREATING", "READY"]
 
 
-class MetadataConflict(RuntimeError):
+class MetadataConflictError(RuntimeError):
     """Existing durable ownership or request-id arguments conflict."""
 
 
@@ -63,9 +63,7 @@ class MetadataStore:
         if self._path.is_symlink() or self._path.parent.is_symlink():
             raise ValueError("Storage metadata path must not use symbolic links")
         lock_path = self._path.with_suffix(self._path.suffix + ".lock")
-        fd_number = os.open(
-            lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
-        )
+        fd_number = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         fd = os.fdopen(fd_number, "a+b")
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -91,7 +89,7 @@ class MetadataStore:
     def _create_schema(connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()
         if version is None or version[0] not in (0, 1):
-            raise MetadataConflict("unsupported SQLite metadata schema")
+            raise MetadataConflictError("unsupported SQLite metadata schema")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS storage_objects (
@@ -149,17 +147,24 @@ class MetadataStore:
             """
         )
         expected = {
-            "name", "full_sha256", "identity_json", "schema_fingerprint",
-            "logical_identity_hash", "physical_database", "stable_name",
-            "table_name", "closure_hash", "created_at", "state",
+            "name",
+            "full_sha256",
+            "identity_json",
+            "schema_fingerprint",
+            "logical_identity_hash",
+            "physical_database",
+            "stable_name",
+            "table_name",
+            "closure_hash",
+            "created_at",
+            "state",
         }
         observed = {
-            str(row[1]) for row in connection.execute(
-                "PRAGMA table_info(storage_objects)"
-            ).fetchall()
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(storage_objects)").fetchall()
         }
         if observed != expected:
-            raise MetadataConflict(
+            raise MetadataConflictError(
                 "existing Storage metadata schema requires an explicit migration"
             )
 
@@ -169,20 +174,38 @@ class MetadataStore:
         return self._connection
 
     def reserve_object(
-        self, name: str, full_sha256: str, identity_json: str,
-        schema_fingerprint: str, *,
-        physical_database: str, stable_name: str, table_name: str,
+        self,
+        name: str,
+        full_sha256: str,
+        identity_json: str,
+        schema_fingerprint: str,
+        *,
+        physical_database: str,
+        stable_name: str,
+        table_name: str,
         closure_hash: str,
     ) -> ObjectRegistration:
         """Reserve full logical/physical identity before issuing any TDengine DDL."""
         details = (
-            full_sha256, identity_json, schema_fingerprint, full_sha256,
-            physical_database, stable_name, table_name, closure_hash,
+            full_sha256,
+            identity_json,
+            schema_fingerprint,
+            full_sha256,
+            physical_database,
+            stable_name,
+            table_name,
+            closure_hash,
         )
         if any(
             not isinstance(value, str) or not value
-            for value in (name, full_sha256, identity_json, schema_fingerprint,
-                          physical_database, closure_hash)
+            for value in (
+                name,
+                full_sha256,
+                identity_json,
+                schema_fingerprint,
+                physical_database,
+                closure_hash,
+            )
         ):
             raise ValueError("physical object metadata is incomplete")
         with self._mutex:
@@ -208,15 +231,13 @@ class MetadataStore:
                     state: Literal["CREATING", "READY"] = "CREATING"
                 else:
                     if tuple(record[:8]) != details:
-                        raise MetadataConflict(f"physical object identity collision: {name}")
+                        raise MetadataConflictError(f"physical object identity collision: {name}")
                     state = record[8]
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
-            return ObjectRegistration(
-                name, full_sha256, identity_json, schema_fingerprint, state
-            )
+            return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
 
     def mark_ready(self, registration: ObjectRegistration, *, verified: bool) -> None:
         """Only call after live TDengine schema and ownership have been checked."""
@@ -229,12 +250,14 @@ class MetadataStore:
                    WHERE name = ? AND full_sha256 = ?
                      AND identity_json = ? AND schema_fingerprint = ?""",
                 (
-                    registration.name, registration.full_sha256,
-                    registration.identity_json, registration.schema_fingerprint,
+                    registration.name,
+                    registration.full_sha256,
+                    registration.identity_json,
+                    registration.schema_fingerprint,
                 ),
             )
             if cursor.rowcount != 1:
-                raise MetadataConflict("reservation changed or disappeared")
+                raise MetadataConflictError("reservation changed or disappeared")
 
     def block_partition(
         self, topic: str, partition: int, offset: int, reason: str, payload: bytes
@@ -255,7 +278,7 @@ class MetadataStore:
                     (topic, partition),
                 ).fetchone()
                 if previous is not None and previous != (offset, digest):
-                    raise MetadataConflict("cannot overwrite an earlier blocked Kafka record")
+                    raise MetadataConflictError("cannot overwrite an earlier blocked Kafka record")
                 if previous is None:
                     db.execute(
                         """INSERT INTO blocked_partitions
@@ -270,16 +293,18 @@ class MetadataStore:
 
     def get_blocked_partition(self, topic: str, partition: int) -> tuple[int, str] | None:
         with self._mutex:
-            row = self._db().execute(
-                """SELECT offset_id, reason FROM blocked_partitions
+            row = (
+                self._db()
+                .execute(
+                    """SELECT offset_id, reason FROM blocked_partitions
                    WHERE topic = ? AND partition_id = ?""",
-                (topic, partition),
-            ).fetchone()
+                    (topic, partition),
+                )
+                .fetchone()
+            )
             return (int(row[0]), str(row[1])) if row is not None else None
 
-    def clear_blocked_partition(
-        self, topic: str, partition: int, *, expected_offset: int
-    ) -> bool:
+    def clear_blocked_partition(self, topic: str, partition: int, *, expected_offset: int) -> bool:
         with self._mutex:
             cursor = self._db().execute(
                 """DELETE FROM blocked_partitions
@@ -289,8 +314,14 @@ class MetadataStore:
             return cursor.rowcount == 1
 
     def register_task(
-        self, *, task_id: str, request_id: str, request_sha256: str, kind: str,
-        wind_farm_id: str, owner_id: str
+        self,
+        *,
+        task_id: str,
+        request_id: str,
+        request_sha256: str,
+        kind: str,
+        wind_farm_id: str,
+        owner_id: str,
     ) -> str:
         """Create idempotently: same request ID with different content is fatal."""
         with self._mutex:
@@ -304,7 +335,7 @@ class MetadataStore:
                 ).fetchone()
                 if row is not None:
                     if row[1:] != (request_sha256, kind, wind_farm_id, owner_id):
-                        raise MetadataConflict("request_id reused with different parameters")
+                        raise MetadataConflictError("request_id reused with different parameters")
                     result = str(row[0])
                 else:
                     db.execute(
@@ -313,8 +344,13 @@ class MetadataStore:
                             wind_farm_id, owner_id, state, created_at)
                            VALUES (?, ?, ?, ?, ?, ?, 'QUEUED', ?)""",
                         (
-                            task_id, request_id, request_sha256, kind,
-                            wind_farm_id, owner_id, datetime.now(UTC).isoformat(),
+                            task_id,
+                            request_id,
+                            request_sha256,
+                            kind,
+                            wind_farm_id,
+                            owner_id,
+                            datetime.now(UTC).isoformat(),
                         ),
                     )
                     result = task_id
@@ -323,7 +359,6 @@ class MetadataStore:
                 db.execute("ROLLBACK")
                 raise
             return result
-
 
     def request_partition_retry(
         self, *, request_id: str, topic: str, partition: int, expected_offset: int
@@ -343,7 +378,9 @@ class MetadataStore:
                 requested = (topic, partition, expected_offset)
                 if previous is not None:
                     if tuple(previous) != requested:
-                        raise MetadataConflict("retry request ID reused with different arguments")
+                        raise MetadataConflictError(
+                            "retry request ID reused with different arguments"
+                        )
                     db.execute("COMMIT")
                     return True
                 current = db.execute(
@@ -370,33 +407,44 @@ class MetadataStore:
                 db.execute("ROLLBACK")
                 raise
 
-    def list_blocked(self, *, page_size: int, after: tuple[str, int] | None = None
+    def list_blocked(
+        self, *, page_size: int, after: tuple[str, int] | None = None
     ) -> list[tuple[str, int, int, str]]:
         """List blocked partitions in deterministic order."""
         if not 1 <= page_size <= 1001:
             raise ValueError("invalid page size")
         cursor = after or ("", -1)
         with self._mutex:
-            rows = self._db().execute(
-                """SELECT topic, partition_id, offset_id, reason
+            rows = (
+                self._db()
+                .execute(
+                    """SELECT topic, partition_id, offset_id, reason
                    FROM blocked_partitions
                    WHERE topic > ? OR (topic = ? AND partition_id > ?)
                    ORDER BY topic, partition_id LIMIT ?""",
-                (cursor[0], cursor[0], cursor[1], page_size),
-            ).fetchall()
+                    (cursor[0], cursor[0], cursor[1], page_size),
+                )
+                .fetchall()
+            )
             return [(str(a), int(b), int(c), str(d)) for a, b, c, d in rows]
 
     def list_tables(
-        self, *, database: str | None = None,
+        self,
+        *,
+        database: str | None = None,
     ) -> list[ObjectRegistration]:
         """Return only integrity-checked registered and READY physical objects."""
         with self._mutex:
-            rows = self._db().execute(
-                """SELECT name, full_sha256, identity_json,
+            rows = (
+                self._db()
+                .execute(
+                    """SELECT name, full_sha256, identity_json,
                           schema_fingerprint, state
                    FROM storage_objects
                    WHERE name LIKE 'tb_%' AND state='READY' ORDER BY name"""
-            ).fetchall()
+                )
+                .fetchall()
+            )
         records: list[ObjectRegistration] = []
         for name, digest, canonical, fingerprint, state in rows:
             if (
@@ -405,31 +453,39 @@ class MetadataStore:
                 or not isinstance(canonical, str)
                 or hashlib.sha256(canonical.encode("utf-8")).hexdigest() != digest
             ):
-                raise MetadataConflict("stored physical identity is not trustworthy")
+                raise MetadataConflictError("stored physical identity is not trustworthy")
             try:
                 identity = json.loads(canonical)
             except (ValueError, TypeError) as exc:
-                raise MetadataConflict("stored physical identity is malformed") from exc
+                raise MetadataConflictError("stored physical identity is malformed") from exc
             if (
-                not isinstance(identity, list) or len(identity) != 6
+                not isinstance(identity, list)
+                or len(identity) != 6
                 or any(not isinstance(item, str) or not item for item in identity)
             ):
-                raise MetadataConflict("stored table identity has invalid components")
+                raise MetadataConflictError("stored table identity has invalid components")
             if name != f"tb_{digest[:24]}":
-                raise MetadataConflict("physical table name differs from identity hash")
+                raise MetadataConflictError("physical table name differs from identity hash")
             farm_hash = hashlib.sha256(
-                json.dumps([identity[0]], ensure_ascii=False,
-                           separators=(",", ":")).encode("utf-8")
+                json.dumps([identity[0]], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             ).hexdigest()
             if database is not None and database != f"wh_{farm_hash[:24]}":
                 continue
-            records.append(ObjectRegistration(
-                name, digest, canonical, fingerprint, state,
-            ))
+            records.append(
+                ObjectRegistration(
+                    name,
+                    digest,
+                    canonical,
+                    fingerprint,
+                    state,
+                )
+            )
         return records
 
     def register_semantic_pins(
-        self, *, point_table_versions: dict[str, tuple[str, str]],
+        self,
+        *,
+        point_table_versions: dict[str, tuple[str, str]],
         business_points_pin: tuple[str, str] | None,
     ) -> None:
         """Never rebind a historical sample identity to another YAML closure."""
@@ -440,7 +496,10 @@ class MetadataStore:
                 for full_id, (config_id, version_id) in point_table_versions.items():
                     business_id, business_version = business_points_pin or ("", "")
                     identity = (
-                        config_id, version_id, business_id, business_version,
+                        config_id,
+                        version_id,
+                        business_id,
+                        business_version,
                     )
                     prior = db.execute(
                         """SELECT config_id, version_id,
@@ -449,7 +508,7 @@ class MetadataStore:
                         (full_id,),
                     ).fetchone()
                     if prior is not None and tuple(prior) != identity:
-                        raise MetadataConflict(
+                        raise MetadataConflictError(
                             "immutable PointTable semantic closure cannot be rebound"
                         )
                     if prior is None:
@@ -469,38 +528,51 @@ class MetadataStore:
         self,
     ) -> dict[str, tuple[tuple[str, str], tuple[str, str] | None]]:
         with self._mutex:
-            rows = self._db().execute(
-                """SELECT point_table_id, config_id, version_id,
+            rows = (
+                self._db()
+                .execute(
+                    """SELECT point_table_id, config_id, version_id,
                           business_config_id, business_version_id
                    FROM semantic_pins ORDER BY point_table_id"""
-            ).fetchall()
+                )
+                .fetchall()
+            )
         return {
             str(full_id): (
                 (str(config_id), str(version_id)),
                 (str(business_id), str(business_version))
-                if business_id and business_version else None,
+                if business_id and business_version
+                else None,
             )
             for full_id, config_id, version_id, business_id, business_version in rows
         }
 
-    def get_task(
-        self, task_id: str, *, kind: str, owner_id: str
-    ) -> TaskRecord | None:
+    def get_task(self, task_id: str, *, kind: str, owner_id: str) -> TaskRecord | None:
         if not task_id or kind not in {"EXPORT", "BACKUP"}:
             raise ValueError("invalid task query")
         with self._mutex:
-            row = self._db().execute(
-                """SELECT task_id, kind, wind_farm_id, owner_id,
+            row = (
+                self._db()
+                .execute(
+                    """SELECT task_id, kind, wind_farm_id, owner_id,
                           state, created_at, finished_at,
                           artifact_id, size_bytes, sha256, error_code, message
                    FROM tasks WHERE task_id=? AND kind=? AND owner_id=?""",
-                (task_id, kind, owner_id),
-            ).fetchone()
+                    (task_id, kind, owner_id),
+                )
+                .fetchone()
+            )
             return TaskRecord(*row) if row else None
 
     def set_task_state(
-        self, task_id: str, *, state: str, artifact_id: str = "",
-        size_bytes: int = 0, sha256: str = "", error_code: str = "",
+        self,
+        task_id: str,
+        *,
+        state: str,
+        artifact_id: str = "",
+        size_bytes: int = 0,
+        sha256: str = "",
+        error_code: str = "",
         message: str = "",
     ) -> None:
         """Persistent state transition; terminal jobs cannot be reopened."""
@@ -514,11 +586,9 @@ class MetadataStore:
             db = self._db()
             db.execute("BEGIN IMMEDIATE")
             try:
-                row = db.execute(
-                    "SELECT state FROM tasks WHERE task_id=?", (task_id,)
-                ).fetchone()
+                row = db.execute("SELECT state FROM tasks WHERE task_id=?", (task_id,)).fetchone()
                 if row is None or state not in valid.get(row[0], set()):
-                    raise MetadataConflict("task state transition is not allowed")
+                    raise MetadataConflictError("task state transition is not allowed")
                 terminal = state != "RUNNING"
                 db.execute(
                     """UPDATE tasks
@@ -526,8 +596,13 @@ class MetadataStore:
                            error_code=?, message=?, finished_at=?
                        WHERE task_id=?""",
                     (
-                        state, artifact_id, size_bytes, sha256, error_code,
-                        message[:1024], datetime.now(UTC).isoformat() if terminal else None,
+                        state,
+                        artifact_id,
+                        size_bytes,
+                        sha256,
+                        error_code,
+                        message[:1024],
+                        datetime.now(UTC).isoformat() if terminal else None,
                         task_id,
                     ),
                 )

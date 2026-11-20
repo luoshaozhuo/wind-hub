@@ -53,11 +53,13 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
             rights = caller.get("permissions")
             if not isinstance(rights, list):
                 raise ConfigurationError("invalid security caller rights")
-            grants.append(CallerGrant(
-                caller_id=str(caller.get("caller_id", "")),
-                token_env=str(caller.get("token_env", "")),
-                permissions=frozenset(rights),
-            ))
+            grants.append(
+                CallerGrant(
+                    caller_id=str(caller.get("caller_id", "")),
+                    token_env=str(caller.get("token_env", "")),
+                    permissions=frozenset(rights),
+                )
+            )
         self._authorizer = BearerAuthorizer(grants)
 
     async def intercept_service(
@@ -74,9 +76,7 @@ class PeerAuthorization(grpc.aio.ServerInterceptor):
         permission = _PERMISSIONS.get(name)
         behavior: Callable[..., Any] = handler.unary_unary
 
-        async def authorized(
-            request: Any, context: grpc.aio.ServicerContext[Any, Any]
-        ) -> Any:
+        async def authorized(request: Any, context: grpc.aio.ServicerContext[Any, Any]) -> Any:
             if permission is None:
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "unknown RPC operation")
                 raise RuntimeError("gRPC abort returned")

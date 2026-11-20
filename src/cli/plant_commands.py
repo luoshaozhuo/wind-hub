@@ -337,9 +337,15 @@ def generator_scenarios(page_size: int = 100, page_token: str = "") -> None:
 async def _generation_revision(revision: str | None) -> str:
     if revision:
         return revision
-    from .common_commands import _disk_revision
+    from .common_commands import request_common
 
-    return await _disk_revision("data-generator")
+    response = await request_common(
+        "data-generator", "GetConfigSnapshot", {"scope": "SNAPSHOT_SCOPE_DISK"}
+    )
+    disk_revision = response.get("revision")
+    if not isinstance(disk_revision, str) or not disk_revision:
+        raise RuntimeError("Data Generator returned no disk configuration revision")
+    return disk_revision
 
 
 @data_generator.command("start")

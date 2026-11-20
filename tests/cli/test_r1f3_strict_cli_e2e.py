@@ -1,4 +1,4 @@
-"""严格 CLI 独立进程 E2E：真实六身份、mTLS、双采集与四路 Sink 输出。"""
+"""严格 CLI 独立进程 E2E：真实 Bearer 主体、双采集与四路 Sink 输出。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 import nats
@@ -19,16 +19,15 @@ import pytest
 import yaml
 
 from tests.cli.e2e_util import last_json, run_cli
-from tests.commander.grpc_harness import build_pki
 from tests.data_generator.conftest import _real_tree, simulation_document, write_service_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.support.bearer import ensure_bearer
 from tests.support.collector_config_tree import write_collector_modbus_tree
 from tests.support.commander_mtls import write_commander_service
-from tests.support.gateway import ServerSpec, reserve_port, write_config_tree, write_mtls_pki
+from tests.support.gateway import ServerSpec, reserve_port, write_config_tree
 
 pytestmark = [
     pytest.mark.system,
@@ -42,7 +41,7 @@ pytestmark = [
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 #: N-CLI-1：Collector 管理/读/诊断 RPC 的管理员令牌；服务进程与 CLI 进程须一致。
-ADMIN_TOKEN = "strict-cli-admin-token"
+ADMIN_TOKEN = "strict-cli-admin-token-012345678901234567890123456789"
 SERVICES = (
     "gateway",
     "data-generator",
@@ -51,6 +50,17 @@ SERVICES = (
     "sink",
     "commander",
 )
+
+
+def _token(principal: str) -> str:
+    reference = ensure_bearer(principal)
+    return os.environ[reference.removeprefix("env:")]
+
+
+def _bearer_environment(*principals: str) -> dict[str, str]:
+    return {
+        ensure_bearer(principal).removeprefix("env:"): _token(principal) for principal in principals
+    }
 
 
 def _dump(path: Path, document: dict[str, Any]) -> None:
@@ -64,44 +74,17 @@ def _write_cli(
     collector: str,
     endpoints: dict[str, str],
     processes: dict[str, dict[str, Any]],
-    gateway_pki: dict[str, object],
-    commander_pki: Any,
-    sink_bundle: dict[str, Path],
 ) -> Path:
-    clients = cast(dict[str, tuple[Path, Path]], gateway_pki["clients"])
-    gateway_crt, gateway_key = clients["cli"]
-    profiles = {
-        "gateway": {
-            "ca_cert": str(gateway_pki["ca"]),
-            "client_cert": str(gateway_crt),
-            "client_key": str(gateway_key),
-        },
-        "commander": {
-            "ca_cert": str(commander_pki.tmp / "ca.crt"),
-            "client_cert": str(commander_pki.tmp / "ops.crt"),
-            "client_key": str(commander_pki.tmp / "ops.key"),
-        },
-        "sink": {
-            "ca_cert": str(sink_bundle["ca"]),
-            "client_cert": str(sink_bundle["admin_crt"]),
-            "client_key": str(sink_bundle["admin_key"]),
-        },
-    }
     services: dict[str, dict[str, Any]] = {}
     for name in SERVICES:
-        profile = "sink" if name == "sink" else name
-        if name == "data-generator" or name.startswith("collector_"):
-            profile = "gateway"
         services[name] = {
             "grpc_endpoint": endpoints[name],
-            "tls_profile": profile,
             "manager": "process",
             "target": name,
             "process": processes[name],
         }
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
-        "tls_profile": "gateway",
     }
     _dump(
         path,
@@ -115,7 +98,6 @@ def _write_cli(
                 "poll_interval_ms": 200,
             },
             "services": services,
-            "tls_profiles": profiles,
         },
     )
     path.chmod(0o600)
@@ -330,7 +312,14 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
 
         gateway_root = tmp_path / "gateway"
-        pki = write_mtls_pki(gateway_root, ("cli", "generator", "sink"))
+        os.environ.update(
+            {
+                "WIND_HUB_GATEWAY_OPERATOR_TOKEN": _token("cli"),
+                "WIND_HUB_GENERATOR_CLI_TOKEN": _token("generator-cli"),
+                "WIND_HUB_SINK_OPERATOR_TOKEN": _token("maintenance"),
+                "WIND_HUB_COMMANDER_OPERATOR_TOKEN": _token("commander-ops"),
+            }
+        )
         # D01 的上游是本用例的真实 ModbusMockServer；Gateway 自身的下游
         # Modbus 侦听必须独立端口，否则与设备端口冲突（启动 fail-closed）。
         gateway_listen_port = reserve_port()
@@ -370,7 +359,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                     },
                 },
             },
-            mtls_enabled=True,
         )
 
         dg_root = tmp_path / "dg-config"
@@ -424,21 +412,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             scenarios=scenario_doc["scenarios"],
         )
         dg_doc = yaml.safe_load(dg_service.read_text(encoding="utf-8"))
-        clients = cast(dict[str, tuple[Path, Path]], pki["clients"])
-        generator_crt, generator_key = clients["generator"]
-        dg_doc["output"]["gateway_tls"] = {
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(generator_crt),
-            "key_file": str(generator_key),
-        }
-        dg_doc["security"] = {
-            "tls": {
-                "ca_file": str(pki["ca"]),
-                "cert_file": str(pki["server_crt"]),
-                "key_file": str(pki["server_key"]),
-            },
-            "permissions": {"cli": ["variables_read", "variables_update"]},
-        }
+        dg_doc["output"]["gateway_token_ref"] = ensure_bearer("generator")
         _dump(dg_service, dg_doc)
 
         collector_roots: dict[str, Path] = {}
@@ -463,8 +437,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             _dump(service_path, document)
             collector_roots[name] = root
 
-        (tmp_path / "commander-pki").mkdir(parents=True)
-        commander_pki = build_pki(tmp_path / "commander-pki")
         commander_tree = write_collector_modbus_tree(
             tmp_path / "commander" / "config-tree",
             modbus.port,
@@ -484,7 +456,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         commander_service = write_commander_service(
             tmp_path / "commander",
             commander_tree,
-            commander_pki,
             grpc_port=ports["commander"],
         )
         commander_doc = yaml.safe_load(commander_service.read_text(encoding="utf-8"))
@@ -496,7 +467,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         _dump(commander_service, commander_doc)
         await _provision_commander_audit(stack.nats, audit_stream, audit_subject)
 
-        bundle = write_mtls_bundle(tmp_path / "sink-pki")
         sink = SinkSystemHarness(
             root=tmp_path / "sink",
             stack=stack,
@@ -507,12 +477,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             dlq_stream=f"WH_DLQ_STRICT_{token.upper()}",
             dlq_subject=f"wh.strict.dlq.{token}",
             token=token,
-            bundle=bundle,
         )
         sink.write_dual_channel_root()
-        # The shared fixture owns the config-root PKI; CLI and server must use that same CA.
-        bundle = write_mtls_bundle(sink.root)
-        sink.bundle = bundle
         deliveries_path = sink.root / DELIVERIES_INSTANCE
         deliveries_doc = yaml.safe_load(deliveries_path.read_text(encoding="utf-8"))
         deliveries_doc["deliveries"]["ems_power"]["source"]["collector_id"] = rt_collector
@@ -557,7 +523,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "connection": {
                 "endpoint": endpoints["gateway"],
                 "gateway_id": "gw-strict",
-                "credential_ref": "env:WH_STRICT_GATEWAY_TLS",
+                "credential_ref": "env:WH_STRICT_GATEWAY_BEARER",
             },
             "overrides": {},
         }
@@ -580,9 +546,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         python = sys.executable
         common_env = {
-            "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
-            "WIND_HUB_COLLECTOR_TLS_KEY": str(pki["server_key"]),
-            "WIND_HUB_COLLECTOR_TLS_CA": str(pki["ca"]),
             # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
             "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
         }
@@ -598,11 +561,13 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 str(gateway_root),
             ],
             cwd=SRC,
+            env=_bearer_environment("cli", "generator", "sink"),
         )
         harness.register_process(
             "data-generator",
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
             cwd=SRC,
+            env=_bearer_environment("generator-cli", "generator-input", "generator"),
         )
         for name, collector_id in (
             ("collector_realtime", rt_collector),
@@ -630,42 +595,32 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 cwd=SRC,
                 env=common_env,
             )
-        sink_crt, sink_key = clients["sink"]
-        gateway_credentials = json.dumps(
-            {
-                "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                "client_cert_pem": sink_crt.read_text(encoding="utf-8"),
-                "client_key_pem": sink_key.read_text(encoding="utf-8"),
-            }
-        )
         harness.register_process(
             "sink",
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             cwd=sink.root,
-            env={"WH_STRICT_GATEWAY_TLS": gateway_credentials},
+            env={
+                **_bearer_environment("maintenance"),
+                "WH_STRICT_GATEWAY_BEARER": _token("sink"),
+            },
         )
         harness.register_process(
             "commander",
             [python, "-m", "commander", "--config", str(commander_service)],
             cwd=SRC,
+            env=_bearer_environment("commander-ops"),
         )
         _write_cli(
             harness.cli_realtime,
             collector="collector_realtime",
             endpoints=endpoints,
             processes=harness.processes,
-            gateway_pki=pki,
-            commander_pki=commander_pki,
-            sink_bundle=bundle,
         )
         _write_cli(
             harness.cli_reliable,
             collector="collector_reliable",
             endpoints=endpoints,
             processes=harness.processes,
-            gateway_pki=pki,
-            commander_pki=commander_pki,
-            sink_bundle=bundle,
         )
 
         for name in SERVICES:
@@ -691,15 +646,21 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             assert len(tasks["tasks"]) == 1
             # N-CLI-1：错误令牌与缺失令牌必须被拒绝，且令牌不出现在输出。
             wrong = await harness.cli(
-                config, "collector", "start", device, "--yes", check=False, token="wrong-token"
+                config,
+                "collector",
+                "start",
+                device,
+                "--yes",
+                check=False,
+                token="wrong-token-0123456789012345678901234567890123456789",
             )
             assert wrong["status"] == "FAILURE", wrong
-            assert "denied" in (wrong.get("message") or "").lower(), wrong
+            assert "invalid" in (wrong.get("message") or "").lower(), wrong
             missing = await harness.cli(
                 config, "collector", "start", device, "--yes", check=False, token=None
             )
             assert missing["status"] == "FAILURE", missing
-            assert "admin credentials" in (missing.get("message") or ""), missing
+            assert "bearer credential missing or invalid" in (missing.get("message") or "")
             assert ADMIN_TOKEN not in json.dumps(wrong) + json.dumps(missing)
             await harness.cli(config, "collector", "start", device, "--yes")
         await harness.poll_cli(

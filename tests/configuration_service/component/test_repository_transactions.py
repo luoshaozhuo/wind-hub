@@ -9,6 +9,7 @@ import pytest
 
 from configuration_service.application.service import ConfigurationApplication
 from configuration_service.domain.models import (
+    ConfigIdentity,
     IdempotencyConflictError,
     RepositoryCapacityExceededError,
     RepositoryConflictError,
@@ -57,6 +58,33 @@ def test_candidate_idempotency_and_request_payload_conflict(
             request_id="same",
             expected_revision=0,
             documents=(changed,),
+            validate_only=False,
+        )
+
+
+def test_unpublished_candidate_cannot_change_baseline_on_replay(
+    app: ConfigurationApplication,
+) -> None:
+    item = document_input("site", "alpha", "1.0.0")
+    app.create_candidate(
+        actor_id="publisher",
+        request_id="baseline-sensitive",
+        expected_revision=0,
+        documents=(item,),
+        validate_only=False,
+    )
+    publish_documents(
+        app,
+        (document_input("site", "other", "1.0.0"),),
+        expected_revision=0,
+        request_id="advance-baseline",
+    )
+    with pytest.raises(IdempotencyConflictError, match="another revision"):
+        app.create_candidate(
+            actor_id="publisher",
+            request_id="baseline-sensitive",
+            expected_revision=1,
+            documents=(item,),
             validate_only=False,
         )
 
@@ -305,10 +333,10 @@ def test_deprecated_dependency_cannot_be_newly_bound(
         actor_id="publisher",
         request_id="consumer-create",
         expected_revision=revision3,
-        documents=(consumer,),
+        documents=(units, consumer),
         validate_only=False,
     )
-    with pytest.raises(RepositoryConflictError, match="deprecated reference"):
+    with pytest.raises(RepositoryConflictError, match="deprecated (version|reference)"):
         app.repository.publish_candidate(
             actor_id="publisher",
             request_id="consumer-publish",
@@ -329,15 +357,19 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
     rev2, ids = publish_documents(
         app,
         (
+            document_input("site", "a", "1.0.0"),
             document_input("site", "b", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
             document_input("site", "c", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
         ),
         expected_revision=rev1,
         request_id="bc",
     )
-    rev3, (d_version,) = publish_documents(
+    rev3, _ = publish_documents(
         app,
         (
+            document_input("site", "a", "1.0.0"),
+            document_input("site", "b", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
+            document_input("site", "c", "1.0.0", config_sources=[reference("site", "a", "1.0.0")]),
             document_input(
                 "site",
                 "d",
@@ -348,6 +380,7 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
         expected_revision=rev2,
         request_id="d",
     )
+    d_version = app.repository.resolve_version(ConfigIdentity("site", "d"), "1.0.0")
     bundle = app.repository.get_bundle_versions(
         (document_input("site", "d", "1.0.0").identity,),
         rev3,
@@ -364,6 +397,82 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
             rev3,
             max_versions=3,
         )
+
+
+def test_recommend_rollback_requires_current_dependency_closure(
+    app: ConfigurationApplication,
+) -> None:
+    root_v1 = document_input(
+        "site",
+        "root",
+        "1.0.0",
+        config_sources=[reference("site", "dependency", "1.0.0")],
+    )
+    dependency = document_input("site", "dependency", "1.0.0")
+    rev1, _ = publish_documents(app, (root_v1, dependency), request_id="closure-v1")
+    root_v2 = document_input("site", "root", "2.0.0")
+    rev2, _ = publish_documents(app, (root_v2,), expected_revision=rev1, request_id="closure-v2")
+    root_v1_id = app.repository.resolve_version(root_v1.identity, "1.0.0")
+    with pytest.raises(RepositoryConflictError, match="dependency closure"):
+        app.repository.set_recommended_version(
+            actor_id="publisher",
+            request_id="rollback-without-closure",
+            identity=root_v1.identity,
+            version_id=root_v1_id,
+            expected_revision=rev2,
+        )
+
+
+def test_identical_full_set_is_noop_and_original_request_can_be_replayed(
+    app: ConfigurationApplication,
+) -> None:
+    item = document_input("site", "alpha", "1.0.0")
+    candidate, _ = app.create_candidate(
+        actor_id="publisher",
+        request_id="stable-candidate",
+        expected_revision=0,
+        documents=(item,),
+        validate_only=False,
+    )
+    first = app.publish_candidate(
+        actor_id="publisher",
+        request_id="stable-publish",
+        candidate_id=candidate,
+        expected_revision=0,
+    )
+    replay_candidate, _ = app.create_candidate(
+        actor_id="publisher",
+        request_id="stable-candidate",
+        expected_revision=first.revision_id,
+        documents=(item,),
+        validate_only=False,
+    )
+    assert replay_candidate == candidate
+    replay = app.publish_candidate(
+        actor_id="publisher",
+        request_id="stable-publish",
+        candidate_id=replay_candidate,
+        expected_revision=0,
+    )
+    assert replay.revision_id == first.revision_id
+    assert replay.replayed is True
+
+    unchanged_candidate, _ = app.create_candidate(
+        actor_id="publisher",
+        request_id="unchanged-candidate",
+        expected_revision=first.revision_id,
+        documents=(item,),
+        validate_only=False,
+    )
+    unchanged = app.publish_candidate(
+        actor_id="publisher",
+        request_id="unchanged-publish",
+        candidate_id=unchanged_candidate,
+        expected_revision=first.revision_id,
+    )
+    assert unchanged.revision_id == first.revision_id
+    assert unchanged.replayed is True
+    assert app.repository.current_revision() == first.revision_id
 
 
 def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) -> None:

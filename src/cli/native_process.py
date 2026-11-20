@@ -129,7 +129,8 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
         raise RuntimeError("process state directory must be private to the CLI user")
     state_file = state_dir / f"{target.service_id}.json"
     lock_file = state_dir / f"{target.service_id}.lock"
-    deadline = time.monotonic() + target.timeout
+    lifetime_s = max(target.timeout, 30.0) if action in {"stop", "restart"} else target.timeout
+    deadline = time.monotonic() + lifetime_s
 
     if (
         not target.service_id.isascii()

@@ -1,12 +1,10 @@
-"""Web Server Commander v1 客户端：正式 Common/Commander RPC、mTLS、单次提交。"""
+"""Web Server Commander v1 客户端：正式 RPC、Bearer 认证、单次提交。"""
 
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from pathlib import Path
 from time import monotonic
 from typing import Literal
 
@@ -17,6 +15,7 @@ from contracts import commander_pb2_grpc as cmd_rpc
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
 from core.application.protocol_contract import WriteOutcome
+from core.infrastructure.grpc_bearer import bearer_metadata
 from web_server.adapter.outbound.grpc.common import GrpcClientBase
 from web_server.application.device.command_model import Command, CommandResult
 from web_server.application.port.worker import (
@@ -52,35 +51,17 @@ def _encode_scalar(value: bool | int | float | str) -> common.ScalarValue:
     return scalar
 
 
-def _credentials() -> grpc.ChannelCredentials:
-    """Commander 强制 mTLS；证书缺失时拒绝建立不安全的明文连接。"""
-    names = (
-        "WIND_HUB_COMMANDER_CA_CERT",
-        "WIND_HUB_COMMANDER_CLIENT_CERT",
-        "WIND_HUB_COMMANDER_CLIENT_KEY",
-    )
-    paths = [os.environ.get(name) for name in names]
-    if not all(paths):
-        raise RuntimeError("Commander mTLS requires CA, client certificate and client key")
-    ca, cert, key = (Path(value).read_bytes() for value in paths if value is not None)
-    return grpc.ssl_channel_credentials(
-        root_certificates=ca,
-        private_key=key,
-        certificate_chain=cert,
-    )
-
-
 class CommanderGrpcClient(GrpcClientBase):
     """Commander v1 只实现真实能力；无法确认的指令结果保持 UNKNOWN。"""
 
     def __init__(self, target: str, *, default_timeout: float = 5.0) -> None:
-        super().__init__(
-            target,
-            default_timeout=default_timeout,
-            credentials=_credentials(),
-        )
+        super().__init__(target, default_timeout=default_timeout)
         self._commander = cmd_rpc.CommanderServiceStub(self._channel)
         self._common = common_rpc.CommonServiceStub(self._channel)
+
+    @staticmethod
+    def _metadata() -> tuple[tuple[str, str], ...]:
+        return bearer_metadata("env:WIND_HUB_COMMANDER_OPERATOR_TOKEN")
 
     async def get_config_snapshot(self, scope: Literal["disk", "runtime"]) -> RemoteConfigSnapshot:
         wire_scope = (
@@ -89,6 +70,7 @@ class CommanderGrpcClient(GrpcClientBase):
         response = await self._common.GetConfigSnapshot(
             common.GetConfigSnapshotRequest(scope=wire_scope),
             timeout=self.default_timeout,
+            metadata=self._metadata(),
         )
         return RemoteConfigSnapshot(
             revision=response.revision,
@@ -112,6 +94,7 @@ class CommanderGrpcClient(GrpcClientBase):
                 ],
             ),
             timeout=self.default_timeout,
+            metadata=self._metadata(),
         )
         return ConfigPushResult(
             candidate_id=response.candidate_id,
@@ -127,6 +110,7 @@ class CommanderGrpcClient(GrpcClientBase):
                 expected_revision=expected_revision,
             ),
             timeout=max(self.default_timeout, 30.0),
+            metadata=self._metadata(),
         )
         errors = [
             f"{item.object_id}: {item.error_code} {item.message}"
@@ -147,6 +131,7 @@ class CommanderGrpcClient(GrpcClientBase):
             response = await self._commander.ListDevices(
                 cmd.ListDevicesRequest(page_size=200, page_token=token),
                 timeout=self.default_timeout,
+                metadata=self._metadata(),
             )
             devices.extend(response.devices)
             token = response.next_page_token
@@ -155,7 +140,11 @@ class CommanderGrpcClient(GrpcClientBase):
 
     async def status(self) -> CommanderStatus:
         health, runtime, devices = await asyncio.gather(
-            self._common.GetServiceStatus(common.Empty(), timeout=self.default_timeout),
+            self._common.GetServiceStatus(
+                common.Empty(),
+                timeout=self.default_timeout,
+                metadata=self._metadata(),
+            ),
             self.get_config_snapshot("runtime"),
             self._devices(),
         )
@@ -169,7 +158,11 @@ class CommanderGrpcClient(GrpcClientBase):
         if timeout <= 0:
             raise ValueError("diagnostic timeout must be positive")
         device, result = await asyncio.gather(
-            self._commander.GetDevice(common.ObjectId(id=device_id), timeout=self.default_timeout),
+            self._commander.GetDevice(
+                common.ObjectId(id=device_id),
+                timeout=self.default_timeout,
+                metadata=self._metadata(),
+            ),
             self._common.Diagnose(
                 common.DiagnoseRequest(
                     target_id=device_id,
@@ -177,6 +170,7 @@ class CommanderGrpcClient(GrpcClientBase):
                     timeout_ms=max(1, int(timeout * 1000)),
                 ),
                 timeout=max(self.default_timeout, timeout + 1),
+                metadata=self._metadata(),
             ),
         )
         endpoint = device.device.endpoint
@@ -224,6 +218,7 @@ class CommanderGrpcClient(GrpcClientBase):
             device = await self._commander.GetDevice(
                 common.ObjectId(id=command.device_id),
                 timeout=min(self.default_timeout, command.timeout),
+                metadata=self._metadata(),
             )
             revision = device.device.revision
             if not revision:
@@ -244,7 +239,11 @@ class CommanderGrpcClient(GrpcClientBase):
         )
         request.expires_at.FromDatetime(expires)
         try:
-            admitted = await self._commander.SubmitCommand(request, timeout=remaining)
+            admitted = await self._commander.SubmitCommand(
+                request,
+                timeout=remaining,
+                metadata=self._metadata(),
+            )
         except (grpc.RpcError, TimeoutError) as exc:
             return outcome(
                 WriteOutcome.UNKNOWN,
@@ -264,6 +263,7 @@ class CommanderGrpcClient(GrpcClientBase):
                 result = await self._commander.GetCommandResult(
                     cmd.GetCommandResultRequest(command_id=admitted.command_id),
                     timeout=remaining,
+                    metadata=self._metadata(),
                 )
             except (grpc.RpcError, TimeoutError) as exc:
                 return outcome(

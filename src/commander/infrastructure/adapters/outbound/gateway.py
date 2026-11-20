@@ -15,13 +15,13 @@ from contracts import common_pb2
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from contracts.scalar_codec import encode_scalar
-from core.infrastructure.grpc_bearer import bearer_metadata
 from core.application.protocol_contract import (
     ProtocolCapability,
     ProtocolWrite,
     ProtocolWriteResult,
     WriteOutcome,
 )
+from core.infrastructure.grpc_bearer import bearer_metadata
 
 
 class GatewaySimulationSession:

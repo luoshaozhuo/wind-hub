@@ -9,7 +9,10 @@ from configuration_service.application.schema_catalog import iter_schemas
 from configuration_service.application.service import ConfigurationApplication, DocumentInput
 from configuration_service.domain.models import RepositoryConflictError
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import emit_yaml, parse_yaml
-from tests.configuration_service.component.test_shipped_yaml_repository import input_for
+from tests.configuration_service.component.test_shipped_yaml_repository import (
+    DIRECTORY_INPUTS,
+    input_for,
+)
 from tests.configuration_service.conftest import document_input, publish_documents
 from tests.configuration_service.unit.test_yaml_acceptance import ROOT
 
@@ -20,18 +23,7 @@ def test_existing_commander_caller_array_is_admitted_and_reconstructed(
     app: ConfigurationApplication,
 ) -> None:
     item = input_for(ROOT / "configs/services/commander.yaml")
-    dependencies = [
-        input_for(path)
-        for path in sorted((ROOT / "configs/instances").glob("*.yaml"))
-        if path.stem in {"site", "devices"}
-    ]
-    dependencies.extend(
-        input_for(path)
-        for path in sorted((ROOT / "configs/templates").rglob("*.yaml"))
-        if "device_models" not in path.parts and "point_tables" not in path.parts
-    )
-    documents = {document.identity: document for document in (*dependencies, item)}
-    revision, _ = publish_documents(app, tuple(documents.values()), request_id="caller-array")
+    revision, _ = publish_documents(app, DIRECTORY_INPUTS, request_id="caller-array")
     restored = app.get_config(item.identity, revision_id=revision)
     assert isinstance(restored.yaml_bytes, bytes)
     assert b"# security.callers:" in restored.yaml_bytes
@@ -182,8 +174,9 @@ def test_caller_header_declares_complete_required_item_fields() -> None:
         max_bytes=64 * 1024 * 1024,
     )
     exported = emit_yaml(document, schema.header).decode()
-    for field in ("caller_id", "certificate_identity", "permissions"):
+    for field in ("caller_id", "token_env", "permissions"):
         assert f"# security.callers.<item>.{field}: 必填" in exported
+    assert "certificate_identity" not in exported
 
 
 def test_identical_schema_registration_is_idempotent(app: ConfigurationApplication) -> None:

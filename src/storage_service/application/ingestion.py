@@ -44,15 +44,15 @@ class PoisonEvidence(Protocol):
         """Persist original Kafka bytes before changing partition state."""
 
 
-class ConfigHistoryUnavailable(RuntimeError):
+class ConfigHistoryUnavailableError(RuntimeError):
     """Historical configuration is absent, corrupt, or cannot be validated."""
 
 
-class IngestionBlocked(RuntimeError):
+class IngestionBlockedError(RuntimeError):
     """A deterministic bad message or sample conflict requires operator action."""
 
 
-class WriteUnconfirmed(RuntimeError):
+class WriteUnconfirmedError(RuntimeError):
     """After UNKNOWN, at least one sample could not be verified as persisted."""
 
 
@@ -82,7 +82,8 @@ class IngestionService:
     """Bounded DML batching while preserving Kafka partition order and fencing."""
 
     def __init__(
-        self, *,
+        self,
+        *,
         storage: StorageBackend,
         point_tables: PointTableResolver,
         evidence: PoisonEvidence,
@@ -107,7 +108,7 @@ class IngestionService:
         self._evidence.block_partition(
             record.topic, record.partition, record.offset, reason, record.value
         )
-        raise IngestionBlocked(
+        raise IngestionBlockedError(
             f"Kafka partition blocked at {record.topic}:{record.partition}:{record.offset}"
         )
 
@@ -116,15 +117,15 @@ class IngestionService:
         sample = StorageSample.from_kafka_json(record.value)
         if record.key is None:
             raise ValueError("Kafka message key is required")
-        expected = (
-            f"{sample.wind_farm_id}:{sample.collector_id}:{sample.device_id}"
-        ).encode("utf-8")
+        expected = (f"{sample.wind_farm_id}:{sample.collector_id}:{sample.device_id}").encode()
         if record.key != expected:
             raise ValueError("Kafka message key differs from producer partition key")
         return sample
 
     async def _flush(
-        self, batch: Sequence[_Validated], *,
+        self,
+        batch: Sequence[_Validated],
+        *,
         offsets: PartitionOffsets,
         generation: int,
     ) -> tuple[int, int]:
@@ -135,9 +136,7 @@ class IngestionService:
         # Conflicting content inside one in-flight group must not be inserted.
         seen: dict[str, str] = {}
         for index, entry in enumerate(batch):
-            previous = seen.setdefault(
-                entry.sample.logical_key, entry.sample.content_sha256
-            )
+            previous = seen.setdefault(entry.sample.logical_key, entry.sample.content_sha256)
             if previous != entry.sample.content_sha256:
                 if index:
                     await self._flush(batch[:index], offsets=offsets, generation=generation)
@@ -147,11 +146,9 @@ class IngestionService:
         for index, entry in enumerate(batch):
             try:
                 await self._point_tables.require_exact_versions((entry.sample,))
-            except ConfigHistoryUnavailable as exc:
+            except ConfigHistoryUnavailableError as exc:
                 if index:
-                    await self._flush(
-                        batch[:index], offsets=offsets, generation=generation
-                    )
+                    await self._flush(batch[:index], offsets=offsets, generation=generation)
                 self._block(entry.record, f"CONFIG_HISTORY_UNAVAILABLE: {exc}")
         await self._storage.ensure_tables(samples)
         existing = await self._storage.fetch_content_hashes(samples)
@@ -166,9 +163,10 @@ class IngestionService:
         replayed = 0
         for entry in batch:
             sample = entry.sample
-            if existing.get(sample.logical_key) == frozenset((sample.content_sha256,)):
-                replayed += 1
-            elif sample.logical_key in missing:
+            if (
+                existing.get(sample.logical_key) == frozenset((sample.content_sha256,))
+                or sample.logical_key in missing
+            ):
                 replayed += 1
             else:
                 missing[sample.logical_key] = sample
@@ -185,9 +183,9 @@ class IngestionService:
         try:
             confirmed = await self._storage.fetch_content_hashes(samples)
         except Exception as exc:
-            raise WriteUnconfirmed("cannot verify TDengine batch readback") from exc
+            raise WriteUnconfirmedError("cannot verify TDengine batch readback") from exc
 
-        for index, entry in enumerate(batch):
+        for entry in batch:
             sample = entry.sample
             hashes = confirmed.get(sample.logical_key, frozenset())
             if hashes != frozenset((sample.content_sha256,)):
@@ -195,7 +193,7 @@ class IngestionService:
                     # Never confirm earlier rows before resolving an ambiguous DML
                     # batch: unknown partial effects may have crossed the boundary.
                     self._block(entry.record, "SAMPLE_CONFLICT_AFTER_INSERT")
-                raise WriteUnconfirmed("TDengine batch has unconfirmed records") from failed
+                raise WriteUnconfirmedError("TDengine batch has unconfirmed records") from failed
 
         # Readback proves *every* logical key before a single offset advances.
         for entry in batch:
@@ -204,7 +202,8 @@ class IngestionService:
         return len(batch), replayed
 
     async def process(
-        self, *,
+        self,
+        *,
         generation: int,
         offsets: PartitionOffsets,
         records: Sequence[KafkaRecord],
@@ -246,9 +245,7 @@ class IngestionService:
             bytes_pending += len(record.value)
 
         if pending:
-            count, duplicates = await self._flush(
-                pending, offsets=offsets, generation=generation
-            )
+            count, duplicates = await self._flush(pending, offsets=offsets, generation=generation)
             accepted += count
             replayed += duplicates
         return IngestResult(

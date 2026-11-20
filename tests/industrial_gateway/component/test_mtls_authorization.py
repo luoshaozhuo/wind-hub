@@ -63,7 +63,7 @@ async def harness(tmp_path: Path):
 
 
 async def test_reader_can_read_but_not_inject_lifecycle_or_diagnose(harness) -> None:
-    channel = harness.mtls_channel("gw-reader")
+    channel = harness.bearer_channel("gw-reader")
     try:
         common_stub = common_rpc.CommonServiceStub(channel)
         await common_stub.GetCapabilities(common.Empty())  # read 允许
@@ -91,7 +91,7 @@ async def test_reader_can_read_but_not_inject_lifecycle_or_diagnose(harness) -> 
 
 
 async def test_injector_updates_but_cannot_read(harness) -> None:
-    channel = harness.mtls_channel("gw-injector")
+    channel = harness.bearer_channel("gw-injector")
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
         claim = await stub.ClaimTargets(
@@ -120,8 +120,8 @@ async def test_injector_updates_but_cannot_read(harness) -> None:
 
 
 async def test_diagnose_identity_executes_real_diagnosis(harness) -> None:
-    denied = harness.mtls_channel("gw-reader")
-    allowed = harness.mtls_channel("gw-diagnose")
+    denied = harness.bearer_channel("gw-reader")
+    allowed = harness.bearer_channel("gw-diagnose")
     try:
         with pytest.raises(grpc.aio.AioRpcError):
             await common_rpc.CommonServiceStub(denied).Diagnose(
@@ -138,8 +138,8 @@ async def test_diagnose_identity_executes_real_diagnosis(harness) -> None:
 
 
 async def test_operator_lifecycle_but_no_config_write(harness) -> None:
-    operator = harness.mtls_channel("gw-operator")
-    admin = harness.mtls_channel("gw-admin")
+    operator = harness.bearer_channel("gw-operator")
+    admin = harness.bearer_channel("gw-admin")
     try:
         op_gw = pb_rpc.IndustrialGatewayServiceStub(operator)
         revision = (await op_gw.GetGateway(common.ObjectId(id="gw1"))).gateway.revision
@@ -163,17 +163,17 @@ async def test_operator_lifecycle_but_no_config_write(harness) -> None:
         await admin.close()
 
 
-async def test_unknown_cn_denied_despite_valid_ca_signature(harness) -> None:
-    channel = harness.mtls_channel(STRANGER)
+async def test_unregistered_bearer_is_unauthenticated(harness) -> None:
+    channel = harness.bearer_channel(STRANGER)
     try:
         with pytest.raises(grpc.aio.AioRpcError) as exc:
             await common_rpc.CommonServiceStub(channel).GetCapabilities(common.Empty())
-        assert exc.value.code() is grpc.StatusCode.PERMISSION_DENIED
+        assert exc.value.code() is grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
 
 
-async def test_plaintext_channel_rejected_on_tls_port(harness) -> None:
+async def test_anonymous_plaintext_channel_is_unauthenticated(harness) -> None:
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{harness.grpc_port}")
     try:
         with pytest.raises(grpc.aio.AioRpcError):
@@ -185,7 +185,7 @@ async def test_plaintext_channel_rejected_on_tls_port(harness) -> None:
         await channel.close()
 
 
-async def test_non_loopback_listener_without_tls_rejected_at_load(
+async def test_non_loopback_listener_uses_bearer_without_tls(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "root"
@@ -201,5 +201,6 @@ async def test_non_loopback_listener_without_tls_rejected_at_load(
     document = yaml.safe_load(service_path.read_text())
     document["grpc"]["listen_host"] = "0.0.0.0"
     service_path.write_text(yaml.safe_dump(document))
-    with pytest.raises(ValueError):
-        load_gateway(service_path, project_root=root)
+    loaded = load_gateway(service_path, project_root=root)
+    assert loaded.service.grpc.listen_host == "0.0.0.0"
+    assert loaded.service.grpc.token_sources

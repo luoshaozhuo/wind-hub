@@ -1,17 +1,8 @@
-"""§14.3 test_grpc_api：正式 mTLS 接口可用性与 URI SAN 授权矩阵（真实进程）。
+"""§14.3 test_grpc_api：真实进程的 Bearer 接口与授权矩阵。
 
-表 14-3 要求 CommonService 9 项 + SinkService 4 项在真实 gRPC Server/Stub、
-mTLS 与授权拦截器下逐项可调用。本模块在真实三进程服务上验证认证/授权边界：
-
-- 全权限调用方（spiffe://wind-hub/maintenance）query/control/config 均可达；
-- query-only 调用方（spiffe://wind-hub/readonly）query 放行、control 与
-  config 一律 PERMISSION_DENIED；
-- 未登记证书（spiffe://wind-hub/outsider，CA 合法但不在 security.callers）
-  任何 RPC 一律 PERMISSION_DENIED；
-- 明文非 TLS 通道在握手阶段被拒，不进入任何业务方法。
-
-被测拦截器为生产 ``PeerAuthorization``，证书由系统测试 TLS 束真实签发，
-无 Mock、无测试专用服务端分支。
+全权限主体可访问 query/control/config；query-only 主体仅能查询；未登记
+Bearer 为 UNAUTHENTICATED，已认证但权限不足为 PERMISSION_DENIED。被测拦截器
+为生产 PeerAuthorization，无 Mock 或测试专用服务端分支。
 """
 
 from __future__ import annotations
@@ -36,12 +27,10 @@ pytestmark = [
 _CALLERS = [
     {
         "caller_id": "maintenance",
-        "certificate_identity": "spiffe://wind-hub/maintenance",
         "permissions": ["query", "control", "config"],
     },
     {
         "caller_id": "readonly",
-        "certificate_identity": "spiffe://wind-hub/readonly",
         "permissions": ["query"],
     },
 ]
@@ -65,7 +54,7 @@ async def _status_code(channel: grpc.aio.Channel, rpc: str) -> grpc.StatusCode |
     return None
 
 
-class TestMtlsAuthorizationMatrix:
+class TestBearerAuthorizationMatrix:
     async def test_full_permission_caller_reaches_all_rpc_classes(
         self, sink_harness: SinkSystemHarness
     ) -> None:
@@ -100,17 +89,17 @@ class TestMtlsAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_unregistered_certificate_denied_even_with_valid_ca(
+    async def test_unregistered_bearer_is_unauthenticated(
         self, sink_harness: SinkSystemHarness
     ) -> None:
-        """outsider：CA 合法但身份未登记，query 同样 PERMISSION_DENIED。"""
+        """outsider：Bearer 未登记，query/control 均为 UNAUTHENTICATED。"""
         sink_harness.write_dual_channel_root(reliable=False, callers=_CALLERS)
         await sink_harness.provision_streams()
         await sink_harness.start()
         try:
             async with sink_harness.channel(caller="outsider") as channel:
-                assert await _status_code(channel, "query") == grpc.StatusCode.PERMISSION_DENIED
-                assert await _status_code(channel, "control") == grpc.StatusCode.PERMISSION_DENIED
+                assert await _status_code(channel, "query") == grpc.StatusCode.UNAUTHENTICATED
+                assert await _status_code(channel, "control") == grpc.StatusCode.UNAUTHENTICATED
         finally:
             await sink_harness.stop()
 

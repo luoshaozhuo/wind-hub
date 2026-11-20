@@ -32,7 +32,7 @@ from contracts import common_pb2 as common_pb
 from contracts import common_pb2_grpc as common_grpc
 
 #: system harness 启动 Collector 时统一注入的测试管理员令牌。
-DEFAULT_ADMIN_TOKEN = "system-test-admin-token"
+DEFAULT_ADMIN_TOKEN = "system-test-admin-token-012345678901234567890123456789"
 
 
 def _admin_token(token: str | None) -> str:
@@ -40,7 +40,7 @@ def _admin_token(token: str | None) -> str:
 
 
 def _metadata(token: str | None) -> tuple[tuple[str, str], ...]:
-    return (("x-windhub-admin-token", _admin_token(token)),)
+    return (("authorization", f"Bearer {_admin_token(token)}"),)
 
 
 def _channel(target: str) -> grpc.aio.Channel:
@@ -398,7 +398,7 @@ async def _apply_pushed(
             candidate_id=pushed.candidate_id,
             expected_revision=revision,
         ),
-        metadata=(("x-windhub-admin-token", _admin_token(None)),),
+        metadata=_metadata(None),
         timeout=30.0,
     )
 

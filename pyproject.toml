@@ -152,6 +152,12 @@ module = ["hat", "hat.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
+# aiokafka 未附带 py.typed；Kafka 适配器通过真实客户端契约测试覆盖。
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 # mypy-protobuf 生成的 .pyi stub 自带 generator 兼容的 ignore/overload
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]

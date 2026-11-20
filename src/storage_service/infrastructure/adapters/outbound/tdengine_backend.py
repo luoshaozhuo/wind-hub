@@ -15,10 +15,10 @@ import queue
 import re
 import threading
 from collections import defaultdict
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from collections.abc import Iterator
 from importlib import import_module
-from typing import Any, Protocol, Sequence, cast
+from typing import Any, Protocol, cast
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryRow
@@ -53,9 +53,7 @@ class _TaosConnection(Protocol):
 
 
 class _TaosModule(Protocol):
-    def connect(
-        self, *, user: str, password: str, host: str, port: int
-    ) -> _TaosConnection: ...
+    def connect(self, *, user: str, password: str, host: str, port: int) -> _TaosConnection: ...
 
     def stmt2_bind_param_view(
         self, *, table_name: str | None, tags: list[object] | None, columns: list[object]
@@ -78,8 +76,14 @@ _QUALITY = {"good": 1, "bad": 2, "uncertain": 3}
 _LEVEL = {DataLevel.RAW: 1, DataLevel.PROTOCOL: 2, DataLevel.BUSINESS: 3}
 
 
-class TDengineSchemaConflict(RuntimeError):
+class TDengineSchemaConflictError(RuntimeError):
     """Physical schema/tag/ownership does not match the frozen Storage contract."""
+
+
+def _stored_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TDengineSchemaConflictError("stored integer column lost its type")
+    return value
 
 
 def _columns(samples: Sequence[StorageSample], module: _TaosModule) -> list[object]:
@@ -97,24 +101,30 @@ def _columns(samples: Sequence[StorageSample], module: _TaosModule) -> list[obje
         module.varchar_to_column([s.business_point_id for s in samples]),
         module.tiny_ints_to_column([_LEVEL[s.data_level] for s in samples]),
         module.tiny_ints_to_column([int(s.value_kind) for s in samples]),
-        module.big_ints_to_column([
-            int(s.value) if s.value_kind == ValueKind.INT64 else None for s in samples
-        ]),
-        module.unsigned_big_ints_to_column([
-            int(s.value) if s.value_kind == ValueKind.UINT64 else None for s in samples
-        ]),
-        module.doubles_to_column([
-            float(s.value) if s.value_kind == ValueKind.DOUBLE else None for s in samples
-        ]),
-        module.bools_to_column([
-            bool(s.value) if s.value_kind == ValueKind.BOOL else None for s in samples
-        ]),
-        module.varchar_to_column([
-            str(s.value) if s.value_kind == ValueKind.TEXT else None for s in samples
-        ]),
-        module.varbinary_to_column([
-            bytes(s.value) if s.value_kind == ValueKind.BYTES else None for s in samples
-        ]),
+        module.big_ints_to_column(
+            [int(cast(int, s.value)) if s.value_kind == ValueKind.INT64 else None for s in samples]
+        ),
+        module.unsigned_big_ints_to_column(
+            [int(cast(int, s.value)) if s.value_kind == ValueKind.UINT64 else None for s in samples]
+        ),
+        module.doubles_to_column(
+            [
+                float(cast(int | float, s.value)) if s.value_kind == ValueKind.DOUBLE else None
+                for s in samples
+            ]
+        ),
+        module.bools_to_column(
+            [bool(s.value) if s.value_kind == ValueKind.BOOL else None for s in samples]
+        ),
+        module.varchar_to_column(
+            [str(s.value) if s.value_kind == ValueKind.TEXT else None for s in samples]
+        ),
+        module.varbinary_to_column(
+            [
+                bytes(cast(bytes, s.value)) if s.value_kind == ValueKind.BYTES else None
+                for s in samples
+            ]
+        ),
         module.tiny_ints_to_column([_QUALITY[s.quality.value] for s in samples]),
         module.micros_timestamps_to_column([s.publish_time_us for s in samples]),
         module.micros_timestamps_to_column([s.receive_time_us for s in samples]),
@@ -182,9 +192,7 @@ class TDengineBackend:
             self._verified_tables.clear()
         for _ in range(pool_size):
             try:
-                conn = self._pool.get(
-                    timeout=self._config.tdengine.write_timeout_ms / 1000
-                )
+                conn = self._pool.get(timeout=self._config.tdengine.write_timeout_ms / 1000)
             except queue.Empty as exc:
                 raise RuntimeError(
                     "cannot close TDengine: outstanding database operations"
@@ -200,9 +208,7 @@ class TDengineBackend:
         if driver is None:
             raise RuntimeError("TDengine adapter is not open")
         try:
-            connection = self._pool.get(
-                timeout=self._config.tdengine.write_timeout_ms / 1000
-            )
+            connection = self._pool.get(timeout=self._config.tdengine.write_timeout_ms / 1000)
         except queue.Empty as exc:
             raise TimeoutError("TDengine connection pool exhausted") from exc
         try:
@@ -230,39 +236,58 @@ class TDengineBackend:
                     continue
                 seen.add(names.table)
                 identities = (
-                    (names.database, names.database_identity_sha256,
-                     (sample.wind_farm_id,)),
-                    (names.stable, names.stable_identity_sha256,
-                     (sample.wind_farm_id, sample.device_type,
-                      sample.point_table_id, sample.data_level.value,
-                      SCHEMA_FINGERPRINT)),
-                    (names.table, names.table_identity_sha256,
-                     (sample.wind_farm_id, sample.device_type, sample.device_id,
-                      sample.point_table_id, sample.data_level.value,
-                      SCHEMA_FINGERPRINT)),
+                    (names.database, names.database_identity_sha256, (sample.wind_farm_id,)),
+                    (
+                        names.stable,
+                        names.stable_identity_sha256,
+                        (
+                            sample.wind_farm_id,
+                            sample.device_type,
+                            sample.point_table_id,
+                            sample.data_level.value,
+                            SCHEMA_FINGERPRINT,
+                        ),
+                    ),
+                    (
+                        names.table,
+                        names.table_identity_sha256,
+                        (
+                            sample.wind_farm_id,
+                            sample.device_type,
+                            sample.device_id,
+                            sample.point_table_id,
+                            sample.data_level.value,
+                            SCHEMA_FINGERPRINT,
+                        ),
+                    ),
                 )
-                registered = self._metadata.list_semantic_pins().get(
-                    sample.point_table_id
-                )
+                registered = self._metadata.list_semantic_pins().get(sample.point_table_id)
                 if registered is None:
-                    raise TDengineSchemaConflict(
+                    raise TDengineSchemaConflictError(
                         "physical table has no durable semantic closure ownership"
                     )
                 closure_digest = hashlib.sha256(
-                    self._identity_json((
-                        sample.point_table_id, *registered[0],
-                        *(registered[1] or ("", "")),
-                    )).encode("utf-8")
+                    self._identity_json(
+                        (
+                            sample.point_table_id,
+                            *registered[0],
+                            *(registered[1] or ("", "")),
+                        )
+                    ).encode("utf-8")
                 ).hexdigest()
                 registrations = [
                     self._metadata.reserve_object(
-                        name, digest, self._identity_json(identity), SCHEMA_FINGERPRINT,
+                        name,
+                        digest,
+                        self._identity_json(identity),
+                        SCHEMA_FINGERPRINT,
                         physical_database=names.database,
                         stable_name=names.stable if name != names.database else "",
                         table_name=names.table if name == names.table else "",
                         closure_hash=(
                             names.database_identity_sha256
-                            if name == names.database else closure_digest
+                            if name == names.database
+                            else closure_digest
                         ),
                     )
                     for name, digest, identity in identities
@@ -278,16 +303,16 @@ class TDengineBackend:
                         point_table_hash=hashlib.sha256(
                             sample.point_table_id.encode("utf-8")
                         ).hexdigest(),
-                        device_hash=hashlib.sha256(
-                            sample.device_id.encode("utf-8")
-                        ).hexdigest(),
+                        device_hash=hashlib.sha256(sample.device_id.encode("utf-8")).hexdigest(),
                         level_tag=_LEVEL[sample.data_level],
                     )
                 )
                 # CREATE IF NOT EXISTS is not verification. A mismatched existing
                 # object is a hard stop; never mark CREATING as READY by guessing.
                 self._verify_table(
-                    connection, names, sample,
+                    connection,
+                    names,
+                    sample,
                     expected_point_hash=hashlib.sha256(
                         sample.point_table_id.encode("utf-8")
                     ).hexdigest(),
@@ -302,50 +327,48 @@ class TDengineBackend:
                 self._verified_tables.add(names.table)
 
     def _reconcile_database_retention(
-        self, connection: _TaosConnection, names: StorageObjectNames,
+        self,
+        connection: _TaosConnection,
+        names: StorageObjectNames,
         retention: DatabaseRetention,
     ) -> None:
         """Only increase KEEP under explicit policy; shrink is fail-closed."""
         rows = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
         if len(rows) != 1 or len(rows[0]) < 2:
-            raise TDengineSchemaConflict("TDengine database readback failed")
+            raise TDengineSchemaConflictError("TDengine database readback failed")
         normalized = "".join(
-            str(rows[0][-1]).upper().replace(chr(96), "")
-            .replace("'", "").replace('"', "").split()
+            str(rows[0][-1]).upper().replace(chr(96), "").replace("'", "").replace('"', "").split()
         )
         if "PRECISIONUS" not in normalized:
-            raise TDengineSchemaConflict("database precision differs from us")
+            raise TDengineSchemaConflictError("database precision differs from us")
         duration = re.search(r"DURATION([1-9][0-9]*)D", normalized)
         keep = re.search(r"KEEP([1-9][0-9]*)D", normalized)
         if duration is None or keep is None:
-            raise TDengineSchemaConflict("database DURATION/KEEP unavailable")
+            raise TDengineSchemaConflictError("database DURATION/KEEP unavailable")
         if int(duration.group(1)) != retention.duration_days:
-            raise TDengineSchemaConflict(
+            raise TDengineSchemaConflictError(
                 "changing database DURATION requires a validated migration"
             )
         current_keep = int(keep.group(1))
         if current_keep == retention.keep_days:
             return
         if current_keep > retention.keep_days:
-            raise TDengineSchemaConflict(
+            raise TDengineSchemaConflictError(
                 "retention shrink needs one-use authenticated database-specific evidence"
             )
         if not self._config.reconciliation.auto_alter:
-            raise TDengineSchemaConflict(
+            raise TDengineSchemaConflictError(
                 "database KEEP increase requires reconciliation.auto_alter=true"
             )
-        connection.execute(
-            f"ALTER DATABASE {names.database} KEEP {retention.keep_days}d"
-        )
+        connection.execute(f"ALTER DATABASE {names.database} KEEP {retention.keep_days}d")
         after = list(connection.query(f"SHOW CREATE DATABASE {names.database}"))
         if len(after) != 1 or len(after[0]) < 2:
-            raise TDengineSchemaConflict("database KEEP ALTER readback failed")
+            raise TDengineSchemaConflictError("database KEEP ALTER readback failed")
         checked = "".join(
-            str(after[0][-1]).upper().replace(chr(96), "")
-            .replace("'", "").replace('"', "").split()
+            str(after[0][-1]).upper().replace(chr(96), "").replace("'", "").replace('"', "").split()
         )
         if f"KEEP{retention.keep_days}D" not in checked:
-            raise TDengineSchemaConflict("database KEEP ALTER did not converge")
+            raise TDengineSchemaConflictError("database KEEP ALTER did not converge")
 
     @staticmethod
     def _verify_table(
@@ -359,15 +382,15 @@ class TDengineBackend:
         columns = list(connection.query(f"DESCRIBE {names.database}.{names.table}"))
         wanted = expected_columns()
         if len(columns) < len(wanted):
-            raise TDengineSchemaConflict("missing TDengine data columns")
+            raise TDengineSchemaConflictError("missing TDengine data columns")
         for observed, (wanted_name, wanted_type) in zip(columns, wanted, strict=False):
             if str(observed[0]).lower() != wanted_name:
-                raise TDengineSchemaConflict(f"mismatched TDengine column: {wanted_name}")
+                raise TDengineSchemaConflictError(f"mismatched TDengine column: {wanted_name}")
             # Connector DESCRIBE supplies type name and length separately; the full
             # tuple's precision/type compatibility is checked by the G-01 Spike.
             expected_base = wanted_type.split("(")[0].split(" ")[0]
             if str(observed[1]).upper() != expected_base:
-                raise TDengineSchemaConflict(f"mismatched TDengine type: {wanted_name}")
+                raise TDengineSchemaConflictError(f"mismatched TDengine type: {wanted_name}")
 
         tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
         tag_map = {str(row[3]): str(row[5]) for row in tag_rows}
@@ -378,9 +401,9 @@ class TDengineBackend:
             "level_tag": str(_LEVEL[sample.data_level]),
         }
         if any(tag_map.get(name) != value for name, value in expected.items()):
-            raise TDengineSchemaConflict("TDengine table TAG identity mismatch")
+            raise TDengineSchemaConflictError("TDengine table TAG identity mismatch")
         if len(tag_map) != len(expected_tags()):
-            raise TDengineSchemaConflict("TDengine TAG count mismatch")
+            raise TDengineSchemaConflictError("TDengine TAG count mismatch")
 
     async def fetch_content_hashes(
         self, samples: Sequence[StorageSample]
@@ -403,7 +426,7 @@ class TDengineBackend:
                 # Keep each IN list short and distinct to bound statement size.
                 unique = list({entry.logical_key: entry for entry in entries}.values())
                 for begin in range(0, len(unique), 128):
-                    chunk = unique[begin: begin + 128]
+                    chunk = unique[begin : begin + 128]
                     first_us = min(entry.sample_time_us for entry in chunk)
                     last_us = max(entry.sample_time_us for entry in chunk)
                     keys = ", ".join(f"'{entry.logical_key}'" for entry in chunk)
@@ -416,9 +439,11 @@ class TDengineBackend:
                         logical_key = str(row[0])
                         value_hash = str(row[1])
                         if logical_key not in result:
-                            raise TDengineSchemaConflict("unexpected logical key from database")
+                            raise TDengineSchemaConflictError(
+                                "unexpected logical key from database"
+                            )
                         if not _HEX.fullmatch(value_hash):
-                            raise TDengineSchemaConflict("invalid content hash in database")
+                            raise TDengineSchemaConflictError("invalid content hash in database")
                         result[logical_key].add(value_hash)
         return {key: frozenset(values) for key, values in result.items()}
 
@@ -453,18 +478,23 @@ class TDengineBackend:
                     statement.close()
 
     async def fetch_history(
-        self, filter_: HistoryFilter, *,
-        after: tuple[int, str, str] | None, limit: int,
+        self,
+        filter_: HistoryFilter,
+        *,
+        after: tuple[int, str, str] | None,
+        limit: int,
     ) -> list[HistoryRow]:
         """Read only previously registered physical tables and bounded result pages."""
         return await asyncio.to_thread(self._fetch_history_sync, filter_, after, limit)
 
     @staticmethod
     def _sql_filter(value: str) -> str:
-        """Reject ambiguous SQL quoting instead of interpolating arbitrary identifiers."""
-        if not re.fullmatch(r"[A-Za-z0-9_./:-]{1,256}", value):
-            raise ValueError("unsupported SQL query identity characters")
-        return f"'{value}'"
+        """Escape a validated UTF-8 value as one SQL string literal."""
+        if not value or len(value.encode("utf-8")) > 256:
+            raise ValueError("SQL query identity must contain 1..256 UTF-8 bytes")
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("SQL query identity contains control characters")
+        return "'" + value.replace("'", "''") + "'"
 
     @staticmethod
     def _datetime_us(value: object) -> int:
@@ -474,62 +504,62 @@ class TDengineBackend:
             return value
         if isinstance(value, datetime):
             if value.tzinfo is None:
-                raise TDengineSchemaConflict("TDengine returned a timezone-naive timestamp")
+                raise TDengineSchemaConflictError("TDengine returned a timezone-naive timestamp")
             moment = value.astimezone(UTC)
             epoch = datetime(1970, 1, 1, tzinfo=UTC)
             delta = moment - epoch
-            return ((delta.days * 86400 + delta.seconds) * 1_000_000
-                    + delta.microseconds)
-        raise TDengineSchemaConflict("TDengine returned an invalid timestamp representation")
+            return (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
+        raise TDengineSchemaConflictError("TDengine returned an invalid timestamp representation")
 
     @staticmethod
     def _decode_record(
-        row: Sequence[object], identity: tuple[str, ...],
+        row: Sequence[object],
+        identity: tuple[str, ...],
     ) -> HistoryRow:
         if len(row) != 17 or len(identity) != 6:
-            raise TDengineSchemaConflict("TDengine history row/schema shape mismatch")
-        kind = int(row[7])
+            raise TDengineSchemaConflictError("TDengine history row/schema shape mismatch")
+        kind = _stored_int(row[7])
         value_columns = {2: 8, 3: 9, 4: 10, 5: 11, 6: 12, 7: 13}
         if kind == 1:
             value: int | float | bool | str | bytes | None = None
             if any(row[idx] is not None for idx in range(8, 14)):
-                raise TDengineSchemaConflict("MISSING row has nonempty value columns")
+                raise TDengineSchemaConflictError("MISSING row has nonempty value columns")
         else:
             index = value_columns.get(kind)
             if index is None:
-                raise TDengineSchemaConflict("unknown TDengine value kind")
+                raise TDengineSchemaConflictError("unknown TDengine value kind")
             if any(row[idx] is not None for idx in range(8, 14) if idx != index):
-                raise TDengineSchemaConflict("multiple TDengine value columns are set")
+                raise TDengineSchemaConflictError("multiple TDengine value columns are set")
             raw = row[index]
             if raw is None:
-                raise TDengineSchemaConflict("typed row has NULL value")
+                raise TDengineSchemaConflictError("typed row has NULL value")
             if kind in (2, 3):
                 if isinstance(raw, bool) or not isinstance(raw, int):
-                    raise TDengineSchemaConflict("stored integer lost its type")
+                    raise TDengineSchemaConflictError("stored integer lost its type")
                 value = raw
             elif kind == 4:
                 if isinstance(raw, bool) or not isinstance(raw, float | int):
-                    raise TDengineSchemaConflict("stored DOUBLE lost its type")
+                    raise TDengineSchemaConflictError("stored DOUBLE lost its type")
                 value = float(raw)
             elif kind == 5:
                 if not isinstance(raw, bool):
-                    raise TDengineSchemaConflict("stored BOOL lost its type")
+                    raise TDengineSchemaConflictError("stored BOOL lost its type")
                 value = raw
             elif kind == 6:
                 if not isinstance(raw, str):
-                    raise TDengineSchemaConflict("stored TEXT lost its type")
+                    raise TDengineSchemaConflictError("stored TEXT lost its type")
                 value = raw
             else:
                 if not isinstance(raw, bytes | bytearray | memoryview):
-                    raise TDengineSchemaConflict("stored BYTES lost its type")
+                    raise TDengineSchemaConflictError("stored BYTES lost its type")
                 value = bytes(raw)
-        quality = {1: "good", 2: "bad", 3: "uncertain"}.get(int(row[14]))
+        quality = {1: "good", 2: "bad", 3: "uncertain"}.get(_stored_int(row[14]))
         if quality is None:
-            raise TDengineSchemaConflict("unknown stored quality")
+            raise TDengineSchemaConflictError("unknown stored quality")
         logical = str(row[1])
         content = str(row[2])
         if not _HEX.fullmatch(logical) or not _HEX.fullmatch(content):
-            raise TDengineSchemaConflict("invalid stored logical/content digest")
+            raise TDengineSchemaConflictError("invalid stored logical/content digest")
         return HistoryRow(
             ts_us=TDengineBackend._datetime_us(row[0]),
             logical_key=logical,
@@ -543,7 +573,11 @@ class TDengineBackend:
             quality=quality,
             publish_time_us=TDengineBackend._datetime_us(row[15]),
             receive_time_us=(
-                TDengineBackend._datetime_us(row[16]) if row[16    def _fetch_history_sync(
+                TDengineBackend._datetime_us(row[16]) if row[16] is not None else None
+            ),
+        )
+
+    def _fetch_history_sync(
         self, filter_: HistoryFilter, after: tuple[int, str, str] | None, limit: int
     ) -> list[HistoryRow]:
         """Keyset-scan managed tables; exclude every sample conflict candidate."""
@@ -551,7 +585,8 @@ class TDengineBackend:
             raise ValueError("SQL query limit must be 1..1001")
         db_hash = hashlib.sha256(
             json.dumps(
-                (filter_.wind_farm_id,), ensure_ascii=False,
+                (filter_.wind_farm_id,),
+                ensure_ascii=False,
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
@@ -572,16 +607,17 @@ class TDengineBackend:
                     re.fullmatch(r"tb_[0-9a-f]{24}", entry.name) is None
                     or entry.schema_fingerprint != SCHEMA_FINGERPRINT
                 ):
-                    raise TDengineSchemaConflict("untrusted historical physical table name")
+                    raise TDengineSchemaConflictError("untrusted historical physical table name")
                 try:
                     decoded = json.loads(entry.identity_json)
                 except (ValueError, TypeError) as exc:
-                    raise TDengineSchemaConflict("corrupt registered table identity") from exc
+                    raise TDengineSchemaConflictError("corrupt registered table identity") from exc
                 if (
-                    not isinstance(decoded, list) or len(decoded) != 6
+                    not isinstance(decoded, list)
+                    or len(decoded) != 6
                     or any(not isinstance(item, str) for item in decoded)
                 ):
-                    raise TDengineSchemaConflict("corrupt registered table identity")
+                    raise TDengineSchemaConflictError("corrupt registered table identity")
                 identity = tuple(decoded)
                 if (
                     identity[0] != filter_.wind_farm_id
@@ -597,13 +633,10 @@ class TDengineBackend:
                     f"ts < {filter_.end_us}",
                 ]
                 if filter_.point_id:
-                    predicates.append(
-                        f"point_id = {self._sql_filter(filter_.point_id)}"
-                    )
+                    predicates.append(f"point_id = {self._sql_filter(filter_.point_id)}")
                 if filter_.business_point_id:
                     predicates.append(
-                        "business_point_id = "
-                        f"{self._sql_filter(filter_.business_point_id)}"
+                        "business_point_id = " f"{self._sql_filter(filter_.business_point_id)}"
                     )
                 if filter_.qualities:
                     quality_values = ",".join(str(_QUALITY[q]) for q in filter_.qualities)
@@ -636,29 +669,29 @@ class TDengineBackend:
                     )
                     raw_rows = list(connection.query(sql))
                     if len(raw_rows) > fetch_size:
-                        raise TDengineSchemaConflict("TDengine exceeded query limit")
+                        raise TDengineSchemaConflictError("TDengine exceeded query limit")
                     if not raw_rows:
                         break
                     scanned += len(raw_rows)
                     if scanned > 4096:
-                        raise TDengineSchemaConflict(
+                        raise TDengineSchemaConflictError(
                             "too many conflicting candidates in one history page"
                         )
                     candidates: list[HistoryRow] = []
                     for row in raw_rows:
                         if int(row[6]) != _LEVEL[filter_.data_level]:
-                            raise TDengineSchemaConflict("row level differs from table")
+                            raise TDengineSchemaConflictError("row level differs from table")
                         candidates.append(self._decode_record(row, identity))
                     if any(
                         a.sort_key >= b.sort_key
                         for a, b in zip(candidates, candidates[1:], strict=False)
                     ):
-                        raise TDengineSchemaConflict("history order not monotonic")
+                        raise TDengineSchemaConflictError("history order not monotonic")
                     cursor = candidates[-1].sort_key
                     conflicts: set[str] = set()
                     keys = sorted({item.logical_key for item in candidates})
                     for begin in range(0, len(keys), 128):
-                        part = keys[begin:begin + 128]
+                        part = keys[begin : begin + 128]
                         literals = ",".join(f"'{key}'" for key in part)
                         observed: dict[str, set[str]] = defaultdict(set)
                         for logical, digest in connection.query(
@@ -668,24 +701,23 @@ class TDengineBackend:
                             key = str(logical)
                             content_hash = str(digest)
                             if key not in part or not _HEX.fullmatch(content_hash):
-                                raise TDengineSchemaConflict(
+                                raise TDengineSchemaConflictError(
                                     "invalid logical-key verification response"
                                 )
                             observed[key].add(content_hash)
                         if any(not observed.get(key) for key in part):
-                            raise TDengineSchemaConflict(
+                            raise TDengineSchemaConflictError(
                                 "cannot prove all logical-key candidates"
                             )
-                        conflicts.update(
-                            key for key, hashes in observed.items() if len(hashes) > 1
-                        )
+                        conflicts.update(key for key, hashes in observed.items() if len(hashes) > 1)
                     if conflicts:
                         _LOG.warning(
                             "Storage history excluded %d conflicting logical keys",
                             len(conflicts),
                         )
                     valid.extend(
-                        candidate for candidate in candidates
+                        candidate
+                        for candidate in candidates
                         if candidate.logical_key not in conflicts
                     )
                     if len(raw_rows) < fetch_size:

@@ -20,18 +20,20 @@ async def publish(
     dependencies: tuple[str, ...] = (),
 ) -> tuple[int, str]:
     item = document("history", version)
+    documents = [item]
     if dependencies:
-        payload = yaml.safe_load(item.yaml_bytes)
+        consumer = document("history-consumer", "1.0.0")
+        payload = yaml.safe_load(consumer.yaml_bytes)
         payload["config_sources"] = [
-            {"config_type": "site", "config_id": "history", "file_version": dependency}
-            for dependency in dependencies
+            {"config_type": "site", "config_id": "history", "file_version": version}
         ]
-        item.yaml_bytes = yaml.safe_dump(payload).encode()
+        consumer.yaml_bytes = yaml.safe_dump(payload).encode()
+        documents.append(consumer)
     staged = await repository.CreateCandidate(
         pb.CreateCandidateRequest(
             request_id=f"{request_id}-create",
             expected_revision_id=revision,
-            documents=[item],
+            documents=documents,
         )
     )
     result = await repository.PublishCandidate(
@@ -41,7 +43,9 @@ async def publish(
             expected_revision_id=revision,
         )
     )
-    return result.revision_id, result.published[0].version_id
+    return result.revision_id, next(
+        item.version_id for item in result.published if item.config_id.config_id == "history"
+    )
 
 
 @pytest.mark.asyncio
@@ -58,7 +62,7 @@ async def test_versions_and_references_last_page_and_version_watermark(
         )
         assert [item.version_id for item in first.versions] == [version1]
         assert first.next_page_token
-        revision, _version3 = await publish(
+        revision, version3 = await publish(
             repository, "history-v3", "3.0.0", revision, ("1.0.0", "2.0.0")
         )
         await repository.DeprecateConfigVersion(
@@ -81,7 +85,7 @@ async def test_versions_and_references_last_page_and_version_watermark(
         assert last.next_page_token == ""
         references = await repository.ListReferences(
             pb.ListReferencesRequest(
-                version_id=version1,
+                version_id=version3,
                 direction=pb.REFERENCE_DIRECTION_INBOUND,
                 page_size=1,
             )

@@ -66,9 +66,10 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
         token_env = caller.get("token_env")
         caller_id = caller.get("caller_id")
         permissions = caller.get("permissions")
-        if not isinstance(token_env, str) or re.fullmatch(
-            r"env:[A-Z_][A-Z0-9_]*", token_env
-        ) is None:
+        if (
+            not isinstance(token_env, str)
+            or re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", token_env) is None
+        ):
             raise ValueError("caller token_env must reference env:NAME")
         if not isinstance(caller_id, str) or not caller_id.strip():
             raise ValueError("caller_id is required")

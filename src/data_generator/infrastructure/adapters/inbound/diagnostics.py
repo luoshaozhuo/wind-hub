@@ -52,9 +52,7 @@ class Diagnostics:
         self.settings = settings
         options = settings.service.get("diagnose", {})
         self._max_seconds = float(options.get("timeout_seconds", 10.0))
-        self._gateway_token_ref = settings.service.get("output", {}).get(
-            "gateway_token_ref", ""
-        )
+        self._gateway_token_ref = settings.service.get("output", {}).get("gateway_token_ref", "")
 
     def _scenario(self, target_id: str) -> Scenario | None:
         direct = self.settings.scenarios.get(target_id)

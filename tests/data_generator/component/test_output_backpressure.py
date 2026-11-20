@@ -18,6 +18,7 @@ from data_generator.domain.model import DataBatch, DataPoint, OutputTarget
 from data_generator.domain.scenario import Scenario
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from industrial_gateway.application.variable_leases import ClaimRequest, LeaseError, VariableLeases
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [
     pytest.mark.component,
@@ -183,7 +184,9 @@ async def _start_service(
 
 async def test_logical_timeout_is_unknown_and_quarantines_gateway() -> None:
     server, bind = await _start_service(FaultGatewayService(delay=2.0))
-    writer = GatewayWriter(timeout=0.3, max_inflight=4)
+    writer = GatewayWriter(
+        gateway_token_ref=ensure_bearer("fault-writer"), timeout=0.3, max_inflight=4
+    )
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
@@ -205,7 +208,9 @@ async def test_clear_rejection_is_failed_without_quarantine() -> None:
     server, bind = await _start_service(
         FaultGatewayService(abort=grpc.StatusCode.PERMISSION_DENIED)
     )
-    writer = GatewayWriter(timeout=1.0, max_inflight=4)
+    writer = GatewayWriter(
+        gateway_token_ref=ensure_bearer("fault-writer"), timeout=1.0, max_inflight=4
+    )
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
@@ -221,7 +226,9 @@ async def test_clear_rejection_is_failed_without_quarantine() -> None:
 
 async def test_per_item_failure_and_missing_ack_classification() -> None:
     server, bind = await _start_service(FaultGatewayService(per_item_fail=frozenset({"GW01.b"})))
-    writer = GatewayWriter(timeout=1.0, max_inflight=4)
+    writer = GatewayWriter(
+        gateway_token_ref=ensure_bearer("fault-writer"), timeout=1.0, max_inflight=4
+    )
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
@@ -235,7 +242,9 @@ async def test_per_item_failure_and_missing_ack_classification() -> None:
         await writer.close()
 
     server, bind = await _start_service(FaultGatewayService(omit=frozenset({"GW01.b"})))
-    writer = GatewayWriter(timeout=1.0, max_inflight=4)
+    writer = GatewayWriter(
+        gateway_token_ref=ensure_bearer("fault-writer"), timeout=1.0, max_inflight=4
+    )
     try:
         scenario = _scenario(bind)
         await writer.validate(scenario)
@@ -257,7 +266,9 @@ async def test_global_inflight_saturation_causes_bounded_backpressure() -> None:
     server_a, bind_a = await _start_service(FaultGatewayService(gate=gate_a))
     server_b, bind_b = await _start_service(FaultGatewayService(gate=gate_b))
     # 全局许可=1，逻辑超时 0.3s：g1 在途占住全局信号量，g2 必须有界失败而非堆积。
-    writer = GatewayWriter(timeout=0.3, max_inflight=1)
+    writer = GatewayWriter(
+        gateway_token_ref=ensure_bearer("fault-writer"), timeout=0.3, max_inflight=1
+    )
     from data_generator.domain.model import OutputMapping
 
     scenario = Scenario(

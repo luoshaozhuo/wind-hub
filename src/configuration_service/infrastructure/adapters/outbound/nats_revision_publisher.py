@@ -65,7 +65,8 @@ class NatsRevisionPublisher:
                     )
                     payload = json.dumps(
                         {"revision_id": revision},
-                        sort_keys=True, separators=(",", ":"),
+                        sort_keys=True,
+                        separators=(",", ":"),
                     ).encode()
                     await connection.publish(_SUBJECT, payload)
                     await connection.flush(timeout=3)

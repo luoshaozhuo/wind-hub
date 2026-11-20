@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from storage_service.application.config import StorageConfig
-from storage_service.application.ingestion import ConfigHistoryUnavailable
+from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import StorageBundle
 
 
@@ -38,13 +38,15 @@ class StorageBundleSnapshot:
                 key: list(value) for key, value in sorted(bundle.point_table_versions.items())
             },
             "business_points_pin": (
-                list(bundle.business_points_pin)
-                if bundle.business_points_pin is not None else None
+                list(bundle.business_points_pin) if bundle.business_points_pin is not None else None
             ),
         }
         canonical = json.dumps(
-            payload, sort_keys=True, ensure_ascii=False,
-            separators=(",", ":"), allow_nan=False,
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
         ).encode()
         envelope = {
             "payload": payload,
@@ -56,17 +58,17 @@ class StorageBundleSnapshot:
 
     def store(self, bundle: StorageBundle) -> None:
         if bundle.revision_id <= 0 or not bundle.point_table_versions:
-            raise ConfigHistoryUnavailable("cannot persist an incomplete Storage snapshot")
+            raise ConfigHistoryUnavailableError("cannot persist an incomplete Storage snapshot")
         content = self._encode(bundle)
         if self._path.exists():
             previous = self.load()
             if previous.revision_id > bundle.revision_id:
-                raise ConfigHistoryUnavailable(
+                raise ConfigHistoryUnavailableError(
                     "refusing to replace accepted Configuration revision with an older one"
                 )
             if previous.revision_id == bundle.revision_id:
                 if self._path.read_bytes() != content:
-                    raise ConfigHistoryUnavailable(
+                    raise ConfigHistoryUnavailableError(
                         "same Configuration revision has changed its immutable closure"
                     )
                 return
@@ -95,35 +97,41 @@ class StorageBundleSnapshot:
         """Reject tampered/partial snapshots and incompatible schema versions."""
         try:
             if self._path.is_symlink() or self._path.stat().st_size > 1024 * 1024:
-                raise ConfigHistoryUnavailable("Configuration snapshot path is unsafe")
+                raise ConfigHistoryUnavailableError("Configuration snapshot path is unsafe")
             encoded = self._path.read_bytes()
             envelope = json.loads(encoded)
             payload = envelope["payload"]
             canonical = json.dumps(
-                payload, sort_keys=True, ensure_ascii=False,
-                separators=(",", ":"), allow_nan=False,
+                payload,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
             ).encode()
             if not hashlib.sha256(canonical).hexdigest() == envelope["sha256"]:
-                raise ConfigHistoryUnavailable("Configuration snapshot SHA256 mismatch")
+                raise ConfigHistoryUnavailableError("Configuration snapshot SHA256 mismatch")
             if payload["schema_version"] != 1 or type(payload["revision_id"]) is not int:
-                raise ConfigHistoryUnavailable("Configuration snapshot format unsupported")
+                raise ConfigHistoryUnavailableError("Configuration snapshot format unsupported")
             pins = payload["point_table_versions"]
             if not isinstance(pins, dict) or not pins:
-                raise ConfigHistoryUnavailable("Configuration snapshot has no point tables")
+                raise ConfigHistoryUnavailableError("Configuration snapshot has no point tables")
             converted: dict[str, tuple[str, str]] = {}
             for point_id, value in pins.items():
                 if (
-                    not isinstance(point_id, str) or not isinstance(value, list)
-                    or len(value) != 2 or any(not isinstance(x, str) or not x for x in value)
+                    not isinstance(point_id, str)
+                    or not isinstance(value, list)
+                    or len(value) != 2
+                    or any(not isinstance(x, str) or not x for x in value)
                 ):
-                    raise ConfigHistoryUnavailable("invalid historical PointTable pin")
+                    raise ConfigHistoryUnavailableError("invalid historical PointTable pin")
                 converted[point_id] = (value[0], value[1])
             business = payload["business_points_pin"]
             if business is not None and (
-                not isinstance(business, list) or len(business) != 2
+                not isinstance(business, list)
+                or len(business) != 2
                 or any(not isinstance(x, str) or not x for x in business)
             ):
-                raise ConfigHistoryUnavailable("invalid BusinessPoint pin")
+                raise ConfigHistoryUnavailableError("invalid BusinessPoint pin")
             return StorageBundle(
                 configuration=StorageConfig.model_validate(payload["config"]),
                 revision_id=payload["revision_id"],
@@ -131,6 +139,6 @@ class StorageBundleSnapshot:
                 business_points_pin=(business[0], business[1]) if business else None,
             )
         except (OSError, ValueError, TypeError, KeyError, IndexError) as exc:
-            raise ConfigHistoryUnavailable(
+            raise ConfigHistoryUnavailableError(
                 "no complete trusted local Configuration snapshot is available"
             ) from exc

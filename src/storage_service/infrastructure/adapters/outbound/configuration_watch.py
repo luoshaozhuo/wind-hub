@@ -5,23 +5,24 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
+from contextlib import suppress
 
 import nats
 from nats.aio.client import Client as NatsClient
 from nats.aio.msg import Msg
 
+from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
-    ConfigHistoryUnavailable,
     ConfigurationPointTableResolver,
 )
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
     StorageBundle,
 )
-from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
     StorageBundleSnapshot,
 )
+from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _LOG = logging.getLogger(__name__)
 _CONFIG_CHANGED_SUBJECT = "wh.config.changed"
@@ -31,12 +32,14 @@ class StorageConfigurationWatcher:
     """A failed/missed broadcast cannot prevent periodic revision convergence."""
 
     def __init__(
-        self, *,
+        self,
+        *,
         client: ConfigurationGrpcClient,
         resolver: ConfigurationPointTableResolver,
         bundle: StorageBundle,
         service_id: str,
-        servers: Sequence[str], metadata: MetadataStore,
+        servers: Sequence[str],
+        metadata: MetadataStore,
         snapshot: StorageBundleSnapshot,
     ) -> None:
         if not servers:
@@ -54,16 +57,14 @@ class StorageConfigurationWatcher:
     async def _reconcile(self) -> None:
         updated = await self._client.fetch_service_bundle(service_id=self._service_id)
         if updated.revision_id < self._active.revision_id:
-            raise ConfigHistoryUnavailable(
-                "Configuration authority revision moved backwards"
-            )
+            raise ConfigHistoryUnavailableError("Configuration authority revision moved backwards")
         if updated.revision_id == self._active.revision_id:
             if (
                 updated.configuration != self._active.configuration
                 or updated.point_table_versions != self._active.point_table_versions
                 or updated.business_points_pin != self._active.business_points_pin
             ):
-                raise ConfigHistoryUnavailable(
+                raise ConfigHistoryUnavailableError(
                     "Configuration authority changed an immutable revision"
                 )
             self.status = "READY"
@@ -102,7 +103,8 @@ class StorageConfigurationWatcher:
             if connection is None:
                 try:
                     connection = await nats.connect(
-                        servers=self._servers, connect_timeout=3,
+                        servers=self._servers,
+                        connect_timeout=3,
                         max_reconnect_attempts=-1,
                     )
 
@@ -113,7 +115,8 @@ class StorageConfigurationWatcher:
                             self._changed.set()
 
                     await connection.subscribe(
-                        _CONFIG_CHANGED_SUBJECT, cb=notify,
+                        _CONFIG_CHANGED_SUBJECT,
+                        cb=notify,
                     )
                 except Exception:
                     _LOG.warning(
@@ -122,16 +125,14 @@ class StorageConfigurationWatcher:
                     if connection is not None:
                         await connection.close()
                     connection = None
-            try:
+            with suppress(TimeoutError):
                 await asyncio.wait_for(self._changed.wait(), timeout=timeout)
-            except TimeoutError:
-                pass
             self._changed.clear()
             if stop.is_set():
                 break
             try:
                 await self._reconcile()
-            except ConfigHistoryUnavailable:
+            except ConfigHistoryUnavailableError:
                 self.status = "CONFIG_HISTORY_UNAVAILABLE"
                 _LOG.warning("Storage rejected an incomplete immutable configuration revision")
             except Exception:

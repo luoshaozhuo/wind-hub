@@ -216,7 +216,7 @@ def _validate_sink(
             raise ConfigurationError(f"sinks.{sink_id}: Gateway endpoint must be host:port")
         expect_nonempty_str(connection.get("gateway_id"), f"sinks.{sink_id}.gateway_id")
         if not reference:
-            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires mTLS credential_ref")
+            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires Bearer credential_ref")
         expect_positive_int(output.get("lease_ms"), f"sinks.{sink_id}.lease_ms", 60000)
         if output["lease_ms"] < 1000:
             raise ConfigurationError(f"sinks.{sink_id}: lease_ms below 1000")

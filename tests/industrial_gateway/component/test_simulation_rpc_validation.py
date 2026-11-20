@@ -19,6 +19,7 @@ from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from contracts.scalar_codec import encode_scalar
+from tests.support.bearer import ensure_bearer
 from tests.support.gateway import (
     COMMAND_FLOAT,
     ServerSpec,
@@ -37,12 +38,7 @@ STRANGER_CN = "gw-stranger"
 def _simulation_block(endpoint: str) -> dict[str, Any]:
     return {
         "endpoint": endpoint,
-        "tls": {
-            "enabled": True,
-            "cert_file": f"certs/client-{COMMANDER_CN}.crt",
-            "key_file": f"certs/client-{COMMANDER_CN}.key",
-            "ca_file": "certs/ca.crt",
-        },
+        "token_env": ensure_bearer(COMMANDER_CN),
         "scenario_id": "wind-plant-physical",
     }
 
@@ -76,7 +72,7 @@ async def harness(tmp_path: Path):
 
 
 async def _stub(harness: Any, cn: str) -> tuple[gw_rpc.IndustrialGatewayServiceStub, Any]:
-    channel = harness.mtls_channel(cn)
+    channel = harness.bearer_channel(cn)
     return gw_rpc.IndustrialGatewayServiceStub(channel), channel
 
 
@@ -171,7 +167,7 @@ async def test_simulation_without_permission_is_denied(harness: Any) -> None:
             await stub.GetSimulationExecutionResult(
                 gw.SimulationExecutionQuery(gateway_id=GATEWAY_ID, request_id="req-x")
             )
-        assert error.value.code() is grpc.StatusCode.PERMISSION_DENIED
+        assert error.value.code() is grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
 
@@ -191,7 +187,7 @@ async def test_simulation_disabled_returns_failed_precondition(tmp_path: Path) -
         bootstrap_cn=COMMANDER_CN,
     )
     try:
-        channel = gateway.mtls_channel(COMMANDER_CN)
+        channel = gateway.bearer_channel(COMMANDER_CN)
         stub = gw_rpc.IndustrialGatewayServiceStub(channel)
         try:
             info = await stub.GetGateway(common.ObjectId(id=GATEWAY_ID))

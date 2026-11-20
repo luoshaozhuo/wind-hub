@@ -55,8 +55,13 @@ class GrpcConfig(StrictModel):
         if not self.listen_host.strip():
             raise ValueError("grpc.listen_host cannot be empty")
         allowed = {
-            "read", "config_read", "config_write", "inject",
-            "simulation_execute", "lifecycle", "diagnose",
+            "read",
+            "config_read",
+            "config_write",
+            "inject",
+            "simulation_execute",
+            "lifecycle",
+            "diagnose",
         }
         if not self.token_sources or set(self.token_sources) != set(self.permissions):
             raise ValueError("Gateway token_sources and permissions must match")
@@ -112,9 +117,7 @@ class ControlTarget(StrictModel):
             return self
         if not self.endpoint or not self.endpoint.strip():
             raise ValueError("Commander control target requires endpoint")
-        if not self.token_env or re.fullmatch(
-            r"env:[A-Z_][A-Z0-9_]*", self.token_env
-        ) is None:
+        if not self.token_env or re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", self.token_env) is None:
             raise ValueError("Commander target requires env:NAME token")
         return self
 
@@ -170,7 +173,7 @@ class GatewayServiceConfig(StrictModel):
 
     file_version: str
     config_sources: ConfigSources
-    grpc: GrpcConfig = Field(default_factory=GrpcConfig)
+    grpc: GrpcConfig
     servers: tuple[ServerConfig, ...] = Field(min_length=1)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 

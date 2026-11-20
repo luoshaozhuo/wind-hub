@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -19,7 +19,7 @@ class BearerAuthorizationError(PermissionError):
 
 
 class GrpcIdentityContext(Protocol):
-    def invocation_metadata(self) -> Sequence[tuple[str, str | bytes]]:
+    def invocation_metadata(self) -> Iterable[tuple[str, str | bytes]] | None:
         """Expose transport metadata without trusting caller-declared identity."""
 
 
@@ -31,9 +31,7 @@ class CallerGrant:
 
 
 def token_environment(reference: str) -> str:
-    if not isinstance(reference, str) or re.fullmatch(
-        r"env:[A-Z_][A-Z0-9_]*", reference
-    ) is None:
+    if not isinstance(reference, str) or re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", reference) is None:
         raise ValueError("bearer credential must reference env:NAME")
     return reference.removeprefix("env:")
 
@@ -57,7 +55,8 @@ class BearerAuthorizer:
         values: set[str] = set()
         for caller in callers:
             if (
-                not caller.caller_id or not caller.permissions
+                not caller.caller_id
+                or not caller.permissions
                 or not isinstance(caller.token_env, str)
             ):
                 raise ValueError("caller identity, token source and permissions required")
@@ -73,25 +72,30 @@ class BearerAuthorizer:
 
     @staticmethod
     def from_mapping(
-        credentials: Mapping[str, str], permissions: Mapping[str, Sequence[str]],
+        credentials: Mapping[str, str],
+        permissions: Mapping[str, Sequence[str]],
     ) -> BearerAuthorizer:
         if not credentials or credentials.keys() != permissions.keys():
             raise ValueError("token sources and permission principals disagree")
-        return BearerAuthorizer(tuple(
-            CallerGrant(caller_id, reference, frozenset(permissions[caller_id]))
-            for caller_id, reference in sorted(credentials.items())
-        ))
+        return BearerAuthorizer(
+            tuple(
+                CallerGrant(caller_id, reference, frozenset(permissions[caller_id]))
+                for caller_id, reference in sorted(credentials.items())
+            )
+        )
 
     def identify(self, context: GrpcIdentityContext) -> CallerGrant:
         """Return authenticated principal only after uniquely matching one secret."""
         # grpc.aio.Metadata iterates (key, value) pairs, not objects with
         # .key/.value attributes. Reject repeated or binary credentials.
         values = [
-            value for key, value in context.invocation_metadata()
+            value
+            for key, value in context.invocation_metadata() or ()
             if key.lower() == "authorization"
         ]
         if (
-            len(values) != 1 or not isinstance(values[0], str)
+            len(values) != 1
+            or not isinstance(values[0], str)
             or not values[0].startswith("Bearer ")
         ):
             raise BearerAuthenticationError("missing or ambiguous bearer credentials")

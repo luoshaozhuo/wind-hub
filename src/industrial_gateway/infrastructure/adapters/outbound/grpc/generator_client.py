@@ -14,9 +14,9 @@ from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import encode_scalar
+from core.infrastructure.grpc_bearer import bearer_metadata
 from industrial_gateway.application.ports.simulation import SimulationInputReceipt
 from industrial_gateway.application.variable_store import Scalar
-from core.infrastructure.grpc_bearer import bearer_metadata
 
 
 class GeneratorRpcClient:
@@ -76,13 +76,16 @@ class GeneratorRpcClient:
             return left
 
         device = await stub.GetDevice(
-            common.ObjectId(id=device_id), timeout=remaining(), metadata=self._metadata(),
+            common.ObjectId(id=device_id),
+            timeout=remaining(),
+            metadata=self._metadata(),
         )
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
             raise ValueError("target device has no running Generation")
         generation = await stub.GetGeneration(
-            common.ObjectId(id=generation_id), timeout=remaining(),
+            common.ObjectId(id=generation_id),
+            timeout=remaining(),
             metadata=self._metadata(),
         )
         bound = generation.generation

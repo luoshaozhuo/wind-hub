@@ -8,7 +8,11 @@ from dataclasses import replace
 import pytest
 
 from configuration_service.application.service import ConfigurationApplication
-from configuration_service.domain.models import RepositoryNotFoundError, RowProjection
+from configuration_service.domain.models import (
+    RepositoryConflictError,
+    RepositoryNotFoundError,
+    RowProjection,
+)
 from tests.configuration_service.component.test_shipped_yaml_repository import input_for
 from tests.configuration_service.conftest import document_input, publish_documents
 from tests.configuration_service.unit.test_yaml_acceptance import ROOT
@@ -38,9 +42,10 @@ def test_unit_semantic_business_point_projection_chain(
         semantic_points={"active_power": {"data_type": "float", "unit": "watt"}},
         config_sources=[ref("units", "standard", "1.0.0")],
     )
-    rev2, (semantic_version,) = publish_documents(
-        app, (semantic,), expected_revision=rev1, request_id="typed-semantic"
+    rev2, _ = publish_documents(
+        app, (units, semantic), expected_revision=rev1, request_id="typed-semantic"
     )
+    semantic_version = app.repository.resolve_version(semantic.identity, "1.0.0")
     business = document_input(
         "business_points",
         "wtg",
@@ -49,9 +54,10 @@ def test_unit_semantic_business_point_projection_chain(
         business_points={"power": {"semantic_point_id": "active_power"}},
         config_sources=[ref("semantic_points", "standard", "1.0.0")],
     )
-    rev3, (business_version,) = publish_documents(
-        app, (business,), expected_revision=rev2, request_id="typed-business"
+    rev3, _ = publish_documents(
+        app, (units, semantic, business), expected_revision=rev2, request_id="typed-business"
     )
+    business_version = app.repository.resolve_version(business.identity, "1.0.0")
     point_table = document_input(
         "point_table",
         "wtg-modbus",
@@ -72,9 +78,13 @@ def test_unit_semantic_business_point_projection_chain(
             ref("units", "standard", "1.0.0"),
         ],
     )
-    rev4, (point_version,) = publish_documents(
-        app, (point_table,), expected_revision=rev3, request_id="typed-point"
+    rev4, _ = publish_documents(
+        app,
+        (units, semantic, business, point_table),
+        expected_revision=rev3,
+        request_id="typed-point",
     )
+    point_version = app.repository.resolve_version(point_table.identity, "1.0.0")
     assert (
         app.repository.get_projection_rows(unit_version, "unit_definitions")[0]["unit_id"] == "watt"
     )
@@ -136,7 +146,6 @@ def test_ambiguous_two_unit_versions_cannot_bind_semantic_projection(
 @pytest.mark.parametrize(
     ("relative_path", "table"),
     [
-        ("configs/instances/devices.yaml", "devices"),
         (
             "configs/templates/point_tables/point_table_modbus_wtg_sim_v1.0.0.yaml",
             "point_tables",
@@ -150,6 +159,18 @@ def test_unbound_legacy_documents_keep_json_without_manufacturing_foreign_keys(
     _, (version_id,) = publish_documents(app, (item,), request_id=f"unbound-{table}")
     assert app.repository.get_projection_rows(version_id, table) == ()
     assert app.repository.get_projection_rows(version_id, "config_entries")
+
+
+def test_device_without_current_model_is_rejected(app: ConfigurationApplication) -> None:
+    item = input_for(ROOT / "configs/instances/devices.yaml")
+    with pytest.raises(RepositoryConflictError, match="missing device model"):
+        app.create_candidate(
+            actor_id="publisher",
+            request_id="device-missing-model",
+            expected_revision=0,
+            documents=(item,),
+            validate_only=True,
+        )
 
 
 def test_full_device_point_dependency_chain_creates_composite_foreign_key_rows(

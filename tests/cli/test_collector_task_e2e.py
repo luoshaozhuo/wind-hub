@@ -102,7 +102,7 @@ def test_missing_revision_fails_closed_exit2(cli_env: Any) -> None:
 
 
 def test_admin_token_attached_to_control_rpc_metadata(cli_env: Any) -> None:
-    """N-CLI-1：管理令牌以 x-windhub-admin-token 随受保护控制 RPC 上送，且不出现在输出。"""
+    """N-CLI-1：管理令牌以 Bearer authorization 上送，且不出现在输出。"""
     server = cli_env.server
     server.respond_value(
         _p(server, "GetTask"),
@@ -117,7 +117,9 @@ def test_admin_token_attached_to_control_rpc_metadata(cli_env: Any) -> None:
     starts = [c for c in server.calls if c.path.endswith("/StartTask")]
     assert len(starts) == 1
     metadata = dict(starts[0].metadata)
-    assert metadata.get("x-windhub-admin-token") == "cli-e2e-admin-token"
+    assert metadata.get("authorization") == (
+        "Bearer cli-e2e-admin-token-012345678901234567890123456789"
+    )
     assert "cli-e2e-admin-token" not in result.stdout
 
 
@@ -134,7 +136,7 @@ def test_missing_admin_token_fails_closed_without_leak(
     monkeypatch.delenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", raising=False)
     result = cli_env.subprocess_invoke("collector", "start", "t1", "--yes")
     assert result.exit_code == 2, result.stdout
-    assert "Collector management RPC requires admin credentials" in result.stdout
+    assert "bearer credential missing or invalid" in result.stdout
     assert "cli-e2e-admin-token" not in result.stdout
     # fail-closed：本地拒绝即无受保护 RPC 上送。
     assert not [c for c in server.calls if c.path.endswith("/StartTask")]

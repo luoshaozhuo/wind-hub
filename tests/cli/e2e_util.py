@@ -1,8 +1,8 @@
 """System e2e 共享工具：真实 CLI 子进程（独立解释器）+ cli.yaml 生成。
 
 设计 14.1：System Test 通过真实 CLI 进程和真实通信链路执行。
-对端是真实 grpc.aio + mTLS 服务器（见 conftest.FakeRpcServer），业务行为由
-测试注入；这验证 CLI 客户端行为，不替代五服务生产服务端端到端验收。
+对端是真实 grpc.aio 明文服务器（见 conftest.FakeRpcServer），业务行为由
+测试注入；这验证 CLI 客户端与 Bearer metadata 装配，不替代生产服务端认证验收。
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def write_cli_yaml(
     managers = managers or {}
     blocks = []
     for name, endpoint in endpoints.items():
-        block = f'  {name}:\n    grpc_endpoint: "{endpoint}"\n    tls_profile: mtls\n'
+        block = f'  {name}:\n    grpc_endpoint: "{endpoint}"\n'
         if name in managers:
             for key, value in managers[name].items():
                 block += f"    {key}: {value}\n"
@@ -56,11 +56,6 @@ cli:
   prompt: {json.dumps(prompt)}
 services:
 {''.join(blocks)}
-tls_profiles:
-  mtls:
-    ca_cert: {cert_files['ca']}
-    client_cert: {cert_files['client_crt']}
-    client_key: {cert_files['client_key']}
 """,
         encoding="utf-8",
     )

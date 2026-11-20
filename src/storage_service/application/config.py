@@ -149,10 +149,16 @@ class GrpcConfig(_StrictModel):
 
 class CallerPermission(_StrictModel):
     token_env: str
-    permissions: list[Literal[
-        "storage.read", "storage.export", "storage.backup",
-        "storage.inspect", "storage.operate", "storage.admin",
-    ]] = Field(min_length=1)
+    permissions: list[
+        Literal[
+            "storage.read",
+            "storage.export",
+            "storage.backup",
+            "storage.inspect",
+            "storage.operate",
+            "storage.admin",
+        ]
+    ] = Field(min_length=1)
     wind_farms: list[str] = Field(min_length=1)
 
     @field_validator("token_env")
@@ -194,8 +200,7 @@ class StorageConfig(_StrictModel):
     @model_validator(mode="after")
     def check_identity(self) -> StorageConfig:
         if any(
-            not farm or len(farm.encode("utf-8")) > 256
-            for farm in self.allowed_wind_farms
+            not farm or len(farm.encode("utf-8")) > 256 for farm in self.allowed_wind_farms
         ) or len(set(self.allowed_wind_farms)) != len(self.allowed_wind_farms):
             raise ValueError("allowed_wind_farms must be unique bounded identities")
         names = [item.token_env for item in self.auth.callers]
@@ -219,6 +224,7 @@ class StorageConfig(_StrictModel):
 
 def load_storage_config(source: bytes) -> StorageConfig:
     """Parse trusted Configuration bytes; reject duplicate YAML members."""
+
     class _UniqueLoader(yaml.SafeLoader):
         pass
 
@@ -233,9 +239,7 @@ def load_storage_config(source: bytes) -> StorageConfig:
             entries[key] = loader.construct_object(value_node, deep=True)
         return entries
 
-    _UniqueLoader.add_constructor(
-        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping
-    )
+    _UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
     data = yaml.load(source.decode("utf-8"), Loader=_UniqueLoader)
     if not isinstance(data, dict):
         raise ValueError("Storage configuration must be a YAML mapping")

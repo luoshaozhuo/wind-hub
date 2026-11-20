@@ -59,7 +59,7 @@ async def publish(
         pb.CreateCandidateRequest(
             request_id=f"{request_id}-candidate",
             expected_revision_id=expected_revision,
-            documents=[item],
+            documents=item if isinstance(item, list) else [item],
         )
     )
     await repository.PublishCandidate(
@@ -79,7 +79,12 @@ async def publish_dependency_pair(repository: object) -> None:
         {"config_type": "site", "config_id": "root", "file_version": "1.0.0"}
     ]
     dependent.yaml_bytes = yaml.safe_dump(payload).encode()
-    await publish(repository, dependent, request_id="dependent", expected_revision=1)
+    await publish(
+        repository,
+        [document("root", "1.0.0"), dependent],
+        request_id="dependent",
+        expected_revision=1,
+    )
 
 
 def identity(config_id: str) -> pb.ConfigId:

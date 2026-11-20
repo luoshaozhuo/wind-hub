@@ -45,6 +45,7 @@ PORTS = {
     "commander": 50052,
 }
 
+
 def _document(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"missing or symlinked service YAML: {path}")
@@ -106,9 +107,12 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
         else:
             actual = _section(doc, "grpc", name).get("listen_port")
         if name == "sink":
-            expected_root = str(root) if mode == "process" else "/etc/wind-hub"
-            if doc.get("config_root") != expected_root:
-                raise ValueError(f"sink: config_root must be {expected_root}")
+            expected_roots = {"/etc/wind-hub"}
+            if mode == "process":
+                expected_roots.add(str(root))
+            if doc.get("config_root") not in expected_roots:
+                expected = " or ".join(sorted(expected_roots))
+                raise ValueError(f"sink: config_root must be {expected}")
         if actual != PORTS[name]:
             raise ValueError(f"{name}: gRPC listen port {actual} differs from {PORTS[name]}")
     for name, doc in docs.items():
@@ -162,7 +166,10 @@ def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[s
             str(PORTS[name]),
         ]
     if name == "sink":
-        return [*base, "sink_service.main", "--config-root", str(root)]
+        config_root = _document(paths[name]).get("config_root")
+        if not isinstance(config_root, str) or not Path(config_root).is_absolute():
+            raise ValueError("sink: config_root must be an absolute path")
+        return [*base, "sink_service.main", "--config-root", config_root]
     return [*base, "commander", "--config", str(paths[name])]
 
 
@@ -225,7 +232,6 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         "file_version": "1.0.0",
         "cli": {"timeout_seconds": 30, "output_format": "json"},
         "services": services,
-
     }
 
 

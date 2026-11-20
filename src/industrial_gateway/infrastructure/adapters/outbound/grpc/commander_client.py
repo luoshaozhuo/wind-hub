@@ -11,10 +11,10 @@ from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc as rpc
 from contracts import common_pb2 as common
 from contracts.scalar_codec import encode_scalar
+from core.infrastructure.grpc_bearer import bearer_metadata
 from industrial_gateway.application.forwarding import CommandQuery, SubmissionReceipt
 from industrial_gateway.application.variable_store import Scalar
 from industrial_gateway.infrastructure.config.schema import ControlTarget
-from core.infrastructure.grpc_bearer import bearer_metadata
 
 
 class CommanderRpcClient:
@@ -50,7 +50,9 @@ class CommanderRpcClient:
 
     async def get_revision(self, device_id: str, timeout: float) -> str:
         response = await self._ready().GetDevice(
-            common.ObjectId(id=device_id), timeout=timeout, metadata=self._metadata(),
+            common.ObjectId(id=device_id),
+            timeout=timeout,
+            metadata=self._metadata(),
         )
         return response.device.revision
 
@@ -89,6 +91,7 @@ class CommanderRpcClient:
         response = await self._ready().GetCommandResult(
             pb.GetCommandResultRequest(command_id=command_id),
             timeout=timeout,
+            metadata=self._metadata(),
         )
         return CommandQuery(state=response.state)
 

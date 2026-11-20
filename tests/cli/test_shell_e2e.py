@@ -92,9 +92,7 @@ class PtyShell:
 def _config(tmp_path: Path, certs: dict[str, Path], port: int) -> Path:
     cfg = tmp_path / "cli.yaml"
     services = "\n".join(
-        f"""  {name}:
-    grpc_endpoint: "localhost:{port}"
-    tls_profile: mtls"""
+        f'  {name}:\n    grpc_endpoint: "localhost:{port}"'
         for name in (
             "collector",
             "commander",
@@ -111,11 +109,6 @@ cli:
   output_format: json
 services:
 {services}
-tls_profiles:
-  mtls:
-    ca_cert: {certs['ca']}
-    client_cert: {certs['client_crt']}
-    client_key: {certs['client_key']}
 """,
         encoding="utf-8",
     )

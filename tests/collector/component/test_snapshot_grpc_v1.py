@@ -17,14 +17,15 @@ from contracts import common_pb2_grpc as rpc
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
 ROOT = Path(__file__).resolve().parents[3]
-AUTH = (("x-windhub-admin-token", "collector-component-token"),)
+TOKEN = "collector-component-token-012345678901234567890123456789"
+AUTH = (("authorization", f"Bearer {TOKEN}"),)
 
 
 @pytest.mark.asyncio
 async def test_full_snapshot_grpc_roundtrip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", TOKEN)
     for folder in ("services", "instances", "templates"):
         shutil.copytree(ROOT / "configs" / folder, tmp_path / folder)
     service_file = tmp_path / "services" / "collector.yaml"

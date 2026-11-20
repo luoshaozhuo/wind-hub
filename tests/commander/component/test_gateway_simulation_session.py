@@ -1,4 +1,4 @@
-"""GatewaySimulationSession 组件测试：真实 mTLS 假 Gateway 上的 APPLIED 确认闭环。
+"""GatewaySimulationSession 组件测试：真实 gRPC 假 Gateway 上的 APPLIED 确认闭环。
 
 覆盖：
 - 受理后轮询 PENDING/APPLIED，仅 APPLIED 结算 CONFIRMED_SUCCESS；
@@ -23,7 +23,8 @@ from contracts import common_pb2 as common
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from core.application.protocol_contract import WriteOutcome
-from tests.support.gateway import reserve_port, write_mtls_pki
+from tests.support.bearer import ensure_bearer
+from tests.support.gateway import reserve_port
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
 
@@ -88,29 +89,15 @@ class ScriptedGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
 async def _start(
     tmp_path: Path, service: ScriptedGatewayService
 ) -> tuple[GatewaySimulationSession, ScriptedGatewayService, grpc.aio.Server]:
-    pki = write_mtls_pki(tmp_path, ["commander-sim"])
     server = grpc.aio.server()
     gw_rpc.add_IndustrialGatewayServiceServicer_to_server(service, server)
-    credentials = grpc.ssl_server_credentials(
-        [
-            (
-                Path(pki["server_key"]).read_bytes(),
-                Path(pki["server_crt"]).read_bytes(),
-            )
-        ],
-        root_certificates=Path(pki["ca"]).read_bytes(),
-        require_client_auth=True,
-    )
     port = reserve_port()
-    server.add_secure_port(f"127.0.0.1:{port}", credentials)
+    server.add_insecure_port(f"127.0.0.1:{port}")
     await server.start()
-    cert, key = pki["clients"]["commander-sim"]
     target = SimulationGatewayTarget(
         gateway_id=GATEWAY_ID,
         endpoint=f"127.0.0.1:{port}",
-        ca_cert=Path(pki["ca"]),
-        client_cert=cert,
-        client_key=key,
+        token_env=ensure_bearer("commander-sim"),
     )
     session = GatewaySimulationSession(DEVICE_ID, target)
     await session.connect()

@@ -71,18 +71,17 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
             snapshot = StorageBundleSnapshot(base / "configuration-snapshots")
             restored_from_snapshot = False
             try:
-                bundle = await configuration.fetch_service_bundle(
-                    service_id=bootstrap.service_id
-                )
+                bundle = await configuration.fetch_service_bundle(service_id=bootstrap.service_id)
                 await asyncio.to_thread(snapshot.store, bundle)
             except (grpc.aio.AioRpcError, TimeoutError, ConnectionError) as exc:
                 if isinstance(exc, grpc.aio.AioRpcError) and exc.code() not in (
-                    grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
+                    grpc.StatusCode.UNAVAILABLE,
+                    grpc.StatusCode.DEADLINE_EXCEEDED,
                 ):
                     raise
                 bundle = await asyncio.to_thread(snapshot.load)
                 if bundle.configuration.service_id != bootstrap.service_id:
-                    raise RuntimeError("saved Configuration service_id mismatch")
+                    raise RuntimeError("saved Configuration service_id mismatch") from exc
                 restored_from_snapshot = True
                 _LOG.warning(
                     "using verified previous Configuration revision %d while unavailable",
@@ -114,9 +113,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     point_tables=point_tables,
                     evidence=metadata,
                     metrics=metrics,
-                    allowed_wind_farms=frozenset(
-                        bundle.configuration.allowed_wind_farms
-                    ),
+                    allowed_wind_farms=frozenset(bundle.configuration.allowed_wind_farms),
                     max_batch_records=bundle.configuration.tdengine.batch_max_records,
                     max_batch_bytes=bundle.configuration.tdengine.batch_max_bytes,
                 )
@@ -129,35 +126,43 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 )
                 cursor_secret = os.getenv("WIND_HUB_STORAGE_CURSOR_SECRET", "").encode()
                 if len(cursor_secret) < 32:
-                    raise RuntimeError(
-                        "WIND_HUB_STORAGE_CURSOR_SECRET must contain 32+ bytes"
-                    )
+                    raise RuntimeError("WIND_HUB_STORAGE_CURSOR_SECRET must contain 32+ bytes")
                 history = HistoryQueryService(
-                    backend=storage, codec=CursorCodec(cursor_secret),
+                    backend=storage,
+                    codec=CursorCodec(cursor_secret),
                     max_page_size=bundle.configuration.query.max_page_size,
                     max_range_days=bundle.configuration.query.max_range_days,
                     max_concurrent=bundle.configuration.query.max_concurrent,
                     timeout_ms=bundle.configuration.query.timeout_ms,
                 )
                 jobs = AsyncStorageTasks(
-                    config=bundle.configuration, metadata=metadata, history=history,
+                    config=bundle.configuration,
+                    metadata=metadata,
+                    history=history,
                     units=point_tables,
                     backup=NativeTDengineBackup(
-                        config=bundle.configuration, metadata=metadata,
+                        config=bundle.configuration,
+                        metadata=metadata,
                     ),
                 )
                 watcher = StorageConfigurationWatcher(
-                    client=configuration, resolver=point_tables,
-                    bundle=bundle, service_id=bootstrap.service_id,
-                    servers=bootstrap.nats.servers, metadata=metadata,
+                    client=configuration,
+                    resolver=point_tables,
+                    bundle=bundle,
+                    service_id=bootstrap.service_id,
+                    servers=bootstrap.nats.servers,
+                    metadata=metadata,
                     snapshot=snapshot,
                 )
                 if restored_from_snapshot:
                     watcher.status = "CONFIG_RECONCILE_DEGRADED"
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
-                    metadata=metadata, query=history, jobs=jobs,
-                    point_tables=point_tables, consumer=consumer,
+                    metadata=metadata,
+                    query=history,
+                    jobs=jobs,
+                    point_tables=point_tables,
+                    consumer=consumer,
                     cursor_secret=cursor_secret,
                     config_status=lambda: watcher.status,
                     metrics=metrics,
@@ -171,12 +176,8 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 watching = asyncio.create_task(
                     watcher.run(stop_event), name="storage-configuration-watch"
                 )
-                consume = asyncio.create_task(
-                    consumer.run(), name="storage-kafka-ingest"
-                )
-                stopping = asyncio.create_task(
-                    stop_event.wait(), name="storage-shutdown-event"
-                )
+                consume = asyncio.create_task(consumer.run(), name="storage-kafka-ingest")
+                stopping = asyncio.create_task(stop_event.wait(), name="storage-shutdown-event")
                 try:
                     finished, _ = await asyncio.wait(
                         {consume, watching, stopping},
@@ -212,7 +213,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Storage Service v1")
     parser.add_argument(
-        "--bootstrap", type=Path, required=True,
+        "--bootstrap",
+        type=Path,
+        required=True,
         help="local minimal bootstrap YAML (not a duplicate business config)",
     )
     parser.add_argument("--check-bootstrap", action="store_true")

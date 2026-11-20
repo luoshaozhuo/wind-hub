@@ -33,7 +33,7 @@ class _AbortError(Exception):
 
 class _FakeContext:
     def __init__(self, token: str) -> None:
-        self._metadata = (("x-windhub-admin-token", token),)
+        self._metadata = (("authorization", f"Bearer {token}"),)
 
     def invocation_metadata(self) -> tuple[tuple[str, str], ...]:
         return self._metadata
@@ -81,13 +81,15 @@ def _rpc(worker: Any) -> CollectorDeviceRpc:
 async def test_interrogate_timeout_ms_zero_uses_server_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token")
+    monkeypatch.setenv(
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token-0123456789012345678901234567890123456789"
+    )
     rpc = _rpc(_SlowInterrogationWorker())
 
     started = time.monotonic()
     response = await rpc.InterrogateDevice(
         pb.InterrogateDeviceRequest(device_id="iec104-1"),
-        _FakeContext("unit-token"),
+        _FakeContext("unit-token-0123456789012345678901234567890123456789"),
     )
     elapsed = time.monotonic() - started
 
@@ -101,13 +103,15 @@ async def test_interrogate_timeout_ms_zero_uses_server_bound(
 async def test_interrogate_explicit_timeout_is_capped_at_server_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token")
+    monkeypatch.setenv(
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token-0123456789012345678901234567890123456789"
+    )
     rpc = _rpc(_SlowInterrogationWorker())
 
     started = time.monotonic()
     response = await rpc.InterrogateDevice(
         pb.InterrogateDeviceRequest(device_id="iec104-1", timeout_ms=60_000),
-        _FakeContext("unit-token"),
+        _FakeContext("unit-token-0123456789012345678901234567890123456789"),
     )
     elapsed = time.monotonic() - started
 
@@ -118,7 +122,9 @@ async def test_interrogate_explicit_timeout_is_capped_at_server_bound(
 async def test_protocol_error_maps_to_declared_grpc_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token")
+    monkeypatch.setenv(
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN", "unit-token-0123456789012345678901234567890123456789"
+    )
     rpc = _rpc(_FailingReadWorker())
 
     # A stable core ProtocolError must not escape the servicer as framework
@@ -126,6 +132,6 @@ async def test_protocol_error_maps_to_declared_grpc_status(
     with pytest.raises(_AbortError) as exc:
         await rpc.ReadPoints(
             pb.ReadPointsRequest(device_id="iec104-1", point_ids=["meas_power"]),
-            _FakeContext("unit-token"),
+            _FakeContext("unit-token-0123456789012345678901234567890123456789"),
         )
     assert exc.value.code == grpc.StatusCode.FAILED_PRECONDITION

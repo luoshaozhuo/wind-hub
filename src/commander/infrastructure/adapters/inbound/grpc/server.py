@@ -12,11 +12,6 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from commander.application.diagnostics import CommanderDiagnostics
 from commander.application.service_lifecycle import CommanderService
-from core.infrastructure.grpc_bearer import (
-    BearerAuthenticationError,
-    BearerAuthorizationError,
-    BearerAuthorizer,
-)
 from commander.application.submission import CommanderSubmission, request_state
 from commander.domain.command import (
     CommandResult,
@@ -28,6 +23,11 @@ from contracts import commander_pb2, commander_pb2_grpc, common_pb2, common_pb2_
 from core.application.errors import ConfigError
 from core.configuration.effective import resolve_effective_device
 from core.domain import DeviceId, PointAccess
+from core.infrastructure.grpc_bearer import (
+    BearerAuthenticationError,
+    BearerAuthorizationError,
+    BearerAuthorizer,
+)
 
 
 def _software_version() -> str:
@@ -79,7 +79,9 @@ def _scalar(value: common_pb2.ScalarValue) -> bool | int | float | str:
 
 class _Authorized:
     def __init__(
-        self, service: CommanderService, permissions: BearerAuthorizer,
+        self,
+        service: CommanderService,
+        permissions: BearerAuthorizer,
     ) -> None:
         self.service = service
         self.permissions = permissions

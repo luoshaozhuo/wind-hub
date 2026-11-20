@@ -58,7 +58,7 @@ async def harness(tmp_path: Path):
 
 
 def _stub(harness, cn: str) -> pb_rpc.IndustrialGatewayServiceStub:
-    return pb_rpc.IndustrialGatewayServiceStub(harness.mtls_channel(cn))
+    return pb_rpc.IndustrialGatewayServiceStub(harness.bearer_channel(cn))
 
 
 async def _read_admin_value(harness) -> int | None:
@@ -73,8 +73,8 @@ async def _read_admin_value(harness) -> int | None:
 
 async def test_a_full_lifecycle_succeeds_and_b_is_denied_every_step(harness) -> None:
     """任务书 1-6：A 全链路成功；B 持相同 owner/集合/token 的 RENEW/RELEASE/update 全拒。"""
-    channel_a = harness.mtls_channel(PRINCIPAL_A)
-    channel_b = harness.mtls_channel(PRINCIPAL_B)
+    channel_a = harness.bearer_channel(PRINCIPAL_A)
+    channel_b = harness.bearer_channel(PRINCIPAL_B)
     try:
         stub_a = pb_rpc.IndustrialGatewayServiceStub(channel_a)
         stub_b = pb_rpc.IndustrialGatewayServiceStub(channel_b)
@@ -167,7 +167,7 @@ async def test_a_full_lifecycle_succeeds_and_b_is_denied_every_step(harness) -> 
 
 async def test_caller_without_inject_permission_gets_permission_denied(harness) -> None:
     """任务书 7：缺少 inject 权限的主体在 RPC 边界即 PERMISSION_DENIED。"""
-    channel = harness.mtls_channel("gw-reader")
+    channel = harness.bearer_channel("gw-reader")
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as exc:
@@ -196,7 +196,7 @@ async def test_caller_without_inject_permission_gets_permission_denied(harness) 
 
 async def test_expired_token_is_fenced_even_for_its_own_principal(harness) -> None:
     """任务书 8（过期 token）：租约到期后原主体也不能再 RENEW/update。"""
-    channel = harness.mtls_channel(PRINCIPAL_A)
+    channel = harness.bearer_channel(PRINCIPAL_A)
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
         acquired = await stub.ClaimTargets(
@@ -239,7 +239,7 @@ async def test_expired_token_is_fenced_even_for_its_own_principal(harness) -> No
 
 async def test_config_apply_invalidation_fences_existing_token(harness) -> None:
     """任务书 8（配置 Apply）：生产 apply 路径调用的 invalidate() 必须使旧 token 失效。"""
-    channel = harness.mtls_channel(PRINCIPAL_A)
+    channel = harness.bearer_channel(PRINCIPAL_A)
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
         acquired = await stub.ClaimTargets(
@@ -269,8 +269,8 @@ async def test_config_apply_invalidation_fences_existing_token(harness) -> None:
 
 async def test_concurrent_acquire_and_cross_principal_update_race(harness) -> None:
     """任务书 9：并发 ACQUIRE 只有一个主体胜出；混发 update 不发生跨主体写入。"""
-    channel_a = harness.mtls_channel(PRINCIPAL_A)
-    channel_b = harness.mtls_channel(PRINCIPAL_B)
+    channel_a = harness.bearer_channel(PRINCIPAL_A)
+    channel_b = harness.bearer_channel(PRINCIPAL_B)
     try:
         stub_a = pb_rpc.IndustrialGatewayServiceStub(channel_a)
         stub_b = pb_rpc.IndustrialGatewayServiceStub(channel_b)

@@ -52,13 +52,10 @@ _BASE_SERVICE: dict[str, Any] = {
         "default_deadline_ms": 5000,
     },
     "security": {
-        "ca_cert": "tls/ca.crt",
-        "server_cert": "tls/sink.crt",
-        "server_key": "tls/sink.key",
         "callers": [
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_MAINTENANCE_TOKEN",
                 "permissions": ["query", "control", "config"],
             }
         ],

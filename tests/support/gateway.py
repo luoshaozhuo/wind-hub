@@ -17,7 +17,7 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import grpc
 import yaml
@@ -34,6 +34,7 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import 
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
+from tests.support.bearer import bearer_channel, ensure_bearer
 
 # 点表：所有测试设备共享同一份版本化模板。
 FEEDBACK_FLOAT = "fb_float"
@@ -405,7 +406,6 @@ def write_config_tree(
     submit_deadline_ms: int = 5000,
     metrics_window_seconds: int = 60,
     permissions: dict[str, Sequence[str]] | None = None,
-    mtls_enabled: bool = False,
     point_table: dict[str, dict[str, Any]] | None = None,
     simulation: dict[str, Any] | None = None,
 ) -> Path:
@@ -426,6 +426,7 @@ def write_config_tree(
                 "target": {
                     "kind": "commander",
                     "endpoint": commander_endpoint,
+                    "token_env": ensure_bearer("gateway-commander"),
                     "queue_capacity": forward_queue_capacity,
                     "max_inflight": max_forward_inflight,
                     "request_timeout_ms": submit_deadline_ms,
@@ -521,6 +522,10 @@ def write_config_tree(
             "points": {key: dict(value) for key, value in (point_table or POINT_TABLE).items()},
         },
     )
+    grants = permissions or {
+        "harness": ["read", "inject", "lifecycle", "diagnose", "config_read", "config_write"]
+    }
+    token_sources = {name: ensure_bearer(name) for name in grants}
     service: dict[str, Any] = {
         "schema_version": 1,
         "file_version": "1.0.0",
@@ -533,21 +538,8 @@ def write_config_tree(
             "listen_port": grpc_port,
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
-            "tls": (
-                {
-                    "enabled": True,
-                    "cert_file": "certs/server.crt",
-                    "key_file": "certs/server.key",
-                    "ca_file": "certs/ca.crt",
-                }
-                if mtls_enabled
-                else {"enabled": False}
-            ),
-            **(
-                {"permissions": {name: list(rights) for name, rights in permissions.items()}}
-                if permissions
-                else {}
-            ),
+            "token_sources": token_sources,
+            "permissions": {name: list(rights) for name, rights in grants.items()},
         },
         "servers": servers,
         "metrics": {
@@ -573,7 +565,6 @@ class GatewayHarness:
     grpc_port: int
     commander_port: int
     _channel: grpc.aio.Channel
-    pki: dict[str, object] | None = None
 
     def modbus_port(self, server_id: str) -> int:
         return self.specs[server_id].modbus_port
@@ -595,22 +586,9 @@ class GatewayHarness:
 
         return common_rpc.CommonServiceStub(self._channel)
 
-    def mtls_channel(self, client_name: str) -> grpc.aio.Channel:
-        """以指定 CN 的真实客户端证书打开独立 mTLS 通道（调用方负责关闭）。"""
-        if self.pki is None:
-            raise RuntimeError("PKI was not generated for this harness")
-        ca = cast(Path, self.pki["ca"]).read_bytes()
-        cert_path, key_path = cast(dict[str, tuple[Path, Path]], self.pki["clients"])[client_name]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca,
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
-        )
-        return grpc.aio.secure_channel(
-            f"127.0.0.1:{self.grpc_port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+    def bearer_channel(self, client_name: str) -> grpc.aio.Channel:
+        """以指定测试主体的 Bearer 打开独立通道（调用方负责关闭）。"""
+        return bearer_channel(f"127.0.0.1:{self.grpc_port}", client_name)
 
     async def stop(self) -> None:
         await self._channel.close()
@@ -658,8 +636,8 @@ async def start_gateway(
 ) -> GatewayHarness:
     """启动真实 Commander 对端 + 真实 Gateway runtime/gRPC，不替换任何生产对象。
 
-    mtls 非空时生成真实 PKI 并按 ``{CN: 权限集}`` 配置服务端；harness 自身
-    管理通道使用 bootstrap_cn 对应客户端证书。
+    mtls 非空时按 ``{主体: 权限集}`` 配置真实 Bearer 授权；harness 自身
+    管理通道使用 bootstrap_cn 对应主体。参数名仅为既有测试调用兼容。
     """
     root.mkdir(parents=True, exist_ok=True)
     commander_port = reserve_port()
@@ -670,12 +648,12 @@ async def start_gateway(
     commander_server.add_insecure_port(f"127.0.0.1:{commander_port}")
     await commander_server.start()
 
-    pki: dict[str, object] | None = None
     if mtls is not None:
         client_names = set(mtls) | set(extra_clients)
         if bootstrap_cn is not None:
             client_names.add(bootstrap_cn)
-        pki = write_mtls_pki(root, tuple(client_names))
+        for name in client_names:
+            ensure_bearer(name)
     service_path = write_config_tree(
         root,
         specs,
@@ -686,7 +664,6 @@ async def start_gateway(
         submit_deadline_ms=submit_deadline_ms,
         metrics_window_seconds=metrics_window_seconds,
         permissions=mtls,
-        mtls_enabled=mtls is not None,
         point_table=point_table,
         simulation=simulation,
     )
@@ -697,23 +674,10 @@ async def start_gateway(
     await gateway_server.start()
     await runtime.start()
     if mtls is not None:
-        assert pki is not None and bootstrap_cn is not None
-        ca_path = cast(Path, pki["ca"])
-        client_certs = cast(dict[str, tuple[Path, Path]], pki["clients"])
-        ca = ca_path.read_bytes()
-        cert_path, key_path = client_certs[bootstrap_cn]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca,
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
-        )
-        channel = grpc.aio.secure_channel(
-            f"127.0.0.1:{grpc_port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+        assert bootstrap_cn is not None
+        channel = bearer_channel(f"127.0.0.1:{grpc_port}", bootstrap_cn)
     else:
-        channel = grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}")
+        channel = bearer_channel(f"127.0.0.1:{grpc_port}", "harness")
     await channel.channel_ready()
     return GatewayHarness(
         root=root,
@@ -727,7 +691,6 @@ async def start_gateway(
         grpc_port=grpc_port,
         commander_port=commander_port,
         _channel=channel,
-        pki=pki,
     )
 
 

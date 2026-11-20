@@ -22,7 +22,6 @@ def _target(root: Path, *code: str, timeout: float = 5.0) -> ServiceTarget:
     return ServiceTarget(
         service_id="native-demo",
         grpc_endpoint=None,
-        tls_profile=None,
         manager="process",
         target="native-demo",
         namespace=None,

@@ -44,8 +44,8 @@ class NatsEndpoint(_Settings):
     @classmethod
     def validate_servers(cls, value: list[str]) -> list[str]:
         if any(
-            not isinstance(item, str) or not item.startswith("nats://")
-            or len(item) > 512 for item in value
+            not isinstance(item, str) or not item.startswith("nats://") or len(item) > 512
+            for item in value
         ):
             raise ValueError("NATS server URLs must use explicit nats:// addresses")
         return value

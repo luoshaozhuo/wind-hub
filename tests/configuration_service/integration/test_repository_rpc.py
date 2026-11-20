@@ -1,4 +1,4 @@
-"""All twelve Repository RPCs over the real CLI-launched mTLS service."""
+"""All twelve Repository RPCs over the real CLI-launched Bearer service."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             pb.CreateCandidateRequest(
                 request_id="rpc-create-v1",
                 expected_revision_id=0,
-                documents=[document("rpc-site", "1.0.0")],
+                documents=[document("rpc-site", "1.0.0"), document("rpc-base", "1.0.0")],
             ),
             timeout=10,
         )
@@ -66,9 +66,19 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         )
         assert published_v1.revision_id == 1
         assert published_v1.committed_at.seconds > 0
-        version1 = published_v1.published[0].version_id
+        version1 = next(
+            item.version_id
+            for item in published_v1.published
+            if item.config_id.config_id == "rpc-site"
+        )
+        base_version = next(
+            item.version_id
+            for item in published_v1.published
+            if item.config_id.config_id == "rpc-base"
+        )
         listed = await repository.ListConfigs(pb.ListConfigsRequest(config_type="site"), timeout=10)
-        assert listed.items[0].recommended_version_id == version1
+        listed_site = next(item for item in listed.items if item.config_id.config_id == "rpc-site")
+        assert listed_site.recommended_version_id == version1
         versions = await repository.ListConfigVersions(
             pb.ListConfigVersionsRequest(
                 config_id=pb.ConfigId(config_type="site", config_id="rpc-site")
@@ -108,7 +118,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         payload["config_sources"] = [
             {
                 "config_type": "site",
-                "config_id": "rpc-site",
+                "config_id": "rpc-base",
                 "file_version": "1.0.0",
             }
         ]
@@ -117,7 +127,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             pb.CreateCandidateRequest(
                 request_id="rpc-create-v2",
                 expected_revision_id=1,
-                documents=[dependent],
+                documents=[dependent, document("rpc-base", "1.0.0")],
             ),
             timeout=10,
         )
@@ -129,7 +139,11 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        version2 = published_v2.published[0].version_id
+        version2 = next(
+            item.version_id
+            for item in published_v2.published
+            if item.config_id.config_id == "rpc-site"
+        )
         bundle = await repository.GetConfigBundle(
             pb.GetConfigBundleRequest(
                 roots=[pb.ConfigId(config_type="site", config_id="rpc-site")],
@@ -138,8 +152,8 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert {item.version_id for item in bundle.files} == {version1, version2}
-        assert bundle.files[0].version_id == version1
+        assert {item.version_id for item in bundle.files} == {base_version, version2}
+        assert bundle.files[0].version_id == base_version
         outbound = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version2,
@@ -147,10 +161,10 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert outbound.edges[0].target_version_id == version1
+        assert outbound.edges[0].target_version_id == base_version
         inbound = await repository.ListReferences(
             pb.ListReferencesRequest(
-                version_id=version1,
+                version_id=base_version,
                 direction=pb.REFERENCE_DIRECTION_INBOUND,
             ),
             timeout=10,
@@ -185,7 +199,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert deprecated.deprecated and deprecated.referencing_versions_count == 1
+        assert deprecated.deprecated and deprecated.referencing_versions_count == 0
         stats = await repository.GetRepositoryStats(
             pb.GetRepositoryStatsRequest(
                 scope=pb.REPOSITORY_STATS_SCOPE_ALL,
@@ -193,7 +207,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert stats.version_count == 2
+        assert stats.version_count == 3
         assert stats.revision_count == 5
         assert stats.db_schema_version == 1
         assert stats.HasField("db_file_bytes")
@@ -282,7 +296,10 @@ async def test_pagination_terminates_at_exact_page_boundary(live: LiveConfigurat
                 pb.CreateCandidateRequest(
                     request_id="pagination-create",
                     expected_revision_id=revision,
-                    documents=[document("pagination-site", "1.0.0")],
+                    documents=[
+                        document("pagination-a", "1.0.0"),
+                        document("pagination-b", "1.0.0"),
+                    ],
                 ),
                 timeout=10,
             )

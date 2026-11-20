@@ -26,7 +26,8 @@ def _request(method: str, request: Any, service: str) -> Any:
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
         result = await getattr(client, method)(
-            request, timeout=runtime().target(service).timeout,
+            request,
+            timeout=runtime().target(service).timeout,
             metadata=runtime().get_rpc_metadata(service, method),
         )
         return MessageToDict(result, preserving_proto_field_name=True)
@@ -96,7 +97,7 @@ def sync_directory(
         published = await client.PublishCandidate(
             pb.PublishCandidateRequest(
                 candidate_id=candidate.candidate_id,
-                expected_revision_id=revision,
+                expected_revision_id=candidate.base_revision_id,
                 request_id=operation_id + ":publish",
             ),
             timeout=timeout,
@@ -180,7 +181,8 @@ def get(
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
         result = await client.GetConfig(
-            req, timeout=runtime().target(service).timeout,
+            req,
+            timeout=runtime().target(service).timeout,
             metadata=runtime().get_rpc_metadata(service, "GetConfig"),
         )
         data = result.document.yaml_bytes

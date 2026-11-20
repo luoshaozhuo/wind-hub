@@ -38,9 +38,6 @@ services:
     <<: *service
     environment:
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
-      WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
-      WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
-      WIND_HUB_COLLECTOR_TLS_CA: "${WIND_HUB_COLLECTOR_TLS_CA:-/etc/wind-hub/certs/ca.pem}"
     command:
       - collector.main
       - --config
@@ -58,9 +55,6 @@ services:
     <<: *service
     environment:
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
-      WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
-      WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
-      WIND_HUB_COLLECTOR_TLS_CA: "${WIND_HUB_COLLECTOR_TLS_CA:-/etc/wind-hub/certs/ca.pem}"
     command:
       - collector.main
       - --config

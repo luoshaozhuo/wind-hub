@@ -183,15 +183,14 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         if len(expected.encode("utf-8")) < 32:
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token missing")
         metadata = tuple(
-            value for key, value in context.invocation_metadata()
+            value
+            for key, value in context.invocation_metadata() or ()
             if key.lower() == "authorization"
         )
         if len(metadata) != 1 or not isinstance(metadata[0], str):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "collector token required")
         value = metadata[0]
-        if not value.startswith("Bearer ") or not hmac.compare_digest(
-            expected, value[7:]
-        ):
+        if not value.startswith("Bearer ") or not hmac.compare_digest(expected, value[7:]):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid collector token")
 
     def _read_candidate(self, candidate_id: str) -> tuple[str, dict[str, bytes]]:

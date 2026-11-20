@@ -1,11 +1,12 @@
-"""§14.3 test_auth.py（component/security）：证书 SAN 身份→caller_id 映射与授权。
+"""§14.3 test_auth.py（component/security）：Bearer 主体映射与授权。
 
-直接驱动 gRPC 边界的 ``_Authorized``：TLS 握手由集成层 test_grpc.py 的真实
-mTLS 覆盖，本层用可控的假 auth_context 穷举身份/权限矩阵与异常→状态码映射。
+直接驱动 gRPC 边界的 ``_Authorized``，用真实 BearerAuthorizer 和可控的
+invocation_metadata 穷举凭证/权限矩阵与异常→状态码映射。
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import grpc
@@ -14,6 +15,8 @@ import pytest
 from commander.infrastructure.adapters.inbound.grpc.server import _Authorized, _page, _scalar
 from contracts import common_pb2
 from core.application.errors import ConfigError
+from core.infrastructure.grpc_bearer import BearerAuthorizer
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [
     pytest.mark.component,
@@ -24,12 +27,12 @@ pytestmark = [
 class FakeContext:
     """记录 abort 的 ServicerContext 替身；auth_context 可控。"""
 
-    def __init__(self, identities: list[bytes] | None) -> None:
-        self._identities = identities or []
+    def __init__(self, credentials: list[str] | None) -> None:
+        self._metadata = tuple(("authorization", f"Bearer {item}") for item in credentials or ())
         self.aborted: tuple[grpc.StatusCode, str] | None = None
 
-    def auth_context(self) -> dict[str, list[bytes]]:
-        return {"x509_subject_alternative_name": list(self._identities)}
+    def invocation_metadata(self) -> tuple[tuple[str, str], ...]:
+        return self._metadata
 
     async def abort(self, code: grpc.StatusCode, details: str) -> None:
         self.aborted = (code, details)
@@ -48,13 +51,26 @@ _PERMISSIONS = {
 
 
 def _boundary() -> _Authorized:
-    return _Authorized(service=object(), permissions=_PERMISSIONS)  # type: ignore[arg-type]
+    return _Authorized(
+        service=object(),
+        permissions=BearerAuthorizer.from_mapping(
+            {
+                caller: ensure_bearer(identity)
+                for identity, (caller, _rights) in _PERMISSIONS.items()
+            },
+            {caller: rights for _identity, (caller, rights) in _PERMISSIONS.items()},
+        ),
+    )
+
+
+def _credential(identity: str) -> str:
+    return os.environ[ensure_bearer(identity).removeprefix("env:")]
 
 
 async def _require(
     identities: list[str] | None, scope: str
 ) -> tuple[str | None, grpc.StatusCode | None]:
-    context = FakeContext([item.encode() for item in identities] if identities else [])
+    context = FakeContext([_credential(item) for item in identities] if identities else [])
     try:
         caller = await _boundary().require(context, scope)
     except _AbortError:
@@ -82,9 +98,9 @@ async def test_missing_client_identity_is_unauthenticated() -> None:
 
 
 @pytest.mark.exception
-async def test_unregistered_identity_is_permission_denied() -> None:
+async def test_unregistered_identity_is_unauthenticated() -> None:
     caller, code = await _require(["stranger@windhub.test"], "query")
-    assert caller is None and code is grpc.StatusCode.PERMISSION_DENIED
+    assert caller is None and code is grpc.StatusCode.UNAUTHENTICATED
 
 
 @pytest.mark.exception
@@ -103,9 +119,9 @@ async def test_authenticated_but_scope_missing_is_permission_denied() -> None:
 
 
 @pytest.mark.exception
-async def test_certificate_matching_two_callers_is_permission_denied() -> None:
+async def test_duplicate_bearer_credentials_are_unauthenticated() -> None:
     _caller, code = await _require(["viewer@windhub.test", "ops@windhub.test"], "query")
-    assert code is grpc.StatusCode.PERMISSION_DENIED
+    assert code is grpc.StatusCode.UNAUTHENTICATED
 
 
 @pytest.mark.exception

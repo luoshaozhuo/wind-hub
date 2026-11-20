@@ -1,4 +1,4 @@
-"""Real mTLS identity, authorization and fail-closed transport tests."""
+"""Real Bearer identity, authorization and fail-closed transport tests."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ async def test_query_identity_cannot_read_self_configuration(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("identity", ["no-cn", "blank-cn"])
 @pytest.mark.parametrize("interface", ["repository", "common"])
-async def test_trusted_certificate_without_cn_is_unauthenticated(
+async def test_unregistered_bearer_is_unauthenticated(
     live: LiveConfiguration, interface: str, identity: str
 ) -> None:
     repository, common, channel = live.stubs(identity)
@@ -111,7 +111,7 @@ async def test_trusted_certificate_without_cn_is_unauthenticated(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("interface", ["repository", "common"])
-async def test_unlisted_signed_identity_is_denied(live: LiveConfiguration, interface: str) -> None:
+async def test_unlisted_bearer_is_unauthenticated(live: LiveConfiguration, interface: str) -> None:
     repository, common, channel = live.stubs("stranger")
     try:
         with pytest.raises(grpc.aio.AioRpcError) as denied:
@@ -119,46 +119,35 @@ async def test_unlisted_signed_identity_is_denied(live: LiveConfiguration, inter
                 await repository.ListConfigs(pb.ListConfigsRequest(), timeout=10)
             else:
                 await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
-        assert denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ca", ["rogue-ca", "ca-without-client"])
-async def test_wrong_ca_or_missing_client_certificate_fails_closed(
-    live: LiveConfiguration, ca: str
-) -> None:
-    if ca == "ca-without-client":
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=(live.pki.tmp / "ca.crt").read_bytes()
-        )
-        channel = grpc.aio.secure_channel(
-            f"127.0.0.1:{live.port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
-    else:
-        channel = live.channel("rogue", ca="rogue-ca")
+@pytest.mark.parametrize("identity", ["rogue", "anonymous"])
+async def test_wrong_or_missing_bearer_fails_closed(live: LiveConfiguration, identity: str) -> None:
+    channel = (
+        grpc.aio.insecure_channel(f"127.0.0.1:{live.port}")
+        if identity == "anonymous"
+        else live.channel(identity)
+    )
     try:
         stub = common_pb2_grpc.CommonServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as denied:
             await stub.GetServiceStatus(common_pb2.Empty(), timeout=10)
-        assert denied.value.code() in {
-            grpc.StatusCode.UNAVAILABLE,
-            grpc.StatusCode.UNAUTHENTICATED,
-        }
+        assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
 
 
 @pytest.mark.asyncio
-async def test_plaintext_cannot_downgrade(live: LiveConfiguration) -> None:
+async def test_anonymous_plaintext_is_unauthenticated(live: LiveConfiguration) -> None:
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{live.port}")
     try:
         stub = common_pb2_grpc.CommonServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as denied:
             await stub.GetServiceStatus(common_pb2.Empty(), timeout=10)
-        assert denied.value.code() == grpc.StatusCode.UNAVAILABLE
+        assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()

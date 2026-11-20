@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import grpc
 import pytest
@@ -44,7 +44,8 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import 
 )
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from tests.support.gateway import FakeCommanderService, write_mtls_pki
+from tests.support.bearer import bearer_channel, ensure_bearer
+from tests.support.gateway import FakeCommanderService
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -109,7 +110,27 @@ def write_service_yaml(
             "templates": {"root": "templates"},
         },
         "service": {"grpc_bind": bind},
-        "output": {"max_inflight": max_inflight, "grpc_timeout_seconds": output_timeout},
+        "output": {
+            "max_inflight": max_inflight,
+            "grpc_timeout_seconds": output_timeout,
+            "gateway_token_ref": ensure_bearer("harness"),
+        },
+        "security": {
+            "token_sources": {
+                "cli": ensure_bearer("generator-cli"),
+                "gateway": ensure_bearer("generator-input"),
+            },
+            "permissions": {
+                "cli": [
+                    "variables_read",
+                    "variables_update",
+                    "query",
+                    "config_read",
+                    "config_write",
+                ],
+                "gateway": ["variables_read", "variables_update", "query"],
+            },
+        },
         "buffer": {"max_batches": 128, "max_points_per_batch": 1000},
         "replay": {"read_batch_size": 1000},
         "diagnose": {
@@ -626,7 +647,6 @@ def _gateway_tree(
     devices: dict[str, Sequence[tuple[str, str, str]]],
     data_bind: str,
     permissions: dict[str, Sequence[str]] | None = None,
-    mtls_enabled: bool = False,
 ) -> Path:
     """写出自洽的 v1 配置树，返回 Service 文件路径。"""
     grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
@@ -735,6 +755,10 @@ def _gateway_tree(
             },
         },
     )
+    grants = permissions or {
+        "harness": ["read", "inject", "lifecycle", "diagnose", "config_read", "config_write"]
+    }
+    token_sources = {name: ensure_bearer(name) for name in grants}
     service: dict[str, Any] = {
         "schema_version": 1,
         "file_version": "1.0.0",
@@ -747,21 +771,8 @@ def _gateway_tree(
             "listen_port": int(grpc_port_text),
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
-            "tls": (
-                {
-                    "enabled": True,
-                    "cert_file": "certs/server.crt",
-                    "key_file": "certs/server.key",
-                    "ca_file": "certs/ca.crt",
-                }
-                if mtls_enabled
-                else {"enabled": False}
-            ),
-            **(
-                {"permissions": {name: list(rights) for name, rights in permissions.items()}}
-                if permissions
-                else {}
-            ),
+            "token_sources": token_sources,
+            "permissions": {name: list(rights) for name, rights in grants.items()},
         },
         "servers": servers,
         "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
@@ -778,24 +789,10 @@ class RealGateway:
     commander_server: Any
     endpoint_id: str
     data_bind: str
-    pki: dict[str, Any] | None = None
 
-    def mtls_channel(self, client_name: str) -> grpc.aio.Channel:
-        """以指定 CN 的真实客户端证书打开独立 mTLS 通道（调用方负责关闭）。"""
-        if self.pki is None:
-            raise RuntimeError("PKI was not generated for this real gateway")
-        ca_path = cast(Path, self.pki["ca"])
-        cert_path, key_path = cast(dict[str, tuple[Path, Path]], self.pki["clients"])[client_name]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca_path.read_bytes(),
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
-        )
-        return grpc.aio.secure_channel(
-            self.data_bind,
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+    def bearer_channel(self, client_name: str) -> grpc.aio.Channel:
+        """打开使用指定测试主体 Bearer 的独立通道（调用方负责关闭）。"""
+        return bearer_channel(self.data_bind, client_name)
 
     async def stop(self) -> None:
         await self.runtime.stop()
@@ -820,8 +817,8 @@ async def start_real_gateway(
     ) -> RealGateway:
         """启动真实 v1 Gateway 全栈（runtime + 正式 gRPC 服务 + 真实 Commander 对端）。
 
-        permissions 非空时启用真实 mTLS；client_names 额外签发仅持有证书、
-        无任何权限的客户端身份，用于安全边界测试。
+        permissions 配置真实 Bearer 主体及权限；client_names 额外 provision
+        无任何权限的主体，用于安全边界测试。
         """
         if devices is None:
             devices = {"GW01": [("pitch_angle", "float32", "feedback")]}
@@ -835,18 +832,18 @@ async def start_real_gateway(
         commander_server.add_insecure_port(f"127.0.0.1:{commander_port}")
         await commander_server.start()
 
-        mtls_enabled = permissions is not None
-        pki: dict[str, Any] | None = None
-        if mtls_enabled:
-            names = set(permissions or ()) | set(client_names)
-            pki = write_mtls_pki(root, tuple(names))
+        if permissions:
+            writer = "generator-a" if "generator-a" in permissions else next(iter(permissions))
+            writer_ref = ensure_bearer(writer)
+            os.environ["WIND_HUB_TEST_HARNESS"] = os.environ[writer_ref.removeprefix("env:")]
+        for name in client_names:
+            ensure_bearer(name)
         service_path = _gateway_tree(
             root,
             endpoint_id=endpoint_id,
             devices=devices,
             data_bind=bind,
             permissions=permissions,
-            mtls_enabled=mtls_enabled,
         )
         config = load_gateway(service_path, project_root=root)
         runtime = assemble_gateway(config)
@@ -854,7 +851,7 @@ async def start_real_gateway(
         gateway_server = create_gateway_grpc_server(runtime, snapshots)
         await gateway_server.start()
         await runtime.start()
-        gateway = RealGateway(runtime, gateway_server, commander_server, endpoint_id, bind, pki)
+        gateway = RealGateway(runtime, gateway_server, commander_server, endpoint_id, bind)
         running.append(gateway)
         return gateway
 
@@ -895,6 +892,7 @@ async def dg_server(
         settings = load_settings(service_path)
         output = settings.service.get("output", {})
         writer = GatewayWriter(
+            gateway_token_ref=str(output["gateway_token_ref"]),
             timeout=float(output.get("grpc_timeout_seconds", 3.0)) if timeout is None else timeout,
             max_points=int(settings.service.get("buffer", {}).get("max_points_per_batch", 1000)),
             max_inflight=int(output.get("max_inflight", 1)),
@@ -903,7 +901,7 @@ async def dg_server(
         bind = settings.service.get("service", {}).get("grpc_bind", f"127.0.0.1:{reserve_port()}")
         server = make_server(runtime, bind)
         await server.start()
-        channel = grpc.aio.insecure_channel(bind)
+        channel = bearer_channel(bind, "generator-cli")
         await channel.channel_ready()
         harness = DataGeneratorHarness(
             runtime,
@@ -988,7 +986,7 @@ def dg_subprocess(tmp_path: Path):
 
 @asynccontextmanager
 async def grpc_channel(bind: str) -> AsyncIterator[grpc.aio.Channel]:
-    channel = grpc.aio.insecure_channel(bind)
+    channel = bearer_channel(bind, "generator-cli")
     await channel.channel_ready()
     try:
         yield channel

@@ -73,7 +73,7 @@ services:
         load_config(_write(tmp_path, body))
 
 
-def test_endpoint_requires_tls_profile(tmp_path: Path) -> None:
+def test_endpoint_uses_controlled_plaintext_channel(tmp_path: Path) -> None:
     body = (
         _BASE_HEADER
         + """
@@ -82,11 +82,11 @@ services:
     grpc_endpoint: "localhost:5000"
 """
     )
-    with pytest.raises(ValueError, match="tls_profile is required"):
-        load_config(_write(tmp_path, body))
+    config = load_config(_write(tmp_path, body))
+    assert config.services["collector"].grpc_endpoint == "localhost:5000"
 
 
-def test_unknown_tls_profile_reference_rejected(tmp_path: Path) -> None:
+def test_retired_tls_profile_is_rejected(tmp_path: Path) -> None:
     body = (
         _BASE_HEADER
         + """
@@ -96,7 +96,7 @@ services:
     tls_profile: missing
 """
     )
-    with pytest.raises(ValueError, match="unknown tls_profile"):
+    with pytest.raises(ValueError, match="tls_profile is retired"):
         load_config(_write(tmp_path, body))
 
 

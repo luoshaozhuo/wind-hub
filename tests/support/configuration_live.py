@@ -1,8 +1,7 @@
-"""Real Configuration Service process, PKI and CLI integration harness."""
+"""Real Configuration Service process and Bearer CLI integration harness."""
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import socket
@@ -14,13 +13,10 @@ from typing import Any
 
 import grpc
 import yaml
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 
 from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
 from tests.commander.grpc_harness import Pki
+from tests.support.bearer import bearer_channel, ensure_bearer
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -36,16 +32,7 @@ class LiveConfiguration:
     database_path: Path
 
     def channel(self, identity: str = "deployer", *, ca: str = "ca") -> grpc.aio.Channel:
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=(self.pki.tmp / f"{ca}.crt").read_bytes(),
-            private_key=(self.pki.tmp / f"{identity}.key").read_bytes(),
-            certificate_chain=(self.pki.tmp / f"{identity}.crt").read_bytes(),
-        )
-        return grpc.aio.secure_channel(
-            f"127.0.0.1:{self.port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+        return bearer_channel(f"127.0.0.1:{self.port}", identity)
 
     def stubs(
         self, identity: str = "deployer", *, ca: str = "ca"
@@ -62,8 +49,13 @@ class LiveConfiguration:
         )
 
     def cli(
-        self, *arguments: str, check: bool = True, config: Path | None = None
+        self,
+        *arguments: str,
+        check: bool = True,
+        config: Path | None = None,
+        identity: str = "deployer",
     ) -> dict[str, Any]:
+        token_ref = ensure_bearer(identity)
         completed = subprocess.run(
             [
                 sys.executable,
@@ -76,7 +68,11 @@ class LiveConfiguration:
                 *arguments,
             ],
             cwd=SRC,
-            env={**os.environ, "PYTHONPATH": str(SRC)},
+            env={
+                **os.environ,
+                "PYTHONPATH": str(SRC),
+                "WIND_HUB_CONFIG_CLI_TOKEN": os.environ[token_ref.removeprefix("env:")],
+            },
             capture_output=True,
             text=True,
             timeout=45,
@@ -96,37 +92,6 @@ class LiveConfiguration:
         return payload
 
 
-def issue_client_identity(pki: Pki, identity: str, common_name: str | None) -> None:
-    now = datetime.datetime.now(datetime.UTC)
-    ca_key = serialization.load_pem_private_key((pki.tmp / "ca.key").read_bytes(), password=None)
-    ca_cert = x509.load_pem_x509_certificate((pki.tmp / "ca.crt").read_bytes())
-    key = ec.generate_private_key(ec.SECP256R1())
-    subject = [] if common_name is None else [x509.NameAttribute(NameOID.COMMON_NAME, common_name)]
-    certificate = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name(subject))
-        .issuer_name(ca_cert.subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=1))
-        .not_valid_after(now + datetime.timedelta(hours=1))
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
-    (pki.tmp / f"{identity}.crt").write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
-    (pki.tmp / f"{identity}.key").write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-
-
-def issue_client_without_common_name(pki: Pki) -> None:
-    issue_client_identity(pki, "no-cn", None)
-
-
 def reserve_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -134,8 +99,6 @@ def reserve_port() -> int:
 
 
 def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfiguration:
-    issue_client_without_common_name(pki)
-    issue_client_identity(pki, "blank-cn", "   ")
     database = root / "state/configuration.sqlite3"
     bootstrap = root / "service/configuration.yaml"
     secret = root / "service/cursor.secret"
@@ -149,18 +112,19 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
         "grpc": {
             "host": "127.0.0.1",
             "port": port,
-            "tls": {
-                "ca_file": str(pki.tmp / "ca.crt"),
-                "cert_file": str(pki.tmp / "server.crt"),
-                "key_file": str(pki.tmp / "server.key"),
-            },
         },
         "repository": {
             "sqlite_path": str(database),
             "backup_root": str(root / "backups"),
         },
+        "nats": {"servers": ["nats://127.0.0.1:1"]},
         "security": {
             "cursor_secret_file": str(secret),
+            "token_sources": {
+                "client-viewer": ensure_bearer("viewer"),
+                "client-ops": ensure_bearer("ops"),
+                "client-deployer": ensure_bearer("deployer"),
+            },
             "permissions": {
                 "client-viewer": ["query"],
                 "client-ops": ["query", "publish"],
@@ -183,6 +147,12 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
     }
     bootstrap.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
     bootstrap.chmod(0o600)
+    process_tokens = {
+        ensure_bearer(identity).removeprefix("env:"): os.environ[
+            ensure_bearer(identity).removeprefix("env:")
+        ]
+        for identity in ("viewer", "ops", "deployer")
+    }
     cli_path = root / "cli.yaml"
     cli_path.write_text(
         yaml.safe_dump(
@@ -193,7 +163,6 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
                 "services": {
                     "configuration": {
                         "grpc_endpoint": f"127.0.0.1:{port}",
-                        "tls_profile": "admin",
                         "manager": "process",
                         "target": "configuration",
                         "process": {
@@ -205,28 +174,11 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
                                 str(bootstrap),
                             ],
                             "cwd": str(SRC),
-                            "env": {"PYTHONPATH": str(SRC)},
+                            "env": {"PYTHONPATH": str(SRC), **process_tokens},
                             "state_dir": str(root / "process-state"),
                             "log_file": str(root / "configuration.log"),
                         },
                     }
-                },
-                "tls_profiles": {
-                    "admin": {
-                        "ca_cert": str(pki.tmp / "ca.crt"),
-                        "client_cert": str(pki.tmp / "deployer.crt"),
-                        "client_key": str(pki.tmp / "deployer.key"),
-                    },
-                    "query": {
-                        "ca_cert": str(pki.tmp / "ca.crt"),
-                        "client_cert": str(pki.tmp / "viewer.crt"),
-                        "client_key": str(pki.tmp / "viewer.key"),
-                    },
-                    "publish": {
-                        "ca_cert": str(pki.tmp / "ca.crt"),
-                        "client_cert": str(pki.tmp / "ops.crt"),
-                        "client_key": str(pki.tmp / "ops.key"),
-                    },
                 },
             },
             sort_keys=False,

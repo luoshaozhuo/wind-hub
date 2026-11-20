@@ -41,9 +41,7 @@ async def _authorize_variables(context: Any, runtime: Runtime, permission: str) 
         await context.abort(grpc.StatusCode.UNAUTHENTICATED, "model access not provisioned")
         raise RuntimeError("gRPC abort returned")
     try:
-        verifier = BearerAuthorizer.from_mapping(
-            security["token_sources"], security["permissions"]
-        )
+        verifier = BearerAuthorizer.from_mapping(security["token_sources"], security["permissions"])
         return verifier.require(context, permission)
     except BearerAuthenticationError as exc:
         await context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
@@ -142,6 +140,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         request: dg.ListDevicesRequest,
         context: Any,
     ) -> dg.ListDevicesResponse:
+        await _authorize_variables(context, self.runtime, "query")
         filtered = [
             device
             for device_id, device in sorted(self._devices().items())
@@ -166,6 +165,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         request: common.ObjectId,
         context: Any,
     ) -> dg.GetDeviceResponse:
+        await _authorize_variables(context, self.runtime, "query")
         device = self._devices().get(request.id)
         if device is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "device not found")
@@ -175,6 +175,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     async def ListScenarios(
         self, request: dg.ListScenariosRequest, context: Any
     ) -> dg.ListScenariosResponse:
+        await _authorize_variables(context, self.runtime, "query")
         scenarios = [
             dg.Scenario(
                 scenario_id=s.scenario_id,
@@ -204,6 +205,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     async def GetGeneration(
         self, request: common.ObjectId, context: Any
     ) -> dg.GetGenerationResponse:
+        await _authorize_variables(context, self.runtime, "query")
         state = await self.runtime.get_generation(request.id)
         if state is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "generation not found")
@@ -213,6 +215,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     async def StartGeneration(
         self, request: dg.StartGenerationRequest, context: Any
     ) -> dg.StartGenerationResponse:
+        await _authorize_variables(context, self.runtime, "config_write")
         try:
             state = await self.runtime.start(
                 request.scenario_id,
@@ -233,6 +236,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
     async def StopGeneration(
         self, request: dg.StopGenerationRequest, context: Any
     ) -> dg.StopGenerationResponse:
+        await _authorize_variables(context, self.runtime, "config_write")
         try:
             state = await self.runtime.stop(request.generation_id, request.expected_revision)
         except GeneratorError as exc:
@@ -720,7 +724,8 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
     validate_rpc_contracts()
     security = runtime.settings.service.get("security")
     if not isinstance(security, dict) or set(security) != {
-        "token_sources", "permissions",
+        "token_sources",
+        "permissions",
     }:
         raise GeneratorError("security requires token_sources and permissions")
     token_sources = security["token_sources"]
@@ -728,11 +733,15 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
     if not isinstance(token_sources, dict) or not isinstance(permissions, dict):
         raise GeneratorError("security bearer fields must be mappings")
     supported = {
-        "variables_read", "variables_update", "query",
-        "config_read", "config_write",
+        "variables_read",
+        "variables_update",
+        "query",
+        "config_read",
+        "config_write",
     }
     if any(
-        not isinstance(rights, list) or not rights
+        not isinstance(rights, list)
+        or not rights
         or any(right not in supported for right in rights)
         for rights in permissions.values()
     ):

@@ -113,9 +113,7 @@ def validate_service_technology(service: dict[str, Any]) -> None:
             frozenset({"caller_id", "token_env", "permissions"}),
         )
         caller_id = expect_nonempty_str(caller["caller_id"], f"{location}.caller_id")
-        identity = expect_nonempty_str(
-            caller["token_env"], f"{location}.token_env"
-        )
+        identity = expect_nonempty_str(caller["token_env"], f"{location}.token_env")
         if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", identity) is None:
             raise ConfigurationError(f"{location}.token_env must reference env:NAME")
         permissions = caller["permissions"]

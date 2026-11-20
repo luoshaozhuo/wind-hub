@@ -1,8 +1,8 @@
-"""GeneratorRpcClient 组件测试：真实 mTLS 通道 + 脚本化 Data Generator Servicer。
+"""GeneratorRpcClient 组件测试：真实 gRPC + Bearer + 脚本化 Generator。
 
 覆盖 submit 的 Generation 绑定裁决链、get_execution 的证据白名单
 （仅 PENDING/APPLIED 直通，其余与 request_id 不匹配一律 UNKNOWN），
-以及明文降级拒绝。不使用任何 Mock 通道。
+以及缺失凭证拒绝。不使用任何 Mock 通道。
 """
 
 from __future__ import annotations
@@ -16,11 +16,12 @@ import pytest
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
+from core.infrastructure.grpc_bearer import BearerAuthenticationError
 from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import (
     GeneratorRpcClient,
 )
-from industrial_gateway.infrastructure.config.schema import TlsConfig
-from tests.support.gateway import reserve_port, write_mtls_pki
+from tests.support.bearer import ensure_bearer
+from tests.support.gateway import reserve_port
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
 
@@ -110,36 +111,18 @@ class ScriptedGeneratorService(dg_rpc.DataGeneratorServiceServicer):
 async def _start_server(
     tmp_path: Path, service: ScriptedGeneratorService
 ) -> tuple[str, Any, grpc.aio.Server]:
-    pki = write_mtls_pki(tmp_path, ["gw-sim-client"])
     server = grpc.aio.server()
     dg_rpc.add_DataGeneratorServiceServicer_to_server(service, server)
-    credentials = grpc.ssl_server_credentials(
-        [
-            (
-                Path(pki["server_key"]).read_bytes(),
-                Path(pki["server_crt"]).read_bytes(),
-            )
-        ],
-        root_certificates=Path(pki["ca"]).read_bytes(),
-        require_client_auth=True,
-    )
     port = reserve_port()
-    server.add_secure_port(f"127.0.0.1:{port}", credentials)
+    server.add_insecure_port(f"127.0.0.1:{port}")
     await server.start()
-    return f"127.0.0.1:{port}", pki, server
+    return f"127.0.0.1:{port}", ensure_bearer("gw-sim-client"), server
 
 
-def _client(endpoint: str, pki: dict[str, Any], root: Path) -> GeneratorRpcClient:
-    cert, key = pki["clients"]["gw-sim-client"]
+def _client(endpoint: str, token_env: str, root: Path) -> GeneratorRpcClient:
     return GeneratorRpcClient(
         endpoint=endpoint,
-        tls=TlsConfig(
-            enabled=True,
-            cert_file=Path("certs") / cert.name,
-            key_file=Path("certs") / key.name,
-            ca_file=Path("certs") / Path(pki["ca"]).name,
-        ),
-        project_root=root,
+        token_env=token_env,
         scenario_id=SCENARIO_ID,
     )
 
@@ -234,21 +217,23 @@ async def test_get_execution_whitelists_states_and_validates_echoed_request_id(
         await server.stop(1.0)
 
 
-async def test_plaintext_or_incomplete_certificates_are_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="mutual TLS"):
+async def test_missing_or_non_environment_bearer_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token_env = ensure_bearer("missing-generator-token")
+    monkeypatch.delenv(token_env.removeprefix("env:"))
+    with pytest.raises(BearerAuthenticationError):
         GeneratorRpcClient(
             endpoint="127.0.0.1:1",
-            tls=TlsConfig(enabled=False),
-            project_root=tmp_path,
+            token_env=token_env,
             scenario_id=SCENARIO_ID,
         ).start()
-    with pytest.raises(ValueError, match="certificate"):
+    with pytest.raises(ValueError, match="env:NAME"):
         GeneratorRpcClient(
             endpoint="127.0.0.1:1",
-            tls=TlsConfig(enabled=True),
-            project_root=tmp_path,
+            token_env="file:/tmp/token",
             scenario_id=SCENARIO_ID,
-        )
+        ).start()
 
 
 async def test_rejected_update_returns_not_accepted_receipt(tmp_path: Path) -> None:

@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 from storage_service.domain.naming import StorageObjectNames
 
-
 _COLUMNS = (
     ("ts", "TIMESTAMP"),
     ("sample_key", "VARCHAR(64) COMPOSITE KEY"),
@@ -90,8 +89,12 @@ def create_stable_sql(names: StorageObjectNames) -> str:
 
 
 def create_table_sql(
-    names: StorageObjectNames, *,
-    identity_hash: str, point_table_hash: str, device_hash: str, level_tag: int,
+    names: StorageObjectNames,
+    *,
+    identity_hash: str,
+    point_table_hash: str,
+    device_hash: str,
+    level_tag: int,
 ) -> str:
     if level_tag not in (1, 2, 3):
         raise ValueError("data level must map to 1..3")

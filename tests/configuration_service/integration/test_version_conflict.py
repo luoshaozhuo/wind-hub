@@ -34,20 +34,12 @@ async def test_same_file_version_with_different_content_is_already_exists(
             ),
             timeout=10,
         )
-        conflicting = await repository.CreateCandidate(
-            pb.CreateCandidateRequest(
-                request_id="version-conflict",
-                expected_revision_id=1,
-                documents=[document("versioned", "1.0.0", name="different")],
-            ),
-            timeout=10,
-        )
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
-            await repository.PublishCandidate(
-                pb.PublishCandidateRequest(
-                    request_id="version-conflict-publish",
-                    candidate_id=conflicting.candidate_id,
+            await repository.CreateCandidate(
+                pb.CreateCandidateRequest(
+                    request_id="version-conflict",
                     expected_revision_id=1,
+                    documents=[document("versioned", "1.0.0", name="different")],
                 ),
                 timeout=10,
             )

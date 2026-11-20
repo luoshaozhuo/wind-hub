@@ -14,7 +14,9 @@ import pytest
 
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
+from contracts import data_generator_pb2_grpc as dg_rpc
 from data_generator.infrastructure.persistence.snapshots import file_sha256
+from tests.support.bearer import bearer_channel
 
 from ..conftest import ship_scenarios_document
 
@@ -37,7 +39,7 @@ async def _start_full_stack(start_real_gateway, configs_root, dg_server):  # noq
     return gateway, harness
 
 
-async def test_all_fifteen_rpcs_callable(
+async def test_all_eighteen_rpcs_callable(
     start_real_gateway,
     configs_root,
     dg_server,  # noqa: ANN001
@@ -49,7 +51,7 @@ async def test_all_fifteen_rpcs_callable(
     status = await harness.common.GetServiceStatus(common.Empty())
     assert status.health in ("HEALTHY", "DEGRADED")
     capabilities = await harness.common.GetCapabilities(common.Empty())
-    assert len(capabilities.rpc_names) == 15
+    assert len(capabilities.rpc_names) == 18
 
     devices = await harness.dg.ListDevices(dg.ListDevicesRequest())
     assert {item.device_id for item in devices.devices} == {"GW01"}
@@ -82,6 +84,40 @@ async def test_all_fifteen_rpcs_callable(
     assert stopped.accepted
     generation = await harness.dg.GetGeneration(common.ObjectId(id=started.generation_id))
     assert generation.generation.generation_id == started.generation_id
+
+
+async def test_generation_and_catalog_rpcs_require_scoped_bearer(
+    start_real_gateway, configs_root, dg_server
+) -> None:  # noqa: ANN001
+    _gateway, harness = await _start_full_stack(start_real_gateway, configs_root, dg_server)
+    anonymous = grpc.aio.insecure_channel(harness.bind)
+    query_only = bearer_channel(harness.bind, "generator-input")
+    try:
+        stub = dg_rpc.DataGeneratorServiceStub(anonymous)
+        calls = (
+            (stub.ListDevices, dg.ListDevicesRequest()),
+            (stub.GetDevice, common.ObjectId(id="GW01")),
+            (stub.ListScenarios, dg.ListScenariosRequest()),
+            (stub.GetGeneration, common.ObjectId(id="generation-x")),
+            (stub.StartGeneration, dg.StartGenerationRequest(scenario_id="demo-random")),
+            (stub.StopGeneration, dg.StopGenerationRequest(generation_id="generation-x")),
+        )
+        for call, request in calls:
+            with pytest.raises(grpc.aio.AioRpcError) as denied:
+                await call(request)
+            assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+        limited = dg_rpc.DataGeneratorServiceStub(query_only)
+        for method, request in (
+            ("StartGeneration", dg.StartGenerationRequest(scenario_id="demo-random")),
+            ("StopGeneration", dg.StopGenerationRequest(generation_id="generation-x")),
+        ):
+            with pytest.raises(grpc.aio.AioRpcError) as denied:
+                await getattr(limited, method)(request)
+            assert denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    finally:
+        await anonymous.close()
+        await query_only.close()
 
 
 async def test_grpc_error_mapping(start_real_gateway, configs_root, dg_server) -> None:  # noqa: ANN001

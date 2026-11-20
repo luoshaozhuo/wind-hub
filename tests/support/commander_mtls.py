@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from uuid import uuid4
 
 import yaml
 
 from tests.commander.grpc_harness import IDENTITIES, Pki
+from tests.support.bearer import ensure_bearer
 
 _SHIPPED = Path(__file__).resolve().parents[2] / "configs" / "services" / "commander.yaml"
 
@@ -15,7 +17,7 @@ _SHIPPED = Path(__file__).resolve().parents[2] / "configs" / "services" / "comma
 def write_commander_service(
     root: Path,
     config_tree: Path,
-    pki: Pki,
+    pki: Pki | None = None,
     *,
     grpc_port: int,
 ) -> Path:
@@ -41,13 +43,10 @@ def write_commander_service(
         "max_active_rpcs": 256,
     }
     document["security"] = {
-        "ca_cert": str(pki.tmp / "ca.crt"),
-        "server_cert": str(pki.tmp / "server.crt"),
-        "server_key": str(pki.tmp / "server.key"),
         "callers": [
             {
                 "caller_id": IDENTITIES["ops"][1],
-                "certificate_identity": IDENTITIES["ops"][0],
+                "token_env": ensure_bearer("commander-ops"),
                 "permissions": ["query", "control", "reload", "recover"],
             }
         ],
@@ -68,9 +67,6 @@ def write_commander_service(
 
 
 def commander_client_env(pki: Pki) -> dict[str, str]:
-    """仅将证书 pathname 传给 Web 子进程，避免隐式明文回退。"""
-    return {
-        "WIND_HUB_COMMANDER_CA_CERT": str(pki.tmp / "ca.crt"),
-        "WIND_HUB_COMMANDER_CLIENT_CERT": str(pki.tmp / "ops.crt"),
-        "WIND_HUB_COMMANDER_CLIENT_KEY": str(pki.tmp / "ops.key"),
-    }
+    """仅将 Bearer 环境值传给 Web 子进程，不启用匿名回退。"""
+    reference = ensure_bearer("commander-ops")
+    return {"WIND_HUB_COMMANDER_OPERATOR_TOKEN": os.environ[reference.removeprefix("env:")]}

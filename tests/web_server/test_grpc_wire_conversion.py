@@ -92,7 +92,7 @@ def _v1_client() -> CollectorGrpcClient:
 
 @pytest.mark.asyncio
 async def test_collector_status_and_metrics_dtos(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token-012345678901234567890123456789")
     client = _v1_client()
     client._common.GetServiceStatus = AsyncMock(
         return_value=common_pb2.GetServiceStatusResponse(health="HEALTHY")
@@ -132,7 +132,7 @@ async def test_collector_status_and_metrics_dtos(monkeypatch: pytest.MonkeyPatch
 async def test_collector_monitoring_event_timestamp_is_utc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token-012345678901234567890123456789")
     client = _v1_client()
     event = common_pb2.Event(
         severity="warning",
@@ -167,7 +167,7 @@ async def test_metrics_events_omitted_without_admin_token(
 @pytest.mark.asyncio
 async def test_device_start_uses_revision_and_admin_metadata(monkeypatch) -> None:
     """v1 设备级 START：先 GetTask 取 task.revision，再带管理员元数据下发 OperationRequest。"""
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token-012345678901234567890123456789")
     client = _v1_client()
     start_mock = AsyncMock(
         return_value=common_pb2.OperationResult(accepted=True, actual_state="RUNNING")
@@ -194,7 +194,7 @@ async def test_device_start_uses_revision_and_admin_metadata(monkeypatch) -> Non
     assert request.id == "WT01"
     assert request.expected_revision == "rev-17"
     metadata = dict(start_mock.call_args.kwargs["metadata"])
-    assert metadata["x-windhub-admin-token"] == "web-token"
+    assert metadata["authorization"] == "Bearer web-token-012345678901234567890123456789"
 
 
 @pytest.mark.asyncio
@@ -214,7 +214,7 @@ async def test_start_without_admin_token_raises(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_revision_conflict_mapped_to_task_conflict(monkeypatch) -> None:
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token-012345678901234567890123456789")
     client = _v1_client()
     client._collector.GetTask = AsyncMock(
         return_value=cpb.GetTaskResponse(
@@ -238,7 +238,7 @@ async def test_revision_conflict_mapped_to_task_conflict(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_rejected_operation_result_maps_to_conflict(monkeypatch) -> None:
     """服务端接受 RPC 但 OperationResult.accepted=False 时同样映射为冲突，不伪造成功。"""
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token")
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "web-token-012345678901234567890123456789")
     client = _v1_client()
     client._collector.GetTask = AsyncMock(
         return_value=cpb.GetTaskResponse(

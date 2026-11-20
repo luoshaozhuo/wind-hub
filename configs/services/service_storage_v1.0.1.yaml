@@ -39,7 +39,7 @@
 #   KEEP shrink additionally requires independent one-use authorization evidence.
 #   owner_instance_id: required, equals service_id; v1 is single-instance only.
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.0.1
 service_id: storage-main
 allowed_wind_farms: [farm-a]
 config_sources: []
@@ -50,7 +50,8 @@ grpc:
 auth:
   callers:
     - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
-      permissions: [storage.read, storage.export, storage.backup, storage.inspect, storage.operate]
+      permissions:
+        [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
       wind_farms: [farm-a]
 kafka:
   bootstrap_servers: 127.0.0.1:9092

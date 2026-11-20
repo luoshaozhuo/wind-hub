@@ -72,8 +72,14 @@ def query_samples(
         "QuerySamples",
         {
             "filter": _filter(
-                wind_farm_id, level, start_time, end_time,
-                device_type, device_id, point_table_id, point_id,
+                wind_farm_id,
+                level,
+                start_time,
+                end_time,
+                device_type,
+                device_id,
+                point_table_id,
+                point_id,
                 business_point_id,
             ),
             "page_size": page_size,
@@ -110,8 +116,14 @@ def query_aggregates(
         "QueryAggregates",
         {
             "filter": _filter(
-                wind_farm_id, level, start_time, end_time,
-                device_type, device_id, point_table_id, point_id,
+                wind_farm_id,
+                level,
+                start_time,
+                end_time,
+                device_type,
+                device_id,
+                point_table_id,
+                point_id,
                 business_point_id,
             ),
             "aggregation": choices[operation],
@@ -145,8 +157,14 @@ def create_export(
             "request_id": request_id,
             "export_format": "csv",
             "filter": _filter(
-                wind_farm_id, level, start_time, end_time,
-                device_type, device_id, point_table_id, point_id,
+                wind_farm_id,
+                level,
+                start_time,
+                end_time,
+                device_type,
+                device_id,
+                point_table_id,
+                point_id,
                 business_point_id,
             ),
         },
@@ -185,9 +203,7 @@ def list_blocked(
     page_size: int = typer.Option(100, min=1, max=1000),
     page_token: str = "",
 ) -> None:
-    _invoke(
-        "ListBlockedPartitions", {"page_size": page_size, "page_token": page_token}
-    )
+    _invoke("ListBlockedPartitions", {"page_size": page_size, "page_token": page_token})
 
 
 @storage.command("retry")

@@ -11,10 +11,10 @@ import grpc
 from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from contracts.scalar_codec import encode_scalar
+from core.infrastructure.grpc_bearer import bearer_metadata
 from sink_service.application.delivery_point import DeliveryPoint
 from sink_service.application.realtime import BatchOutcome
 from sink_service.domain.config import ConfigurationError
-from core.infrastructure.grpc_bearer import bearer_metadata
 
 logger = logging.getLogger(__name__)
 

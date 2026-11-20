@@ -67,9 +67,7 @@ def load_settings(path: Path) -> ServerSettings:
     if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
         raise ValueError("unsupported bootstrap schema_version")
     version = raw.get("file_version")
-    if not isinstance(version, str) or re.fullmatch(
-        r"[0-9]+[.][0-9]+[.][0-9]+", version
-    ) is None:
+    if not isinstance(version, str) or re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", version) is None:
         raise ValueError("Configuration bootstrap file_version must be MAJOR.MINOR.PATCH")
     allowed_root = {
         "schema_version",
@@ -99,8 +97,10 @@ def load_settings(path: Path) -> ServerSettings:
     assert_fields(security, {"cursor_secret_file", "token_sources", "permissions"}, "security")
     assert_fields(nats_config, {"servers"}, "nats")
     servers = nats_config["servers"]
-    if not isinstance(servers, list) or not servers or any(
-        not isinstance(item, str) or not item.startswith("nats://") for item in servers
+    if (
+        not isinstance(servers, list)
+        or not servers
+        or any(not isinstance(item, str) or not item.startswith("nats://") for item in servers)
     ):
         raise ValueError("nats.servers must be nonempty nats:// endpoints")
     assert_fields(

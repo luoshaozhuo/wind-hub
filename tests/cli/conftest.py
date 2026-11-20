@@ -210,17 +210,7 @@ class FakeRpcServer:
                 server.add_generic_rpc_handlers(
                     (grpc.method_handlers_generic_handler(service.full_name, handlers),)
                 )
-        credentials = grpc.ssl_server_credentials(
-            [
-                (
-                    self.cert_files["server_key"].read_bytes(),
-                    self.cert_files["server_crt"].read_bytes(),
-                )
-            ],
-            root_certificates=self.cert_files["ca"].read_bytes(),
-            require_client_auth=require_client,
-        )
-        server.add_secure_port(f"127.0.0.1:{self.port}", credentials)
+        server.add_insecure_port(f"127.0.0.1:{self.port}")
         await server.start()
         self._server = server
 
@@ -263,9 +253,7 @@ def _write_cli_yaml(
     path: Path, cert_files: dict[str, Path], port: int, *, tls: bool = True
 ) -> Path:
     services = "\n".join(
-        f"""  {name}:
-    grpc_endpoint: "localhost:{port}"
-    tls_profile: mtls"""
+        f'  {name}:\n    grpc_endpoint: "localhost:{port}"'
         for name in (
             "collector",
             "commander",
@@ -274,15 +262,6 @@ def _write_cli_yaml(
             "data_generator",
         )
     )
-    profile = ""
-    if tls:
-        profile = f"""
-tls_profiles:
-  mtls:
-    ca_cert: {cert_files['ca']}
-    client_cert: {cert_files['client_crt']}
-    client_key: {cert_files['client_key']}
-"""
     path.write_text(
         f"""schema_version: 1
 file_version: "1.0.0"
@@ -291,7 +270,6 @@ cli:
   output_format: table
 services:
 {services}
-{profile}
 """,
         encoding="utf-8",
     )
@@ -327,9 +305,20 @@ def cli_env(
 ):
     import cli.main as main_module
 
-    # N-CLI-1：Collector 管理/读/诊断 RPC 客户端 fail-closed，
-    # 测试环境必须提供管理员令牌（FakeRpcServer 不校验其值）。
-    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "cli-e2e-admin-token")
+    # FakeRpcServer 不校验令牌；这些占位值仅验证 CLI 的 metadata 装配。
+    tokens = {
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN": "cli-e2e-admin-token-012345678901234567890123456789",
+        "WIND_HUB_CONFIG_CLI_TOKEN": "cli-e2e-configuration-token-012345678901234567890123456789",
+        "WIND_HUB_STORAGE_OPERATOR_TOKEN": "cli-e2e-storage-token-012345678901234567890123456789",
+        "WIND_HUB_COMMANDER_OPERATOR_TOKEN": (
+            "cli-e2e-commander-token-012345678901234567890123456789"
+        ),
+        "WIND_HUB_SINK_OPERATOR_TOKEN": "cli-e2e-sink-token-012345678901234567890123456789",
+        "WIND_HUB_GATEWAY_OPERATOR_TOKEN": "cli-e2e-gateway-token-012345678901234567890123456789",
+        "WIND_HUB_GENERATOR_CLI_TOKEN": "cli-e2e-generator-token-012345678901234567890123456789",
+    }
+    for name, value in tokens.items():
+        monkeypatch.setenv(name, value)
     config_path = _write_cli_yaml(tmp_path / "cli.yaml", certs, fake_server.port)
     runner = CliRunner()
     previous = (

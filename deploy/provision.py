@@ -11,21 +11,18 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from render_cli import _collector_environment, _service_files, _validate_bindings
+from render_cli import DEFAULT_FILES, _service_files, _validate_bindings
 
-SERVICE_FILES = {
-    "gateway": "industrial_gateway-sim.example.yaml",
-    "data-generator": "data-generator-sim.example.yaml",
-    "collector_realtime": "collector-realtime.yaml",
-    "collector_reliable": "collector-reliable.yaml",
-    "sink": "sink_service.yaml",
-    "commander": "commander.yaml",
-}
+SERVICE_FILES = dict(DEFAULT_FILES)
 PORTS = {"collector_realtime": 50051, "collector_reliable": 50054}
 
 
 def _commands(name: str) -> list[str]:
     service = f"/etc/wind-hub/configs/services/{SERVICE_FILES[name]}"
+    if name == "configuration":
+        return ["configuration_service", "--config", service]
+    if name == "storage":
+        return ["storage_service.main", "--bootstrap", service]
     if name == "gateway":
         return [
             "industrial_gateway.main",
@@ -56,8 +53,13 @@ def _commands(name: str) -> list[str]:
 
 
 def _private_env(path: Path | None, *, required: bool) -> list[str]:
-    environment = _collector_environment(path, required=required, check_files=False)
-    return ["--env-file", str(path)] if environment else []
+    if path is None:
+        if required:
+            raise ValueError("collector provisioning requires --collector-env-file")
+        return []
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("collector env file must be a regular non-symlinked file")
+    return ["--env-file", str(path)]
 
 
 def _build(args: argparse.Namespace) -> list[list[str]]:

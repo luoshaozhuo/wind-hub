@@ -1,6 +1,6 @@
 # Data Generator 服务配置；Scenario 变更按运行互斥规则应用，服务运行参数变更需要重启。
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.0.1"
 config_sources:
   instances:
     site: configs/instances/site.yaml
@@ -12,6 +12,7 @@ service:
 output:
   max_inflight: 1
   grpc_timeout_seconds: 3.0
+  gateway_token_ref: env:WIND_HUB_GENERATOR_GATEWAY_TOKEN
 buffer:
   max_batches: 128
   max_points_per_batch: 1000
@@ -30,6 +31,14 @@ metrics:
   window_seconds: 60
   retain_seconds: 3600
   max_series: 2000
+
+security:
+  token_sources:
+    cli: env:WIND_HUB_GENERATOR_CLI_TOKEN
+    gateway: env:WIND_HUB_GENERATOR_INPUT_TOKEN
+  permissions:
+    cli: [variables_read, variables_update, query, config_read, config_write]
+    gateway: [variables_read, variables_update, query]
 
 scenarios:
   - scenario_id: demo-random

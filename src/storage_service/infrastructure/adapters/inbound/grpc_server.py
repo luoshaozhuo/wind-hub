@@ -11,22 +11,24 @@ import time
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from functools import wraps
-from typing import Any, TypeVar
+from typing import Any, NoReturn, TypeVar, cast
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from contracts import common_pb2 as common
+from contracts import common_pb2_grpc as common_rpc
 from contracts import storage_service_pb2 as pb
 from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
-from storage_service.application.ingestion import ConfigHistoryUnavailable
+from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import (
     HistoryFilter,
     HistoryQueryService,
-    QueryRejected,
+    QueryRejectedError,
 )
-from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceeded
+from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
 from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
@@ -36,11 +38,11 @@ from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
-    MetadataConflict,
+    MetadataConflictError,
     MetadataStore,
 )
 from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
-    TDengineSchemaConflict,
+    TDengineSchemaConflictError,
 )
 
 T = TypeVar("T")
@@ -62,7 +64,7 @@ def _optional_date(value: str | None) -> Timestamp | None:
 
 def _us(timestamp: Timestamp) -> int:
     if timestamp.nanos % 1000 != 0:
-        raise QueryRejected("timestamp exceeds TDengine microsecond precision")
+        raise QueryRejectedError("timestamp exceeds TDengine microsecond precision")
     return timestamp.seconds * 1_000_000 + timestamp.nanos // 1000
 
 
@@ -73,22 +75,29 @@ def _filter(source: pb.StorageFilter) -> HistoryFilter:
         pb.STORAGE_DATA_LEVEL_BUSINESS: DataLevel.BUSINESS,
     }
     if source.data_level not in levels:
-        raise QueryRejected("query must select exactly one explicit data_level")
+        raise QueryRejectedError("query must select exactly one explicit data_level")
     if not source.HasField("start_time") or not source.HasField("end_time"):
-        raise QueryRejected("both query timestamps are mandatory")
+        raise QueryRejectedError("both query timestamps are mandatory")
     return HistoryFilter(
         wind_farm_id=source.wind_farm_id,
         data_level=levels[source.data_level],
-        start_us=_us(source.start_time), end_us=_us(source.end_time),
-        device_type=source.device_type, device_id=source.device_id,
-        point_table_id=source.point_table_id, point_id=source.point_id,
+        start_us=_us(source.start_time),
+        end_us=_us(source.end_time),
+        device_type=source.device_type,
+        device_id=source.device_id,
+        point_table_id=source.point_table_id,
+        point_id=source.point_id,
         business_point_id=source.business_point_id,
         qualities=tuple(source.qualities),
     )
 
 
-class AuthorizationFailure(PermissionError):
-    """Missing/unauthorized operator token for this farm and action."""
+class AuthenticationError(PermissionError):
+    """Bearer credentials are absent or invalid."""
+
+
+class AuthorizationError(PermissionError):
+    """An authenticated caller lacks the required farm or operation scope."""
 
 
 class AuthorizationPolicy:
@@ -104,37 +113,38 @@ class AuthorizationPolicy:
             raise ValueError("Storage caller tokens must be distinct")
 
     def require(
-        self, context: grpc.aio.ServicerContext[Any, Any],
-        *, permission: str, farm: str | None, global_scope: bool = False,
+        self,
+        context: grpc.aio.ServicerContext[Any, Any],
+        *,
+        permission: str,
+        farm: str | None,
+        global_scope: bool = False,
     ) -> str:
-        headers = dict(context.invocation_metadata())
+        headers = dict(context.invocation_metadata() or ())
         header = headers.get("authorization", "")
-        if not header.startswith("Bearer "):
-            raise AuthorizationFailure("missing bearer authentication")
+        if not isinstance(header, str) or not header.startswith("Bearer "):
+            raise AuthenticationError("missing bearer authentication")
         candidate = header[7:]
         if not candidate or len(candidate) > 4096:
-            raise AuthorizationFailure("invalid bearer token")
+            raise AuthenticationError("invalid bearer token")
         for caller in self._callers:
             token = os.environ.get(caller.token_env)
             if not token or not hmac.compare_digest(candidate, token):
                 continue
-            authorized = (
-                permission in caller.permissions
-                or "storage.admin" in caller.permissions
-            )
+            authorized = permission in caller.permissions or "storage.admin" in caller.permissions
             if not authorized:
-                raise AuthorizationFailure("missing Storage permission")
+                raise AuthorizationError("missing Storage permission")
             if farm is None:
                 if global_scope and "storage.admin" not in caller.permissions:
-                    raise AuthorizationFailure("global operation requires Storage admin")
+                    raise AuthorizationError("global operation requires Storage admin")
             elif farm not in self._farms:
-                raise AuthorizationFailure("Storage is not provisioned for this wind farm")
+                raise AuthorizationError("Storage is not provisioned for this wind farm")
             elif farm not in caller.wind_farms and not (
                 "*" in caller.wind_farms and "storage.admin" in caller.permissions
             ):
-                raise AuthorizationFailure("Storage farm scope does not match")
+                raise AuthorizationError("Storage farm scope does not match")
             return caller.token_env
-        raise AuthorizationFailure("invalid bearer token")
+        raise AuthenticationError("invalid bearer token")
 
 
 def guarded(
@@ -144,44 +154,48 @@ def guarded(
 
     @wraps(operation)
     async def call(
-        self: StorageServicer, request: Any,
+        self: StorageServicer,
+        request: Any,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> T:
         try:
             return await operation(self, request, context)
         except grpc.RpcError:
             raise
-        except AuthorizationFailure:
+        except AuthenticationError:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Storage authentication failed")
+            raise AssertionError("abort must terminate RPC") from None
+        except AuthorizationError:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "Storage authorization denied")
-            raise AssertionError("abort must terminate RPC")
-        except (QueryRejected, ValueError):
+            raise AssertionError("abort must terminate RPC") from None
+        except (QueryRejectedError, ValueError):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid Storage request")
-            raise AssertionError("abort must terminate RPC")
-        except MetadataConflict:
+            raise AssertionError("abort must terminate RPC") from None
+        except MetadataConflictError:
             await context.abort(grpc.StatusCode.ALREADY_EXISTS, "Storage idempotency conflict")
-            raise AssertionError("abort must terminate RPC")
-        except TDengineSchemaConflict:
+            raise AssertionError("abort must terminate RPC") from None
+        except TDengineSchemaConflictError:
             self._metrics.record_schema_conflict()
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "Storage physical schema or historical conflict is invalid",
             )
-            raise AssertionError("abort must terminate RPC")
-        except ConfigHistoryUnavailable:
+            raise AssertionError("abort must terminate RPC") from None
+        except ConfigHistoryUnavailableError:
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "historical Configuration closure is unavailable",
             )
-            raise AssertionError("abort must terminate RPC")
-        except ExportQuotaExceeded:
+            raise AssertionError("abort must terminate RPC") from None
+        except ExportQuotaExceededError:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "Storage quota exceeded")
-            raise AssertionError("abort must terminate RPC")
+            raise AssertionError("abort must terminate RPC") from None
         except (OSError, TimeoutError, ConnectionError):
             await context.abort(grpc.StatusCode.UNAVAILABLE, "Storage dependency unavailable")
-            raise AssertionError("abort must terminate RPC")
+            raise AssertionError("abort must terminate RPC") from None
         except RuntimeError:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Storage operation not ready")
-            raise AssertionError("abort must terminate RPC")
+            raise AssertionError("abort must terminate RPC") from None
 
     return call
 
@@ -206,12 +220,16 @@ def _task(record: TaskRecord) -> pb.StorageTask:
     return result
 
 
-class StorageServicer(rpc.StorageServiceServicer):
+class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServicer):
     """Storage transport delegates all persistence and semantic policy to services."""
 
     def __init__(
-        self, *, config: StorageConfig, metadata: MetadataStore,
-        query: HistoryQueryService, jobs: AsyncStorageTasks,
+        self,
+        *,
+        config: StorageConfig,
+        metadata: MetadataStore,
+        query: HistoryQueryService,
+        jobs: AsyncStorageTasks,
         point_tables: ConfigurationPointTableResolver,
         consumer: KafkaStorageConsumer,
         cursor_secret: bytes,
@@ -230,17 +248,141 @@ class StorageServicer(rpc.StorageServiceServicer):
         self._secret = cursor_secret
         self._config_status = config_status
         self._metrics = metrics
+        self._started_at = datetime.now(UTC)
+
+    @guarded
+    async def GetServiceInfo(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetServiceInfoResponse:
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        response = common.GetServiceInfoResponse(
+            service_id=self._config.service_id,
+            process_role="storage",
+            software_version="0.1.0",
+            contract_version="windhub.storage.v1",
+        )
+        response.started_at.FromDatetime(self._started_at)
+        return response
+
+    @guarded
+    async def GetServiceStatus(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetServiceStatusResponse:
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        status = self._config_status()
+        response = common.GetServiceStatusResponse(
+            health="HEALTHY" if status == "READY" else "DEGRADED",
+            dependencies=[
+                common.DependencyHealth(
+                    name="configuration",
+                    health="HEALTHY" if status == "READY" else "UNHEALTHY",
+                    detail=status,
+                )
+            ],
+        )
+        response.observed_at.FromDatetime(datetime.now(UTC))
+        return response
+
+    @guarded
+    async def GetCapabilities(
+        self,
+        request: common.Empty,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetCapabilitiesResponse:
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        return common.GetCapabilitiesResponse(
+            rpc_names=[
+                "GetServiceInfo",
+                "GetServiceStatus",
+                "GetCapabilities",
+                "QuerySamples",
+                "QueryAggregates",
+                "CreateExport",
+                "GetExportTask",
+                "CreateBackup",
+                "GetBackupTask",
+                "GetStorageStats",
+                "ListBlockedPartitions",
+                "RetryBlockedPartition",
+            ],
+            protocols=[],
+            features=["history-query", "csv-export", "native-backup", "kafka-ingestion"],
+        )
+
+    async def _unsupported_common(
+        self, context: grpc.aio.ServicerContext[Any, Any], permission: str
+    ) -> NoReturn:
+        self._auth.require(context, permission=permission, farm=None)
+        await context.abort(
+            grpc.StatusCode.UNIMPLEMENTED,
+            "Storage does not implement this CommonService operation",
+        )
+        raise AssertionError("abort must terminate RPC")
+
+    @guarded
+    async def GetConfigSnapshot(
+        self,
+        request: common.GetConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetConfigSnapshotResponse:
+        return await self._unsupported_common(context, "storage.inspect")
+
+    @guarded
+    async def PushConfigSnapshot(
+        self,
+        request: common.PushConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.PushConfigSnapshotResponse:
+        return await self._unsupported_common(context, "storage.operate")
+
+    @guarded
+    async def ApplyConfigSnapshot(
+        self,
+        request: common.ApplyConfigSnapshotRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.ApplyConfigSnapshotResponse:
+        return await self._unsupported_common(context, "storage.operate")
+
+    @guarded
+    async def GetMetrics(
+        self,
+        request: common.GetMetricsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetMetricsResponse:
+        return await self._unsupported_common(context, "storage.inspect")
+
+    @guarded
+    async def GetEvents(
+        self,
+        request: common.GetEventsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.GetEventsResponse:
+        return await self._unsupported_common(context, "storage.inspect")
+
+    @guarded
+    async def Diagnose(
+        self,
+        request: common.DiagnoseRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> common.DiagnoseResponse:
+        return await self._unsupported_common(context, "storage.inspect")
 
     @guarded
     async def QuerySamples(
-        self, request: pb.QuerySamplesRequest,
+        self,
+        request: pb.QuerySamplesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QuerySamplesResponse:
         filter_ = _filter(request.filter)
         self._auth.require(context, permission="storage.read", farm=filter_.wind_farm_id)
         page = await self._query.query(
             filter_,
-            page_size=request.page_size or 200, page_token=request.page_token,
+            page_size=request.page_size or 200,
+            page_token=request.page_token,
         )
         reply = pb.QuerySamplesResponse(
             next_page_token=page.next_page_token, complete=page.complete
@@ -248,59 +390,70 @@ class StorageServicer(rpc.StorageServiceServicer):
         for row in page.rows:
             farm, device_type, device_id, table_id, level, _ = row.identity
             if farm != filter_.wind_farm_id or level != filter_.data_level.value:
-                raise TDengineSchemaConflict("history identity disagrees with query")
+                raise TDengineSchemaConflictError("history identity disagrees with query")
             unit = await self._point_tables.get_unit(
-                point_table_id=table_id, point_id=row.point_id,
+                point_table_id=table_id,
+                point_id=row.point_id,
                 business_point_id=row.business_point_id,
                 data_level=filter_.data_level,
             )
             sample = reply.items.add(
-                wind_farm_id=farm, device_type=device_type,
-                device_id=device_id, point_table_id=table_id,
-                point_id=row.point_id, business_point_id=row.business_point_id,
-                sample_id=row.sample_id, data_level=request.filter.data_level,
-                value_kind=row.value_kind, quality=row.quality, unit=unit,
-                logical_key=row.logical_key, content_sha256=row.content_sha256,
+                wind_farm_id=farm,
+                device_type=device_type,
+                device_id=device_id,
+                point_table_id=table_id,
+                point_id=row.point_id,
+                business_point_id=row.business_point_id,
+                sample_id=row.sample_id,
+                data_level=request.filter.data_level,
+                value_kind=row.value_kind,
+                quality=row.quality,
+                unit=unit,
+                logical_key=row.logical_key,
+                content_sha256=row.content_sha256,
             )
             sample.sample_time.CopyFrom(_date(row.ts_us))
             sample.publish_time.CopyFrom(_date(row.publish_time_us))
             if row.receive_time_us is not None:
                 sample.receive_time.CopyFrom(_date(row.receive_time_us))
             if row.value_kind == pb.STORAGE_VALUE_KIND_INT64:
-                sample.value_i64 = int(row.value)
+                sample.value_i64 = int(cast(int, row.value))
             elif row.value_kind == pb.STORAGE_VALUE_KIND_UINT64:
-                sample.value_u64 = int(row.value)
+                sample.value_u64 = int(cast(int, row.value))
             elif row.value_kind == pb.STORAGE_VALUE_KIND_DOUBLE:
-                sample.value_f64 = float(row.value)
+                sample.value_f64 = float(cast(int | float, row.value))
             elif row.value_kind == pb.STORAGE_VALUE_KIND_BOOL:
                 sample.value_bool = bool(row.value)
             elif row.value_kind == pb.STORAGE_VALUE_KIND_TEXT:
                 sample.value_text = str(row.value)
             elif row.value_kind == pb.STORAGE_VALUE_KIND_BYTES:
-                sample.payload_bytes = bytes(row.value)
+                sample.payload_bytes = bytes(cast(bytes, row.value))
             elif row.value_kind != pb.STORAGE_VALUE_KIND_MISSING:
-                raise TDengineSchemaConflict("unknown stored value kind")
+                raise TDengineSchemaConflictError("unknown stored value kind")
         return reply
 
     @guarded
     async def QueryAggregates(
-        self, request: pb.QueryAggregatesRequest,
+        self,
+        request: pb.QueryAggregatesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
         filter_ = _filter(request.filter)
         self._auth.require(context, permission="storage.read", farm=filter_.wind_farm_id)
         if request.aggregation not in (
-            pb.STORAGE_AGGREGATION_COUNT, pb.STORAGE_AGGREGATION_MIN,
-            pb.STORAGE_AGGREGATION_MAX, pb.STORAGE_AGGREGATION_AVG,
+            pb.STORAGE_AGGREGATION_COUNT,
+            pb.STORAGE_AGGREGATION_MIN,
+            pb.STORAGE_AGGREGATION_MAX,
+            pb.STORAGE_AGGREGATION_AVG,
         ):
-            raise QueryRejected("aggregation must select count/min/max/avg")
+            raise QueryRejectedError("aggregation must select count/min/max/avg")
         if not filter_.device_id or not filter_.point_table_id:
-            raise QueryRejected("aggregation requires one device and one PointTable")
+            raise QueryRejectedError("aggregation requires one device and one PointTable")
         if request.window_ms == 0 or request.window_ms > 31 * 86400000:
-            raise QueryRejected("aggregation window must be 1ms..31 days")
+            raise QueryRejectedError("aggregation window must be 1ms..31 days")
         page_size = request.page_size or 200
         if not 1 <= page_size <= self._config.query.max_page_size:
-            raise QueryRejected("aggregate page_size exceeds configured bound")
+            raise QueryRejectedError("aggregate page_size exceeds configured bound")
         start_index = self._decode_aggregate_cursor(request, filter_)
         # This bounded implementation never returns a partial aggregate as complete.
         # If the record budget is exceeded, callers must narrow the time window.
@@ -319,7 +472,9 @@ class StorageServicer(rpc.StorageServiceServicer):
                     )
                 key = (
                     (row.ts_us // (request.window_ms * 1000)) * (request.window_ms * 1000),
-                    row.point_id, row.business_point_id, row.identity[3],
+                    row.point_id,
+                    row.business_point_id,
+                    row.identity[3],
                     row.identity[2],
                 )
                 valid, missing = counts.get(key, (0, 0))
@@ -327,15 +482,17 @@ class StorageServicer(rpc.StorageServiceServicer):
                     missing += 1
                 elif row.quality == "good":
                     if row.value_kind not in (
-                        pb.STORAGE_VALUE_KIND_INT64, pb.STORAGE_VALUE_KIND_UINT64,
+                        pb.STORAGE_VALUE_KIND_INT64,
+                        pb.STORAGE_VALUE_KIND_UINT64,
                         pb.STORAGE_VALUE_KIND_DOUBLE,
                     ):
-                        raise QueryRejected("aggregate includes a nonnumeric sample")
-                    numeric = float(row.value)
-                    if row.value_kind != pb.STORAGE_VALUE_KIND_DOUBLE and abs(
-                        int(row.value)
-                    ) > 2**53:
-                        raise QueryRejected("aggregate would lose integer precision")
+                        raise QueryRejectedError("aggregate includes a nonnumeric sample")
+                    numeric = float(cast(int | float, row.value))
+                    if (
+                        row.value_kind != pb.STORAGE_VALUE_KIND_DOUBLE
+                        and abs(int(cast(int, row.value))) > 2**53
+                    ):
+                        raise QueryRejectedError("aggregate would lose integer precision")
                     result.setdefault(key, []).append(numeric)
                     valid += 1
                 counts[key] = (valid, missing)
@@ -344,22 +501,26 @@ class StorageServicer(rpc.StorageServiceServicer):
             offset = page.next_page_token
         ordered = sorted(counts)
         if start_index > len(ordered):
-            raise QueryRejected("aggregate cursor is beyond available results")
+            raise QueryRejectedError("aggregate cursor is beyond available results")
         response = pb.QueryAggregatesResponse()
-        for key in ordered[start_index:start_index + page_size]:
+        for key in ordered[start_index : start_index + page_size]:
             begin, point_id, business_id, table_id, _device_id = key
             good_count, missing_count = counts[key]
             item = response.items.add(
-                point_id=point_id, business_point_id=business_id,
+                point_id=point_id,
+                business_point_id=business_id,
                 point_table_id=table_id,
                 data_level=request.filter.data_level,
-                good_count=good_count, missing_count=missing_count,
+                good_count=good_count,
+                missing_count=missing_count,
             )
             item.window_start.CopyFrom(_date(begin))
             item.window_end.CopyFrom(_date(begin + request.window_ms * 1000))
             item.unit = await self._point_tables.get_unit(
-                point_table_id=table_id, point_id=point_id,
-                business_point_id=business_id, data_level=filter_.data_level,
+                point_table_id=table_id,
+                point_id=point_id,
+                business_point_id=business_id,
+                data_level=filter_.data_level,
             )
             values = result.get(key, [])
             if request.aggregation == pb.STORAGE_AGGREGATION_COUNT:
@@ -389,8 +550,10 @@ class StorageServicer(rpc.StorageServiceServicer):
         return hashlib.sha256(payload).hexdigest()
 
     def _encode_aggregate_cursor(
-        self, request: pb.QueryAggregatesRequest,
-        filter_: HistoryFilter, index: int,
+        self,
+        request: pb.QueryAggregatesRequest,
+        filter_: HistoryFilter,
+        index: int,
     ) -> str:
         data = json.dumps(
             [self._aggregate_fingerprint(request, filter_), index, int(time.time()) + 900],
@@ -405,72 +568,72 @@ class StorageServicer(rpc.StorageServiceServicer):
         if not request.page_token:
             return 0
         if len(request.page_token) > 4096:
-            raise QueryRejected("aggregate cursor exceeds 4 KiB")
+            raise QueryRejectedError("aggregate cursor exceeds 4 KiB")
         try:
-            packed = base64.b64decode(
-                request.page_token.encode(), altchars=b"-_", validate=True
-            )
+            packed = base64.b64decode(request.page_token.encode(), altchars=b"-_", validate=True)
             signature, raw = packed[:32], packed[32:]
             if len(signature) != 32 or not hmac.compare_digest(
                 signature, hmac.digest(self._secret, raw, "sha256")
             ):
-                raise QueryRejected("aggregate cursor signature invalid")
+                raise QueryRejectedError("aggregate cursor signature invalid")
             identity, index, expires = json.loads(raw)
             if (
                 identity != self._aggregate_fingerprint(request, filter_)
-                or type(index) is not int or index < 0
-                or type(expires) is not int or expires < time.time()
+                or type(index) is not int
+                or index < 0
+                or type(expires) is not int
+                or expires < time.time()
             ):
-                raise QueryRejected("aggregate cursor expired or bound to another request")
+                raise QueryRejectedError("aggregate cursor expired or bound to another request")
             return index
         except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
-            raise QueryRejected("aggregate cursor malformed") from exc
+            raise QueryRejectedError("aggregate cursor malformed") from exc
 
     @guarded
     async def CreateExport(
-        self, request: pb.CreateExportRequest,
+        self,
+        request: pb.CreateExportRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         filter_ = _filter(request.filter)
-        owner = self._auth.require(
-            context, permission="storage.export", farm=filter_.wind_farm_id
-        )
+        owner = self._auth.require(context, permission="storage.export", farm=filter_.wind_farm_id)
         record = await self._jobs.create_export(
-            request_id=request.request_id, filter_=filter_,
-            export_format=request.export_format, owner_id=owner,
+            request_id=request.request_id,
+            filter_=filter_,
+            export_format=request.export_format,
+            owner_id=owner,
         )
         return _task(record)
 
     @guarded
     async def GetExportTask(
-        self, request: pb.GetStorageTaskRequest,
+        self,
+        request: pb.GetStorageTaskRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         owner = self._auth.require(context, permission="storage.export", farm=None)
         record = self._jobs.get_export(request.task_id, owner_id=owner)
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "export task not visible")
-        self._auth.require(
-            context, permission="storage.export", farm=record.wind_farm_id
-        )
+        self._auth.require(context, permission="storage.export", farm=record.wind_farm_id)
         return _task(record)
 
     @guarded
     async def CreateBackup(
-        self, request: pb.CreateBackupRequest,
+        self,
+        request: pb.CreateBackupRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
-        self._auth.require(
-            context, permission="storage.backup", farm=request.wind_farm_id
-        )
+        self._auth.require(context, permission="storage.backup", farm=request.wind_farm_id)
         if not self._config.backup.enabled:
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "native TDengine backup is disabled until version-specific verification",
             )
-            raise AssertionError("abort must terminate RPC")
+            raise AssertionError("abort must terminate RPC") from None
         record = await self._jobs.create_backup(
-            request_id=request.request_id, wind_farm_id=request.wind_farm_id,
+            request_id=request.request_id,
+            wind_farm_id=request.wind_farm_id,
             owner_id=self._auth.require(
                 context, permission="storage.backup", farm=request.wind_farm_id
             ),
@@ -479,25 +642,26 @@ class StorageServicer(rpc.StorageServiceServicer):
 
     @guarded
     async def GetBackupTask(
-        self, request: pb.GetStorageTaskRequest,
+        self,
+        request: pb.GetStorageTaskRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         owner = self._auth.require(context, permission="storage.backup", farm=None)
         record = self._jobs.get_backup(request.task_id, owner_id=owner)
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "backup task not visible")
-        self._auth.require(
-            context, permission="storage.backup", farm=record.wind_farm_id
-        )
+        self._auth.require(context, permission="storage.backup", farm=record.wind_farm_id)
         return _task(record)
 
     @guarded
     async def GetStorageStats(
-        self, request: pb.GetStorageStatsRequest,
+        self,
+        request: pb.GetStorageStatsRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.GetStorageStatsResponse:
         self._auth.require(
-            context, permission="storage.inspect",
+            context,
+            permission="storage.inspect",
             farm=request.wind_farm_id or None,
             global_scope=True,
         )
@@ -513,9 +677,12 @@ class StorageServicer(rpc.StorageServiceServicer):
         )
         for item in await self._consumer.snapshot_progress():
             response.partitions.add(
-                topic=item[0], partition=item[1],
-                committed_next_offset=item[2], last_confirmed_offset=item[3],
-                lag=item[4], block_reason=item[5],
+                topic=item[0],
+                partition=item[1],
+                committed_next_offset=item[2],
+                last_confirmed_offset=item[3],
+                lag=item[4],
+                block_reason=item[5],
             )
         if response.service_state == "READY" and (
             any(item.block_reason for item in response.partitions)
@@ -526,21 +693,24 @@ class StorageServicer(rpc.StorageServiceServicer):
 
     @guarded
     async def ListBlockedPartitions(
-        self, request: pb.ListBlockedPartitionsRequest,
+        self,
+        request: pb.ListBlockedPartitionsRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.ListBlockedPartitionsResponse:
         # Bad JSON may have no reliable farm ID. Only a global admin can inspect it.
         self._auth.require(context, permission="storage.operate", farm=None, global_scope=True)
         size = request.page_size or 100
         if not 1 <= size <= 1000:
-            raise QueryRejected("blocked partition page_size must be 1..1000")
+            raise QueryRejectedError("blocked partition page_size must be 1..1000")
         after = self._decode_blocked_cursor(request.page_token)
         rows = self._metadata.list_blocked(page_size=size + 1, after=after)
         result = pb.ListBlockedPartitionsResponse()
         for topic, partition, offset, reason in rows[:size]:
             result.items.add(
-                topic=topic, partition=partition,
-                committed_next_offset=offset, last_confirmed_offset=offset - 1,
+                topic=topic,
+                partition=partition,
+                committed_next_offset=offset,
+                last_confirmed_offset=offset - 1,
                 block_reason=reason,
             )
         if len(rows) > size:
@@ -550,14 +720,16 @@ class StorageServicer(rpc.StorageServiceServicer):
 
     @guarded
     async def RetryBlockedPartition(
-        self, request: pb.RetryBlockedPartitionRequest,
+        self,
+        request: pb.RetryBlockedPartitionRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.RetryBlockedPartitionResponse:
-        self._auth.require(context, permission="storage.operate", farm=None)
+        self._auth.require(context, permission="storage.operate", farm=None, global_scope=True)
         if not request.request_id or request.partition < 0:
-            raise QueryRejected("invalid blocked partition retry")
+            raise QueryRejectedError("invalid blocked partition retry")
         accepted = await self._consumer.retry_blocked_partition(
-            request_id=request.request_id, topic=request.topic,
+            request_id=request.request_id,
+            topic=request.topic,
             partition=request.partition,
             expected_offset=request.expected_blocked_offset,
         )
@@ -573,37 +745,42 @@ class StorageServicer(rpc.StorageServiceServicer):
             [topic, partition, int(time.time()) + 900],
             separators=(",", ":"),
         ).encode()
-        return base64.urlsafe_b64encode(
-            hmac.digest(self._secret, raw, "sha256") + raw
-        ).decode()
+        return base64.urlsafe_b64encode(hmac.digest(self._secret, raw, "sha256") + raw).decode()
 
     def _decode_blocked_cursor(self, token: str) -> tuple[str, int] | None:
         if not token:
             return None
         if len(token) > 2048:
-            raise QueryRejected("blocked partition cursor too long")
+            raise QueryRejectedError("blocked partition cursor too long")
         try:
             payload = base64.b64decode(token.encode(), altchars=b"-_", validate=True)
             signature, body = payload[:32], payload[32:]
             if not hmac.compare_digest(signature, hmac.digest(self._secret, body, "sha256")):
-                raise QueryRejected("blocked partition cursor HMAC invalid")
+                raise QueryRejectedError("blocked partition cursor HMAC invalid")
             item = json.loads(body)
             if (
-                not isinstance(item, list) or len(item) != 3
-                or not isinstance(item[0], str) or type(item[1]) is not int
-                or type(item[2]) is not int or item[2] < time.time()
+                not isinstance(item, list)
+                or len(item) != 3
+                or not isinstance(item[0], str)
+                or type(item[1]) is not int
+                or type(item[2]) is not int
+                or item[2] < time.time()
             ):
-                raise QueryRejected("blocked partition cursor expired or malformed")
+                raise QueryRejectedError("blocked partition cursor expired or malformed")
             return item[0], item[1]
         except (ValueError, UnicodeError, TypeError) as exc:
-            raise QueryRejected("invalid blocked partition cursor") from exc
+            raise QueryRejectedError("invalid blocked partition cursor") from exc
 
 
 def build_storage_grpc_server(
-    *, config: StorageConfig, metadata: MetadataStore,
-    query: HistoryQueryService, jobs: AsyncStorageTasks,
+    *,
+    config: StorageConfig,
+    metadata: MetadataStore,
+    query: HistoryQueryService,
+    jobs: AsyncStorageTasks,
     point_tables: ConfigurationPointTableResolver,
-    consumer: KafkaStorageConsumer, cursor_secret: bytes,
+    consumer: KafkaStorageConsumer,
+    cursor_secret: bytes,
     config_status: Callable[[], str],
     metrics: StorageRuntimeMetrics,
 ) -> grpc.aio.Server:
@@ -616,15 +793,19 @@ def build_storage_grpc_server(
         ],
         maximum_concurrent_rpcs=config.grpc.max_active_rpcs,
     )
-    rpc.add_StorageServiceServicer_to_server(
-        StorageServicer(
-            config=config, metadata=metadata, query=query, jobs=jobs,
-            point_tables=point_tables, consumer=consumer,
-            cursor_secret=cursor_secret, config_status=config_status,
-            metrics=metrics,
-        ),
-        server,
+    servicer = StorageServicer(
+        config=config,
+        metadata=metadata,
+        query=query,
+        jobs=jobs,
+        point_tables=point_tables,
+        consumer=consumer,
+        cursor_secret=cursor_secret,
+        config_status=config_status,
+        metrics=metrics,
     )
+    rpc.add_StorageServiceServicer_to_server(servicer, server)
+    common_rpc.add_CommonServiceServicer_to_server(servicer, server)
     endpoint = f"{config.grpc.listen_host}:{config.grpc.listen_port}"
     if server.add_insecure_port(endpoint) != config.grpc.listen_port:
         raise RuntimeError("Storage RPC cannot bind its configured loopback endpoint")

@@ -17,6 +17,7 @@ from contracts import commander_pb2_grpc as crpc
 from industrial_gateway.application.forwarding import ForwardState
 from industrial_gateway.infrastructure.adapters.outbound.forwarder import CommandForwarder
 from industrial_gateway.infrastructure.config.schema import ControlTarget
+from tests.support.bearer import ensure_bearer
 from tests.support.gateway import FakeCommanderService
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
@@ -39,6 +40,7 @@ async def _pair(
         ControlTarget(
             kind="commander",
             endpoint=f"127.0.0.1:{port}",
+            token_env=ensure_bearer("forwarder-commander"),
             queue_capacity=capacity,
             max_inflight=inflight,
             request_timeout_ms=deadline_ms,

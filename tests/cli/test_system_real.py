@@ -21,7 +21,6 @@ def _target(manager: str, target_name: str) -> ServiceTarget:
     return ServiceTarget(
         service_id="svc",
         grpc_endpoint=None,
-        tls_profile=None,
         manager=manager,
         target=target_name,
         namespace="default",

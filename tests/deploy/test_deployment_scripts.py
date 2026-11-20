@@ -42,6 +42,8 @@ def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
         "templates": {"root": "configs/templates"},
     }
     documents = {
+        "configuration": {"grpc": {"port": 51060}},
+        "storage": {},
         "gateway": {"grpc": {"listen_port": 50073}},
         "data-generator": {"service": {"grpc_bind": "127.0.0.1:50061"}},
         "collector_realtime": {"messaging": {"delivery": "realtime"}},
@@ -63,24 +65,10 @@ def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
         )
 
 
-def _credentials(root: Path) -> tuple[Path, Path, Path]:
-    certs = root / "certs"
-    certs.mkdir()
-    paths = (certs / "ca.pem", certs / "cli.pem", certs / "cli.key")
-    for path in paths:
-        path.write_text("test-only-non-credential-placeholder", encoding="utf-8")
-        path.chmod(0o600)
-    return paths
-
-
 def _render_args(root: Path, scripts: SimpleNamespace, mode: str) -> argparse.Namespace:
-    ca, cert, key = _credentials(root)
     collector_env = root / "collector.env"
     collector_env.write_text(
-        f"WIND_HUB_COLLECTOR_TLS_CERT={cert}\n"
-        f"WIND_HUB_COLLECTOR_TLS_KEY={key}\n"
-        f"WIND_HUB_COLLECTOR_TLS_CA={ca}\n"
-        "WIND_HUB_COLLECTOR_ADMIN_TOKEN=test-placeholder\n",
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN=test-placeholder-012345678901234567890123456789\n",
         encoding="utf-8",
     )
     collector_env.chmod(0o600)
@@ -91,9 +79,6 @@ def _render_args(root: Path, scripts: SimpleNamespace, mode: str) -> argparse.Na
         "namespace": "wind-hub-test",
         "socket": Path("/run/test/containerd.sock"),
         "isula": Path("/usr/bin/isula"),
-        "ca": ca,
-        "client_cert": cert,
-        "client_key": key,
         "collector_env_file": collector_env if mode == "process" else None,
         "runtime_prefix": Path("/etc/wind-hub") if mode == "rpc" else None,
     }
@@ -117,9 +102,7 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert gateway["process"]["argv"][:2] == [str(Path(sys.executable).resolve()), "-m"]
         assert gateway["process"]["log_file"] == str(tmp_path / "logs" / "gateway.log")
         assert payload["services"]["collector_reliable"]["process"]["argv"][-1] == "50054"
-        assert set(payload["services"]["collector_realtime"]["process"]["env"]) == set(
-            scripts.render.COLLECTOR_ENV_KEYS
-        ) - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+        assert payload["services"]["collector_realtime"]["process"]["env"] == {}
         assert "test-placeholder" not in yaml.safe_dump(payload)
         assert "WIND_HUB_COLLECTOR_ADMIN_TOKEN" not in yaml.safe_dump(payload)
     elif mode == "containerd":
@@ -133,7 +116,7 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert "process" not in gateway
     else:
         assert "manager" not in gateway
-        assert payload["tls_profiles"]["local"]["client_key"] == "/etc/wind-hub/certs/cli.key"
+        assert "tls_profiles" not in payload
     assert "manager" not in payload["services"]["collector"]
 
 
@@ -157,17 +140,17 @@ def test_render_rejects_missing_config_sources(tmp_path: Path, scripts: SimpleNa
         scripts.render._render(_render_args(tmp_path, scripts, "process"))
 
 
-def test_process_requires_complete_collector_mtls_environment(
+def test_process_does_not_require_collector_environment_file(
     tmp_path: Path, scripts: SimpleNamespace
 ) -> None:
     _configs(tmp_path, scripts, process=True)
     args = _render_args(tmp_path, scripts, "process")
     args.collector_env_file = None
-    with pytest.raises(ValueError, match="collector-env-file"):
-        scripts.render._render(args)
+    payload = scripts.render._render(args)
+    assert payload["services"]["collector_realtime"]["process"]["env"] == {}
 
 
-def test_compose_collector_identity_and_tls_match_native_contract(
+def test_compose_collector_identity_and_bearer_match_native_contract(
     scripts: SimpleNamespace,
 ) -> None:
     compose = yaml.safe_load((REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8"))
@@ -178,17 +161,18 @@ def test_compose_collector_identity_and_tls_match_native_contract(
         assert command[command.index("--collector-id") + 1] == expected
         assert command[command.index("--state-directory") + 1].endswith(expected)
         environment = row["environment"]
-        assert set(environment) == scripts.render.COLLECTOR_ENV_KEYS
+        assert set(environment) == {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
 
 
-def test_render_rejects_group_readable_private_key(
+def test_render_does_not_emit_tls_or_token_material(
     tmp_path: Path, scripts: SimpleNamespace
 ) -> None:
     _configs(tmp_path, scripts, process=True)
-    args = _render_args(tmp_path, scripts, "process")
-    args.client_key.chmod(0o640)
-    with pytest.raises(ValueError, match="client key"):
-        scripts.render._render(args)
+    payload = scripts.render._render(_render_args(tmp_path, scripts, "process"))
+    rendered = yaml.safe_dump(payload)
+    assert "tls_profiles" not in payload
+    assert "test-placeholder" not in rendered
+    assert "WIND_HUB_COLLECTOR_ADMIN_TOKEN" not in rendered
 
 
 def test_collector_pair_rolls_back_only_new_files(
@@ -280,10 +264,7 @@ def test_ready_rejects_zero_exit_non_success_envelope(
 def _provision_args(root: Path, scripts: SimpleNamespace, runtime: str) -> argparse.Namespace:
     env_file = root / "collector-test.env"
     env_file.write_text(
-        "WIND_HUB_COLLECTOR_TLS_CERT=/etc/wind-hub/certs/collector.pem\n"
-        "WIND_HUB_COLLECTOR_TLS_KEY=/etc/wind-hub/certs/collector.key\n"
-        "WIND_HUB_COLLECTOR_TLS_CA=/etc/wind-hub/certs/ca.pem\n"
-        "WIND_HUB_COLLECTOR_ADMIN_TOKEN=test-placeholder\n",
+        "WIND_HUB_COLLECTOR_ADMIN_TOKEN=test-placeholder-012345678901234567890123456789\n",
         encoding="utf-8",
     )
     env_file.chmod(0o600)
@@ -310,7 +291,7 @@ def test_provision_preview_constructs_isolated_non_root_commands(
     _configs(tmp_path, scripts, process=False)
     args = _provision_args(tmp_path, scripts, runtime)
     commands = scripts.provision._build(args)
-    expected_count = 12 if runtime == "containerd" else 6
+    expected_count = 16 if runtime == "containerd" else 8
     assert len(commands) == expected_count
     rendered = [str(part) for command in commands for part in command]
     assert "65532" not in rendered
@@ -350,8 +331,8 @@ def test_provision_failure_rolls_back_only_successfully_created_ids(
 
     removals = [command for command in calls if "rm" in command]
     assert removals
-    assert all("wind-hub-data-generator" not in command for command in removals)
-    assert any("wind-hub-gateway" in command for command in removals)
+    assert all("wind-hub-storage" not in command for command in removals)
+    assert any("wind-hub-configuration" in command for command in removals)
     assert all("unrelated-user-container" not in command for command in calls)
 
 
@@ -465,7 +446,7 @@ def test_apply_runs_without_rollback_when_all_creates_verified_absent(
         for command in calls
         if scripts.provision._created_target(args, command) is not None
     ]
-    assert create_targets == ["wind-hub-gateway", "wind-hub-data-generator"]
+    assert create_targets == ["wind-hub-configuration", "wind-hub-storage"]
 
 
 @pytest.mark.parametrize(
@@ -536,8 +517,8 @@ def test_apply_unknown_result_still_rolls_back_previously_owned_containers(
     with pytest.raises(RuntimeError, match="UNKNOWN"):
         scripts.provision._apply(args, commands)
     removals = [command for command in calls if "rm" in command]
-    assert any("wind-hub-gateway" in command for command in removals)
-    assert all("wind-hub-data-generator" not in command for command in removals)
+    assert any("wind-hub-configuration" in command for command in removals)
+    assert all("wind-hub-storage" not in command for command in removals)
 
 
 def test_runtime_result_rejects_created_and_paused_containers() -> None:

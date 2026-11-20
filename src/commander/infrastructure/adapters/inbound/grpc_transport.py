@@ -53,16 +53,20 @@ def _security_config(
             raise ValueError("Commander caller requires caller_id, token_env and permissions")
         rights = item["permissions"]
         if (
-            not isinstance(rights, list) or not rights
+            not isinstance(rights, list)
+            or not rights
             or any(right not in {"query", "reload", "control", "recover"} for right in rights)
         ):
             raise ValueError("invalid Commander caller permission")
-        authorized.append(CallerGrant(
-            _text(item["caller_id"], "caller_id"),
-            _text(item["token_env"], "token_env"),
-            frozenset(rights),
-        ))
+        authorized.append(
+            CallerGrant(
+                _text(item["caller_id"], "caller_id"),
+                _text(item["token_env"], "token_env"),
+                frozenset(rights),
+            )
+        )
     return host, port, maximum, BearerAuthorizer(authorized)
+
 
 async def start_grpc(service: CommanderService, service_config: Path) -> grpc.aio.Server:
     """Bind internal gRPC with explicit bearer authorization."""

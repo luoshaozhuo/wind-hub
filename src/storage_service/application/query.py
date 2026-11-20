@@ -13,14 +13,15 @@ import hmac
 import json
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from storage_service.domain.sample import DataLevel
 
 
-class QueryRejected(ValueError):
+class QueryRejectedError(ValueError):
     """Request exceeds the documented Storage query and pagination contract."""
 
 
@@ -39,29 +40,42 @@ class HistoryFilter:
 
     def validate(self, *, max_range_days: int) -> None:
         if not self.wind_farm_id:
-            raise QueryRejected("wind_farm_id is required")
+            raise QueryRejectedError("wind_farm_id is required")
         if not 0 <= self.start_us < self.end_us:
-            raise QueryRejected("start must precede end in UTC microseconds")
+            raise QueryRejectedError("start must precede end in UTC microseconds")
         if self.end_us - self.start_us > max_range_days * 86_400_000_000:
-            raise QueryRejected("query time range exceeds configured bound")
+            raise QueryRejectedError("query time range exceeds configured bound")
         if len(self.qualities) > 3 or not set(self.qualities) <= {
-            "good", "bad", "uncertain",
+            "good",
+            "bad",
+            "uncertain",
         }:
-            raise QueryRejected("unknown or excessive sample qualities")
+            raise QueryRejectedError("unknown or excessive sample qualities")
         for value in (
-            self.wind_farm_id, self.device_type, self.device_id,
-            self.point_table_id, self.point_id, self.business_point_id,
+            self.wind_farm_id,
+            self.device_type,
+            self.device_id,
+            self.point_table_id,
+            self.point_id,
+            self.business_point_id,
         ):
             if len(value.encode("utf-8")) > 256:
-                raise QueryRejected("query identity exceeds 256 UTF-8 bytes")
+                raise QueryRejectedError("query identity exceeds 256 UTF-8 bytes")
         if self.data_level != DataLevel.BUSINESS and self.business_point_id:
-            raise QueryRejected("business_point_id is valid only for BUSINESS queries")
+            raise QueryRejectedError("business_point_id is valid only for BUSINESS queries")
 
     def fingerprint(self) -> str:
         fields = [
-            self.wind_farm_id, self.data_level.value, self.start_us, self.end_us,
-            self.device_type, self.device_id, self.point_table_id,
-            self.point_id, self.business_point_id, sorted(self.qualities),
+            self.wind_farm_id,
+            self.data_level.value,
+            self.start_us,
+            self.end_us,
+            self.device_type,
+            self.device_id,
+            self.point_table_id,
+            self.point_id,
+            self.business_point_id,
+            sorted(self.qualities),
         ]
         return hashlib.sha256(
             json.dumps(fields, ensure_ascii=False, separators=(",", ":")).encode()
@@ -97,8 +111,11 @@ class HistoryPage:
 
 class HistoryBackend(Protocol):
     async def fetch_history(
-        self, filter_: HistoryFilter, *,
-        after: tuple[int, str, str] | None, limit: int,
+        self,
+        filter_: HistoryFilter,
+        *,
+        after: tuple[int, str, str] | None,
+        limit: int,
     ) -> Sequence[HistoryRow]:
         """Retrieve globally earliest rows from verified and managed tables only."""
 
@@ -113,7 +130,10 @@ class CursorCodec:
         self._ttl = ttl_seconds
 
     def encode(
-        self, filter_: HistoryFilter, last: tuple[int, str, str], *,
+        self,
+        filter_: HistoryFilter,
+        last: tuple[int, str, str],
+        *,
         query_deadline_us: int,
     ) -> str:
         payload = json.dumps(
@@ -124,23 +144,26 @@ class CursorCodec:
                 "deadline_us": query_deadline_us,
                 "exp": int(time.time()) + self._ttl,
             },
-            sort_keys=True, separators=(",", ":"),
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode()
         mac = hmac.digest(self._secret, payload, "sha256")
         return base64.urlsafe_b64encode(mac + payload).decode("ascii")
 
     def decode(
-        self, token: str, filter_: HistoryFilter,
+        self,
+        token: str,
+        filter_: HistoryFilter,
     ) -> tuple[tuple[int, str, str], int]:
         if not token or len(token) > 4096:
-            raise QueryRejected("invalid pagination token")
+            raise QueryRejectedError("invalid pagination token")
         try:
             packed = base64.b64decode(token.encode(), altchars=b"-_", validate=True)
             signature, raw = packed[:32], packed[32:]
             if len(signature) != 32 or not hmac.compare_digest(
                 signature, hmac.digest(self._secret, raw, "sha256")
             ):
-                raise QueryRejected("invalid pagination signature")
+                raise QueryRejectedError("invalid pagination signature")
             decoded = json.loads(raw)
             last = decoded["last"]
             if (
@@ -152,20 +175,23 @@ class CursorCodec:
                 or type(last[0]) is not int
                 or any(not re.fullmatch("[0-9a-f]{64}", key) for key in last[1:])
             ):
-                raise QueryRejected("pagination token is expired or belongs to another query")
+                raise QueryRejectedError("pagination token is expired or belongs to another query")
             deadline = decoded["deadline_us"]
             if type(deadline) is not int or deadline <= 0:
-                raise QueryRejected("invalid pagination horizon")
+                raise QueryRejectedError("invalid pagination horizon")
             return (last[0], last[1], last[2]), deadline
         except (ValueError, TypeError, KeyError, UnicodeDecodeError, IndexError) as exc:
-            raise QueryRejected("invalid pagination token") from exc
+            raise QueryRejectedError("invalid pagination token") from exc
 
 
 class HistoryQueryService:
     """A bounded keyset page; no OFFSET-based pagination or unstable ordering."""
 
     def __init__(
-        self, backend: HistoryBackend, codec: CursorCodec, *,
+        self,
+        backend: HistoryBackend,
+        codec: CursorCodec,
+        *,
         max_page_size: int = 1000,
         max_range_days: int = 31,
         max_concurrent: int = 4,
@@ -188,12 +214,15 @@ class HistoryQueryService:
         return self._active_queries
 
     async def query(
-        self, filter_: HistoryFilter, *, page_size: int = 200,
+        self,
+        filter_: HistoryFilter,
+        *,
+        page_size: int = 200,
         page_token: str = "",
     ) -> HistoryPage:
         filter_.validate(max_range_days=self._max_range_days)
         if not 1 <= page_size <= self._max_page_size:
-            raise QueryRejected("page_size outside configured range")
+            raise QueryRejectedError("page_size outside configured range")
         horizon = int(datetime.now(UTC).timestamp() * 1_000_000)
         after: tuple[int, str, str] | None = None
         if page_token:
@@ -201,11 +230,16 @@ class HistoryQueryService:
         # The horizon excludes future new samples. Backfilled historical rows
         # remain allowed and will appear in a new query, not a stale page.
         bounded = HistoryFilter(
-            wind_farm_id=filter_.wind_farm_id, data_level=filter_.data_level,
-            start_us=filter_.start_us, end_us=min(filter_.end_us, horizon),
-            device_type=filter_.device_type, device_id=filter_.device_id,
-            point_table_id=filter_.point_table_id, point_id=filter_.point_id,
-            business_point_id=filter_.business_point_id, qualities=filter_.qualities,
+            wind_farm_id=filter_.wind_farm_id,
+            data_level=filter_.data_level,
+            start_us=filter_.start_us,
+            end_us=min(filter_.end_us, horizon),
+            device_type=filter_.device_type,
+            device_id=filter_.device_id,
+            point_table_id=filter_.point_table_id,
+            point_id=filter_.point_id,
+            business_point_id=filter_.business_point_id,
+            qualities=filter_.qualities,
         )
         if bounded.end_us <= bounded.start_us:
             return HistoryPage((), "", True)
@@ -213,16 +247,18 @@ class HistoryQueryService:
             self._active_queries += 1
             try:
                 try:
-                    rows = tuple(await asyncio.wait_for(
-                        self._backend.fetch_history(
-                            bounded, after=after, limit=page_size + 1,
-                        ),
-                        timeout=self._timeout,
-                    ))
+                    rows = tuple(
+                        await asyncio.wait_for(
+                            self._backend.fetch_history(
+                                bounded,
+                                after=after,
+                                limit=page_size + 1,
+                            ),
+                            timeout=self._timeout,
+                        )
+                    )
                 except TimeoutError as exc:
-                    raise RuntimeError(
-                        "Storage historical query exceeded deadline"
-                    ) from exc
+                    raise RuntimeError("Storage historical query exceeded deadline") from exc
             finally:
                 self._active_queries -= 1
         if len(rows) > page_size + 1:
@@ -236,6 +272,7 @@ class HistoryQueryService:
         has_more = len(rows) > page_size
         next_token = (
             self._codec.encode(filter_, selected[-1].sort_key, query_deadline_us=horizon)
-            if has_more else ""
+            if has_more
+            else ""
         )
         return HistoryPage(selected, next_token, not has_more)

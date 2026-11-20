@@ -18,6 +18,7 @@ from data_generator.domain.model import DataBatch, DataPoint
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
+from tests.support.bearer import bearer_channel
 
 from ..conftest import ship_scenarios_document
 
@@ -33,7 +34,7 @@ GW_DEVICES = {
 
 
 async def _stub(bind: str):  # noqa: ANN202
-    channel = grpc.aio.insecure_channel(bind)
+    channel = bearer_channel(bind, "harness")
     await channel.channel_ready()
     return channel, gw_rpc.IndustrialGatewayServiceStub(channel)
 
@@ -330,7 +331,7 @@ async def test_batch_shape_and_claim_size_limits(start_real_gateway) -> None:  #
         await channel.close()
 
 
-async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # noqa: ANN001
+async def test_bearer_denies_unregistered_writer(start_real_gateway) -> None:  # noqa: ANN001
     # v1 安全模型：明文仅限 loopback；跨网络写入必须 mTLS，授权边界是服务端按
     # 客户端证书 CN 配置的权限集。无权限身份在读取/租约/写入三个入口一律拒绝。
     gateway = await start_real_gateway(
@@ -339,16 +340,16 @@ async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # n
         permissions={"generator-a": ["read", "inject"]},
         client_names=("stranger",),
     )
-    denied_channel = gateway.mtls_channel("stranger")
+    denied_channel = gateway.bearer_channel("stranger")
     denied_stub = gw_rpc.IndustrialGatewayServiceStub(denied_channel)
     try:
         with pytest.raises(grpc.RpcError) as read_denied:
             await denied_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
-        assert read_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert read_denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
         # 安全边界在 ClaimTargets，而非只靠写入端自觉。
         with pytest.raises(grpc.RpcError) as claim_denied:
             await _claim(denied_stub, "gw-a", "owner-x", ["GW01.pitch_angle"])
-        assert claim_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert claim_denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
         with pytest.raises(grpc.RpcError) as info:
             await denied_stub.UpdateVariables(
                 gw.UpdateVariablesRequest(
@@ -361,12 +362,12 @@ async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # n
                     ],
                 )
             )
-        assert info.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert info.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await denied_channel.close()
 
     # 正面对照：持有 inject 权限的身份可正常申请租约，证明拒绝来自权限而非链路故障。
-    authorized_channel = gateway.mtls_channel("generator-a")
+    authorized_channel = gateway.bearer_channel("generator-a")
     authorized_stub = gw_rpc.IndustrialGatewayServiceStub(authorized_channel)
     try:
         listed = await authorized_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
@@ -424,7 +425,11 @@ async def test_dg_writer_uses_formal_update_rpc_end_to_end(
     recover_transaction(service_path.absolute().parent.parent)
     settings = load_settings(service_path)
     scenario = settings.scenarios["demo-random"]
-    writer = GatewayWriter(timeout=3.0, max_inflight=4)
+    writer = GatewayWriter(
+        gateway_token_ref=settings.service["output"]["gateway_token_ref"],
+        timeout=3.0,
+        max_inflight=4,
+    )
     try:
         await writer.validate(scenario)
         await writer.claim(scenario, "gen-x")
@@ -467,7 +472,9 @@ async def test_dg_writer_preflight_rejects_type_mismatch(
     # 直接改写 scenario 点类型模拟服务端类型不一致（目录仍是 float32）。
     scenario = settings.scenarios["demo-random"]
     scenario.points[("GW01", "a02_dm_pitchangle1")]["data_type"] = "str"
-    writer = GatewayWriter(timeout=3.0)
+    writer = GatewayWriter(
+        gateway_token_ref=settings.service["output"]["gateway_token_ref"], timeout=3.0
+    )
     try:
         with pytest.raises(Exception, match="expected writable str"):
             await writer.validate(scenario)

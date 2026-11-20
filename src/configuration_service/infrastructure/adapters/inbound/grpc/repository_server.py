@@ -167,9 +167,13 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         self.secret = cursor_secret
 
     def identify_actor(self, context: grpc.ServicerContext) -> str:
-        metadata = dict(context.invocation_metadata())
+        metadata = dict(context.invocation_metadata() or ())
         value = metadata.get("authorization", "")
-        if not value.startswith("Bearer ") or not 7 < len(value) <= 4103:
+        if (
+            not isinstance(value, str)
+            or not value.startswith("Bearer ")
+            or not 7 < len(value) <= 4103
+        ):
             raise AuthenticationError("missing bearer authentication")
         candidate = value[7:]
         for actor, environment_name in self.token_sources.items():
@@ -243,10 +247,14 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 base_revision_id=request.expected_revision_id,
                 issues=[pb.ValidationIssue(error_code="SCHEMA_INVALID", message=str(exc))],
             )
+        base_revision = request.expected_revision_id
+        if candidate_id:
+            staged = self.app.repository.get_candidate(candidate_id, actor)
+            base_revision = int(staged["base_revision_id"] or 0)
         return pb.CreateCandidateResponse(
             candidate_id=candidate_id,
             valid=True,
-            base_revision_id=request.expected_revision_id,
+            base_revision_id=base_revision,
             document_results=[
                 pb.DocumentValidationResult(
                     config_id=_config_id(doc.identity),

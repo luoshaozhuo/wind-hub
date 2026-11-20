@@ -69,72 +69,18 @@ def test_config_get_checksum_mismatch_refused(cli_env: object, tmp_path: Path) -
     assert not destination.exists()
 
 
-def test_push_revision_conflict_and_invalid_candidate(cli_env: object, tmp_path: Path) -> None:
-    """S02：候选校验失败 valid=False → FAILURE/1；expected_revision 取运行时快照。"""
+def test_per_module_config_push_and_apply_are_retired(cli_env: object, tmp_path: Path) -> None:
+    """旧逐服务写路径不得恢复；中央 Configuration 全集发布是唯一写入口。"""
     server = cli_env.server
-    server.respond_value(
-        server.method_path("CommonService", "GetConfigSnapshot"),
-        common_pb2.GetConfigSnapshotResponse(revision="r1"),
-    )
-    server.respond_value(
-        server.method_path("CommonService", "PushConfigSnapshot"),
-        common_pb2.PushConfigSnapshotResponse(candidate_id="c9", valid=False, base_revision="r1"),
-    )
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "x.yaml").write_text("a: 1\n", encoding="utf-8")
-    result = cli_env.subprocess_invoke("config", "push", "collector", str(candidate))
-    assert result.exit_code == 1, result.stdout
-    assert result.json()["status"] == "FAILURE"
-    push_call = [c for c in server.calls if c.path.endswith("/PushConfigSnapshot")][0]
-    assert push_call.request.expected_revision == "r1"
-
-
-def test_apply_partial_restart_required_exit4(cli_env: object) -> None:
-    """S03：部分生效 + restart_required → PARTIAL/4，逐对象状态都在信封内。"""
-    server = cli_env.server
-    server.respond_value(
-        server.method_path("CommonService", "GetConfigSnapshot"),
-        common_pb2.GetConfigSnapshotResponse(revision="r1"),
-    )
-    server.respond_value(
-        server.method_path("CommonService", "ApplyConfigSnapshot"),
-        common_pb2.ApplyConfigSnapshotResponse(
-            file_commit="COMMITTED",
-            apply_results=[
-                common_pb2.ApplicationResult(object_id="o1", status="SUCCESS"),
-                common_pb2.ApplicationResult(object_id="o2", status="FAILED", error_code="E"),
-            ],
-            effective_revision="r2",
-            restart_required=True,
-        ),
-    )
-    result = cli_env.subprocess_invoke("config", "apply", "collector", "c1", "--yes")
-    assert result.exit_code == 4, result.stdout
-    assert result.json()["status"] == "PARTIAL"
-
-
-def test_apply_unavailable_unknown_no_partial_claim(cli_env: object) -> None:
-    """S03：Apply 通道断连 → UNKNOWN/3，data 必须为 null，禁止伪称生效或幂等重试。"""
-    import grpc
-
-    server = cli_env.server
-    server.respond_value(
-        server.method_path("CommonService", "GetConfigSnapshot"),
-        common_pb2.GetConfigSnapshotResponse(revision="r1"),
-    )
-    server.fail(
-        server.method_path("CommonService", "ApplyConfigSnapshot"),
-        grpc.StatusCode.UNAVAILABLE,
-        "connection lost",
-    )
-    result = cli_env.subprocess_invoke("config", "apply", "collector", "c1", "--yes")
-    assert result.exit_code == 3, result.stdout
-    envelope = result.json()
-    assert envelope["status"] == "UNKNOWN"
-    assert envelope["data"] is None
-    applies = [c for c in server.calls if c.path.endswith("/ApplyConfigSnapshot")]
-    assert len(applies) == 1
+    pushed = cli_env.subprocess_invoke("config", "push", "collector", str(candidate))
+    applied = cli_env.subprocess_invoke("config", "apply", "collector", "c1", "--yes")
+    assert pushed.exit_code == 2
+    assert applied.exit_code == 2
+    assert not [c for c in server.calls if c.path.endswith("/PushConfigSnapshot")]
+    assert not [c for c in server.calls if c.path.endswith("/ApplyConfigSnapshot")]
 
 
 def test_config_get_runtime_view_with_stale_apply_results_is_success(cli_env: object) -> None:

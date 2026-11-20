@@ -10,16 +10,17 @@ from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import (
-    IngestionBlocked,
+    IngestionBlockedError,
     IngestionService,
     KafkaRecord,
-    WriteUnconfirmed,
+    WriteUnconfirmedError,
 )
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
-from storage_service.infrastructure.adapters.outbound.tdengine_backend import TDengineSchemaConflict
-
+from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+    TDengineSchemaConflictError,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -31,7 +32,8 @@ class _AssignedPartition:
     blocked: bool = False
 
 
-class _PartitionListener(ConsumerRebalanceListener):
+# aiokafka 未提供类型声明；运行时监听器实现其公开异步协议。
+class _PartitionListener(ConsumerRebalanceListener):  # type: ignore[misc]
     def __init__(self, owner: KafkaStorageConsumer) -> None:
         self._owner = owner
 
@@ -46,7 +48,8 @@ class KafkaStorageConsumer:
     """Consumer is the only component allowed to perform Kafka Offset commits."""
 
     def __init__(
-        self, *,
+        self,
+        *,
         configuration: StorageConfig,
         bootstrap_servers: str,
         ingestion: IngestionService,
@@ -69,6 +72,7 @@ class KafkaStorageConsumer:
             max_partition_fetch_bytes=min(1048576, configuration.kafka.max_buffer_bytes),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
+        self._retry_failures: dict[TopicPartition, int] = {}
         self._generation = 0
         self._stop = asyncio.Event()
 
@@ -82,6 +86,7 @@ class KafkaStorageConsumer:
         """Fence old workers immediately; completion cannot commit old generation."""
         self._generation += 1
         for tp in revoked:
+            self._retry_failures.pop(tp, None)
             previous = self._assignments.pop(tp, None)
             if previous is not None:
                 previous.offsets.revoke(generation=previous.generation)
@@ -120,7 +125,9 @@ class KafkaStorageConsumer:
             self._assignments[tp] = current
 
     async def _process_partition(
-        self, tp: TopicPartition, messages: list[KafkaRecord],
+        self,
+        tp: TopicPartition,
+        messages: list[KafkaRecord],
         semaphore: asyncio.Semaphore,
     ) -> None:
         """Never have more than one in-flight batch per assigned partition."""
@@ -135,7 +142,7 @@ class KafkaStorageConsumer:
                     offsets=state.offsets,
                     records=messages,
                 )
-            except IngestionBlocked:
+            except IngestionBlockedError:
                 if self._assignments.get(tp) is not state:
                     return
                 state.blocked = True
@@ -143,17 +150,30 @@ class KafkaStorageConsumer:
                     self._consumer.pause(tp)
                 _LOG.error(
                     "Storage Kafka partition blocked: topic=%s partition=%d",
-                    tp.topic, tp.partition,
+                    tp.topic,
+                    tp.partition,
                 )
-            except TDengineSchemaConflict:
+            except TDengineSchemaConflictError:
                 self._metrics.record_schema_conflict()
                 raise
-            except (WriteUnconfirmed, OSError, TimeoutError):
+            except (WriteUnconfirmedError, OSError, TimeoutError):
+                failures = self._retry_failures.get(tp, 0) + 1
+                self._retry_failures[tp] = failures
                 _LOG.warning(
-                    "Storage Kafka write unconfirmed: topic=%s partition=%d",
-                    tp.topic, tp.partition,
+                    "Storage Kafka write unconfirmed: topic=%s partition=%d attempt=%d",
+                    tp.topic,
+                    tp.partition,
+                    failures,
                 )
-                await asyncio.sleep(self._config.retry.initial_ms / 1000)
+                maximum = self._config.retry.max_attempts
+                if maximum and failures > maximum:
+                    raise
+                delay_ms = min(
+                    self._config.retry.max_ms,
+                    self._config.retry.initial_ms * (2 ** (failures - 1)),
+                )
+                await asyncio.sleep(delay_ms / 1000)
+                return
             except RuntimeError:
                 # Revocation can arrive during TDengine I/O. No old generation
                 # response can be committed, but a normal revoke is not a
@@ -169,6 +189,7 @@ class KafkaStorageConsumer:
                 return
             # Kafka commits the next unread offset, only after durable readback.
             await self._consumer.commit({tp: state.offsets.next_commit_offset})
+            self._retry_failures.pop(tp, None)
             if not state.blocked:
                 # Replay any unconfirmed tail. The domain deduplicates content.
                 self._consumer.seek(tp, state.offsets.next_commit_offset)
@@ -266,10 +287,16 @@ class KafkaStorageConsumer:
             next_offset = entry.offsets.next_commit_offset
             end_offset = last[tp]
             blocked = self._metadata.get_blocked_partition(tp.topic, tp.partition)
-            result.append((
-                tp.topic, tp.partition, next_offset, next_offset - 1,
-                max(0, end_offset - next_offset), blocked[1] if blocked else "",
-            ))
+            result.append(
+                (
+                    tp.topic,
+                    tp.partition,
+                    next_offset,
+                    next_offset - 1,
+                    max(0, end_offset - next_offset),
+                    blocked[1] if blocked else "",
+                )
+            )
         return sorted(result)
 
     def request_stop(self) -> None:

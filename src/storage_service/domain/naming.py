@@ -34,12 +34,19 @@ def get_object_names(sample: StorageSample, schema_fingerprint: str) -> StorageO
         raise ValueError("schema_fingerprint must be lowercase SHA-256")
     db_id = (sample.wind_farm_id,)
     stable_id = (
-        sample.wind_farm_id, sample.device_type, sample.point_table_id,
-        sample.data_level.value, schema_fingerprint,
+        sample.wind_farm_id,
+        sample.device_type,
+        sample.point_table_id,
+        sample.data_level.value,
+        schema_fingerprint,
     )
     table_id = (
-        sample.wind_farm_id, sample.device_type, sample.device_id,
-        sample.point_table_id, sample.data_level.value, schema_fingerprint,
+        sample.wind_farm_id,
+        sample.device_type,
+        sample.device_id,
+        sample.point_table_id,
+        sample.data_level.value,
+        schema_fingerprint,
     )
     db = _identity_digest(db_id)
     stable = _identity_digest(stable_id)

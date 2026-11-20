@@ -333,11 +333,10 @@ class SQLiteRepository:
             raise ValueError("duplicate config identity in candidate")
         payload = _canonical_json(
             {
-                "expected_revision": expected_revision,
                 "documents": sorted(
                     (_document_payload(doc) for doc in documents),
                     key=lambda item: (item["config_type"], item["config_id"]),
-                ),
+                )
             }
         )
         payload_hash = _digest(payload)
@@ -346,7 +345,20 @@ class SQLiteRepository:
                 connection, actor_id, "CreateCandidate", request_id, payload_hash
             )
             if replay is not None:
-                return str(replay["candidate_id"])
+                candidate_id = str(replay["candidate_id"])
+                existing = connection.execute(
+                    "SELECT base_revision_id, status FROM candidates WHERE candidate_id = ?",
+                    (candidate_id,),
+                ).fetchone()
+                if existing is None:
+                    raise RepositoryConflictError("replayed candidate is missing")
+                if existing["status"] != "PUBLISHED" and (
+                    int(existing["base_revision_id"] or 0) != expected_revision
+                ):
+                    raise IdempotencyConflictError(
+                        "unpublished candidate was created against another revision"
+                    )
+                return candidate_id
             self._check_expected(connection, expected_revision)
             active = connection.execute(
                 "SELECT COUNT(*) FROM candidates " "WHERE status = 'VALID' AND expires_at > ?",
@@ -511,9 +523,7 @@ class SQLiteRepository:
             if len(actual) != len(versions):
                 raise RepositoryConflictError("prepared versions do not match staged documents")
             original_version_ids = {
-                str(row[0]) for row in connection.execute(
-                    "SELECT version_id FROM config_versions"
-                )
+                str(row[0]) for row in connection.execute("SELECT version_id FROM config_versions")
             }
             for version in versions:
                 doc = version.document
@@ -561,26 +571,63 @@ class SQLiteRepository:
                         ),
                     )
             # New versions are projected once. Existing immutable versions keep
-            # their original projection and foreign-key edges unchanged.
+            # their original projection and foreign-key edges unchanged, but a
+            # full publication must not reactivate a deprecated version or edge.
             for version in versions:
-                if version.version_id in original_version_ids:
-                    continue
-                self._insert_projection(connection, version)
+                if version.version_id not in original_version_ids:
+                    self._insert_projection(connection, version)
             for version in versions:
-                if version.version_id in original_version_ids:
-                    continue
+                if connection.execute(
+                    "SELECT 1 FROM version_events WHERE version_id = ? "
+                    "AND event_type = 'DEPRECATED'",
+                    (version.version_id,),
+                ).fetchone():
+                    raise RepositoryConflictError("cannot publish a deprecated version")
                 for target_version_id, relation in version.references:
                     if connection.execute(
                         "SELECT 1 FROM version_events WHERE version_id = ? "
                         "AND event_type = 'DEPRECATED'",
                         (target_version_id,),
                     ).fetchone():
-                        raise RepositoryConflictError("cannot publish a new deprecated reference")
-                    connection.execute(
-                        "INSERT INTO config_references VALUES (?, ?, ?)",
-                        (version.version_id, target_version_id, relation),
-                    )
+                        raise RepositoryConflictError("cannot publish a deprecated reference")
+                    if version.version_id not in original_version_ids:
+                        connection.execute(
+                            "INSERT INTO config_references VALUES (?, ?, ?)",
+                            (version.version_id, target_version_id, relation),
+                        )
             self._check_reference_cycles(connection, [version.version_id for version in versions])
+            version_ids = tuple(version.version_id for version in versions)
+            if expected_revision:
+                current_members = {
+                    (row[0], row[1])
+                    for row in connection.execute(
+                        "SELECT document_id, version_id FROM revision_members "
+                        "WHERE revision_id = ?",
+                        (expected_revision,),
+                    )
+                }
+                desired_members = {
+                    (_document_id(version.document.identity), version.version_id)
+                    for version in versions
+                }
+                if current_members == desired_members:
+                    connection.execute(
+                        "UPDATE candidates SET status = 'PUBLISHED' WHERE candidate_id = ?",
+                        (candidate_id,),
+                    )
+                    self._save_replay(
+                        connection,
+                        actor_id,
+                        "PublishCandidate",
+                        request_id,
+                        payload_hash,
+                        {"revision_id": expected_revision, "version_ids": version_ids},
+                    )
+                    return CommitResult(
+                        revision_id=expected_revision,
+                        version_ids=version_ids,
+                        replayed=True,
+                    )
             connection.execute(
                 "INSERT INTO revisions (parent_revision_id, publisher, request_id, created_at) "
                 "VALUES (?, ?, ?, ?)",
@@ -599,7 +646,6 @@ class SQLiteRepository:
                 "UPDATE candidates SET status = 'PUBLISHED' WHERE candidate_id = ?",
                 (candidate_id,),
             )
-            version_ids = tuple(version.version_id for version in versions)
             self._audit(
                 connection,
                 actor_id=actor_id,
@@ -695,7 +741,8 @@ class SQLiteRepository:
             return str(row["version_id"])
 
     def get_version_references(
-        self, version_id: str,
+        self,
+        version_id: str,
     ) -> tuple[tuple[str, str], ...]:
         """Return frozen dependency edges for an immutable published version."""
         with self.read() as connection:
@@ -964,6 +1011,26 @@ class SQLiteRepository:
                 (version_id,),
             ).fetchone():
                 raise RepositoryConflictError("version references a deprecated dependency")
+            missing_closure_member = connection.execute(
+                """WITH RECURSIVE closure(version_id) AS (
+                       SELECT target_version_id FROM config_references
+                       WHERE source_version_id = ?
+                       UNION
+                       SELECT r.target_version_id FROM config_references AS r
+                       JOIN closure AS c ON r.source_version_id = c.version_id
+                   )
+                   SELECT c.version_id FROM closure AS c
+                   JOIN config_versions AS v ON v.version_id = c.version_id
+                   LEFT JOIN revision_members AS m
+                   ON m.revision_id = ? AND m.document_id = v.document_id
+                   AND m.version_id = c.version_id
+                   WHERE m.version_id IS NULL LIMIT 1""",
+                (version_id, expected_revision),
+            ).fetchone()
+            if missing_closure_member is not None:
+                raise RepositoryConflictError(
+                    "recommended version dependency closure is absent from current revision"
+                )
             old = connection.execute(
                 "SELECT version_id FROM revision_members "
                 "WHERE revision_id = ? AND document_id = ?",

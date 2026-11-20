@@ -16,12 +16,16 @@ from contracts import (
     commander_pb2_grpc,
     common_pb2,
     common_pb2_grpc,
+    configuration_repository_pb2,
+    configuration_repository_pb2_grpc,
     data_generator_pb2,
     data_generator_pb2_grpc,
     industrial_gateway_pb2,
     industrial_gateway_pb2_grpc,
     sink_service_pb2,
     sink_service_pb2_grpc,
+    storage_service_pb2,
+    storage_service_pb2_grpc,
 )
 
 pytestmark = pytest.mark.contract
@@ -36,6 +40,8 @@ PROTO_STEMS = (
     "sink_service",
     "industrial_gateway",
     "data_generator",
+    "configuration_repository",
+    "storage_service",
 )
 GENERATED_SUFFIXES = ("_pb2.py", "_pb2.pyi", "_pb2_grpc.py", "_pb2_grpc.pyi")
 RETIRED_STEMS = ("collector_v2", "sink", "gateway")
@@ -67,8 +73,12 @@ def test_all_generated_modules_importable() -> None:
         sink_service_pb2_grpc,
         industrial_gateway_pb2_grpc,
         data_generator_pb2_grpc,
+        configuration_repository_pb2,
+        configuration_repository_pb2_grpc,
+        storage_service_pb2,
+        storage_service_pb2_grpc,
     )
-    assert len(modules) == 12
+    assert len(modules) == 16
     for module in modules:
         assert module.__name__.startswith("contracts.")
 
@@ -89,6 +99,16 @@ def test_all_generated_modules_importable() -> None:
             data_generator_pb2_grpc,
             "DataGeneratorServiceServicer",
             "add_DataGeneratorServiceServicer_to_server",
+        ),
+        (
+            configuration_repository_pb2_grpc,
+            "ConfigurationRepositoryServiceServicer",
+            "add_ConfigurationRepositoryServiceServicer_to_server",
+        ),
+        (
+            storage_service_pb2_grpc,
+            "StorageServiceServicer",
+            "add_StorageServiceServicer_to_server",
         ),
     ],
 )

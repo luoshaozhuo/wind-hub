@@ -19,6 +19,7 @@ UNKNOWN/结果不完整/RELEASE 失败等 CLI 内部语义由 FakeRpcServer 套�
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,7 @@ from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import decode_scalar
 from tests.cli.e2e_util import SRC, last_json, write_cli_yaml
+from tests.support.bearer import ensure_bearer
 from tests.support.gateway import (
     FEEDBACK_FLOAT,
     FEEDBACK_UINT,
@@ -75,17 +77,11 @@ async def stack(tmp_path: Path):
 
 def _cli_config(stack, tmp_path: Path, cn: str) -> Path:
     harness, _ = stack
-    pki = harness.pki
-    assert pki is not None
-    cert_path, key_path = pki["clients"][cn]  # type: ignore[index]
-    cert_files = {
-        "ca": pki["ca"],  # type: ignore[index]
-        "client_crt": cert_path,
-        "client_key": key_path,
-    }
+    token_ref = ensure_bearer(cn)
+    os.environ["WIND_HUB_GATEWAY_OPERATOR_TOKEN"] = os.environ[token_ref.removeprefix("env:")]
     return write_cli_yaml(
         tmp_path / f"cli-{cn}.yaml",
-        cert_files,  # type: ignore[arg-type]
+        {},
         {"gateway": f"localhost:{harness.grpc_port}"},
     )
 
@@ -162,7 +158,7 @@ async def test_happy_path_claim_update_release_against_real_gateway(stack) -> No
 
     # RELEASE 已真实发生：同一目标可被其他主体立即 ACQUIRE。
     harness, _ = stack
-    channel = harness.mtls_channel(HOLDER)
+    channel = harness.bearer_channel(HOLDER)
     try:
         stub = pb_rpc.IndustrialGatewayServiceStub(channel)
         again = await stub.ClaimTargets(
@@ -230,7 +226,7 @@ async def test_reader_certificate_is_permission_denied_without_write(stack) -> N
 
 async def test_lease_conflict_denies_cli_without_write(stack) -> None:
     harness, tmp_path = stack
-    channel = harness.mtls_channel(HOLDER)
+    channel = harness.bearer_channel(HOLDER)
     try:
         holder = pb_rpc.IndustrialGatewayServiceStub(channel)
         claimed = await holder.ClaimTargets(

@@ -22,6 +22,7 @@ from configuration_service.domain.models import (
     RepositoryCapacityExceededError,
     RepositoryConflictError,
     RepositoryNotFoundError,
+    RepositoryVersionExistsError,
 )
 
 
@@ -283,7 +284,7 @@ class ConfigurationApplication:
                     prior["content_sha256"] != doc.content_sha256
                     or prior["schema_ref"] != doc.schema_ref
                 ):
-                    raise RepositoryConflictError(
+                    raise RepositoryVersionExistsError(
                         "existing immutable file_version has different content or schema"
                     )
             new_ids[key] = prior_id or uuid.uuid4().hex
@@ -293,7 +294,9 @@ class ConfigurationApplication:
             if isinstance(sources, list):
                 for item in sources:
                     if not isinstance(item, dict) or set(item) != {
-                        "config_type", "config_id", "file_version"
+                        "config_type",
+                        "config_id",
+                        "file_version",
                     }:
                         raise ValueError("config_sources requires type, id and file_version")
                     if any(not isinstance(item[key], str) or not item[key] for key in item):
@@ -325,21 +328,55 @@ class ConfigurationApplication:
                         raise ValueError(f"device model {field} must be a mapping")
                     target_name = target.get("id")
                     target_version = target.get("version")
-                    if not isinstance(target_name, str) or not target_name or (
-                        not isinstance(target_version, str) or not target_version
+                    if (
+                        not isinstance(target_name, str)
+                        or not target_name
+                        or (not isinstance(target_version, str) or not target_version)
                     ):
                         raise ValueError(f"device model {field} must pin id and version")
-                    target_id = new_ids.get((target_type, target_name, target_version))
-                    if target_id is None:
+                    model_target_id = new_ids.get((target_type, target_name, target_version))
+                    if model_target_id is None:
                         try:
-                            target_id = self.repository.resolve_version(
+                            model_target_id = self.repository.resolve_version(
                                 ConfigIdentity(target_type, target_name), target_version
                             )
                         except RepositoryNotFoundError as exc:
                             raise RepositoryConflictError(
                                 f"missing {target_type} {target_name}@{target_version}"
                             ) from exc
-                    references.append((target_id, f"device_model.{field}"))
+                    references.append((model_target_id, f"device_model.{field}"))
+            if document.identity.config_type in {"sink", "delivery"}:
+                config_type = document.identity.config_type
+                entries_name = "deliveries" if config_type == "delivery" else "sinks"
+                entries = document.canonical_payload.get(entries_name, {})
+                if not isinstance(entries, dict):
+                    raise ValueError(f"{config_type} entries must be a mapping")
+                for entry in entries.values():
+                    if not isinstance(entry, dict):
+                        raise ValueError(f"{config_type} entries must be mappings")
+                    template_name = entry.get("template_id")
+                    template_version = entry.get("template_version")
+                    if (
+                        not isinstance(template_name, str)
+                        or not template_name
+                        or not isinstance(template_version, str)
+                        or not template_version
+                    ):
+                        raise ValueError(
+                            f"{config_type} entries must pin template_id and template_version"
+                        )
+                    template_target_id = new_ids.get((config_type, template_name, template_version))
+                    if template_target_id is None:
+                        try:
+                            template_target_id = self.repository.resolve_version(
+                                ConfigIdentity(config_type, template_name), template_version
+                            )
+                        except RepositoryNotFoundError as exc:
+                            raise RepositoryConflictError(
+                                f"missing {config_type} template "
+                                f"{template_name}@{template_version}"
+                            ) from exc
+                    references.append((template_target_id, f"{config_type}.template"))
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
@@ -427,14 +464,14 @@ class ConfigurationApplication:
             dependency_versions: dict[str, str] = {}
             ambiguous_types: set[str] = set()
             for target_version_id, _relation in references:
-                config_type = version_types.get(target_version_id)
-                if config_type is None:
+                dependency_type = version_types.get(target_version_id)
+                if dependency_type is None:
                     identity = self.repository.get_version_identity(target_version_id)
-                    config_type = identity.config_type
-                previous = dependency_versions.get(config_type)
+                    dependency_type = identity.config_type
+                previous = dependency_versions.get(dependency_type)
                 if previous is not None and previous != target_version_id:
-                    ambiguous_types.add(config_type)
-                dependency_versions[config_type] = target_version_id
+                    ambiguous_types.add(dependency_type)
+                dependency_versions[dependency_type] = target_version_id
             for config_type in ambiguous_types:
                 del dependency_versions[config_type]
             projections = self.codec.create_projections(
@@ -474,11 +511,6 @@ class ConfigurationApplication:
                     "full-directory publication omitted a required dependency"
                 )
             canonical_refs = tuple(sorted(set(references)))
-            version_key = (
-                document.identity.config_type,
-                document.identity.config_id,
-                document.file_version,
-            )
             # Reusing a version with a different dependency graph would
             # silently reinterpret historical PointTable semantics.
             try:
@@ -545,15 +577,17 @@ class ConfigurationApplication:
             base = file_stem
             if "_v" in base:
                 prefix, sep, suffix = base.rpartition("_v")
-                if sep and all(part.isdecimal() for part in suffix.split(".")) and (
-                    len(suffix.split(".")) == 3
+                if (
+                    sep
+                    and all(part.isdecimal() for part in suffix.split("."))
+                    and (len(suffix.split(".")) == 3)
                 ):
                     base = prefix
             kind = name_types[name]
             # Legacy filenames are complete identities (devices_sim -> devices_sim).
             # Only the canonical singular type prefix is stripped when present.
             if base.startswith(kind + "_"):
-                base = base[len(kind) + 1:]
+                base = base[len(kind) + 1 :]
             identity = ConfigIdentity(kind, base)
             version_id = staged.get(identity)
             if version_id is None:
