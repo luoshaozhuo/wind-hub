@@ -83,13 +83,15 @@ def fixed_batch(
     collector = harness.rt_collector if mode == "realtime" else harness.reliable_collector
     suffix = uuid4().hex
     return SampleBatch(
-        schema_version=2,
+        schema_version=3,
         batch_id=f"r4e-{mode}-{suffix}",
         mode=mode,  # type: ignore[arg-type]
         wind_farm_id=FARM,
         collector_id=collector,
         task_id=f"r4e-fixed-{mode}",
+        device_type="wtg",
         device_id=device_id,
+        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
         publish_time=datetime.now(UTC),
         samples=(
             SampleItem(
