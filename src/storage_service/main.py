@@ -157,6 +157,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     metadata=metadata,
                     snapshot=snapshot,
                 )
+                point_tables.set_refresh_hook(watcher.refresh_now)
                 if restored_from_snapshot:
                     watcher.status = "CONFIG_RECONCILE_DEGRADED"
                 server = build_storage_grpc_server(
