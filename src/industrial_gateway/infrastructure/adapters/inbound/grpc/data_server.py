@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
@@ -36,6 +38,30 @@ from industrial_gateway.infrastructure.runtime import GatewayRuntime
 _PAGE_LIMIT = 500
 _LOGGER = logging.getLogger(__name__)
 
+_SINK_TOKEN_ENV = "WIND_HUB_GATEWAY_SINK_TOKEN"
+
+
+def _verified_sink_caller(
+    context: grpc.aio.ServicerContext[Any, Any], runtime: GatewayRuntime
+) -> bool:
+    """Authenticate the loopback-only Sink injector, never a remote plaintext peer."""
+    config = runtime.config.service.grpc
+    if config.sink_listener_port is None or not config.tls.enabled:
+        return False
+    if not context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
+        return False
+    # A TLS authenticated caller is handled exclusively by the certificate policy.
+    if context.auth_context().get("x509_common_name"):
+        return False
+    token = os.environ.get(_SINK_TOKEN_ENV, "")
+    if len(token) < 32 or token.strip() != token:
+        return False
+    metadata = [value for key, value in context.invocation_metadata() if key == "authorization"]
+    if len(metadata) != 1:
+        return False
+    return hmac.compare_digest(metadata[0], f"Bearer {token}")
+
+
 
 async def _authorize(
     context: grpc.aio.ServicerContext[Any, Any],
@@ -48,6 +74,8 @@ async def _authorize(
         if context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
             return
         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only deployment")
+        return
+    if permission == "inject" and _verified_sink_caller(context, runtime):
         return
     common_names = tuple(context.auth_context().get("x509_common_name", ()))
     identity = common_names[0].decode("utf-8") if common_names else ""
@@ -66,6 +94,8 @@ def _trusted_identity(
     """Use authenticated client certificate CN, never client-supplied metadata."""
     if not runtime.config.service.grpc.tls.enabled:
         return "local-loopback"
+    if _verified_sink_caller(context, runtime):
+        return "sink-internal"
     identities = tuple(context.auth_context().get("x509_common_name", ()))
     return identities[0].decode("utf-8") if identities else "unidentified"
 
@@ -834,4 +864,11 @@ def create_gateway_grpc_server(
         bound = server.add_insecure_port(bind)
     if bound == 0:
         raise RuntimeError(f"unable to bind Gateway gRPC: {bind}")
+    if config.sink_listener_port is not None:
+        token = os.environ.get(_SINK_TOKEN_ENV, "")
+        if len(token) < 32 or token.strip() != token:
+            raise ValueError("Gateway Sink listener requires a valid environment token")
+        internal_bind = f"127.0.0.1:{config.sink_listener_port}"
+        if server.add_insecure_port(internal_bind) == 0:
+            raise RuntimeError(f"unable to bind Gateway Sink ingress: {internal_bind}")
     return server
