@@ -363,7 +363,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         processes=harness.cli.processes,
         gateway_pki=pki,
         commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-        sink_bundle=harness.sink.bundle,
     )
     cli_document = _load(cli_config)
     cli_document["services"][service_name] = {
@@ -432,7 +431,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             processes=harness.cli.processes,
             gateway_pki=harness.pki,
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-            sink_bundle=harness.sink.bundle,
         )
         _write_cli(
             harness.cli_rel,
@@ -441,7 +439,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             processes=harness.cli.processes,
             gateway_pki=harness.pki,
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-            sink_bundle=harness.sink.bundle,
         )
         return target
     except BaseException:
