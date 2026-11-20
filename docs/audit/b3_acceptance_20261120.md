@@ -97,3 +97,10 @@
 2. 完成夹具/测试 v3+token 契约迁移，清零 217 failed 与 10 collection errors（本轮已示范 SampleBatch/中心夹具/schema 的迁移模式）。
 3. 重写 3 个编码器测试到 16+ 字段新线格式，为 `encode_kafka_points` 与四个新 B3 模块补正向测试。
 完成后需重跑本报告 §2/§3 全部门禁与 marker 套件再裁决。
+
+## 后续生产整改记录（ChatGPT，2026-11-20）
+
+- **P1-PROD-01：CODE_FIX_PENDING_RETEST**。Sink 的目标架构明确限定 Kafka 仅允许 Reliable，Redis/Modbus/Gateway 仅允许 Realtime。生产端在 `_validate_delivery` 明确依据 `kind` 和 `delivery_mode` 独立拒绝不兼容组合，而不是仅信任可配置的 capabilities；Realtime Kafka 首次写入不会再等到零投递才暴露契约错误。
+- **生产提交**：`7b00b91de9a04cf955f1f0ec763f0f3da9382378`。
+- **独立验证**：尚未执行；必须新增/迁移准入拒绝测试并覆盖配置加载、Push/Apply 和运行时启动入口。该生产修改不能直接将 B3 FAIL 改判 PASS。
+- **其余阻断未关闭**：217 failed、10 collection errors、历史编解码与订阅器正向测试缺口，以及报告原列出的 NOT_RUN。
