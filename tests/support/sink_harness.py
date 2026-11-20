@@ -1,10 +1,9 @@
-"""系统恢复测试专用：构造 v1_21 权威 Sink Service 单 Service 配置根。
+"""系统恢复测试专用：构造权威 Sink Service 单 Service 配置根。
 
 新架构下 ``wind-hub-sink-service`` 只接受 ``--config-root`` 与
 ``--service-file``：gRPC 监听、Bearer 鉴权、NATS、Sink 连接与 Delivery 过滤
 全部来自配置根内的 canonical 文档树。本模块复用 Sink Service 自己的
-阶段一夹具（:mod:`tests.sink_service._stage1_fixtures` 与
-Bearer 环境令牌），保证系统测试不会漂移出生产
+阶段一夹具（:mod:`tests.sink_service._stage1_fixtures`），保证系统测试不会漂移出生产
 校验器接受的布局；只把连接地址、身份与过滤范围参数化为恢复测试所需。
 """
 
