@@ -493,6 +493,11 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         _dump(commander_service, commander_doc)
         await _provision_commander_audit(stack.nats, audit_stream, audit_subject)
 
+        gateway_sink_port = reserve_port()
+        gateway_sink_token = os.urandom(32).hex()
+        gateway_service_doc = yaml.safe_load(gateway_service.read_text(encoding="utf-8"))
+        gateway_service_doc["grpc"]["sink_listener_port"] = gateway_sink_port
+        _dump(gateway_service, gateway_service_doc)
         sink = SinkSystemHarness(
             root=tmp_path / "sink",
             stack=stack,
@@ -548,9 +553,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "template_id": "gateway_realtime",
             "template_version": "1.0.0",
             "connection": {
-                "endpoint": endpoints["gateway"],
+                "endpoint": f"127.0.0.1:{gateway_sink_port}",
                 "gateway_id": "gw-strict",
-                "credential_ref": "env:WH_STRICT_GATEWAY_TLS",
             },
             "overrides": {},
         }
@@ -591,6 +595,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 str(gateway_root),
             ],
             cwd=SRC,
+            env={"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
         )
         harness.register_process(
             "data-generator",
@@ -623,20 +628,12 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 cwd=SRC,
                 env=common_env,
             )
-        sink_crt, sink_key = clients["sink"]
-        gateway_credentials = json.dumps(
-            {
-                "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                "client_cert_pem": sink_crt.read_text(encoding="utf-8"),
-                "client_key_pem": sink_key.read_text(encoding="utf-8"),
-            }
-        )
         harness.register_process(
             "sink",
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             cwd=sink.root,
             env={
-                "WH_STRICT_GATEWAY_TLS": gateway_credentials,
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
                 "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
             },
         )
