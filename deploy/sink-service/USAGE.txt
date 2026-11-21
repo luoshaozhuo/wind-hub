@@ -10,8 +10,8 @@ IPC conveys commands, status and metrics, never sample data.
 
 Prepare a writable persistent configuration root containing:
   configs/services/service_sink-west_v1.2.0.yaml
-  configs/instances/sinks_prod-a_v1.1.0.yaml
-  configs/instances/deliveries_prod-a_v1.2.0.yaml
+  configs/instances/sinks_prod-a_v1.2.0.yaml
+  configs/instances/deliveries_prod-a_v1.3.0.yaml
   configs/templates/sinks/<name>_<version>.yaml
   configs/templates/deliveries/<name>_<version>.yaml
   tls/ca.crt, tls/sink.crt, tls/sink.key (or adjusted security paths)
