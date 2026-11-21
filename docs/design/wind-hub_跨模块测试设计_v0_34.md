@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_33 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_34 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -270,65 +270,69 @@ Service 状态以 target_revision 和 active_revision 表示本服务完整有�
 
 ## 5.1 配置结构、版本号与 E2E 文件命名
 
-当前真实配置资产如下。目录内容以当前分支 Git HEAD 为准，文件名中的 `_v1.0.0` 是**本次按总体设计修复后的实际版本后缀**，不是仅供参考的目标名称。
+C2 已将所有受管 YAML 改为带版本后缀的正式文件，以下清单为开发分支的实际配置基线；测试 Fixture 必须与选定版本对应。
 
 ~~~text
 configs/
+├── deployments/
+│   ├── deployment_prod-a_v1.2.0.yaml
+│   └── deployment_sim-a_v1.1.0.yaml
 ├── instances/
-│   ├── site.yaml
-│   ├── devices.yaml
-│   ├── devices_sim.yaml
-│   ├── sinks.yaml
-│   └── deliveries.yaml
+│   ├── site_example_site_v1.1.0.yaml
+│   ├── device_farm-a_v1.4.0.yaml
+│   ├── device_sim_v1.2.0.yaml
+│   ├── collector_tasks_farm-a_v1.0.0.yaml
+│   ├── collector_tasks_sim_v1.0.0.yaml
+│   ├── scenarios_prod-a_v1.0.0.yaml
+│   ├── scenarios_sim_v1.0.3.yaml
+│   ├── sinks_prod-a_v1.1.0.yaml
+│   └── deliveries_prod-a_v1.2.0.yaml
 ├── services/
-│   ├── cli.example.yaml
-│   ├── collector.yaml
-│   ├── commander.yaml
-│   ├── data-generator-service.yaml
-│   ├── data-generator-sim.example.yaml
-│   ├── industrial_gateway.yaml
-│   ├── industrial_gateway-sim.example.yaml
-│   └── sink_service.yaml
+│   ├── service_collector-realtime_v1.1.0.yaml
+│   ├── service_collector-reliable_v1.0.0.yaml
+│   ├── service_collector-sim_v1.0.0.yaml
+│   ├── service_commander_v1.4.0.yaml
+│   ├── service_commander-sim_v1.0.0.yaml
+│   ├── service_gateway_v1.2.0.yaml
+│   ├── service_gateway-sim_v1.1.3.yaml
+│   ├── service_data-generator_v1.1.0.yaml
+│   ├── service_data-generator-sim_v1.0.3.yaml
+│   ├── service_sink-west_v1.2.0.yaml
+│   └── service_cli_v1.2.0.yaml
 ├── templates/
-│   ├── device_models/              # wtg_sim_physical_v1.0.0.yaml 等
-│   ├── point_tables/               # modbus_wtg_sim_v1.0.0.yaml 等
-│   ├── protocols/                  # modbus_tcp_v1.0.0.yaml 等
-│   ├── sinks/                      # gateway_realtime_v1.0.0.yaml 等
-│   ├── deliveries/                 # realtime_power_v1.0.0.yaml 等
-│   ├── tasks/                      # turbine_all_v1.0.0.yaml
-│   ├── observability_v1.0.0.yaml
-│   ├── business_points.yaml
-│   └── units.yaml
-└── history/demo.csv
+│   ├── units_standard_v1.2.0.yaml
+│   ├── business_points_standard_v1.4.0.yaml
+│   ├── point_tables/point_table_<info>_vX.Y.Z.yaml
+│   ├── device_models/device_model_<info>_vX.Y.Z.yaml
+│   ├── protocols/protocol_<info>_vX.Y.Z.yaml
+│   ├── sinks/sink_<info>_vX.Y.Z.yaml
+│   ├── deliveries/delivery_<info>_vX.Y.Z.yaml
+│   └── observability_v1.0.0.yaml
+└── history/demo.csv  # 非 YAML 测试资产，CLI 发布仅扫描 .yaml
 ~~~
 
-<p class="figure-caption">图 5-1 正式配置资产、版本化模板及 E2E 引用边界</p>
+<p class="figure-caption">图 5-1 C2 版本化配置资产及 Deployment 选定边界</p>
 
-**命名约束**：依据总体设计第 5.4 节，带版本文件统一采用 `<前缀><名称>[_vMAJOR.MINOR.PATCH].yaml`；版本号前必须有字母 `v`，YAML 正文 `file_version` 的值仍为不带 `v` 的语义版本字符串。版本后缀是可选的，不能认为 `site.yaml`、`devices.yaml` 等无版本后缀文件违反该规则。路径变更必须同步精确模板解析器、全部 Service 引用和测试 Fixture。
-
-**E2E 命名示例**：若现有点表不满足测试要求，需要新增专用 Modbus 物理仿真点表，可在 `configs/templates/point_tables/` 下采用 `modbus_e2e_physical_v1.0.0.yaml`；此为测试信息名示例，不要求为了新名字复制现有等价点表。现行总体设计还要求类型前缀，须先修订总体设计才能正式采用该简化文件名；未修订前以总体设计的完整前缀规则为准。
-
-**配置仍需适配的部分**：当前 `services/`、`instances/` 等部分文件名称、文件头注释和业务归属尚未全面符合总体设计；本次模板版本后缀整改不代表全部 Service/Instance 命名和 Schema 验收完成。特别是 Data Generator Scenario 应归 Service，不能重新引入 `instances/data-generator*`；真实设备配置不得为 E2E 覆盖。
+所有受管 YAML 文件名必须包含 `_vMAJOR.MINOR.PATCH.yaml`；正文 `file_version` 为对应的 `MAJOR.MINOR.PATCH`。Configuration 的本地引导文件位于 `deploy/configuration/`，不是业务发布根目录。Device `group` 属于 Device Instance；Task 属于 Collector 专属 Instance；Scenario 属于独立 Instance，不再使用 `templates/tasks` 或 Service 内联场景。
 
 ## 5.2 角色、配置与前置差异
 
-| 角色 | 使用配置 | 实施要求 |
+| 角色 | 实际配置选择 | E2E 要求 |
 |---|---|---|
-| 五设备 | `instances/devices_sim.yaml` + 准确型号与点表 | WTG/PV/BESS/GRID/PPC_SIM01；源 Modbus 端口 15021～15025 |
-| Generator | `services/data-generator-sim.example.yaml` | Scenario `wind-plant-physical`、5 设备、0.05 s 步长；确定性场景由合法 Service 场景版本表达 |
-| Gateway 源 | `services/industrial_gateway-sim.example.yaml` | gRPC 50073，五 Server；仅 PPC 配置工业控制映射；验证内网路由、访问令牌与控制权限 |
-| Collector | `services/collector.yaml`、`instances/collector_tasks.yaml` | 当前仍引用真实 `devices.yaml`；必须建立隔离模拟 Service 和合法采样任务 |
-| Sink | `services/sink_service.yaml`、`instances/sinks.yaml`、`instances/deliveries.yaml` | 现有过滤为 WT001/WT002，地址属示例；测试使用隔离实例与四种目标，不能误写真实目标 |
-| Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、内网访问授权 凭据、独立变量与租约 |
-| Commander | `services/commander.yaml` | 模拟控制设备、Gateway 授权与请求身份一致 |
-| CLI | `services/cli.example.yaml` | 示例混用 containerd/iSulad/process；完整 E2E 统一使用 CLI 原生 process 后端启动六类业务进程；容器后端另行专项验证 |
-| 外部 | NATS/JetStream、Redis、Kafka | 独立测试命名空间及清理所有权 |
+| 设备 | `device_sim_v1.2.0.yaml` | WTG/PV/BESS/GRID/PPC_SIM01 五设备，group=simulation |
+| Generator | `service_data-generator-sim_v1.0.3.yaml` + `scenarios_sim_v1.0.3.yaml` | 场景 wind-plant-physical，确定性激励 |
+| Gateway | `service_gateway-sim_v1.1.3.yaml` | gRPC 50073，五 Server；控制安全规则保持有效 |
+| Collector | `service_collector-sim_v1.0.0.yaml` + `collector_tasks_sim_v1.0.0.yaml` | 验证按 group 调度、不重复采集；真实部署另外有 Realtime/Reliable 双 Service |
+| Sink | `service_sink-west_v1.2.0.yaml` + Sinks/Deliveries Instance | 现有配置仅示例目标；E2E 使用隔离四种目标 Fixture |
+| Commander | `service_commander-sim_v1.0.0.yaml` | 仿真控制、Gateway 权限与请求身份一致 |
+| CLI | `service_cli_v1.2.0.yaml` | 所有业务进程由 CLI 启动；中间件独立启动 |
+| 外部 | NATS/JetStream、Redis、Kafka、TDengine | 隔离命名空间；由测试代码单独管理 |
 
-**端口核对**：现行参考配置已将 Sink Main 设为 `50053`、Generator 模拟服务设为 `50061`，CLI 参考端点相应为 `50053` 和 `50061`。完整 E2E 使用隔离服务配置与动态端口，仍须按实际运行时逐一核对 Gateway、Commander、双 Collector、Sink 和 Generator 的监听地址、内网访问授权 身份及路由。`.example.yaml` 不等于通过启动或证书验收。
+`sim-a` 与 `prod-a` 是独立 Deployment；同一部署域内共享 Instance 只有一个选定版本。CLI 的运行专用生成文件（例如 `cli-runtime.yaml`）放在业务发布根目录之外。业务模块加载器按新契约的兼容性适配属于 C3，本节不宣称当前 E2E 已通过。
 
 ## 5.3 最少配置原则
 
-测试专属服务配置归 `configs/services/`；有必要隔离 Sink/Delivery 实体时才增加合法 `configs/instances/` 文件。采集任务、仿真场景及运行期参数应归所属业务 Service/模板契约，不能为了 E2E 在 `instances/` 额外创造 `data-generator-*` 等非法层。`schema_version`、`file_version`、`config_sources` 严格遵从各自 Schema；全部路径和实际内容哈希进入测试报告。共享设备、点表、单位和业务点不制作测试副本。
+不为测试复制已有等价 Template；测试需要新设备或新场景时，增加明确身份的版本化 Instance/Template，并在隔离 Deployment 中选择。全量候选发布由 Configuration 校验完整依赖闭包。标准单位、业务点、PointTable 和 Device Model 都固定版本，测试以发布清单与有效闭包 SHA-256 为证据。不得把不可变发布版本当作运行时启停状态修改。
 
 ## 5.4 业务进程和中间件生命周期
 

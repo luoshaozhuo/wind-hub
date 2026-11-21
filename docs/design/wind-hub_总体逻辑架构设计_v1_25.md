@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_24 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_25 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -329,38 +329,35 @@ Configuration Service 统一持有全局候选、不可变版本和已发布修�
 
 ### Collector Task / Device Group 最终配置 Schema（目标）
 ```yaml
-# configs/instances/device_farm-a_v1.2.0.yaml
+# configs/instances/device_farm-a_v1.4.0.yaml（关键字段摘录）
 schema_version: 1
-file_version: "1.2.0"
+file_version: "1.4.0"
 devices:
-  WT01:
-    group: fast
-    model: {id: turbine_a, version: "1.2.0"}
-    endpoint: {host: 192.168.1.101}
-  WT02:
-    group: slow
-    model: {id: turbine_a, version: "1.2.0"}
-    endpoint: {host: 192.168.1.102}
+  GW01:
+    group: turbine
+    model: {id: wtg_gw2mw, version: "1.4.0"}
+    endpoint: {host: 127.0.0.1, port: 801}
+  TZ01:
+    group: turbine
+    model: {id: wtg_tz2mw, version: "1.3.0"}
+    endpoint: {host: 127.0.0.1, port: 1502}
 ```
 ```yaml
-# configs/instances/collector_tasks_farm-a_v1.1.0.yaml
+# configs/instances/collector_tasks_farm-a_v1.0.0.yaml
 schema_version: 1
-file_version: "1.1.0"
+file_version: "1.0.0"
 tasks:
-  fast:
-    group: fast
-    interval_ms: 100
-    desired_state: START
-  slow:
-    group: slow
+  turbine_all:
+    group: turbine
+    point_group: all
     interval_ms: 1000
-    desired_state: START
+    desired_state: STOP
 ```
 ```yaml
-# Collector Service 中只记录实例逻辑身份
+# Collector Service 的 Instance 逻辑身份
 config_sources:
   instances:
-    site: farm-a
+    site: example_site
     devices: farm-a
     tasks: farm-a
 ```
@@ -567,7 +564,7 @@ Contracts §11.6 统一规定 Collector→NATS→Sink 的 SampleBatch v3 输入�
 ```yaml
 config_sources:
   instances:
-    site: farm-a
+    site: example_site
     devices: farm-a
 ```
 
@@ -938,27 +935,56 @@ Commander 的指令幂等、独立隔离证明、fencing、SQLite 持久结果�
 Deployment 属于 Configuration Repository 的受管对象，不构成第四类业务配置；其作用是选择 Service 和 Instance 的不可变版本。一个服务只依赖 Instances，Instance 可通过固定版本依赖 Templates。模板内部必要的模板引用亦必须固定 ID/版本并校验无环。
 
 ```yaml
-# configs/deployments/deployment_farm_a_v1.0.0.yaml（目标 Schema）
+# configs/deployments/deployment_prod-a_v1.2.0.yaml（当前真实示例）
+# Deployment 为同一部署域原子选择所有 Service / Instance 的不可变版本。
+# schema_version: 1；file_version: MAJOR.MINOR.PATCH；deployment_id: 唯一部署身份。
+# services.<service_id>.config_id 必须与映射键一致；file_version 为精确版本。
+# instances.<config_type>.<config_id>.file_version 为同部署域的唯一目标版本。
+# 实例依赖模板由 Instance 固定引用；Service 不允许直接引用 Template。
 schema_version: 1
-file_version: "1.0.0"
-deployment_id: farm-a
+file_version: "1.2.0"
+deployment_id: prod-a
 services:
   collector-realtime:
     config_id: collector-realtime
     file_version: "1.1.0"
+  collector-reliable:
+    config_id: collector-reliable
+    file_version: "1.0.0"
+  commander:
+    config_id: commander
+    file_version: "1.4.0"
+  gateway:
+    config_id: gateway
+    file_version: "1.2.0"
+  data-generator:
+    config_id: data-generator
+    file_version: "1.1.0"
   sink-west:
     config_id: sink-west
-    file_version: "1.0.0"
+    file_version: "1.2.0"
+  cli:
+    config_id: cli
+    file_version: "1.2.0"
 instances:
+  site:
+    example_site:
+      file_version: "1.1.0"
   device:
     farm-a:
-      file_version: "1.2.0"
+      file_version: "1.4.0"
   collector_tasks:
     farm-a:
-      file_version: "1.1.0"
-  site:
-    farm-a:
       file_version: "1.0.0"
+  scenario:
+    prod-a:
+      file_version: "1.0.0"
+  sink:
+    prod-a:
+      file_version: "1.1.0"
+  delivery:
+    prod-a:
+      file_version: "1.2.0"
 ```
 
 Deployment 中 `services` 的映射键是 service_id，值的 config_id 必须相同；`instances` 一级键是 config_type，二级键是 config_id，三级选择 file_version，禁止同一类型/ID 存在多个目标版本。Service 使用 `config_sources.instances.<role>: <config_id>`；角色对应的 config_type 在各模块 Schema 中固定声明，不能仅按相同字符串猜测类型。实例没有被目标 Service 引用时，其版本升级不得触发该 Service 的运行配置变化。

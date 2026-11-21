@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_37 · 20261118</p>
+<p class="subtitle">v1_38 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -3158,38 +3158,35 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 ### Collector Task / Device Group 最终配置 Schema（目标）
 人工启停通过已有 Collector 管理 RPC 更新本地持久化运行意图，键为 `task_id + collector_tasks.file_version`，优先于该版本的 `desired_state`；重启恢复同版本的覆盖状态。当 Deployment 选定新的 Collector Task Instance 版本时，该任务的旧版本覆盖状态失效，以新版本 `desired_state` 重新协调。控制记录写入失败不改变实际意图；不写入已发布的 Instance YAML。
 ```yaml
-# configs/instances/device_farm-a_v1.2.0.yaml
+# configs/instances/device_farm-a_v1.4.0.yaml（关键字段摘录）
 schema_version: 1
-file_version: "1.2.0"
+file_version: "1.4.0"
 devices:
-  WT01:
-    group: fast
-    model: {id: turbine_a, version: "1.2.0"}
-    endpoint: {host: 192.168.1.101}
-  WT02:
-    group: slow
-    model: {id: turbine_a, version: "1.2.0"}
-    endpoint: {host: 192.168.1.102}
+  GW01:
+    group: turbine
+    model: {id: wtg_gw2mw, version: "1.4.0"}
+    endpoint: {host: 127.0.0.1, port: 801}
+  TZ01:
+    group: turbine
+    model: {id: wtg_tz2mw, version: "1.3.0"}
+    endpoint: {host: 127.0.0.1, port: 1502}
 ```
 ```yaml
-# configs/instances/collector_tasks_farm-a_v1.1.0.yaml
+# configs/instances/collector_tasks_farm-a_v1.0.0.yaml
 schema_version: 1
-file_version: "1.1.0"
+file_version: "1.0.0"
 tasks:
-  fast:
-    group: fast
-    interval_ms: 100
-    desired_state: START
-  slow:
-    group: slow
+  turbine_all:
+    group: turbine
+    point_group: all
     interval_ms: 1000
-    desired_state: START
+    desired_state: STOP
 ```
 ```yaml
-# Collector Service 中只记录实例逻辑身份
+# Collector Service 的 Instance 逻辑身份
 config_sources:
   instances:
-    site: farm-a
+    site: example_site
     devices: farm-a
     tasks: farm-a
 ```
@@ -3351,7 +3348,7 @@ flowchart TD
 ```
 ## 11.6 配置示例与版本契约
 
-Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其所需 Instance 的逻辑身份；所选版本由 Deployment 确定，任何模板已发布版本不能原地重写。`configs/instances/devices.yaml`
+Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其所需 Instance 的逻辑身份；所选版本由 Deployment 确定，任何模板已发布版本不能原地重写。`configs/instances/device_farm-a_v1.4.0.yaml`
 的设备运行意图仅由本设备实例覆盖，手动 STOP
 不修改共享模板。设备实例示例见第 11.2 节，服务配置示例见第 11.4
 节。上述示例字段为设计约束，具体字段名须与项目当前配置 Schema
