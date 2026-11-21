@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -18,7 +17,8 @@ import nats
 
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
-from core.infrastructure.config.generic_yaml import ConfigOperationError, parse_yaml
+from core.infrastructure.config.generic_yaml import parse_yaml
+from core.infrastructure.configuration_repository import verify_selected_bundle
 from sink_service.application.config import template_path
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.config_sources import config_sources
@@ -28,62 +28,19 @@ from sink_service.infrastructure.secrets import resolve_secret
 
 _LOG = logging.getLogger(__name__)
 _SUBJECT = "wh.config.changed"
-_MAX_BUNDLE_BYTES = 16 * 1024 * 1024
-_MAX_DOCUMENTS = 1000
-
-
-def _payloads(bundle: pb.GetServiceConfigBundleResponse) -> dict[str, bytes]:
-    """Authenticate all source files before selecting a local Sink closure."""
-    if not 0 < len(bundle.files) <= _MAX_DOCUMENTS:
-        raise ConfigurationError("invalid Configuration bundle file count")
-    digest = hashlib.sha256()
-    files: dict[str, bytes] = {}
-    total = 0
-    for item in bundle.files:
-        relative = item.relative_path
-        if (
-            not relative
-            or relative.startswith("/")
-            or "\\" in relative
-            or "\x00" in relative
-            or any(part in ("", ".", "..") for part in relative.split("/"))
-            or not relative.endswith(".yaml")
-        ):
-            raise ConfigurationError("invalid Configuration bundle relative path")
-        for value in (relative, item.version_id, item.yaml_sha256):
-            data = value.encode("utf-8")
-            digest.update(len(data).to_bytes(4, "big"))
-            digest.update(data)
-        path = relative if relative.startswith("configs/") else "configs/" + relative
-        if path in files or not item.version_id:
-            raise ConfigurationError("duplicate or incomplete Configuration bundle file")
-        data = bytes(item.yaml_bytes)
-        total += len(data)
-        if total > _MAX_BUNDLE_BYTES:
-            raise ConfigurationError("Configuration bundle exceeds local capacity")
-        if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
-            raise ConfigurationError("Configuration source YAML hash mismatch")
-        try:
-            document = parse_yaml(data.decode("utf-8", errors="strict"))
-        except (ConfigOperationError, UnicodeError) as exc:
-            raise ConfigurationError("invalid Configuration source YAML") from exc
-        if (
-            document.get("file_version") != item.file_version
-            or document.get("schema_version") != item.schema_version
-        ):
-            raise ConfigurationError("Configuration bundle version/header mismatch")
-        semantic = json.dumps(
-            document,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        if hashlib.sha256(semantic).hexdigest() != item.content_sha256:
-            raise ConfigurationError("Configuration bundle semantic hash mismatch")
-        files[path] = data
-    if digest.hexdigest() != bundle.manifest_sha256 or total != bundle.total_bytes:
-        raise ConfigurationError("Configuration bundle manifest mismatch")
+_MAX_BUNDLE_BYTdef _payloads(
+    bundle: pb.GetServiceConfigBundleResponse,
+    deployment_id: str,
+    service_id: str,
+) -> dict[str, bytes]:
+    """Verify the same authoritative manifest and closure digest as other services."""
+    selected = verify_selected_bundle(bundle, deployment_id, service_id)
+    if len(selected.files) > _MAX_DOCUMENTS:
+        raise ConfigurationError("Sink configuration exceeds document limit")
+    if sum(map(len, selected.files.values())) > _MAX_BUNDLE_BYTES:
+        raise ConfigurationError("Sink configuration exceeds byte limit")
+    return {"configs/" + name: value for name, value in selected.files.items()}
+n bundle manifest mismatch")
     return files
 
 
@@ -153,16 +110,20 @@ class ConfigurationSubscriber:
             )
         if bundle.repository_revision_id < 1 or len(bundle.target_revision) != 64:
             raise ConfigurationError("Configuration Service bundle has invalid revision")
-        if self._target_revision == bundle.target_revision:
+        if (
+            self._target_revision == bundle.target_revision
+            and self._manager.active_revision == bundle.target_revision
+        ):
             self._revision = bundle.repository_revision_id
             return
-        local = _local_snapshot(_payloads(bundle))
+        local = _local_snapshot(_payloads(bundle, self._deployment_id, self._service_id))
         verified = validate_snapshot(local)
         if verified.revision == self._manager.disk.revision:
-            self._manager.report_selected(
-                bundle.target_revision,
-                active=self._manager.disk.revision == self._manager.runtime.revision,
+            converged = (
+                self._manager.disk.revision == self._manager.runtime.revision
+                or await self._manager.reconcile_committed()
             )
+            self._manager.report_selected(bundle.target_revision, active=converged)
             self._revision = bundle.repository_revision_id
             self._target_revision = bundle.target_revision
             return
