@@ -144,6 +144,8 @@ def document_input(
     if config_type == "site":
         payload.setdefault("site_id", config_id)
         payload.setdefault("name", config_id)
+    if config_type == "collector_tasks":
+        payload.setdefault("tasks", {})
     data = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False).encode()
     return DocumentInput(
         identity=ConfigIdentity(config_type, config_id),
