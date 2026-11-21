@@ -21,7 +21,7 @@ class SqliteTaskIntentStore:
             )
 
     def read_intents(self, file_version: str) -> dict[str, str]:
-        """Read only intents associated with the active Task Instance version."""
+        """Read only intents associated with the selected Task identity and version."""
         with sqlite3.connect(self.path) as connection:
             rows = connection.execute(
                 "SELECT device_id, desired_state FROM task_intents WHERE task_version=?",

@@ -37,6 +37,7 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
         selected = select_local_service(config_file)
         site_path = selected.instances["site"]
         devices_path = selected.instances["devices"]
+        tasks_path = selected.instances["tasks"]
     except (KeyError, ValueError, OSError) as exc:
         raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
     return SnapshotPaths(
@@ -45,7 +46,7 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
         templates=selected.templates,
         site=site_path,
         devices=devices_path,
-        tasks=selected.instances["tasks"],
+        tasks=tasks_path,
     )
 
 
@@ -53,10 +54,15 @@ def _source_references(service: Mapping[str, object]) -> tuple[str, ...]:
     """Return validated Collector Instance logical identities."""
     from core.configuration.deployment import INSTANCE_ROLE_TYPES, service_instance_refs
 
-    refs = service_instance_refs(service, INSTANCE_ROLE_TYPES)
-    if {role for role in service.get("config_sources", {}).get("instances", {})} != {
-        "site", "devices", "tasks"
-    }:
+    try:
+        refs = service_instance_refs(service, INSTANCE_ROLE_TYPES)
+    except ValueError as exc:
+        raise ConfigError(f"invalid Collector Instance identity: {exc}") from exc
+    sources = service.get("config_sources")
+    if not isinstance(sources, dict):
+        raise ConfigError("Collector config_sources must be a mapping")
+    instances = sources.get("instances")
+    if not isinstance(instances, dict) or set(instances) != {"site", "devices", "tasks"}:
         raise ConfigError("Collector requires site, devices and tasks Instance roles")
     return tuple(config_id for _, config_id in refs)
 
@@ -282,7 +288,7 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         if not isinstance(raw, dict):
             raise ConfigError(f"{device_id}: device must be a mapping")
         group = raw.get("group")
-        if not isinstance(group, str) or not group:
+        if not isinstance(group, str) or not group.strip() or group != group.strip():
             raise ConfigError(f"{device_id}: invalid device group")
         groups[group] = raw
     used: set[str] = set()
@@ -292,7 +298,7 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         if set(raw) != {"group", "point_group", "interval_ms", "desired_state"}:
             raise ConfigError(f"{task_id}: unsupported Task keys")
         group = raw["group"]
-        if group not in groups or group in used:
+        if not isinstance(group, str) or group not in groups or group in used:
             raise ConfigError(f"{task_id}: missing or duplicate device group")
         used.add(group)
         if raw["point_group"] != "all" or raw["desired_state"] not in {"START", "STOP"}:
@@ -330,8 +336,10 @@ def parse_collector_runtime(
     task_document = read_yaml(paths.tasks)
     raw_tasks = task_document["tasks"]
     tasks_by_group = {item["group"]: item for item in raw_tasks.values()}
+    # Scope operator overrides to the selected immutable Task document.
+    task_identity = f"{paths.tasks.name}:{task_document['file_version']}"
     intents = (
-        task_intents.read_intents(task_document["file_version"])
+        task_intents.read_intents(task_identity)
         if task_intents is not None else {}
     )
     devices: list[DevicePlan] = []
