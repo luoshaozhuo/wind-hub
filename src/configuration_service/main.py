@@ -1,9 +1,10 @@
-"""Configuration Service executable: token-authorized gRPC on trusted networks."""
+"""Configuration Service executable: local YAML bootstrap and authorized gRPC."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -24,8 +25,8 @@ from configuration_service.infrastructure.adapters.inbound.grpc.common_server im
 from configuration_service.infrastructure.adapters.inbound.grpc.repository_server import (
     RepositoryServicer,
 )
-from configuration_service.infrastructure.adapters.outbound.nats_revision_publisher import (
-    NatsRevisionPublisher,
+from configuration_service.infrastructure.adapters.outbound.nats.revision_notifier import (
+    RevisionBroadcaster,
 )
 from configuration_service.infrastructure.adapters.outbound.sqlite.backup import (
     SQLiteBackupManager,
@@ -40,6 +41,19 @@ from configuration_service.settings import ServerSettings, load_settings
 from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
 
 _LOG = logging.getLogger(__name__)
+
+
+def _load_actor_tokens(settings: ServerSettings) -> dict[str, str]:
+    """Resolve authorized identities to independent deployment-injected tokens."""
+    tokens: dict[str, str] = {}
+    for actor, variable in settings.token_sources.items():
+        token = os.environ.get(variable, "")
+        if len(token) < 32 or token.strip() != token:
+            raise ValueError(f"missing or invalid token for authorized actor {actor}")
+        if token in tokens.values():
+            raise ValueError("duplicate configuration access token")
+        tokens[actor] = token
+    return tokens
 
 
 def serve(settings: ServerSettings, bootstrap: Path) -> None:
@@ -57,10 +71,14 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         max_workers=settings.max_backup_jobs, thread_name_prefix="configuration-backup"
     )
     backups = SQLiteBackupManager(repository, settings.backup_root)
+    notifier = RevisionBroadcaster(
+        settings.nats_servers,
+        subject=settings.nats_subject,
+        connect_timeout_ms=settings.nats_connect_timeout_ms,
+    )
     server: grpc.Server | None = None
-    publisher = NatsRevisionPublisher(servers=settings.nats_servers)
-    publisher.start()
     try:
+        notifier.start()
         interrupted = backups.recover()
         if interrupted:
             _LOG.warning("marked %s interrupted backup jobs", interrupted)
@@ -116,10 +134,10 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         repository_servicer = RepositoryServicer(
             application,
             permissions=settings.permissions,
-            token_sources=settings.token_sources,
+            tokens=_load_actor_tokens(settings),
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
-            notify_revision=publisher.enqueue,
+            revision_notify=notifier.enqueue,
             metrics=rpc_metrics,
         )
         common_servicer = CommonServicer(
@@ -136,7 +154,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             worker_pool,
             maximum_concurrent_rpcs=settings.max_concurrent_queries,
             options=[
-                ("grpc.max_receive_message_length", settings.max_request_bytes),
+                ("grpc.max_receive_message_length", settings.max_request_bytes + protobuf_headroom),
                 (
                     "grpc.max_send_message_length",
                     settings.max_bundle_bytes + protobuf_headroom,
@@ -147,7 +165,8 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             repository_servicer, server
         )
         common_pb2_grpc.add_CommonServiceServicer_to_server(common_servicer, server)
-        bind = f"{settings.host}:{settings.port}"
+        host = f"[{settings.host}]" if ":" in settings.host else settings.host
+        bind = f"{host}:{settings.port}"
         if server.add_insecure_port(bind) == 0:
             raise RuntimeError("failed to bind Configuration Service endpoint")
         server.start()
@@ -163,9 +182,9 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         while not should_stop:
             signal.pause()
     finally:
-        publisher.close()
         if server is not None:
             server.stop(grace=5).wait(timeout=10)
+        notifier.close()
         backup_pool.shutdown(wait=True, cancel_futures=False)
         worker_pool.shutdown(wait=True, cancel_futures=True)
         repository.close()

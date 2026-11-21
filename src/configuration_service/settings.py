@@ -15,8 +15,10 @@ class ServerSettings:
     service_id: str
     host: str
     port: int
-    token_sources: dict[str, str]
     nats_servers: tuple[str, ...]
+    nats_subject: str
+    nats_connect_timeout_ms: int
+    token_sources: dict[str, str]
     sqlite_path: Path
     backup_root: Path
     cursor_secret_file: Path
@@ -64,11 +66,8 @@ def load_settings(path: Path) -> ServerSettings:
     if not path.is_absolute() or not path.is_file():
         raise ValueError("bootstrap YAML must be an existing absolute path")
     raw = parse_yaml(path.read_bytes(), max_bytes=1024 * 1024)
-    if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
+    if raw["schema_version"] != 1:
         raise ValueError("unsupported bootstrap schema_version")
-    version = raw.get("file_version")
-    if not isinstance(version, str) or re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", version) is None:
-        raise ValueError("Configuration bootstrap file_version must be MAJOR.MINOR.PATCH")
     allowed_root = {
         "schema_version",
         "file_version",
@@ -82,10 +81,10 @@ def load_settings(path: Path) -> ServerSettings:
     if set(raw) != allowed_root:
         raise ValueError("invalid bootstrap configuration root fields")
     grpc_config = _mapping(raw["grpc"], "grpc")
+    nats = _mapping(raw["nats"], "nats")
     repository = _mapping(raw["repository"], "repository")
     limits = _mapping(raw["limits"], "limits")
     security = _mapping(raw["security"], "security")
-    nats_config = _mapping(raw["nats"], "nats")
 
     def assert_fields(value: dict[str, Any], allowed: set[str], name: str) -> None:
         unexpected = set(value) - allowed
@@ -93,16 +92,9 @@ def load_settings(path: Path) -> ServerSettings:
             raise ValueError(f"unknown {name} fields: {sorted(unexpected)}")
 
     assert_fields(grpc_config, {"host", "port"}, "grpc")
+    assert_fields(nats, {"servers", "subject", "connect_timeout_ms"}, "nats")
     assert_fields(repository, {"sqlite_path", "backup_root"}, "repository")
     assert_fields(security, {"cursor_secret_file", "token_sources", "permissions"}, "security")
-    assert_fields(nats_config, {"servers"}, "nats")
-    servers = nats_config["servers"]
-    if (
-        not isinstance(servers, list)
-        or not servers
-        or any(not isinstance(item, str) or not item.startswith("nats://") for item in servers)
-    ):
-        raise ValueError("nats.servers must be nonempty nats:// endpoints")
     assert_fields(
         limits,
         {
@@ -132,25 +124,40 @@ def load_settings(path: Path) -> ServerSettings:
             raise ValueError("client permissions must be a nonempty role list")
         identities[name] = frozenset(roles)
     if not identities:
-        raise ValueError("at least one authenticated token principal is required")
-    configured_sources = _mapping(security["token_sources"], "security.token_sources")
-    sources: dict[str, str] = {}
-    for actor, reference in configured_sources.items():
-        principal = _text(actor, "token actor")
-        name = _text(reference, "security token source")
-        if re.fullmatch(r"env:[A-Z_][A-Z0-9_]*", name) is None:
-            raise ValueError("token source must reference a controlled environment variable")
-        sources[principal] = name.removeprefix("env:")
+        raise ValueError("at least one authorized client is required")
+    sources = _mapping(security["token_sources"], "security.token_sources")
     if set(sources) != set(identities):
-        raise ValueError("token source and permission principals must agree")
-    if len(set(sources.values())) != len(sources):
-        raise ValueError("Configuration principals require separate token sources")
+        raise ValueError("every authorized actor must have one token source")
+    token_sources: dict[str, str] = {}
+    for actor, value in sources.items():
+        source = _text(value, "token source")
+        if not re.fullmatch(r"env:[A-Z][A-Z0-9_]*", source):
+            raise ValueError("token source must use env:UPPERCASE_NAME")
+        token_sources[actor] = source[4:]
+    servers = nats["servers"]
+    if (
+        not isinstance(servers, list)
+        or not servers
+        or any(
+            not isinstance(server, str) or not server.startswith("nats://") for server in servers
+        )
+    ):
+        raise ValueError("NATS servers must be nonempty nats:// addresses")
+    if nats["subject"] != "wh.config.changed":
+        raise ValueError("NATS configuration subject must be wh.config.changed")
+    # Configuration runs on an isolated internal service network; access
+    # control and firewall isolation are deployment preconditions.
+    bind_host = _text(grpc_config["host"], "grpc.host")
     return ServerSettings(
         service_id=_text(raw["service_id"], "service_id"),
-        host=_text(grpc_config["host"], "grpc.host"),
+        host=bind_host,
         port=_number(grpc_config["port"], "grpc.port", 1, 65535),
-        token_sources=sources,
         nats_servers=tuple(servers),
+        nats_subject="wh.config.changed",
+        nats_connect_timeout_ms=_number(
+            nats["connect_timeout_ms"], "nats.connect_timeout_ms", 1, 120_000
+        ),
+        token_sources=token_sources,
         sqlite_path=_file(repository["sqlite_path"], "repository.sqlite_path"),
         backup_root=_file(repository["backup_root"], "repository.backup_root"),
         cursor_secret_file=_file(security["cursor_secret_file"], "security.cursor_secret_file"),

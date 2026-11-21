@@ -50,6 +50,7 @@ message DependencyHealth {
 message GetServiceStatusResponse {
   string health = 1; repeated DependencyHealth dependencies = 2;
   google.protobuf.Timestamp observed_at = 3;
+  string target_revision = 4; string active_revision = 5;
 }
 message GetCapabilitiesResponse {
   repeated string rpc_names = 1; repeated string protocols = 2;

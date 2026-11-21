@@ -57,10 +57,7 @@ class CommonServicer(rpc.CommonServiceServicer):
         try:
             return self.repository_rpc._actor(context, role)
         except (AuthenticationError, PermissionError) as exc:
-            try:
-                actor = self.repository_rpc.identify_actor(context)
-            except AuthenticationError:
-                actor = "unauthenticated"
+            actor = "unauthenticated"
             try:
                 self.app.repository.record_rejected_operation(
                     actor_id=actor,
@@ -131,6 +128,8 @@ class CommonServicer(rpc.CommonServiceServicer):
                 "GetRepositoryStats",
                 "CreateBackup",
                 "GetBackupTask",
+                "GetCurrentRevision",
+                "GetPointTableBundle",
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
@@ -142,7 +141,13 @@ class CommonServicer(rpc.CommonServiceServicer):
                 "Diagnose",
             ],
             protocols=["grpc", "yaml", "sqlite"],
-            features=["immutable-config-revisions", "yaml-roundtrip", "sqlite-online-backup"],
+            features=[
+                "immutable-config-revisions",
+                "full-directory-manifests",
+                "historical-point-table-bundles",
+                "yaml-roundtrip",
+                "sqlite-online-backup",
+            ],
         )
 
     def GetConfigSnapshot(

@@ -32,9 +32,6 @@ class PreparedDocument:
     file_version: str
     content_sha256: str
     canonical_payload: dict[str, Any]
-    relative_path: str = ""
-    yaml_bytes: bytes = b""
-    yaml_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)

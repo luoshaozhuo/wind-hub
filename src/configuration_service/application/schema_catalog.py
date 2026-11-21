@@ -36,16 +36,14 @@ def _field(name: str, kind: str = "object", *, required: bool = False) -> dict[s
 # nested rules without changing the transport or storage schema.
 _FIELDS: dict[str, dict[str, str]] = {
     "units": {"quantities": "object", "units": "object"},
-    "semantic_points": {"semantic_points": "object"},
-    "business_points": {"business_points": "object", "device_type": "string"},
+    "business_points": {"business_points": "object"},
     "point_table": {
         "template_id": "string",
         "device_type": "string",
         "protocol": "string",
         "points": "object",
-        "inherits": "object",
-        "parent_version_id": "string",
-        "parent_point_table_id": "string",
+        "parent": "object",
+        "remove_points": "array",
     },
     "device": {"devices": "object", "revision": "string"},
     "device_model": {
@@ -53,10 +51,8 @@ _FIELDS: dict[str, dict[str, str]] = {
         "name": "string",
         "device_type_id": "string",
         "protocol": "object",
-        "protocol_options": "object",
         "point_table": "object",
         "simulation": "object",
-        "task": "object",
     },
     "service": {
         "service_id": "string",
@@ -65,7 +61,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "grpc": "object",
         "security": "object",
         "repository": "object",
-        "simulation_targets": "object",
         "audit": "object",
         "timeouts": "object",
         "shutdown": "object",
@@ -83,32 +78,20 @@ _FIELDS: dict[str, dict[str, str]] = {
         "replay": "object",
         "diagnose": "object",
         "recording": "object",
-        "scenarios": "array",
         "wind_farm_id": "string",
         "deployment_id": "string",
         "config_root": "string",
         "cli": "object",
         "services": "object",
+        "tls_profiles": "object",
         "network_probe": "object",
-        "allowed_wind_farms": "array",
-        "auth": "object",
-        "kafka": "object",
-        "tdengine": "object",
-        "configuration": "object",
-        "query": "object",
-        "export": "object",
-        "backup": "object",
-        "retry": "object",
-        "reconciliation": "object",
     },
     "site": {"site_id": "string", "name": "string"},
-    "task": {
-        "template_id": "string",
-        "point_group": "string",
-        "interval": "number",
-        "desired_state": "string",
-        "tasks": "object",
-        "revision": "string",
+    "collector_tasks": {"tasks": "object"},
+    "deployment": {
+        "deployment_id": "string",
+        "services": "object",
+        "instances": "object",
     },
     "delivery": {
         "template_id": "string",
@@ -147,12 +130,13 @@ _FIELDS: dict[str, dict[str, str]] = {
 }
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "units": ("quantities", "units"),
-    "semantic_points": ("semantic_points",),
     "business_points": ("business_points",),
     "point_table": ("template_id", "protocol", "points"),
     "device": ("devices",),
     "device_model": ("template_id",),
     "site": ("site_id",),
+    "collector_tasks": ("tasks",),
+    "deployment": ("deployment_id", "services", "instances"),
     "protocol": ("template_id",),
 }
 
@@ -177,14 +161,16 @@ _NESTED_FIELDS: dict[str, dict[str, str]] = {
         "request_max_bytes": "integer",
         "max_request_bytes": "integer",
         "default_deadline_ms": "integer",
-        "token_sources": "object",
+        "tls": "object",
         "permissions": "object",
     },
     "security": {
+        "ca_cert": "string",
+        "server_cert": "string",
+        "server_key": "string",
         "callers": "array",
-        "token_sources": "object",
+        "tls": "object",
         "permissions": "object",
-        "recovery": "object",
     },
     "repository": {
         "sqlite_path": "string",
@@ -215,13 +201,13 @@ def _nested_definition(group: str) -> tuple[dict[str, Any], dict[str, Any]]:
         if group == "security" and name == "callers":
             caller_fields = {
                 "caller_id": {"type": "string"},
-                "token_env": {"type": "string"},
+                "certificate_identity": {"type": "string"},
                 "permissions": {"type": "array", "items": {"type": "string"}},
             }
             rule["items"] = {
                 "type": "object",
                 "properties": caller_fields,
-                "required": ["caller_id", "token_env", "permissions"],
+                "required": ["caller_id", "certificate_identity", "permissions"],
                 "additionalProperties": False,
             }
             note["properties"] = {
@@ -257,8 +243,9 @@ def iter_schemas() -> Iterator[SchemaSpec]:
         for name, kind in kinds.items():
             properties[name] = {"type": kind}
             if kind == "array":
-                item_type = "string" if name == "allowed_wind_farms" else "object"
-                properties[name]["items"] = {"type": item_type}
+                properties[name]["items"] = {
+                    "type": "string" if name == "remove_points" else "object"
+                }
             header[name] = _field(name, kind, required=name in _REQUIRED.get(config_type, ()))
             if config_type == "service" and name in _NESTED_FIELDS:
                 nested_schema, nested_header = _nested_definition(name)
@@ -279,3 +266,41 @@ def iter_schemas() -> Iterator[SchemaSpec]:
             },
             header=header,
         )
+        if config_type == "service":
+            from copy import deepcopy
+
+            updated = deepcopy(properties)
+            updated_header = deepcopy(header)
+            caller_schema = updated["security"]["properties"]["callers"]["items"]
+            caller_fields = {
+                "caller_id": {"type": "string"},
+                "token_env": {"type": "string"},
+                "permissions": {"type": "array", "items": {"type": "string"}},
+            }
+            caller_schema["properties"] = caller_fields
+            caller_schema["required"] = ["caller_id", "token_env", "permissions"]
+            caller_header = updated_header["security"]["properties"]["callers"]
+            caller_header["properties"] = {
+                key: _field(
+                    key,
+                    "array" if key == "permissions" else "string",
+                    required=True,
+                )
+                for key in caller_fields
+            }
+            caller_header["properties"]["permissions"]["items"] = {
+                "type": "string",
+                "description": "调用者权限名称",
+                "example": "query",
+            }
+            updated_header["schema_version"] = _field("配置结构版本 2", "integer", required=True)
+            yield SchemaSpec(
+                config_type="service",
+                schema_version=2,
+                fields={
+                    "properties": updated,
+                    "required": ["schema_version", "file_version"],
+                    "additionalProperties": False,
+                },
+                header=updated_header,
+            )

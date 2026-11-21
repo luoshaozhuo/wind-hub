@@ -31,6 +31,7 @@ def create_projections(
     dependency_versions: Mapping[str, str],
     device_bindings: Mapping[str, tuple[str, str, str, str]],
     table_device_type: str | None,
+    point_table_parent: tuple[str, str] | None = None,
 ) -> tuple[RowProjection, ...]:
     """Project normalized entities, binding cross-document keys to exact versions."""
     raw = document.canonical_payload
@@ -66,27 +67,10 @@ def create_projections(
                 )
             )
 
-    elif config_type == "semantic_points":
-        for point_id, entry in sorted(_objects(raw["semantic_points"], "semantic_points").items()):
-            point = _objects(entry, f"semantic_points.{point_id}")
-            rows.append(
-                RowProjection(
-                    "semantic_points",
-                    {
-                        "semantic_point_id": _text(point_id, "semantic_point_id"),
-                        "data_type": _text(point.get("data_type"), "data_type"),
-                        "standard_unit_version_id": _text(
-                            dependency_versions.get("units"), "units dependency"
-                        ),
-                        "standard_unit_id": _text(point.get("unit"), "unit"),
-                        "description": point.get("description"),
-                        "constraints_json": canonical_json(point.get("constraints", {})),
-                    },
-                )
-            )
-
-    elif config_type == "business_points" and "device_type" in raw:
-        device_type = _text(raw["device_type"], "device_type")
+    elif config_type == "business_points":
+        units_version = _text(
+            dependency_versions.get("units"), "business standard Units dependency"
+        )
         for business_id, entry in sorted(
             _objects(raw["business_points"], "business_points").items()
         ):
@@ -95,15 +79,10 @@ def create_projections(
                 RowProjection(
                     "business_points",
                     {
-                        "device_type": device_type,
                         "business_point_id": _text(business_id, "business_point_id"),
-                        "semantic_config_version_id": _text(
-                            dependency_versions.get("semantic_points"),
-                            "semantic_points dependency",
-                        ),
-                        "semantic_point_id": _text(
-                            point.get("semantic_point_id"), "semantic_point_id"
-                        ),
+                        "data_type": _text(point.get("data_type"), "data_type"),
+                        "standard_unit_version_id": units_version,
+                        "standard_unit_id": _text(point.get("unit"), "standard unit"),
                         "description": point.get("description"),
                     },
                 )
@@ -165,48 +144,60 @@ def create_projections(
             )
 
     elif config_type == "point_table":
-        point_table_device_type = raw.get("device_type", table_device_type)
-        if point_table_device_type is not None:
-            rows.append(
-                RowProjection(
-                    "point_tables",
-                    {
-                        "point_table_id": _text(raw["template_id"], "template_id"),
-                        "device_type": _text(point_table_device_type, "device_type"),
-                        "protocol": _text(raw["protocol"], "protocol"),
-                        "parent_version_id": raw.get("parent_version_id"),
-                        "parent_point_table_id": raw.get("parent_point_table_id"),
-                    },
-                )
+        declared_type = raw.get("device_type")
+        if (
+            declared_type is not None
+            and table_device_type is not None
+            and declared_type != table_device_type
+        ):
+            raise ValueError("PointTable device_type conflicts with referenced DeviceModel")
+        point_table_device_type = declared_type or table_device_type
+        immutable_id = (
+            f"point_table_{_text(raw['template_id'], 'template_id')}" f"_v{document.file_version}"
+        )
+        rows.append(
+            RowProjection(
+                "point_tables",
+                {
+                    "point_table_id": immutable_id,
+                    "device_type": point_table_device_type,
+                    "protocol": _text(raw["protocol"], "protocol"),
+                    "parent_version_id": (
+                        point_table_parent[0] if point_table_parent is not None else None
+                    ),
+                    "parent_point_table_id": (
+                        point_table_parent[1] if point_table_parent is not None else None
+                    ),
+                },
             )
-            if "business_points" in dependency_versions and "units" in dependency_versions:
-                business_version = _text(
-                    dependency_versions.get("business_points"), "business_points dependency"
-                )
-                units_version = _text(dependency_versions.get("units"), "units dependency")
-                for point_id, entry in sorted(_objects(raw["points"], "points").items()):
-                    point = _objects(entry, f"points.{point_id}")
-                    rows.append(
-                        RowProjection(
-                            "point_mappings",
-                            {
-                                "point_table_id": _text(raw["template_id"], "template_id"),
-                                "point_id": _text(point_id, "point_id"),
-                                "business_config_version_id": business_version,
-                                "device_type": _text(point_table_device_type, "device_type"),
-                                "business_point_id": _text(
-                                    point.get("business_point_id"), "business_point_id"
-                                ),
-                                "source_type": _text(point.get("data_type"), "data_type"),
-                                "source_unit_version_id": units_version,
-                                "source_unit_id": _text(point.get("unit"), "unit"),
-                                "scale": str(point.get("scale", 1)),
-                                "offset": str(point.get("offset", 0)),
-                                "address_json": canonical_json(point.get("address", {})),
-                                "point_groups_json": canonical_json(point.get("point_groups", [])),
-                            },
-                        )
+        )
+        if "business_points" in dependency_versions and "units" in dependency_versions:
+            business_version = _text(
+                dependency_versions.get("business_points"), "business_points dependency"
+            )
+            units_version = _text(dependency_versions.get("units"), "units dependency")
+            for point_id, entry in sorted(_objects(raw["points"], "points").items()):
+                point = _objects(entry, f"points.{point_id}")
+                rows.append(
+                    RowProjection(
+                        "point_mappings",
+                        {
+                            "point_table_id": immutable_id,
+                            "point_id": _text(point_id, "point_id"),
+                            "business_config_version_id": business_version,
+                            "business_point_id": _text(
+                                point.get("business_point_id"), "business_point_id"
+                            ),
+                            "source_type": _text(point.get("data_type"), "data_type"),
+                            "source_unit_version_id": units_version,
+                            "source_unit_id": _text(point.get("unit"), "unit"),
+                            "scale": str(point.get("scale", 1)),
+                            "offset": str(point.get("offset", 0)),
+                            "address_json": canonical_json(point.get("address", {})),
+                            "point_groups_json": canonical_json(point.get("point_groups", [])),
+                        },
                     )
+                )
 
     # Structured objects share the fixed version key and are independently
     # queryable, while the canonical root remains the exact YAML reconstruction.
