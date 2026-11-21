@@ -72,7 +72,6 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
             restored_from_snapshot = False
             try:
                 bundle = await configuration.fetch_service_bundle(service_id=bootstrap.service_id)
-                await asyncio.to_thread(snapshot.store, bundle)
             except (grpc.aio.AioRpcError, TimeoutError, ConnectionError) as exc:
                 if isinstance(exc, grpc.aio.AioRpcError) and exc.code() not in (
                     grpc.StatusCode.UNAVAILABLE,
@@ -94,12 +93,8 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 raise RuntimeError(
                     "Storage cannot consume until the Service bundle pins PointTable versions"
                 )
-            # Persist verified closure identities before consuming any Kafka
-            # data; historical mappings survive all later service restarts.
-            metadata.register_semantic_pins(
-                point_table_versions=bundle.point_table_versions,
-                business_points_pin=bundle.business_points_pin,
-            )
+            # Validate current plus historical semantic bindings before
+            # promoting the candidate into persistent SQLite and snapshot state.
             point_tables = ConfigurationPointTableResolver(
                 fetcher=configuration,
                 archive=archive,
@@ -107,6 +102,12 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 business_points_version=bundle.business_points_pin,
                 historical_pins=metadata.list_semantic_pins(),
             )
+            metadata.register_semantic_pins(
+                point_table_versions=bundle.point_table_versions,
+                business_points_pin=bundle.business_points_pin,
+            )
+            if not restored_from_snapshot:
+                await asyncio.to_thread(snapshot.store, bundle)
             metrics = StorageRuntimeMetrics()
             storage = TDengineBackend(config=bundle.configuration, metadata=metadata)
             await storage.open()
