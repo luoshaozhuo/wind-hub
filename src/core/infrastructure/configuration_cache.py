@@ -86,7 +86,11 @@ def stage_selected_bundle(
         },
         "instances": selected,
     }
-    destination = cache_root / bundle.target_revision
+    version_root = cache_root / manifest_version
+    if version_root.is_symlink():
+        raise ValueError("cached Deployment selector root cannot be a symlink")
+    version_root.mkdir(parents=True, exist_ok=True)
+    destination = version_root / bundle.target_revision
     expected_path = destination / "configs" / service_path
     if destination.is_symlink():
         raise ValueError("cached Service generation cannot be a symlink")
