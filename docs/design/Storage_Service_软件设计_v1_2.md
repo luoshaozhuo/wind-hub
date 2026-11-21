@@ -1589,36 +1589,78 @@ cache:
 
 Kafka Topic/Group、TDengine 地址/认证、DDL 并发、消费背压、查询/保留、备份根及重试参数均为 **Configuration 集中发布的 Storage Service 业务配置**；本地引导不重复携带完整业务配置。
 
-### 12.2.1 Storage Service 集中业务配置示例
+### 12.2.1 Storage Service 集中业务配置完整示例
 
-以下为**新增 Storage 专用业务配置的设计草案**，需在 Storage 模块开发时登记 Schema；不是当前 Configuration 已有的生产配置，禁止在未注册 Schema 前发布。字段以 Storage 管理作用域表达，数据库不按设备逐项填写。
+以下以 Storage 开发分支 `service_storage-main_v1.0.1.yaml` 的真实运行参数为基础，**仅展示升版后的目标结构**。正式上线前需要在 Configuration 注册 `schema_version: 2`，并将精确文件版本 `1.1.0` 加入 Deployment。此处完整服务参数均保留；文件内容不得被误认作已通过跨分支集成验证。
 
 ```yaml
-# configs/services/storage_service.yaml — 目标业务配置示例
-# schema_version: 必填，正整数；允许 1
-# file_version: 必填，MAJOR.MINOR.PATCH；示例 1.0.0
-# service_id: 必填，非空，Storage 逻辑实例 ID
-# kafka.topic: 必填，授权的 Sink Reliable Topic
-# kafka.group_id: 必填，非空 Consumer Group
-# tdengine.endpoint: 必填，受控 TDengine 服务地址
-# tdengine.credential_ref: 必填，凭据安全引用，禁止明文
-# tdengine.database.precision: 必填，首版固定 us，仅首次建库
-# tdengine.database.duration: 必填，TDengine 时长，如 10d，仅首次建库
-# tdengine.database.keep: 必填，数据保留期，如 365d；须 >= 3*duration
-# tdengine.database.cachemodel: 必填，none/last_row/last_value/both
-# tdengine.database.cachesize: 必填，整数，单位 MB，范围以部署版本验证
-# tdengine.reconciliation.on_startup: 必填，boolean，启动检查开关，首版必须 true
-# tdengine.reconciliation.on_config_change: 必填，boolean，配置生效后检查，首版必须 true
-# tdengine.reconciliation.auto_alter: 必填，boolean，是否自动修改允许的参数
-# tdengine.reconciliation.allow_retention_shrink: 必填，boolean，保留期缩短授权，默认 false
-# tdengine.reconciliation.max_concurrent_databases: 必填，正整数，并发检查上限
-# tdengine.reconciliation.retry_interval_ms: 必填，正整数，单位 ms
-schema_version: 1
-file_version: 1.0.0
+# Storage Service v1: central Configuration business document.
+# schema_version: required int 1; file_version: required semantic triple MAJOR.MINOR.PATCH.
+# service_id: required nonempty string <= 256 bytes.
+# allowed_wind_farms: required nonempty unique list of authorized farm IDs;
+#   all Kafka records outside this list are blocked before SQL/DDL.
+# config_sources.instances.site: 必填；Site Instance 逻辑 ID，由 Deployment 选择文件版本。
+# config_sources.instances.devices: 必填；Device Instance 逻辑 ID，由 Deployment 选择文件版本。
+#   Device Instance 进一步固定依赖 DeviceModel -> PointTable；Service 不引用模板版本。
+# grpc.listen_host: loopback 127.0.0.1 or ::1; listen_port [1,65535];
+#   max_active_rpcs [1,512]. The service uses plaintext within an isolated network.
+# auth.callers: required list of {token_env, permissions, wind_farms}; each token_env
+#   refers to a unique environment variable; wind_farms must explicitly list
+#   authorized farm IDs (use "*" only for admin operations).
+#   permissions: storage.read|storage.export|storage.backup|storage.inspect|
+#   storage.operate|storage.admin. No plaintext secrets in YAML.
+# kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
+# kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
+#   max_partition_workers [1,64] partitions; max_buffer_records [100,100000] records;
+#   max_buffer_bytes [1048576,536870912] bytes; commit_interval_ms [100,10000] ms.
+# tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
+#   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
+#   database.cachemodel: none|last_row|last_value|both; cachesize [1,1024] MB.
+#   max_connections [1,64]; max_inflight_sql [1,32], <= max_connections;
+#   max_concurrent_ddl [1,8]; batch_max_records [1,10000] records;
+#   batch_max_bytes [4096,8388608] bytes; batch_wait_ms [0,1000] ms;
+#   write_timeout_ms [100,120000] ms.
+# configuration.reconcile_interval_s [5,3600] s;
+#   cache_max_bytes [16777216,2147483648] bytes.
+# query.max_page_size [1,1000] points; max_range_days [1,365] days;
+#   max_concurrent [1,32]; timeout_ms [100,120000] ms.
+# export.root: authorized absolute directory; max_jobs [1,16];
+#   max_bytes [1048576,10737418240] bytes.
+# backup.enabled: false until target TDengine 3.3.6.13 secure taosdump auth/restore Spike passes.
+# backup.root: authorized absolute directory; max_jobs [1,4];
+#   max_bytes [1048576,1099511627776] bytes; timeout_s [30,14400] seconds.
+# retry.initial_ms [100,60000], max_ms [1000,600000] and >= initial_ms;
+#   max_attempts [0,100] where 0 means retry count is unbounded but concurrency is bounded.
+# reconciliation.auto_alter and allow_retention_shrink: boolean, default false.
+#   KEEP shrink additionally requires independent one-use authorization evidence.
+#   owner_instance_id: required, equals service_id; v1 is single-instance only.
+schema_version: 2
+file_version: 1.1.0
 service_id: storage-main
+allowed_wind_farms: [farm-a]
+config_sources:
+  instances:
+    site: example_site
+    devices: farm-a
+grpc:
+  listen_host: 127.0.0.1
+  listen_port: 51110
+  max_active_rpcs: 64
+auth:
+  callers:
+    - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
+      permissions:
+        [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
+      wind_farms: [farm-a]
 kafka:
+  bootstrap_servers: 127.0.0.1:9092
   topic: windhub-history
   group_id: storage-main
+  max_poll_records: 500
+  max_partition_workers: 4
+  max_buffer_records: 20000
+  max_buffer_bytes: 67108864
+  commit_interval_ms: 1000
 tdengine:
   endpoint: 127.0.0.1:6041
   credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
@@ -1628,16 +1670,40 @@ tdengine:
     keep: 365d
     cachemodel: none
     cachesize: 1
-  reconciliation:
-    on_startup: true
-    on_config_change: true
-    auto_alter: true
-    allow_retention_shrink: false
-    max_concurrent_databases: 1
-    retry_interval_ms: 5000
+  max_connections: 8
+  max_inflight_sql: 4
+  max_concurrent_ddl: 2
+  batch_max_records: 1000
+  batch_max_bytes: 1048576
+  batch_wait_ms: 20
+  write_timeout_ms: 10000
+configuration:
+  reconcile_interval_s: 60
+  cache_max_bytes: 268435456
+query:
+  max_page_size: 1000
+  max_range_days: 31
+  max_concurrent: 4
+  timeout_ms: 30000
+export:
+  root: /var/lib/wind-hub/storage/exports
+  max_jobs: 2
+  max_bytes: 1073741824
+backup:
+  enabled: false
+  root: /var/lib/wind-hub/storage/backups
+  max_jobs: 1
+  max_bytes: 53687091200
+  timeout_s: 600
+retry:
+  initial_ms: 500
+  max_ms: 30000
+  max_attempts: 0
+reconciliation:
+  auto_alter: false
+  allow_retention_shrink: false
+  owner_instance_id: storage-main
 ```
-
-数据库名称由 Storage 的已校验来源身份及受管命名策略计算，不在此对每一设备预列；`tdengine.database` 使用 TDengine 原生含义，Storage 只校验与传递，不重新实现其生命周期。示例字段为**本版待注册的服务 Schema**，完整生产文件头必须覆盖未来全部 Storage 配置字段、范围、默认值、单位及示例，不能把这份最小示例误认为可直接运行的全量生产配置。
 
 ### 12.2.2 Deployment 与 Service 引用示例（目标，须随配置服务一起落地）
 
@@ -1897,8 +1963,6 @@ $$
 
 ## 15.1 TDengine 规范性 SQL 参考
 
-## 15.1 TDengine 规范性 SQL 参考
-
 - [TDengine 数据库 DDL：建库、ALTER DATABASE、KEEP 与元数据查询](https://docs.tdengine.com/tdengine-sql/ddl/database/)
 - [TDengine 最新数据缓存说明](https://docs.tdengine.com/tdengine-sql/data-query/cache-query/)
 - [TDengine 3.3.6.0 发行说明：超级表级 KEEP 引入](https://docs.tdengine.com/release-history/notes/3.3.6.0/)
@@ -2038,28 +2102,9 @@ Repository `revision_id` 仅做游标；目标和活动闭包摘要使用 §8.2 
 业务配置另必须具有 `config_sources.instances`（Site、Devices 等 Storage 所需 Instance 身份），不包含直接模板路径/版本；实际版本均由 Deployment 唯一选择。完整生产 YAML 文件头必须记录**所有**字段的必选性、取值范围、单位和示例；未知字段拒绝。Topic、Group、数据库时间精度、认证与管理者 ID 变更要求重启；批次大小、重试、查询限额可热更新，但不得更改在途批次配置代际。
 
 
-### 16.8.1 集中 Service 完整结构与版本选择
+### 16.8.1 完整 Service YAML 与 Deployment 选择
 
-以下只显示新旧结构的**差异**，完整生产参数以当前 `configs/services/service_storage-main_v1.0.1.yaml` 和 §16.8 字段表为改造基线。新增版本必须随 Schema 注册、Deployment 选择和所有 Fixture 同步修改，不得将差异段落误认为完整可用配置：
-
-```yaml
-# service_storage-main_v1.1.0.yaml
-# schema_version: Service 新结构版本；file_version: 完整三段版本
-# config_sources.instances.site: 必填；Site Instance 逻辑 ID
-# config_sources.instances.devices: 必填；Device Instance 逻辑 ID
-# Kafka/TDengine/Auth/Query/Export/Backup/Retry/Reconciliation
-# 等全部原字段继续存在，服务配置禁止直接引用任何 Template
-schema_version: 2
-file_version: 1.1.0
-service_id: storage-main
-config_sources:
-  instances:
-    site: example_site
-    devices: farm-a
-# ... 运行参数必须完整复制生产基线，示意不省略实际交付文件
-```
-
-当前 `config_sources: []` 的固定文件版本模式仅属尚待清理的生产技术债，不是新契约的允许形态。Deployment 必须在 `services.storage-main` 中选择本 Service 版本，并在 `instances.site.example_site`、`instances.device.farm-a` 中选择对应固定文件版本。所有模板选择只能从 Instance 的固定引用继续解析，绝无“latest”兜底。
+本版唯一完整 Storage Service 示例见 §12.2.1；版本选择见 §12.2.2 与第 8 章。实际文件交付须同时修改 Configuration Schema、Deployment 选择、Storage Config 解析及所有 Fixture，禁止使用无版本固定源列表或直接 Template 路径。§16.8 的全部运行参数必须保留并验证，不能仅提交含 `config_sources` 的简化 Service 文件。
 
 ## 16.9 容量计算与性能试验
 
@@ -2077,4 +2122,4 @@ config_sources:
 | G-06 E2E | Unit/Component/Integration/System 对应测试证据；未改造的 Sink 格式全链标 NOT_RUN |
 | G-07 质量 | ruff、mypy、lint-imports、pytest、proto 一致性独立复测，无伪造 PASS |
 
-**设计修订准入裁决：仅允许以 C2 契约收口为目标继续编码；必须先修复 §8、§15 所列跨分支协议分叉并完成验证。原有的编码阶段结论不能替代新版 G-02/G-03 验收。原文裁决：允许开始编码，首个编码阶段必须执行 G-01/G-02 的目标数据库 Spike，再实现完整写入路径。G-04 的 Proto 编译必须先于 Storage Server 编码。上述验证尚未执行，不得把设计通过误报为测试 PASS，更不得在失败时继续依赖不成立的 Schema 假设。** ChatGPT 负责开发和缺陷修复，Claude Code 负责独立测试及复测。此版不修改生产代码、不创建 PR、不合并 main。
+**设计修订结论：C2 仍未满足全部准出条件。** G-01 的真实 TDengine 3.3.6.13 定向验证已有独立报告；G-02、G-03 必须在完成 Deployment 统一配置契约、数据等级统一、完整 E2E 与故障注入后重新验收。ChatGPT 负责全部生产代码设计、集中开发和缺陷修复；Claude Code 只承担独立审查、测试、Fixture 及小范围修复。未经指令不创建 PR、不合并 main。
