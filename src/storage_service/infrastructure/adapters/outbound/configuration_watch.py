@@ -134,6 +134,7 @@ class StorageConfigurationWatcher:
             self._metadata.register_semantic_pins,
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
+            device_bindings=updated.device_bindings,
         )
         await asyncio.to_thread(self._snapshot.store, updated)
         self._resolver.add_immutable_pins(
