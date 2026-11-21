@@ -85,11 +85,13 @@ def service_instance_refs(
 ) -> tuple[tuple[str, str], ...]:
     """Return typed logical Instance references; never accept path-based sources."""
     sources = service.get("config_sources")
+    if sources is None:
+        return ()
     if not isinstance(sources, dict) or set(sources) != {"instances"}:
         raise ValueError("Service config_sources must contain instances only")
     refs = sources["instances"]
-    if not isinstance(refs, dict) or not refs:
-        raise ValueError("Service must reference at least one Instance")
+    if not isinstance(refs, dict):
+        raise ValueError("Service.instances must be a mapping")
     result: list[tuple[str, str]] = []
     for role, config_id in refs.items():
         if role not in role_types:
