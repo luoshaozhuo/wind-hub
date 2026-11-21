@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import yaml
 
 from storage_service.application.config import (
     DeviceBinding,
@@ -156,6 +157,23 @@ class _Fetcher:
         if self.failure is not None:
             raise self.failure
         return self.documents[version_id]
+
+    async def fetch_point_table_bundle(
+        self, *, point_table_id: str, expected_manifest_sha256: str = ""
+    ) -> tuple[RepositoryDocument, ...]:
+        for document in self.documents.values():
+            raw = yaml.safe_load(document.yaml_bytes)
+            if (
+                f"point_table_{document.config_id}_v{raw['file_version']}"
+                == point_table_id
+            ):
+                self.calls.append(
+                    (document.config_type, document.config_id, document.version_id)
+                )
+                if self.failure is not None:
+                    raise self.failure
+                return (document,)
+        raise ConfigHistoryUnavailableError("historical PointTable not found")
 
 
 class _Metadata:
