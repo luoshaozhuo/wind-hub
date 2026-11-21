@@ -66,11 +66,11 @@ def _names(response: common_pb2.GetConfigSnapshotResponse) -> dict[str, bytes]:
 
 
 def _service_name(response: common_pb2.GetConfigSnapshotResponse) -> str:
-    return next(name for name in _names(response) if name.endswith("commander.yaml"))
+    return next(name for name in _names(response) if name.endswith("service_commander_v1.0.0.yaml"))
 
 
 def _devices_name(response: common_pb2.GetConfigSnapshotResponse) -> str:
-    return next(name for name in _names(response) if name.endswith("devices.yaml"))
+    return next(name for name in _names(response) if name.endswith("device_farm-a_v1.4.0.yaml"))
 
 
 def _versioned_template_name(response: common_pb2.GetConfigSnapshotResponse) -> str:
@@ -264,7 +264,7 @@ async def test_push_missing_referenced_devices_file_rejected(pki, grpc_stack) ->
     disk = await disk_snapshot(common)
     files = _names(disk)
     document = yaml.safe_load(files[_service_name(disk)])
-    document["config_sources"]["instances"]["devices"] = "config/instances/missing.yaml"
+    document["config_sources"]["instances"]["devices"] = "missing"
     files[_service_name(disk)] = yaml.safe_dump(document).encode()
     pushed = await _push(common, files, disk.revision)
     assert pushed.valid is False
@@ -499,7 +499,7 @@ async def _candidate_exists(common, candidate_id: str) -> bool:
 async def test_armed_undo_log_rolls_back_on_recovery(pki, grpc_stack) -> None:
     """模拟在 marker 删除前崩溃：after 已替换落盘，重启恢复必须还原 before。"""
     root = grpc_stack.root
-    devices = grpc_stack.yaml_path.parent / "config" / "instances" / "devices.yaml"
+    devices = grpc_stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
     assert devices.is_relative_to(root)
     original = devices.read_bytes()
     corrupted = original + b"# crashed mid-commit\n"
