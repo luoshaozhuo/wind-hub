@@ -1,4 +1,4 @@
-"""Service-owned source paths: no default directories or indirect references."""
+"""Collector resolves only exact Deployment-selected logical Instances."""
 
 from __future__ import annotations
 
@@ -13,152 +13,123 @@ from core.application.errors import ConfigError
 pytestmark = pytest.mark.unit
 
 
-def _service(root: Path, references: object) -> Path:
-    services = root / "services"
-    services.mkdir(parents=True, exist_ok=True)
-    service_file = services / "collector.yaml"
-    service_file.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "file_version": "1.0.0",
-                "config_sources": references,
-            }
-        ),
+def _dump(path: Path, document: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    return service_file
 
 
-def test_resolves_custom_instance_files_and_template_root(tmp_path: Path) -> None:
-    instances = tmp_path / "alternative"
-    templates = tmp_path / "custom_templates"
-    instances.mkdir()
-    templates.mkdir()
-    site = instances / "station-a.yaml"
-    devices = instances / "turbines-a.yaml"
-    site.write_text("site_id: a\n", encoding="utf-8")
-    devices.write_text("devices: {}\n", encoding="utf-8")
-    config = _service(
-        tmp_path,
+def _tree(root: Path) -> Path:
+    configs = root / "configs"
+    service = configs / "services" / "service_collector-realtime_v1.0.0.yaml"
+    _dump(
+        service,
         {
-            "instances": {
-                "site": "alternative/station-a.yaml",
-                "devices": "alternative/turbines-a.yaml",
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "service_id": "collector-realtime",
+            "config_sources": {
+                "instances": {
+                    "site": "example_site",
+                    "devices": "farm-a",
+                    "tasks": "farm-a",
+                }
             },
-            "templates": {"root": "custom_templates"},
         },
     )
-    paths = resolve_source_paths(config)
-    assert paths.site == site
-    assert paths.devices == devices
-    assert paths.templates == templates
-
-
-def test_accepts_absolute_reference_within_config_root(tmp_path: Path) -> None:
-    instances = tmp_path / "instances"
-    templates = tmp_path / "templates"
-    instances.mkdir()
-    templates.mkdir()
-    site = instances / "site.yaml"
-    devices = instances / "devices.yaml"
-    site.write_text("site_id: a\n", encoding="utf-8")
-    devices.write_text("devices: {}\n", encoding="utf-8")
-    config = _service(
-        tmp_path,
-        {
-            "instances": {"site": str(site), "devices": str(devices)},
-            "templates": {"root": str(templates)},
-        },
-    )
-    paths = resolve_source_paths(config)
-    assert paths.site == site.resolve()
-    assert paths.templates == templates.resolve()
-
-
-def test_rejects_absolute_reference_outside_config_root(tmp_path: Path) -> None:
-    outside_root = tmp_path / "configs"
-    services = outside_root / "services"
-    services.mkdir(parents=True)
-    (outside_root / "instances").mkdir(parents=True)
-    (outside_root / "templates").mkdir()
-    foreign = tmp_path / "foreign.yaml"
-    foreign.write_text("site_id: a\n", encoding="utf-8")
-    (outside_root / "instances" / "devices.yaml").write_text("devices: {}\n", encoding="utf-8")
-    config = services / "collector.yaml"
-    config.write_text(
-        yaml.safe_dump(
+    for filename, field in (
+        ("site_example_site_v1.0.0.yaml", "site_id"),
+        ("device_farm-a_v1.0.0.yaml", "devices"),
+        ("collector_tasks_farm-a_v1.0.0.yaml", "tasks"),
+    ):
+        _dump(
+            configs / "instances" / filename,
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
-                "config_sources": {
-                    "instances": {
-                        "site": str(foreign),
-                        "devices": "instances/devices.yaml",
-                    },
-                    "templates": {"root": "templates"},
-                },
-            }
-        ),
-        encoding="utf-8",
+                field: "example_site" if field == "site_id" else {},
+            },
+        )
+    (configs / "templates").mkdir()
+    _dump(
+        configs / "deployments" / "deployment_test_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "test",
+            "services": {
+                "collector-realtime": {
+                    "config_id": "collector-realtime",
+                    "file_version": "1.0.0",
+                }
+            },
+            "instances": {
+                "site": {"example_site": {"file_version": "1.0.0"}},
+                "device": {"farm-a": {"file_version": "1.0.0"}},
+                "collector_tasks": {"farm-a": {"file_version": "1.0.0"}},
+            },
+        },
     )
-    with pytest.raises(ConfigError, match="escapes config root"):
-        resolve_source_paths(config)
+    return service
+
+
+def test_resolves_exact_selected_instance_files(tmp_path: Path) -> None:
+    service = _tree(tmp_path)
+    selected = resolve_source_paths(service)
+    configs = tmp_path / "configs"
+    assert selected.site == configs / "instances/site_example_site_v1.0.0.yaml"
+    assert selected.devices == configs / "instances/device_farm-a_v1.0.0.yaml"
+    assert selected.tasks == configs / "instances/collector_tasks_farm-a_v1.0.0.yaml"
+    assert selected.templates == configs / "templates"
+
+
+def test_missing_selected_instance_fails_closed(tmp_path: Path) -> None:
+    service = _tree(tmp_path)
+    (tmp_path / "configs/instances/device_farm-a_v1.0.0.yaml").unlink()
+    with pytest.raises(ConfigError, match="Deployment selection failed"):
+        resolve_source_paths(service)
+
+
+def test_deployment_version_does_not_guess_latest(tmp_path: Path) -> None:
+    service = _tree(tmp_path)
+    manifest = tmp_path / "configs/deployments/deployment_test_v1.0.0.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    data["instances"]["device"]["farm-a"]["file_version"] = "2.0.0"
+    _dump(manifest, data)
+    with pytest.raises(ConfigError, match="Deployment selection failed"):
+        resolve_source_paths(service)
 
 
 @pytest.mark.parametrize(
-    "references",
-    [
-        {},
-        {"instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"}},
-        {"instances": {"site": "instances/site.yaml"}, "templates": {"root": "templates"}},
-        {
-            "instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"},
-            "templates": {"pathname": "templates"},
-        },
-        {
-            "instances": {"site": "../outside.yaml", "devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
-    ],
+    "value",
+    ("instances/device_farm-a_v1.0.0.yaml", "../escape", "", "/absolute"),
 )
-def test_missing_or_indirect_references_rejected(
-    tmp_path: Path, references: dict[str, object]
+def test_path_references_are_not_logical_instance_ids(
+    tmp_path: Path, value: str
 ) -> None:
-    config = _service(tmp_path, references)
-    with pytest.raises(ConfigError):
-        resolve_source_paths(config)
+    service = _tree(tmp_path)
+    doc = yaml.safe_load(service.read_text(encoding="utf-8"))
+    doc["config_sources"]["instances"]["devices"] = value
+    _dump(service, doc)
+    with pytest.raises(ConfigError, match="Deployment selection failed"):
+        resolve_source_paths(service)
 
 
-def test_no_fallback_to_existing_default_files(tmp_path: Path) -> None:
-    (tmp_path / "instances").mkdir()
-    (tmp_path / "templates").mkdir()
-    (tmp_path / "instances" / "site.yaml").write_text("site_id: a\n", encoding="utf-8")
-    (tmp_path / "instances" / "devices.yaml").write_text("devices: {}\n", encoding="utf-8")
-    config = _service(
-        tmp_path,
-        {
-            "instances": {"site": "other/site.yaml", "devices": "other/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
-    )
-    with pytest.raises(ConfigError, match="missing or invalid"):
-        resolve_source_paths(config)
+def test_service_must_not_reference_templates_directly(tmp_path: Path) -> None:
+    service = _tree(tmp_path)
+    doc = yaml.safe_load(service.read_text(encoding="utf-8"))
+    doc["config_sources"]["templates"] = {"root": "configs/templates"}
+    _dump(service, doc)
+    with pytest.raises(ConfigError, match="Deployment selection failed"):
+        resolve_source_paths(service)
 
 
-def test_rejects_symlink_source_reference(tmp_path: Path) -> None:
-    (tmp_path / "instances").mkdir()
-    (tmp_path / "templates").mkdir()
-    real = tmp_path / "instances" / "real.yaml"
-    real.write_text("site_id: a\n", encoding="utf-8")
-    (tmp_path / "instances" / "link.yaml").symlink_to(real)
-    (tmp_path / "instances" / "devices.yaml").write_text("devices: {}\n", encoding="utf-8")
-    config = _service(
-        tmp_path,
-        {
-            "instances": {"site": "instances/link.yaml", "devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
-    )
-    with pytest.raises(ConfigError, match="symlink"):
-        resolve_source_paths(config)
+def test_symlinked_selected_instance_is_rejected(tmp_path: Path) -> None:
+    service = _tree(tmp_path)
+    selected = tmp_path / "configs/instances/device_farm-a_v1.0.0.yaml"
+    selected.unlink()
+    selected.symlink_to("collector_tasks_farm-a_v1.0.0.yaml")
+    with pytest.raises(ConfigError, match="Deployment selection failed"):
+        resolve_source_paths(service)
