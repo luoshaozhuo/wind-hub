@@ -96,11 +96,16 @@ def select_local_service(
         raise ValueError("invalid Service file version")
     if service_path.name != f"service_{service_id}_v{file_version}.yaml":
         raise ValueError("Service file name differs from its identity and version")
-    selected_id = deployment_id if deployment_id is not None else os.environ.get("WIND_HUB_DEPLOYMENT_ID")
+    selected_id = (
+        deployment_id if deployment_id is not None else os.environ.get("WIND_HUB_DEPLOYMENT_ID")
+    )
     if selected_id is not None and (
         not isinstance(selected_id, str)
         or not selected_id
-        or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for char in selected_id)
+        or any(
+            char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+            for char in selected_id
+        )
     ):
         raise ValueError("invalid deployment identity")
     selected_version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION")

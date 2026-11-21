@@ -433,18 +433,19 @@ Global___DependencyHealth: _TypeAlias = DependencyHealth  # noqa: Y015
 @_typing.final
 class GetServiceStatusResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     HEALTH_FIELD_NUMBER: _builtins.int
     DEPENDENCIES_FIELD_NUMBER: _builtins.int
     OBSERVED_AT_FIELD_NUMBER: _builtins.int
     TARGET_REVISION_FIELD_NUMBER: _builtins.int
     ACTIVE_REVISION_FIELD_NUMBER: _builtins.int
     health: _builtins.str
+    target_revision: _builtins.str
+    active_revision: _builtins.str
     @_builtins.property
     def dependencies(self) -> _containers.RepeatedCompositeFieldContainer[Global___DependencyHealth]: ...
     @_builtins.property
     def observed_at(self) -> _timestamp_pb2.Timestamp: ...
-    target_revision: _builtins.str
-    active_revision: _builtins.str
     def __init__(
         self,
         *,

@@ -403,8 +403,7 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
             health=(
                 "DEGRADED"
                 if (
-                    self._boundary.service.target_revision
-                    != self._boundary.service.active_revision
+                    self._boundary.service.target_revision != self._boundary.service.active_revision
                     and self._boundary.service.target_revision
                 )
                 else ("HEALTHY" if health.ready else health.state.value)

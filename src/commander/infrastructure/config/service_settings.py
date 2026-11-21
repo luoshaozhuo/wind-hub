@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from commander.application.settings import ServiceSettings, SimulationGatewayTarget
-from core.infrastructure.config import read_yaml
 from core.configuration.local_selection import select_local_service
+from core.infrastructure.config import read_yaml
 
 
 def _mapping(raw: object, name: str) -> dict[str, Any]:

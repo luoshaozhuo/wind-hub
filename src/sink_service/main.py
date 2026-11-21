@@ -24,7 +24,9 @@ SERVICE_FILE = "configs/services/service_sink-west_v1.2.0.yaml"
 
 
 async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) -> None:
-    if not service_file.startswith("configs/services/service_") or not service_file.endswith(".yaml"):
+    if not service_file.startswith("configs/services/service_") or not service_file.endswith(
+        ".yaml"
+    ):
         raise ValueError("versioned Service file required")
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

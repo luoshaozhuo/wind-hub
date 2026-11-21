@@ -87,7 +87,13 @@ class WorkerSupervisor:
                 logger.warning("old worker IPC failed to close cleanly: %s", role)
         process: BaseProcess = multiprocessing.get_context("spawn").Process(
             target=worker_main,
-            args=(role, str(self._root), self._service_file, self._socket_path, self._active_revision()),
+            args=(
+                role,
+                str(self._root),
+                self._service_file,
+                self._socket_path,
+                self._active_revision(),
+            ),
             daemon=False,
             name=f"windhub-sink-{role}",
         )

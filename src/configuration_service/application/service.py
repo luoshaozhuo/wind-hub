@@ -501,9 +501,7 @@ class ConfigurationApplication:
             # Sink and Delivery instances pin the Templates used by each item.
             # Service versions remain independent of the selected Instance versions.
             if document.identity.config_type in {"sink", "delivery"}:
-                category = (
-                    "sinks" if document.identity.config_type == "sink" else "deliveries"
-                )
+                category = "sinks" if document.identity.config_type == "sink" else "deliveries"
                 records = document.canonical_payload.get(category)
                 if records is not None:
                     if not isinstance(records, dict):
@@ -519,11 +517,9 @@ class ConfigurationApplication:
                             raise ValueError("Instance template_version is required")
                         identity = ConfigIdentity(document.identity.config_type, template_id)
                         key = (identity.config_type, identity.config_id, template_version)
-                        target_id = new_ids.get(key)
-                        if target_id is None:
-                            target_id = self.repository.resolve_version(
-                                identity, template_version
-                            )
+                        target_id = new_ids.get(key) or self.repository.resolve_version(
+                            identity, template_version
+                        )
                         references.append((target_id, "instance.template"))
 
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
@@ -846,11 +842,14 @@ class ConfigurationApplication:
         if sum(len(doc.yaml_bytes) for doc in result) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("Service configuration bundle too large")
         fingerprint = closure_sha256(
-            deployment_id, service_id,
+            deployment_id,
+            service_id,
             (
                 (
-                    doc.identity.config_type, doc.identity.config_id,
-                    doc.file_version, doc.content_sha256,
+                    doc.identity.config_type,
+                    doc.identity.config_id,
+                    doc.file_version,
+                    doc.content_sha256,
                 )
                 for doc in result
             ),

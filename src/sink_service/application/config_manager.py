@@ -292,7 +292,9 @@ class ConfigManager:
                     "before further Delivery operations"
                 )
             updated: list[SnapshotFile] = []
-            source_paths, _ = config_sources(self._disk.service, {item.path for item in self._disk.files})
+            source_paths, _ = config_sources(
+                self._disk.service, {item.path for item in self._disk.files}
+            )
             found = False
             for item in self._disk.files:
                 if item.path != source_paths["deliveries"]:

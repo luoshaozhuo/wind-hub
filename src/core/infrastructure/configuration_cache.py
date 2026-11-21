@@ -40,9 +40,7 @@ def stage_selected_bundle(
     if cache_root.is_symlink():
         raise ValueError("configuration cache root cannot be a symlink")
     cache_root.mkdir(parents=True, exist_ok=True)
-    service_paths = [
-        name for name in bundle.files if name.startswith("services/")
-    ]
+    service_paths = [name for name in bundle.files if name.startswith("services/")]
     if len(service_paths) != 1:
         raise ValueError("Repository bundle needs one Service document")
     service_path = service_paths[0]
@@ -55,9 +53,9 @@ def stage_selected_bundle(
     for kind, config_id in refs:
         prefix = _INSTANCE_PREFIXES[kind]
         candidates = [
-            name for name in bundle.files
-            if name.startswith(f"instances/{prefix}_{config_id}_v")
-            and name.endswith(".yaml")
+            name
+            for name in bundle.files
+            if name.startswith(f"instances/{prefix}_{config_id}_v") and name.endswith(".yaml")
         ]
         if len(candidates) != 1:
             raise ValueError("Repository bundle lacks a unique selected Instance")
@@ -80,9 +78,7 @@ def stage_selected_bundle(
         "file_version": manifest_version,
         "deployment_id": deployment_id,
         "services": {
-            service_id: {
-                "config_id": service_id, "file_version": service_identity.file_version
-            }
+            service_id: {"config_id": service_id, "file_version": service_identity.file_version}
         },
         "instances": selected,
     }

@@ -68,9 +68,7 @@ class GenerationStore:
             ):
                 raise ConfigurationError("unexpected committed generation path")
             files.append(SnapshotFile(relative, path.read_bytes()))
-        services = [
-            item.path for item in files if item.path.startswith("configs/services/")
-        ]
+        services = [item.path for item in files if item.path.startswith("configs/services/")]
         if services != [service_path]:
             raise ConfigurationError("committed generation Service selection mismatch")
         return validate_snapshot(tuple(files))
@@ -214,9 +212,11 @@ class GenerationStore:
         service_paths = sorted(
             file.path for file in checked.files if file.path.startswith("configs/services/")
         )
-        if len(service_paths) != 1 or not service_paths[0].startswith(
-            "configs/services/service_"
-        ) or not service_paths[0].endswith(".yaml"):
+        if (
+            len(service_paths) != 1
+            or not service_paths[0].startswith("configs/services/service_")
+            or not service_paths[0].endswith(".yaml")
+        ):
             raise ConfigurationError("validated snapshot requires one versioned Service")
         committed = self._read_generation(target, service_paths[0])
         if committed.revision != checked.revision:

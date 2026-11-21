@@ -61,7 +61,11 @@ def parse_deployment(document: Mapping[str, object]) -> DeploymentSelection:
         ValueError: The document has invalid identities, versions or structure.
     """
     if set(document) != {
-        "schema_version", "file_version", "deployment_id", "services", "instances"
+        "schema_version",
+        "file_version",
+        "deployment_id",
+        "services",
+        "instances",
     }:
         raise ValueError("invalid Deployment fields")
     if type(document["schema_version"]) is not int or document["schema_version"] != 1:
@@ -121,9 +125,7 @@ def service_instance_refs(
     for role, config_id in refs.items():
         if role not in role_types:
             raise ValueError(f"unsupported Service Instance role: {role}")
-        result.append(
-            (role_types[role], _identifier(config_id, f"instance role {role}"))
-        )
+        result.append((role_types[role], _identifier(config_id, f"instance role {role}")))
     if len(result) != len(set(result)):
         raise ValueError("Service references the same Instance more than once")
     return tuple(sorted(result))

@@ -1,7 +1,9 @@
 """Task-intent persistence port used by Collector Application."""
 
 from __future__ import annotations
+
 from typing import Protocol
+
 
 class TaskIntentPort(Protocol):
     """Control intent is independent of immutable Device and Task YAML."""

@@ -399,9 +399,7 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
 
 
 class CommonService(common_rpc.CommonServiceServicer):
-    def __init__(
-        self, runtime: Runtime, observer: DeploymentObserver | None = None
-    ) -> None:
+    def __init__(self, runtime: Runtime, observer: DeploymentObserver | None = None) -> None:
         self.runtime = runtime
         self.observer = observer
         self.snapshots = SnapshotManager(runtime.settings)
@@ -440,7 +438,9 @@ class CommonService(common_rpc.CommonServiceServicer):
         return common.GetServiceStatusResponse(
             health=(
                 "DEGRADED"
-                if failed or unsafe or (
+                if failed
+                or unsafe
+                or (
                     self.observer is not None
                     and self.observer.target_revision != self.observer.active_revision
                 )

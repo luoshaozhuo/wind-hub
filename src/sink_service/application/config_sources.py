@@ -18,7 +18,9 @@ def validate_logical_sources(service: dict[str, Any]) -> dict[str, str]:
     if set(instances) != {"sinks", "deliveries"}:
         raise ConfigurationError("Service requires Sink and Delivery Instance identities")
     for role, identifier in instances.items():
-        if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
+        if not isinstance(identifier, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier
+        ):
             raise ConfigurationError(f"invalid {role} Instance identity")
     return instances
 
@@ -32,9 +34,9 @@ def config_sources(
     for family, config_id in instances.items():
         prefix = f"configs/instances/{family}_{config_id}_v"
         matches = [
-            path for path in available
-            if path.startswith(prefix)
-            and re.fullmatch(r"\d+\.\d+\.\d+\.yaml", path[len(prefix):])
+            path
+            for path in available
+            if path.startswith(prefix) and re.fullmatch(r"\d+\.\d+\.\d+\.yaml", path[len(prefix) :])
         ]
         if len(matches) != 1:
             raise ConfigurationError(f"{family}: ambiguous or missing selected Instance version")

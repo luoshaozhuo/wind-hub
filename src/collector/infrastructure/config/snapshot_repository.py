@@ -131,12 +131,12 @@ class CollectorSnapshotRepository:
             if total > max_bytes:
                 raise SnapshotError("snapshot byte limit exceeded")
             result.append((path, value))
+
         def exactly_one(folder: str, prefix: str) -> None:
             matches = [
-                name for name in files
-                if name.startswith(f"{folder}/{prefix}")
-                and name.endswith(".yaml")
-                and "_v" in name
+                name
+                for name in files
+                if name.startswith(f"{folder}/{prefix}") and name.endswith(".yaml") and "_v" in name
             ]
             if len(matches) != 1:
                 raise SnapshotError(f"snapshot requires exactly one {prefix} document")
@@ -150,7 +150,8 @@ class CollectorSnapshotRepository:
             exactly_one(folder, prefix)
         for catalog in ("units_standard", "business_points_standard"):
             matches = [
-                name for name in files
+                name
+                for name in files
                 if name.startswith(f"templates/{catalog}_v") and name.endswith(".yaml")
             ]
             if len(matches) != 1:

@@ -16,7 +16,6 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
-from sink_service.application.config_sources import config_sources
 from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
@@ -101,6 +100,7 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     from core.configuration.local_selection import select_local_service
 
     selection = select_local_service(root / selected[0], deployment_id=None)
+
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
         if target.is_symlink() or any(
@@ -119,9 +119,7 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     if service["deployment_id"] != selection.deployment_id:
         raise ConfigurationError("Sink Service deployment_id differs from selected Deployment")
     instances = selection.instances
-    instance_paths = {
-        role: f"configs/instances/{file.name}" for role, file in instances.items()
-    }
+    instance_paths = {role: f"configs/instances/{file.name}" for role, file in instances.items()}
     template_root = "configs/templates"
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}

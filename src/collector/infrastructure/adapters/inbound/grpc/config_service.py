@@ -21,10 +21,9 @@ from collector.application.lifecycle import CollectorLifecycle, Lifecycle
 from collector.application.telemetry import CollectorTelemetry, RuntimeEvent
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from collector.infrastructure.adapters.outbound.tcp_probe import TcpNetworkProbe
-from collector.infrastructure.config.snapshot_repository import SnapshotConflictError, SnapshotError
+from collector.infrastructure.config.snapshot_repository import SnapshotError
 from contracts import common_pb2 as pb
 from contracts import common_pb2_grpc as rpc
-from core.application.errors import ConfigError
 from core.infrastructure.configuration_repository import DeploymentObserver
 
 _SENSITIVE_KEYS = frozenset(

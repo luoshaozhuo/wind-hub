@@ -1,8 +1,10 @@
 """Version-bound Collector Task control persistence via SQLite."""
 
 from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
+
 
 class SqliteTaskIntentStore:
     """Store user intentions without mutating published configuration."""

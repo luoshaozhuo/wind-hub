@@ -21,10 +21,10 @@ from collector.infrastructure.adapters.outbound.metrics_emitter import Collector
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
+from core.configuration.local_selection import select_local_service
 from core.domain import Device, PointTable
 from core.infrastructure.config import read_yaml
 from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
-from core.configuration.local_selection import select_local_service
 from core.infrastructure.executor import configure_default_thread_pool
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -126,7 +126,8 @@ class CollectorApp:
     async def _apply_selected_bundle(self, bundle: SelectedBundle) -> bool:
         """Commit an authenticated selected closure, then converge safe devices."""
         allowed = {
-            name: content for name, content in bundle.files.items()
+            name: content
+            for name, content in bundle.files.items()
             if name.startswith(("services/", "instances/", "templates/"))
         }
         current_revision, current = await asyncio.to_thread(self.configuration.get_disk)
@@ -317,7 +318,9 @@ async def assemble_collector(
     task_control = CollectorTaskControl(configuration, lifecycle, intents, read_yaml)
     register_collector_rpc(
         server,
-        common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher, observer),
+        common=CollectorConfigRpc(
+            configuration, lifecycle, acquisition, telemetry, publisher, observer
+        ),
         collector=CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
     )
     endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"

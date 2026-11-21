@@ -173,6 +173,7 @@ class SharedDocumentLoader:
         selected_device_ids: frozenset[str] | None = None,
     ) -> SharedDocuments:
         device_doc = read_stable_document(devices_path)
+
         def sole_catalog(prefix: str) -> Path:
             matches = tuple(self._paths.templates.glob(f"{prefix}_v*.yaml"))
             if len(matches) != 1 or matches[0].is_symlink():

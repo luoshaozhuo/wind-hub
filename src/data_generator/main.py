@@ -9,11 +9,11 @@ import os
 import signal
 from pathlib import Path
 
-from data_generator.application.runtime import Runtime
-from data_generator.application.config_policy import requires_service_restart
 from core.configuration.local_selection import select_local_service
-from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.configuration_cache import stage_selected_bundle
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
+from data_generator.application.config_policy import requires_service_restart
+from data_generator.application.runtime import Runtime
 from data_generator.infrastructure.adapters.inbound.server import make_server
 from data_generator.infrastructure.adapters.outbound.csv_history import CsvHistoryReader
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter

@@ -18,7 +18,9 @@ from sink_service.infrastructure.reliable_runtime import ReliableFactory
 logger = logging.getLogger(__name__)
 
 
-async def run_worker(role: str, root: Path, service_file: str, socket_path: str, active_revision: str) -> None:
+async def run_worker(
+    role: str, root: Path, service_file: str, socket_path: str, active_revision: str
+) -> None:
     """Run transport and persistence adapters around the Application coordinator."""
     if role not in ("realtime", "reliable"):
         raise ValueError("invalid worker process role")
@@ -98,6 +100,8 @@ async def run_worker(role: str, root: Path, service_file: str, socket_path: str,
             await writer.wait_closed()
 
 
-def worker_main(role: str, root: str, service_file: str, socket_path: str, active_revision: str) -> None:
+def worker_main(
+    role: str, root: str, service_file: str, socket_path: str, active_revision: str
+) -> None:
     logging.basicConfig(level=logging.INFO)
     asyncio.run(run_worker(role, Path(root), service_file, socket_path, active_revision))

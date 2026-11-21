@@ -24,6 +24,7 @@ _LOG = logging.getLogger(__name__)
 _MAX_FILES = 1024
 _MAX_BYTES = 32 * 1024 * 1024
 
+
 class _PublishedLoader(yaml.SafeLoader):
     """Match the Repository's YAML 1.2 scalar and duplicate-key semantics."""
 
@@ -54,9 +55,7 @@ def _published_mapping(loader: _PublishedLoader, node: yaml.MappingNode) -> dict
     return values
 
 
-_PublishedLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _published_mapping
-)
+_PublishedLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _published_mapping)
 
 
 def _published_yaml(raw: bytes) -> dict[str, object]:
@@ -68,7 +67,6 @@ def _published_yaml(raw: bytes) -> dict[str, object]:
     if len(documents) != 1 or not isinstance(documents[0], dict):
         raise ValueError("published YAML must have one mapping")
     return documents[0]
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +112,14 @@ def verify_selected_bundle(
         ).encode("utf-8")
         if hashlib.sha256(canonical).hexdigest() != item.content_sha256:
             raise ValueError("configuration semantic digest mismatch")
-        identity.append((
-            publication.config_type, publication.config_id,
-            publication.file_version, item.content_sha256,
-        ))
+        identity.append(
+            (
+                publication.config_type,
+                publication.config_id,
+                publication.file_version,
+                item.content_sha256,
+            )
+        )
         files[path] = raw
     if total != reply.total_bytes or manifest.hexdigest() != reply.manifest_sha256:
         raise ValueError("Service configuration manifest hash mismatch")
@@ -125,10 +127,10 @@ def verify_selected_bundle(
     if reply.target_revision != expected:
         raise ValueError("Service target revision digest mismatch")
     selected = [
-        path for path, content in files.items()
+        path
+        for path, content in files.items()
         if path.startswith("services/")
-        and resolve_publication_identity(path, _published_yaml(content)).config_id
-        == service_id
+        and resolve_publication_identity(path, _published_yaml(content)).config_id == service_id
     ]
     if len(selected) != 1:
         raise ValueError("Service configuration bundle has no unique Service")
@@ -187,9 +189,7 @@ class DeploymentObserver:
             )
         return verify_selected_bundle(reply, self.deployment_id, self.service_id)
 
-    async def reconcile(
-        self, apply: Callable[[SelectedBundle], Awaitable[bool]]
-    ) -> None:
+    async def reconcile(self, apply: Callable[[SelectedBundle], Awaitable[bool]]) -> None:
         """Apply only a different target and preserve the last active identity."""
         try:
             bundle = await self.fetch()
@@ -225,6 +225,7 @@ class DeploymentObserver:
             while not stop.is_set():
                 if client is None and self.nats_servers:
                     try:
+
                         async def on_notice(_message: object) -> None:
                             wake.set()
 

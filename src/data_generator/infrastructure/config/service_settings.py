@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from core.configuration.immutable import plain_document
+from core.configuration.local_selection import select_local_service
 from core.configuration.shared_documents import (
     SharedConfigPaths,
     SharedDocumentLoader,

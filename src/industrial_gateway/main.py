@@ -59,9 +59,7 @@ async def run(config_path: Path, *, project_root: Path) -> None:
                 selected_observer.deployment_id,
                 selected_observer.service_id,
             )
-            selected = await asyncio.to_thread(
-                load_gateway, cached, project_root=cached.parents[2]
-            )
+            selected = await asyncio.to_thread(load_gateway, cached, project_root=cached.parents[2])
             # Serialize Repository-selected Apply with local snapshot RPC Apply.
             # Never expose a new active snapshot before runtime convergence.
             async with snapshots.lock:

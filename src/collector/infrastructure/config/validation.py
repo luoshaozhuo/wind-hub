@@ -10,6 +10,7 @@ from pathlib import Path
 from collector.application.acquisition import AcquisitionPlan, DevicePlan
 from collector.application.config_models import SnapshotPaths
 from collector.application.lifecycle import ConfiguredRuntime
+from collector.application.ports.task_intents import TaskIntentPort
 from contracts.sample_batch import validate_subject_token
 from core.application.errors import ConfigError
 from core.configuration import SharedConfigPaths, SharedDocumentLoader, build_shared_snapshot
@@ -25,7 +26,6 @@ from core.configuration.versioned_templates import (
     VersionedTemplateRepository,
 )
 from core.domain import DeviceId
-from collector.application.ports.task_intents import TaskIntentPort
 from core.infrastructure.config import read_yaml
 
 
@@ -273,12 +273,16 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         raise ConfigError("Deployment-selected Collector Task Instance is required")
     task_doc = read_yaml(task_file)
     if not isinstance(task_doc, dict) or set(task_doc) != {
-        "schema_version", "file_version", "tasks"
+        "schema_version",
+        "file_version",
+        "tasks",
     }:
         raise ConfigError("invalid Collector Task Instance document")
     tasks = task_doc["tasks"]
     if not isinstance(tasks, dict) or not tasks:
         raise ConfigError("Collector Task Instance must define tasks")
+    if paths.devices is None:
+        raise ConfigError("Deployment-selected Collector Device Instance is required")
     device_document = read_yaml(paths.devices)
     raw_devices = device_document.get("devices")
     if not isinstance(raw_devices, dict):
@@ -338,10 +342,7 @@ def parse_collector_runtime(
     tasks_by_group = {item["group"]: item for item in raw_tasks.values()}
     # Scope operator overrides to the selected immutable Task document.
     task_identity = f"{paths.tasks.name}:{task_document['file_version']}"
-    intents = (
-        task_intents.read_intents(task_identity)
-        if task_intents is not None else {}
-    )
+    intents = task_intents.read_intents(task_identity) if task_intents is not None else {}
     devices: list[DevicePlan] = []
     for device_id, definition in documents.devices.items():
         if not definition.enabled:

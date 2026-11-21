@@ -16,8 +16,8 @@ import yaml
 from core.application.errors import ConfigError
 from core.configuration.versioned_templates import config_hash
 from core.infrastructure.config import parse_yaml
-from industrial_gateway.application.runtime import ApplicationResult
 from core.infrastructure.configuration_repository import DeploymentObserver
+from industrial_gateway.application.runtime import ApplicationResult
 from industrial_gateway.infrastructure.config.resolution import (
     ResolvedGateway,
     load_gateway,
