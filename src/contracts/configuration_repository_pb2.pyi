@@ -1214,6 +1214,7 @@ Global___GetCurrentRevisionResponse: _TypeAlias = GetCurrentRevisionResponse  # 
 @_typing.final
 class GetServiceConfigBundleRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     DEPLOYMENT_ID_FIELD_NUMBER: _builtins.int
     SERVICE_ID_FIELD_NUMBER: _builtins.int
     REVISION_ID_FIELD_NUMBER: _builtins.int
@@ -1227,12 +1228,18 @@ class GetServiceConfigBundleRequest(_message.Message):
         service_id: _builtins.str = ...,
         revision_id: _builtins.int = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["deployment_id", b"deployment_id", "revision_id", b"revision_id", "service_id", b"service_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GetServiceConfigBundleRequest: _TypeAlias = GetServiceConfigBundleRequest  # noqa: Y015
 
 @_typing.final
 class GetServiceConfigBundleResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
+
     REPOSITORY_REVISION_ID_FIELD_NUMBER: _builtins.int
     TARGET_REVISION_FIELD_NUMBER: _builtins.int
     FILES_FIELD_NUMBER: _builtins.int
@@ -1241,7 +1248,7 @@ class GetServiceConfigBundleResponse(_message.Message):
     repository_revision_id: _builtins.int
     target_revision: _builtins.str
     @_builtins.property
-    def files(self) -> _containers.RepeatedCompositeFieldContainer[ConfigYamlDocument]: ...
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigYamlDocument]: ...
     manifest_sha256: _builtins.str
     total_bytes: _builtins.int
     def __init__(
@@ -1249,9 +1256,14 @@ class GetServiceConfigBundleResponse(_message.Message):
         *,
         repository_revision_id: _builtins.int = ...,
         target_revision: _builtins.str = ...,
-        files: _typing.Iterable[ConfigYamlDocument] | None = ...,
+        files: _abc.Iterable[Global___ConfigYamlDocument] | None = ...,
         manifest_sha256: _builtins.str = ...,
         total_bytes: _builtins.int = ...,
     ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["files", b"files", "manifest_sha256", b"manifest_sha256", "repository_revision_id", b"repository_revision_id", "target_revision", b"target_revision", "total_bytes", b"total_bytes"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GetServiceConfigBundleResponse: _TypeAlias = GetServiceConfigBundleResponse  # noqa: Y015

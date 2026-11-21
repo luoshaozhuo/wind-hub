@@ -433,19 +433,18 @@ Global___DependencyHealth: _TypeAlias = DependencyHealth  # noqa: Y015
 @_typing.final
 class GetServiceStatusResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
-    TARGET_REVISION_FIELD_NUMBER: _builtins.int
-    ACTIVE_REVISION_FIELD_NUMBER: _builtins.int
-    target_revision: _builtins.str
-    active_revision: _builtins.str
-
     HEALTH_FIELD_NUMBER: _builtins.int
     DEPENDENCIES_FIELD_NUMBER: _builtins.int
     OBSERVED_AT_FIELD_NUMBER: _builtins.int
+    TARGET_REVISION_FIELD_NUMBER: _builtins.int
+    ACTIVE_REVISION_FIELD_NUMBER: _builtins.int
     health: _builtins.str
     @_builtins.property
     def dependencies(self) -> _containers.RepeatedCompositeFieldContainer[Global___DependencyHealth]: ...
     @_builtins.property
     def observed_at(self) -> _timestamp_pb2.Timestamp: ...
+    target_revision: _builtins.str
+    active_revision: _builtins.str
     def __init__(
         self,
         *,
@@ -457,7 +456,7 @@ class GetServiceStatusResponse(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["observed_at", b"observed_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["target_revision", b"target_revision", "active_revision", b"active_revision", "dependencies", b"dependencies", "health", b"health", "observed_at", b"observed_at"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_revision", b"active_revision", "dependencies", b"dependencies", "health", b"health", "observed_at", b"observed_at", "target_revision", b"target_revision"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
