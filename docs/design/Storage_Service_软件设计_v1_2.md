@@ -1597,7 +1597,7 @@ Kafka Topic/Group、TDengine 地址/认证、DDL 并发、消费背压、查询/
 
 ```yaml
 # Storage Service v1: central Configuration business document.
-# schema_version: required int 1; file_version: required semantic triple MAJOR.MINOR.PATCH.
+# schema_version: required int 2 for Deployment-selected Storage Service; file_version: MAJOR.MINOR.PATCH.
 # service_id: required nonempty string <= 256 bytes.
 # allowed_wind_farms: required nonempty unique list of authorized farm IDs;
 #   all Kafka records outside this list are blocked before SQL/DDL.
