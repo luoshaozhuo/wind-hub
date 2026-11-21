@@ -146,7 +146,7 @@ class CollectorConfigurationManager:
                     self._committed.popitem(last=False)
                 return outcome
             if self._restart_pending and current_service is not None:
-                files["services/collector.yaml"] = current_service
+                files[self._service_key(files)] = current_service
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision
             effective_paths = SnapshotPaths(
@@ -196,7 +196,7 @@ class CollectorConfigurationManager:
                 return self.status()
             files, active_paths = await asyncio.to_thread(self._read_retry_material, revision)
             if self._restart_pending and self._runtime_service_path is not None:
-                files["services/collector.yaml"] = self._runtime_files[self._service_key(self._runtime_files)]
+                files[self._service_key(files)] = self._runtime_files[self._service_key(self._runtime_files)]
             effective = SnapshotPaths(
                 service=(
                     self._runtime_service_path
