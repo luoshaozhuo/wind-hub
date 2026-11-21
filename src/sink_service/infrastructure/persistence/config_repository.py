@@ -112,6 +112,22 @@ class GenerationStore:
             raise ConfigurationError("committed generation content hash mismatch")
         return snapshot
 
+    def load_generation(self, revision: str, service_path: str) -> ValidatedSnapshot:
+        """Load an exact immutable generation for a running Worker process."""
+        if (
+            not service_path.startswith("configs/services/service_")
+            or not service_path.endswith(".yaml")
+            or any(part in ("", ".", "..") for part in service_path.split("/"))
+        ):
+            raise ConfigurationError("invalid Service path")
+        directory = self._generation(revision)
+        if directory.is_symlink() or not directory.is_dir():
+            raise ConfigurationError("missing or unsafe requested generation")
+        snapshot = self._read_generation(directory, service_path)
+        if snapshot.revision != revision:
+            raise ConfigurationError("requested generation digest mismatch")
+        return snapshot
+
     @staticmethod
     def _sync_dir(path: Path) -> None:
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
