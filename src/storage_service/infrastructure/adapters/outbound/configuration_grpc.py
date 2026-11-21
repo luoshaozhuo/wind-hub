@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
+import re
 import os
 from dataclasses import dataclass, field
 
@@ -78,15 +80,84 @@ def _document(item: pb.ConfigYamlDocument) -> RepositoryDocument:
 _ConfigKey = tuple[str, str, str]
 
 
+_YAML_BOOL_PATTERN = re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$")
+
+
+class _RepositoryYamlLoader(yaml.SafeLoader):
+    """Match Configuration's strict YAML scalar and mapping rules."""
+
+    yaml_implicit_resolvers = {
+        key: [
+            (tag, pattern)
+            for tag, pattern in resolvers
+            if tag not in ("tag:yaml.org,2002:bool", "tag:yaml.org,2002:timestamp")
+        ]
+        for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    }
+
+
+_RepositoryYamlLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool", _YAML_BOOL_PATTERN, list("tTfF")
+)
+
+
+def _repository_mapping(
+    loader: yaml.SafeLoader, node: yaml.MappingNode
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if not isinstance(key, str) or key in result:
+            raise ConfigHistoryUnavailableError("duplicate or invalid Configuration YAML key")
+        result[key] = loader.construct_object(value_node, deep=True)
+    return result
+
+
+_RepositoryYamlLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _repository_mapping
+)
+
+
+def _validate_yaml_value(value: object) -> None:
+    if value is None or type(value) in (str, bool, int):
+        return
+    if type(value) is float and math.isfinite(value):
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_yaml_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str) or any(ch in key for ch in ("\\0", "\\r", "\\n")):
+                raise ConfigHistoryUnavailableError("invalid Configuration YAML mapping key")
+            _validate_yaml_value(item)
+        return
+    raise ConfigHistoryUnavailableError("invalid Configuration YAML scalar")
+
+
 def _yaml_object(document: RepositoryDocument) -> dict[str, object]:
     try:
-        raw = yaml.safe_load(document.yaml_bytes)
+        source = document.yaml_bytes.decode("utf-8")
+        if any(isinstance(event, yaml.AliasEvent) for event in yaml.parse(source)):
+            raise ConfigHistoryUnavailableError("Configuration YAML aliases are forbidden")
+        values = list(yaml.load_all(source, Loader=_RepositoryYamlLoader))
     except (UnicodeError, yaml.YAMLError) as exc:
         raise ConfigHistoryUnavailableError("configuration YAML cannot be parsed") from exc
-    if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
-        raise ConfigHistoryUnavailableError("configuration document must be a string-keyed object")
-    return raw
+    if len(values) != 1 or not isinstance(values[0], dict):
+        raise ConfigHistoryUnavailableError("configuration document must be one object")
+    value: dict[str, object] = values[0]
+    _validate_yaml_value(value)
+    return value
 
+
+def _document_content_hash(document: RepositoryDocument) -> str:
+    parsed = _yaml_object(document)
+    encoded = json.dumps(
+        parsed, sort_keys=True, ensure_ascii=False,
+        separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 def _point_table_identity(key: _ConfigKey, raw: dict[str, object]) -> str:
     _config_type, config_id, file_version = key
@@ -307,6 +378,10 @@ class ConfigurationGrpcClient:
         seen: set[tuple[str, str, str]] = set()
         for item in response.documents:
             doc = _document(item)
+            if _document_content_hash(doc) != item.content_sha256:
+                raise ConfigHistoryUnavailableError(
+                    "historical semantic content digest mismatch"
+                )
             identity = (doc.config_type, doc.config_id, doc.version_id)
             if identity in seen:
                 raise ConfigHistoryUnavailableError("duplicate historical document identity")
@@ -373,6 +448,10 @@ class ConfigurationGrpcClient:
                 manifest.update(len(data).to_bytes(4, "big"))
                 manifest.update(data)
             document = _document(item)
+            if _document_content_hash(document) != item.content_sha256:
+                raise ConfigHistoryUnavailableError(
+                    "Configuration semantic content digest mismatch"
+                )
             if not item.content_sha256 or not item.file_version:
                 raise ConfigHistoryUnavailableError("Configuration document is missing identity")
             key = (document.config_type, document.config_id, item.file_version)
