@@ -38,11 +38,16 @@ def _documents() -> list[pb.ConfigDocumentInput]:
     return [
         _input("units", "standard", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
-            "quantities": {}, "units": {},
+            "quantities": {"power": {"base_unit": "kilowatt"}},
+            "units": {
+                "kilowatt": {"quantity": "power", "symbol": "kW"}
+            },
         }),
         _input("business_points", "standard", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
-            "business_points": {"power": {"unit": "kW"}},
+            "business_points": {
+                "power": {"data_type": "float32", "unit": "kilowatt"}
+            },
         }),
         _input("point_table", "storage-points", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
