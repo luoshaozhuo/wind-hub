@@ -251,6 +251,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         cursor_secret: bytes,
         config_status: Callable[[], str],
         metrics: StorageRuntimeMetrics,
+        config_revisions: Callable[[], tuple[str, str]] | None = None,
     ) -> None:
         self._auth = AuthorizationPolicy(config)
         self._config = config
@@ -263,6 +264,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             raise ValueError("Storage cursor secret needs 256 bits")
         self._secret = cursor_secret
         self._config_status = config_status
+        self._config_revisions = config_revisions
         self._metrics = metrics
         self._started_at = datetime.now(UTC)
         self._aggregate_snapshots: dict[str, tuple[float, str, tuple[bytes, ...]]] = {}
@@ -305,6 +307,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 )
             ],
         )
+        if not is_public and self._config_revisions is not None:
+            target_revision, active_revision = self._config_revisions()
+            response.target_revision = target_revision
+            response.active_revision = active_revision
         response.observed_at.FromDatetime(datetime.now(UTC))
         return response
 
@@ -871,6 +877,7 @@ def build_storage_grpc_server(
     cursor_secret: bytes,
     config_status: Callable[[], str],
     metrics: StorageRuntimeMetrics,
+    config_revisions: Callable[[], tuple[str, str]] | None = None,
 ) -> grpc.aio.Server:
     """Build but do not start the service; outer runtime manages lifecycle."""
     server = grpc.aio.server(
@@ -891,6 +898,7 @@ def build_storage_grpc_server(
         cursor_secret=cursor_secret,
         config_status=config_status,
         metrics=metrics,
+        config_revisions=config_revisions,
     )
     rpc.add_StorageServiceServicer_to_server(servicer, server)
     common_rpc.add_CommonServiceServicer_to_server(servicer, server)
