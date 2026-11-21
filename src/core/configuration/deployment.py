@@ -8,7 +8,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 _VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\\Z")
+
+INSTANCE_ROLE_TYPES: dict[str, str] = {
+    "site": "site",
+    "devices": "device",
+    "tasks": "collector_tasks",
+    "sinks": "sink",
+    "deliveries": "delivery",
+    "scenarios": "scenario",
+}
 
 
 @dataclass(frozen=True, slots=True)

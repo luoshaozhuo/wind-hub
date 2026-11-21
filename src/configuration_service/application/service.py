@@ -29,6 +29,7 @@ from configuration_service.domain.models import (
     RepositoryNotFoundError,
 )
 from core.configuration.deployment import (
+    INSTANCE_ROLE_TYPES,
     closure_sha256,
     parse_deployment,
     service_instance_refs,
@@ -342,23 +343,14 @@ class ConfigurationApplication:
     @staticmethod
     def _validate_deployments(
         documents: Sequence[PreparedDocument],
-    ) -> dict[str, tuple[str, ...]]:
+    ) -> None:
         """Validate all selected versions against the complete staged directory."""
         by_key = {
             (doc.identity.config_type, doc.identity.config_id, doc.file_version): doc
             for doc in documents
         }
         deployments = [doc for doc in documents if doc.identity.config_type == "deployment"]
-        selected: dict[str, tuple[str, ...]] = {}
         visited: set[str] = set()
-        role_types = {
-            "site": "site",
-            "devices": "device",
-            "tasks": "collector_tasks",
-            "sinks": "sink",
-            "deliveries": "delivery",
-            "scenarios": "scenario",
-        }
         for document in deployments:
             deployment = parse_deployment(document.canonical_payload)
             if deployment.deployment_id in visited:
@@ -368,25 +360,23 @@ class ConfigurationApplication:
             visited.add(deployment.deployment_id)
             if deployment.deployment_id != document.identity.config_id:
                 raise ValueError("Deployment identity does not match file identity")
-            target_ids: list[str] = []
             for selection in (*deployment.services.values(), *deployment.instances.values()):
                 key = (selection.config_type, selection.config_id, selection.file_version)
                 if key not in by_key:
                     raise RepositoryConflictError(
                         f"Deployment references absent staged version: {key}"
                     )
-                target_ids.append("/".join(key))
+                # All selected versions must be part of this atomic directory.
             for service_id, service_ref in deployment.services.items():
                 service = by_key[("service", service_id, service_ref.file_version)]
                 source = service.canonical_payload
                 if source.get("service_id", service_id) != service_id:
                     raise RepositoryConflictError("Deployment Service identity mismatch")
-                for config_type, config_id in service_instance_refs(source, role_types):
+                for config_type, config_id in service_instance_refs(source, INSTANCE_ROLE_TYPES):
                     if (config_type, config_id) not in deployment.instances:
                         raise RepositoryConflictError(
                             "Deployment has no version for required Service Instance"
                         )
-            selected[document.identity.config_id] = tuple(sorted(target_ids))
         return selected
 
     def _compile_versions(
@@ -427,11 +417,7 @@ class ConfigurationApplication:
                     # that binds its logical Instance identities to versions.
                     service_instance_refs(
                         document.canonical_payload,
-                        {
-                            "site": "site", "devices": "device",
-                            "tasks": "collector_tasks", "sinks": "sink",
-                            "deliveries": "delivery", "scenarios": "scenario",
-                        },
+                        INSTANCE_ROLE_TYPES,
                     )
                 else:
                     references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
@@ -939,12 +925,8 @@ class ConfigurationApplication:
         )
         if service_raw.get("service_id", service_id) != service_id:
             raise RepositoryConflictError("selected Service identity mismatch")
-        roles = {
-            "site": "site", "devices": "device", "tasks": "collector_tasks",
-            "sinks": "sink", "deliveries": "delivery", "scenarios": "scenario",
-        }
         root_ids = [service_vid]
-        for config_type, config_id in service_instance_refs(service_raw, roles):
+        for config_type, config_id in service_instance_refs(service_raw, INSTANCE_ROLE_TYPES):
             ref = deployment.instances.get((config_type, config_id))
             if ref is None:
                 raise RepositoryConflictError("Deployment lacks required Instance selection")
