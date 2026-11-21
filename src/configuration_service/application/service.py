@@ -28,6 +28,7 @@ from configuration_service.domain.models import (
     RepositoryConflictError,
     RepositoryNotFoundError,
 )
+from core.configuration.deployment import parse_deployment, service_instance_refs
 from core.configuration.publication_identity import resolve_publication_identity
 
 
@@ -261,6 +262,7 @@ class ConfigurationApplication:
                 raise ValueError("caller ConfigId does not match the source YAML path")
             if item.file_name != file.relative_path.rsplit("/", 1)[-1]:
                 raise ValueError("candidate filename must match its relative_path")
+        self._validate_deployments(prepared)
         self._compile_versions(prepared, expected_revision)
         # A dry-run must reject the same immutable-version violations as commit.
         # Validate source bytes as well as canonical semantics: YAML comments
@@ -324,6 +326,7 @@ class ConfigurationApplication:
                     canonical_payload=payload,
                 )
             )
+        self._validate_deployments(documents)
         return self.repository.publish_candidate(
             actor_id=actor_id,
             request_id=request_id,
@@ -331,6 +334,50 @@ class ConfigurationApplication:
             expected_revision=expected_revision,
             versions=self._compile_versions(documents, expected_revision),
         )
+
+    @staticmethod
+    def _validate_deployments(
+        documents: Sequence[PreparedDocument],
+    ) -> dict[str, tuple[str, ...]]:
+        """Validate all selected versions against the complete staged directory."""
+        by_key = {
+            (doc.identity.config_type, doc.identity.config_id, doc.file_version): doc
+            for doc in documents
+        }
+        deployments = [doc for doc in documents if doc.identity.config_type == "deployment"]
+        selected: dict[str, tuple[str, ...]] = {}
+        role_types = {
+            "site": "site",
+            "devices": "device",
+            "tasks": "collector_tasks",
+            "sinks": "sink",
+            "deliveries": "delivery",
+            "scenarios": "scenario",
+        }
+        for document in deployments:
+            deployment = parse_deployment(document.canonical_payload)
+            if deployment.deployment_id != document.identity.config_id:
+                raise ValueError("Deployment identity does not match file identity")
+            target_ids: list[str] = []
+            for selection in (*deployment.services.values(), *deployment.instances.values()):
+                key = (selection.config_type, selection.config_id, selection.file_version)
+                if key not in by_key:
+                    raise RepositoryConflictError(
+                        f"Deployment references absent staged version: {key}"
+                    )
+                target_ids.append("/".join(key))
+            for service_id, service_ref in deployment.services.items():
+                service = by_key[("service", service_id, service_ref.file_version)]
+                source = service.canonical_payload
+                if source.get("service_id", service_id) != service_id:
+                    raise RepositoryConflictError("Deployment Service identity mismatch")
+                for config_type, config_id in service_instance_refs(source, role_types):
+                    if (config_type, config_id) not in deployment.instances:
+                        raise RepositoryConflictError(
+                            "Deployment has no version for required Service Instance"
+                        )
+            selected[document.identity.config_id] = tuple(sorted(target_ids))
+        return selected
 
     def _compile_versions(
         self, documents: Sequence[PreparedDocument], expected_revision: int
@@ -340,6 +387,7 @@ class ConfigurationApplication:
         # Existing target versions are immutable; the repository rechecks FK and
         # deprecation status atomically at commit.
         versions: list[PreparedVersion] = []
+        self._validate_deployments(documents)
         new_ids: dict[tuple[str, str, str], str] = {}
         for doc in documents:
             key = (doc.identity.config_type, doc.identity.config_id, doc.file_version)
@@ -364,9 +412,26 @@ class ConfigurationApplication:
                     ) or self.repository.resolve_version(identity, file_version)
                     references.append((target_id, "config_sources"))
             elif isinstance(sources, dict):
-                references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
+                if document.identity.config_type == "service" and set(sources) == {"instances"}:
+                    # The Service version remains independent of any Deployment
+                    # that binds its logical Instance identities to versions.
+                    service_instance_refs(
+                        document.canonical_payload,
+                        {
+                            "site": "site", "devices": "device",
+                            "tasks": "collector_tasks", "sinks": "sink",
+                            "deliveries": "delivery", "scenarios": "scenario",
+                        },
+                    )
+                else:
+                    references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
             else:
                 raise ValueError("config_sources must be a mapping or list")
+            if document.identity.config_type == "deployment":
+                deployment = parse_deployment(document.canonical_payload)
+                for selection in (*deployment.services.values(), *deployment.instances.values()):
+                    key = (selection.config_type, selection.config_id, selection.file_version)
+                    references.append((new_ids[key], "deployment.selection"))
             # Stable published interpretation of every PointTable is pinned
             # to exactly the standard catalog files in this complete directory.
             if document.identity.config_type in {"business_points", "point_table"}:
