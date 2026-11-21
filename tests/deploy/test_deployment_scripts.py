@@ -139,9 +139,15 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert gateway["process"]["argv"][:2] == [str(Path(sys.executable).resolve()), "-m"]
         assert gateway["process"]["log_file"] == str(tmp_path / "logs" / "gateway.log")
         assert payload["services"]["collector_reliable"]["process"]["argv"][-1] == "50054"
-        assert set(payload["services"]["collector_realtime"]["process"]["env"]) == set(
-            scripts.render.COLLECTOR_ENV_KEYS
-        ) - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+        assert set(payload["services"]["collector_realtime"]["process"]["env"]) == (
+            set(scripts.render.COLLECTOR_ENV_KEYS)
+            - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+            | {"WIND_HUB_DEPLOYMENT_ID", "WIND_HUB_DEPLOYMENT_VERSION"}
+        )
+        assert payload["services"]["gateway"]["process"]["env"] == {
+            "WIND_HUB_DEPLOYMENT_ID": "prod-a",
+            "WIND_HUB_DEPLOYMENT_VERSION": "1.3.0",
+        }
         assert "test-placeholder" not in yaml.safe_dump(payload)
         assert "WIND_HUB_COLLECTOR_ADMIN_TOKEN" not in yaml.safe_dump(payload)
     elif mode == "containerd":
