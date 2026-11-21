@@ -46,7 +46,7 @@ pytestmark = pytest.mark.unit
 
 def _config() -> StorageConfig:
     return load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
 
 
