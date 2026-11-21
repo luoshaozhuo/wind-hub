@@ -48,10 +48,11 @@ class CollectorTaskControl:
             task_version = self._read_config(paths.tasks).get("file_version")
             if not isinstance(task_version, str) or not task_version:
                 raise SnapshotError("invalid selected Task Instance version")
+            task_identity = f"{paths.tasks.name}:{task_version}"
             await asyncio.to_thread(
                 self._intents.write_intent,
                 device_id,
-                task_version,
+                task_identity,
                 desired_state,
             )
             current_revision, _ = await asyncio.to_thread(self._configuration.get_disk)
