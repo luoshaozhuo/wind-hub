@@ -344,11 +344,17 @@ def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Pat
     selected = select_local_service(service_file)
     if set(selected.instances) != {"site", "devices", "scenarios"}:
         raise GeneratorError("Data Generator requires site/devices/scenarios Instances")
+    def only(prefix: str) -> Path:
+        matches = tuple(selected.templates.glob(f"{prefix}_v*.yaml"))
+        if len(matches) != 1 or matches[0].is_symlink():
+            raise GeneratorError(f"{prefix} requires one pinned version")
+        return matches[0]
+
     return {
         **selected.instances,
         "templates_root": selected.templates,
-        "units": selected.templates / "units_standard_v1.2.0.yaml",
-        "business_points": selected.templates / "business_points_standard_v1.4.0.yaml",
+        "units": only("units_standard"),
+        "business_points": only("business_points_standard"),
     }
 
 

@@ -148,11 +148,13 @@ class CollectorSnapshotRepository:
             ("instances", "collector_tasks_"),
         ):
             exactly_one(folder, prefix)
-        if not {
-            "templates/units_standard_v1.2.0.yaml",
-            "templates/business_points_standard_v1.4.0.yaml",
-        }.issubset(files):
-            raise SnapshotError("snapshot missing required shared catalogs")
+        for catalog in ("units_standard", "business_points_standard"):
+            matches = [
+                name for name in files
+                if name.startswith(f"templates/{catalog}_v") and name.endswith(".yaml")
+            ]
+            if len(matches) != 1:
+                raise SnapshotError(f"snapshot requires exactly one selected {catalog} version")
         return tuple(result), snapshot_digest(dict(result))
 
     def _candidate_path(self, candidate_id: str) -> Path:
@@ -579,8 +581,12 @@ class CollectorSnapshotRepository:
                 raise SnapshotError("incomplete Collector configuration selection")
             folder = "services" if source == paths.service else "instances"
             roots[f"{folder}/{source.name}"] = source
-        for filename in ("units_standard_v1.2.0.yaml", "business_points_standard_v1.4.0.yaml"):
-            roots[f"templates/{filename}"] = paths.templates / filename
+        for prefix in ("units_standard", "business_points_standard"):
+            matches = tuple(paths.templates.glob(f"{prefix}_v*.yaml"))
+            if len(matches) != 1:
+                raise SnapshotError(f"expected one selected {prefix} version")
+            selected = matches[0]
+            roots[f"templates/{selected.name}"] = selected
         for category in ("protocols", "device_models", "point_tables"):
             directory = paths.templates / category
             if directory.is_dir():
