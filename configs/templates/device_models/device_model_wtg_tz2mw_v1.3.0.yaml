@@ -3,7 +3,7 @@
 # 当前点表保留原始寄存器值；字序、单位及控制命令编码须现场确认。
 schema_version: 1
 template_id: wtg_tz2mw
-file_version: 1.2.0
+file_version: "1.3.0"
 name: TZ2MW 风力发电机组
 device_type_id: turbine
 protocol:
@@ -11,4 +11,4 @@ protocol:
   version: 1.1.0
 point_table:
   id: modbus_wtg_tz2mw
-  version: 1.0.0
+  version: 1.1.0

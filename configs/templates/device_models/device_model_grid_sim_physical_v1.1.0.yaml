@@ -1,7 +1,7 @@
 # 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
 schema_version: 1
 template_id: grid_sim_physical
-file_version: 1.0.0
+file_version: "1.1.0"
 name: 电网仿真设备
 device_type_id: grid
 protocol:
@@ -9,7 +9,7 @@ protocol:
   version: 1.1.0
 point_table:
   id: modbus_grid_sim
-  version: 1.0.0
+  version: 1.1.0
 simulation:
   kind: physical
   device_kind: grid
