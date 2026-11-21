@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -503,3 +504,26 @@ def test_restart_target_is_durable_without_replacing_active_snapshot(tmp_path: P
     # generation with a stale authority revision.
     with pytest.raises(ConfigHistoryUnavailableError, match="older one"):
         snapshot.store_target(replace(target, revision_id=9))
+
+
+def test_sqlite_schema_v1_upgrade_creates_historical_device_binding_table(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "storage-meta.sqlite3"
+    with MetadataStore(path):
+        pass
+    # Model a pre-upgrade production SQLite database containing v1 metadata.
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE device_binding_pins")
+        connection.execute("PRAGMA user_version=1")
+        connection.commit()
+    with MetadataStore(path) as metadata:
+        assert metadata.list_device_bindings() == ()
+        metadata.register_semantic_pins(
+            point_table_versions={TABLE: ("shared", "pin-1.0.0")},
+            business_points_pin=None,
+            device_bindings=(_binding(),),
+        )
+        assert len(metadata.list_device_bindings()) == 1
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
