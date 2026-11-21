@@ -62,18 +62,18 @@ async def run(config_path: Path, *, project_root: Path) -> None:
             selected = await asyncio.to_thread(
                 load_gateway, cached, project_root=cached.parents[2]
             )
-            # Static process/listener/security fields remain bound until restart.
-            if selected.service != runtime.config.service:
-                return False
-            results, restart = await runtime.reconfigure(selected)
-            complete = not restart and all(item.status != "FAILED" for item in results)
-            if complete:
-                # The Repository observer and the legacy snapshot RPC must
-                # describe the same fully activated configuration generation.
-                async with snapshots.lock:
+            # Serialize Repository-selected Apply with local snapshot RPC Apply.
+            # Never expose a new active snapshot before runtime convergence.
+            async with snapshots.lock:
+                # Static process/listener/security fields remain bound until restart.
+                if selected.service != runtime.config.service:
+                    return False
+                results, restart = await runtime.reconfigure(selected)
+                complete = not restart and all(item.status != "FAILED" for item in results)
+                if complete:
                     snapshots.runtime_content = await asyncio.to_thread(cached.read_bytes)
                     snapshots.runtime_revision = selected.revision
-            return complete
+                return complete
 
     server = create_gateway_grpc_server(runtime, snapshots)
     shutdown = asyncio.Event()
