@@ -34,7 +34,12 @@ def _document(
         file_version=version,
         yaml_bytes=data,
         yaml_sha256=hashlib.sha256(data).hexdigest(),
-        content_sha256=hashlib.sha256(data).hexdigest(),
+        content_sha256=hashlib.sha256(
+            json.dumps(
+                content, sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest(),
         relative_path=f"{kind}/{config_id}_{version}.yaml",
     )
 
