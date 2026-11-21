@@ -324,6 +324,8 @@ def parse_collector_runtime(
     raw_service = read_yaml(paths.service)
     runtime = raw_service.get("runtime", {})
     watchdog = raw_service.get("watchdog", {})
+    if paths.devices is None or paths.tasks is None:
+        raise ConfigError("selected Device and Collector Task Instances are required")
     raw_instances = read_yaml(paths.devices)["devices"]
     task_document = read_yaml(paths.tasks)
     raw_tasks = task_document["tasks"]

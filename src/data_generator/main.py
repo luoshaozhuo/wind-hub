@@ -55,6 +55,7 @@ async def run(config_path: Path) -> None:
                 filter(None, os.environ.get("WIND_HUB_CONFIGURATION_NATS_SERVERS", "").split(","))
             ),
         )
+        selected_observer = observer
         cache_root = Path(
             os.environ.get(
                 "WIND_HUB_CONFIGURATION_CACHE",
@@ -67,8 +68,8 @@ async def run(config_path: Path) -> None:
                 stage_selected_bundle,
                 bundle,
                 cache_root,
-                observer.deployment_id,
-                observer.service_id,
+                selected_observer.deployment_id,
+                selected_observer.service_id,
             )
             candidate = await asyncio.to_thread(load_settings, cached)
             if requires_service_restart(runtime.settings.service, candidate.service):

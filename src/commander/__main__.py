@@ -45,6 +45,7 @@ def main() -> None:
             token_env="WIND_HUB_CONFIGURATION_TOKEN",
             nats_servers=list(source().nats_servers),
         )
+        selected_observer = observer
         cache_root = Path(
             os.environ.get(
                 "WIND_HUB_CONFIGURATION_CACHE",
@@ -57,8 +58,8 @@ def main() -> None:
                 stage_selected_bundle,
                 bundle,
                 cache_root,
-                observer.deployment_id,
-                observer.service_id,
+                selected_observer.deployment_id,
+                selected_observer.service_id,
             )
             previous = source.path
             source.path = cached
