@@ -1,7 +1,7 @@
 # 仿真设备专用清单；与真实设备 Instance 使用同一设备 Schema，不包含额定参数。
 # endpoint 是隔离的仿真工业协议服务地址，真实服务部署后按监听地址修改。
 schema_version: 1
-file_version: 1.1.0
+file_version: "1.2.0"
 devices:
   WTG_SIM01:
     name: "风机仿真实例"
@@ -9,7 +9,7 @@ devices:
     group: simulation
     model:
       id: wtg_sim_physical
-      version: 1.0.0
+      version: 1.1.0
     endpoint:
       host: 127.0.0.1
       port: 15021
@@ -20,7 +20,7 @@ devices:
     group: simulation
     model:
       id: pv_sim_physical
-      version: 1.0.0
+      version: 1.1.0
     endpoint:
       host: 127.0.0.1
       port: 15022
@@ -31,7 +31,7 @@ devices:
     group: simulation
     model:
       id: bess_sim_physical
-      version: 1.0.0
+      version: 1.1.0
     endpoint:
       host: 127.0.0.1
       port: 15023
@@ -42,7 +42,7 @@ devices:
     group: simulation
     model:
       id: grid_sim_physical
-      version: 1.0.0
+      version: 1.1.0
     endpoint:
       host: 127.0.0.1
       port: 15024
@@ -53,7 +53,7 @@ devices:
     group: simulation
     model:
       id: plant_controller_sim_physical
-      version: 1.0.0
+      version: 1.1.0
     endpoint:
       host: 127.0.0.1
       port: 15025
