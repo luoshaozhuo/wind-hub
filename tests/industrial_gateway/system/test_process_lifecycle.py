@@ -113,9 +113,9 @@ async def test_cli_check_valid_config(tmp_path: Path) -> None:
 
 
 async def test_factory_shipped_config_passes_native_check() -> None:
-    """仓库出厂配置 configs/services/industrial_gateway.yaml 必须被生产入口接受。"""
+    """仓库出厂版本化 Service 配置必须被生产入口接受。"""
     repo_root = Path(__file__).resolve().parents[3]
-    service = repo_root / "configs" / "services" / "industrial_gateway.yaml"
+    service = repo_root / "configs" / "services" / "service_gateway_v1.2.0.yaml"
     assert service.is_file()
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
