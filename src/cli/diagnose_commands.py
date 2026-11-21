@@ -99,14 +99,19 @@ def pipeline_diagnose(
             target = device_id if svc_name == "collector" else sink_id
             rpc_target = svc_name
             stub = common_pb2_grpc.CommonServiceStub(runtime().channel(rpc_target))
+            # Both management calls must attach their scoped credentials: the
+            # Collector admin token or the Sink Bearer token from get_rpc_metadata.
+            metadata = (
+                runtime().collector_admin_metadata()
+                if svc_name == "collector"
+                else runtime().get_rpc_metadata(rpc_target, "Diagnose")
+            )
             response = await stub.Diagnose(
                 common_pb2.DiagnoseRequest(
                     target_id=target, stages=stages, correlation_id=correlation_id
                 ),
                 timeout=runtime().target(rpc_target).timeout,
-                metadata=(
-                    runtime().collector_admin_metadata() if svc_name == "collector" else None
-                ),
+                metadata=metadata,
             )
             reports[svc_name] = MessageToDict(
                 response,

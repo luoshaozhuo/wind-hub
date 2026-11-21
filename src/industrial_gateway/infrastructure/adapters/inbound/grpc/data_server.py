@@ -56,10 +56,13 @@ def _verified_sink_caller(
     token = os.environ.get(_SINK_TOKEN_ENV, "")
     if len(token) < 32 or token.strip() != token:
         return False
-    metadata = [value for key, value in context.invocation_metadata() if key == "authorization"]
+    raw_metadata = context.invocation_metadata()
+    if raw_metadata is None:
+        return False
+    metadata = [value for key, value in raw_metadata if key == "authorization"]
     if len(metadata) != 1:
         return False
-    return hmac.compare_digest(metadata[0], f"Bearer {token}")
+    return hmac.compare_digest(str(metadata[0]), f"Bearer {token}")
 
 
 async def _authorize(

@@ -325,8 +325,14 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
     }
     grpc_port = reserve_port()
     modbus_port = reserve_port()
+    sink_listener_port = reserve_port()
+    # Reuse the harness Sink token so the existing Sink process can authenticate
+    # to the target gateway's loopback Bearer listener without a process restart.
+    sink_token = harness.gateway_sink_token
     service_path = _write_gateway_service(plant, grpc_port=grpc_port, pki=pki)
     document = _load(service_path)
+    # Dual-listener: mTLS management port plus a loopback-only Sink Bearer port.
+    document["grpc"]["sink_listener_port"] = sink_listener_port
     servers = [item for item in document["servers"] if item["device_id"] == "WTG_SIM01"]
     assert len(servers) == 1
     servers[0]["server_id"] = "gw-wtg_sim01"
@@ -353,8 +359,10 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             str(plant),
         ],
         cwd=plant,
+        env={"WIND_HUB_GATEWAY_SINK_TOKEN": sink_token},
     )
     endpoint = f"127.0.0.1:{grpc_port}"
+    sink_endpoint = f"127.0.0.1:{sink_listener_port}"
     endpoints = dict(harness.endpoints)
     endpoints["gateway"] = endpoint
     cli_config = root / "cli.yaml"
@@ -414,18 +422,12 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         candidate_sinks = next(candidate_snapshot.rglob("sinks.yaml"))
         sinks = _load(candidate_sinks)
         connection = sinks["sinks"]["gateway_sink"]["connection"]
-        connection["endpoint"] = endpoint
+        # Route through the target gateway's loopback Sink Bearer listener,
+        # not its mTLS management port (the Sink GatewayOutput is plaintext).
+        connection["endpoint"] = sink_endpoint
         connection["gateway_id"] = "gw-wtg_sim01"
         _dump(candidate_sinks, sinks)
         await _push_apply_sink_snapshot(harness, candidate_snapshot, candidate_revision)
-        sink_cert, sink_key = pki["clients"]["sink"]
-        harness.cli.processes["sink"]["env"]["WH_FULLCHAIN_GATEWAY_TLS"] = json.dumps(
-            {
-                "ca_pem": pki["ca"].read_text(encoding="utf-8"),
-                "client_cert_pem": sink_cert.read_text(encoding="utf-8"),
-                "client_key_pem": sink_key.read_text(encoding="utf-8"),
-            }
-        )
         _write_cli(
             harness.cli_rt,
             collector="collector_realtime",

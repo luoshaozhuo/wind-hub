@@ -454,6 +454,7 @@ class FullChainHarness:
         self.endpoints: dict[str, str] = {}
         self.modbus_ports: dict[str, int] = {}
         self.gw_grpc_endpoint = ""
+        self.gateway_sink_token = ""
         self.cli_rt: Path = root / "cli-realtime.yaml"
         self.cli_rel: Path = root / "cli-reliable.yaml"
         self.sink: SinkSystemHarness | None = None
@@ -609,6 +610,7 @@ def _build_and_start(
     ports = {name: reserve_port() for name in SERVICES}
     ports["gateway_sink"] = reserve_port()
     gateway_sink_token = os.urandom(32).hex()
+    harness.gateway_sink_token = gateway_sink_token
     harness.ports = ports
     harness.endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
     harness.modbus_ports = {device_id: reserve_port() for device_id in E2E_DEVICES}

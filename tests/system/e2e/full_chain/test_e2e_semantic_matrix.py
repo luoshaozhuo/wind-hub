@@ -634,6 +634,10 @@ async def test_common_service_semantics_on_all_six_deployments(
 ) -> None:
     """执行 6×9 部署矩阵，配置拒绝逐服务比较 DISK 与文件不变。"""
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
+    # In-process Runtime calls need the internal Bearer tokens that the
+    # subprocess CLI harness injects via its environment.
+    assert full_chain.sink is not None
+    monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", full_chain.sink.auth_tokens["admin"])
     runtime = Runtime(full_chain.cli_rt, "json")
     expected_identity = {
         "gateway": ("industrial_gateway", "gateway"),

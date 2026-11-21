@@ -149,6 +149,8 @@ async def test_e2e_08_executes_all_51_formal_rpcs(
 ) -> None:
     """Execute exactly the current descriptor denominator over authenticated gRPC."""
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
+    assert full_chain.sink is not None
+    monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", full_chain.sink.auth_tokens["admin"])
     runtime = Runtime(full_chain.cli_rt, "json")
     values = _requests(full_chain)
     evidence: list[dict[str, Any]] = []
