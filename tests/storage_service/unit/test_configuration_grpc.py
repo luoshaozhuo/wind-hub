@@ -303,3 +303,20 @@ async def test_service_bundle_rejects_malformed_semantic_documents_before_archiv
             deployment_id="prod-a", service_id="storage-main"
         )
     assert archive.saved == []
+
+
+def test_service_v2_only_allows_module_configuration_inside_service() -> None:
+    document = yaml.safe_load(
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+    )
+    assert set(document) == {
+        "schema_version", "file_version", "service_id", "config_sources", "service"
+    }
+    config = load_storage_config(yaml.safe_dump(document).encode())
+    assert config.service_id == "storage-main"
+    assert config.config_sources.instances.devices == "farm-a"
+    assert config.kafka.topic == "windhub-history"
+
+    document["kafka"] = document["service"].pop("kafka")
+    with pytest.raises(ValueError, match="canonical service envelope"):
+        load_storage_config(yaml.safe_dump(document).encode())
