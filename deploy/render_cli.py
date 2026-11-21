@@ -26,15 +26,6 @@ SERVICE_NAMES = (
 
 DEFAULT_DEPLOYMENT_PATH = "configs/deployments/deployment_prod-a_v1.3.0.yaml"
 
-DEFAULT_FILES = {
-    "gateway": "service_gateway_v1.2.0.yaml",
-    "data-generator": "service_data-generator_v1.1.0.yaml",
-    "collector_realtime": "service_collector-realtime_v1.1.0.yaml",
-    "collector_reliable": "service_collector-reliable_v1.0.0.yaml",
-    "sink": "service_sink-west_v1.2.0.yaml",
-    "commander": "service_commander_v1.4.0.yaml",
-}
-
 PORTS = {
     "gateway": 50073,
     "data-generator": 50061,
@@ -155,7 +146,7 @@ def _selected_service_names(root: Path, deployment_path: Path) -> dict[str, str]
             raise ValueError(f"Deployment has no selected Service {identity}")
         version = entry.get("file_version")
         if not isinstance(version, str) or not re.fullmatch(
-            r"(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)", version
+            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version
         ):
             raise ValueError(f"invalid selected Service version: {identity}")
         names[role] = f"service_{identity}_v{version}.yaml"
