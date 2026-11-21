@@ -24,13 +24,15 @@ SERVICE_NAMES = (
     "commander",
 )
 
+DEFAULT_DEPLOYMENT_PATH = "configs/deployments/deployment_prod-a_v1.1.0.yaml"
+
 DEFAULT_FILES = {
-    "gateway": "industrial_gateway-sim.example.yaml",
-    "data-generator": "data-generator-sim.example.yaml",
-    "collector_realtime": "collector-realtime.yaml",
-    "collector_reliable": "collector-reliable.yaml",
-    "sink": "sink_service.yaml",
-    "commander": "commander.yaml",
+    "gateway": "service_gateway_v1.2.0.yaml",
+    "data-generator": "service_data-generator_v1.1.0.yaml",
+    "collector_realtime": "service_collector-realtime_v1.1.0.yaml",
+    "collector_reliable": "service_collector-reliable_v1.0.0.yaml",
+    "sink": "service_sink-west_v1.2.0.yaml",
+    "commander": "service_commander_v1.4.0.yaml",
 }
 
 PORTS = {
@@ -100,7 +102,7 @@ def _document(path: Path) -> dict[str, Any]:
     if (
         not isinstance(data, dict)
         or type(data.get("schema_version")) is not int
-        or data["schema_version"] != 1
+        or data["schema_version"] not in (1, 2)
     ):
         raise ValueError(f"invalid service schema: {path}")
     return data
@@ -157,20 +159,53 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str) -> None:
                 raise ValueError(f"sink: config_root must be {expected_root}")
         if actual != PORTS[name]:
             raise ValueError(f"{name}: gRPC listen port {actual} differs from {PORTS[name]}")
+    # Resolve Service/Instance versions from one published Deployment selection.
+    deployment_path = _relative(root, DEFAULT_DEPLOYMENT_PATH)
+    deployment = _document(deployment_path)
+    selected_services = _section(deployment, "services", "Deployment")
+    selected_instances = _section(deployment, "instances", "Deployment")
+    role_types = {
+        "site": "site",
+        "devices": "device",
+        "tasks": "collector_tasks",
+        "sinks": "sink",
+        "deliveries": "delivery",
+        "scenarios": "scenario",
+    }
+    service_ids = {
+        "collector_realtime": "collector-realtime",
+        "collector_reliable": "collector-reliable",
+        "sink": "sink-west",
+    }
     for name, doc in docs.items():
+        service_id = service_ids.get(name, name)
+        if doc.get("service_id") != service_id:
+            raise ValueError(f"{name}: Service identity does not match deployment")
+        selected = _section(selected_services, service_id, "Deployment")
+        if selected.get("config_id") != service_id:
+            raise ValueError(f"{name}: missing Deployment Service selection")
+        if selected.get("file_version") != doc.get("file_version"):
+            raise ValueError(f"{name}: selected Service version differs from file")
         sources = doc.get("config_sources", {})
-        if not isinstance(sources, dict):
-            raise ValueError(f"{name}: config_sources must be a mapping")
-        for group in ("instances", "templates"):
-            entries = sources.get(group)
-            if not isinstance(entries, dict) or not entries:
-                raise ValueError(f"{name}: config_sources.{group} must be a non-empty mapping")
-            for label, value in entries.items():
-                if not isinstance(value, str):
-                    raise ValueError(f"{name}: invalid config source {label}")
-                path = _relative(root, value)
-                if not path.exists():
-                    raise ValueError(f"{name}: missing config source {path}")
+        if not isinstance(sources, dict) or set(sources) != {"instances"}:
+            raise ValueError(f"{name}: Service may only reference Instance identities")
+        instances = _section(sources, "instances", name)
+        for role, config_id in instances.items():
+            config_type = role_types.get(role)
+            if config_type is None or not isinstance(config_id, str) or not config_id:
+                raise ValueError(f"{name}: unsupported Instance identity {role}")
+            selected_type = _section(selected_instances, config_type, "Deployment")
+            version = _section(selected_type, config_id, "Deployment").get("file_version")
+            if not isinstance(version, str):
+                raise ValueError(f"{name}: required Instance version is missing")
+            prefix = {
+                "site": "site", "device": "device",
+                "collector_tasks": "collector_tasks", "scenario": "scenarios",
+                "sink": "sinks", "delivery": "deliveries",
+            }[config_type]
+            relative = f"configs/instances/{prefix}_{config_id}_v{version}.yaml"
+            if not _relative(root, relative).is_file():
+                raise ValueError(f"{name}: required Instance file is missing: {relative}")
 
 
 def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[str]:

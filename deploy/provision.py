@@ -14,12 +14,12 @@ from pathlib import Path
 from render_cli import _collector_environment, _service_files, _validate_bindings
 
 SERVICE_FILES = {
-    "gateway": "industrial_gateway-sim.example.yaml",
-    "data-generator": "data-generator-sim.example.yaml",
-    "collector_realtime": "collector-realtime.yaml",
-    "collector_reliable": "collector-reliable.yaml",
-    "sink": "sink_service.yaml",
-    "commander": "commander.yaml",
+    "gateway": "service_gateway_v1.2.0.yaml",
+    "data-generator": "service_data-generator_v1.1.0.yaml",
+    "collector_realtime": "service_collector-realtime_v1.1.0.yaml",
+    "collector_reliable": "service_collector-reliable_v1.0.0.yaml",
+    "sink": "service_sink-west_v1.2.0.yaml",
+    "commander": "service_commander_v1.4.0.yaml",
 }
 PORTS = {"collector_realtime": 50051, "collector_reliable": 50054}
 
