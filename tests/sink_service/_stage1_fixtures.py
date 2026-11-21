@@ -347,6 +347,27 @@ def write_tree(root: Path, docs: dict[str, dict[str, Any]]) -> None:
     )
 
 
+def rewrite_deployment_identity(root: Path, new_deployment_id: str) -> None:
+    """Rebase the bootstrap Deployment manifest after a Service identity change.
+
+    A copied root whose Service document receives a new deployment_id must
+    carry a matching, uniquely selecting Deployment manifest, otherwise
+    Deployment selection fails closed before the process reaches bind.
+    """
+    deployments = root / "configs" / "deployments"
+    manifests = tuple(deployments.glob("deployment_*.yaml"))
+    if len(manifests) != 1:
+        raise FileNotFoundError(f"expected exactly one Deployment manifest under {deployments}")
+    manifest_doc = yaml.safe_load(manifests[0].read_text(encoding="utf-8"))
+    manifest_doc["deployment_id"] = new_deployment_id
+    manifests[0].unlink()
+    target = deployments / f"deployment_{new_deployment_id}_v1.0.0.yaml"
+    target.write_text(
+        yaml.safe_dump(manifest_doc, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 def wire_files(
     files: tuple[SnapshotFile, ...],
 ) -> list[tuple[str, bytes, int, str]]:

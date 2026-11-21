@@ -244,10 +244,23 @@ def start_sink_service_from_root(
     log_dir: Path,
     env_extra: dict[str, str] | None = None,
 ) -> CollectorProcess:
-    """Start the current three-process Sink Service from its canonical config root."""
+    """Start the current three-process Sink Service from its canonical config root.
+
+    The production entrypoint defaults to the shipped sink-west Service filename;
+    synthetic test roots pin their own versioned identity, so the unique Service
+    document in the tree is passed explicitly instead of relying on the default.
+    """
+    service_dir = config_root / "configs" / "services"
+    service_files = tuple(service_dir.glob("service_*.yaml"))
+    if len(service_files) != 1:
+        raise FileNotFoundError(
+            f"{config_root} must contain exactly one versioned Service file, "
+            f"found {len(service_files)}"
+        )
+    service_file = service_files[0].relative_to(config_root).as_posix()
     return _start_service(
         "wind-hub-sink-service",
-        ["--config-root", str(config_root)],
+        ["--config-root", str(config_root), "--service-file", service_file],
         service="sink-service",
         port=grpc_port,
         log_dir=log_dir,
