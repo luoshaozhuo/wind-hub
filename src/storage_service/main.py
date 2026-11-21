@@ -81,6 +81,18 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 ):
                     raise
                 bundle = await asyncio.to_thread(snapshot.load)
+                # A verified static target is a candidate for the next process
+                # generation, not the currently running active generation.
+                pending_path = base / "configuration-snapshots" / "target_bundle.json"
+                if pending_path.exists() or pending_path.is_symlink():
+                    pending = await asyncio.to_thread(snapshot.load_target)
+                    if pending.revision_id > bundle.revision_id:
+                        bundle = pending
+                    elif (
+                        pending.revision_id == bundle.revision_id
+                        and pending.target_revision != bundle.target_revision
+                    ):
+                        raise RuntimeError("same revision has conflicting persisted closures")
                 if bundle.configuration.service_id != bootstrap.service_id:
                     raise RuntimeError("saved Configuration service_id mismatch") from exc
                 if bundle.deployment_id != bootstrap.deployment_id:
