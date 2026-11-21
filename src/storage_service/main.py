@@ -70,6 +70,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
         try:
             snapshot = StorageBundleSnapshot(base / "configuration-snapshots")
             restored_from_snapshot = False
+            restored_pending_target = False
             try:
                 bundle = await configuration.fetch_service_bundle(
                     deployment_id=bootstrap.deployment_id, service_id=bootstrap.service_id
@@ -88,6 +89,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     pending = await asyncio.to_thread(snapshot.load_target)
                     if pending.revision_id > bundle.revision_id:
                         bundle = pending
+                        restored_pending_target = True
                     elif (
                         pending.revision_id == bundle.revision_id
                         and pending.target_revision != bundle.target_revision
@@ -127,7 +129,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 business_points_pin=bundle.business_points_pin,
                 device_bindings=bundle.device_bindings,
             )
-            if not restored_from_snapshot:
+            if not restored_from_snapshot or restored_pending_target:
+                # Restart activation of a staged target must be durable even
+                # when Configuration is temporarily unreachable.
                 await asyncio.to_thread(snapshot.store, bundle)
             metrics = StorageRuntimeMetrics()
             storage = TDengineBackend(config=bundle.configuration, metadata=metadata)
