@@ -105,10 +105,15 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 point_table_versions=bundle.point_table_versions,
                 business_points_version=bundle.business_points_pin,
                 historical_pins=metadata.list_semantic_pins(),
+                device_bindings=(
+                    *metadata.list_device_bindings(),
+                    *bundle.device_bindings,
+                ),
             )
             metadata.register_semantic_pins(
                 point_table_versions=bundle.point_table_versions,
                 business_points_pin=bundle.business_points_pin,
+                device_bindings=bundle.device_bindings,
             )
             if not restored_from_snapshot:
                 await asyncio.to_thread(snapshot.store, bundle)
