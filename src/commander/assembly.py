@@ -9,6 +9,7 @@ from commander.infrastructure.adapters.outbound.gateway import GatewaySimulation
 from commander.infrastructure.adapters.outbound.nats_audit import NatsAuditTransport
 from commander.infrastructure.config.config_commit import recover_config_commit
 from commander.infrastructure.config.service_settings import load_service_settings
+from commander.application.settings import ServiceSettings
 from commander.infrastructure.persistence.event_repository import EventRepository
 from core.application.protocol_registry import ProtocolRegistry
 
@@ -19,7 +20,7 @@ class CommanderSettingsSource:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def __call__(self):
+    def __call__(self) -> ServiceSettings:
         return load_service_settings(self.path)
 
 
