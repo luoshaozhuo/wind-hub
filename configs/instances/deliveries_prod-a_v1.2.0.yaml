@@ -1,5 +1,5 @@
 schema_version: 1
-file_version: "1.1.0"
+file_version: "1.2.0"
 revision: "deliveries-r2"
 deliveries:
   ems_power:

@@ -1,5 +1,5 @@
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.1.0"
 revision: "sinks-r1"           # 并发修改令牌；由 Writer 更新
 sinks:
   ems_redis:
