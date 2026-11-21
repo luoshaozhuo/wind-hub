@@ -66,7 +66,14 @@ async def run(config_path: Path, *, project_root: Path) -> None:
             if selected.service != runtime.config.service:
                 return False
             results, restart = await runtime.reconfigure(selected)
-            return not restart and all(item.status != "FAILED" for item in results)
+            complete = not restart and all(item.status != "FAILED" for item in results)
+            if complete:
+                # The Repository observer and the legacy snapshot RPC must
+                # describe the same fully activated configuration generation.
+                async with snapshots.lock:
+                    snapshots.runtime_content = await asyncio.to_thread(cached.read_bytes)
+                    snapshots.runtime_revision = selected.revision
+            return complete
 
     server = create_gateway_grpc_server(runtime, snapshots)
     shutdown = asyncio.Event()
