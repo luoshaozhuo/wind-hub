@@ -116,6 +116,8 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     files = [safe_file(path) for path in service_paths]
     service = _yaml_doc(files[0])
     validate_service(service)
+    if service["deployment_id"] != selection.deployment_id:
+        raise ConfigurationError("Sink Service deployment_id differs from selected Deployment")
     instances = selection.instances
     instance_paths = {
         role: f"configs/instances/{file.name}" for role, file in instances.items()
