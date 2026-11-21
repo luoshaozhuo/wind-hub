@@ -573,3 +573,27 @@ async def test_reference_only_update_can_overlap_an_inflight_write(tmp_path: Pat
 
     assert backend.inserted == [OLD, NEW]
     assert [item.revision_id for item in snapshot.stored] == [2]
+
+
+async def test_unrelated_repository_revision_does_not_rewrite_storage_snapshot(
+    tmp_path: Path,
+) -> None:
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    active = _bundle(7, pins)
+    client = _Client(_bundle(8, pins))
+    watcher, metadata, snapshot = _watcher(
+        client=client, resolver=resolver, active=active
+    )
+
+    await watcher.refresh_now()
+
+    assert watcher.status == "READY"
+    assert client.calls == 1
+    assert metadata.pins == {}
+    assert snapshot.stored == []
