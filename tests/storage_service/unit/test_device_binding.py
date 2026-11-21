@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,10 @@ from storage_service.infrastructure.adapters.outbound.configuration_grpc import 
 )
 from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
     StorageBundleSnapshot,
+)
+from storage_service.infrastructure.adapters.outbound.metadata_store import (
+    MetadataConflictError,
+    MetadataStore,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -440,3 +445,33 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
         point_table_versions=restored.point_table_versions,
     )
     await resolver.require_exact_versions([_sample(TABLE), _sample(NEW_TABLE)])
+
+
+def test_sqlite_persists_historical_device_bindings_across_restart(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "storage-meta.sqlite3"
+    binding = _binding()
+    pins = {TABLE: ("shared", "pin-1.0.0")}
+    with MetadataStore(path) as metadata:
+        metadata.register_semantic_pins(
+            point_table_versions=pins,
+            business_points_pin=None,
+            device_bindings=(binding,),
+        )
+        assert metadata.list_device_bindings() == (binding,)
+
+    with MetadataStore(path) as metadata:
+        assert metadata.list_device_bindings() == (binding,)
+        incompatible = replace(
+            binding,
+            model=replace(binding.model, device_type_id="photovoltaic"),
+        )
+        with pytest.raises(MetadataConflictError, match="cannot be rebound"):
+            metadata.register_semantic_pins(
+                point_table_versions=pins,
+                business_points_pin=None,
+                device_bindings=(incompatible,),
+            )
+        assert metadata.list_device_bindings() == (binding,)
+        assert metadata.list_semantic_pins()[TABLE][0] == pins[TABLE]
