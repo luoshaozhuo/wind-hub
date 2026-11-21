@@ -213,12 +213,13 @@ generate_api_contract.py --check    PASS
 
 ## 7. 提交与远端一致性
 
-验收方在固定分支上新增 2 个提交（未建 PR、未合 main、未 rebase、未 force push）：
+验收方在固定分支上新增 3 个提交（未建 PR、未合 main、未 rebase、未 force push）：
 
 1. `38d748648 fix(config): restore static gates and repair broken Deployment-selection call sites`
 2. `17f3806d7 test(config): retire obsolete YAML-mutation tests and align deploy/rpc guards`
+3. `f046a6f3a docs(audit): C6 Deployment activation independent acceptance verdict FAIL`
 
-推送后本地与 `origin/design/config-activation-selection-20261121` HEAD 一致（见第 8 节核对）。
+推送后本地与 `origin/design/config-activation-selection-20261121` HEAD 均为 `f046a6f3a`，工作树干净。
 
 ---
 
