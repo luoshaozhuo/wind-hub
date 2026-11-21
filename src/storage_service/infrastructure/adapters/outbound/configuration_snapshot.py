@@ -37,8 +37,10 @@ class StorageBundleSnapshot:
     @staticmethod
     def _encode(bundle: StorageBundle) -> bytes:
         payload: dict[str, Any] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "revision_id": bundle.revision_id,
+            "deployment_id": bundle.deployment_id,
+            "target_revision": bundle.target_revision,
             "config": bundle.configuration.model_dump(mode="json"),
             "device_bindings": [asdict(binding) for binding in bundle.device_bindings],
             "point_table_versions": {
@@ -117,8 +119,16 @@ class StorageBundleSnapshot:
             ).encode()
             if not hashlib.sha256(canonical).hexdigest() == envelope["sha256"]:
                 raise ConfigHistoryUnavailableError("Configuration snapshot SHA256 mismatch")
-            if payload["schema_version"] != 2 or type(payload["revision_id"]) is not int:
+            if payload["schema_version"] != 3 or type(payload["revision_id"]) is not int:
                 raise ConfigHistoryUnavailableError("Configuration snapshot format unsupported")
+            if (
+                not isinstance(payload["deployment_id"], str)
+                or not payload["deployment_id"]
+                or not isinstance(payload["target_revision"], str)
+                or len(payload["target_revision"]) != 64
+                or any(ch not in "0123456789abcdef" for ch in payload["target_revision"])
+            ):
+                raise ConfigHistoryUnavailableError("invalid persisted closure identity")
             pins = payload["point_table_versions"]
             if not isinstance(pins, dict) or not pins:
                 raise ConfigHistoryUnavailableError("Configuration snapshot has no point tables")
@@ -165,6 +175,8 @@ class StorageBundleSnapshot:
             return StorageBundle(
                 configuration=StorageConfig.model_validate(payload["config"]),
                 revision_id=payload["revision_id"],
+                deployment_id=payload["deployment_id"],
+                target_revision=payload["target_revision"],
                 point_table_versions=DeviceClosurePins(converted, tuple(bindings)),
                 business_points_pin=(business[0], business[1]) if business else None,
                 device_bindings=tuple(bindings),
