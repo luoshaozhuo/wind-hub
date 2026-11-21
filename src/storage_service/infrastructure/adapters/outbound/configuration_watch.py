@@ -99,6 +99,17 @@ class StorageConfigurationWatcher:
                 )
             self.status = "READY"
             return
+        # Repository-wide publication does not imply that this Storage Service's
+        # effective dependency closure changed. Do not rewrite persisted state.
+        if (
+            updated.configuration == self._active.configuration
+            and updated.point_table_versions == self._active.point_table_versions
+            and updated.business_points_pin == self._active.business_points_pin
+            and updated.device_bindings == self._active.device_bindings
+        ):
+            self._active = updated
+            self.status = "READY"
+            return
         # Changing brokers, DB credentials, retention, security or export limits
         # requires a controlled restart. No hot reconfiguration of in-flight IO.
         old = self._active.configuration.model_dump(exclude={"config_sources", "file_version"})
