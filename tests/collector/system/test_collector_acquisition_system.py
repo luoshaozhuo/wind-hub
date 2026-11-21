@@ -45,7 +45,7 @@ async def test_uc03_s01_poll_publishes_complete_envelope(
     batches = await collect_realtime(real_nats.url, count=6, timeout=10)
     # v2：一个采集周期形成一个设备级批次，信封与批次身份在批次层，逐点值在 samples 内。
     for batch in batches:
-        assert batch["schema_version"] == 2
+        assert batch["schema_version"] == 3
         assert batch["wind_farm_id"] == "site_alpha"
         assert batch["device_id"] == MODBUS
         assert batch["mode"] == "realtime"
@@ -128,7 +128,7 @@ async def test_uc03_s02_interrogation_reports_missing_points(
         await asyncio.sleep(1.0)
         result = await device_stub.InterrogateDevice(
             collector_pb.InterrogateDeviceRequest(device_id=IEC104, timeout_ms=5000),
-            metadata=(("x-windhub-admin-token", "acceptance-admin-token"),),
+            metadata=ADMIN_METADATA,
         )
         assert result.status == "PARTIAL"
         assert result.missing_point_ids == ["meas_freq"]

@@ -144,7 +144,6 @@ class TestUC10S03:
             dlq_stream=sink_harness.dlq_stream,
             dlq_subject=sink_harness.dlq_subject,
             token=f"{sink_harness.token}b",
-            bundle=sink_harness.bundle,
         )
         try:
             await harness_b.start()

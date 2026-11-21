@@ -1,7 +1,6 @@
-"""S3：Commander 查询权限隔离（真实 mTLS 双调用方 + gRPC + SQLite + Modbus）。
+"""S3：Commander 查询权限隔离（真实 Bearer 双调用方 + gRPC + SQLite + Modbus）。
 
-设计依据 Commander v1_24：command_id 与 request_id 两类查询都必须按证书
-身份映射出的 caller 命名空间授权——
+command_id 与 request_id 两类查询都必须按认证主体映射出的 caller 命名空间授权——
 
 1. 调用方 A 提交命令后，A 用 command_id 查询成功；
 2. 持 query 授权的调用方 B 查询 A 的 command_id 得到 NOT_FOUND，
@@ -11,24 +10,18 @@
 5. 进程重启（真实 flock 释放、SQLite 重开、启动恢复）后隔离不失效；
 6. 越权 NOT_FOUND 不影响正常控制、持久幂等等既有语义。
 
-第二张客户端证书由测试 CA 在测试内即时签发，权限项运行期注册进服务器
-_Authorized 持有的同一权限表，走完整生产授权与 caller 解析路径。
+第二个 Bearer 主体在服务启动前注册进同一不可变权限表，走完整生产授权与 caller 解析路径。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import datetime
 from typing import Any
 from uuid import uuid4
 
 import grpc
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 
 from commander.application.service_lifecycle import CommanderService
 from commander.assembly import build_commander
@@ -40,61 +33,17 @@ from core.application.protocol_registry import ProtocolRegistry
 from core.infrastructure.protocol.modbus import ModbusDriver
 from tests.commander.grpc_harness import GrpcStack, Pki, build_pki, build_stack
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.bearer import bearer_channel
 from tests.support.process import free_port
 
 pytestmark = [pytest.mark.integration, pytest.mark.real_service, pytest.mark.security]
 
-_SECOND_CALLER_EMAIL = "ops2@windhub.test"
 _SECOND_CALLER_ID = "ops2-console"
 _TERMINAL = {"SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED", "EXPIRED", "CANCELLED"}
 
 
-def _issue_second_caller_cert(pki: Pki) -> tuple[bytes, bytes]:
-    ca_cert = x509.load_pem_x509_certificate((pki.tmp / "ca.crt").read_bytes())
-    ca_key = serialization.load_pem_private_key((pki.tmp / "ca.key").read_bytes(), password=None)
-    assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    now = datetime.datetime.now(datetime.UTC)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "client-ops2")]))
-        .issuer_name(ca_cert.subject)
-        .public_key(private_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(days=1))
-        .add_extension(
-            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]),
-            critical=True,
-        )
-        .add_extension(
-            x509.SubjectAlternativeName([x509.RFC822Name(_SECOND_CALLER_EMAIL)]),
-            critical=False,
-        )
-        .sign(ca_key, hashes.SHA256())
-    )
-    return (
-        cert.public_bytes(serialization.Encoding.PEM),
-        private_key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        ),
-    )
-
-
-def _stub_for_identity(stack: GrpcStack, pki: Pki, cert: bytes, key: bytes) -> Any:
-    credentials = grpc.ssl_channel_credentials(
-        root_certificates=pki.ca_cert,
-        private_key=key,
-        certificate_chain=cert,
-    )
-    channel = grpc.aio.secure_channel(
-        stack.target,
-        credentials,
-        options=(("grpc.ssl_target_name_override", "localhost"),),
-    )
-    return commander_pb2_grpc.CommanderServiceStub(channel)
+def _second_stub(stack: GrpcStack) -> Any:
+    return commander_pb2_grpc.CommanderServiceStub(bearer_channel(stack.target, "ops2"))
 
 
 async def _revision(commander: Any) -> str:
@@ -165,13 +114,8 @@ async def _restart(
     snapshots2 = ConfigSnapshots(service2, stack.yaml_path)
     server2 = grpc.aio.server(maximum_concurrent_rpcs=100)
     register_services(server2, service2, stack.permissions, snapshots2)
-    credentials = grpc.ssl_server_credentials(
-        [(pki.key("server"), pki.cert("server"))],
-        root_certificates=pki.ca_cert,
-        require_client_auth=True,
-    )
     port = free_port()
-    assert server2.add_secure_port(f"127.0.0.1:{port}", credentials)
+    assert server2.add_insecure_port(f"127.0.0.1:{port}")
     await server2.start()
     restarted = GrpcStack(
         service=service2,
@@ -198,16 +142,12 @@ async def test_command_and_request_queries_are_caller_scoped(
         modbus_port=modbus_server.port,
         label="src-query-authz",
         stream_prefix="CMD_SRC_QA",
+        extra_principals={"ops2": (_SECOND_CALLER_ID, ("control", "query"))},
     )
     try:
-        stack.permissions[_SECOND_CALLER_EMAIL] = (
-            _SECOND_CALLER_ID,
-            frozenset({"control", "query"}),
-        )
-        cert2, key2 = _issue_second_caller_cert(pki)
         _common, commander_a_raw = stack.stubs(pki, client="ops")
         commander_a: Any = commander_a_raw
-        commander_b = _stub_for_identity(stack, pki, cert2, key2)
+        commander_b = _second_stub(stack)
         revision = await _revision(commander_a)
 
         request_id = f"req-qa-{uuid4().hex}"
@@ -276,17 +216,13 @@ async def test_query_authorization_survives_restart(
         modbus_port=modbus_server.port,
         label="src-query-authz-restart",
         stream_prefix="CMD_SRC_QAR",
+        extra_principals={"ops2": (_SECOND_CALLER_ID, ("control", "query"))},
     )
     crashed = False
     try:
-        stack.permissions[_SECOND_CALLER_EMAIL] = (
-            _SECOND_CALLER_ID,
-            frozenset({"control", "query"}),
-        )
-        cert2, key2 = _issue_second_caller_cert(pki)
         _common, commander_a_raw = stack.stubs(pki, client="ops")
         commander_a: Any = commander_a_raw
-        commander_b = _stub_for_identity(stack, pki, cert2, key2)
+        commander_b = _second_stub(stack)
         revision = await _revision(commander_a)
 
         request_id = f"req-qar-{uuid4().hex}"
@@ -305,7 +241,7 @@ async def test_query_authorization_survives_restart(
         try:
             _common2, commander_a2_raw = restarted.stubs(pki, client="ops")
             commander_a2: Any = commander_a2_raw
-            commander_b2 = _stub_for_identity(restarted, pki, cert2, key2)
+            commander_b2 = _second_stub(restarted)
 
             # 启动恢复未重发：Modbus 写入计数保持，受理快照恰为 A 的 1 条。
             assert modbus_server.write_count == writes_before

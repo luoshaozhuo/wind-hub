@@ -96,7 +96,9 @@ class FakePublisher:
     async def stop(self) -> None:
         return None
 
-    async def publish(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> None:
+    async def publish(
+        self, device_id: str, samples: tuple[ProtocolSample, ...], **metadata: object
+    ) -> None:
         self.received.append((device_id, samples))
 
 

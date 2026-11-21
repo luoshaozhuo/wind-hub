@@ -55,46 +55,40 @@ def test_killed_process_marks_unfinished_backup_interrupted_and_releases_lock(
     repository.close()
 
 
-def test_candidate_and_idempotent_publish_survive_real_process_restarts(tmp_path) -> None:
+def test_complete_sync_and_idempotent_replay_survive_real_process_restarts(tmp_path) -> None:
     from tests.configuration_service.integration.test_repository_rpc import document
 
     (tmp_path / "pki").mkdir()
     live = write_live_configuration(tmp_path, build_pki(tmp_path / "pki"), reserve_port())
     live.cli("service", "start", "configuration", "--yes")
     try:
-        source = live.root / "restart-site.yaml"
+        root = live.root / "sync-root"
+        for group in ("instances", "templates", "services"):
+            (root / group).mkdir(parents=True)
+        source = root / "instances/site_restart-site_v1.0.0.yaml"
+        source.parent.mkdir(parents=True, exist_ok=True)
         source.write_bytes(document("restart-site", "1.0.0").yaml_bytes)
-        staged = live.cli(
-            "configuration",
-            "candidate",
-            "site",
-            "restart-site",
-            str(source),
-            "0",
-            "--request-id",
-            "restart-candidate",
-        )
         live.cli("service", "restart", "configuration", "--yes")
         published = live.cli(
             "configuration",
-            "publish",
-            staged["data"]["candidate_id"],
-            "0",
+            "sync",
+            str(root),
+            "--yes",
             "--request-id",
-            "restart-publish",
+            "restart-sync",
         )
-        assert published["data"]["revision_id"] == "1"
+        assert published["data"]["revision_id"] == 1
         live.cli("service", "restart", "configuration", "--yes")
         replay = live.cli(
             "configuration",
-            "publish",
-            staged["data"]["candidate_id"],
-            "0",
+            "sync",
+            str(root),
+            "--yes",
             "--request-id",
-            "restart-publish",
+            "restart-sync",
         )
         assert replay["data"]["already_applied"] is True
-        assert replay["data"]["revision_id"] == "1"
+        assert replay["data"]["revision_id"] == 1
     finally:
         live.cli("service", "stop", "configuration", "--yes")
 

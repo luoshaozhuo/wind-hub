@@ -14,7 +14,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -22,6 +22,7 @@ from typing import Any, Protocol
 import grpc
 import yaml
 
+from storage_service.application.config import DeviceBinding, DeviceClosurePins
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.domain.sample import DataLevel, StorageSample
 
@@ -229,6 +230,27 @@ class ImmutableConfigArchive:
         )
 
 
+def _index_device_bindings(
+    bindings: Iterable[DeviceBinding],
+) -> dict[tuple[str, str, str], tuple[DeviceBinding, ...]]:
+    grouped: dict[tuple[str, str, str], list[DeviceBinding]] = {}
+    model_versions: dict[str, object] = {}
+    instance_versions: dict[tuple[str, str, str], DeviceBinding] = {}
+    for binding in bindings:
+        previous_model = model_versions.setdefault(binding.model.version_id, binding.model)
+        if previous_model != binding.model:
+            raise ConfigHistoryUnavailableError("DeviceModel version was rebound")
+        instance_key = (binding.device_version_id, binding.wind_farm_id, binding.device_id)
+        previous_instance = instance_versions.setdefault(instance_key, binding)
+        if previous_instance != binding:
+            raise ConfigHistoryUnavailableError("device instance version was rebound")
+        key = (binding.wind_farm_id, binding.device_id, binding.point_table_id)
+        candidates = grouped.setdefault(key, [])
+        if binding not in candidates:
+            candidates.append(binding)
+    return {key: tuple(values) for key, values in grouped.items()}
+
+
 class ConfigurationPointTableResolver:
     """Fail closed unless exact pinned point/semantic versions validate a sample."""
 
@@ -240,11 +262,15 @@ class ConfigurationPointTableResolver:
         point_table_versions: Mapping[str, tuple[str, str]],
         business_points_version: tuple[str, str] | None = None,
         historical_pins: Mapping[str, tuple[tuple[str, str], tuple[str, str] | None]] | None = None,
+        device_bindings: Iterable[DeviceBinding] | None = None,
     ) -> None:
         if not point_table_versions:
             raise ValueError("explicitly pinned point table versions are required")
         self._fetcher = fetcher
         self._archive = archive
+        if device_bindings is None and isinstance(point_table_versions, DeviceClosurePins):
+            device_bindings = point_table_versions.device_bindings
+        self._device_bindings = _index_device_bindings(device_bindings or ())
         self._pins = dict(point_table_versions)
         self._business_pins = {
             table_id: business_points_version for table_id in point_table_versions
@@ -270,8 +296,17 @@ class ConfigurationPointTableResolver:
         *,
         point_table_versions: Mapping[str, tuple[str, str]],
         business_points_pin: tuple[str, str] | None,
+        device_bindings: Iterable[DeviceBinding] | None = None,
     ) -> None:
         """Apply additions only; existing immutable interpretation is never replaced."""
+        if device_bindings is None and isinstance(point_table_versions, DeviceClosurePins):
+            device_bindings = point_table_versions.device_bindings
+        current_bindings = (
+            binding for candidates in self._device_bindings.values() for binding in candidates
+        )
+        merged_device_bindings = _index_device_bindings(
+            (*current_bindings, *(device_bindings or ()))
+        )
         for point_table_id, pin in point_table_versions.items():
             old = self._pins.get(point_table_id)
             if old is not None and (
@@ -283,6 +318,7 @@ class ConfigurationPointTableResolver:
         for point_table_id, pin in point_table_versions.items():
             self._pins[point_table_id] = pin
             self._business_pins[point_table_id] = business_points_pin
+        self._device_bindings = merged_device_bindings
 
     async def _load(
         self, *, config_type: str, config_id: str, version_id: str
@@ -334,6 +370,7 @@ class ConfigurationPointTableResolver:
         point_table_id: str,
         config_id: str,
         document: Mapping[str, Any],
+        device_type_id: str | None = None,
     ) -> None:
         template_id = document.get("template_id")
         file_version = document.get("file_version")
@@ -348,24 +385,44 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailableError(
                 "pinned PointTable YAML identity is inconsistent with Kafka identity"
             )
+        declared_type = document.get("device_type")
+        if (
+            declared_type is not None
+            and device_type_id is not None
+            and declared_type != device_type_id
+        ):
+            raise ConfigHistoryUnavailableError(
+                "PointTable device_type disagrees with authoritative DeviceModel"
+            )
 
     async def require_exact_versions(self, samples: Sequence[StorageSample]) -> None:
         for sample in samples:
             pin = self._pins.get(sample.point_table_id)
-            if not pin and self._refresh_hook is not None:
-                # A previously unseen PointTable can be part of a newly published
-                # Configuration revision. Refresh the *whole* verified closure;
-                # never guess a version or bind by the latest filename.
+            device_key = (sample.wind_farm_id, sample.device_id, sample.point_table_id)
+            bindings = self._device_bindings.get(device_key, ())
+            if (not pin or not bindings) and self._refresh_hook is not None:
+                # Unknown tables *and* new device instances both require one whole
+                # authoritative closure refresh; Kafka fields are only candidates.
                 try:
                     await self._refresh_hook()
                 except Exception as exc:
                     raise ConfigHistoryUnavailableError(
-                        "authoritative Configuration refresh failed for unknown PointTable"
+                        "authoritative Configuration refresh failed for unknown PointTable/device"
                     ) from exc
                 pin = self._pins.get(sample.point_table_id)
+                bindings = self._device_bindings.get(device_key, ())
             if not pin:
                 raise ConfigHistoryUnavailableError(
                     f"no pinned immutable version for {sample.point_table_id}"
+                )
+            if not bindings:
+                raise ConfigHistoryUnavailableError(
+                    "no fixed device instance/DeviceModel binding for "
+                    f"{sample.wind_farm_id}:{sample.device_id}:{sample.point_table_id}"
+                )
+            if {binding.device_type_id for binding in bindings} != {sample.device_type}:
+                raise ConfigHistoryUnavailableError(
+                    "Kafka device_type disagrees with authoritative DeviceModel device_type_id"
                 )
             config_id, version_id = pin
             document = await self._load(
@@ -377,6 +434,7 @@ class ConfigurationPointTableResolver:
                 point_table_id=sample.point_table_id,
                 config_id=config_id,
                 document=document,
+                device_type_id=sample.device_type,
             )
             points = document.get("points")
             if not isinstance(points, dict) or sample.point_id not in points:

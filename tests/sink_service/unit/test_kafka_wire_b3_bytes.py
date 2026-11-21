@@ -2,7 +2,7 @@
 
 B3（``encode_kafka_points``）把 5 个共享身份字段编码为一次公共前缀，再与
 逐点 8 字段做字节拼接。本文件的参考实现完全独立于 B3：按线格式规范用
-**单个 13 字段 dict 一次 json.dumps** 重建权威字节（结构上与 B3 的
+**单个 19 字段 dict 一次 json.dumps** 重建权威字节（结构上与 B3 的
 「前缀 + 切片拼接」不同），并同时以正式 Outbound Adapter 的
 ``encode_delivery_point()`` 作为第二权威。判定一律比较 UTF-8 原始字节，不接受 JSON 语义相等。
 
@@ -39,16 +39,22 @@ PUBLISH = datetime(2026, 11, 10, 9, 30, 1, 123456, tzinfo=UTC)
 LIMIT_SAMPLES = 1024
 LIMIT_BYTES = 16 * 1024 * 1024
 
-# 13 字段线格式的规范顺序（设计 v1_38 表 12-3）
+# 19 字段 Kafka JSON v2 线格式的规范顺序
 WIRE_FIELD_ORDER = [
     "schema_version",
+    "data_level",
     "wind_farm_id",
     "collector_id",
     "task_id",
+    "device_type",
     "device_id",
+    "point_table_id",
+    "batch_id",
     "point_id",
+    "business_point_id",
     "sample_id",
     "value",
+    "unit",
     "quality",
     "sample_time",
     "publish_time",
@@ -107,17 +113,23 @@ def _json_ts(value: datetime | None) -> str | None:
 
 
 def reference_wire_bytes(batch: SampleBatch, item: SampleItem) -> bytes:
-    """测试内独立权威：13 字段单 dict 一次性序列化，不走 B3 拼接逻辑。"""
+    """测试内独立权威：19 字段单 dict 一次性序列化，不走 B3 拼接逻辑。"""
     return json.dumps(
         {
-            "schema_version": 1,
+            "schema_version": 2,
+            "data_level": "business",
             "wind_farm_id": batch.wind_farm_id,
             "collector_id": batch.collector_id,
             "task_id": batch.task_id,
+            "device_type": batch.device_type,
             "device_id": batch.device_id,
+            "point_table_id": batch.point_table_id,
+            "batch_id": batch.batch_id,
             "point_id": item.point_id,
+            "business_point_id": item.business_point_id,
             "sample_id": item.sample_id,
-            "value": item.value,
+            "value": item.business_value,
+            "unit": item.business_unit,
             "quality": item.quality,
             "sample_time": _json_ts(item.sample_time),
             "publish_time": _json_ts(batch.publish_time),
@@ -135,6 +147,11 @@ def _item(index: int, value: object, sample_time: datetime, receive_time, stale)
         point_id=f"p{index:04d}",
         sample_id=f"s-b3-{index}",
         value=value,
+        raw_value=value,
+        business_value=value,
+        unit="kilowatt",
+        business_unit="kilowatt",
+        business_point_id=f"p{index:04d}",
         quality="good",
         sample_time=sample_time,
         receive_time=receive_time,
@@ -150,6 +167,8 @@ def _batch(items: tuple[SampleItem, ...]) -> SampleBatch:
         collector_id=COLLECTOR,
         task_id=TASK,
         device_id=DEVICE,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=PUBLISH,
         samples=items,
     )
@@ -183,15 +202,15 @@ def test_batch_encoder_byte_identical_to_two_independent_authorities(
     batch = _decoded(_batch((_item(0, value, sample_time, receive_time, None),)))
     item = batch.samples[0]
 
-    b3_bytes = encode_kafka_points(batch, (item,))[0]
+    b3_bytes = encode_kafka_points(batch, (item,), "business")[0]
     reference_bytes = reference_wire_bytes(batch, item)
-    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(batch, item))
+    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(batch, item, "business"))
 
     # 三重字节相等：B3 拼接 == 测试内单 dict 参考 == 生产 DeliveryPoint
     assert b3_bytes == reference_bytes
     assert b3_bytes == production_bytes
     # 单点包装入口必须复用同一批量规范，不得形成两套合同
-    assert encode_kafka_point(batch, item) == b3_bytes
+    assert encode_kafka_point(batch, item, "business") == b3_bytes
     # 语义层再确认可被生产 decoder 接受
     assert json.loads(b3_bytes) == json.loads(production_bytes)
 
@@ -205,30 +224,30 @@ def test_staleness_rendering_byte_identical(stale: int | None) -> None:
         return
     batch = _decoded(_batch((_item(7, 42, PRECISE_TIMES[0], None, stale),)))
     item = batch.samples[0]
-    rendered = encode_kafka_points(batch, (item,))[0]
+    rendered = encode_kafka_points(batch, (item,), "business")[0]
     assert rendered == reference_wire_bytes(batch, item)
-    # reliable 线格式固定渲染 null（13 字段不缺省）
+    # reliable 线格式固定渲染 null（19 字段不缺省）
     assert b'"max_staleness_ms":null' in rendered
 
 
 def test_exponent_floats_preserve_json_rendering_across_splice() -> None:
-    # 拼接点位于 device_id 与 point_id 之间，指数渲染在逐点段，
+    # 拼接点位于 batch_id 与 point_id 之间，指数渲染在逐点段，
     # 显式钉死浮点文本与拼接 junction 都不丢字符。
     for value in (1e308, -3.14e-9, 1.5e-300, 5e-324, -0.0):
         batch = _decoded(_batch((_item(1, value, PRECISE_TIMES[3], None, None),)))
         item = batch.samples[0]
-        rendered = encode_kafka_points(batch, (item,))[0]
+        rendered = encode_kafka_points(batch, (item,), "business")[0]
         assert rendered == reference_wire_bytes(batch, item)
         expected_token = json.dumps(value, separators=(",", ":"))
         assert f'"value":{expected_token},'.encode() in rendered
-        assert f'"device_id":"{DEVICE}","point_id":'.encode() in rendered
+        assert f'"batch_id":"{batch.batch_id}","point_id":'.encode() in rendered
 
 
 def test_unicode_and_escapes_are_raw_utf8_byte_identical() -> None:
     for value in STRING_VALUES:
         batch = _decoded(_batch((_item(2, value, PRECISE_TIMES[0], None, None),)))
         item = batch.samples[0]
-        rendered = encode_kafka_points(batch, (item,))[0]
+        rendered = encode_kafka_points(batch, (item,), "business")[0]
         assert rendered == reference_wire_bytes(batch, item)
         # ensure_ascii=False：中文/emoji 必须是原始 UTF-8 而非 \\u 转义
         if any(ord(ch) > 127 for ch in value):
@@ -253,10 +272,11 @@ def _varied_batch(size: int) -> SampleBatch:
 @pytest.mark.parametrize("size", [500, 1024])
 def test_full_sized_chunks_every_record_byte_identical(size: int) -> None:
     batch = _varied_batch(size)
-    encoded = encode_kafka_points(batch, batch.samples)
+    encoded = encode_kafka_points(batch, batch.samples, "business")
     assert len(encoded) == size
     production = tuple(
-        encode_delivery_point(DeliveryPoint.from_batch(batch, point)) for point in batch.samples
+        encode_delivery_point(DeliveryPoint.from_batch(batch, point, "business"))
+        for point in batch.samples
     )
     for idx in range(size):
         assert encoded[idx] == reference_wire_bytes(batch, batch.samples[idx])
@@ -270,9 +290,10 @@ def test_runtime_chunk_slicing_500_500_24_keeps_indices_and_bytes() -> None:
     assert [len(part) for part in slices] == [500, 500, 24]
     flattened: list[bytes] = []
     for part in slices:
-        flattened.extend(encode_kafka_points(batch, part))
+        flattened.extend(encode_kafka_points(batch, part, "business"))
     production = tuple(
-        encode_delivery_point(DeliveryPoint.from_batch(batch, point)) for point in batch.samples
+        encode_delivery_point(DeliveryPoint.from_batch(batch, point, "business"))
+        for point in batch.samples
     )
     assert len(flattened) == 1024
     for idx in range(1024):
@@ -284,7 +305,7 @@ def test_runtime_chunk_slicing_500_500_24_keeps_indices_and_bytes() -> None:
 
 def test_shared_identity_prefix_is_identical_across_chunk() -> None:
     batch = _varied_batch(500)
-    encoded = encode_kafka_points(batch, batch.samples)
+    encoded = encode_kafka_points(batch, batch.samples, "business")
     junction = f'"device_id":"{DEVICE}",'.encode()
     prefixes = {raw[: raw.index(junction) + len(junction)] for raw in encoded}
     assert len(prefixes) == 1  # 500 条共享同一公共前缀字节
@@ -303,13 +324,13 @@ def test_shared_identity_prefix_is_identical_across_chunk() -> None:
 
 def test_empty_subset_returns_empty_tuple() -> None:
     batch = _varied_batch(3)
-    assert encode_kafka_points(batch, ()) == ()
+    assert encode_kafka_points(batch, (), "business") == ()
 
 
 def test_encoding_is_deterministic_with_no_hidden_state() -> None:
     batch = _varied_batch(128)
-    first = encode_kafka_points(batch, batch.samples)
-    second = encode_kafka_points(batch, batch.samples)
+    first = encode_kafka_points(batch, batch.samples, "business")
+    second = encode_kafka_points(batch, batch.samples, "business")
     assert first == second
     # 不同源批之间不得共享/污染缓存：身份字段必须各自正确
     other = _decoded(
@@ -319,6 +340,11 @@ def test_encoding_is_deterministic_with_no_hidden_state() -> None:
                     point_id="p0000",
                     sample_id="s-other",
                     value=1,
+                    raw_value=1,
+                    business_value=1,
+                    unit="kilowatt",
+                    business_unit="kilowatt",
+                    business_point_id="p0000",
                     quality="good",
                     sample_time=PRECISE_TIMES[0],
                 ),
@@ -332,17 +358,19 @@ def test_encoding_is_deterministic_with_no_hidden_state() -> None:
         collector_id=other.collector_id,
         task_id=other.task_id,
         device_id=other.device_id,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=other.publish_time,
         samples=other.samples,
     )
-    rendered = encode_kafka_points(other_batch, other_batch.samples)[0]
+    rendered = encode_kafka_points(other_batch, other_batch.samples, "business")[0]
     assert b'"wind_farm_id":"farm-other"' in rendered
     assert FARM.encode() not in rendered
 
 
 def test_field_order_preserved_under_splice() -> None:
     batch = _varied_batch(1)
-    rendered = encode_kafka_points(batch, batch.samples)[0].decode()
+    rendered = encode_kafka_points(batch, batch.samples, "business")[0].decode()
     keys = [segment.split(":", 1)[0].strip('"') for segment in rendered.strip("{}").split(",")]
     assert keys == WIRE_FIELD_ORDER
 

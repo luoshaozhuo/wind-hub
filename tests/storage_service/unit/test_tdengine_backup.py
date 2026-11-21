@@ -49,7 +49,7 @@ class _Metadata:
 
 def _config(tmp_path: Path) -> StorageConfig:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
     )
     return config.model_copy(
         update={
@@ -101,7 +101,8 @@ async def _wait_for_pid(root: Path, task_id: str) -> int:
     for _ in range(200):
         try:
             return _read_pid(root, task_id)
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
+            # The child creates the PID file before writing its contents.
             await asyncio.sleep(0.01)
     raise AssertionError("taosdump test child did not start")
 

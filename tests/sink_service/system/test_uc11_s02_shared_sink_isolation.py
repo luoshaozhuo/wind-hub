@@ -37,6 +37,7 @@ from tests.sink_service.system.conftest import (
     WIND_FARM_ID,
     SinkSystemHarness,
 )
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [
     pytest.mark.system,
@@ -137,7 +138,7 @@ def _write_shared_sink_root(harness: SinkSystemHarness) -> None:
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": ensure_bearer("maintenance"),
                 "permissions": ["query", "control", "config"],
             }
         ],

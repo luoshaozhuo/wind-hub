@@ -1,4 +1,4 @@
-"""Strict version-2 batched NATS telemetry contract.
+"""Strict version-3 batched NATS telemetry contract.
 
 The batch is the transport and JetStream acknowledgment unit; individual
 samples retain independent identities, timestamps, quality, and TTL.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import UTC, datetime
 from typing import Literal, NoReturn
 
@@ -76,10 +77,22 @@ class SampleItem(BaseModel):
     point_id: str
     sample_id: str
     value: float | int | bool | str | None
+    raw_value: float | int | bool | str | None
+    business_value: float | int | bool | str | None
+    unit: str
+    business_unit: str
+    business_point_id: str
     quality: Literal["good", "bad", "uncertain"]
     sample_time: datetime
     receive_time: datetime | None = None
     max_staleness_ms: int | None = Field(default=None, gt=0, le=2**63 - 1)
+
+    @field_validator("unit", "business_unit", "business_point_id")
+    @classmethod
+    def _source_metadata(cls, value: str) -> str:
+        if _is_unsafe_identifier(value):
+            raise ValueError("invalid sample source metadata")
+        return value
 
     @field_validator("point_id")
     @classmethod
@@ -102,14 +115,15 @@ class SampleItem(BaseModel):
 
     @model_validator(mode="after")
     def _finite(self) -> SampleItem:
-        if isinstance(self.value, float) and not math.isfinite(self.value):
-            raise ValueError("nonfinite sample value")
-        if (
-            isinstance(self.value, int)
-            and not isinstance(self.value, bool)
-            and not -(2**63) <= self.value <= 2**64 - 1
-        ):
-            raise ValueError("sample integer exceeds protobuf scalar range")
+        for value in (self.value, self.raw_value, self.business_value):
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("nonfinite sample value")
+            if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and not -(2**63) <= value <= 2**64 - 1
+            ):
+                raise ValueError("sample integer exceeds protobuf scalar range")
         return self
 
 
@@ -118,15 +132,31 @@ class SampleBatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     batch_id: str
     mode: DeliveryMode
     wind_farm_id: str
     collector_id: str
     task_id: str
+    device_type: str
     device_id: str
+    point_table_id: str
     publish_time: datetime
     samples: tuple[SampleItem, ...]
+
+    @field_validator("point_table_id")
+    @classmethod
+    def _versioned_point_table(cls, value: str) -> str:
+        if re.fullmatch(r"point_table_.+_v[0-9]+\.[0-9]+\.[0-9]+", value) is None:
+            raise ValueError("point_table_id must include template ID and file version")
+        return value
+
+    @field_validator("device_type", "point_table_id")
+    @classmethod
+    def _source_identity(cls, value: str) -> str:
+        if _is_unsafe_identifier(value):
+            raise ValueError("invalid batch source metadata")
+        return value
 
     @field_validator("wind_farm_id", "collector_id", "task_id", "device_id")
     @classmethod
@@ -165,13 +195,15 @@ class SampleBatch(BaseModel):
         return self
 
     @property
-    def identity(self) -> tuple[str, str, str, str, str, str]:
+    def identity(self) -> tuple[str, str, str, str, str, str, str, str]:
         """Scope a batch ID to its immutable producer identity."""
         return (
             self.wind_farm_id,
             self.collector_id,
             self.task_id,
+            self.device_type,
             self.device_id,
+            self.point_table_id,
             self.mode,
             self.batch_id,
         )
@@ -243,8 +275,8 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid UTF-8 JSON batch") from exc
         if not isinstance(raw, dict):
             raise ValueError("batch envelope must be an object")
-        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 2:
-            raise ValueError("explicit schema_version=2 required")
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 3:
+            raise ValueError("explicit schema_version=3 required")
         _require_wire_timestamp(raw.get("publish_time"), "publish_time")
         items = raw.get("samples")
         if not isinstance(items, list) or not 0 < len(items) <= max_samples:

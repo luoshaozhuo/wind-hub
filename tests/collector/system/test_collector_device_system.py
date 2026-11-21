@@ -58,7 +58,7 @@ async def test_uc01_s01_real_device_connect_and_health(
     assert status.health in {"HEALTHY", "DEGRADED"}
     diagnose = await config_stub.Diagnose(
         common.DiagnoseRequest(target_id=device_id, stages=["NETWORK", "PROTOCOL"]),
-        metadata=(("x-windhub-admin-token", "acceptance-admin-token"),),
+        metadata=ADMIN_METADATA,
     )
     assert {stage.stage: stage.status for stage in diagnose.stages} == {
         "NETWORK": "PASS",

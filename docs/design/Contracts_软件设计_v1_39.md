@@ -754,7 +754,7 @@ System Test 必须遵守以下规定：
 - **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；新增模块修订通知 RPC 的消息及方法仍需在 `common.proto` 定义并生成代码。
 - **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，总计 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9）。
 - **新增目标契约**：`src/contracts/configuration_repository.proto` 已手写定义 `ConfigurationRepositoryService` 的 12 个 RPC，并纳入 `scripts/generate_rpc.py`。Protobuf/gRPC Python 绑定尚待线下生成；服务端尚未实现，不能标记为运行通过。
-- `src/contracts/sample_batch.py::SampleBatch(schema_version=2)` 属 Collector/Sink NATS 批量采样线协议，不计入上述 gRPC RPC 数；Sink→Kafka 输出另有 `schema_version=1` JSON 格式，也不是配置或点表版本号。
+- `src/contracts/sample_batch.py::SampleBatch(schema_version=3)` 属 Collector/Sink NATS 批量采样线协议，不计入上述 gRPC RPC 数；Sink→Kafka 输出另有 `schema_version=2` JSON 格式，也不是配置或点表版本号。
 
 ## 3.2 契约边界
 
@@ -1185,13 +1185,13 @@ Configuration Repository 只负责版本与发布，不触发模块 Apply；CLI 
 
 Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯一权威**。NATS Realtime 与 JetStream Reliable 使用同一种 Envelope 和 SampleItem Schema，由 `mode` 区分，并分别使用 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>`、`wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` Subject。跨模块源格式以 §11.6 为准；Sink 对外输出以 §11.9 为准。各模块设计只引用这些唯一字段契约，不得再另定义字段含义或格式版本。
 
-现行生产输入是 `SampleBatch(schema_version=2)`，现行 Kafka 单点 JSON 是 `schema_version=1`，均缺少目标 PointTable 身份及数据等级。新格式为**待联动实施的目标契约**，迁移时同步更改 Contracts、Collector、Sink、Kafka/Redis Adapter 与测试，禁止宣称已经上线。目标 NATS SampleBatch v3 与 Kafka/Redis 单点 JSON v2 相互独立，不能根据一个的版本推导另一个。
+NATS SampleBatch v3 与 Kafka/Redis 单点 JSON v2 相互独立，不能根据一个的版本推导另一个。Contracts、Collector、Sink、Kafka/Redis Adapter 与测试必须同步迁移；旧 v2 批次和 Kafka v1 记录不属于新线格式，不得通过缺省字段或隐式别名继续消费。
 
 ## 11.5 Proto 兼容规则
 
 允许添加新字段号（保持现有号、类型、oneof presence）；不允许同包同号改语义、改变 scalar 类型、误用隐式缺省或移除现行 RPC。确需不兼容变更，应新包版本并同时完成生产端、调用方、CLI、配置及测试迁移；不保留无故兼容层。用户可见 `file_version` 并非 Proto 包版本，不能互相替代。
 
-## 11.6 Collector→Sink：SampleBatch v3 目标线格式
+## 11.6 Collector→Sink：SampleBatch v3 线格式
 
 **传输**：NATS/JetStream 消息体为 UTF-8 JSON 对象；单条消息为同一设备、同一采集任务、同一 PointTable 的采样批。下表规定全部字段的名称、层级和校验要求；除注明可选的字段外，均必须存在。消息按固定 Schema 严格解析，拒绝未知字段和重复 JSON 键。
 
@@ -1207,13 +1207,18 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 | Batch | `samples` | array | 1～500 条，每条均属于该点表；禁止重复 `point_id` / `sample_id` |
 | Item | `point_id` | string | 必填，原始 PointTable 测点身份，不预先变为 BusinessPoint |
 | Item | `sample_id` | string | 必填，采样幂等身份；同次消息重发保持不变 |
-| Item | `value` | float/int/bool/string/null | 必须显式出现；原协议字段解码后的标量，未做比例、偏移及标准单位换算；不允许 NaN/Inf |
+| Item | `value` | float/int/bool/string/null | 必须显式出现；按 PointTable 比例/偏移得到的协议工程值，尚未做 BusinessPoint 标准单位换算；不允许 NaN/Inf |
+| Item | `raw_value` | float/int/bool/string/null | 必须显式出现；原协议字段解码标量，供 RAW 输出使用，不是报文字节；不允许 NaN/Inf |
+| Item | `business_value` | float/int/bool/string/null | 必须显式出现；由 Collector 使用固定 BusinessPoint/Units 闭包投影的标准业务值；不允许 NaN/Inf |
+| Item | `unit` | string | 必填，PointTable 源工程单位；不得以 BusinessPoint 标准单位替代 |
+| Item | `business_unit` | string | 必填，BusinessPoint 标准单位；禁止直接复制源单位冒充换算 |
+| Item | `business_point_id` | string | 必填，PointTable 显式业务映射；Sink 不猜测别名 |
 | Item | `quality` | enum | `good` / `bad` / `uncertain` |
 | Item | `sample_time` | RFC 3339/ISO 8601 | 必填，带时区 UTC 时间 |
 | Item | `receive_time` | RFC 3339/ISO 8601 | 可选，Collector 接收时间 |
 | Item | `max_staleness_ms` | positive integer | **Realtime 必填；Reliable 必须省略** |
 
-**完整示例（Realtime，v3 目标）**：
+**完整示例（Realtime，v3）**：
 
 ```json
 {
@@ -1223,7 +1228,7 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
   "wind_farm_id": "farm-a",
   "collector_id": "collector-1",
   "task_id": "task-wtg-1",
-  "device_type": "wtg",
+  "device_type": "turbine",
   "device_id": "WTG001",
   "point_table_id": "point_table_modbus_wtg_v1.0.0",
   "publish_time": "2026-11-18T00:00:00Z",
@@ -1231,7 +1236,12 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
     {
       "point_id": "P001",
       "sample_id": "sample-0001",
-      "value": 15234,
+      "value": 1523.4,
+      "raw_value": 1523400,
+      "business_value": 1523.4,
+      "unit": "kilowatt",
+      "business_unit": "kilowatt",
+      "business_point_id": "active_power",
       "quality": "good",
       "sample_time": "2026-11-18T00:00:00Z",
       "receive_time": "2026-11-18T00:00:00Z",
@@ -1247,11 +1257,11 @@ Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_s
 
 **PointTable 不变性**：`point_table_id` 必须能在 Configuration 解析到确定且不可变的 Point 集合、比例/偏移、类型/源工程单位及**精确固定的 BusinessPoint/Units 依赖闭包**。如果任何改变影响样本解释或 BusinessPoint 输出语义，必须发布新的 `point_table_id`；不能沿用同一 ID 指向可变的最新依赖版本。若仅变更采集间隔或服务连接参数、不影响解释规则，可继续使用原 PointTable ID。不同全局配置修订可以共享同一 PointTable ID。
 
-**迁移要求**：当前代码严格要求 v2，新的必填字段意味着 v3 输入不能在旧消费者下兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
+**迁移要求**：v3 新增必填身份字段，旧 v2 输入不能在新消费者下兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
 
 ## 11.7 数据三级语义与映射不变量
 
-`RAW` 为协议解码出的标量，不是报文字节，允许独立于 Configuration 查询进行诊断交付（但仍要校验批次结构和来源身份）；`ENGINEERING` 为按 PointTable 变换的工程值；`BUSINESS` 为按 BusinessPoint 唯一语义和标准单位投影后的业务值。输出等级是每个 Delivery 的配置，合法值为 `raw`、`engineering`、`business`，缺省 `business`。下游编码（Kafka JSON、Modbus 寄存器、Gateway/Redis 映射）是与三级数据表达正交的 Adapter 职责。
+`RAW` 为协议解码出的标量，不是报文字节，允许独立于 Configuration 查询进行诊断交付（但仍要校验批次结构和来源身份）；`PROTOCOL` 为按 PointTable 变换、保留源 Point 身份和工程源单位的协议工程值；`BUSINESS` 为按 BusinessPoint 唯一语义和标准单位投影后的业务值。输出等级是每个 Delivery 的显式配置，合法值为 `raw`、`protocol`、`business`，缺失即拒绝。下游编码（Kafka JSON、Modbus 寄存器、Gateway/Redis 映射）是与三级数据表达正交的 Adapter 职责。
 
 每条 Point 在点表中必须显式设置 `business_point_id`；同一有效 PointTable 的该字段不可重复，跨不同点表允许引用同一个 BusinessPoint。BusinessPoint 不因仿真/真实、设备型号、协议地址产生别名；物理位置和统计口径不同则须定义可区分的稳定身份。Configuration 拒绝重复及无效映射；Sink 不猜测或静默回退。
 
@@ -1261,16 +1271,16 @@ Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_s
 
 ## 11.9 Sink→下游：转换值对象、Kafka/Redis 与协议输出契约
 
-每个 Delivery 的 `output.data_level` 为 `raw`、`engineering`、`business`，默认 `business`。Sink 在选择数据等级后生成**统一的转换后逻辑样本**，随后由 Adapter 编码到不同目标；原始值、源 `point_id`、`sample_id`、质量与时间均不可被覆盖。
+每个 Delivery 必须显式配置 `output.data_level` 为 `raw`、`protocol`、`business`，缺失即拒绝。Sink 在选择数据等级后生成**统一的转换后逻辑样本**，随后由 Adapter 编码到不同目标；原始值、源 `point_id`、`sample_id`、质量与时间均不可被覆盖。
 
 | 逻辑字段 | 类型 | 规则 |
 |---|---|---|
 | `schema_version` | integer | Kafka/Redis 目标 JSON 固定为 2，与 SampleBatch v3 独立 |
-| `data_level` | enum | `raw`、`engineering` 或 `business` |
+| `data_level` | enum | `raw`、`protocol` 或 `business` |
 | `wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id` | string | 必填，与 Collector 原包一致 |
 | `batch_id`、`point_id`、`sample_id` | string | 必填；`point_id` 永远为源 Point ID |
-| `business_point_id` | string/null | BUSINESS 必填有效业务标准 ID；RAW、ENGINEERING 为 null |
-| `unit` | string/null | RAW 为 null；ENGINEERING 为工程源单位；BUSINESS 为 BusinessPoint 标准单位 |
+| `business_point_id` | string/null | BUSINESS 必填有效业务标准 ID；RAW、PROTOCOL 为 null |
+| `unit` | string/null | RAW 为 null；PROTOCOL 为工程源单位；BUSINESS 为 BusinessPoint 标准单位 |
 | `value` | scalar/null | 按等级获得的值；未经量纲转换的 RAW 不标注标准单位 |
 | `quality` | enum | 原始采样质量，不因转换而伪造 good |
 | `sample_time`、`publish_time` | RFC 3339/ISO 8601 | 必填 |
@@ -1288,7 +1298,7 @@ Kafka Reliable **每条 SampleItem 一条 JSON Record**，Key 仍是 `wind_farm_
   "wind_farm_id": "farm-a",
   "collector_id": "collector-1",
   "task_id": "task-wtg-1",
-  "device_type": "wtg",
+  "device_type": "turbine",
   "device_id": "WTG001",
   "point_table_id": "point_table_modbus_wtg_v1.0.0",
   "batch_id": "batch-0001",
@@ -1296,7 +1306,7 @@ Kafka Reliable **每条 SampleItem 一条 JSON Record**，Key 仍是 `wind_farm_
   "business_point_id": "active_power",
   "sample_id": "sample-0001",
   "value": 1523.4,
-  "unit": "kW",
+  "unit": "kilowatt",
   "quality": "good",
   "sample_time": "2026-11-18T00:00:00Z",
   "publish_time": "2026-11-18T00:00:00Z",
@@ -1305,11 +1315,11 @@ Kafka Reliable **每条 SampleItem 一条 JSON Record**，Key 仍是 `wind_farm_
 }
 ```
 
-Kafka 原始值模式仍使用相同 JSON v2 字段集合，仅将 `data_level="raw"`、`business_point_id=null`、`unit=null`，`value` 保持原标量；工程值模式同理保留源 `point_id`、`business_point_id=null`、附工程单位。Redis JSON Value 使用相同逻辑字段和语义，但 Redis Key/TTL、CAS 和原子更新规则由 Sink Adapter 规定；RAW/ENGINEERING/BUSINESS 在同目标输出时必须防止 Key 冲突和旧值覆盖。
+Kafka 原始值模式仍使用相同 JSON v2 字段集合，仅将 `data_level="raw"`、`business_point_id=null`、`unit=null`，`value` 保持原标量；协议工程值模式同理保留源 `point_id`、`business_point_id=null`、附工程单位。Redis JSON Value 使用相同逻辑字段和语义，但 Redis Key/TTL、CAS 和原子更新规则由 Sink Adapter 规定；RAW/PROTOCOL/BUSINESS 在同目标输出时必须防止 Key 冲突和旧值覆盖。
 
 Modbus TCP 输出为配置指定的寄存器值/质量镜像，Industrial Gateway 输出为受控 `UpdateVariables` 的 `variable_id/value` 参数。两者**不具备传递上述完整 JSON 元数据的能力**，必须在 Delivery 模板中显式配置 Point/BusinessPoint→目标地址映射、编码类型、写入确认和版本切换规则；不得谎称下游可以从 Modbus 寄存器恢复 `point_table_id`。如目标需要完整来源身份，必须使用支持元数据的 Sink（Kafka/Redis）或另行设计寄存器元数据地址区。
 
-**Storage 接口约束**：Kafka 记录的 `device_type`、`device_id`、`point_table_id` 是存储建表/语义归属的充分来源标识（其正确性依赖 PointTable 不可变闭包及 Storage 设计）；`schema_version` 仅负责 JSON 字段契约，不能作为设备数据表版本；不新增 `data_version` 和 `config_revision_id`。历史重放必须依原消息携带的 `point_table_id`，缺失历史点表或依赖时拒绝解释，不得采用最新点表替代。
+**Storage 接口约束**：Kafka 记录的 `device_type`、`device_id`、`point_table_id` 必须与 Storage 已验证的设备实例→固定 DeviceModel→PointTable 闭包一致，不能仅凭消息自报字段建表；`schema_version` 仅负责 JSON 字段契约，不能作为设备数据表版本；不新增 `data_version` 和 `config_revision_id`。历史重放必须依原消息携带的 `point_table_id`，缺失历史点表、设备绑定或依赖时拒绝解释，不得采用最新配置替代。
 
 # 12. 测试、生成与验收
 
@@ -1370,7 +1380,7 @@ Modbus TCP 输出为配置指定的寄存器值/质量镜像，Industrial Gatewa
 
 本章是 Storage Service 所有对外接口的**唯一权威**。正式代码存放 src/contracts/storage_service.proto，包名 windhub.storage.v1，生成 pb2、pb2_grpc、pyi 并纳入项目统一生成校验；Storage 实现 gRPC Server，CLI 调用生成 Stub。Storage 内不能自定义并行的 RPC 请求/响应类型。配置拉取仍使用现有 Configuration Repository RPC，不扩展该服务接口；不引入 mTLS，继承受控隔离内网与应用令牌授权。
 
-本章为新增设计，不声称当前 main 已有对应 Proto 或可运行的 Server。当前 Sink 仍使用 raw/engineering/business；目标 raw/protocol/business 的 Producer 契约变化需要随后单独修订 Contracts 的 Kafka 数据章节及 Sink，Storage 不承担自动语义迁移。任何新服务的正常业务查询必须强制指定单一 data_level，不得默认混合等级。
+Storage 与 Sink 统一使用 `raw/protocol/business`，不承担 `engineering` 自动语义迁移或隐式别名。任何正常业务查询必须强制指定单一 data_level，不得默认混合等级。
 
 ## 14.2 标准 Proto 定义（字段号冻结）
 

@@ -139,12 +139,19 @@ def _batch(points: int) -> SampleBatch:
         collector_id=COLLECTOR,
         task_id="task-r9",
         device_id=DEVICE,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=now,
         samples=tuple(
             SampleItem(
                 point_id=f"p{idx:03d}",
                 sample_id=f"s-r9-{idx}",
                 value=float(idx),
+                raw_value=float(idx),
+                business_value=float(idx),
+                unit="kilowatt",
+                business_unit="kilowatt",
+                business_point_id=f"p{idx:03d}",
                 quality="good",
                 sample_time=now,
                 max_staleness_ms=None,
@@ -170,7 +177,7 @@ def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payload
     # 进程重启稳定的设备锁亲和：crc32（非随机化 hash）。
     assert stripe == crc32(key) % 128
     # 与权威 DeliveryPoint 编码逐字节相等
-    legacy = select_delivery_points(batch)
+    legacy = select_delivery_points(batch, "business")
     assert len(payloads) == 500
     assert all(payloads[i] == encode_delivery_point(legacy[i]) for i in range(500))
     assert port.received_total == 500
@@ -194,10 +201,10 @@ def test_more_than_500_points_split_with_heartbeat_between_subbatches() -> None:
     assert port.write_success_total == 1024
     # 第二批首个 payload 仍是正确的第 500 点（子批索引不错位）
     assert adapter.encoded_calls[1][0][0] == encode_delivery_point(
-        select_delivery_points(batch)[500]
+        select_delivery_points(batch, "business")[500]
     )
     assert adapter.encoded_calls[2][0][-1] == encode_delivery_point(
-        select_delivery_points(batch)[1023]
+        select_delivery_points(batch, "business")[1023]
     )
 
 
@@ -222,7 +229,7 @@ def test_point_selector_filters_before_encoding_and_accounting() -> None:
     assert asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), batch)) is True
     payloads, _key, _stripe = adapter.encoded_calls[0]
     assert len(payloads) == 2
-    legacy = select_delivery_points(batch, frozenset({"p001", "p002"}))
+    legacy = select_delivery_points(batch, "business", frozenset({"p001", "p002"}))
     assert list(payloads) == [encode_delivery_point(sample) for sample in legacy]
     assert port.received_total == 2
     assert port.delivered_total == 2

@@ -265,7 +265,12 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
                 "instances": {"devices": "instances/devices.yaml"},
                 "templates": {"root": "templates"},
             },
-            "grpc": {"listen_host": "127.0.0.1", "listen_port": 1504},
+            "grpc": {
+                "listen_host": "127.0.0.1",
+                "listen_port": 1504,
+                "token_sources": {"cli": "env:WIND_HUB_TEST_GATEWAY_TOKEN"},
+                "permissions": {"cli": ["read"]},
+            },
             "servers": [
                 {
                     "server_id": "gw1",
@@ -278,6 +283,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
                         "target": {
                             "kind": "commander",
                             "endpoint": "127.0.0.1:1505",
+                            "token_env": "env:WIND_HUB_TEST_COMMANDER_TOKEN",
                         },
                         "mappings": [
                             {"variable_id": "p1", "target_point_id": "p1"},

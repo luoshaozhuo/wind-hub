@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 import uuid
@@ -47,6 +48,7 @@ from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
 )
 
 T = TypeVar("T")
+_LOG = logging.getLogger(__name__)
 
 _AGGREGATE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024
 _AGGREGATE_SNAPSHOT_MAX_ENTRIES = 16
@@ -178,8 +180,9 @@ def guarded(
         except MetadataConflictError:
             await context.abort(grpc.StatusCode.ALREADY_EXISTS, "Storage idempotency conflict")
             raise AssertionError("abort must terminate RPC") from None
-        except TDengineSchemaConflictError:
+        except TDengineSchemaConflictError as exc:
             self._metrics.record_schema_conflict()
+            _LOG.warning("Storage physical/history schema rejected: %s", exc)
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
                 "Storage physical schema or historical conflict is invalid",

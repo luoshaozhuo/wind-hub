@@ -53,6 +53,7 @@ _FIELDS: dict[str, dict[str, str]] = {
         "name": "string",
         "device_type_id": "string",
         "protocol": "object",
+        "protocol_options": "object",
         "point_table": "object",
         "simulation": "object",
         "task": "object",

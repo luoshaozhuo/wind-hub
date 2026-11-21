@@ -996,7 +996,7 @@ async def grpc_channel(bind: str) -> AsyncIterator[grpc.aio.Channel]:
 
 async def read_gateway_variable(bind: str, gateway_id: str, variable_id: str) -> common.Sample:
     """通过正式 ReadVariables 读回单个变量。"""
-    async with grpc.aio.insecure_channel(bind) as channel:
+    async with bearer_channel(bind, "harness") as channel:
         stub = gw_rpc.IndustrialGatewayServiceStub(channel)
         response = await stub.ReadVariables(
             gw.ReadVariablesRequest(gateway_id=gateway_id, variable_ids=[variable_id])
@@ -1011,7 +1011,7 @@ def metric_map(metrics_response: Any) -> dict[str, float]:
 
 async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
     """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
-    channel = grpc.aio.insecure_channel(bind)
+    channel = bearer_channel(bind, "generator-cli")
     await channel.channel_ready()
     return channel, dg_rpc.DataGeneratorServiceStub(channel), common_rpc.CommonServiceStub(channel)
 

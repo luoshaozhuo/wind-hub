@@ -15,6 +15,7 @@ class DeliveryDefinition:
     sink_id: str
     channel: str
     desired_state: str
+    data_level: str = "business"
 
 
 def delivery_definitions(snapshot: ValidatedSnapshot) -> tuple[DeliveryDefinition, ...]:
@@ -35,12 +36,17 @@ def delivery_definitions(snapshot: ValidatedSnapshot) -> tuple[DeliveryDefinitio
         channel = template.get("delivery_mode")
         if channel not in ("realtime", "reliable"):
             raise ConfigurationError(f"deliveries.{delivery_id}: invalid channel")
+        output = template.get("output")
+        data_level = output.get("data_level") if isinstance(output, dict) else None
+        if data_level not in ("raw", "protocol", "business"):
+            raise ConfigurationError(f"deliveries.{delivery_id}: invalid data_level")
         definitions.append(
             DeliveryDefinition(
                 delivery_id=delivery_id,
                 sink_id=value["sink_id"],
                 channel=str(channel),
                 desired_state=value["desired_state"],
+                data_level=str(data_level),
             )
         )
     return tuple(definitions)

@@ -6,8 +6,8 @@ SubmitCommand/GetCommandResult，at-most-once 防重边界上移到 Web Server
 Commander 旧 RPC，而是驱动 **生产 DeviceCommandService**：
 
     DeviceCommandService（真实 SQLite journal）
-      → CommanderGrpcClient（生产出站适配器，真实 mTLS）
-      → 真实 Commander（build_commander 组合根，仅安全端口）
+      → CommanderGrpcClient（生产出站适配器，真实 Bearer）
+      → 真实 Commander（build_commander 组合根，受控明文端口）
       → 真实 Modbus TCP 从站
 
 设备侧效果以从站写请求计数 + 保持寄存器独立回读佐证——全部断言在系统
@@ -17,6 +17,7 @@ Commander 旧 RPC，而是驱动 **生产 DeviceCommandService**：
 from __future__ import annotations
 
 import asyncio
+import os
 import struct
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +27,7 @@ import pytest
 from core.application.protocol_contract import WriteOutcome
 from tests.commander.grpc_harness import GrpcStack, Pki, build_pki, build_stack
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.bearer import ensure_bearer
 from web_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from web_server.application.device.command import (
     CommandIdConflictError,
@@ -40,9 +42,7 @@ pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 _DEVICE_ID = "WT01"
 _POINT_ID = "setpoint_power"
 _SETPOINT_ADDRESS = 200
-_CA_ENV = "WIND_HUB_COMMANDER_CA_CERT"
-_CERT_ENV = "WIND_HUB_COMMANDER_CLIENT_CERT"
-_KEY_ENV = "WIND_HUB_COMMANDER_CLIENT_KEY"
+_TOKEN_ENV = "WIND_HUB_COMMANDER_OPERATOR_TOKEN"
 
 
 class _ReadsUnavailable:
@@ -84,10 +84,8 @@ async def idem_env(
     grpc_stack: GrpcStack,
     modbus_server: ModbusMockServer,
 ) -> tuple[DeviceCommandService, ModbusMockServer]:
-    """真实 SQLite journal + 生产 mTLS 适配器 + 真实从站的幂等验收环境。"""
-    monkeypatch.setenv(_CA_ENV, str(pki.tmp / "ca.crt"))
-    monkeypatch.setenv(_CERT_ENV, str(pki.tmp / "ops.crt"))
-    monkeypatch.setenv(_KEY_ENV, str(pki.tmp / "ops.key"))
+    """真实 SQLite journal + 生产 Bearer 适配器 + 真实从站的幂等验收环境。"""
+    monkeypatch.setenv(_TOKEN_ENV, os.environ[ensure_bearer("ops").removeprefix("env:")])
     client = CommanderGrpcClient(grpc_stack.target)
     journal = DurableCommandRegistry(tmp_path / "commands.sqlite3")
     service = DeviceCommandService(client, _ReadsUnavailable(), InMemoryTrendStore(), journal)
@@ -188,9 +186,7 @@ class TestWriteIdempotency:
     ) -> None:
         """崩溃现场（journal 预留停留 pending）：新实例同 ID 只给 UNKNOWN，
         绝不向真实 Commander 重新提交现场控制指令。"""
-        monkeypatch.setenv(_CA_ENV, str(pki.tmp / "ca.crt"))
-        monkeypatch.setenv(_CERT_ENV, str(pki.tmp / "ops.crt"))
-        monkeypatch.setenv(_KEY_ENV, str(pki.tmp / "ops.key"))
+        monkeypatch.setenv(_TOKEN_ENV, os.environ[ensure_bearer("ops").removeprefix("env:")])
         journal = DurableCommandRegistry(tmp_path / "crash.sqlite3")
         fingerprint = DeviceCommandService._fingerprint(_DEVICE_ID, _POINT_ID, 33.3, 10.0)
         state, _ = await journal.reserve("cmd-system-crash", fingerprint)

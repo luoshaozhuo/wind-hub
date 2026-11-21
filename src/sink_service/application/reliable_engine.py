@@ -8,11 +8,11 @@ import logging
 import time
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.delivery_point import DataLevel, DeliveryPoint
 from sink_service.application.latency_window import LatencyWindow
 from sink_service.application.ports.reliable import ReliableMessagePort
 from sink_service.application.realtime import BatchOutcome
@@ -148,7 +148,12 @@ class ReliableDeliveryEngine:
     async def _deliver_batch(self, message: ReliableMessagePort, batch: SampleBatch) -> bool:
         """Return true only after all matched points reach a durable terminal state."""
         selector = self._snapshot.deliveries[self._definition.delivery_id]["source"]
-        selection = select_reliable(batch, selector, kafka=self._kafka_target)
+        selection = select_reliable(
+            batch,
+            selector,
+            kafka=self._kafka_target,
+            data_level=cast(DataLevel, self._definition.data_level),
+        )
         selected = selection.items
         samples = selection.points
         key = selection.key

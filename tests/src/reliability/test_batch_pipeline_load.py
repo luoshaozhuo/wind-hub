@@ -22,6 +22,16 @@ import pytest
 from collector.infrastructure.adapters.outbound import publisher as publisher_module
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolSample
+from core.domain import (
+    BusinessPoint,
+    DataType,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
+    Quantity,
+    Unit,
+)
 
 pytestmark = [pytest.mark.reliability, pytest.mark.soak, pytest.mark.load]
 
@@ -65,11 +75,33 @@ def _samples(points: int) -> tuple[ProtocolSample, ...]:
     )
 
 
+_UNIT = Unit("kilowatt", "kW", Quantity("active_power"))
+_BUSINESS = BusinessPoint("active_power", DataType.FLOAT64, _UNIT)
+
+
 async def _drive(publisher: CollectorPublisher, devices: int, cycles: int, points: int) -> None:
     samples = _samples(points)
+    table = PointTable(
+        "modbus_wtg@1.0.0",
+        Protocol("modbus"),
+        {
+            sample.point_id: Point(sample.point_id, "active_power", _UNIT, PointAccess.READ)
+            for sample in samples
+        },
+    )
     for _cycle in range(cycles):
         await asyncio.gather(
-            *(publisher.publish(f"wtg-{device:02d}", samples) for device in range(devices))
+            *(
+                publisher.publish(
+                    f"wtg-{device:02d}",
+                    samples,
+                    device_type="turbine",
+                    point_table_id="point_table_modbus_wtg_v1.0.0",
+                    point_table=table,
+                    business_points={"active_power": _BUSINESS},
+                )
+                for device in range(devices)
+            )
         )
 
 

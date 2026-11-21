@@ -46,6 +46,12 @@ def _sample(
 ) -> DeliveryPoint:
     now = datetime.now(UTC)
     return DeliveryPoint(
+        data_level="business",
+        batch_id="batch-test",
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
+        business_point_id="active_power",
+        unit="kilowatt",
         wind_farm_id=farm,
         collector_id=collector,
         task_id=task,
@@ -86,12 +92,19 @@ def _batch_msg(
         collector_id=collector,
         task_id=task,
         device_id=device,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=now,
         samples=(
             SampleItem(
                 point_id=point,
                 sample_id=sample_id,
                 value=value,
+                raw_value=value,
+                business_value=value,
+                unit="kilowatt",
+                business_unit="kilowatt",
+                business_point_id=point,
                 quality="good",
                 sample_time=now,
                 max_staleness_ms=staleness,
@@ -112,8 +125,10 @@ class FakeEngine:
         collector: str = COLLECTOR,
         devices: frozenset[str] = frozenset(),
         points: frozenset[str] = frozenset(),
+        data_level: str = "business",
     ) -> None:
         self.delivery_id = delivery_id
+        self.data_level = data_level
         self.source_identity = (farm, collector)
         self._devices = devices
         self._points = points

@@ -33,6 +33,7 @@ from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc, common_pb2
 from tests.commander.grpc_harness import GrpcStack, Pki, build_stack
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.bearer import bearer_channel
 from tests.support.fencing_authority import FencingAuthorityProcess
 from tests.support.process import free_port
 
@@ -1055,15 +1056,7 @@ async def test_process_crash_after_commit_requires_new_fencing_and_never_replays
     child.close()
     try:
         ready = await _receive_process_message(parent)
-        channel = grpc.aio.secure_channel(
-            ready["target"],
-            grpc.ssl_channel_credentials(
-                root_certificates=pki.ca_cert,
-                private_key=pki.key("ops"),
-                certificate_chain=pki.cert("ops"),
-            ),
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+        channel = bearer_channel(ready["target"], "ops")
         try:
             with pytest.raises(grpc.aio.AioRpcError):
                 await commander_pb2_grpc.CommanderServiceStub(channel).RecoverDeviceControl(

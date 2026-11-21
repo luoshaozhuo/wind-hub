@@ -51,7 +51,9 @@ class _Units:
 
 
 def _config() -> StorageConfig:
-    return load_storage_config((ROOT / "configs/services/service_storage_v1.0.1.yaml").read_bytes())
+    return load_storage_config(
+        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+    )
 
 
 def _rows(count: int = 4) -> list[HistoryRow]:

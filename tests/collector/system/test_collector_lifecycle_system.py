@@ -14,6 +14,7 @@ import pytest
 from contracts import collector_pb2 as collector_pb
 from contracts import common_pb2 as common
 from tests.collector.system.conftest import (
+    ADMIN_METADATA,
     REPO_ROOT,
     ClientsFactory,
     CollectorHandle,
@@ -135,7 +136,7 @@ async def test_uc08_s03_unsettled_io_shutdown_exits_nonzero(
             collector_pb.ReadPointsRequest(
                 device_id="modbus-hold", point_ids=["active_power"], timeout_ms=300
             ),
-            metadata=(("x-windhub-admin-token", "acceptance-admin-token"),),
+            metadata=ADMIN_METADATA,
         )
         assert read.samples[0].error_code == "TIMEOUT_UNCONFIRMED"
         exit_code = handle.process.stop(timeout=20)

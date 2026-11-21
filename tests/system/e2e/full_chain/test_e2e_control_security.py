@@ -1,4 +1,4 @@
-"""E2E-04: request idempotency and real Commander mTLS authorization."""
+"""E2E-04: request idempotency and real Commander Bearer authorization."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import commander_pb2 as cmd
 from contracts import commander_pb2_grpc as cmd_rpc
 from contracts import common_pb2 as common
+from tests.support.bearer import bearer_channel
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -79,19 +80,11 @@ async def test_e2e_04_request_replay_and_unauthorized_control(full_chain: Any) -
         assert conflict["status"] == "FAILURE"
         assert conflict["error_code"] == "ALREADY_EXISTS"
 
-        # The viewer certificate chains to the live server CA, but it is not in
-        # the configured control caller set.  Authentication/authorization must
-        # fail before any command can be accepted.
-        pki = harness.plant / "commander-pki"
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=(pki / "ca.crt").read_bytes(),
-            private_key=(pki / "viewer.key").read_bytes(),
-            certificate_chain=(pki / "viewer.crt").read_bytes(),
-        )
+        # The viewer is authenticated for query only and cannot submit control.
         deadline = Timestamp()
         deadline.FromDatetime(datetime.now(UTC) + timedelta(minutes=2))
         unauthorized_id = f"e2e-unauthorized-{uuid4()}"
-        async with grpc.aio.secure_channel(harness.endpoints["commander"], credentials) as channel:
+        async with bearer_channel(harness.endpoints["commander"], "viewer") as channel:
             stub = cmd_rpc.CommanderServiceStub(channel)
             with pytest.raises(grpc.aio.AioRpcError) as exc_info:
                 await stub.SubmitCommand(
@@ -105,10 +98,7 @@ async def test_e2e_04_request_replay_and_unauthorized_control(full_chain: Any) -
                     ),
                     timeout=10,
                 )
-            assert exc_info.value.code() in {
-                grpc.StatusCode.UNAUTHENTICATED,
-                grpc.StatusCode.PERMISSION_DENIED,
-            }
+            assert exc_info.value.code() is grpc.StatusCode.PERMISSION_DENIED
 
         lookup = await harness.cli_call(
             harness.cli_rt,

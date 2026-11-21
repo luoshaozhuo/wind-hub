@@ -150,12 +150,19 @@ def _build(
     *,
     metadata: _Metadata | None = None,
     retry: dict[str, int] | None = None,
+    commit_timeout_ms: int | None = None,
 ) -> KafkaStorageConsumer:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
     )
     if retry is not None:
         config = config.model_copy(update={"retry": config.retry.model_copy(update=retry)})
+    if commit_timeout_ms is not None:
+        config = config.model_copy(
+            update={
+                "kafka": config.kafka.model_copy(update={"commit_timeout_ms": commit_timeout_ms})
+            }
+        )
     monkeypatch.setattr(
         "storage_service.infrastructure.adapters.outbound.kafka_consumer.AIOKafkaConsumer",
         lambda **_kwargs: broker,
@@ -273,6 +280,24 @@ async def test_commit_failure_replays_original_cursor_then_recovers(
     assert broker.commits == [{tp: 5}, {tp: 5}]
     assert broker.seeks == [(tp, 4), (tp, 5)]
     assert consumer._retry_failures == {}
+
+
+async def test_commit_timeout_replays_original_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tp = TopicPartition(TOPIC, 0)
+    broker = _Consumer([tp])
+    broker.commit_release = asyncio.Event()
+    consumer = _build(monkeypatch, broker, _Ingestion(), commit_timeout_ms=100)
+    state = _own(consumer, tp, cursor=4)
+    _instant_backoff(monkeypatch, [])
+
+    await consumer._process_partition(tp, [_record(tp, 4)], asyncio.Semaphore(1))
+
+    assert broker.commits == [{tp: 5}]
+    assert broker.seeks == [(tp, 4)]
+    assert state.offsets.next_commit_offset == 4
+    assert consumer._retry_failures == {tp: 1}
 
 
 async def test_retry_rewinds_to_earliest_unconfirmed_not_batch_end(

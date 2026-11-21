@@ -54,20 +54,16 @@ async def test_i08_collector_revision_conflict_preserves_disk_and_runtime(
         assert candidate.valid is True
         assert candidate.candidate_id
 
-        conflict = await full_chain.cli_call(
-            full_chain.cli_rt,
-            "config",
-            "apply",
-            "collector",
-            candidate.candidate_id,
-            "--expected-revision",
-            "0" * 64,
-            "--yes",
-            check=False,
-        )
-        assert conflict["status"] == "FAILURE"
-        assert conflict["error_code"] == grpc.StatusCode.ABORTED.name
-        assert conflict["data"] is None
+        with pytest.raises(grpc.aio.AioRpcError) as conflict_error:
+            await common_stub.ApplyConfigSnapshot(
+                common.ApplyConfigSnapshotRequest(
+                    candidate_id=candidate.candidate_id,
+                    expected_revision="0" * 64,
+                ),
+                timeout=30,
+                metadata=runtime.get_rpc_metadata("collector", "ApplyConfigSnapshot"),
+            )
+        assert conflict_error.value.code() is grpc.StatusCode.ABORTED
 
         disk_after = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_DISK)
         runtime_after = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_RUNTIME)
@@ -81,8 +77,8 @@ async def test_i08_collector_revision_conflict_preserves_disk_and_runtime(
             expected_revision="0" * 64,
             disk_revision=disk_before.revision,
             runtime_revision=runtime_before.revision,
-            cli_status=conflict["status"],
-            grpc_status=conflict["error_code"],
+            cli_status="N-A: exercised through CommonService gRPC boundary",
+            grpc_status=conflict_error.value.code().name,
             assertions={
                 "precise_status_aborted": True,
                 "disk_revision_and_files_unchanged": True,

@@ -61,7 +61,32 @@ async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
         for config in (harness.cli_rt, harness.cli_rel):
             for device_id in GOLDEN_DEVICES:
                 await harness.cli_call(config, "collector", "start", device_id, "--yes")
+                await harness.poll(
+                    config,
+                    "collector",
+                    "task",
+                    device_id,
+                    predicate=lambda data: data["task"]["actual_state"] == "RUNNING",
+                    timeout=60,
+                )
                 started.append((config, device_id))
+        for device_id in GOLDEN_DEVICES:
+            delivery_id = f"gateway_output_{device_id.lower()}"
+            await harness.cli_call(
+                harness.cli_rt,
+                "sink",
+                "start",
+                delivery_id,
+                "--yes",
+            )
+            await harness.poll(
+                harness.cli_rt,
+                "sink",
+                "delivery",
+                delivery_id,
+                predicate=lambda data: data["delivery"]["actual_state"] == "RUNNING",
+                timeout=60,
+            )
         started_generation = await harness.cli_call(
             harness.cli_rt,
             "data-generator",
@@ -91,6 +116,11 @@ async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
             raise AssertionError("PV source did not reach its solar-noon Golden window")
 
         for device_id, point_id in GOLDEN_DEVICES.items():
+            delivery_id = f"gateway_output_{device_id.lower()}"
+            delivery = await harness.cli_call(harness.cli_rt, "sink", "delivery", delivery_id)
+            assert delivery["data"]["delivery"]["actual_state"] == "RUNNING", delivery
+            assert delivery["data"]["delivery"]["last_error"] == "", delivery
+
             redis = await harness.sink.wait_redis_value(
                 harness.redis_key(device_id, point_id),
                 timeout=90,

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
+from sink_service.application.delivery_point import DataLevel
 from sink_service.application.latency_window import HistogramSnapshot, LatencyWindow
 from sink_service.application.output_pool import _QuotaWriter
 from sink_service.application.ports.realtime import RealtimeIngressPort, SinkOutputPoolPort
@@ -23,6 +25,7 @@ class RealtimeDeliveryPort:
         pool: SinkOutputPoolPort,
         ingress: RealtimeIngressPort,
     ) -> None:
+        self._definition = definition
         self._id = definition.delivery_id
         self._sink_id = definition.sink_id
         self._snapshot = snapshot
@@ -115,6 +118,7 @@ class RealtimeDeliveryPort:
                 max_age_ms=staleness.get("max_age_ms"),
                 absolute_threshold=output.get("absolute_threshold", 0.0),
                 relative_threshold=output.get("relative_threshold", 0.0),
+                data_level=cast(DataLevel, self._definition.data_level),
                 metrics_window_ms=self._snapshot.service["metrics"]["metrics_window_ms"],
                 preserve_upstream_sample=(
                     _template(

@@ -390,6 +390,11 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
         device, _ = resolve_effective_device(device, device_model, protocol_name)
         point_table_id = snapshot.device_models[device.device_model_id].point_table_id
         point_table = snapshot.point_tables[point_table_id]
+        point_table_reference = definition.templates.point_table.reference
+        wire_point_table_id = (
+            f"point_table_{point_table_reference.template_id}_v"
+            f"{point_table_reference.file_version}"
+        )
         protocol = point_table.protocol.name
         subscribe_enabled = definition.protocol_options.get("subscribe_enabled", False)
         if type(subscribe_enabled) is not bool or (subscribe_enabled and protocol != "ads"):
@@ -410,6 +415,12 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
                     point.point_id: snapshot.business_points[
                         point.business_point_id
                     ].data_type.value
+                    for point in point_table.points.values()
+                },
+                device_type=str(device_model.device_type_id),
+                point_table_id=wire_point_table_id,
+                business_points={
+                    str(point.business_point_id): snapshot.business_points[point.business_point_id]
                     for point in point_table.points.values()
                 },
             )

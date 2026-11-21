@@ -10,7 +10,7 @@ import logging
 import time
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import nats
 from nats.aio.client import Client
@@ -21,7 +21,7 @@ from nats.js.errors import NotFoundError
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.delivery_point import DataLevel, DeliveryPoint
 from sink_service.application.latency_window import LatencyWindow
 from sink_service.application.ports.reliable import ReliableMessagePort
 from sink_service.application.reliable_engine import ReliableDeliveryEngine
@@ -368,7 +368,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
     def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
-        return encode_kafka_points(batch, items)
+        return encode_kafka_points(batch, items, cast(DataLevel, self._definition.data_level))
 
     async def _dead_letter(
         self,
@@ -414,18 +414,11 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
                 wind_farm_id=sample.wind_farm_id,
                 collector_id=sample.collector_id,
                 task_id=sample.task_id,
+                device_type=sample.device_type,
                 device_id=sample.device_id,
+                point_table_id=sample.point_table_id,
                 publish_time=sample.publish_time,
-                samples=(
-                    SampleItem(
-                        point_id=sample.point_id,
-                        sample_id=sample.sample_id,
-                        value=sample.value,
-                        quality=sample.quality,
-                        sample_time=sample.sample_time,
-                        receive_time=sample.receive_time,
-                    ),
-                ),
+                samples=(sample.source_item,) if sample.source_item is not None else (),
             ).encode()
         observed_at = datetime.now(UTC).isoformat()
         # Invalid source batches can approach NATS MaxPayload. Split into

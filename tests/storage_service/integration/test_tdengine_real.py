@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import time
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -22,6 +24,7 @@ from storage_service.application.ingestion import (
     IngestionBlockedError,
     IngestionService,
     KafkaRecord,
+    WriteUnconfirmedError,
 )
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
@@ -239,6 +242,9 @@ async def real_runtime(tmp_path: Path, request: pytest.FixtureRequest) -> Any:
                 "database": {},
                 "max_connections": 1,
                 "max_inflight_sql": 1,
+                "write_timeout_ms": int(
+                    os.environ.get("WIND_HUB_TEST_TDENGINE_TIMEOUT_MS", "10000")
+                ),
             },
             "configuration": {},
             "query": {},
@@ -449,6 +455,66 @@ async def test_g02_real_write_then_lost_response_readback_and_replay(
     assert replay.replayed_records == 1
     assert calls == 1
     assert metrics.snapshot().persisted_points == 1
+    assert len(_physical_rows(runtime, sample)) == 1
+
+
+async def test_g02_real_stmt2_timeout_recovers_and_readback_commits_offset(
+    real_runtime: _RealRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = os.environ.get("WIND_HUB_TEST_TDENGINE_CONTAINER")
+    if not container:
+        pytest.skip("Docker container name is required for real TDengine pause recovery")
+    runtime = real_runtime
+    point_table = "pt-real-timeout-v1"
+    runtime.metadata.register_semantic_pins(
+        point_table_versions={point_table: (point_table, "1.0.0")},
+        business_points_pin=None,
+    )
+    sample = _sample(runtime, device="WTG-timeout", point_table=point_table, point="p1")
+    metrics = StorageRuntimeMetrics()
+    ingestion = _ingestion(runtime, metrics)
+    offsets = PartitionOffsets(partition=0, generation=3, next_commit_offset=10)
+    real_insert = runtime.backend.insert_batch
+    started = 0.0
+
+    async def pause_server_during_real_stmt2(samples: object) -> None:
+        nonlocal started
+        subprocess.run(["docker", "pause", container], check=True, capture_output=True)
+        started = time.monotonic()
+        try:
+            await real_insert(samples)  # type: ignore[arg-type]
+        finally:
+            subprocess.run(["docker", "unpause", container], check=True, capture_output=True)
+
+    monkeypatch.setattr(runtime.backend, "insert_batch", pause_server_during_real_stmt2)
+    try:
+        with pytest.raises(WriteUnconfirmedError, match="unconfirmed"):
+            await ingestion.process(
+                generation=3,
+                offsets=offsets,
+                records=[_record(sample, offset=10)],
+            )
+    finally:
+        subprocess.run(["docker", "unpause", container], check=False, capture_output=True)
+
+    deadline_s = runtime.config.tdengine.write_timeout_ms / 1000
+    elapsed = time.monotonic() - started
+    assert deadline_s * 0.8 <= elapsed < deadline_s * 2 + 3
+    assert offsets.next_commit_offset == 10
+    assert metrics.snapshot().write_unknown == 1
+    assert metrics.snapshot().persisted_points == 0
+    assert _physical_rows(runtime, sample) == []
+
+    # 超时连接已隔离；恢复后的回读/重放使用补建的健康连接。
+    monkeypatch.undo()
+    replay = await ingestion.process(
+        generation=3,
+        offsets=PartitionOffsets(partition=0, generation=3, next_commit_offset=10),
+        records=[_record(sample, offset=10)],
+    )
+    assert replay.next_commit_offset == 11
+    assert replay.accepted_records == 1
+    assert replay.replayed_records == 0
     assert len(_physical_rows(runtime, sample)) == 1
 
 

@@ -3126,11 +3126,11 @@ Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不�
 
 Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
 
-当前 `src/contracts/sample_batch.py` 和 BatchBuilder 仍发送 v2、未填写 `device_type` / `point_table_id`；目标 v3 需同步修改代码和测试。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
+`src/contracts/sample_batch.py` 与 BatchBuilder 使用 v3，填写 `device_type`、完整 `point_table_id`、源工程单位和 BusinessPoint 映射。BatchBuilder 在同一固定闭包内生成 `raw_value`、PointTable `value` 和 BusinessPoint/Units `business_value/business_unit`，Sink 不另行猜测转换。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
 ## 10.4 NATS 投递及可靠性边界
 
-Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现有三种采集模式发送 `SampleBatch(schema_version=2)`；目标切换后发送携带不可变 `point_table_id` 的 v3，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
+Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。三种采集模式均发送携带不可变 `point_table_id` 的 `SampleBatch(schema_version=3)`，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
 
 ## 10.5 指标时间和历史职责
 
@@ -3163,7 +3163,7 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 
 # 11. 配置与动态生效
 
-**配置与数据契约：**现有代码以 `SampleBatch(schema_version=2)` 运行；目标以 Contracts v1_38、总体设计 v1_22 的 v3 版本和集中 Configuration gRPC 拉取为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
+**配置与数据契约：**以 Contracts v1_39、总体设计 v1_22 的 SampleBatch v3 和集中 Configuration gRPC 拉取为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
 
 ## 11.1 三类配置与所有权
 

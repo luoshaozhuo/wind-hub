@@ -912,7 +912,7 @@ flowchart TB
 
 ## 6.1 统一数据身份及 Kafka 输入
 
-依据 Contracts v1_38 §11.9，目标 Kafka JSON v2 是**每个 SampleItem 一条 Record**，必填身份字段包括：`wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id`、`batch_id`、`point_id`、`sample_id`。记录还含 `data_level`、`business_point_id`、`unit`、`value`、`quality`、`sample_time`、`publish_time`、`receive_time`、`max_staleness_ms`。原样保留 Quality、时间戳和样本身份。
+依据 Contracts v1_39 §11.9，Kafka JSON v2 是**每个 SampleItem 一条 Record**，必填身份字段包括：`wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id`、`batch_id`、`point_id`、`sample_id`。记录还含 `data_level`、`business_point_id`、`unit`、`value`、`quality`、`sample_time`、`publish_time`、`receive_time`、`max_staleness_ms`。原样保留 Quality、时间戳和样本身份。
 
 - `point_table_id = point_table_<template_id>_v<file_version>`（不含 `.yaml`），例如 `point_table_modbus_wtg_sim_v1.0.0`；**一个 ID 已同时标识点表及版本**。
 - `schema_version=2` 是 Kafka JSON **线格式版本**；`file_version` 是受管 YAML 文件版本；`revision_id` 是 Configuration 全局发布视图版本。三者不可当作 PointTable 数据身份。
@@ -920,11 +920,13 @@ flowchart TB
 - BUSINESS 存储使用标准 `business_point_id` 和标准 `unit`；RAW/PROTOCOL 使用来源 `point_id` 及本等级定义的值/单位身份，不能混写为同一标准业务列。
 - `data_level` 是**数据处理等级**，与 Kafka `schema_version`（消息结构版本）以及 `point_table_id`（不可变解释规则版本）严格分离。
 
-当前 `src/contracts/sample_batch.py` 仍为 v2，而最新设计规定 Collector→Sink v3 和 Kafka 输出 v2。Storage 设计以目标 Kafka JSON v2 为输入，但**这不是当前 Sink 已经输出的格式**；部署前需要证明实际 Kafka Record 符合该既定目标契约。本轮不修改 Sink 生产代码或既有 Kafka 契约；仅在 Contracts v1_39 中新增 Storage 专属 RPC。
+Collector→Sink 使用 SampleBatch v3，Sink→Storage 使用 Kafka JSON v2；二者独立版本。Storage 严格拒绝 v1 和未知字段，部署验收必须从真实 Kafka Record 解码，不得以构造内部对象代替线格式验证。
 
 ## 6.2 PointTable 与版本索引
 
 配置快照中以完整 `point_table_id` 作为键，每一条包含：设备类别、精确 PointTable 文件/版本、源 Point 集合、转换参数、BusinessPoint 固定版本引用、Units 固定版本引用、内容哈希及依赖闭包哈希。收到消息必须校验 `device_type` 一致、目标点存在及业务级别与映射一致。
+
+Storage Service `config_sources` 必须同时固定 `site`、`device_model` 与 `device` 实例文档版本。`device` 引用项通过 `site_config_id/site_file_version` 精确指向同列表中的 Site 文档，并以 `site_id` 校验该文档的权威 `wind_farm_id`；Site 的仓库 `config_id` 与场站 ID 是不同身份（例如 `site.yaml` 的 config_id 为 `site`，正文 site_id 为 `farm-a`），不得混用。不得改写 Core 设备实例 Schema 或从 `allowed_wind_farms` 猜测场站。设备实例引用精确 DeviceModel，DeviceModel 再给出权威 `device_type_id` 和完整 PointTable 引用；Storage 将 `(wind_farm_id, device_id)` 绑定到这一不可变闭包。Kafka 自报字段只用于与该绑定比对，不是建库建表授权。设备不存在、跨场站、模型版本或 PointTable 不符时，必须在任何 DDL、DML 和 Offset 提交前阻断对应分区。配置快照、归档与重启恢复必须保留同一设备绑定，不能退化为仅保存 PointTable 映射。
 
 Configuration 全局快照可能包含同一个逻辑模板的多个 `file_version`，只要闭包返回就必须分别保留；不得把多个版本按 `template_id` 合并。版本升级时旧记录仍按原 `point_table_id` 查询。
 
@@ -1167,7 +1169,8 @@ message GetConfigBundleRequest {
 }
 ```
 
-- `roots`：Storage 的 Service 配置及其显式关联的设备/点表等受管根对象；必须按最新发布的实际配置结构定义，不能传空 roots 假装“全库下载”。
+- `roots`：Storage 的 Service 配置及其显式关联的设备/点表等受管根对象；必须按最新发布的实际配置结构定义，不能传空 roots 假装“全库下载”。`config_sources` 支持 `point_table/business_points/units/device_model/device/site`；`device` 项必须额外携带 `site_config_id/site_id/site_file_version`，其他类型禁止携带这三个字段。
+- 每个 `device` 引用必须在同一 Service `config_sources` 中对应独立的 `{config_type: site, config_id: <site_config_id>, file_version: <site_file_version>}` 项，禁止由 device 字段隐式拉取未声明的 Site。Storage 用 `site_config_id/site_file_version` 定位精确文档，再验证正文 `site.site_id == device.site_id`，以该 `site_id` 作为权威 `wind_farm_id` 建立整份 devices 文档到场站的固定绑定；Site 的仓库 `config_id` 与场站 ID 不得混用。不向 `devices.<id>` 或设备文档顶层增加场站字段，也不得用 `allowed_wind_farms` 或 Kafka 自报值猜测归属。建表/写入前必须按 `(site_id, device_id, 完整 point_table_id)` 找到实例，并验证实例的 DeviceModel 精确版本、型号 `device_type_id` 和 PointTable 引用；不同历史版本绑定全部独立保留。
 - `revision_id`：固定一个可验证的已发布修订；使用现有接口能力获取修订，不能把 NATS 广播内容当作权威，亦不能假设不存在的 `GetCurrentRevision` 已上线。
 - `include_dependencies=true`：拉取根配置对应的全部固定引用闭包，其中可以同时含当前及多个历史版本；同一个 `config_id` 的不同 `version_id` 必须均保留。
 - 返回数据：校验 Manifest、每个 YAML 的语义哈希及字节哈希、身份和依赖，再生成本地索引；任一缺失或冲突拒绝整个候选快照。
@@ -1207,7 +1210,7 @@ sequenceDiagram
 
 <p class="figure-caption">图 8-1 未知 PointTable 触发完整闭包拉取与原子切换</p>
 
-本地持久化采用代际目录 + 原子 CURRENT 指针；快照记录 `revision_id`、Manifest、完整文件集合及全部版本索引；每批处理固定读取一个已验证代际。旧代际在无读者引用后按容量策略回收；不将旧版本语义临时改用其他版本。拉取失败绝不先清空现有配置。
+本地持久化采用代际目录 + 原子 CURRENT 指针；快照记录 `revision_id`、Manifest、完整文件集合及全部版本索引；v2 快照还包含设备实例/DeviceModel 固定绑定及其 `site_config_id/site_file_version/wind_farm_id` 权威 Site 关系，离线恢复不得退化为仅校验 PointTable 或只保存场站字符串。每批处理固定读取一个已验证代际。旧代际在无读者引用后按容量策略回收；不将旧版本语义临时改用其他版本。拉取失败绝不先清空现有配置。
 
 ## 8.4 版本演进约束
 
@@ -1964,7 +1967,7 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 
 ## 16.8 配置字段冻结
 
-集中业务配置统一命名 service_storage_v1.0.0.yaml；schema_version=1、file_version=1.0.0 必填；Storage 在 Configuration 中登记自身服务 Schema，密钥只用受控 env 引用。业务配置最少具有以下全部字段，初始默认值仅为开发起点，性能压测允许在合法范围内调整：
+集中业务配置统一命名 service_storage-main_v1.0.0.yaml；schema_version=1、file_version=1.0.0 必填；Storage 在 Configuration 中登记自身服务 Schema，密钥只用受控 env 引用。业务配置最少具有以下全部字段，初始默认值仅为开发起点，性能压测允许在合法范围内调整：
 
 | 字段 | 默认值 | 合法范围 |
 |---|---|---|
@@ -1974,6 +1977,7 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 | kafka.max_buffer_records | 20000 | 100..100000 |
 | kafka.max_buffer_bytes | 67108864 | 1MiB..512MiB |
 | kafka.commit_interval_ms | 1000 | 100..10000 ms |
+| kafka.commit_timeout_ms | 10000 | 100..120000 ms；超时按 UNKNOWN 回退重放 |
 | tdengine.endpoint/credential_ref | 必填 | 非空地址/安全引用 |
 | tdengine.database.precision | us | 首版固定 us |
 | tdengine.database.duration/keep | 10d/365d | 以目标版本原生合法范围校验，KEEP >= 3 DURATION |
@@ -1995,7 +1999,9 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 | reconciliation.auto_alter/allow_retention_shrink | false/false | boolean；KEEP 缩短另需一次性审批 |
 | reconciliation.owner_instance_id | 必填 | 单实例 ID 一致 |
 
-完整生产 YAML 文件头必须记录**所有**字段的必选性、取值范围、单位和示例；未知字段拒绝。Topic、Group、数据库时间精度、认证与管理者 ID 变更要求重启；批次大小、重试、查询限额可热更新，但不得更改在途批次配置代际。
+完整生产 YAML 文件头必须记录**所有**字段的必选性、取值范围、单位和示例；未知字段拒绝。当前仅 `config_sources` 不可变引用闭包及 Service 文档自身 `file_version` 支持在线热更新；比较时排除这两项，其余运行字段任何差异均进入 `RESTART_REQUIRED`，继续使用已验证旧闭包直到受控重启，不得更改在途 I/O 配置代际。
+
+`tdengine.write_timeout_ms` 是 Connect、DDL、SELECT/DESCRIBE、STMT2 prepare/bind/execute/close 及连接 close 的操作期限。`asyncio.to_thread` 的调用方超时或 Task 取消不表示驱动 SQL 已停止；超时或连接错误必须将连接标记为不健康并隔离，不得返回连接池。后台完成、晚到连接与 close 必须有确定的销毁路径和有界等待，UNKNOWN 只能在真实回读核验后推进 Offset。
 
 
 ### 16.8.1 可复制的集中业务配置实例
@@ -2003,7 +2009,7 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 下例覆盖第 16.8 节首版全部业务配置字段；部署地址、凭据环境变量、Topic、根目录需按环境调整。文件头仍需在实际配置文件中逐字段扩展为复制后可直接使用的说明（单位、范围、默认及示例）；Schema 类型及额外字段校验由 Configuration 注册完成。
 
 ~~~yaml
-# service_storage_v1.0.0.yaml
+# service_storage-main_v1.0.0.yaml
 # schema_version: 必填，整数1；file_version: 必填，MAJOR.MINOR.PATCH。
 # kafka: 授权可靠 Topic/Group；Consumer 缓存双限制（条/byte），所有间隔为 ms。
 # tdengine: us 时间精度；DB DURATION/KEEP 为 TDengine 原生时间单位；
@@ -2015,6 +2021,19 @@ Configuration 当前完整依赖闭包不保证包括任意历史 PointTable。S
 schema_version: 1
 file_version: 1.0.0
 service_id: storage-main
+allowed_wind_farms: [farm-a]
+config_sources:
+  - {config_type: point_table, config_id: modbus_wtg, file_version: 1.0.0}
+  - {config_type: device_model, config_id: modbus_wtg, file_version: 1.0.0}
+  - {config_type: device, config_id: devices, file_version: 1.0.0, site_config_id: site, site_id: farm-a, site_file_version: 1.0.0}
+  - {config_type: site, config_id: site, file_version: 1.0.0}
+  - {config_type: business_points, config_id: standard, file_version: 1.0.0}
+  - {config_type: units, config_id: standard, file_version: 1.1.0}
+auth:
+  callers:
+    - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
+      permissions: [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
+      wind_farms: [farm-a]
 kafka:
   topic: windhub-history
   group_id: storage-main
@@ -2023,6 +2042,7 @@ kafka:
   max_buffer_records: 20000
   max_buffer_bytes: 67108864
   commit_interval_ms: 1000
+  commit_timeout_ms: 10000
 tdengine:
   endpoint: 127.0.0.1:6041
   credential_ref: env:WIND_HUB_TDENGINE_PASSWORD

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -14,17 +16,115 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
 
+def _require_identity_text(values: tuple[str, ...]) -> None:
+    if any(not isinstance(value, str) or not value for value in values):
+        raise ValueError("device closure identities must be non-empty strings")
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceModel:
+    """设备型号的精确版本及其权威设备类型、完整 PointTable 身份。"""
+
+    config_id: str
+    version_id: str
+    file_version: str
+    device_type_id: str
+    point_table_id: str
+
+    def __post_init__(self) -> None:
+        _require_identity_text(
+            (
+                self.config_id,
+                self.version_id,
+                self.file_version,
+                self.device_type_id,
+                self.point_table_id,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceBinding:
+    """设备实例文档版本到精确 DeviceModel 的不可变绑定。"""
+
+    wind_farm_id: str
+    device_id: str
+    device_config_id: str
+    device_version_id: str
+    device_file_version: str
+    site_config_id: str
+    site_file_version: str
+    model: DeviceModel
+
+    def __post_init__(self) -> None:
+        _require_identity_text(
+            (
+                self.wind_farm_id,
+                self.device_id,
+                self.device_config_id,
+                self.device_version_id,
+                self.device_file_version,
+                self.site_config_id,
+                self.site_file_version,
+            )
+        )
+
+    @property
+    def point_table_id(self) -> str:
+        return self.model.point_table_id
+
+    @property
+    def device_type_id(self) -> str:
+        return self.model.device_type_id
+
+
+class DeviceClosurePins(dict[str, tuple[str, str]]):
+    """沿现有 PointTable pin 调用链传递完整设备闭包。"""
+
+    def __init__(
+        self,
+        point_table_versions: Mapping[str, tuple[str, str]],
+        device_bindings: tuple[DeviceBinding, ...] = (),
+    ) -> None:
+        super().__init__(point_table_versions)
+        self.device_bindings = device_bindings
+
+
 class FixedConfigSource(_StrictModel):
-    config_type: Literal["point_table", "business_points", "units"]
+    config_type: Literal[
+        "point_table", "business_points", "units", "device_model", "device", "site"
+    ]
     config_id: str = Field(min_length=1, max_length=256)
     file_version: str
+    site_config_id: str | None = Field(default=None, min_length=1, max_length=256)
+    site_id: str | None = Field(default=None, min_length=1, max_length=256)
+    site_file_version: str | None = None
 
-    @field_validator("file_version")
+    @field_validator("file_version", "site_file_version")
     @classmethod
-    def validate_version(cls, value: str) -> str:
-        if re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", value) is None:
+    def validate_version(cls, value: str | None) -> str | None:
+        if value is not None and re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", value) is None:
             raise ValueError("source file_version must be MAJOR.MINOR.PATCH")
         return value
+
+    @model_validator(mode="after")
+    def validate_device_site(self) -> FixedConfigSource:
+        if self.config_type == "device":
+            if (
+                self.site_config_id is None
+                or self.site_id is None
+                or self.site_file_version is None
+            ):
+                raise ValueError(
+                    "device ConfigSource requires site_config_id/site_id/site_file_version"
+                )
+        elif (
+            self.site_config_id is not None
+            or self.site_id is not None
+            or self.site_file_version is not None
+        ):
+            raise ValueError("Site reference fields are only valid for device ConfigSource")
+        return self
 
 
 class KafkaConfig(_StrictModel):
@@ -36,6 +136,7 @@ class KafkaConfig(_StrictModel):
     max_buffer_records: int = Field(default=20000, ge=100, le=100000)
     max_buffer_bytes: int = Field(default=67108864, ge=1048576, le=536870912)
     commit_interval_ms: int = Field(default=1000, ge=100, le=10000)
+    commit_timeout_ms: int = Field(default=10000, ge=100, le=120000)
 
 
 class DatabaseConfig(_StrictModel):

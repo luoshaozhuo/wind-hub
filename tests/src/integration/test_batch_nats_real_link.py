@@ -1,11 +1,11 @@
-"""Collector → SampleBatch v2 → NATS/JetStream → Sink Consumer 真实链路集成。
+"""Collector → SampleBatch v3 → NATS/JetStream → Sink Consumer 真实链路集成。
 
 与组件测试的本质区别：NATS 以真实 ``nats:latest -js`` 容器运行，PubAck、
 持久 Stream、Durable Consumer、DLQ、重投均为 broker 真实行为，无任何
 NATS 内存替身。Docker 不可用时整个模块 skip（报告记 NOT_RUN），绝不以
 Mock 结果冒充真实链路。
 
-覆盖 Contracts v1_20（SampleBatch v2）：
+覆盖 Contracts v1_20（SampleBatch v3）：
 - 一个源采集事件 = 一条独立 NATS 批次，不合并周期；
 - Realtime core-NATS 与 Reliable JetStream 通道隔离；
 - Reliable PubAck 与 Sink 交付确认分离（broker 去重 vs 下游 ACK）；
@@ -28,6 +28,16 @@ import pytest
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
+from core.domain import (
+    BusinessPoint,
+    DataType,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
+    Quantity,
+    Unit,
+)
 from tests.sink_service.integration.test_reliable_durable_ack_real_nats import (
     FakeKafkaAdapter,
     FakePool,
@@ -55,7 +65,7 @@ def nats_url() -> Iterator[str]:
     except (OSError, subprocess.SubprocessError) as exc:
         pytest.skip(f"SKIPPED: docker unavailable for real NATS link: {exc}")
     port = free_port()
-    name = f"batch-v2-js-{uuid.uuid4().hex[:10]}"
+    name = f"batch-v3-js-{uuid.uuid4().hex[:10]}"
     try:
         subprocess.run(
             [
@@ -81,6 +91,29 @@ def nats_url() -> Iterator[str]:
 
 def _sample(point: str) -> ProtocolSample:
     return ProtocolSample(point_id=point, value=1, timestamp=datetime.now(UTC))
+
+
+async def _publish(
+    publisher: CollectorPublisher, device_id: str, samples: tuple[ProtocolSample, ...]
+) -> None:
+    unit = Unit("kilowatt", "kW", Quantity("active_power"))
+    business = BusinessPoint("active_power", DataType.FLOAT64, unit)
+    table = PointTable(
+        "modbus_wtg@1.0.0",
+        Protocol("modbus"),
+        {
+            sample.point_id: Point(sample.point_id, "active_power", unit, PointAccess.READ)
+            for sample in samples
+        },
+    )
+    await publisher.publish(
+        device_id,
+        samples,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
+        point_table=table,
+        business_points={"active_power": business},
+    )
 
 
 async def _drain_event(events: list[SampleBatch], target: int, timeout: float = 10.0) -> None:
@@ -109,7 +142,7 @@ async def test_realtime_each_source_batch_is_one_independent_nats_message(
     await publisher.start()
     # 模拟 10 Hz：三个周期间隔 100ms，必须产生三条独立消息而非合并大批。
     for cycle in range(3):
-        await publisher.publish("wtg-01", (_sample(f"p{cycle}"),))
+        await _publish(publisher, "wtg-01", (_sample(f"p{cycle}"),))
         await asyncio.sleep(0.1)
     await publisher.stop()
 
@@ -152,7 +185,7 @@ async def test_reliable_puback_durable_delivery_and_dlq_routing(nats_url: str) -
             capacity=16,
         )
         await publisher.start()
-        await publisher.publish("wtg-02", (_sample("p1"),))
+        await _publish(publisher, "wtg-02", (_sample("p1"),))
         deadline = asyncio.get_running_loop().time() + 10
         while adapter.calls < 1 and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.02)
@@ -201,7 +234,7 @@ async def test_duplicate_nats_msg_id_does_not_duplicate_delivery(nats_url: str) 
             capacity=16,
         )
         await publisher.start()
-        await publisher.publish("wtg-03", (_sample("p1"),))
+        await _publish(publisher, "wtg-03", (_sample("p1"),))
         await publisher.stop()
         client = await nats.connect(servers=[nats_url])
         batch = SampleBatch(
@@ -211,6 +244,8 @@ async def test_duplicate_nats_msg_id_does_not_duplicate_delivery(nats_url: str) 
             collector_id="collector-1",
             task_id="wtg-03",
             device_id="wtg-03",
+            device_type="turbine",
+            point_table_id="point_table_modbus_wtg_v1.0.0",
             publish_time=datetime.now(UTC),
             samples=(_build_reliable_item("p1"),),
         )
@@ -240,6 +275,11 @@ def _build_reliable_item(point: str):
         point_id=point,
         sample_id=uuid.uuid4().hex,
         value=1,
+        raw_value=1,
+        business_value=1,
+        unit="kilowatt",
+        business_unit="kilowatt",
+        business_point_id=point,
         quality="good",
         sample_time=now,
         max_staleness_ms=None,

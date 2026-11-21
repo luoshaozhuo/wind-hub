@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -49,8 +50,8 @@ from tests.cli.test_r1f3_strict_cli_e2e import (
 from tests.commander.grpc_harness import build_pki
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.support.bearer import ensure_bearer
 from tests.support.collector_config_tree import _dump
 from tests.support.commander_mtls import write_commander_service
 from tests.support.gateway import reserve_port, write_mtls_pki
@@ -385,11 +386,11 @@ def _write_gateway_service(root: Path, *, grpc_port: int, pki: dict[str, Any]) -
         "templates": {"root": "templates"},
     }
     document["grpc"]["listen_port"] = grpc_port
-    document["grpc"]["tls"] = {
-        "enabled": True,
-        "ca_file": str(pki["ca"]),
-        "cert_file": str(pki["server_crt"]),
-        "key_file": str(pki["server_key"]),
+    document["grpc"]["token_sources"] = {
+        "cli": "env:WIND_HUB_GATEWAY_OPERATOR_TOKEN",
+        "generator": "env:WIND_HUB_GENERATOR_GATEWAY_TOKEN",
+        "commander": "env:WIND_HUB_COMMANDER_GATEWAY_TOKEN",
+        "sink": "env:WIND_HUB_SINK_GATEWAY_TOKEN",
     }
     document["grpc"]["permissions"] = {
         "cli": ["read", "lifecycle", "inject", "diagnose"],
@@ -415,22 +416,17 @@ def _write_dg_service(
         "templates": {"root": "templates"},
     }
     document["service"]["grpc_bind"] = bind
-    clients = pki["clients"]
-    generator_crt, generator_key = clients["generator"]
-    document["output"]["gateway_tls"] = {
-        "ca_file": str(pki["ca"]),
-        "cert_file": str(generator_crt),
-        "key_file": str(generator_key),
-    }
+    document["output"]["gateway_token_ref"] = "env:WIND_HUB_GENERATOR_GATEWAY_TOKEN"
     document["security"] = {
-        "tls": {
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(pki["server_crt"]),
-            "key_file": str(pki["server_key"]),
+        "token_sources": {
+            "cli": ensure_bearer("generator-cli"),
+            "gateway": ensure_bearer("generator-input"),
+            "commander": ensure_bearer("commander"),
         },
         "permissions": {
-            "cli": ["variables_read", "variables_update"],
-            "gateway": ["variables_read", "variables_update"],
+            "cli": ["variables_read", "variables_update", "query", "config_read", "config_write"],
+            "gateway": ["variables_read", "variables_update", "query"],
+            "commander": ["variables_read"],
         },
     }
     document["recording"] = {"enabled": True, "directory": "recording"}
@@ -524,7 +520,13 @@ class FullChainHarness:
     def read_recording(self, generation_id: str) -> list[dict[str, Any]]:
         path = self.recording_path(generation_id)
         assert path.is_file(), f"recording JSONL missing: {path}"
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+        # Recording is actively appended; only a newline terminates a complete
+        # JSONL record. Malformed complete lines still fail this assertion.
+        rows = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if line.endswith("\n") and line.strip()
+        ]
         assert rows, f"recording JSONL empty: {path}"
         return rows
 
@@ -632,7 +634,29 @@ def _build_and_start(
         plant / "gateway-pki", ("cli", "gateway", "generator", "sink", "commander")
     )
     harness.pki = pki
-    clients = pki["clients"]
+    os.environ.update(
+        {
+            "WIND_HUB_GATEWAY_OPERATOR_TOKEN": os.environ[
+                ensure_bearer("cli").removeprefix("env:")
+            ],
+            "WIND_HUB_GENERATOR_CLI_TOKEN": os.environ[
+                ensure_bearer("generator-cli").removeprefix("env:")
+            ],
+            "WIND_HUB_SINK_OPERATOR_TOKEN": os.environ[
+                ensure_bearer("maintenance").removeprefix("env:")
+            ],
+            "WIND_HUB_COMMANDER_OPERATOR_TOKEN": os.environ[
+                ensure_bearer("commander-ops").removeprefix("env:")
+            ],
+            "WIND_HUB_GENERATOR_GATEWAY_TOKEN": os.environ[
+                ensure_bearer("generator-input").removeprefix("env:")
+            ],
+            "WIND_HUB_COMMANDER_GATEWAY_TOKEN": os.environ[
+                ensure_bearer("commander").removeprefix("env:")
+            ],
+            "WIND_HUB_SINK_GATEWAY_TOKEN": os.environ[ensure_bearer("sink").removeprefix("env:")],
+        }
+    )
 
     gateway_service = _write_gateway_service(plant, grpc_port=ports["gateway"], pki=pki)
     gateway_document = _load(gateway_service)
@@ -666,21 +690,10 @@ def _build_and_start(
         )
     ]
     ppc["control"]["target"]["endpoint"] = harness.endpoints["commander"]
-    ppc["control"]["target"]["tls"] = {
-        "enabled": True,
-        "ca_file": str(plant / "commander-pki" / "ca.crt"),
-        "cert_file": str(plant / "commander-pki" / "ops.crt"),
-        "key_file": str(plant / "commander-pki" / "ops.key"),
-    }
-    gateway_crt, gateway_key = clients["gateway"]
+    ppc["control"]["target"]["token_env"] = ensure_bearer("commander-ops")
     ppc["control"]["simulation"] = {
         "endpoint": harness.endpoints["data-generator"],
-        "tls": {
-            "enabled": True,
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(gateway_crt),
-            "key_file": str(gateway_key),
-        },
+        "token_env": ensure_bearer("generator-input"),
         "scenario_id": "wind-plant-physical",
     }
     _dump(gateway_service, gateway_document)
@@ -706,11 +719,16 @@ def _build_and_start(
     audit_subject = f"commander.fullchain.{harness.token}"
     asyncio.run(_provision_commander_audit(stack.nats, audit_stream, audit_subject))
     (plant / "commander-pki").mkdir(parents=True, exist_ok=True)
-    commander_pki = build_pki(plant / "commander-pki")
-    commander_service = write_commander_service(
-        plant, plant, commander_pki, grpc_port=ports["commander"]
-    )
+    build_pki(plant / "commander-pki")
+    commander_service = write_commander_service(plant, plant, grpc_port=ports["commander"])
     document = _load(commander_service)
+    document["security"]["callers"].append(
+        {
+            "caller_id": "viewer-console",
+            "token_env": ensure_bearer("viewer"),
+            "permissions": ["query"],
+        }
+    )
     document["config_sources"]["instances"]["devices"] = str(
         plant / "instances" / "devices_e2e.yaml"
     )
@@ -721,15 +739,12 @@ def _build_and_start(
         "PPC_SIM01": {
             "gateway_id": "gw-ppc_sim01",
             "endpoint": harness.gw_grpc_endpoint,
-            "ca_cert": str(pki["ca"]),
-            "client_cert": str(clients["commander"][0]),
-            "client_key": str(clients["commander"][1]),
+            "token_env": ensure_bearer("commander"),
         }
     }
     _dump(commander_service, document)
 
     # ---------------- sink ----------------
-    bundle = write_mtls_bundle(root / "sink-pki")
     sink = SinkSystemHarness(
         root=root / "sink",
         stack=stack,
@@ -740,7 +755,6 @@ def _build_and_start(
         dlq_stream=f"WH_DLQ_FC_{harness.token.upper()}",
         dlq_subject=f"wh.fullchain.dlq.{harness.token}",
         token=harness.token,
-        bundle=bundle,
     )
     harness.sink = sink
     asyncio.run(_provision_kafka_topic(stack.kafka, sink.kafka_topic))
@@ -751,8 +765,6 @@ def _build_and_start(
     sink_service_document = _load(sink_service)
     sink_service_document["wind_farm_id"] = FARM
     _dump(sink_service, sink_service_document)
-    sink.bundle = write_mtls_bundle(sink.root)
-    bundle = sink.bundle
     bounded_rt = {
         "wind_farm_id": FARM,
         "collector_id": harness.rt_collector,
@@ -837,7 +849,7 @@ def _build_and_start(
         "connection": {
             "endpoint": harness.gw_grpc_endpoint,
             "gateway_id": "gw-wtg_sim01",
-            "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
+            "credential_ref": "env:WIND_HUB_SINK_GATEWAY_TOKEN",
         },
         "overrides": {},
     }
@@ -855,7 +867,7 @@ def _build_and_start(
             "connection": {
                 "endpoint": harness.gw_grpc_endpoint,
                 "gateway_id": f"gw-{suffix}",
-                "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
+                "credential_ref": "env:WIND_HUB_SINK_GATEWAY_TOKEN",
             },
             "overrides": {},
         }
@@ -885,12 +897,7 @@ def _build_and_start(
 
     # ---------------- CLI-managed native processes ----------------
     python = sys.executable
-    common_env = {
-        "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
-        "WIND_HUB_COLLECTOR_TLS_KEY": str(pki["server_key"]),
-        "WIND_HUB_COLLECTOR_TLS_CA": str(pki["ca"]),
-        "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
-    }
+    common_env = {"WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN}
     argv_by_service: dict[str, tuple[list[str], Path, dict[str, str]]] = {
         "gateway": (
             [
@@ -903,12 +910,29 @@ def _build_and_start(
                 str(plant),
             ],
             plant,
-            {},
+            {
+                ensure_bearer(name).removeprefix("env:"): os.environ[
+                    ensure_bearer(name).removeprefix("env:")
+                ]
+                for name in (
+                    "cli",
+                    "generator",
+                    "sink",
+                    "commander",
+                    "commander-ops",
+                    "generator-input",
+                )
+            },
         ),
         "data-generator": (
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
             plant,
-            {},
+            {
+                ensure_bearer(name).removeprefix("env:"): os.environ[
+                    ensure_bearer(name).removeprefix("env:")
+                ]
+                for name in ("generator-cli", "generator-input", "generator")
+            },
         ),
         "collector_realtime": (
             [
@@ -956,19 +980,23 @@ def _build_and_start(
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             sink.root,
             {
-                "WH_FULLCHAIN_GATEWAY_TLS": json.dumps(
-                    {
-                        "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                        "client_cert_pem": clients["sink"][0].read_text(encoding="utf-8"),
-                        "client_key_pem": clients["sink"][1].read_text(encoding="utf-8"),
-                    }
-                )
+                "WIND_HUB_SINK_GATEWAY_TOKEN": os.environ[
+                    ensure_bearer("sink").removeprefix("env:")
+                ],
+                ensure_bearer("maintenance").removeprefix("env:"): os.environ[
+                    ensure_bearer("maintenance").removeprefix("env:")
+                ],
             },
         ),
         "commander": (
             [python, "-m", "commander", "--config", str(commander_service)],
             SRC,
-            {},
+            {
+                ensure_bearer(name).removeprefix("env:"): os.environ[
+                    ensure_bearer(name).removeprefix("env:")
+                ]
+                for name in ("commander-ops", "commander", "viewer")
+            },
         ),
     }
     for name in SERVICES:
@@ -979,18 +1007,12 @@ def _build_and_start(
         collector="collector_realtime",
         endpoints=harness.endpoints,
         processes=cli.processes,
-        gateway_pki=pki,
-        commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
     _write_cli(
         harness.cli_rel,
         collector="collector_reliable",
         endpoints=harness.endpoints,
         processes=cli.processes,
-        gateway_pki=pki,
-        commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
 
     try:

@@ -1,9 +1,9 @@
 """CLI 请求级契约端到端测试（S3：write/batch/request-result 命令面）。
 
 CLI 以独立子进程（``python -m cli.main``）启动，经临时 cli.yaml 接入
-tests/src 共用的真实 Commander 栈——真实 mTLS 通道、磁盘 SQLite（WAL/FULL）
+tests/src 共用的真实 Commander 栈——真实 Bearer 通道、磁盘 SQLite（WAL/FULL）
 与真实 Modbus TCP 从站，不使用脚本化假服务器。子进程方式同时覆盖真实用户
-入口：配置加载、TLS Profile 解析、Typer 命令解析与 JSON 信封输出。
+入口：配置加载、Bearer 环境引用、Typer 命令解析与 JSON 信封输出。
 
 覆盖任务书 S3 语义：
 - write 在任何控制 RPC 前向 stderr 打印 request_id 回执，``--request-id``
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
@@ -34,6 +35,7 @@ import pytest
 from contracts import commander_pb2 as pb
 from tests.commander.grpc_harness import GrpcStack, Pki, build_pki, build_stack
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 
@@ -77,6 +79,12 @@ class CliStack:
                 *arguments,
             ],
             cwd=_REPO_SRC,
+            env={
+                **os.environ,
+                "WIND_HUB_COMMANDER_OPERATOR_TOKEN": os.environ[
+                    ensure_bearer("ops").removeprefix("env:")
+                ],
+            },
             capture_output=True,
             text=True,
             timeout=60,
@@ -87,9 +95,7 @@ class CliStack:
 
 def _write_cli_yaml(path: Path, pki: Pki, target: str) -> Path:
     services = "\n".join(
-        f"""  {name}:
-    grpc_endpoint: "{target}"
-    tls_profile: mtls"""
+        f'  {name}:\n    grpc_endpoint: "{target}"'
         for name in (
             "collector",
             "commander",
@@ -106,12 +112,6 @@ cli:
   output_format: json
 services:
 {services}
-
-tls_profiles:
-  mtls:
-    ca_cert: {pki.tmp / "ca.crt"}
-    client_cert: {pki.tmp / "ops.crt"}
-    client_key: {pki.tmp / "ops.key"}
 """,
         encoding="utf-8",
     )

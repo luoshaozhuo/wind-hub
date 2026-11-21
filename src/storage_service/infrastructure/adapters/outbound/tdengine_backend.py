@@ -14,11 +14,13 @@ import os
 import queue
 import re
 import threading
+import time
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from importlib import import_module
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryRow
@@ -54,7 +56,7 @@ class _TaosConnection(Protocol):
 
 class _TaosModule(Protocol):
     def connect(
-        self, *, user: str, password: str, host: str, port: int, read_timeout: int
+        self, *, user: str, password: str, host: str, port: int, read_timeout: str
     ) -> _TaosConnection: ...
 
     def stmt2_bind_param_view(
@@ -76,6 +78,30 @@ _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _LOG = logging.getLogger(__name__)
 _QUALITY = {"good": 1, "bad": 2, "uncertain": 3}
 _LEVEL = {DataLevel.RAW: 1, DataLevel.PROTOCOL: 2, DataLevel.BUSINESS: 3}
+_Result = TypeVar("_Result")
+
+
+class _OperationLease:
+    """标记调用方已离开；工作线程结束后必须销毁而非复用连接。"""
+
+    def __init__(self, timeout_ms: int) -> None:
+        self.timeout_s = timeout_ms / 1000
+        self._deadline = time.monotonic() + self.timeout_s
+        self._expired = threading.Event()
+
+    @property
+    def expired(self) -> bool:
+        return self._expired.is_set()
+
+    def expire(self) -> None:
+        self._expired.set()
+
+    def remaining(self) -> float:
+        remaining = self._deadline - time.monotonic()
+        if self.expired or remaining <= 0:
+            self.expire()
+            raise TimeoutError("TDengine operation deadline exceeded")
+        return remaining
 
 
 class TDengineSchemaConflictError(RuntimeError):
@@ -134,7 +160,7 @@ def _columns(samples: Sequence[StorageSample], module: _TaosModule) -> list[obje
 
 
 class TDengineBackend:
-    """Bounded taosws connection pool with separately serialized schema DDL."""
+    """有界 taosws 连接池；超时工作不得复用连接或无限增加线程。"""
 
     def __init__(self, *, config: StorageConfig, metadata: MetadataStore) -> None:
         self._config = config
@@ -147,11 +173,44 @@ class TDengineBackend:
         self._lock = threading.RLock()
         self._ddl_lock = threading.RLock()
         self._verified_tables: set[str] = set()
+        self._opening = False
+        self._closed = False
+        self._executor = ThreadPoolExecutor(
+            max_workers=config.tdengine.max_inflight_sql,
+            thread_name_prefix="storage-tdengine",
+        )
+        self._close_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="storage-tdengine-close"
+        )
+
+    @staticmethod
+    async def _await_bounded(future: Future[_Result], lease: _OperationLease) -> _Result:
+        try:
+            return await asyncio.wait_for(asyncio.wrap_future(future), timeout=lease.timeout_s)
+        except TimeoutError as exc:
+            lease.expire()
+            future.cancel()
+            raise TimeoutError("TDengine operation deadline exceeded") from exc
+        except asyncio.CancelledError:
+            lease.expire()
+            future.cancel()
+            raise
+
+    async def _run_bounded(
+        self, operation: Callable[..., _Result], *args: Any, **kwargs: Any
+    ) -> _Result:
+        """只等待到有界期限；线程超时不是 SQL 取消，由租约隔离其连接。"""
+        lease = _OperationLease(self._config.tdengine.write_timeout_ms)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("TDengine adapter is closed")
+            future = self._executor.submit(operation, *args, lease=lease, **kwargs)
+        return await self._await_bounded(future, lease)
 
     async def open(self) -> None:
-        await asyncio.to_thread(self._open_sync)
+        await self._run_bounded(self._open_sync)
 
-    def _open_sync(self) -> None:
+    def _connect(self, module: _TaosModule) -> _TaosConnection:
         match = _HOST_PORT.fullmatch(self._config.tdengine.endpoint)
         if match is None:
             raise ValueError("TDengine endpoint must be hostname:port")
@@ -164,79 +223,165 @@ class TDengineBackend:
         password = os.environ.get(ref)
         if not user or not password:
             raise ValueError("TDengine username or credential environment is missing")
+        return module.connect(
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
+            read_timeout=str(max(1, (self._config.tdengine.write_timeout_ms + 999) // 1000)),
+        )
+
+    def _open_sync(self, *, lease: _OperationLease) -> None:
         module = cast(_TaosModule, import_module("taosws"))
         with self._lock:
-            if self._pool_size:
+            if self._closed:
+                raise RuntimeError("TDengine adapter is closed")
+            if self._opening or self._pool_size or self._driver is not None:
                 raise RuntimeError("TDengine adapter is already open")
-            opened: list[_TaosConnection] = []
-            try:
-                for _ in range(self._config.tdengine.max_inflight_sql):
-                    opened.append(
-                        module.connect(
-                            user=user,
-                            password=password,
-                            host=host,
-                            port=port,
-                            # Bound TDengine WebSocket responses, not only the pool wait.
-                            # The connector accepts read_timeout in whole seconds.
-                            read_timeout=max(
-                                1, (self._config.tdengine.write_timeout_ms + 999) // 1000
-                            ),
-                        )
-                    )
-            except BaseException:
+            self._opening = True
+        opened: list[_TaosConnection] = []
+        try:
+            for _ in range(self._config.tdengine.max_inflight_sql):
+                lease.remaining()
+                opened.append(self._connect(module))
+            with self._lock:
+                if self._closed or lease.expired:
+                    raise TimeoutError("TDengine open completed after its deadline")
+                self._driver = module
                 for conn in opened:
-                    conn.close()
-                raise
-            self._driver = module
+                    self._pool.put_nowait(conn)
+                self._pool_size = len(opened)
+        except BaseException:
             for conn in opened:
-                self._pool.put_nowait(conn)
-            self._pool_size = len(opened)
+                conn.close()
+            raise
+        finally:
+            with self._lock:
+                self._opening = False
 
     async def close(self) -> None:
-        await asyncio.to_thread(self._close_sync)
-
-    def _close_sync(self) -> None:
         with self._lock:
-            pool_size = self._pool_size
-            self._pool_size = 0
+            if self._closed:
+                return
+            # 关闭后禁止新工作及连接回池；重复关闭不再次提交执行器。
+            self._closed = True
             self._driver = None
             self._verified_tables.clear()
+            lease = _OperationLease(self._config.tdengine.write_timeout_ms)
+            # SQL 工作全部阻塞时，关闭仍须立即排空已空闲连接。
+            future = self._close_executor.submit(self._close_sync, lease=lease)
+        try:
+            await self._await_bounded(future, lease)
+        finally:
+            with self._lock:
+                # 无法强行杀死驱动线程；read_timeout 使其最终退出，容量始终有界。
+                self._executor.shutdown(wait=False, cancel_futures=True)
+                self._close_executor.shutdown(wait=False, cancel_futures=True)
+
+    def _decrement_pool_size(self) -> None:
+        with self._lock:
+            self._pool_size -= 1
+
+    def _close_sync(self, *, lease: _OperationLease) -> None:
+        with self._lock:
+            if self._closed and self._pool_size == 0:
+                return
+            self._closed = True
+            pool_size = self._pool_size
+            self._driver = None
+            self._verified_tables.clear()
+        first_error: Exception | None = None
         for _ in range(pool_size):
             try:
-                conn = self._pool.get(timeout=self._config.tdengine.write_timeout_ms / 1000)
-            except queue.Empty as exc:
-                raise RuntimeError(
+                conn = self._pool.get(timeout=lease.remaining())
+            except (queue.Empty, TimeoutError) as exc:
+                raise TimeoutError(
                     "cannot close TDengine: outstanding database operations"
                 ) from exc
-            conn.close()
+            try:
+                conn.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+            finally:
+                self._decrement_pool_size()
+        if first_error is not None:
+            raise first_error
+
+    def _acquire_connection(self, lease: _OperationLease) -> tuple[_TaosConnection, _TaosModule]:
+        lease.remaining()
+        with self._lock:
+            driver = self._driver
+            if self._closed or driver is None:
+                raise RuntimeError("TDengine adapter is not open")
+        try:
+            connection = self._pool.get_nowait()
+            return connection, driver
+        except queue.Empty:
+            pass
+
+        with self._lock:
+            if self._closed or self._driver is not driver:
+                raise RuntimeError("TDengine adapter is not open")
+            if self._pool_size < self._config.tdengine.max_inflight_sql:
+                self._pool_size += 1
+                create = True
+            else:
+                create = False
+        if create:
+            try:
+                connection = self._connect(driver)
+                if lease.expired or self._closed or self._driver is not driver:
+                    raise TimeoutError("TDengine connection finished after its deadline")
+                return connection, driver
+            except BaseException:
+                if "connection" in locals():
+                    connection.close()
+                self._decrement_pool_size()
+                raise
+
+        try:
+            return self._pool.get(timeout=lease.remaining()), driver
+        except queue.Empty as exc:
+            raise TimeoutError("TDengine connection pool exhausted") from exc
+
+    def _discard_connection(self, connection: _TaosConnection) -> None:
+        try:
+            connection.close()
+        except Exception:
+            _LOG.warning("failed to close an unusable TDengine connection", exc_info=True)
+        finally:
+            self._decrement_pool_size()
 
     @contextmanager
     def _borrow_connection(
-        self,
+        self, *, lease: _OperationLease
     ) -> Iterator[tuple[_TaosConnection, _TaosModule]]:
-        with self._lock:
-            driver = self._driver
-        if driver is None:
-            raise RuntimeError("TDengine adapter is not open")
-        try:
-            connection = self._pool.get(timeout=self._config.tdengine.write_timeout_ms / 1000)
-        except queue.Empty as exc:
-            raise TimeoutError("TDengine connection pool exhausted") from exc
+        connection, driver = self._acquire_connection(lease)
+        reusable = False
         try:
             yield connection, driver
+            reusable = not lease.expired
         finally:
-            self._pool.put_nowait(connection)
+            with self._lock:
+                can_return = reusable and not self._closed and self._driver is driver
+            if can_return:
+                self._pool.put_nowait(connection)
+            else:
+                self._discard_connection(connection)
 
     async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
-        await asyncio.to_thread(self._ensure_tables_sync, samples)
+        await self._run_bounded(self._ensure_tables_sync, samples=samples)
 
     @staticmethod
     def _identity_json(values: tuple[str, ...]) -> str:
         return json.dumps(values, ensure_ascii=False, separators=(",", ":"))
 
-    def _ensure_tables_sync(self, samples: Sequence[StorageSample]) -> None:
-        with self._ddl_lock, self._borrow_connection() as (connection, _):
+    def _ensure_tables_sync(
+        self, samples: Sequence[StorageSample], *, lease: _OperationLease
+    ) -> None:
+        with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
             retention = DatabaseRetention.parse(
                 duration=self._config.tdengine.database.duration,
                 keep=self._config.tdengine.database.keep,
@@ -453,10 +598,10 @@ class TDengineBackend:
     async def fetch_content_hashes(
         self, samples: Sequence[StorageSample]
     ) -> dict[str, frozenset[str]]:
-        return await asyncio.to_thread(self._fetch_content_hashes_sync, samples)
+        return await self._run_bounded(self._fetch_content_hashes_sync, samples=samples)
 
     def _fetch_content_hashes_sync(
-        self, samples: Sequence[StorageSample]
+        self, samples: Sequence[StorageSample], *, lease: _OperationLease
     ) -> dict[str, frozenset[str]]:
         """Batch readback using bounded time ranges and generated SHA-256 keys."""
         grouped: dict[str, list[StorageSample]] = defaultdict(list)
@@ -465,7 +610,7 @@ class TDengineBackend:
             names = get_object_names(sample, SCHEMA_FINGERPRINT)
             grouped[f"{names.database}.{names.table}"].append(sample)
             result.setdefault(sample.logical_key, set())
-        with self._borrow_connection() as (connection, _):
+        with self._borrow_connection(lease=lease) as (connection, _):
             for table, entries in grouped.items():
                 # TDengine can push the time predicate to partition pruning.
                 # Keep each IN list short and distinct to bound statement size.
@@ -493,16 +638,18 @@ class TDengineBackend:
         return {key: frozenset(values) for key, values in result.items()}
 
     async def insert_batch(self, samples: Sequence[StorageSample]) -> None:
-        await asyncio.to_thread(self._insert_batch_sync, samples)
+        await self._run_bounded(self._insert_batch_sync, samples=samples)
 
-    def _insert_batch_sync(self, samples: Sequence[StorageSample]) -> None:
+    def _insert_batch_sync(
+        self, samples: Sequence[StorageSample], *, lease: _OperationLease
+    ) -> None:
         if not samples:
             return
         groups: dict[str, list[StorageSample]] = defaultdict(list)
         for sample in samples:
             names = get_object_names(sample, SCHEMA_FINGERPRINT)
             groups[f"{names.database}.{names.table}"].append(sample)
-        with self._borrow_connection() as (connection, driver):
+        with self._borrow_connection(lease=lease) as (connection, driver):
             for table_name, batch in groups.items():
                 if len(batch) > self._config.tdengine.batch_max_records:
                     raise ValueError("TDengine batch record count exceeds configured maximum")
@@ -530,7 +677,7 @@ class TDengineBackend:
         limit: int,
     ) -> list[HistoryRow]:
         """Read only previously registered physical tables and bounded result pages."""
-        return await asyncio.to_thread(self._fetch_history_sync, filter_, after, limit)
+        return await self._run_bounded(self._fetch_history_sync, filter_, after, limit)
 
     @staticmethod
     def _sql_filter(value: str) -> str:
@@ -630,7 +777,12 @@ class TDengineBackend:
         )
 
     def _fetch_history_sync(
-        self, filter_: HistoryFilter, after: tuple[int, str, str] | None, limit: int
+        self,
+        filter_: HistoryFilter,
+        after: tuple[int, str, str] | None,
+        limit: int,
+        *,
+        lease: _OperationLease,
     ) -> list[HistoryRow]:
         """Keyset-scan managed tables; exclude every sample conflict candidate."""
         if not 1 <= limit <= 1001:
@@ -653,7 +805,7 @@ class TDengineBackend:
             "value_u64, value_f64, value_bool, value_text, "
             "payload_bytes, quality, publish_time, receive_time"
         )
-        with self._borrow_connection() as (connection, _):
+        with self._borrow_connection(lease=lease) as (connection, _):
             for entry in registrations:
                 if (
                     re.fullmatch(r"tb_[0-9a-f]{24}", entry.name) is None

@@ -312,12 +312,17 @@ class ConfigurationApplication:
             sources = document.canonical_payload.get("config_sources", {})
             if isinstance(sources, list):
                 for item in sources:
-                    if not isinstance(item, dict) or set(item) != {
-                        "config_type",
-                        "config_id",
-                        "file_version",
-                    }:
-                        raise ValueError("config_sources requires type, id and file_version")
+                    if not isinstance(item, dict):
+                        raise ValueError("config_sources entries must be mappings")
+                    required = {"config_type", "config_id", "file_version"}
+                    site_fields = {"site_config_id", "site_id", "site_file_version"}
+                    allowed = (
+                        required | site_fields if item.get("config_type") == "device" else required
+                    )
+                    if not required <= set(item) or not set(item) <= allowed:
+                        raise ValueError("config_sources has missing or unknown identity fields")
+                    if item.get("config_type") == "device" and not site_fields <= set(item):
+                        raise ValueError("device config_sources requires its exact Site binding")
                     if any(not isinstance(item[key], str) or not item[key] for key in item):
                         raise ValueError("config_sources identity and version must be strings")
                     identity = ConfigIdentity(item["config_type"], item["config_id"])

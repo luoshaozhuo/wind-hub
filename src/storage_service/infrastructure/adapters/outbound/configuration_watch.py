@@ -92,6 +92,7 @@ class StorageConfigurationWatcher:
                 updated.configuration != self._active.configuration
                 or updated.point_table_versions != self._active.point_table_versions
                 or updated.business_points_pin != self._active.business_points_pin
+                or updated.device_bindings != self._active.device_bindings
             ):
                 raise ConfigHistoryUnavailableError(
                     "Configuration authority changed an immutable revision"
@@ -100,8 +101,8 @@ class StorageConfigurationWatcher:
             return
         # Changing brokers, DB credentials, retention, security or export limits
         # requires a controlled restart. No hot reconfiguration of in-flight IO.
-        old = self._active.configuration.model_dump(exclude={"config_sources"})
-        new = updated.configuration.model_dump(exclude={"config_sources"})
+        old = self._active.configuration.model_dump(exclude={"config_sources", "file_version"})
+        new = updated.configuration.model_dump(exclude={"config_sources", "file_version"})
         if old != new:
             self.status = "RESTART_REQUIRED"
             _LOG.warning(
@@ -120,6 +121,7 @@ class StorageConfigurationWatcher:
         self._resolver.add_immutable_pins(
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
+            device_bindings=updated.device_bindings,
         )
         self._active = updated
         self.status = "READY"

@@ -15,6 +15,16 @@ import pytest
 from collector.infrastructure.adapters.outbound import publisher as publisher_module
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolSample
+from core.domain import (
+    BusinessPoint,
+    DataType,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
+    Quantity,
+    Unit,
+)
 
 pytestmark = [pytest.mark.component, pytest.mark.mock_service, pytest.mark.overload]
 
@@ -88,6 +98,31 @@ def _publisher(delivery: str = "realtime", **kwargs: Any) -> CollectorPublisher:
     return CollectorPublisher(**options)
 
 
+_UNIT = Unit("kilowatt", "kW", Quantity("active_power"))
+_BUSINESS = BusinessPoint("active_power", DataType.FLOAT64, _UNIT)
+
+
+async def _publish(
+    publisher: CollectorPublisher, device_id: str, samples: tuple[ProtocolSample, ...]
+) -> None:
+    table = PointTable(
+        "modbus_wtg@1.0.0",
+        Protocol("modbus"),
+        {
+            sample.point_id: Point(sample.point_id, "active_power", _UNIT, PointAccess.READ)
+            for sample in samples
+        },
+    )
+    await publisher.publish(
+        device_id,
+        samples,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
+        point_table=table,
+        business_points={"active_power": _BUSINESS},
+    )
+
+
 def test_constructor_validates_delivery_servers_limits_and_staleness() -> None:
     with pytest.raises(ValueError, match="delivery"):
         _publisher("kafka")
@@ -105,7 +140,7 @@ def test_constructor_validates_delivery_servers_limits_and_staleness() -> None:
 async def test_realtime_source_batch_becomes_one_nats_publish(fake_nats: FakeNatsClient) -> None:
     publisher = _publisher()
     await publisher.start()
-    await publisher.publish("wtg-01", (_sample("p1"), _sample("p2")))
+    await _publish(publisher, "wtg-01", (_sample("p1"), _sample("p2")))
     await publisher.stop()
     assert len(fake_nats.published) == 1
     record = fake_nats.published[0]
@@ -122,7 +157,7 @@ async def test_reliable_uses_jetstream_with_stable_nats_msg_id(
 ) -> None:
     publisher = _publisher("reliable")
     await publisher.start()
-    await publisher.publish("wtg-01", (_sample("p1"),))
+    await _publish(publisher, "wtg-01", (_sample("p1"),))
     await publisher.stop()
     assert len(fake_nats.jetstream_calls) == 1
     call = fake_nats.jetstream_calls[0]
@@ -137,7 +172,7 @@ async def test_reliable_retry_keeps_original_batch_identity(fake_nats: FakeNatsC
     publisher = _publisher("reliable")
     fake_nats.fail_next = 2  # 前两次 PubAck 失败，第三次成功
     await publisher.start()
-    await publisher.publish("wtg-01", (_sample("p1"),))
+    await _publish(publisher, "wtg-01", (_sample("p1"),))
     deadline = asyncio.get_event_loop().time() + 10
     while not fake_nats.jetstream_calls and asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(0.02)
@@ -155,8 +190,8 @@ async def test_reliable_retry_keeps_original_batch_identity(fake_nats: FakeNatsC
 async def test_realtime_backpressure_drops_without_raising(fake_nats: FakeNatsClient) -> None:
     publisher = _publisher(capacity=1)
     # 不启动消费循环：队列只能容纳 1 批，第二批走背压丢弃路径。
-    await publisher.publish("wtg-01", (_sample("p1"),))
-    await publisher.publish("wtg-01", (_sample("p2"),))
+    await _publish(publisher, "wtg-01", (_sample("p1"),))
+    await _publish(publisher, "wtg-01", (_sample("p2"),))
     assert publisher.backpressure == 1
     assert publisher.dropped == 1
     assert publisher.not_attempted == 1
@@ -170,9 +205,9 @@ async def test_reliable_enqueue_timeout_is_failure_not_silent_drop(
     fake_nats: FakeNatsClient,
 ) -> None:
     publisher = _publisher("reliable", capacity=1, enqueue_timeout_s=0.05)
-    await publisher.publish("wtg-01", (_sample("p1"),))
+    await _publish(publisher, "wtg-01", (_sample("p1"),))
     with pytest.raises(RuntimeError, match="not accepted"):
-        await publisher.publish("wtg-01", (_sample("p2"),))
+        await _publish(publisher, "wtg-01", (_sample("p2"),))
     assert publisher.not_attempted >= 1
     assert publisher.failed >= 1
 
@@ -184,7 +219,7 @@ async def test_reliable_split_rejection_never_publishes_accepted_prefix(
     """A rejected acquisition event must not leave a publishable queued prefix."""
     publisher = _publisher("reliable", capacity=1, max_samples_per_batch=1, enqueue_timeout_s=0.01)
     with pytest.raises(RuntimeError, match="exceeds bounded queue capacity"):
-        await publisher.publish("wtg-01", (_sample("p0"), _sample("p1")))
+        await _publish(publisher, "wtg-01", (_sample("p0"), _sample("p1")))
 
     await publisher.start()
     await publisher.stop()
@@ -196,9 +231,9 @@ async def test_reliable_oversized_rejection_preserves_other_queued_events(
     fake_nats: FakeNatsClient,
 ) -> None:
     publisher = _publisher("reliable", capacity=2, max_samples_per_batch=1)
-    await publisher.publish("wtg-existing", (_sample("existing"),))
+    await _publish(publisher, "wtg-existing", (_sample("existing"),))
     with pytest.raises(RuntimeError, match="exceeds bounded queue capacity"):
-        await publisher.publish("wtg-rejected", tuple(_sample(f"p{i}") for i in range(3)))
+        await _publish(publisher, "wtg-rejected", tuple(_sample(f"p{i}") for i in range(3)))
 
     await publisher.start()
     await publisher.stop()
@@ -213,8 +248,8 @@ async def test_reliable_split_waits_for_space_for_the_complete_event(
     fake_nats: FakeNatsClient,
 ) -> None:
     publisher = _publisher("reliable", capacity=3, max_samples_per_batch=1, enqueue_timeout_s=1.0)
-    await publisher.publish("wtg-existing", (_sample("e0"), _sample("e1")))
-    accepted = asyncio.create_task(publisher.publish("wtg-split", (_sample("p0"), _sample("p1"))))
+    await _publish(publisher, "wtg-existing", (_sample("e0"), _sample("e1")))
+    accepted = asyncio.create_task(_publish(publisher, "wtg-split", (_sample("p0"), _sample("p1"))))
     await asyncio.sleep(0)
     assert not accepted.done(), "two fragments were admitted into one free queue slot"
 
@@ -237,7 +272,7 @@ async def test_reliable_concurrent_publishers_and_stop_drain_complete_events(
     publisher = _publisher("reliable", capacity=2, max_samples_per_batch=1, enqueue_timeout_s=1.0)
     publications = [
         asyncio.create_task(
-            publisher.publish(f"wtg-{index}", (_sample(f"p{index}-0"), _sample(f"p{index}-1")))
+            _publish(publisher, f"wtg-{index}", (_sample(f"p{index}-0"), _sample(f"p{index}-1")))
         )
         for index in range(4)
     ]
@@ -258,7 +293,7 @@ async def test_realtime_expired_batch_is_dropped_and_counted(
 ) -> None:
     publisher = _publisher(max_staleness_ms=100)
     await publisher.start()
-    await publisher.publish("wtg-01", (_sample("p1", age_ms=1000),))
+    await _publish(publisher, "wtg-01", (_sample("p1", age_ms=1000),))
     await publisher.stop()
     assert publisher.expired == 1
     assert publisher.dropped == 1
@@ -271,7 +306,7 @@ async def test_duplicate_point_id_rejected_before_queueing(
 ) -> None:
     publisher = _publisher()
     with pytest.raises(ValueError, match="rejected"):
-        await publisher.publish("wtg-01", (_sample("p1"), _sample("p1")))
+        await _publish(publisher, "wtg-01", (_sample("p1"), _sample("p1")))
     assert publisher.failed == 1
     assert publisher.not_attempted == 1
     await publisher.start()
@@ -285,7 +320,7 @@ async def test_oversized_source_event_is_split_into_multiple_batches(
 ) -> None:
     publisher = _publisher(max_samples_per_batch=2)
     await publisher.start()
-    await publisher.publish("wtg-01", tuple(_sample(f"p{i}") for i in range(5)))
+    await _publish(publisher, "wtg-01", tuple(_sample(f"p{i}") for i in range(5)))
     await publisher.stop()
     assert len(fake_nats.published) == 3
     assert sum(len(call["payload"]) for call in fake_nats.published) > 0
@@ -296,6 +331,6 @@ async def test_oversized_source_event_is_split_into_multiple_batches(
 async def test_stop_releases_connection(fake_nats: FakeNatsClient) -> None:
     publisher = _publisher()
     await publisher.start()
-    await publisher.publish("wtg-01", (_sample("p1"),))
+    await _publish(publisher, "wtg-01", (_sample("p1"),))
     await publisher.stop()
     assert fake_nats.drained and fake_nats.closed

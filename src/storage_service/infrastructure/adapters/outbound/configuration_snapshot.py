@@ -11,10 +11,16 @@ import hashlib
 import json
 import os
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from storage_service.application.config import StorageConfig
+from storage_service.application.config import (
+    DeviceBinding,
+    DeviceClosurePins,
+    DeviceModel,
+    StorageConfig,
+)
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import StorageBundle
 
@@ -31,9 +37,10 @@ class StorageBundleSnapshot:
     @staticmethod
     def _encode(bundle: StorageBundle) -> bytes:
         payload: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "revision_id": bundle.revision_id,
             "config": bundle.configuration.model_dump(mode="json"),
+            "device_bindings": [asdict(binding) for binding in bundle.device_bindings],
             "point_table_versions": {
                 key: list(value) for key, value in sorted(bundle.point_table_versions.items())
             },
@@ -57,7 +64,7 @@ class StorageBundleSnapshot:
         ).encode()
 
     def store(self, bundle: StorageBundle) -> None:
-        if bundle.revision_id <= 0 or not bundle.point_table_versions:
+        if bundle.revision_id <= 0 or not bundle.point_table_versions or not bundle.device_bindings:
             raise ConfigHistoryUnavailableError("cannot persist an incomplete Storage snapshot")
         content = self._encode(bundle)
         if self._path.exists():
@@ -110,7 +117,7 @@ class StorageBundleSnapshot:
             ).encode()
             if not hashlib.sha256(canonical).hexdigest() == envelope["sha256"]:
                 raise ConfigHistoryUnavailableError("Configuration snapshot SHA256 mismatch")
-            if payload["schema_version"] != 1 or type(payload["revision_id"]) is not int:
+            if payload["schema_version"] != 2 or type(payload["revision_id"]) is not int:
                 raise ConfigHistoryUnavailableError("Configuration snapshot format unsupported")
             pins = payload["point_table_versions"]
             if not isinstance(pins, dict) or not pins:
@@ -132,11 +139,35 @@ class StorageBundleSnapshot:
                 or any(not isinstance(x, str) or not x for x in business)
             ):
                 raise ConfigHistoryUnavailableError("invalid BusinessPoint pin")
+            encoded_bindings = payload["device_bindings"]
+            if not isinstance(encoded_bindings, list) or not encoded_bindings:
+                raise ConfigHistoryUnavailableError("Configuration snapshot has no device bindings")
+            bindings: list[DeviceBinding] = []
+            for item in encoded_bindings:
+                if not isinstance(item, dict) or not isinstance(item.get("model"), dict):
+                    raise ConfigHistoryUnavailableError("invalid device instance binding")
+                model = DeviceModel(**item["model"])
+                binding = DeviceBinding(
+                    wind_farm_id=item["wind_farm_id"],
+                    device_id=item["device_id"],
+                    device_config_id=item["device_config_id"],
+                    device_version_id=item["device_version_id"],
+                    device_file_version=item["device_file_version"],
+                    site_config_id=item["site_config_id"],
+                    site_file_version=item["site_file_version"],
+                    model=model,
+                )
+                if binding.point_table_id not in converted:
+                    raise ConfigHistoryUnavailableError(
+                        "device binding references an unpinned PointTable"
+                    )
+                bindings.append(binding)
             return StorageBundle(
                 configuration=StorageConfig.model_validate(payload["config"]),
                 revision_id=payload["revision_id"],
-                point_table_versions=converted,
+                point_table_versions=DeviceClosurePins(converted, tuple(bindings)),
                 business_points_pin=(business[0], business[1]) if business else None,
+                device_bindings=tuple(bindings),
             )
         except (OSError, ValueError, TypeError, KeyError, IndexError) as exc:
             raise ConfigHistoryUnavailableError(

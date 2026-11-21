@@ -39,7 +39,7 @@ from .config_tree import write_config_tree
 ClientsFactory = Callable[[int], tuple[grpc.aio.Channel, CommonServiceStub, CollectorServiceStub]]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ADMIN_TOKEN = "acceptance-admin-token"
+ADMIN_TOKEN = "acceptance-admin-token-012345678901234567890123456789"
 
 
 def free_port() -> int:
@@ -325,4 +325,4 @@ async def grpc_clients() -> AsyncIterator[ClientsFactory]:
             await channel.close()
 
 
-ADMIN_METADATA = (("x-windhub-admin-token", ADMIN_TOKEN),)
+ADMIN_METADATA = (("authorization", f"Bearer {ADMIN_TOKEN}"),)

@@ -332,6 +332,9 @@ def _validate_delivery(
     expect_mapping(delivery.get("overrides"), f"deliveries.{delivery_id}.overrides")
     if delivery["overrides"]:
         raise ConfigurationError(f"deliveries.{delivery_id}: undeclared overrides")
+    delivery_output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
+    if delivery_output.get("data_level") not in ("raw", "protocol", "business"):
+        raise ConfigurationError(f"deliveries.{delivery_id}: invalid output.data_level")
     if mode == "realtime":
         output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
         require_keys(
@@ -352,7 +355,7 @@ def _validate_delivery(
         require_keys(
             output,
             f"deliveries.{delivery_id}.output",
-            frozenset({"policy", "period_ms"}),
+            frozenset({"policy", "period_ms", "data_level"}),
             frozenset({"absolute_threshold", "relative_threshold"}),
         )
         if output.get("policy") not in ("periodic", "on_change", "change_with_heartbeat"):
@@ -391,6 +394,7 @@ def _validate_delivery(
                     "template_id",
                     "delivery_mode",
                     "source_filter",
+                    "output",
                     "reliable",
                 }
             ),
@@ -399,6 +403,12 @@ def _validate_delivery(
             raise ConfigurationError(
                 f"deliveries.{delivery_id}: concurrent Kafka requires one explicit device"
             )
+        output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
+        require_keys(
+            output,
+            f"deliveries.{delivery_id}.output",
+            frozenset({"data_level"}),
+        )
         reliable = expect_mapping(template.get("reliable"), f"deliveries.{delivery_id}.reliable")
         require_keys(
             reliable,

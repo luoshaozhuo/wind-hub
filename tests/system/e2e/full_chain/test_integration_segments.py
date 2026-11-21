@@ -15,7 +15,8 @@ import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 from pymodbus.client import AsyncModbusTcpClient
 
-from cli.runtime import Runtime
+from cli.process_manager import manage_service_process
+from cli.runtime import Runtime, load_config
 from contracts import collector_pb2 as collector
 from contracts import collector_pb2_grpc as collector_rpc
 from contracts import commander_pb2 as cmd
@@ -28,6 +29,7 @@ from contracts import industrial_gateway_pb2 as gateway
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from contracts.scalar_codec import decode_scalar, encode_scalar
 from tests.cli.test_r1f3_strict_cli_e2e import ADMIN_TOKEN
+from tests.support.bearer import bearer_channel
 
 from .conftest import (
     REPO_CONFIGS,
@@ -40,10 +42,8 @@ from .integration_segments import (
     correlate_source,
     fixed_batch,
     float_words,
-    generator_channel,
     kafka_consumer,
     load_yaml,
-    mtls_channel,
     number,
     publish_batch,
     read_modbus_float,
@@ -114,7 +114,7 @@ async def test_i01_recording_gateway_identity_window_and_dg_lease_release(
 ) -> None:
     harness = full_chain
     owner = f"r4e-i01-{uuid4().hex}"
-    channel = generator_channel(harness)
+    channel = bearer_channel(harness.gw_grpc_endpoint, "sink")
     acquired_token = ""
     try:
         generation_id = await _start_generation(harness)
@@ -524,9 +524,8 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
         accepted = await _audit_events(audit_queue, {"agc_enable", "agc_power_setpoint"})
         command_ids = {str(event["command_id"]) for event in accepted}
         assert len(command_ids) == 2
-        gateway_cert, gateway_key = harness.pki["clients"]["gateway"]
-        async with mtls_channel(
-            harness.endpoints["data-generator"], harness.pki["ca"], gateway_cert, gateway_key
+        async with bearer_channel(
+            harness.endpoints["data-generator"], "generator-input"
         ) as channel:
             for event in accepted:
                 command_id = str(event["command_id"])
@@ -582,13 +581,10 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
         )
         assert first_result["outcome"] == "CONFIRMED_SUCCESS"
 
-        pki = harness.plant / "commander-pki"
         deadline = Timestamp()
         deadline.FromDatetime(datetime.now(UTC) + timedelta(minutes=2))
         unauthorized_id = f"r4e-i05-unauthorized-{uuid4().hex}"
-        async with mtls_channel(
-            harness.endpoints["commander"], pki / "ca.crt", pki / "viewer.crt", pki / "viewer.key"
-        ) as channel:
+        async with bearer_channel(harness.endpoints["commander"], "viewer") as channel:
             with pytest.raises(grpc.aio.AioRpcError) as error:
                 await cmd_rpc.CommanderServiceStub(channel).SubmitCommand(
                     cmd.SubmitCommandRequest(
@@ -671,9 +667,10 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
     source_owner = ""
     try:
         source_status = await harness.cli_call(harness.cli_rt, "service", "status", "gateway")
-        target_status = await harness.cli_call(
-            target.cli_config, "service", "status", target.service_name
-        )
+        target_native = load_config(target.cli_config).services[target.service_name]
+        target_status = {
+            "data": [{"process": await manage_service_process(target_native, "status")}]
+        }
         source_pid = source_status["data"][0]["process"]["pid"]
         target_pid = target_status["data"][0]["process"]["pid"]
         assert source_pid != target_pid
@@ -683,10 +680,8 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             harness.modbus_ports["WTG_SIM01"], 400, holding=True
         )
 
-        cert, key = target.pki["clients"]["lease-a"]
-        channel_a = mtls_channel(target.endpoint, target.pki["ca"], cert, key)
-        cert_b, key_b = target.pki["clients"]["lease-b"]
-        channel_b = mtls_channel(target.endpoint, target.pki["ca"], cert_b, key_b)
+        channel_a = bearer_channel(target.endpoint, "cli")
+        channel_b = bearer_channel(target.endpoint, "generator-input")
         channels.extend((channel_a, channel_b))
         stubs = {
             "lease-a": gateway_rpc.IndustrialGatewayServiceStub(channel_a),
@@ -716,10 +711,7 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             < 1e-3
         )
 
-        source_cert, source_key = harness.pki["clients"]["cli"]
-        source_channel = mtls_channel(
-            harness.gw_grpc_endpoint, harness.pki["ca"], source_cert, source_key
-        )
+        source_channel = bearer_channel(harness.gw_grpc_endpoint, "cli")
         channels.append(source_channel)
         source_stub = gateway_rpc.IndustrialGatewayServiceStub(source_channel)
         source_owner = f"r4e-i07-source-{uuid4().hex}"
@@ -892,10 +884,7 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
         )
     finally:
         if source_release_token:
-            source_cert, source_key = harness.pki["clients"]["cli"]
-            async with mtls_channel(
-                harness.gw_grpc_endpoint, harness.pki["ca"], source_cert, source_key
-            ) as source_cleanup_channel:
+            async with bearer_channel(harness.gw_grpc_endpoint, "cli") as source_cleanup_channel:
                 await gateway_rpc.IndustrialGatewayServiceStub(source_cleanup_channel).ClaimTargets(
                     gateway.ClaimTargetsRequest(
                         gateway_id="gw-wtg_sim01",
@@ -907,9 +896,8 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
                     timeout=5,
                 )
         if release_token:
-            identity = "lease-b" if release_owner.endswith("lease-b") else "lease-a"
-            cert, key = target.pki["clients"][identity]
-            channel = mtls_channel(target.endpoint, target.pki["ca"], cert, key)
+            identity = "generator" if release_owner.endswith("lease-b") else "cli"
+            channel = bearer_channel(target.endpoint, identity)
             try:
                 await gateway_rpc.IndustrialGatewayServiceStub(channel).ClaimTargets(
                     gateway.ClaimTargetsRequest(

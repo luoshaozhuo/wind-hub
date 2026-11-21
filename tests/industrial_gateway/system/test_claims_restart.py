@@ -15,6 +15,7 @@ import pytest
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import encode_scalar
+from tests.support.bearer import bearer_channel
 from tests.support.gateway import (
     FEEDBACK_FLOAT,
     ServerSpec,
@@ -76,7 +77,7 @@ async def test_claims_do_not_survive_process_restart(tmp_path: Path) -> None:
     token = ""
     try:
         await _wait_port_open(grpc_port)
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}") as channel:
+        async with bearer_channel(f"127.0.0.1:{grpc_port}", "harness") as channel:
             stub = pb_rpc.IndustrialGatewayServiceStub(channel)
             claim = await stub.ClaimTargets(
                 pb.ClaimTargetsRequest(
@@ -99,7 +100,7 @@ async def test_claims_do_not_survive_process_restart(tmp_path: Path) -> None:
     restarted = await _spawn(service_path, root)
     try:
         await _wait_port_open(grpc_port)
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}") as channel:
+        async with bearer_channel(f"127.0.0.1:{grpc_port}", "harness") as channel:
             stub = pb_rpc.IndustrialGatewayServiceStub(channel)
             # 旧 token 不再 fencing：任意新 owner 可立即占用。
             takeover = await stub.ClaimTargets(

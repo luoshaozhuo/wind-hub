@@ -77,6 +77,11 @@ def _batch(value, sample_time, *, receive_time=None, stale=None) -> SampleBatch:
         point_id="p000",
         sample_id="s-parity-0",
         value=value,
+        raw_value=value,
+        business_value=value,
+        unit="kilowatt",
+        business_unit="kilowatt",
+        business_point_id="p000",
         quality="good",
         sample_time=sample_time,
         receive_time=receive_time,
@@ -89,6 +94,8 @@ def _batch(value, sample_time, *, receive_time=None, stale=None) -> SampleBatch:
         collector_id=COLLECTOR,
         task_id=TASK,
         device_id=DEVICE,
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=now,
         samples=(item,),
     )
@@ -112,38 +119,75 @@ def test_b1_bytes_identical_to_production_and_semantically_equal(
     decoded = SampleBatch.decode(batch.encode(), "reliable", subject=batch.subject())
     item = decoded.samples[0]
 
-    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(decoded, item))
-    b1_bytes = encode_kafka_point(decoded, item)
+    production_bytes = encode_delivery_point(DeliveryPoint.from_batch(decoded, item, "business"))
+    b1_bytes = encode_kafka_point(decoded, item, "business")
 
     # 第一层：UTF-8 字节逐字节相等（字段顺序与 JSON 渲染都被钉死）
     assert b1_bytes == production_bytes
 
-    # 第二层：B1 产物与生产 13 字段记录语义相等（逐字段 JSON 对象对比）
+    # 第二层：B1 产物与生产 19 字段记录语义相等（逐字段 JSON 对象对比）
     assert json.loads(b1_bytes) == json.loads(production_bytes)
 
 
 def test_reliable_mode_renders_null_optional_fields() -> None:
     batch = _batch(1.0, TIMES[0])
     decoded = SampleBatch.decode(batch.encode(), mode="reliable")
-    rendered = encode_kafka_point(decoded, decoded.samples[0]).decode()
+    rendered = encode_kafka_point(decoded, decoded.samples[0], "business").decode()
     assert '"max_staleness_ms":null' in rendered
     assert '"receive_time":null' in rendered
+
+
+def test_data_levels_use_authoritative_values_and_units() -> None:
+    batch = _batch(20, TIMES[0])
+    item = batch.samples[0].model_copy(
+        update={
+            "raw_value": 10,
+            "value": 20,
+            "business_value": 0.02,
+            "unit": "watt",
+            "business_unit": "kilowatt",
+            "business_point_id": "active_power",
+        }
+    )
+    raw = json.loads(encode_kafka_point(batch, item, "raw"))
+    protocol = json.loads(encode_kafka_point(batch, item, "protocol"))
+    business = json.loads(encode_kafka_point(batch, item, "business"))
+    assert (raw["value"], raw["unit"], raw["business_point_id"]) == (10, None, None)
+    assert (protocol["value"], protocol["unit"], protocol["business_point_id"]) == (
+        20,
+        "watt",
+        None,
+    )
+    assert (business["value"], business["unit"], business["business_point_id"]) == (
+        0.02,
+        "kilowatt",
+        "active_power",
+    )
+    assert raw["batch_id"] == batch.batch_id
+    assert raw["device_type"] == "turbine"
+    assert raw["point_table_id"] == "point_table_modbus_wtg_v1.0.0"
 
 
 def test_field_order_matches_sample_message_schema() -> None:
     batch = _batch(1.5, TIMES[2], receive_time=TIMES[2])
     decoded = SampleBatch.decode(batch.encode(), mode="reliable")
-    rendered = encode_kafka_point(decoded, decoded.samples[0]).decode()
+    rendered = encode_kafka_point(decoded, decoded.samples[0], "business").decode()
     keys = [segment.split(":", 1)[0].strip('"') for segment in rendered.strip("{}").split(",")]
     assert keys == [
         "schema_version",
+        "data_level",
         "wind_farm_id",
         "collector_id",
         "task_id",
+        "device_type",
         "device_id",
+        "point_table_id",
+        "batch_id",
         "point_id",
+        "business_point_id",
         "sample_id",
         "value",
+        "unit",
         "quality",
         "sample_time",
         "publish_time",

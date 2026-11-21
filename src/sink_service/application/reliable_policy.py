@@ -8,7 +8,7 @@ from typing import Any
 from zlib import crc32
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.delivery_point import DeliveryPoint, select_delivery_points
+from sink_service.application.delivery_point import DataLevel, DeliveryPoint, select_delivery_points
 from sink_service.application.realtime import BatchOutcome
 
 
@@ -33,7 +33,7 @@ class SettlementDecision:
 
 
 def select_reliable(
-    batch: SampleBatch, source: Mapping[str, Any], *, kafka: bool
+    batch: SampleBatch, source: Mapping[str, Any], *, kafka: bool, data_level: DataLevel
 ) -> ReliableSelection:
     """Apply the authoritative source selector, never untrusted NATS headers."""
     if batch.wind_farm_id != source["wind_farm_id"]:
@@ -51,7 +51,7 @@ def select_reliable(
         # Use stable device-lock affinity regardless of Python hash randomization.
         stripe = crc32(key) % 128
         return ReliableSelection(items, (), key, stripe, "" if items else "point_filter_no_match")
-    points = select_delivery_points(batch, point_ids)
+    points = select_delivery_points(batch, data_level, point_ids)
     return ReliableSelection((), points, b"", 0, "" if points else "point_filter_no_match")
 
 

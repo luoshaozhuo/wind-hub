@@ -1,4 +1,4 @@
-"""SampleBatch v2 严格线协议契约（Contracts 设计 v1_6 §5.2 矩阵）。
+"""SampleBatch v3 严格线协议契约。
 
 覆盖：schema_version 严格性、Realtime/Reliable 隔离、NATS Subject 与
 Header 安全、显式 null、标量边界、时间戳语义、重复 JSON 字段、多余/缺失
@@ -40,6 +40,11 @@ def _item(
         point_id=point_id,
         sample_id=sample_id,
         value=value,
+        raw_value=value,
+        business_value=value,
+        unit="kilowatt",
+        business_unit="kilowatt",
+        business_point_id=point_id,
         quality="good",
         sample_time=sample_time,
         max_staleness_ms=staleness,
@@ -60,6 +65,8 @@ def _batch(
         collector_id="collector-1",
         task_id="wtg-01",
         device_id="wtg-01",
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=publish_time,
         samples=samples if samples is not None else (_item(),),
     )
@@ -68,15 +75,15 @@ def _batch(
 # ---------- schema_version 严格性 ----------
 
 
-def test_schema_version_is_literal_2_and_wire_requires_int_2() -> None:
+def test_schema_version_is_literal_3_and_wire_requires_int_3() -> None:
     batch = _batch()
-    assert batch.schema_version == 2
+    assert batch.schema_version == 3
     payload = batch.encode()
     decoded = SampleBatch.decode(payload, "realtime")
-    assert decoded.schema_version == 2
+    assert decoded.schema_version == 3
 
 
-@pytest.mark.parametrize("version", [1, 3, "2", 2.0, None])
+@pytest.mark.parametrize("version", [1, 2, "3", 3.0, None])
 def test_decode_rejects_non_literal_schema_version(version: object) -> None:
     document = json.loads(_batch().encode())
     if version is None:
@@ -136,6 +143,8 @@ def test_batch_identity_fields_use_subject_validation(field: str) -> None:
         "collector_id": "collector-1",
         "task_id": "wtg-01",
         "device_id": "wtg-01",
+        "device_type": "turbine",
+        "point_table_id": "point_table_modbus_wtg_v1.0.0",
         "publish_time": _AWARE,
         "samples": (_item(),),
     }
@@ -271,6 +280,11 @@ def test_extra_fields_rejected_at_model_and_decode() -> None:
             point_id="p",
             sample_id="s",
             value=1,
+            raw_value=1,
+            business_value=1,
+            unit="kilowatt",
+            business_unit="kilowatt",
+            business_point_id="p",
             quality="good",
             sample_time=_AWARE,
             max_staleness_ms=500,
@@ -381,7 +395,16 @@ def test_identity_is_stable_across_resends_and_publish_time_restamp() -> None:
     identity = batch.identity
     resent = batch.model_copy(update={"publish_time": datetime.now(UTC)})
     assert resent.identity == identity
-    assert identity == ("farm-a", "collector-1", "wtg-01", "wtg-01", "realtime", "batch-0001")
+    assert identity == (
+        "farm-a",
+        "collector-1",
+        "wtg-01",
+        "turbine",
+        "wtg-01",
+        "point_table_modbus_wtg_v1.0.0",
+        "realtime",
+        "batch-0001",
+    )
 
 
 def test_model_is_frozen() -> None:

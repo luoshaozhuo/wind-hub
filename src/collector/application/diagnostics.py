@@ -6,12 +6,14 @@ import asyncio
 import errno
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
 from collector.application.acquisition import CollectorAcquisition
 from core.application import ProtocolSample
+from core.domain import BusinessPoint, PointTable
 
 
 class PublisherEvidence(Protocol):
@@ -19,7 +21,16 @@ class PublisherEvidence(Protocol):
     def connected(self) -> bool: ...
     @property
     def delivery_mode(self) -> str: ...
-    def validate_encoding(self, device_id: str, sample: ProtocolSample) -> None: ...
+    def validate_encoding(
+        self,
+        device_id: str,
+        sample: ProtocolSample,
+        *,
+        device_type: str,
+        point_table_id: str,
+        point_table: PointTable,
+        business_points: Mapping[str, BusinessPoint],
+    ) -> None: ...
 
 
 class NetworkProbe(Protocol):
@@ -175,9 +186,19 @@ class CollectorDiagnostics:
                         good = sum(sample.quality.value == "good" for sample in samples)
                         encoded = 0
                         encoding_failed = False
-                        for sample in samples:
+                        raw_samples = worker.last_raw_samples
+                        if len(raw_samples) != len(samples):
+                            raw_samples = samples
+                        for raw_sample in raw_samples:
                             try:
-                                self._publisher.validate_encoding(target_id, sample)
+                                self._publisher.validate_encoding(
+                                    target_id,
+                                    raw_sample,
+                                    device_type=worker.plan.device_type,
+                                    point_table_id=worker.plan.point_table_id,
+                                    point_table=worker.plan.point_table,
+                                    business_points=worker.plan.business_points,
+                                )
                             except (ValueError, TypeError) as exc:
                                 encoding_failed = True
                                 detail = f"sample encoding failed: {exc}"

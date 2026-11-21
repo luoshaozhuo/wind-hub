@@ -21,7 +21,7 @@ from core.application import (
     SubscriptionHandle,
     validate_read_many_results,
 )
-from core.domain import Device, PointAccess, PointTable, engineering_value
+from core.domain import BusinessPoint, Device, PointAccess, PointTable, engineering_value
 
 from .ports.acquisition import MetricsSubjectPort, SampleSink
 from .telemetry import CollectorTelemetry
@@ -39,6 +39,9 @@ class DevicePlan:
     desired_state: str
     mode: str
     data_types: Mapping[str, str] = field(default_factory=dict)
+    device_type: str = ""
+    point_table_id: str = ""
+    business_points: Mapping[str, BusinessPoint] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,7 @@ class DeviceWorker:
     last_error: str = ""
     applied_revision: str = ""
     last_samples: tuple[ProtocolSample, ...] = ()
+    last_raw_samples: tuple[ProtocolSample, ...] = ()
     telemetry: CollectorTelemetry | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _monitor: asyncio.Task[None] | None = None
@@ -283,6 +287,7 @@ class DeviceWorker:
         ):
             return
         converted: list[ProtocolSample] = []
+        decoded: list[ProtocolSample] = []
         for sample in samples:
             point = self.plan.point_table.points.get(sample.point_id)
             if point is None:
@@ -290,9 +295,11 @@ class DeviceWorker:
             try:
                 value = engineering_value(point, sample.value)
                 converted.append(replace(sample, value=value))
+                decoded.append(sample)
             except (ValueError, TypeError, OverflowError) as exc:
                 self.last_error = f"{sample.point_id}: {exc}"
                 converted.append(replace(sample, quality=Quality.BAD))
+                decoded.append(replace(sample, quality=Quality.BAD))
         if any(sample.quality is Quality.GOOD for sample in converted):
             if self._recovery_started is not None:
                 if self.telemetry is not None:
@@ -314,7 +321,15 @@ class DeviceWorker:
                 self.telemetry.increment(prefix + "points.collected", len(converted))
                 self.telemetry.increment(prefix + "points.bad", bad)
             self.last_samples = tuple(converted)
-            await self.sink.publish(str(self.plan.device.device_id), tuple(converted))
+            self.last_raw_samples = tuple(decoded)
+            await self.sink.publish(
+                str(self.plan.device.device_id),
+                tuple(decoded),
+                device_type=self.plan.device_type,
+                point_table_id=self.plan.point_table_id,
+                point_table=self.plan.point_table,
+                business_points=self.plan.business_points,
+            )
 
     async def _poll_loop(self, point_ids: tuple[str, ...]) -> None:
         next_slot = time.monotonic()

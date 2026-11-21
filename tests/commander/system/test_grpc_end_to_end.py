@@ -1,9 +1,8 @@
 """§14.4 表 14-2 系统级 gRPC 端到端（UR-07/08/09/11/12 主路径与异常）。
 
-真实 mTLS（TCP 回环 TLS 1.3 握手）、build_commander 组合根、真实共享配置
-树、真实磁盘 SQLite；不使用任何 gRPC/配置替身。环境说明：组合根在测试
-进程内重建（OS 进程级隔离的独立进程变体见验收报告 NOT_RUN 项），但网络
-边界、TLS、文件系统与持久化均为真实组件。
+真实 Bearer（TCP 回环受控明文 gRPC）、build_commander 组合根、真实共享配置
+树、真实磁盘 SQLite；不使用任何 gRPC/配置替身。网络认证、文件系统与持久化
+均为真实组件。
 """
 
 from __future__ import annotations
@@ -63,7 +62,7 @@ async def test_service_info_status(sys_pki, grpc_stack) -> None:
     common_stranger, _ = grpc_stack.stubs(sys_pki, client="stranger")
     await _aborts(
         common_stranger.GetServiceStatus(common_pb2.Empty(), timeout=5),
-        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNAUTHENTICATED,
     )
 
 

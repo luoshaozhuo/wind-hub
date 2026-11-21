@@ -7,7 +7,7 @@ import contextlib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
-from sink_service.application.delivery_point import DeliveryPoint
+from sink_service.application.delivery_point import DataLevel, DeliveryPoint
 from sink_service.application.latency_window import LatencyWindow
 from sink_service.application.ports.output import BatchWriter
 
@@ -49,6 +49,7 @@ class RealtimeEngine:
         max_age_ms: int | None,
         absolute_threshold: float,
         relative_threshold: float,
+        data_level: DataLevel = "business",
         preserve_upstream_sample: bool = False,
         metrics_window_ms: int = 60000,
     ) -> None:
@@ -58,6 +59,7 @@ class RealtimeEngine:
             raise ValueError("invalid realtime interval or point capacity")
         if not absolute_threshold >= 0 or not relative_threshold >= 0:
             raise ValueError("negative change threshold")
+        self.data_level = data_level
         self._writer = writer
         self._wind_farm_id = wind_farm_id
         self._collector_id = collector_id

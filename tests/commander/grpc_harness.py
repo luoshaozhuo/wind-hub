@@ -1,9 +1,7 @@
-"""Commander gRPC 测试共享栈：真实 mTLS PKI + build_commander + 安全端口。
+"""Commander gRPC 测试共享栈：内部 Bearer + build_commander + 明文受控端口。
 
-被 integration 与 system 两层 conftest 复用：
-  * EC P-256 CA 签发服务器/客户端证书（RFC8222 邮箱型 SAN 承载 caller 身份）；
-  * ``grpc.ssl_server_credentials(require_client_auth=True)`` 仅开安全端口；
-  * build_commander 组合根（真实 ConfigSnapshots/commit、EventRepository WAL）。
+被 integration 与 system 两层 conftest 复用；PKI 生成仅保留给外部独立
+Recovery Authority TLS 测试，不再用于内部 Commander 通道。
 """
 
 from __future__ import annotations
@@ -31,7 +29,9 @@ from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnaps
 from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from contracts import commander_pb2_grpc, common_pb2_grpc
 from core.application.protocol_registry import ProtocolRegistry
+from core.infrastructure.grpc_bearer import BearerAuthorizer
 from core.infrastructure.protocol.modbus import ModbusDriver
+from tests.support.bearer import bearer_channel, ensure_bearer
 from tests.support.process import free_port
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[2] / "configs"
@@ -201,6 +201,35 @@ def build_pki(tmp_path: Path) -> Pki:
                 x509.BasicConstraints(ca=False, path_length=None),
                 critical=True,
             )
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True,
+                    content_commitment=False,
+                    key_encipherment=True,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=False,
+                    crl_sign=False,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.ExtendedKeyUsage(
+                    [x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]
+                    if server
+                    else [x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]
+                ),
+                critical=False,
+            )
+        )
+        builder = builder.add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(subject_private.public_key()),
+            critical=False,
+        ).add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_cert.public_key()),
+            critical=False,
         )
         names: list[x509.GeneralName] = [x509.RFC822Name(email) for email in emails]
         if server:
@@ -222,6 +251,27 @@ def build_pki(tmp_path: Path) -> Pki:
         .not_valid_before(not_before)
         .not_valid_after(not_after)
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(ca_private.public_key()), critical=False
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_private.public_key()),
+            critical=False,
+        )
         .sign(ca_private, hashes.SHA256())
     )
 
@@ -271,6 +321,28 @@ def build_pki(tmp_path: Path) -> Pki:
         .not_valid_before(not_before)
         .not_valid_after(not_after)
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(rogue_ca_private.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(rogue_ca_private.public_key()),
+            critical=False,
+        )
         .sign(rogue_ca_private, hashes.SHA256())
     )
     rogue_private = key()
@@ -317,7 +389,7 @@ class GrpcStack:
     yaml_path: Path
     root: Path
     db_path: Path
-    permissions: dict[str, tuple[str, frozenset[str]]]
+    permissions: BearerAuthorizer
     stream: str
     subject: str
 
@@ -329,17 +401,10 @@ class GrpcStack:
         no_client_cert: bool = False,
         ca: bytes | None = None,
     ) -> grpc.aio.Channel:
-        """真实 TLS 客户端通道；client=None 且不提供证书时为无证书调用。"""
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca if ca is not None else pki.ca_cert,
-            private_key=None if no_client_cert or client is None else pki.key(client),
-            certificate_chain=None if no_client_cert or client is None else pki.cert(client),
-        )
-        return grpc.aio.secure_channel(
-            self.target,
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+        """内部明文 Bearer 通道；无 principal 时保持未认证用于负例。"""
+        if client is None or no_client_cert:
+            return grpc.aio.insecure_channel(self.target)
+        return bearer_channel(self.target, client)
 
     def stubs(
         self, pki: Pki, *, client: str | None = "ops", **kwargs: Any
@@ -351,11 +416,17 @@ class GrpcStack:
         )
 
 
-def _permissions() -> dict[str, tuple[str, frozenset[str]]]:
-    return {
-        identity: (caller_id, frozenset(grants))
-        for identity, caller_id, grants in IDENTITIES.values()
+def _permissions(
+    extra_principals: dict[str, tuple[str, tuple[str, ...]]] | None = None,
+) -> BearerAuthorizer:
+    principals = {
+        name: (caller_id, grants) for name, (_identity, caller_id, grants) in IDENTITIES.items()
     }
+    principals.update(extra_principals or {})
+    return BearerAuthorizer.from_mapping(
+        {caller_id: ensure_bearer(name) for name, (caller_id, _grants) in principals.items()},
+        dict(principals.values()),
+    )
 
 
 async def build_stack(
@@ -372,6 +443,7 @@ async def build_stack(
     device_ports: dict[str, int] | None = None,
     audit_stream: str | None = None,
     audit_subject: str | None = None,
+    extra_principals: dict[str, tuple[str, tuple[str, ...]]] | None = None,
 ) -> tuple[GrpcStack, grpc.aio.Server, CommanderService]:
     """真实共享配置树 + build_commander + 仅安全端口的 gRPC 服务器。
 
@@ -397,12 +469,9 @@ async def build_stack(
             "  listen_port: 1\n"
             "  max_active_rpcs: 100\n"
             "security:\n"
-            f"  ca_cert: {json.dumps(str(pki.tmp / 'ca.crt'))}\n"
-            f"  server_cert: {json.dumps(str(pki.tmp / 'server.crt'))}\n"
-            f"  server_key: {json.dumps(str(pki.tmp / 'server.key'))}\n"
             "  callers:\n"
             "    - caller_id: ops-console\n"
-            f"      certificate_identity: {json.dumps(IDENTITIES['ops'][0])}\n"
+            f"      token_env: {json.dumps(ensure_bearer('ops'))}\n"
             "      permissions: [control, query, recover]\n"
             "  recovery:\n"
             + "".join(f"    {key}: {json.dumps(value)}\n" for key, value in recovery.items())
@@ -441,7 +510,7 @@ async def build_stack(
     service = build_commander(service_config=yaml_path, protocol_registry=registry)
     await service.start()
     snapshots = ConfigSnapshots(service, yaml_path)
-    permissions = _permissions()
+    permissions = _permissions(extra_principals)
     server = grpc.aio.server(maximum_concurrent_rpcs=100)
     authority = (
         IsolationAuthorityClient(
@@ -456,14 +525,9 @@ async def build_stack(
         else None
     )
     register_services(server, service, permissions, snapshots, authority)
-    credentials = grpc.ssl_server_credentials(
-        [(pki.key("server"), pki.cert("server"))],
-        root_certificates=pki.ca_cert,
-        require_client_auth=True,
-    )
     port = free_port()
-    bound = server.add_secure_port(f"127.0.0.1:{port}", credentials)
-    assert bound, "gRPC secure port failed to bind"
+    bound = server.add_insecure_port(f"127.0.0.1:{port}")
+    assert bound, "gRPC controlled plaintext port failed to bind"
     await server.start()
     stack = GrpcStack(
         service=service,

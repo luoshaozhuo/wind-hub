@@ -1,4 +1,4 @@
-"""R4-E：真实 full-chain mTLS、安全拒绝、代际 fencing 与故障恢复。"""
+"""R4-E：真实 full-chain Bearer、安全拒绝、代际 fencing 与故障恢复。"""
 
 from __future__ import annotations
 
@@ -6,20 +6,14 @@ import asyncio
 import json
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import grpc
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 from google.protobuf.json_format import MessageToDict
 from pymodbus.client import AsyncModbusTcpClient
 
-from cli.runtime import Runtime
 from contracts import commander_pb2 as cmd
 from contracts import commander_pb2_grpc as cmd_rpc
 from contracts import common_pb2 as common
@@ -27,6 +21,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
+from tests.support.bearer import bearer_channel
 
 from .conftest import FullChainHarness
 
@@ -38,24 +33,19 @@ pytestmark = [
 ]
 
 
-def _client_credentials(harness: FullChainHarness, name: str) -> grpc.ChannelCredentials:
-    certificate, key = harness.pki["clients"][name]
-    return grpc.ssl_channel_credentials(
-        root_certificates=harness.pki["ca"].read_bytes(),
-        private_key=key.read_bytes(),
-        certificate_chain=certificate.read_bytes(),
-    )
+def _client_channel(harness: FullChainHarness, service: str, name: str) -> grpc.aio.Channel:
+    return bearer_channel(harness.endpoints[service], name)
 
 
 async def _read_gateway(
     harness: FullChainHarness, gateway_id: str, variable_id: str
 ) -> dict[str, Any]:
-    runtime = Runtime(harness.cli_rt, "json")
     try:
-        reply = await gw_rpc.IndustrialGatewayServiceStub(runtime.channel("gateway")).ReadVariables(
-            gw.ReadVariablesRequest(gateway_id=gateway_id, variable_ids=[variable_id]),
-            timeout=10,
-        )
+        async with bearer_channel(harness.endpoints["gateway"], "cli") as channel:
+            reply = await gw_rpc.IndustrialGatewayServiceStub(channel).ReadVariables(
+                gw.ReadVariablesRequest(gateway_id=gateway_id, variable_ids=[variable_id]),
+                timeout=10,
+            )
         assert len(reply.values) == 1
         return MessageToDict(
             reply.values[0],
@@ -63,7 +53,7 @@ async def _read_gateway(
             always_print_fields_with_no_presence=True,
         )
     finally:
-        await runtime.close()
+        await channel.close()
 
 
 def _measurement(value: dict[str, Any]) -> dict[str, Any]:
@@ -140,9 +130,7 @@ async def _wait_recording(harness: FullChainHarness, generation_id: str) -> list
 async def _input_execution(
     harness: FullChainHarness, generation_id: str, request_id: str
 ) -> dg.GetInputExecutionResponse:
-    async with grpc.aio.secure_channel(
-        harness.endpoints["data-generator"], _client_credentials(harness, "cli")
-    ) as channel:
+    async with _client_channel(harness, "data-generator", "generator-cli") as channel:
         return await dg_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
             dg.GetInputExecutionRequest(generation_id=generation_id, request_id=request_id),
             timeout=10,
@@ -155,126 +143,63 @@ def _last_cli_returncode(harness: FullChainHarness) -> int:
     return int(json.loads(rows[-1])["returncode"])
 
 
-def _certificate_material(kind: str, commander_pki: Path) -> tuple[bytes, bytes, dict[str, str]]:
-    """过期 leaf 由 Commander 现役 CA 签发，其余用例外部 CA/非法 PEM。"""
-    now = datetime.now(UTC)
-    if kind == "expired":
-        ca_certificate = x509.load_pem_x509_certificate((commander_pki / "ca.crt").read_bytes())
-        loaded_key = serialization.load_pem_private_key(
-            (commander_pki / "ca.key").read_bytes(), password=None
-        )
-        assert isinstance(loaded_key, ec.EllipticCurvePrivateKey)
-        ca_key = loaded_key
-    else:
-        ca_key = ec.generate_private_key(ec.SECP256R1())
-        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"r4e-{kind}-ca")])
-        ca_certificate = (
-            x509.CertificateBuilder()
-            .subject_name(ca_name)
-            .issuer_name(ca_name)
-            .public_key(ca_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(now - timedelta(days=3))
-            .not_valid_after(now + timedelta(days=1))
-            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-            .sign(ca_key, hashes.SHA256())
-        )
-    key = ec.generate_private_key(ec.SECP256R1())
-    not_before = now - timedelta(days=2) if kind == "expired" else now - timedelta(minutes=5)
-    not_after = now - timedelta(days=1) if kind == "expired" else now + timedelta(hours=1)
-    certificate = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "client-ops")]))
-        .issuer_name(ca_certificate.subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(not_before)
-        .not_valid_after(not_after)
-        .add_extension(
-            x509.SubjectAlternativeName([x509.RFC822Name("ops@windhub.test")]), critical=False
-        )
-        .add_extension(
-            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]), critical=True
-        )
-        .sign(ca_key, hashes.SHA256())
-    )
-    key_pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    certificate_pem = (
-        b"-----BEGIN CERTIFICATE-----\nnot-a-certificate\n-----END CERTIFICATE-----\n"
-        if kind == "invalid-pem"
-        else certificate.public_bytes(serialization.Encoding.PEM)
-    )
-    return (
-        certificate_pem,
-        key_pem,
-        {
-            "not_before": not_before.isoformat(),
-            "not_after": not_after.isoformat(),
-            "issuer": ca_certificate.subject.rfc4514_string(),
-        },
-    )
-
-
-@pytest.mark.parametrize("kind", ["expired", "invalid-pem", "untrusted-ca"])
-async def test_r4e_mtls_rejects_bad_client_handshake_without_write(
-    full_chain: FullChainHarness, kind: str
+@pytest.mark.parametrize("service", ["commander", "gateway"])
+async def test_r4e_bearer_rejects_anonymous_and_short_credentials_without_write(
+    full_chain: FullChainHarness, service: str
 ) -> None:
-    commander_pki = full_chain.plant / "commander-pki"
-    certificate, key, certificate_evidence = _certificate_material(kind, commander_pki)
-    request_id = f"r4e-expired-{uuid4()}"
-    if kind == "expired":
-        service = "commander"
-        root_ca = commander_pki / "ca.crt"
+    request_id = f"r4e-anonymous-{uuid4()}"
+    if service == "commander":
         target_rpc = "CommanderService.SubmitCommand"
         device = await full_chain.cli_call(full_chain.cli_rt, "commander", "device", "PPC_SIM01")
         revision = str(device["data"]["device"]["revision"])
+        anonymous_channel = grpc.aio.insecure_channel(full_chain.endpoints[service])
+        short_channel = grpc.aio.insecure_channel(full_chain.endpoints[service])
+        channels = (anonymous_channel, short_channel)
+        payload_call = cmd_rpc.CommanderServiceStub
+        payload = cmd.SubmitCommandRequest(
+            device_id="PPC_SIM01",
+            point_id="agc_enable",
+            value=common.ScalarValue(uint64_value=1),
+            expected_revision=revision,
+            request_id=request_id,
+        )
     else:
-        service = "gateway"
-        root_ca = full_chain.pki["ca"]
         target_rpc = "IndustrialGatewayService.UpdateVariables"
         before = await _read_gateway(full_chain, "gw-gw02", "a02_dm_pitchangle1")
+        anonymous_channel = grpc.aio.insecure_channel(full_chain.endpoints[service])
+        short_channel = grpc.aio.insecure_channel(full_chain.endpoints[service])
+        channels = (anonymous_channel, short_channel)
+        payload_call = gw_rpc.IndustrialGatewayServiceStub
+        payload = gw.UpdateVariablesRequest(
+            gateway_id="gw-gw02",
+            lease_token="authentication-precedes-lease-validation",
+            values=[
+                gw.VariableUpdate(
+                    variable_id="a02_dm_pitchangle1",
+                    value=common.ScalarValue(double_value=99.0),
+                )
+            ],
+        )
     actual_endpoint = full_chain.endpoints[service]
-    credentials = grpc.ssl_channel_credentials(
-        root_certificates=root_ca.read_bytes(),
-        private_key=key,
-        certificate_chain=certificate,
-    )
-    async with grpc.aio.secure_channel(actual_endpoint, credentials) as channel:
-        with pytest.raises(grpc.aio.AioRpcError) as exc_info:
-            if kind == "expired":
-                await cmd_rpc.CommanderServiceStub(channel).SubmitCommand(
-                    cmd.SubmitCommandRequest(
-                        device_id="PPC_SIM01",
-                        point_id="agc_enable",
-                        value=common.ScalarValue(uint64_value=1),
-                        expected_revision=revision,
-                        request_id=request_id,
-                    ),
-                    timeout=10,
-                )
-            else:
-                await gw_rpc.IndustrialGatewayServiceStub(channel).UpdateVariables(
-                    gw.UpdateVariablesRequest(
-                        gateway_id="gw-gw02",
-                        lease_token="handshake-must-fail-before-lease-validation",
-                        values=[
-                            gw.VariableUpdate(
-                                variable_id="a02_dm_pitchangle1",
-                                value=common.ScalarValue(double_value=99.0),
-                            )
-                        ],
-                    ),
-                    timeout=10,
-                )
-    assert exc_info.value.code() in {
-        grpc.StatusCode.UNAUTHENTICATED,
-        grpc.StatusCode.UNAVAILABLE,
-    }
-    if kind == "expired":
+    observed: list[str] = []
+    for channel in channels:
+        try:
+            metadata = (
+                None
+                if len(observed) == 0
+                else (("authorization", "Bearer short-bearer-0123456789012345678901234"),)
+            )
+            stub = payload_call(channel)
+            with pytest.raises(grpc.aio.AioRpcError) as exc_info:
+                if service == "commander":
+                    await stub.SubmitCommand(payload, timeout=10, metadata=metadata)
+                else:
+                    await stub.UpdateVariables(payload, timeout=10, metadata=metadata)
+            assert exc_info.value.code() is grpc.StatusCode.UNAUTHENTICATED
+            observed.append(exc_info.value.code().name)
+        finally:
+            await channel.close()
+    if service == "commander":
         readback = await full_chain.cli_call(
             full_chain.cli_rt, "commander", "request-result", request_id, check=False
         )
@@ -289,19 +214,16 @@ async def test_r4e_mtls_rejects_bad_client_handshake_without_write(
         readback = after
         no_side_effect = "gateway_value_unchanged"
     full_chain.record(
-        "R4-E-MTLS-HANDSHAKE",
-        kind=kind,
+        "R4-E-BEARER-AUTH",
         service=service,
         actual_endpoint=actual_endpoint,
-        trusted_root_ca=str(root_ca),
         target_rpc=target_rpc,
-        grpc_status=exc_info.value.code().name,
-        certificate=certificate_evidence,
-        request_id=request_id if kind == "expired" else None,
+        grpc_status=observed,
+        request_id=request_id if service == "commander" else None,
         before=before,
         after=after,
         readback=readback,
-        assertions={"handshake_rejected": True, no_side_effect: True},
+        assertions={"credentials_rejected": True, no_side_effect: True},
     )
 
 
@@ -313,10 +235,7 @@ async def test_r4e_commander_identity_cannot_write_gateway_or_generator(
     try:
         generation_id = await _start_generation(full_chain)
         gateway_before = await _wait_gateway_measurement(full_chain, "gw-wtg_sim01", "wind_speed")
-        credentials = _client_credentials(full_chain, "commander")
-        async with grpc.aio.secure_channel(
-            full_chain.endpoints["gateway"], credentials
-        ) as gateway_channel:
+        async with _client_channel(full_chain, "gateway", "commander") as gateway_channel:
             with pytest.raises(grpc.aio.AioRpcError) as gateway_error:
                 await gw_rpc.IndustrialGatewayServiceStub(gateway_channel).UpdateVariables(
                     gw.UpdateVariablesRequest(
@@ -333,9 +252,7 @@ async def test_r4e_commander_identity_cannot_write_gateway_or_generator(
                 )
         assert gateway_error.value.code() is grpc.StatusCode.PERMISSION_DENIED
 
-        async with grpc.aio.secure_channel(
-            full_chain.endpoints["data-generator"], credentials
-        ) as generator_channel:
+        async with _client_channel(full_chain, "data-generator", "commander") as generator_channel:
             with pytest.raises(grpc.aio.AioRpcError) as generator_error:
                 await dg_rpc.DataGeneratorServiceStub(generator_channel).UpdateVariables(
                     dg.UpdateVariablesRequest(
@@ -408,9 +325,7 @@ async def test_r4e_stopped_g1_write_rejected_and_g2_has_no_replay(
         assert rejected["status"] == "FAILURE"
         assert rejected["data"] is None
         assert rejected["error_code"] == "PermissionError"
-        async with grpc.aio.secure_channel(
-            full_chain.endpoints["data-generator"], _client_credentials(full_chain, "cli")
-        ) as channel:
+        async with _client_channel(full_chain, "data-generator", "generator-cli") as channel:
             rpc_rejected = await dg_rpc.DataGeneratorServiceStub(channel).UpdateVariables(
                 dg.UpdateVariablesRequest(
                     generation_id=g1,
@@ -466,9 +381,7 @@ async def test_r4e_gateway_lease_expiry_renew_lost_and_update_precondition(
     full_chain: FullChainHarness,
 ) -> None:
     before = await _read_gateway(full_chain, "gw-gw02", "a02_dm_pitchangle1")
-    async with grpc.aio.secure_channel(
-        full_chain.endpoints["gateway"], _client_credentials(full_chain, "cli")
-    ) as channel:
+    async with _client_channel(full_chain, "gateway", "cli") as channel:
         stub = gw_rpc.IndustrialGatewayServiceStub(channel)
         owner_id = f"r4e-lease-{uuid4()}"
         claim = await stub.ClaimTargets(
@@ -647,13 +560,7 @@ async def test_r4e_modbus_illegal_address_and_unset_scalar_reject_without_write(
 
     device = await full_chain.cli_call(full_chain.cli_rt, "commander", "device", "PPC_SIM01")
     revision = str(device["data"]["device"]["revision"])
-    pki = full_chain.plant / "commander-pki"
-    credentials = grpc.ssl_channel_credentials(
-        root_certificates=(pki / "ca.crt").read_bytes(),
-        private_key=(pki / "ops.key").read_bytes(),
-        certificate_chain=(pki / "ops.crt").read_bytes(),
-    )
-    async with grpc.aio.secure_channel(full_chain.endpoints["commander"], credentials) as channel:
+    async with _client_channel(full_chain, "commander", "commander-ops") as channel:
         with pytest.raises(grpc.aio.AioRpcError) as unset_error:
             await cmd_rpc.CommanderServiceStub(channel).SubmitCommand(
                 cmd.SubmitCommandRequest(

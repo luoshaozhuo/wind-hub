@@ -381,6 +381,11 @@ class SinkSystemHarness:
                 point_id=f"p{idx:03d}",
                 sample_id=f"s-{mode}-{seq}-{idx}-{self.token[:4]}",
                 value=float(seq + idx),
+                raw_value=float(seq + idx),
+                business_value=float(seq + idx),
+                unit="kilowatt",
+                business_unit="kilowatt",
+                business_point_id=f"p{idx:03d}",
                 quality=quality,  # type: ignore[arg-type]
                 sample_time=sample_time,
                 max_staleness_ms=self.staleness_ms if mode == "realtime" else None,
@@ -394,6 +399,8 @@ class SinkSystemHarness:
             collector_id=COLLECTOR_ID,
             task_id="task-qa",
             device_id=device_id,
+            device_type="turbine",
+            point_table_id="point_table_modbus_wtg_v1.0.0",
             publish_time=now,
             samples=samples,
         )

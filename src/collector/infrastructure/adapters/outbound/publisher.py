@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -19,6 +20,7 @@ from contracts.sample_batch import (
     SampleBatch,
 )
 from core.application import ProtocolSample
+from core.domain import BusinessPoint, PointTable
 
 logger = logging.getLogger(__name__)
 
@@ -128,16 +130,48 @@ class CollectorPublisher:
         if self._task is None:
             self._task = asyncio.create_task(self._run())
 
-    def validate_encoding(self, device_id: str, sample: ProtocolSample) -> None:
+    def validate_encoding(
+        self,
+        device_id: str,
+        sample: ProtocolSample,
+        *,
+        device_type: str,
+        point_table_id: str,
+        point_table: PointTable,
+        business_points: Mapping[str, BusinessPoint],
+    ) -> None:
         """Validate the actual batch transport schema without sending it."""
-        self._builder.pack(device_id, (sample,))
+        self._builder.pack(
+            device_id,
+            (sample,),
+            device_type=device_type,
+            point_table_id=point_table_id,
+            point_table=point_table,
+            business_points=business_points,
+        )
 
-    async def publish(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> None:
+    async def publish(
+        self,
+        device_id: str,
+        samples: tuple[ProtocolSample, ...],
+        *,
+        device_type: str,
+        point_table_id: str,
+        point_table: PointTable,
+        business_points: Mapping[str, BusinessPoint],
+    ) -> None:
         """Queue each complete source batch; reject invalid or duplicate points."""
         if not samples:
             return
         try:
-            batches = self._builder.pack(device_id, samples)
+            batches = self._builder.pack(
+                device_id,
+                samples,
+                device_type=device_type,
+                point_table_id=point_table_id,
+                point_table=point_table,
+                business_points=business_points,
+            )
         except (ValueError, TypeError) as exc:
             self.last_error = str(exc)
             self.failed += 1

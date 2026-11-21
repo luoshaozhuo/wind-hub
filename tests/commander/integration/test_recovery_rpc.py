@@ -1,4 +1,4 @@
-"""RecoverDeviceControl 的真实 mTLS 边界与 fail-closed 行为。
+"""RecoverDeviceControl 的真实 Bearer 边界与 fail-closed 行为。
 
 这些测试只验证尚未配置独立可信证明方时的拒绝路径；不把任意字节、
 认证成功或测试替身解释为现场隔离证据，也不宣称恢复成功能力已实现。
@@ -50,11 +50,14 @@ async def _aborts(call: Awaitable[Any], code: grpc.StatusCode) -> grpc.aio.AioRp
 async def test_recover_scope_excludes_viewer_and_allows_only_ops_deployer_to_boundary(
     pki: Pki, grpc_stack: GrpcStack
 ) -> None:
-    for client in ("viewer", "stranger"):
+    for client, expected in (
+        ("viewer", grpc.StatusCode.PERMISSION_DENIED),
+        ("stranger", grpc.StatusCode.UNAUTHENTICATED),
+    ):
         _common, commander = grpc_stack.stubs(pki, client=client)
         await _aborts(
             commander.RecoverDeviceControl(_request(), timeout=5),
-            grpc.StatusCode.PERMISSION_DENIED,
+            expected,
         )
     for client in ("ops", "deployer"):
         _common, commander = grpc_stack.stubs(pki, client=client)

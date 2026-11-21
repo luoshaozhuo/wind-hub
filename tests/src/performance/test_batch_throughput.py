@@ -1,4 +1,4 @@
-"""SampleBatch v2 批量编解码与发布管线吞吐/延迟基线（无外部服务）。
+"""SampleBatch v3 批量编解码与发布管线吞吐/延迟基线（无外部服务）。
 
 按 testing.md §6：无正式 SLA 时只建立 baseline，报告实测环境、轮次、吞吐量
 与延迟分位数，不虚构生产阈值。Fake NATS 仅隔离 socket I/O；计时覆盖真实
@@ -20,6 +20,16 @@ from collector.infrastructure.adapters.outbound import publisher as publisher_mo
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
+from core.domain import (
+    BusinessPoint,
+    DataType,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
+    Quantity,
+    Unit,
+)
 
 pytestmark = [pytest.mark.performance, pytest.mark.load]
 
@@ -55,6 +65,21 @@ def _samples(points: int) -> tuple[ProtocolSample, ...]:
     )
 
 
+_UNIT = Unit("kilowatt", "kW", Quantity("active_power"))
+_BUSINESS = BusinessPoint("active_power", DataType.FLOAT64, _UNIT)
+
+
+def _closure(samples: tuple[ProtocolSample, ...]) -> tuple[PointTable, dict[str, BusinessPoint]]:
+    return PointTable(
+        "modbus_wtg@1.0.0",
+        Protocol("modbus"),
+        {
+            sample.point_id: Point(sample.point_id, "active_power", _UNIT, PointAccess.READ)
+            for sample in samples
+        },
+    ), {"active_power": _BUSINESS}
+
+
 def _percentiles(values: list[float]) -> dict[str, float]:
     ordered = sorted(values)
 
@@ -85,8 +110,16 @@ def test_batch_encode_decode_throughput_baseline(
     encode_latency_ms: list[float] = []
     decode_latency_ms: list[float] = []
     started = time.perf_counter()
+    point_table, business_points = _closure(samples)
     for i in range(batches):
-        batch = builder.pack(f"wtg-{i % 30:02d}", samples)
+        batch = builder.pack(
+            f"wtg-{i % 30:02d}",
+            samples,
+            device_type="turbine",
+            point_table_id="point_table_modbus_wtg_v1.0.0",
+            point_table=point_table,
+            business_points=business_points,
+        )
         assert len(batch) == 1
         t0 = time.perf_counter()
         payload = batch[0].encode()
@@ -142,8 +175,16 @@ async def test_publisher_pipeline_throughput_with_fake_transport(
     samples = _samples(100)
     batches = 300  # 30 台 × 10 批
     started = time.perf_counter()
+    point_table, business_points = _closure(samples)
     for i in range(batches):
-        await publisher.publish(f"wtg-{i % 30:02d}", samples)
+        await publisher.publish(
+            f"wtg-{i % 30:02d}",
+            samples,
+            device_type="turbine",
+            point_table_id="point_table_modbus_wtg_v1.0.0",
+            point_table=point_table,
+            business_points=business_points,
+        )
     # 确定性完成条件：先等到全部批次真正送达传输层，再 stop()。stop() 内的
     # queue.join() 只有 2s 生产保护超时，负载竞争下直接 stop 会把未排空批次
     # 计入 dropped，造成墙钟抖动型假失败；轮询实际送达数不改变任何生产指标。

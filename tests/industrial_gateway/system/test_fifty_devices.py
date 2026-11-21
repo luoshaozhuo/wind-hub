@@ -18,6 +18,7 @@ import pytest
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from contracts.scalar_codec import encode_scalar
+from tests.support.bearer import bearer_channel
 from tests.support.gateway import (
     FEEDBACK_FLOAT,
     POINT_TABLE,
@@ -126,7 +127,7 @@ async def test_fifty_independent_servers_real_subprocess(tmp_path: Path) -> None
     )
     proc_exited_during_startup = False
     try:
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}") as channel:
+        async with bearer_channel(f"127.0.0.1:{grpc_port}", "harness") as channel:
             gw_stub = gw_rpc.IndustrialGatewayServiceStub(channel)
 
             # 控制面先确认 50 个网关全部注册（数据面初始化完成的权威信号），

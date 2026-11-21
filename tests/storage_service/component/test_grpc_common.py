@@ -34,7 +34,7 @@ def _port() -> int:
 
 
 def _config() -> StorageConfig:
-    path = ROOT / "configs/services/service_storage_v1.0.1.yaml"
+    path = ROOT / "configs/services/service_storage-main_v1.0.1.yaml"
     config = load_storage_config(path.read_bytes())
     return config.model_copy(
         update={"grpc": config.grpc.model_copy(update={"listen_port": _port()})}

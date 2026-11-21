@@ -162,7 +162,7 @@ class NatsRealtimeIngress:
             else:
                 self._target_cache.move_to_end(identity)
             if targets:
-                sample = DeliveryPoint.from_batch(batch, item)
                 for engine in targets:
+                    sample = DeliveryPoint.from_batch(batch, item, engine.data_level)
                     if engine.offer(sample, now=now, routed=True):
                         self.routed_values_total += 1

@@ -40,6 +40,7 @@ from tests.sink_service.system.conftest import (
     WIND_FARM_ID,
     SinkSystemHarness,
 )
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [
     pytest.mark.system,
@@ -84,7 +85,7 @@ def _write_concurrent_root(
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": ensure_bearer("maintenance"),
                 "permissions": ["query", "control", "config"],
             }
         ],

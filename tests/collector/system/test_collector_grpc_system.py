@@ -169,7 +169,7 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     # The same device's background poll really reached the independent NATS.
     observed = await collect_realtime(real_nats.url, count=3, timeout=10)
     assert all(item["device_id"] == DEVICE_MODBUS for item in observed)
-    assert all(item["schema_version"] == 2 for item in observed)
+    assert all(item["schema_version"] == 3 for item in observed)
     assert {item["point_id"] for item in point_docs(observed)} == {
         "active_power",
         "rotor_speed",
@@ -286,29 +286,29 @@ async def test_uc07_s02_authorization_pagination_and_invalid_arguments(
         await config_stub.GetConfigSnapshot(
             common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
         )
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await device_stub.StartTask(common.OperationRequest(id=DEVICE_MODBUS))
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await config_stub.GetEvents(common.GetEventsRequest())
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await device_stub.ReadPoints(
             collector_pb.ReadPointsRequest(device_id=DEVICE_MODBUS, point_ids=["active_power"])
         )
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await config_stub.Diagnose(common.DiagnoseRequest(target_id=DEVICE_MODBUS))
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
-    bad_token = (("x-windhub-admin-token", "wrong"),)
+    bad_token = (("authorization", "Bearer wrong-token-012345678901234567890123456789"),)
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await config_stub.GetConfigSnapshot(
             common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK),
             metadata=bad_token,
         )
-    assert exc.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
     # Unknown objects map to NOT_FOUND.
     with pytest.raises(grpc.aio.AioRpcError) as exc:

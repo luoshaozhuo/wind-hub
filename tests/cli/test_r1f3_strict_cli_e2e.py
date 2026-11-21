@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
+import signal
 import struct
 import subprocess
 import sys
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,8 +20,11 @@ from uuid import uuid4
 import nats
 import pytest
 import yaml
+from aiokafka import AIOKafkaProducer
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 from tests.cli.e2e_util import last_json, run_cli
+from tests.commander.grpc_harness import build_pki
 from tests.data_generator.conftest import _real_tree, simulation_document, write_service_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.fixtures.services import r5_stack
@@ -27,7 +33,9 @@ from tests.sink_service.system.conftest import SinkSystemHarness
 from tests.support.bearer import ensure_bearer
 from tests.support.collector_config_tree import write_collector_modbus_tree
 from tests.support.commander_mtls import write_commander_service
+from tests.support.configuration_live import LiveConfiguration, write_live_configuration
 from tests.support.gateway import ServerSpec, reserve_port, write_config_tree
+from tests.support.storage_live import storage_bootstrap_document, storage_service_document
 
 pytestmark = [
     pytest.mark.system,
@@ -102,6 +110,19 @@ def _write_cli(
     )
     path.chmod(0o600)
     return path
+
+
+def _committed_total(data: dict[str, Any]) -> int:
+    return sum(int(item.get("committed_next_offset", "0")) for item in data.get("partitions", []))
+
+
+async def _wait_log_text(path: Path, expected: str, timeout: float = 30) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if expected in path.read_text(encoding="utf-8", errors="replace"):
+            return
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"log {path} did not contain {expected!r}")
 
 
 def _scalar_number(raw: object) -> float | None:
@@ -229,6 +250,18 @@ class StrictCliE2E:
                 await self.cli(config, "service", "stop", name, "--yes", timeout=20, check=False)
 
 
+async def _provision_kafka_topic(bootstrap: str, topic: str) -> None:
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+    try:
+        await admin.start()
+        if topic not in await admin.list_topics():
+            await admin.create_topics(
+                [NewTopic(name=topic, num_partitions=2, replication_factor=1)]
+            )
+    finally:
+        await admin.close()
+
+
 async def _provision_commander_audit(url: str, stream: str, subject: str) -> None:
     from nats.js.api import RetentionPolicy, StorageType, StreamConfig
 
@@ -287,8 +320,8 @@ async def _wait_sink_modbus(port: int, value: float) -> None:
 
 
 @pytest.mark.asyncio
-async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -> None:
-    """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
+async def test_strict_cli_full_storage_data_command_restart_e2e(tmp_path: Path) -> None:
+    """DG→Gateway→Collector→Sink→Kafka→Storage→TDengine 全用真实 CLI。"""
     token = uuid4().hex[:8]
     farm = "farm-a"
     rt_collector = f"collector-rt-{token}"
@@ -303,6 +336,9 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
     harness = StrictCliE2E(tmp_path)
     sink: SinkSystemHarness | None = None
     generation_id: str | None = None
+    configuration_live: LiveConfiguration | None = None
+    storage_registered = False
+    nats_paused = False
 
     try:
         stack = await asyncio.to_thread(r5_stack.up_stack)
@@ -310,6 +346,9 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         ports = {name: reserve_port() for name in SERVICES}
         endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
+        configuration_port = reserve_port()
+        storage_port = reserve_port()
+        endpoints["storage"] = f"127.0.0.1:{storage_port}"
 
         gateway_root = tmp_path / "gateway"
         os.environ.update(
@@ -318,6 +357,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 "WIND_HUB_GENERATOR_CLI_TOKEN": _token("generator-cli"),
                 "WIND_HUB_SINK_OPERATOR_TOKEN": _token("maintenance"),
                 "WIND_HUB_COMMANDER_OPERATOR_TOKEN": _token("commander-ops"),
+                "WIND_HUB_STORAGE_OPERATOR_TOKEN": _token("storage-ops"),
             }
         )
         # D01 的上游是本用例的真实 ModbusMockServer；Gateway 自身的下游
@@ -544,6 +584,77 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             _dump(target, yaml.safe_load(source.read_text(encoding="utf-8")))
         await sink.provision_streams()
 
+        # C2 full chain: central Configuration publishes the exact device/model/
+        # PointTable closure consumed by the independent Storage process.
+        configuration_root = tmp_path / "configuration"
+        (configuration_root / "pki").mkdir(parents=True)
+        configuration_live = write_live_configuration(
+            configuration_root,
+            build_pki(configuration_root / "pki"),
+            configuration_port,
+        )
+        configuration_bootstrap = yaml.safe_load(
+            configuration_live.bootstrap_path.read_text(encoding="utf-8")
+        )
+        configuration_bootstrap["nats"]["servers"] = [stack.nats]
+        _dump(configuration_live.bootstrap_path, configuration_bootstrap)
+
+        publication_root = tmp_path / "configuration-publication"
+        shutil.copytree(SRC.parent / "configs", publication_root)
+        # This isolated deployment has one explicitly recommended Storage root;
+        # do not ask Repository to guess between two service versions.
+        (publication_root / "services/service_storage-main_v1.0.1.yaml").unlink()
+        collector_root = collector_roots["collector_reliable"]
+        for relative in (
+            "instances/devices.yaml",
+            "instances/site.yaml",
+            "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml",
+            "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml",
+        ):
+            target = publication_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(collector_root / relative, target)
+        for relative, version in (
+            ("instances/devices.yaml", "1.2.1"),
+            ("instances/site.yaml", "1.0.1"),
+        ):
+            document = yaml.safe_load((publication_root / relative).read_text(encoding="utf-8"))
+            document["file_version"] = version
+            _dump(publication_root / relative, document)
+        published_business_path = publication_root / "templates/business_points_standard.yaml"
+        published_business = yaml.safe_load(published_business_path.read_text(encoding="utf-8"))
+        collector_business = yaml.safe_load(
+            (collector_root / "templates/business_points_standard.yaml").read_text(encoding="utf-8")
+        )
+        published_business["business_points"].update(collector_business["business_points"])
+        published_business["file_version"] = "1.3.1"
+        _dump(published_business_path, published_business)
+        storage_document = storage_service_document(
+            farm=farm,
+            kafka_bootstrap=stack.kafka,
+            kafka_topic=sink.kafka_topic,
+            kafka_group=f"storage-{token}",
+            tdengine_endpoint=stack.tdengine_rest,
+            grpc_port=storage_port,
+            export_root=tmp_path / "storage-exports",
+            backup_root=tmp_path / "storage-backups",
+            device_config_version="1.2.1",
+            site_file_version="1.0.1",
+            write_timeout_ms=2000,
+        )
+        storage_document["file_version"] = "1.0.2"
+        storage_document["configuration"]["reconcile_interval_s"] = 5
+        _dump(publication_root / "services/service_storage-main_v1.0.2.yaml", storage_document)
+        storage_bootstrap = tmp_path / "storage-bootstrap.yaml"
+        _dump(
+            storage_bootstrap,
+            storage_bootstrap_document(
+                configuration_endpoint=f"127.0.0.1:{configuration_port}",
+                nats_url=stack.nats,
+                cache_directory=tmp_path / "storage-cache",
+            ),
+        )
+
         python = sys.executable
         common_env = {
             # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
@@ -610,6 +721,19 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             cwd=SRC,
             env=_bearer_environment("commander-ops"),
         )
+        harness.register_process(
+            "storage",
+            [python, "-m", "storage_service.main", "--bootstrap", str(storage_bootstrap)],
+            cwd=SRC,
+            env={
+                "WIND_HUB_TEST_VIEWER": _token("viewer"),
+                "WIND_HUB_TDENGINE_USER": "root",
+                "WIND_HUB_TDENGINE_PASSWORD": "taosdata",
+                "WIND_HUB_STORAGE_CURSOR_SECRET": f"strict-cli-storage-cursor-{token}-32-bytes",
+                "WIND_HUB_STORAGE_OPERATOR_TOKEN": _token("storage-ops"),
+            },
+        )
+        storage_registered = True
         _write_cli(
             harness.cli_realtime,
             collector="collector_realtime",
@@ -622,9 +746,34 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             endpoints=endpoints,
             processes=harness.processes,
         )
+        for cli_path in (harness.cli_realtime, harness.cli_reliable):
+            cli_document = yaml.safe_load(cli_path.read_text(encoding="utf-8"))
+            cli_document["services"]["storage"] = {
+                "grpc_endpoint": endpoints["storage"],
+                "manager": "process",
+                "target": "storage",
+                "process": harness.processes["storage"],
+            }
+            _dump(cli_path, cli_document)
 
         for name in SERVICES:
             await harness.service(harness.cli_realtime, "start", name)
+        started_configuration = await asyncio.to_thread(
+            configuration_live.cli, "service", "start", "configuration", "--yes", check=False
+        )
+        assert started_configuration["exit_code"] == 0, started_configuration
+        published = await asyncio.to_thread(
+            configuration_live.cli,
+            "configuration",
+            "sync",
+            str(publication_root),
+            "--yes",
+            "--request-id",
+            f"strict-cli-storage-{token}",
+        )
+        assert published["data"]["files"] >= 42, published
+        await _provision_kafka_topic(stack.kafka, sink.kafka_topic)
+        await harness.service(harness.cli_realtime, "start", "storage")
 
         await harness.poll_cli(
             harness.cli_realtime,
@@ -724,9 +873,206 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         assert {item["collector_id"] for item in matching} == {reliable_collector}
         assert {item["wind_farm_id"] for item in matching} == {farm}
         assert {item["device_id"] for item in matching} == {device}
+        assert {item["schema_version"] for item in matching} == {2}
+        assert {item["data_level"] for item in matching} == {"business"}
+        assert {item["device_type"] for item in matching} == {"turbine"}
+        assert {item["point_table_id"] for item in matching} == {"point_table_modbus_wtg_v1.0.0"}
+        assert {item["business_point_id"] for item in matching} == {point}
+        assert {item["unit"] for item in matching} == {"none"}
+        assert all(item["batch_id"] for item in matching)
         assert any(item["value"] == pytest.approx(value) for item in matching)
         assert len({item["sample_id"] for item in matching}) == len(matching)
         assert (await sink.stream_pending())["consumer_pending"] == 0
+
+        now = datetime.now(UTC)
+        stored = await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "samples",
+            farm,
+            (now - timedelta(hours=1)).isoformat(),
+            (now + timedelta(hours=1)).isoformat(),
+            "--level",
+            "business",
+            "--device-type",
+            "turbine",
+            "--device-id",
+            device,
+            "--point-table-id",
+            "point_table_modbus_wtg_v1.0.0",
+            "--point-id",
+            point,
+            "--business-point-id",
+            point,
+            predicate=lambda data: any(
+                item.get("value_f64") == pytest.approx(value) for item in data.get("items", [])
+            ),
+            timeout=90,
+        )
+        stored_sample = next(
+            item for item in stored["items"] if item.get("value_f64") == pytest.approx(value)
+        )
+        assert stored_sample["wind_farm_id"] == farm
+        assert stored_sample["device_type"] == "turbine"
+        assert stored_sample["device_id"] == device
+        assert stored_sample["point_table_id"] == "point_table_modbus_wtg_v1.0.0"
+        assert stored_sample["business_point_id"] == point
+        assert stored_sample["unit"] == "none"
+        assert stored_sample["quality"] == "good"
+        progress = await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "stats",
+            "--wind-farm-id",
+            farm,
+            predicate=lambda data: any(
+                int(item.get("committed_next_offset", "0")) > 0
+                for item in data.get("partitions", [])
+            ),
+        )
+        assert all(not item.get("block_reason") for item in progress["partitions"])
+
+        # Configuration outage does not invalidate the already verified exact
+        # closure or stop confirmed Kafka ingestion.
+        committed_before_outage = _committed_total(progress)
+        stopped_configuration = await asyncio.to_thread(
+            configuration_live.cli, "service", "stop", "configuration", "--yes", check=False
+        )
+        assert stopped_configuration["exit_code"] == 0, stopped_configuration
+        await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "stats",
+            "--wind-farm-id",
+            farm,
+            predicate=lambda data: _committed_total(data) > committed_before_outage
+            and all(not item.get("block_reason") for item in data.get("partitions", [])),
+            timeout=60,
+        )
+        started_configuration = await asyncio.to_thread(
+            configuration_live.cli, "service", "start", "configuration", "--yes", check=False
+        )
+        assert started_configuration["exit_code"] == 0, started_configuration
+
+        # Publish only additional immutable history. The first revision loses
+        # its NATS hint and must converge by periodic gRPC reconciliation; the
+        # second races continuing ingestion and must not replace old mappings.
+        previous_revision = int(published["data"]["revision_id"])
+        previous_service_version = "1.0.2"
+        for service_version, point_version, pause_nats in (
+            ("1.0.3", "1.1.0", True),
+            ("1.0.4", "1.2.0", False),
+        ):
+            if pause_nats:
+                await asyncio.to_thread(stack.pause, "nats")
+                nats_paused = True
+            point_document = yaml.safe_load(
+                (
+                    publication_root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml"
+                ).read_text(encoding="utf-8")
+            )
+            point_document["file_version"] = point_version
+            _dump(
+                publication_root
+                / f"templates/point_tables/point_table_modbus_wtg_v{point_version}.yaml",
+                point_document,
+            )
+            storage_document["config_sources"].append(
+                {
+                    "config_type": "point_table",
+                    "config_id": "modbus_wtg",
+                    "file_version": point_version,
+                }
+            )
+            storage_document["file_version"] = service_version
+            (
+                publication_root / f"services/service_storage-main_v{previous_service_version}.yaml"
+            ).unlink()
+            _dump(
+                publication_root / f"services/service_storage-main_v{service_version}.yaml",
+                storage_document,
+            )
+            update = await asyncio.to_thread(
+                configuration_live.cli,
+                "configuration",
+                "sync",
+                str(publication_root),
+                "--yes",
+                "--request-id",
+                f"strict-cli-storage-{token}-{service_version}",
+                check=False,
+            )
+            if not pause_nats:
+                assert update["exit_code"] == 0, update
+            listing = await asyncio.to_thread(configuration_live.cli, "configuration", "list")
+            current_revision = int(listing["data"]["snapshot_revision_id"])
+            assert current_revision > previous_revision, (update, listing)
+            await _wait_log_text(
+                tmp_path / "storage.log",
+                f"Storage accepted Configuration revision {current_revision}",
+                timeout=40,
+            )
+            if pause_nats:
+                await asyncio.to_thread(stack.unpause, "nats")
+                nats_paused = False
+            before_update = committed_before_outage
+            progress = await harness.poll_cli(
+                harness.cli_realtime,
+                "storage",
+                "stats",
+                "--wind-farm-id",
+                farm,
+                predicate=lambda data, before=before_update: _committed_total(data) > before
+                and all(not item.get("block_reason") for item in data.get("partitions", [])),
+                timeout=60,
+            )
+            committed_before_outage = _committed_total(progress)
+            previous_revision = current_revision
+            previous_service_version = service_version
+
+        # Fault injection may kill the process outside CLI; all business recovery
+        # operations still go through the production CLI and committed Offsets.
+        storage_status = await harness.cli(harness.cli_realtime, "service", "status", "storage")
+        storage_pid = int(storage_status["data"][0]["process"]["pid"])
+        os.kill(storage_pid, signal.SIGKILL)
+        await harness.service(harness.cli_realtime, "start", "storage")
+        await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "stats",
+            "--wind-farm-id",
+            farm,
+            predicate=lambda data, before=committed_before_outage: _committed_total(data) > before
+            and all(not item.get("block_reason") for item in data.get("partitions", [])),
+            timeout=75,
+        )
+        reopened = await harness.cli(
+            harness.cli_realtime,
+            "storage",
+            "samples",
+            farm,
+            (now - timedelta(hours=1)).isoformat(),
+            (now + timedelta(hours=1)).isoformat(),
+            "--level",
+            "business",
+            "--device-type",
+            "turbine",
+            "--device-id",
+            device,
+            "--point-table-id",
+            "point_table_modbus_wtg_v1.0.0",
+            "--point-id",
+            point,
+            "--business-point-id",
+            point,
+        )
+        assert (
+            sum(
+                item.get("logical_key") == stored_sample["logical_key"]
+                for item in reopened["data"]["items"]
+            )
+            == 1
+        )
 
         await harness.poll_cli(
             harness.cli_realtime,
@@ -784,8 +1130,81 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             await harness.cli(config, "collector", "stop", device, "--yes")
         for delivery in ("ems_power", "gateway_output", "modbus_output", "power_history"):
             await harness.cli(harness.cli_realtime, "sink", "stop", delivery, "--yes")
+        await harness.service(harness.cli_realtime, "restart", "storage")
+        final_progress = await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "stats",
+            "--wind-farm-id",
+            farm,
+            predicate=lambda data: bool(data.get("partitions"))
+            and all(not item.get("block_reason") for item in data["partitions"]),
+            timeout=60,
+        )
+        partition_zero_before = next(
+            int(item["committed_next_offset"])
+            for item in final_progress["partitions"]
+            if item["partition"] == 0
+        )
+        partition_one_before = next(
+            int(item["committed_next_offset"])
+            for item in final_progress["partitions"]
+            if item["partition"] == 1
+        )
+        producer = AIOKafkaProducer(bootstrap_servers=stack.kafka)
+        await producer.start()
+        try:
+            forged = dict(matching[0])
+            forged["device_type"] = "photovoltaic"
+            await producer.send_and_wait(
+                sink.kafka_topic,
+                json.dumps(forged, separators=(",", ":")).encode(),
+                key=f"{farm}:{reliable_collector}:{device}".encode(),
+                partition=0,
+            )
+            # A real old-version replay on the healthy partition must be
+            # readback-deduplicated and still advance its committed Offset.
+            await producer.send_and_wait(
+                sink.kafka_topic,
+                json.dumps(matching[0], separators=(",", ":")).encode(),
+                key=f"{farm}:{reliable_collector}:{device}".encode(),
+                partition=1,
+            )
+        finally:
+            await producer.stop()
+        isolated = await harness.poll_cli(
+            harness.cli_realtime,
+            "storage",
+            "stats",
+            "--wind-farm-id",
+            farm,
+            predicate=lambda data, before=partition_one_before: any(
+                item["partition"] == 0 and item.get("block_reason")
+                for item in data.get("partitions", [])
+            )
+            and any(
+                item["partition"] == 1 and int(item["committed_next_offset"]) > before
+                for item in data.get("partitions", [])
+            ),
+            timeout=60,
+        )
+        assert (
+            next(
+                int(item["committed_next_offset"])
+                for item in isolated["partitions"]
+                if item["partition"] == 0
+            )
+            == partition_zero_before
+        )
         for name in reversed(SERVICES):
             await harness.service(harness.cli_realtime, "stop", name)
+        await harness.service(harness.cli_realtime, "stop", "storage")
+        storage_registered = False
+        stopped_configuration = await asyncio.to_thread(
+            configuration_live.cli, "service", "stop", "configuration", "--yes", check=False
+        )
+        assert stopped_configuration["exit_code"] == 0, stopped_configuration
+        configuration_live = None
 
         # N-CLI-1：令牌不得出现在任何 CLI 输出记录与服务日志中。
         audit_text = harness.log.read_text(encoding="utf-8")
@@ -794,6 +1213,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             content = log_file.read_text(encoding="utf-8", errors="replace")
             assert ADMIN_TOKEN not in content, f"admin token leaked into service log {log_file}"
     finally:
+        if stack is not None and nats_paused:
+            await asyncio.to_thread(stack.unpause, "nats")
         if generation_id is not None and harness.cli_realtime.exists():
             await harness.cli(
                 harness.cli_realtime,
@@ -802,6 +1223,25 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 generation_id,
                 "--yes",
                 timeout=15,
+                check=False,
+            )
+        if storage_registered and harness.cli_realtime.exists():
+            await harness.cli(
+                harness.cli_realtime,
+                "service",
+                "stop",
+                "storage",
+                "--yes",
+                timeout=20,
+                check=False,
+            )
+        if configuration_live is not None:
+            await asyncio.to_thread(
+                configuration_live.cli,
+                "service",
+                "stop",
+                "configuration",
+                "--yes",
                 check=False,
             )
         if harness.cli_realtime.exists():

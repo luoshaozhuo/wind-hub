@@ -176,6 +176,7 @@ _REALTIME_DELIVERY_TEMPLATE = {
     "delivery_mode": "realtime",
     "source_filter": {},
     "output": {
+        "data_level": "business",
         "policy": "periodic",
         "period_ms": 100,
         "absolute_threshold": 1.0,
@@ -190,6 +191,7 @@ _RELIABLE_DELIVERY_TEMPLATE = {
     "template_id": "reliable_history",
     "delivery_mode": "reliable",
     "source_filter": {},
+    "output": {"data_level": "business"},
     "reliable": {
         "max_deliver": -1,
         "retry_base_ms": 1000,

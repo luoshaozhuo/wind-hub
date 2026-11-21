@@ -1,8 +1,7 @@
-"""§14.3 test_grpc.py：正式 Proto 下 17 RPC 真实注册/调用、真实 mTLS 与授权拒绝。
+"""§14.3 test_grpc.py：正式 Proto 下 17 RPC 真实注册/调用、Bearer 与授权拒绝。
 
-所有用例经过 TCP 回环上的真实 TLS 1.3 握手（require_client_auth），不使用
-任何 gRPC 替身；服务端由 build_commander 组合根构造（真实配置树/SQLite/
-ConfigSnapshots）。NATS 不可达仅使审计依赖降级。
+所有用例经过 TCP 回环上的真实受控明文 gRPC，不使用 gRPC 替身；服务端由
+build_commander 组合根构造。NATS 不可达仅使审计依赖降级。
 """
 
 from __future__ import annotations
@@ -15,8 +14,10 @@ import grpc
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from contracts import commander_pb2, common_pb2
+from contracts import commander_pb2, common_pb2, common_pb2_grpc
+from core.infrastructure.grpc_bearer import bearer_metadata
 from tests.commander.integration.conftest import IDENTITIES
+from tests.support.bearer import ensure_bearer
 
 pytestmark = [
     pytest.mark.integration,
@@ -53,42 +54,49 @@ async def _aborts(call, code: grpc.StatusCode) -> grpc.aio.AioRpcError:
 
 
 # ---------------------------------------------------------------------------
-# 认证 / 授权（真实 mTLS）
+# 认证 / 授权（真实 Bearer）
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.normal
-async def test_no_client_cert_is_rejected_at_tls(pki, grpc_stack) -> None:
-    """服务器强制客户端证书：无证书调用在握手阶段失败，不进入任何业务逻辑。"""
+async def test_missing_bearer_is_rejected_before_business_logic(pki, grpc_stack) -> None:
     common, _commander = grpc_stack.stubs(pki, no_client_cert=True)
     err = await _aborts(
-        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.UNAVAILABLE
+        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.UNAUTHENTICATED
     )
-    # 握手失败（SSLV3_ALERT_BAD_CERTIFICATE 等），明确不是业务成功。
-    assert "auth" in err.details().lower() or "handshake" in err.details().lower() or err.details()
+    assert "bearer" in err.details().lower()
 
 
 @pytest.mark.exception
-async def test_untrusted_ca_cert_is_rejected(pki, grpc_stack) -> None:
-    common, _commander = grpc_stack.stubs(pki, client="rogue", ca=pki.cert("rogue-ca"))
-    await _aborts(common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.UNAVAILABLE)
+async def test_unknown_bearer_is_rejected(pki, grpc_stack) -> None:
+    common, _commander = grpc_stack.stubs(pki, client="rogue")
+    await _aborts(
+        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.UNAUTHENTICATED
+    )
 
 
 @pytest.mark.exception
-async def test_unknown_identity_is_permission_denied(pki, grpc_stack) -> None:
+async def test_unregistered_identity_is_unauthenticated(pki, grpc_stack) -> None:
     common, _commander = grpc_stack.stubs(pki, client="stranger")
     await _aborts(
-        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.PERMISSION_DENIED
+        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.UNAUTHENTICATED
     )
 
 
 @pytest.mark.exception
-async def test_multiple_matched_identities_is_permission_denied(pki, grpc_stack) -> None:
-    """一张证书同时匹配两个已配置 caller：拒绝，不任选其一放行。"""
-    common, _commander = grpc_stack.stubs(pki, client="dual")
+async def test_repeated_bearer_credentials_is_unauthenticated(pki, grpc_stack) -> None:
+    reference = ensure_bearer("ops")
+    channel = grpc.aio.insecure_channel(grpc_stack.target)
+    common = common_pb2_grpc.CommonServiceStub(channel)
     await _aborts(
-        common.GetServiceInfo(common_pb2.Empty(), timeout=5), grpc.StatusCode.PERMISSION_DENIED
+        common.GetServiceInfo(
+            common_pb2.Empty(),
+            metadata=(*bearer_metadata(reference), *bearer_metadata(reference)),
+            timeout=5,
+        ),
+        grpc.StatusCode.UNAUTHENTICATED,
     )
+    await channel.close()
 
 
 @pytest.mark.normal

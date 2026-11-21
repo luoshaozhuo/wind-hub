@@ -810,7 +810,7 @@ System Test 必须遵守以下规定：
 |---|---|
 | 请求方（Requester） | NATS Core 消息生产者（Collector）；周期定时器非外部请求方 |
 | 触发方式（Trigger） | 消息：实时样本到达；周期：按 Delivery 输出/保底周期；状态：目标恢复后重试未过期最新值 |
-| 输入（Input） | 批量实时样本（当前生产 v2，目标见 Contracts §11.6 的 SampleBatch v3）、来源规则、逐测点有效期、Delivery 输出策略 |
+| 输入（Input） | Contracts §11.6 的 SampleBatch v3、来源规则、逐测点有效期、Delivery 输出策略 |
 | 反馈（Response） | 不逐条应答 Core 消息；通过状态、指标与事件查询派发结果 |
 | 目标方（Destination） | 已绑定的 Redis、Modbus TCP Server 或 Industrial Gateway（Realtime）；Kafka 不属于本实时用例 |
 | 业务输出（Output） | 未过期的最新值及原始质量、时间、测点身份 |
@@ -2586,7 +2586,7 @@ R12 已验证 Kafka 编码 CPU 可降低约 33.1%，短时饱和吞吐增加 18.
 
 ## 10.3 批量消息接收与校验
 
-当前生产源消息使用 `contracts.sample_batch.SampleBatch(schema_version=2)`；目标源消息依照 Contracts §11.6 的 v3，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
+源消息使用 Contracts §11.6 的 `contracts.sample_batch.SampleBatch(schema_version=3)`，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_type/device_id/point_table_id/mode/batch_id`，逐点保留 `point_id/sample_id/raw_value/value/business_value/unit/business_unit/business_point_id/quality/sample_time`；Realtime TTL 随测点提供。
 
 | 通道 | Subject | 校验不通过 |
 |---|---|---|
@@ -2735,36 +2735,21 @@ sequenceDiagram
 
 只对 `SampleBatch.decode()` 严格校验、来源过滤后的可信批次执行。Kafka Reliable 直接使用 `SampleItem`，每个目标子批最多 500 点；输入源批容量可配置，目标拆批上限独立于输入。不得逐点构造旧线协议对象。
 
-**现行 Kafka v1 编码算法（迁移前实现描述，非目标格式）**。`encode_kafka_points(batch, items)` 将同一源批共享的 `schema_version=1/wind_farm_id/collector_id/task_id/device_id` 按原顺序编码一次，删除公共 JSON 对象末尾的 `}` 并追加逗号，形成 UTF-8 字节前缀。源批的 `publish_time` 仅进行一次 UTC 格式规范化，但仍作为每个测点 JSON 片段的字段逐条序列化；不得把“时间规范化一次”误写成“该字段 JSON 编码一次”。每点按固定顺序编码 `point_id/sample_id/value/quality/sample_time/publish_time/receive_time/max_staleness_ms`，去掉逐点 JSON 对象开头的 `{`，再与公共字节前缀拼接。
+**Kafka JSON v2 编码算法**。`encode_kafka_points(batch, items, data_level)` 将同一源批和输出等级共享的 `schema_version=2/data_level/wind_farm_id/collector_id/task_id/device_type/device_id/point_table_id/batch_id` 按固定顺序编码一次，删除公共 JSON 对象末尾的 `}` 并追加逗号，形成 UTF-8 字节前缀。每点先经 `DeliveryPoint.from_batch()` 选择 RAW/PROTOCOL/BUSINESS 值，再按固定顺序编码 `point_id/business_point_id/sample_id/value/unit/quality/sample_time/publish_time/receive_time/max_staleness_ms`，去掉逐点 JSON 对象开头的 `{` 后与公共前缀拼接。单点与批量入口必须使用同一字段语义和严格 JSON 编码。
 
-**两测点可复算示例（演示 500 点子批的相同算法）。** 输入为同一有效源批，公共身份 `farm-a / collector-1 / task-1 / WTG001`，`publish_time=2026-11-11T02:00:00Z`；两点分别为 `(P, sample-P, 1200)` 和 `(Q, sample-Q, 300)`，质量均为 `good`，`sample_time=2026-11-11T01:59:59Z`，`receive_time=null`，`max_staleness_ms=null`。
-
-| 步骤 | 优化前逐点完整编码 | 优化后公共前缀复用 |
-|---|---|---|
-| 公共身份字段 | 每条 Record 都参与一次完整 JSON 编码，共 2 次 | 按固定顺序 JSON 编码一次，形成下方公共前缀 |
-| 时间字段 | 每条 Record 各自序列化 | `publish_time` 格式规范化一次，其 JSON 字段仍逐点编码 |
-| 逐点字段 | 分别完整编码 P、Q 的 13 字段对象 | 分别编码 P、Q 的 8 字段片段 |
-| 输出 | 2 条独立 Kafka Record | 仍为相同的 2 条独立 Kafka Record，且逐字节相同 |
-
-公共字节前缀（已移除末尾 `}` 并补逗号）：
+公共字节前缀示例（已移除末尾 `}` 并补逗号）：
 
 ```json
-{"schema_version":1,"wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_id":"WTG001",
+{"schema_version":2,"data_level":"business","wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_type":"turbine","device_id":"WTG001","point_table_id":"point_table_modbus_wtg_v1.0.0","batch_id":"batch-1",
 ```
 
 P 点逐点片段（已移除开头 `{`）：
 
 ```json
-"point_id":"P","sample_id":"sample-P","value":1200,"quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
+"point_id":"P","business_point_id":"active_power","sample_id":"sample-P","value":1200,"unit":"kilowatt","quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
 ```
 
-拼接后，P 点的完整 Kafka Record（即优化前逐点编码的预期输出）：
-
-```json
-{"schema_version":1,"wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_id":"WTG001","point_id":"P","sample_id":"sample-P","value":1200,"quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
-```
-
-Q 点只把 P 点片段中的 `point_id/sample_id/value` 分别换为 `Q/sample-Q/300`，与**同一公共前缀**拼接，生成第二条独立 Kafka Record。迁移前原始 13 字段顺序、`ensure_ascii=False`、`allow_nan=False`、紧凑分隔符、UTF-8 字节、浮点、Unicode、UTC 时间与 `null` 必须与经独立固定夹具验证的 Sink 13 字段 Kafka 目标 Record 字节逐字节等价。源批为 500 点时，公共身份字段只编码一次，逐点片段仍编码 500 次，并输出 500 条 Record；不合并为一条 Record。单点入口 `encode_kafka_point` 使用同一规范，空子批输出空集合。不得跨源批缓存公共编码结果，亦不得使用无法证明字节等价的新 JSON 库。
+源批为 500 点时，公共身份字段只编码一次，逐点片段仍编码 500 次，并输出 500 条独立 Record；不合并为一条 Record。`ensure_ascii=False`、`allow_nan=False`、紧凑分隔符、UTF-8、有限数值、带时区 UTC 时间与显式 `null` 均不得改变。空子批输出空集合，不跨源批缓存公共编码结果。
 
 ### 10.7.2 Kafka Builder 与 Future 索引
 
@@ -2867,7 +2852,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 
 | 参数类别 | 所属契约 |
 |---|---|
-| 当前 v2 / 目标 v3、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
+| v3、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
 | `nats.max_samples_per_batch`、`max_batch_bytes` | Sink 入口容量；默认 500 点 / 1 MiB，部署值不得小于 Collector 发布值且不得超过 NATS 服务器限制 |
 | `runtime.max_inflight_global`、`max_inflight_per_sink`、`max_pending_points` | 本容器每数据 Worker 的安全执行预算 |
 | `reliable.max_inflight_per_delivery`、`replay_max_inflight`、`replay_max_rate_per_second` | Reliable Delivery 消费及补发限制 |
@@ -3427,7 +3412,7 @@ Main 对外 gRPC 使用 内网隔离与 `query/control/config` 权限；密钥�
 
 **并发能力契约**：每个 Delivery 默认仅允许一个在途操作；共享 Sink 可以允许不同 Delivery 并发，但须满足 Adapter 的 `supports_concurrent_write`、`max_safe_inflight`、Sink 配置上限、进程上限和目标顺序约束的交集。未声明安全并发的 Adapter 上限固定为 1。跨进程共享目标资源时，不能把两个进程的本地计数误认为全局协调；需要独立连接/端口/客户端配额或明示无法提供严格隔离的部署限制。
 
-**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的Contracts §11.9 的目标 JSON v2 编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
+**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按 Contracts §11.9 的 JSON v2 编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
 
 **重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis、Modbus TCP Server 与 Gateway 首版模板均须 `reliable: false`，Kafka 首版模板须 `realtime: false`；违反通道矩阵的候选配置直接拒绝。Modbus 业务成功边界只到内存镜像。
 
@@ -3479,17 +3464,17 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 ## 12.1.5 三级转换和对外数据包格式
 
-**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 字段、示例和校验见 Contracts §11.6；Sink→Kafka/Redis 的目标 JSON v2 字段、示例和编码见 Contracts §11.9。Sink 不定义另一套冗余结构。当前生产接收 v2、Kafka 输出 v1，均为**待迁移实现**。
+**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 字段、示例和校验见 Contracts §11.6；Sink→Kafka/Redis 的 JSON v2 字段、示例和编码见 Contracts §11.9。Sink 不定义另一套冗余结构，不接收旧 v2 批次或输出 Kafka v1。
 
-Delivery 的 `output.data_level` 取 `raw`、`engineering`、`business`，默认 `business`：
+Delivery 必须显式配置 `output.data_level` 为 `raw`、`protocol`、`business`，缺失即拒绝：
 
-| 级别 | 转换流程 | 输出身份 |
+| 级别 | 取值来源 | 输出身份 |
 |---|---|---|
-| RAW | 验证源消息后直接使用协议解码标量 | 源 `point_id`；业务 ID 和单位为 null |
-| ENGINEERING | RAW → 历史 PointTable 比例/偏移及工程单位 | 源 `point_id` 与工程 `unit`，业务 ID 为 null |
-| BUSINESS | ENGINEERING → BusinessPoint 映射与标准单位换算 | 保留源 `point_id`、写入 `business_point_id` 和标准 `unit` |
+| RAW | `SampleItem.raw_value` 协议解码标量 | 源 `point_id`；业务 ID 和单位为 null |
+| PROTOCOL | Collector 按固定 PointTable 计算的 `value` | 源 `point_id` 与工程 `unit`，业务 ID 为 null |
+| BUSINESS | Collector 按固定 BusinessPoint/Units 闭包计算的 `business_value` | 保留源 `point_id`、写入 `business_point_id` 和 `business_unit` 作为标准 `unit` |
 
-`point_table_id` 是数据解释规则的不可变完整标识，Sink 缓存以该 ID 为键查询 PointTable 及固定依赖闭包，**不依赖全局 `config_revision_id`**。历史 JetStream 消息重放时必须用原 `point_table_id`，禁止读取当前推荐的最新点表替代。RAW 可不读取 Configuration 用于诊断；其他等级无已验证点表缓存且 Configuration 不可用时按受控重试、DLQ/失败语义处理，不得静默回退为 RAW。可靠交付的 ACK 只在每个 Delivery 实际下游确认之后发出。
+`point_table_id` 是数据解释规则的不可变完整标识。Collector 在发布前完成三级值计算，Sink 只选择等级，不复制源单位冒充标准单位，也不依赖全局 `config_revision_id`。历史 JetStream 消息重放保留原 `point_table_id` 和原三级值，禁止用当前推荐点表重新解释旧样本。可靠交付的 ACK 只在每个 Delivery 实际下游确认之后发出。
 
 Kafka Reliable 按单点 Record 组织 JSON v2；Redis Value 使用统一的投影后 JSON 字段，Adapter 自行决定 Key/TTL/CAS；Modbus 寄存器镜像与 Gateway `UpdateVariables` 无法直接传输 JSON 来源元数据，必须由 Delivery 的目标映射和配置版本切换保证正确解释。输入、转换和发送阶段各自可观测；原消息不可被修改，同批次不同 Delivery 可用不同等级输出。
 
@@ -3850,8 +3835,8 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 | 标识 | 层级 Marker | 验收要求 | 与基线比较 |
 |---|---|---|---|
-| B3-01 | unit、contract | 当前 v1 固定 13 字段目标 Record 字节夹具 + 目标 JSON v2 新字段完整 Golden Data（以 Contracts §11.9 为准）、§10.7.1 两测点示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
-| B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | main SampleBatch v2 |
+| B3-01 | unit、contract | Kafka JSON v2 完整 Golden Data（以 Contracts §11.9 为准）、§10.7.1 片段示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
+| B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | main SampleBatch v3 |
 | B3-03 | system、performance | 真实 JetStream/Kafka 三进程 A/B 至少三轮，报告编码 CPU/批、Reliable CPU/批、CPU 栈、event-loop lag P99、Broker ACK、吞吐、backlog、RSS | R11 稳定容量 |
 | B3-04 | system、reliability | 30 Durable、Realtime/可靠双通道共载、断连恢复、超限 Record、无提前 ACK；全量字节、记录顺序和重复数审计 | R10/R11 |
 | B3-05 | system、performance | Reliable 独立与双通道各至少 600 秒稳定性复核；如实际环境不可达，明确 NOT_RUN，不虚称达标 | R11 |
@@ -3890,7 +3875,7 @@ lint-imports
 | 设计范围 | 第一、二章编制原则保留；第三章定义单实例性能目标，§10.3 统一 main 输入契约，§10.7/§12.1.4/§13.3.2 保持 Kafka 性能与观测边界 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | 当前生产的 `SampleBatch(schema_version=2)` / `SampleItem` 仍在运行；目标唯一输入线协议为 Contracts §11.6 的 v3；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
+| 消息契约 | 唯一输入线协议为 Contracts §11.6 的 `SampleBatch(schema_version=3)`；Sink 私有 `DeliveryPoint` 只作输出值对象，不可充当跨模块 Schema；Collector→NATS→Sink→Kafka 必须联调 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
 | 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为批内测点条目，`source batch` 为采集来源事件，`output batch` 为 Adapter 输出组 |

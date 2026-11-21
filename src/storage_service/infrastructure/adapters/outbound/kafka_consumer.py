@@ -268,7 +268,8 @@ class KafkaStorageConsumer:
                 return
             # Kafka commits the next unread offset, only after durable readback.
             try:
-                await self._consumer.commit({tp: state.offsets.next_commit_offset})
+                async with asyncio.timeout(self._config.kafka.commit_timeout_ms / 1000):
+                    await self._consumer.commit({tp: state.offsets.next_commit_offset})
             except (KafkaError, OSError, TimeoutError) as error:
                 # The write is confirmed but the commit is not. Replay from the
                 # cursor captured before this batch, not from its successful end.

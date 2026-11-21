@@ -21,6 +21,7 @@ from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
+from tests.support.bearer import bearer_channel
 
 from ..conftest import dg_stubs, read_gateway_variable, ship_scenarios_document
 
@@ -38,7 +39,7 @@ VAR_B = "GW01.pitch_rate"
 
 
 async def _gw_stub(bind: str):  # noqa: ANN202
-    channel = grpc.aio.insecure_channel(bind)
+    channel = bearer_channel(bind, "harness")
     await channel.channel_ready()
     return channel, gw_rpc.IndustrialGatewayServiceStub(channel)
 

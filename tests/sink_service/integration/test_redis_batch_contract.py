@@ -46,6 +46,12 @@ def _sample(
 ) -> DeliveryPoint:
     now = datetime.now(UTC)
     return DeliveryPoint(
+        data_level="business",
+        batch_id="batch-test",
+        device_type="turbine",
+        point_table_id="point_table_modbus_wtg_v1.0.0",
+        business_point_id="active_power",
+        unit="kilowatt",
         wind_farm_id=FARM,
         collector_id=COLLECTOR,
         task_id="task-1",

@@ -24,6 +24,7 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
 from tests.cli.test_r1f3_strict_cli_e2e import ADMIN_TOKEN
+from tests.support.bearer import bearer_channel
 
 from .conftest import FullChainHarness
 from .semantic_matrix import (
@@ -53,11 +54,11 @@ _RPC_MODULES = {
 }
 
 
-def test_semantic_matrix_has_exact_73_cli_51_rpc_and_54_common_deployments() -> None:
+def test_semantic_matrix_has_exact_runtime_cli_51_rpc_and_54_common_deployments() -> None:
     """Descriptor/CLI 注册树是分母；Common 部署视图不混入 51 唯一 RPC。"""
     cli = {row.key: row for row in CLI_ROWS}
     rpc = {row.key: row for row in RPC_ROWS}
-    assert len(CLI_ROWS) == len(cli) == 73
+    assert len(CLI_ROWS) == len(cli) == len(_command_words())
     assert len(RPC_ROWS) == len(rpc) == 51
     assert set(cli) == set(_command_words())
     assert len(COMMON_DEPLOYMENT_ROWS) == 54
@@ -243,6 +244,8 @@ def _tree_digest(harness: FullChainHarness) -> str:
 
 
 async def _start_generation(harness: FullChainHarness) -> str:
+    if harness.generation_id:
+        await _stop_generation(harness, harness.generation_id)
     started = await harness.cli_call(
         harness.cli_rt,
         "data-generator",
@@ -405,9 +408,9 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
         assert _tree_digest(full_chain) == before_config
         full_chain.record(
             "E2E-08-CLI-SEMANTIC-DELTA",
-            total=73,
+            total=len(CLI_ROWS),
             delta=len(calls),
-            reuse=73 - len(calls) - 1,
+            reuse=len(CLI_ROWS) - len(calls) - 1,
             dedicated_generator_update=1,
             calls=calls,
         )
@@ -582,8 +585,8 @@ async def test_collector_cli_wrong_and_missing_token_cannot_start_task(
     before = await full_chain.cli_call(full_chain.cli_rt, "collector", "task", task_id)
     row = next(row for row in CLI_ROWS if row.key == "collector start")
     for token, expected_error in (
-        ("wrong-semantic-token", "PERMISSION_DENIED"),
-        (None, "PermissionError"),
+        ("wrong-semantic-token", "BearerAuthenticationError"),
+        (None, "BearerAuthenticationError"),
     ):
         observed = await _cli_exact(
             full_chain,
@@ -792,7 +795,6 @@ async def _wait_recording_value(
 async def test_generator_update_is_applied_and_idempotent(full_chain: FullChainHarness) -> None:
     generation_id = await _start_generation(full_chain)
     request_id = f"semantic-dg-{uuid4()}"
-    runtime = Runtime(full_chain.cli_rt, "json")
     row = next(row for row in CLI_ROWS if row.key == "data-generator variables update")
     context = {
         "generation_id": generation_id,
@@ -806,41 +808,41 @@ async def test_generator_update_is_applied_and_idempotent(full_chain: FullChainH
         assert accepted["request_id"] == request_id
         step = int(accepted["effective_step"])
         assert step > 0
-        stub = dg_rpc.DataGeneratorServiceStub(runtime.channel("data-generator"))
-        execution = await _wait_input_applied(stub, generation_id, request_id)
-        assert execution.request_id == request_id
-        assert execution.effective_step == step
-        recording = await _wait_recording_value(full_chain, generation_id, "wind_speed", 12.0)
+        async with bearer_channel(
+            full_chain.endpoints["data-generator"], "generator-cli"
+        ) as channel:
+            stub = dg_rpc.DataGeneratorServiceStub(channel)
+            execution = await _wait_input_applied(stub, generation_id, request_id)
+            assert execution.request_id == request_id
+            assert execution.effective_step == step
+            recording = await _wait_recording_value(full_chain, generation_id, "wind_speed", 12.0)
 
-        replay = await _cli_exact(full_chain, row, args)
-        assert replay["envelope"]["data"]["effective_step"] == accepted["effective_step"]
-        conflict_args = tuple("13" if item == "12" else item for item in args)
-        conflict_row = SemanticEntry(
-            **{**row.__dict__, "expected_exit": 1, "expected_error": "ALREADY_EXISTS"}
-        )
-        await _cli_exact(full_chain, conflict_row, conflict_args)
-        assert (await _wait_input_applied(stub, generation_id, request_id)).effective_step == step
-        full_chain.record(
-            "E2E-08-DG-APPLIED",
-            generation_id=generation_id,
-            request_id=request_id,
-            effective_step=step,
-            recording_step=recording.get("step"),
-            replay_step=replay["envelope"]["data"]["effective_step"],
-            conflict="ALREADY_EXISTS",
-        )
+            replay = await _cli_exact(full_chain, row, args)
+            assert replay["envelope"]["data"]["effective_step"] == accepted["effective_step"]
+            conflict_args = tuple("13" if item == "12" else item for item in args)
+            conflict_row = SemanticEntry(
+                **{**row.__dict__, "expected_exit": 1, "expected_error": "ALREADY_EXISTS"}
+            )
+            await _cli_exact(full_chain, conflict_row, conflict_args)
+            assert (
+                await _wait_input_applied(stub, generation_id, request_id)
+            ).effective_step == step
+            full_chain.record(
+                "E2E-08-DG-APPLIED",
+                generation_id=generation_id,
+                request_id=request_id,
+                effective_step=step,
+                recording_step=recording.get("step"),
+                replay_step=replay["envelope"]["data"]["effective_step"],
+                conflict="ALREADY_EXISTS",
+            )
     finally:
-        await runtime.close()
         await _stop_generation(full_chain, generation_id)
 
 
-def _gateway_credentials(harness: FullChainHarness, identity: str) -> grpc.ChannelCredentials:
-    cert, key = harness.pki["clients"][identity]
-    return grpc.ssl_channel_credentials(
-        root_certificates=harness.pki["ca"].read_bytes(),
-        private_key=key.read_bytes(),
-        certificate_chain=cert.read_bytes(),
-    )
+def _gateway_channel(harness: FullChainHarness, identity: str) -> grpc.aio.Channel:
+    principal = "generator-input" if identity == "gateway" else identity
+    return bearer_channel(harness.gw_grpc_endpoint, principal)
 
 
 @pytest.mark.timeout(180)
@@ -864,10 +866,7 @@ async def test_commander_certificate_simulation_applied(full_chain: FullChainHar
         expires_at=deadline,
     )
     try:
-        async with grpc.aio.secure_channel(
-            full_chain.endpoints["gateway"],
-            _gateway_credentials(full_chain, "commander"),
-        ) as gateway_channel:
+        async with _gateway_channel(full_chain, "commander") as gateway_channel:
             stub = gw_rpc.IndustrialGatewayServiceStub(gateway_channel)
             submitted = await stub.ExecuteSimulationCommand(request, timeout=15)
             assert submitted.accepted is True
@@ -889,10 +888,7 @@ async def test_commander_certificate_simulation_applied(full_chain: FullChainHar
             assert replay.effective_step == execution.effective_step
 
             unauthorized_id = f"semantic-simulation-denied-{uuid4()}"
-            async with grpc.aio.secure_channel(
-                full_chain.endpoints["gateway"],
-                _gateway_credentials(full_chain, "cli"),
-            ) as denied_channel:
+            async with _gateway_channel(full_chain, "cli") as denied_channel:
                 with pytest.raises(grpc.aio.AioRpcError) as exc_info:
                     await gw_rpc.IndustrialGatewayServiceStub(
                         denied_channel
@@ -915,9 +911,8 @@ async def test_commander_certificate_simulation_applied(full_chain: FullChainHar
             )
             assert denied.state == "UNKNOWN"
 
-        async with grpc.aio.secure_channel(
-            full_chain.endpoints["data-generator"],
-            _gateway_credentials(full_chain, "gateway"),
+        async with bearer_channel(
+            full_chain.endpoints["data-generator"], "generator-input"
         ) as generator_channel:
             applied = await _wait_input_applied(
                 dg_rpc.DataGeneratorServiceStub(generator_channel),
