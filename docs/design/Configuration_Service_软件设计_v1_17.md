@@ -1694,7 +1694,7 @@ SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略均属于独立
 
 ## 11.4 生效范围与异常处理
 
-其他业务配置经 Repository 发布后，只形成新 revision；CLI 在 Repository 事务外向业务模块发起应用指定 revision，业务模块自行持久化本地有效 YAML 快照。Configuration 服务不可用时，业务模块可继续使用此前已验证的本地快照；尚无有效快照则不得使用不明默认配置启动。
+其他业务配置经 Repository 发布后，由 Deployment 唯一选择目标 Service/Instance 版本；CLI 不再逐模块调用 Apply。Configuration 广播全局修订，业务模块独立查询、校验并缓存完整目标闭包，按热更新能力应用或等待重启，分别报告 target_revision 与 active_revision。Configuration 服务不可用时，业务模块可继续使用此前已验证的本地快照；尚无有效快照则不得使用不明默认配置启动。
 
 ## 11.5 配置安全
 
