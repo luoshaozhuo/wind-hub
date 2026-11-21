@@ -142,7 +142,7 @@ async def test_writer_rejects_wrong_ca_and_plaintext(
 
 def _diagnostics(gateway: GatewayHarness, tls: dict[str, str] | None) -> Diagnostics:
     settings = load_settings(
-        Path(__file__).parents[3] / "configs/services/data-generator-sim.example.yaml"
+        Path(__file__).parents[3] / "configs/services/service_data-generator-sim_v1.0.3.yaml"
     )
     output = dict(settings.service["output"])
     output["gateway_tls"] = tls
