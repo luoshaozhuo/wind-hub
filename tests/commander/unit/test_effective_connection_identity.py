@@ -34,7 +34,7 @@ points:
 
 _BUSINESS_POINTS = """\
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.4.0
 business_points:
   setpoint_power:
     data_type: float32
@@ -45,11 +45,10 @@ business_points:
 _SERVICE_YAML = """\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: effective-test
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -75,9 +74,6 @@ protocol:
 point_table:
   id: modbus_wtg
   version: 1.0.0
-task:
-  id: turbine_all
-  version: 1.0.0
 protocol_options:
   slave_id: {slave_id}
 endpoint_defaults:
@@ -86,10 +82,12 @@ endpoint_defaults:
 
 
 def _build_tree(tmp_root: Path, devices_yaml: str, *, model_port: int, slave_id: int = 1):
-    root = tmp_root / "config"
+    root = tmp_root / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
-    (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
+    (root / "instances" / "device_effective-test_v1.0.0.yaml").write_text(
+        devices_yaml, encoding="utf-8"
+    )
     (root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml").write_text(
         _MODEL_TEMPLATE.format(model_port=model_port, slave_id=slave_id),
         encoding="utf-8",
@@ -97,10 +95,22 @@ def _build_tree(tmp_root: Path, devices_yaml: str, *, model_port: int, slave_id:
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(
+    (root / "templates/business_points_standard_v1.4.0.yaml").write_text(
         _BUSINESS_POINTS, encoding="utf-8"
     )
-    service_yaml = tmp_root / "commander.yaml"
+    manifest_path = root / "deployments" / "deployment_effective-test_v1.0.0.yaml"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        "schema_version: 1\nfile_version: '1.0.0'\n"
+        "deployment_id: effective-test\n"
+        "services:\n  commander:\n    config_id: commander\n"
+        "    file_version: '1.0.0'\n"
+        "instances:\n  device:\n    effective-test:\n"
+        "      file_version: '1.0.0'\n",
+        encoding="utf-8",
+    )
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
         _SERVICE_YAML.format(sqlite_path=str(tmp_root / "state" / "cmd.db")),
         encoding="utf-8",
