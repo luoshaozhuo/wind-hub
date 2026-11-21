@@ -159,6 +159,10 @@ class ConfigurationSubscriber:
         local = _local_snapshot(_payloads(bundle))
         verified = validate_snapshot(local)
         if verified.revision == self._manager.disk.revision:
+            self._manager.report_selected(
+                bundle.target_revision,
+                active=self._manager.disk.revision == self._manager.runtime.revision,
+            )
             self._revision = bundle.repository_revision_id
             self._target_revision = bundle.target_revision
             return
@@ -175,6 +179,15 @@ class ConfigurationSubscriber:
         result = await self._manager.apply(candidate_id, self._manager.disk.revision)
         self._revision = bundle.repository_revision_id
         self._target_revision = bundle.target_revision
+        self._manager.report_selected(
+            bundle.target_revision,
+            active=(
+                not result.restart_required
+                and not result.pending
+                and not result.error
+                and self._manager.disk.revision == self._manager.runtime.revision
+            ),
+        )
         if result.restart_required or result.pending or result.error:
             _LOG.warning(
                 "Sink configuration committed but application is pending restart/convergence"

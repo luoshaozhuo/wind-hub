@@ -147,6 +147,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         )
         return common_pb2.GetServiceStatusResponse(
             health=health,
+            target_revision=self._config.target_revision,
+            active_revision=self._config.active_revision,
             dependencies=[
                 common_pb2.DependencyHealth(
                     name="configuration",
