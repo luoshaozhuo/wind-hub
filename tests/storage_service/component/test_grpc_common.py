@@ -146,17 +146,58 @@ async def test_global_retry_is_permission_denied_for_farm_scoped_operator(
         await server.stop(grace=0)
 
 
+class _RejectingConsumer:
+    """Durable blocked evidence no longer matches: the retry must be refused, not crash."""
+
+    async def retry_blocked_partition(
+        self, *, request_id: str, topic: str, partition: int, expected_offset: int
+    ) -> bool:
+        return False
+
+
+async def test_retry_blocked_partition_stale_offset_returns_failed_precondition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+    config = _config()
+    server = build_storage_grpc_server(
+        config=config,
+        metadata=cast(Any, object()),
+        query=cast(Any, object()),
+        jobs=cast(Any, object()),
+        point_tables=cast(Any, object()),
+        consumer=_RejectingConsumer(),
+        cursor_secret=b"x" * 32,
+        config_status=lambda: "READY",
+        metrics=StorageRuntimeMetrics(),
+    )
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+    stub = storage_rpc.StorageServiceStub(channel)
+    try:
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await stub.RetryBlockedPartition(
+                storage_pb.RetryBlockedPartitionRequest(
+                    request_id="retry-stale",
+                    topic="windhub-history",
+                    partition=0,
+                    expected_blocked_offset=42,
+                ),
+                metadata=(("authorization", f"Bearer {TOKEN}"),),
+            )
+        assert rejected.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+
+
 async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
     base = _config()
     config = base.model_copy(
-        update={
-            "grpc": base.grpc.model_copy(
-                update={"allow_unauthenticated_status": True}
-            )
-        }
+        update={"grpc": base.grpc.model_copy(update={"allow_unauthenticated_status": True})}
     )
     server = _server(config, config_status="CONFIG_HISTORY_UNAVAILABLE")
     await server.start()
