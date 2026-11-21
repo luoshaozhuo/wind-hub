@@ -291,6 +291,29 @@ class ConfigurationPointTableResolver:
         """Enable one authoritative reconciliation before rejecting unknown IDs."""
         self._refresh_hook = refresh
 
+    def validate_immutable_pins(
+        self,
+        *,
+        point_table_versions: Mapping[str, tuple[str, str]],
+        business_points_pin: tuple[str, str] | None,
+        device_bindings: Iterable[DeviceBinding] | None = None,
+    ) -> None:
+        """Preflight an immutable closure without modifying active state."""
+        if device_bindings is None and isinstance(point_table_versions, DeviceClosurePins):
+            device_bindings = point_table_versions.device_bindings
+        current_bindings = (
+            binding for candidates in self._device_bindings.values() for binding in candidates
+        )
+        _index_device_bindings((*current_bindings, *(device_bindings or ())))
+        for point_table_id, pin in point_table_versions.items():
+            old = self._pins.get(point_table_id)
+            if old is not None and (
+                old != pin or self._business_pins[point_table_id] != business_points_pin
+            ):
+                raise ConfigHistoryUnavailableError(
+                    "existing PointTable ID was rebound to a different immutable version"
+                )
+
     def add_immutable_pins(
         self,
         *,
@@ -298,7 +321,12 @@ class ConfigurationPointTableResolver:
         business_points_pin: tuple[str, str] | None,
         device_bindings: Iterable[DeviceBinding] | None = None,
     ) -> None:
-        """Apply additions only; existing immutable interpretation is never replaced."""
+        """Apply additions only after validating the complete immutable closure."""
+        self.validate_immutable_pins(
+            point_table_versions=point_table_versions,
+            business_points_pin=business_points_pin,
+            device_bindings=device_bindings,
+        )
         if device_bindings is None and isinstance(point_table_versions, DeviceClosurePins):
             device_bindings = point_table_versions.device_bindings
         current_bindings = (
