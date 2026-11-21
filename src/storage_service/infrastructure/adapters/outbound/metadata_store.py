@@ -9,12 +9,14 @@ import os
 import re
 import sqlite3
 import threading
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Literal, Self
 
+from storage_service.application.config import DeviceBinding, DeviceModel
 from storage_service.domain.tasks import TaskRecord
 
 
@@ -88,7 +90,7 @@ class MetadataStore:
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()
-        if version is None or version[0] not in (0, 1):
+        if version is None or version[0] not in (0, 1, 2):
             raise MetadataConflictError("unsupported SQLite metadata schema")
         connection.executescript(
             """
@@ -137,13 +139,23 @@ class MetadataStore:
                 business_config_id TEXT NOT NULL DEFAULT '',
                 business_version_id TEXT NOT NULL DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS device_binding_pins (
+                wind_farm_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                point_table_id TEXT NOT NULL,
+                device_version_id TEXT NOT NULL,
+                binding_json TEXT NOT NULL,
+                PRIMARY KEY (
+                    wind_farm_id, device_id, point_table_id, device_version_id
+                )
+            );
             CREATE TABLE IF NOT EXISTS retry_requests (
                 request_id TEXT PRIMARY KEY,
                 topic TEXT NOT NULL,
                 partition_id INTEGER NOT NULL,
                 offset_id INTEGER NOT NULL
             );
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
             """
         )
         expected = {
@@ -487,6 +499,7 @@ class MetadataStore:
         *,
         point_table_versions: dict[str, tuple[str, str]],
         business_points_pin: tuple[str, str] | None,
+        device_bindings: Iterable[DeviceBinding] = (),
     ) -> None:
         """Never rebind a historical sample identity to another YAML closure."""
         with self._mutex:
@@ -519,10 +532,61 @@ class MetadataStore:
                                VALUES (?, ?, ?, ?, ?)""",
                             (full_id, *identity),
                         )
+                for binding in device_bindings:
+                    identity = (
+                        binding.wind_farm_id,
+                        binding.device_id,
+                        binding.point_table_id,
+                        binding.device_version_id,
+                    )
+                    raw = json.dumps(
+                        asdict(binding),
+                        sort_keys=True,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    previous = db.execute(
+                        """SELECT binding_json FROM device_binding_pins
+                           WHERE wind_farm_id=? AND device_id=?
+                             AND point_table_id=? AND device_version_id=?""",
+                        identity,
+                    ).fetchone()
+                    if previous is not None and previous[0] != raw:
+                        raise MetadataConflictError(
+                            "immutable device binding cannot be rebound"
+                        )
+                    if previous is None:
+                        db.execute(
+                            """INSERT INTO device_binding_pins (
+                               wind_farm_id, device_id, point_table_id,
+                               device_version_id, binding_json
+                               ) VALUES (?, ?, ?, ?, ?)""",
+                            (*identity, raw),
+                        )
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
                 raise
+
+    def list_device_bindings(self) -> tuple[DeviceBinding, ...]:
+        """Recover all pinned historical devices without selecting latest models."""
+        with self._mutex:
+            rows = self._db().execute(
+                """SELECT binding_json FROM device_binding_pins
+                   ORDER BY wind_farm_id, device_id, point_table_id,
+                            device_version_id"""
+            ).fetchall()
+        result: list[DeviceBinding] = []
+        for (serialized,) in rows:
+            try:
+                payload = json.loads(serialized)
+                model = DeviceModel(**payload.pop("model"))
+                result.append(DeviceBinding(**payload, model=model))
+            except (TypeError, ValueError, KeyError, AttributeError) as exc:
+                raise MetadataConflictError(
+                    "corrupted immutable historical device binding"
+                ) from exc
+        return tuple(result)
 
     def list_semantic_pins(
         self,
