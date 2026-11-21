@@ -973,7 +973,7 @@ flowchart TD
   编号                                要求
   ----------------------------------- ------------------------------------------------------------------------------
   R-01                                每台启用 Device 唯一对应一个采集 Task
-                                      Instance，任务使用该设备完整配置动态点表；多设备可引用同一 TaskTemplate。
+                                      Instance，任务使用该设备完整配置动态点表；多设备可引用同一 CollectorTaskDefinition。
 
   R-02                                desired_state 只允许 START/STOP，运行实际状态与期望状态分开报告。
 
@@ -2344,13 +2344,13 @@ classDiagram
     +close()
   }
   Device "1" --> "1" CollectorDeviceSession : 会话
-  TaskTemplate "1" --> "0..*" TaskInstance : 复用
+  CollectorTaskDefinition "1" --> "0..*" TaskInstance : 复用
   Device "1" --> "1" TaskInstance : 唯一实例
   TaskInstance "1" --> "0..1" AcquisitionHandle : RUNNING 时持有
 ```
 
 每个启用 Device 仅对应一个采集 Task Instance，多个设备可共享版本化
-TaskTemplate；对应实例的 desired_state
+CollectorTaskDefinition；对应实例的 desired_state
 由实例配置持久化。完整配置规定见第 11 章。
 
 ```{=html}
@@ -2585,7 +2585,7 @@ sequenceDiagram
 ## 6.5 Task 期望状态及持久化
 
 废止 `auto_start`，只使用
-**`desired_state: START | STOP`**。`TaskTemplate` 定义缺省状态，`Device`
+**`desired_state: START | STOP`**。`CollectorTaskDefinition` 定义缺省状态，`Device`
 实例的 `overrides.task.desired_state` 优先；外部 gRPC
 手动启停**仅修改设备实例配置**，不修改共享模板。`desired_state`
 是唯一的期望状态权威，实际状态对外采用 `Task.actual_state`
@@ -3225,137 +3225,67 @@ Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集�
 
 ## 11.1 三类配置与所有权
 
-配置按 **Service / Instance / Template** 三类分离。**Service 仅声明直接使用的 Instance 文件和 Template 根目录；Instance 仅保留模板 ID 与精确版本，不重复传递 Template 根目录**：Collector 运行时直接读取两份 Instance 文件及 Template 根目录，因此 Service 必须显式声明三者的路径；Device Instance 仅声明设备型号模板 ID 与精确版本，不再重复声明 Template 根目录。Template 版本引用由 Configuration Service 保存并提供完整闭包，Core 仅提供公共解析与校验；下述本地路径操作是待替换的历史实现描述。Service 只指定 Template 根目录，不逐项选择模板 ID/版本；不得从程序内置默认目录或文件名推断任何缺失的路径。
+Collector Service 定义运行参数及 site、devices、tasks 三类 Instance 的**逻辑身份**；Deployment 为每一 Instance 选择具体版本；Device Instance 固定引用设备模型等不可变 Template。Collector 不读取 Service 直接指定的 Template 根目录，也不按文件名扫描“最新版本”。
 
-| 类别 | 物理路径示例 | 引用与所有权 | 生效规则 |
-|---|---|---|---|
-| Service | `configs/services/collector.yaml` | Collector 运行参数；仅声明 site/devices/tasks 的 Instance 逻辑身份 | 不兼容的静态参数修改等待重启 |
-| Instance | `configs/instances/site.yaml` | 场站身份及其直接字段；不需要重复声明 Template 路径 | 变更后按受影响范围热生效 |
-| Instance | `configs/instances/devices.yaml` | 设备实例；各 `devices.<ID>.model` 仅声明 `id`、`version`，不得重复配置 Template 根目录 | 实例、型号引用修改后按设备增量热生效 |
-| Template | `configs/templates/` | 由 Instance 的不可变版本引用间接解析；不得自动选择最新版本 |
-| 其他服务的配置 | `configs/services/commander.yaml` 等 | 由各自服务拥有；Collector 不读取、不管理 | 不纳入 Collector 候选 |
+| 类别 | 位置 | 选择规则 |
+|---|---|---|
+| Service | `configs/services/` | Deployment 固定版本，配置中只含 Instance 逻辑 ID |
+| Site / Device | `configs/instances/` | Deployment 固定版本；Device 含 `group` |
+| Collector Tasks | `configs/instances/` | Deployment 固定版本，Task 通过 `group` 匹配 Device |
+| Template | `configs/templates/` | 仅由 Instance / 固定模板依赖引用，不允许 Service 直接引用 |
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart LR
-  S["Service: collector.yaml"] -->|"site"| I1["Instance: site.yaml"]
-  S -->|"devices"| I2["Instance: devices.yaml"]
-  S -->|"configuration.templates"| T["Template 仓库"]
-  I2 -->|"model.id + model.version"| R["精确型号引用"]
-  R --> T
-  T --> C["configuration 引用装配与有效配置解析"]
-  I1 --> C
-  I2 --> C
-  C --> D["Collector Runtime"]
+flowchart TD
+ D["Deployment"] --> S["Collector Service"]
+ D --> I["Device / Site / Task Instances"]
+ S -->|"逻辑身份"| I
+ I -->|"固定版本"| T["Device Model / Protocol / PointTable Templates"]
+ I --> R["Collector Runtime"]
+ T --> R
 ```
 
-<p class="figure-caption">图 11-1 Service 的直接路径引用及 Instance 的版本引用</p>
-
-目录示例（**位置只是示例，不是运行时默认搜索目录**）：
-
-```text
-configs/
-├── services/
-│   └── collector.yaml
-├── instances/
-│   ├── site.yaml
-│   └── devices.yaml
-└── templates/
-    ├── protocols/
-    ├── device_models/
-    ├── point_tables/
-    ├── tasks/
-    ├── units.yaml
-    └── business_points.yaml
-```
-
-**路径解析契约：** `--config` 是唯一必需的配置入口参数。Service 中 `config_sources.instances.site`、`config_sources.instances.devices` 和 `config_sources.templates.root` 均为必填且直接为非空路径字符串，不得使用 `{pathname: ...}` 等包裹结构；三个相对路径**统一以部署工作根 config_root 为基准**。例如 `--config configs/services/collector.yaml` 时，部署工作根为 `configs/` 的父目录；Service 文件必须位于该根目录的 `services/` 下；运行时根据传入的 `--config` 所在的 `services/` 目录确定配置根目录，而不是依赖进程工作目录。配置源拒绝绝对路径；由宿主显式 `--config` 允许绝对 Service 文件路径，但不能使 Service 引用越过部署根；解析应规范化并校验文件/目录类型、存在性、可读性和路径安全性。不得自动填补默认目录，不得在引用失败时回退至其他同名文件/最新模板。同一 Instance 文件可供多个服务复用，其型号 ID/精确版本由使用它的服务所声明的 Template 仓库解析。
-
-**版本快照契约：** DISK 快照中的 `services/collector.yaml`、`instances/site.yaml`、`instances/devices.yaml`、`templates/...` 是**快照内部逻辑键**，并非主机上需要拼接的默认路径。快照创建时必须依 Service→Instance、Service→Template 的直接引用图及 Instance→Template 的版本化引用收集授权物理文件，再将全部引用规范化为候选内部可解析的受管逻辑路径；提交与重启必须按同一 manifest 加载，不能绕过快照重新寻找主机默认目录。任何 Service 引用路径变化均视为 Service 配置变化，需要重启才可切换实际配置来源。
+Service 的 Instance 角色缺失、Deployment 缺少逻辑身份版本、Template 引用无效、闭包哈希错误时均拒绝启用目标；不能用本地默认路径和推荐版本回退。
 
 ## 11.2 版本、引用及覆盖
 
--   所有 YAML 使用内部
-    `schema_version`（结构契约版本）；模板另外声明稳定 `template_id` 和
-    `template_version`；`revision`/内容 SHA-256
-    属于配置管理层并发与追溯数据，不靠文件名推断。
--   同一 `template_id + template_version`
-    内容不可变。发布新版本并让实例修改引用，才允许改变模板含义；禁止原地覆盖已发布模板。
--   `collector.yaml` 的 `config_sources.templates.root` 必须显式配置；`devices.<ID>.model` 的 ID/精确版本从该仓库解析为不可变模板，不能依赖默认 Template 根目录，也不得在 Instance 内重复配置仓库路径。
--   `DeviceModel` 组合引用
-    `ProtocolTemplate`、`PointTable`、`TaskTemplate`；`Device`
-    只声明身份、IP 和少量覆盖。`DeliveryTemplate` 供 Sink/Delivery
-    实例引用。
--   覆盖优先级为模板默认值、Device
-    实例显式覆盖；只允许白名单字段，地址及类型等不宜直接覆盖单点。Core
-    已有的点表 `parent_id` 继承规则需单独保留并校验无环。
--   工程语义继续使用 `units`（Quantity/Unit 及单位换算）和
-    `business_points`（业务标识、标准单位、逻辑类型）；测点的
-    `scale/offset`
-    与单位间换算区分；数据类型、Quantity、引用完整性必须校验。模板版本改变后不得悄悄重定义历史业务语义。
+- `schema_version` 表示结构契约，`file_version` 表示不可变内容版本；同逻辑身份同版本内容不许改写。
+- Device Instance 通过精确的 Device Model ID/版本引用其协议与点表链；Device Model 中禁止 Task 定义、Collector Task Instance 引用及采集组属性。
+- 设备 `group` 是单值字符串；Collector Task Instance 包含 `tasks.<task_id>.group`、`interval_ms`、`desired_state`。同一 Collector 内两个活动任务不能对同一 Device 并发采集。
+- Task 的期望状态属于被选定的 Task Instance；实际状态属于 Collector 运行时。CLI 手动启动/停止必须明确与既有持久化控制记录的优先级，不能修改已发布的不可变 YAML。新部署目标覆盖既有控制意图时须按受控规则协调并记录。
+- Device 组变更通过新版本 Device Instance 发布，Collector 在设备级安全点先停止旧计划再启动新计划；失败不得重复采集或混用点表版本。
+- Unit、BusinessPoint、PointTable 的历史语义继续按固定版本依赖处理，禁止静默使用推荐最新版本。
 
-``` yaml
-# configs/instances/devices.yaml（示意）
+### 规范示例
+```yaml
 schema_version: 1
-file_version: 1.0.0
+file_version: "1.2.0"
 devices:
   WT01:
-    model:
-      id: turbine_a
-      version: 1.2.0
-    endpoint:
-      host: 192.168.1.101
-    overrides:
-      task:
-        desired_state: START
-  WT02:
-    model:
-      id: turbine_a
-      version: 1.2.0
-    endpoint:
-      host: 192.168.1.102
-    overrides:
-      task:
-        desired_state: STOP
+    group: fast
+    model: {id: turbine_a, version: "1.2.0"}
+    endpoint: {host: 192.168.1.101}
 ```
-
-Task 只维护期望状态 `START/STOP` 与实际状态 `RUNNING/STOPPED`；gRPC
-手动启停**先持久化到对应 Device 实例，再执行状态收敛**。重启与 Watchdog
-恢复均按持久化期望状态处理；停止的设备不自动复活。TaskTemplate
-可以提供默认状态，但手动操作不得修改共享模板。
 
 ## 11.3 Core 配置校验链路
 
-```{=html}
-<p class="figure-caption">
-```
-图 11-2 配置解析、验证与有效快照
-```{=html}
-</p>
-```
-``` mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+```mermaid
 flowchart TD
-  A["仅由 --config 指向 Service"] --> P["解析 Service 显式路径：Instance 文件 + Template 根目录"]
-  P --> B["Core YAML 解析、schema_version 校验"]
-  B --> C["模板 ID/版本解析、引用与环检测"]
-  C --> D["实例覆盖、有效配置展开"]
-  D --> E["core.configuration 共享配置校验<br/>单位/业务点/地址/类型"]
-  E --> F["Collector 业务校验<br/>采集模式/周期/协议能力"]
-  F --> G["完整有效快照 + 差异"]
+ A["读取部署目标 Service 身份"] --> B["Deployment 解析 Service + Instance 版本"]
+ B --> C["按 Instance 固定版本引用加载 Templates"]
+ C --> D{"闭包 SHA / Schema / 引用图是否有效?"}
+ D -->|否| X["拒绝目标，保留有效运行计划"]
+ D -->|是| E["计算目标闭包摘要"]
+ E --> F{"可热更新?"}
+ F -->|是| G["设备级安全点更新"]
+ F -->|否| H["等待重启"]
+ G --> I["完全收敛后报告 active_revision"]
 ```
 
-`core/infrastructure/config` 负责
-YAML、版本与解析；`core/domain/validation.py`
-负责通用领域约束；Collector Application
-负责采集专属规则和设备级变更差异。路径校验先于领域解析，缺失直接引用即拒绝，不得隐式补全。启动、Push 校验与 Apply 前复核
-**必须复用同一套无副作用的候选校验**，验证阶段不得写盘、连接 PLC
-或启动任务。错误报告统一返回
-`code/file/field_path/message`。验证是否支持三类布局及模板精确版本须以当前仓库与执行证据为准。
+校验必须无副作用；启动、通知对账、重试、回滚复用相同解析规则。以 `config_type/config_id/file_version` 验证引用，拒绝循环、重复身份、缺失版本和内容冲突。
 
 ## 11.4 Service 配置与 Metrics
 
-`configs/services/collector.yaml` 是**本示例部署**的唯一 Collector 专属配置；正式启动由 `--config` 指明实际文件，不依赖硬编码的该路径。下例保留最新 `main` 的运行字段并补充本版新增的路径契约；示例中 `config_sources.instances`、`config_sources.templates.root`、`file_version` 的有效性必须按当前服务 Schema 和部署配置核对，必要时同步更新 Schema、实现及示例，不能声称已被当前代码支持：
+本节为 Collector Service 的目标 Schema 示例，真实运行 Service 版本由 Deployment 选择，且 Service 只含 Instance 逻辑身份；不再从进程 `--config` 文件路径推断业务配置根目录。
 
 ```yaml
 schema_version: 1
@@ -3949,10 +3879,10 @@ UC。以下状态均为 `NOT_RUN`，不表示实现失败或通过。
 
 | 编号 | 对应场景 | 输入与操作 | 必须观察到的结果 |
 |---|---|---|---|
-| CFG-PATH-01 | UC-08-S01 | 仅 `--config`，Service 明确引用自定义名称的 site/devices 及自定义 Template 根目录 | 从指定文件启动，不访问任何硬编码默认目录 |
+| CFG-PATH-01 | UC-08-S01 | 指定 Deployment 的 Service 和 Instance 逻辑身份 | 从选定版本启动，不访问默认目录 |
 | CFG-PATH-02 | UC-08-S02 | Service 缺少必需 Instance 逻辑引用或 Deployment 缺少对应版本选择 | 启动校验失败，无自动回退 |
-| CFG-PATH-03 | UC-08-S02 | 相对于配置根目录的路径、绝对路径、非字符串或空字符串、无权限目标、`..` 逃逸、符号链接逃逸、目录冒充文件 | 合法授权路径成功解析，不合法引用在启动/Push 阶段失败 |
-| CFG-PATH-04 | UC-04-S01 | Push 指向全部必需文件、模板版本的完整候选；随后 Get/Apply | Push 不替换运行配置，Apply 使用同一引用图和候选内部逻辑键 |
+| CFG-PATH-03 | UC-08-S02 | 实例身份非法、Deployment 选择缺失、版本哈希不匹配、引用逃逸 | 启动和发布均拒绝，不允许默认路径回退 |
+| CFG-PATH-04 | UC-04-S01 | CLI 全目录发布与按服务查询固定版本闭包 | 不依赖旧的模块本地 Push/Apply 更新公共配置 |
 | CFG-PATH-05 | UC-04-S02 | 变更 Deployment 对 Device/Task Instance 的选定版本 | 可安全应用的完整任务闭包热更新，否则等待重启 |
 | CFG-PATH-06 | UC-04-S03 | 进程在 CURRENT 切换前后崩溃、重启；来源目录另有同名文件 | 恢复只按已提交 manifest 引用图加载，绝不回退或混读外部目录 |
 | CFG-PATH-07 | UC-04-S02 | 在不同目录准备两个 Template 仓库，分别由两份 Service 配置显式绑定；Instance 保持相同型号 ID/版本 | 只解析 Service 明确指定的仓库；精确 ID/版本校验，不读取其他仓库同名模板 |

@@ -390,8 +390,8 @@ wind-hub 配置统一划分为 **Service、Instance、Template** 三类；分类
 | 类别 | 典型对象 | 目录 | 定义及用途 |
 |---|---|---|---|
 | Service | Collector、Commander、Industrial Gateway、Data Generator、Sink Service、CLI | `configs/services/` | 定义服务监听、授权、资源、运行策略、监控、配置来源及服务专属场景或任务运行参数 |
-| Instance | Site、Device、Sink、Delivery | `configs/instances/` | 定义具有稳定身份或业务关系的具体实例及对模板的引用；真实、仿真设备可用不同文件但遵循同一实例 Schema |
-| Template | Device Model、Protocol、Point Table、Task、Sink、Delivery 模板 | `configs/templates/` 下对应类别目录 | 定义可复用的型号、协议、测点、任务及交付能力或规则 |
+| Instance | Site、Device、Collector Task、Sink、Delivery | `configs/instances/` | 定义具有稳定身份或业务关系的具体实例及对模板的引用；真实、仿真设备可用不同文件但遵循同一实例 Schema |
+| Template | Device Model、Protocol、Point Table、Sink、Delivery 模板 | `configs/templates/` 下对应类别目录 | 定义可复用的型号、协议、测点、任务及交付能力或规则 |
 | Template | Units、Business Points | `configs/templates/` | 定义工程单位和标准业务测点语义，属于公共参考定义 |
 
 **内容归属规则：** Service 规定如何运行；Instance 规定运行对象是谁、引用何种型号或策略；Template 规定可复用对象是什么以及具备何种属性和约束。同一事实只在其权威配置中定义，不跨类别重复维护。
@@ -411,7 +411,7 @@ Configuration Service 的 SQLite 是配置权威，`configs/` 是 CLI 导入的*
 | Core | 提供通用解析、引用、Schema、内容哈希及共享配置对象；不拥有跨模块修订 |
 | Web 相关模块 | 本轮不修改生产代码；后续复用正式管理接口，不绕过 Configuration 发布机制 |
 
-目录中可以同时包含同一配置对象的不同 `file_version`：这些是合法的独立历史候选；**不会因版本号更大自动生效**。Service、Device、DeviceModel 及其他业务引用确定实际有效闭包；同一 `config_type + config_id + file_version` 不得关联两种内容及两套依赖。完整快照中已不存在的对象版本从**当前目录成员视图**移除，不删除 SQLite 内历史不可变版本；如仍被当前生效依赖引用，则整个发布失败。旧版未被当前引用仍可保留在库中供历史重放。
+目录中可以同时包含同一配置对象的不同 `file_version`：这些是合法的独立历史候选；**不会因版本号更大自动生效**。Deployment 选择 Service 和 Instance 版本，Instance 固定引用 Template 版本，共同确定有效闭包；同一 `config_type + config_id + file_version` 不得关联两种内容及两套依赖。完整快照中已不存在的对象版本从**当前目录成员视图**移除，不删除 SQLite 内历史不可变版本；如仍被当前生效依赖引用，则整个发布失败。旧版未被当前引用仍可保留在库中供历史重放。
 
 全量指**提交者的目录内容集合完整**，不是每次重新插入全部数据库行：服务端基于规范化文件内容、逻辑身份和 SHA-256 复用未改变对象，仅变更当前目录视图并递增有效修订。若相同目录与当前发布视图等价，应按幂等语义返回现有修订，不重复广播。正式入口复用一次 `CreateCandidate(documents[])` Unary 请求，传输整个目录清单及全部文件；服务端按完整候选进行校验。若超过明确配置的 gRPC 请求字节或文件数上限，必须拒绝并报告容量错误，**首版不引入分片候选会话**。发布与并发冲突使用 `expected_revision_id` CAS；不允许用全量上传绕过并发保护。
 
@@ -451,7 +451,7 @@ sequenceDiagram
 2. **单事务替换**：只有候选整体合法、CAS 成功才一次性写入不可变版本/目录成员/全局修订；任何失败不影响旧配置视图。目录中文件删除仅改变当前成员集合，历史版本保留。发布成功不能等同模块已生效。
 3. **广播**：**由 Configuration Service** 在 SQLite 提交之后向 `wh.config.changed` 发送最简通知 `{"revision_id":r}`。所有模块建立各自普通 Pub/Sub 订阅，**不能共享 NATS Queue Group**；不维护逐模块发送清单，也不调用 `NotifyConfigRevision` RPC。广播失败不得回滚已提交版本，但必须记录/告警；Core NATS 消息只作提示，并非配置正文或可靠提交证明。
 4. **独立拉取**：模块收到提示后以 Configuration 当前已发布修订为准，调用 `GetConfigBundle` 拉取自身**完整**依赖闭包，检验 manifest、版本与文件哈希，不进行跨修订文件拼接。模块保留经验证的持久化本地快照，完整拉取不等于销毁重建全部运行资源。
-5. **独立应用**：各模块串行化自身配置应用，依据新旧配置比较决定无变化、局部热更新或 `restart_required`；不能通过广播强制跨模块原子切换。某一模块失败/离线不能影响 Configuration 提交或其他模块；每模块独立记录 `seen_revision`、`downloaded_revision`、`effective_revision` 和错误。
+5. **独立应用**：各模块串行化自身配置应用，依据新旧配置比较决定无变化、局部热更新或 `restart_required`；不能通过广播强制跨模块原子切换。某一模块失败/离线不能影响 Configuration 提交或其他模块；每模块对外报告 `target_revision`、`active_revision` 两个有效闭包摘要，诊断日志可保留仓库事件游标和错误。
 6. **丢通知恢复**：模块先建立订阅、再查询当前最新修订；收到多条通知时合并为最新目标；重连及周期（可配置、有限）查询修订并对账。Configuration 不可用时使用合法已验证的本地运行快照；首次没有合法快照则不报告 READY。广播事件乱序/重复不得使模块回退。
 7. **引导边界**：Configuration 服务仅从本地最小启动 YAML 获得 SQLite 与 NATS 连接；业务模块仅从本地/CLI 受控引导获得 `service_id`、Configuration Endpoint、NATS Endpoint、访问令牌来源和缓存位置，其他业务参数统一远端获取。无 TLS 的内部 gRPC 限制在受控隔离网络，敏感操作保留应用令牌授权。
 8. **删除旧契约**：不新增 `NotifyConfigRevision`；先前设计要求的 CLI 逐模块通知和推送/Apply 业务配置路径属于待移除旧实现。复用既有 `CreateCandidate` 和 `PublishCandidate` RPC，将 documents[] 统一解释为**完整目录成员集合**；须同步修改服务器处理语义、CLI、数据库目录视图及测试；严禁以普通增量候选冒充完整目录发布。
@@ -571,7 +571,7 @@ config_sources:
     devices: devices-farm-a
 ```
 
-`instances` 是可选的直接实例文件路径映射，`templates.root` 是可选的模板根目录声明；具体子键、必要性和允许路径由使用它的 Service Schema 约束。不得随意给不支持该字段的配置文件添加 `config_sources`，也不得用它代替 Template 内部的精确版本引用。
+`config_sources.instances` 是 Service 所需实例的逻辑身份映射；其实际版本由 Deployment 清单唯一确定，Service 不得定义 `templates.root`。不得随意给不支持该字段的配置文件添加 `config_sources`，也不得用它代替 Template 内部的精确版本引用。
 
 ### 5.5.2 文件头注释
 

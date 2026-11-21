@@ -2555,7 +2555,7 @@ Commander 专属服务配置为 `configs/services/commander.yaml`。服务配置
 | 配置源 | 类别和用途 | 装载来源及生效 |
 |---|---|---|
 | `commander.yaml` | 服务专属：网络、安全、调度、SQLite、审计及配置入口 | 启动参数明确传入服务配置路径；服务级变更需要重启 |
-| `config_sources.instances.devices` | 直接依赖的共享设备实例文件 | 显式 pathname；设备级安全热更新 |
+| `config_sources.instances.devices` | 设备 Instance 的逻辑身份 | Deployment 选取固定版本，设备级安全热更新 |
 | 模板间接依赖 | Instance 中固定的模板身份及版本 | 按 Deployment 有效闭包解析，不允许 Service 直接声明模板根目录 |
 | 设备型号、协议、点表、业务点和单位模板 | 通过实例和模板引用链到达的间接依赖 | 仅按引用 ID、精确版本及 Core 规则解析，不重复声明路径 |
 
@@ -2626,7 +2626,7 @@ shutdown:
   grace_seconds: 10                   # 正整数；排空超时必须报告失败
 ```
 
-以上参数为本设计的拟定默认值；业务服务自身及 `core.configuration` 所定义的服务级 Schema 必须保持一致。没有显式声明 `config_sources.instances.devices` 或 `config_sources.templates.root` 时直接拒绝启动，不能使用回退值。共享实例与模板使用 `schema_version`、`file_version`、版本引用关系；服务配置不据此自动添加未使用的共享文件。
+以上参数为本设计的拟定默认值；业务服务自身及 `core.configuration` 所定义的服务级 Schema 必须保持一致。没有声明 `config_sources.instances.devices`，或 Deployment 无法解析其固定版本时直接拒绝启动，不能使用回退值。共享实例与模板使用 `schema_version`、`file_version`、版本引用关系；服务配置不据此自动添加未使用的共享文件。
 
 ## 11.3 配置读取、修改与应用
 

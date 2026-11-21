@@ -1039,7 +1039,7 @@ I --> J["分别反馈磁盘版本及逐实例运行结果"]
 
 ### 3.6.3 业务规则
 
-**R05-01 三类配置。** Service 负责进程、内网监听、访问令牌、额度与内存转发限额，正式提交后重启生效；Template 有确定 `schema_version`、不可变 `file_version`；Instance 有确定修订版并引用精确 Template 版本。 Service 必须通过 `config_sources.instances.devices` 指定直接使用的设备实例 pathname，通过 `config_sources.templates.root` 指定公共模板根目录 pathname。两者均为必填；只解析 Instance/Template 的实际引用链，不读取隐式默认实例文件、不扫描或回退默认模板目录。
+**R05-01 三类配置。** Service 负责进程、内网监听、访问令牌、额度与内存转发限额，正式提交后重启生效；Template 有确定 `schema_version`、不可变 `file_version`；Instance 有确定修订版并引用精确 Template 版本。 Service 只通过 `config_sources.instances.devices` 指定设备 Instance 逻辑身份，具体版本由 Deployment 唯一选择；只解析其固定模板依赖闭包，不扫描或回退默认模板目录。
 
 **R05-02 快照与竞争。** Get 读取 DISK/RUNTIME/CANDIDATE 的完整一致文件集；Push 仅验证与暂存；Apply 用候选 ID 和 `expected_revision` 做 CAS，并采用 Gateway 专属文件集合原子提交（公共配置不由 Gateway 改写）。文件提交与实例运行生效必须分别报告。
 
@@ -1754,44 +1754,28 @@ Gateway Service 只引用 devices、gateway_servers 等具体 Instance 的逻辑
 
 ## 11.1 配置文件与权威边界
 
-以现行 Service 配置和总体设计 v1_15 第 5 章为配置权威：`configs/services/industrial_gateway.yaml` 使用 `config_sources` 显式引用共享 `instances/devices.yaml` 与 `templates` 根目录，不包含旧式内嵌 `endpoints`/`point_tables`/`devices`。`services/` 为服务专属配置；`instances/` 和 `templates/` 为跨模块公共配置。
+Gateway Service 只引用 devices 等共享 Instance 的逻辑身份，Deployment 决定具体版本；Device Instance 固定引用设备型号/点表/协议模板。Server 监听和限额仍归 Gateway Service；Instance 不包含仅由某个 Gateway 使用的监听参数。
 
-<p class="table-caption">表 11-1 配置源、路径及权威</p>
-
-| 配置项 | 示例值 | 配置性质与用途 |
-|---|---|---|
-| `configs/services/industrial_gateway.yaml` | 服务启动参数指定的 Service 文件 | Gateway 唯一专属服务配置，含配置源引用、gRPC、Server 监听及控制转发参数 |
-| `config_sources.instances.devices` | `configs/instances/devices.yaml` | **必填**；直接指定公共设备实例文件 pathname；实际文件名可变，不使用默认文件名 |
-| Template 间接来源 | Instance 固定版本的模板引用链 | Service 不声明模板根目录，按有效闭包校验 |
-| 公共设备实例中的 `endpoint` | 由公共文件定义 | 指向实际设备的客户端连接目的端点，**不是** Gateway 协议 Server 的监听端点 |
-| Service `servers[].listen` | 由本 Service 定义 | 工业协议 Server 对外监听地址和端口；一个 Server 仅关联一个实际设备 |
-
-**路径约定：** `config_sources` 中的 pathname 采用相对**仓库/部署配置工作根目录**的路径，例子保留 `configs/` 前缀；部署可以显式设置绝对配置根位置，但解析不得受当前工作目录变化影响。`configs/instances/devices.yaml` 只是示例路径，不能作为缺省值或硬编码回退路径。禁止把 `configs/` 前缀再次拼接成 `configs/configs/`。路径不存在、不允许访问或文件结构不合法时，配置校验失败。
+| 配置项 | 语义 |
+|---|---|
+| `config_sources.instances.devices` | Device Instance 逻辑身份，如 `devices-farm-a` |
+| Deployment 的 instances 选择 | 对该身份固定选择 `file_version` |
+| Device Model / PointTable / Protocol | 从 Instance 的不可变模板引用链解析 |
+| Gateway Service 的 servers / grpc | 本服务独有的监听、映射、管理入口 |
 
 ## 11.2 直接依赖声明与间接模板解析
 
-Service **仅显式声明直接使用的 Instance 文件 pathname 和 Template 根目录 pathname**；不枚举 Instance 间接引用的各型号、协议 Template 文件，也不把公共模板复制到 Service。模板文件具体路径应由公共 Loader（需先改造为支持显式设备实例 pathname）在指定 `templates.root` 内，按公共引用契约的模板 ID、版本逐级解析；禁止扫描目录选择“最近版本”、退回默认模板目录或静默补全缺失的模板。
-
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart TB
-    S[("Service：config_sources")] --> I["读取指定的 instances.devices 文件"]
-    S --> R["确定指定的 templates.root 根目录"]
-    I --> D["读取设备、型号 ID 与版本引用"]
-    D --> L["core.configuration 共享配置装配"]
-    R --> L
-    L --> T["按 ID / 版本逐级解析所需公共模板"]
-    T --> V{"引用、版本、字段映射全部有效？"}
-    V -->|否| E["拒绝候选或启动；报告路径与错误"]
-    V -->|是| G["校验 Server 与设备 1:1 绑定"]
-    G --> P["构建并启动协议 Server"]
+flowchart TD
+  A["Deployment 选定 Gateway Service"] --> B["解析 Service 中 Device Instance 身份"]
+  B --> C["由 Deployment 选定 Device Instance 版本"]
+  C --> D["根据固定 ID / 版本解析模板闭包"]
+  D --> E{"版本、映射、端口及控制权限有效?"}
+  E -->|否| F["拒绝目标，保留已生效配置"]
+  E -->|是| G["热更新资源或等待重启"]
 ```
 
-<p class="figure-caption">图 11-1 Service 直接引用与公共模板间接解析</p>
-
-**实现前置：** 依据总体设计 v1_15、Core v1_35，wind-hub 共享实例/模板引用装配归 `core.configuration`，Core 仅执行调用方指定的通用 YAML/数据处理。`config_sources.instances.devices` 与 `config_sources.templates.root` 的显式来源及引用图须由配置装配边界处理；Gateway 不应扩展 Core 的业务加载接口，也不得自行建立重复的共享引用解析实现。若现有装配入口无法表达显式路径，应在 `configuration` 层解决并同步调用方，不改变 Core 公共接口；禁止 Gateway 自行绕过公共 Loader 实现第二套模板解析。`site.yaml` 未由本服务直接引用且不属于设备型号解析链时不得作为 Gateway 启动必需文件；`units.yaml`、`business_points.yaml` 等公共目录文件仅在设备/点表解析确有依赖时由公共 Loader 解析，不要求 Service 重复声明。不得把固定默认文件误认为 Service 已声明。
-
-加载入口为用户明确指定的 Service 文件：先读取 `config_sources` 并校验两个必填路径，再读取所声明的 Instance 文件，以 `templates.root` 为**唯一**模板解析范围，最后装配 Gateway 设备绑定。除已经由实例或模板声明的引用链外，不自动加载其他公共 Instance 文件。模板解析失败时报告精确引用（源文件、模板 ID、版本及失败原因），而不是选择目录内其他文件。
+任何缺失身份、歧义版本、引用闭包不完整、点表不兼容都应拒绝；Core 负责公共解析与校验，Gateway 负责独立的设备/协议 Server 绑定及控制安全规则。
 
 ## 11.3 Gateway 专属配置完整示例（已实现 Schema）
 
@@ -1835,9 +1819,9 @@ metrics:
 
 | 情形 | 裁决 |
 |---|---|
-| `config_sources.instances.devices` 或 `config_sources.templates.root` 缺失、为空、类型不符 | 拒绝配置；不得补默认目录或文件名 |
-| 指定 Instance 文件、Template 根目录不存在或不可访问 | 拒绝配置；返回带来源路径的错误 |
-| Instance 引用的模板 ID/版本无法在指定根目录解析 | 拒绝配置；不得搜索其他根目录或使用最新版代替 |
+| `config_sources.instances.devices` 缺失或 Deployment 对设备实例选择无效 | 拒绝配置；不得补默认身份或版本 |
+| Deployment 指定的 Instance 版本或固定模板闭包不可检索 | 拒绝配置；报告目标身份与版本 |
+| Instance 引用的模板 ID/版本缺失或内容摘要不匹配 | 拒绝配置，不使用最新推荐版本代替 |
 | 目录中存在未被引用的模板 | 不加载，不因此创建额外设备或 Server |
 | `device_id` 不存在、禁用或重复绑定；`server_id` 重复 | 拒绝候选，不能自动生成设备实例 |
 | 字段、协议地址、控制映射无法由公共配置解析，或跨设备映射 | 拒绝候选；Service 不能自带替代点表 |
@@ -2056,17 +2040,17 @@ tests/
 | UR-01 / UC-01-S02 | Server 已 STOP、客户端未连接，gRPC 更新协议侧只读字段 | `test_gateway_update_when_stopped` | 更新成功；下一次启动后读到最新值；Commander 调用数 0 |
 | UR-01 / UC-01-S02 | gRPC 更新协议侧 command 字段 | `test_gateway_update_command_no_forward` | 字段值更新成功；Commander 调用数 0 |
 | UR-02 / UC-02-S02 | 一个 Server 配置多台实际设备或重复 `device_id` 绑定 | `test_gateway_single_device_binding` | Push 配置拒绝，活动 Server 设备绑定数严格为 1 |
-| UR-05 / UC-05-S02 | Service 中重复定义公共设备/点表、引用不存在的设备模板 | `test_gateway_shared_config_reference` | 拒绝并报告公共引用错误，不产生第二份设备权威 |
-| UR-05 / UC-05-S03 | 公共 `devices.yaml` 的真实设备 Endpoint 与 Server 监听端点语义混用 | `test_gateway_endpoint_role_separation` | Loader 保留真实设备目标端点，Gateway 监听按服务配置独立确定 |
-| UR-05 / UC-05-S03 | Gateway 私有 Apply 尝试改写其他服务引用的共享设备实例 | `test_gateway_shared_config_write_boundary` | 拒绝越权提交，共享文件版本保持不变 |
-| UR-05 / UC-05-S02 | Service 指向自定义文件名的 Instance 及非默认 Template 根目录 | `test_gateway_config_custom_path` | 仅按配置路径读取，按间接模板 ID/版本解析，不加载默认实例 |
-| UR-05 / UC-05-S03 | Service 缺失任一路径、文件不存在、模板根目录引用失配 | `test_gateway_config_missing_source` | Push/启动拒绝，报告明确路径，不回退默认位置 |
-| UR-05 / UC-05-S03 | `templates.root` 切换时旧模板仍在缓存中 | `test_gateway_config_root_switch` | 重新验证指定根目录内引用闭包，不混合新旧根的模板 |
+| UR-05 / UC-05-S02 | Deployment 选择非默认身份的 Device Instance | `test_gateway_config_custom_identity` | 只解析声明的身份和固定版本 |
+| UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
+| UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
+| UR-05 / UC-05-S02 | Deployment 选择非默认身份的 Device Instance | `test_gateway_config_custom_identity` | 只解析声明的身份和固定版本 |
+| UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
+| UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
 | UR-02 / UC-08-S03 | Server 异常退出、desired START 与手动 STOP | `test_gateway_server_restart_policy` | START 自动恢复；STOP 不自动恢复；无重复监听 |
 | UR-03 / UC-03-S02 | 同一工业客户端连续两次写入相同命令值 | `test_gateway_repeat_same_value_write` | 产生两个不同写入事件，分别依映射处理 |
 | UR-03 / UC-03-S03 | 已映射控制跨设备目标与 请求级写回调能力缺失 | `test_gateway_control_mapping_guard` | 配置拒绝；不能让无请求级写回调的控制字段正常启用 |
 | UR-01 / UC-01-S03 | UpdateVariables 混合合法与非法条目 | `test_gateway_partial_update_results` | 逐项响应，合法项生效、非法项不修改；不回滚全部 |
-| UR-05 / UC-05-S03 | 公共 SharedDocumentLoader 固定 devices.yaml 的旧行为 | `test_gateway_loader_custom_instance_path` | Loader 能按 Service 指定 pathname 加载，不回退默认 devices.yaml |
+| UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
 | UR-01 / UC-01-S03 | 多寄存器变量更新与同时读取 | `test_gateway_no_torn_variable_read` | 单变量读值无新旧寄存器撕裂；不同变量不要求原子快照 |
 | UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_21 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
 | UR-01 / UC-01-S02 | token 伪造、过期或未覆盖请求全部目标 | `test_gateway_requires_matching_lease_for_full_batch` | 全批拒绝，零变量改变；已合法占用的无关目标不受影响 |
