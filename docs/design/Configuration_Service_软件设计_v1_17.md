@@ -775,6 +775,7 @@ Configuration 自身由本地独立 Service YAML 引导，不把其数据库访�
 - **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
 
 ### 配置发布操作的原子边界
+按 `GetServiceConfigBundle(deployment_id, service_id, revision_id?)` 查询所选 Service 及不可变 Instance/Template 闭包；返回仓库修订、目标闭包 SHA-256、manifest 及完整 YAML 文档。不存在的 Deployment/Service/Instance 版本不得返回退化闭包。复用 `ConfigYamlDocument`，接口归 Contracts，Configuration 负责实现。
 完整目录中的 Deployment 文件在发布事务中与其所引用 Service/Instance/Template 一起校验；`PublishCandidate` 是唯一提交点，没有独立 Activate RPC。仓库全局修订变更不代表所有服务的目标闭包变更。服务查询应使用部署身份与服务身份精确解析有效闭包；需要重启时由服务持有目标与实际闭包摘要。并发更新以全局目录修订 CAS 串行化，同一 request_id 的请求内容不一致必须拒绝。
 
 

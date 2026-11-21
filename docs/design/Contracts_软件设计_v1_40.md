@@ -917,6 +917,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 - **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
 
 ### Proto 实施决策
+**冻结的目标 RPC**：`GetServiceConfigBundle(GetServiceConfigBundleRequest) returns (GetServiceConfigBundleResponse)`；Request 必填 `deployment_id:string`、`service_id:string`，可选 `revision_id:uint64`（查询已提交仓库修订视图）；Response 包含 `repository_revision_id:uint64`、`target_revision:string`、`manifest_sha256:string`、`files:repeated ConfigYamlDocument`。`files` 包含选定 Service、直接 Instances 和完整固定 Template 闭包，每项保留现有 `ConfigYamlDocument` 的哈希及身份字段。未指定 revision 时读取权威当前已激活 Deployment 选择；不存在部署/服务/实例版本、依赖不全、引用歧义或哈希冲突必须返回明确 gRPC 错误。新 RPC 不负责应用、不返回 active_revision；该字段由对应 Service 的配置状态 RPC 报告。完整目录中 Deployment 的 Schema 与版本准入由 Configuration 实现。
 `configuration_repository.proto` 应增加按 `deployment_id + service_id` 返回目标 `GetServiceConfigBundle`（名称待 Proto 命名检查）的查询，返回目标闭包摘要、对应仓库修订、Service/Instance/Template YAML 文档与每个文档的摘要；`PublishCandidate` 保持唯一事务提交点，Deployment 是上传目录的一种受管配置类型，不增加 `Activate`。`GetCurrentRevision` 仅为全局事件游标。业务服务状态的 `target_revision`、`active_revision` 应归 `common.proto` 公共字段；如果现有字段名称不同，应在全局调用方迁移时清理旧字段并重新生成 pb2/pyi，维护字段号向后兼容边界，不重新分配已占用编号。
 
 

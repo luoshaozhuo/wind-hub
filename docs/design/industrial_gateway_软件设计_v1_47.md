@@ -1748,7 +1748,7 @@ Gateway 管理的当前字段存储是协议适配器的统一数据来源；gRP
 Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
 Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
 
-Gateway Service 只引用 devices、gateway_servers 等具体 Instance 的逻辑身份，版本在 Deployment 里选择。设备和 Server 实例分别通过明确引用链获取 Model、PointTable、Protocol Template；不能直接读取 Service 下的 templates.root。热更新点表与变量映射需要原子交换，不能使安全控制读写在同一事务中混用旧新解释；监听绑定和安全入口变更等待重启。
+Gateway Service 只引用 devices 等共享 Instance 的逻辑身份；`servers` 仍是 Gateway Service 专属运行参数，版本在 Deployment 里选择。设备和 Server 实例分别通过明确引用链获取 Model、PointTable、Protocol Template；不能直接读取 Service 下的 templates.root。热更新点表与变量映射需要原子交换，不能使安全控制读写在同一事务中混用旧新解释；监听绑定和安全入口变更等待重启。
 
 
 
@@ -1842,7 +1842,7 @@ metrics:
 
 ## 11.5 实现状态与适配边界
 
-已验收的 Gateway v1 采用 `SharedDocumentLoader` 显式传入 Instance pathname 和 Template 根目录，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
+历史验收中的 Gateway v1 采用 `SharedDocumentLoader` 显式传入 Instance pathname 和 Template 根目录；该加载方式需迁移到 Deployment 固定版本闭包，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
 
 当前正式接口含 Gateway 19 个入站 RPC（含 CommonService）；Commander→Gateway→Data Generator 仿真链必须以请求级计算步完成证据完成独立验收。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
 

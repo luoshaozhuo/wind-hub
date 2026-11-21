@@ -2495,7 +2495,7 @@ sequenceDiagram
   participant P as SamplePublisher
   participant T as TaskRuntime
   participant G as gRPC Server
-  M->>M: --config 指定唯一 Service 文件（不接受隐式默认 Instance/Template）
+  M->>M: 最小引导提供 deployment_id/service_id，查询完整目标闭包
   M->>M: 查询 Deployment → 解析 Service / Instance / Template 固定版本闭包
   M->>M: 校验引用图、装配／日志／线程池／信号
   M->>A: start()
@@ -2622,7 +2622,7 @@ STOPPED 证明同步 I/O 已结束。
 已生效但进程突然退出后重启又按旧 START
 自动启动。若写入失败，不执行目标操作；若写入成功、实际操作失败，保留新期望状态并报告未收敛。并发手动操作须以
 `OperationRequest.expected_revision` 防止丢失更新；`OperationRequest.id`
-为 Task ID；不应为每次任务启停重写共享模板。
+为 Task ID；操作控制保存在本地运行意图存储，不得改写发布版本。
 
 ```{=html}
 <p class="figure-caption">
@@ -3173,6 +3173,7 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 - **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
 
 ### Collector Task / Device Group 最终配置 Schema（目标）
+人工启停通过已有 Collector 管理 RPC 更新本地持久化运行意图，键为 `task_id + collector_tasks.file_version`，优先于该版本的 `desired_state`；重启恢复同版本的覆盖状态。当 Deployment 选定新的 Collector Task Instance 版本时，该任务的旧版本覆盖状态失效，以新版本 `desired_state` 重新协调。控制记录写入失败不改变实际意图；不写入已发布的 Instance YAML。
 ```yaml
 # configs/instances/devices_farm_a_v1.2.0.yaml
 schema_version: 1
