@@ -35,7 +35,7 @@ def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
     instances = root / "configs" / "instances"
     instances.mkdir()
     (instances / "site_example_site_v1.0.0.yaml").write_text(
-        "schema_version: 1\\nfile_version: '1.0.0'\\n", encoding="utf-8"
+        "schema_version: 1\nfile_version: '1.0.0'\n", encoding="utf-8"
     )
     (root / "configs" / "templates").mkdir()
     selected = {
