@@ -42,7 +42,7 @@ def test_three_scopes_and_unknown_candidate(configs_root) -> None:  # noqa: ANN0
     )
     manager, disk = _manager(service_path)
     assert manager.get("RUNTIME") == manager.get("DISK")
-    assert any(path.startswith("instances/site.yaml") for path in disk)
+    assert any(path.startswith("instances/site_") and path.endswith(".yaml") for path in disk)
     assert any(path.startswith("templates/point_tables/") for path in disk)
     with pytest.raises(GeneratorError, match="candidate not found"):
         manager.get("CANDIDATE", "nope")
@@ -78,7 +78,7 @@ def test_core_shared_files_are_read_only(configs_root) -> None:  # noqa: ANN001
     )
     manager, disk = _manager(service_path)
     core_path = next(
-        path for path in disk if path.startswith("templates/business_points_standard.yaml")
+        path for path in disk if path.startswith("templates/business_points_standard_v")
     )
     tampered = tuple(
         FileContent(
