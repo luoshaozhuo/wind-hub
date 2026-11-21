@@ -193,9 +193,7 @@ async def test_all_seventeen_rpcs_registered_and_callable(pki, grpc_stack) -> No
     # Configuration Repository sole-publisher contract (Deployment activation).
     with pytest.raises(grpc.aio.AioRpcError) as push_rejected:
         await common_dep.PushConfigSnapshot(
-            common_pb2.PushConfigSnapshotRequest(
-                files=disk.files, expected_revision=disk.revision
-            ),
+            common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
             timeout=30,
         )
     assert push_rejected.value.code() == grpc.StatusCode.FAILED_PRECONDITION
