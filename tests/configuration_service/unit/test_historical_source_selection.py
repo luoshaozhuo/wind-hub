@@ -39,9 +39,9 @@ def test_historical_yaml_source_is_bounded_by_requested_revision(tmp_path: Path)
                     (revision, parent, "tester", f"r-{revision}", now),
                 )
             for revision, path, identity, payload in (
-                (1, "instances/site.yaml", "site-v1", original),
-                (3, "archive/site.yaml", "site-v1", renamed),
-                (3, "archive/site_v2.yaml", "site-v2", future),
+                (1, "instances/site_example_site_v1.0.0.yaml", "site-v1", original),
+                (3, "archive/site_example_site_v1.0.0.yaml", "site-v1", renamed),
+                (3, "archive/site_example_site_v2.0.0.yaml", "site-v2", future),
             ):
                 connection.execute(
                     "INSERT INTO revision_files VALUES (?, ?, ?, ?, ?, ?)",
@@ -56,22 +56,22 @@ def test_historical_yaml_source_is_bounded_by_requested_revision(tmp_path: Path)
                 )
 
         assert repository.get_version_source("site-v1", revision_id=1) == (
-            "instances/site.yaml",
+            "instances/site_example_site_v1.0.0.yaml",
             original,
             hashlib.sha256(original).hexdigest(),
         )
         assert repository.get_version_source("site-v1", revision_id=2) == (
-            "instances/site.yaml",
+            "instances/site_example_site_v1.0.0.yaml",
             original,
             hashlib.sha256(original).hexdigest(),
         )
         assert repository.get_version_source("site-v1", revision_id=3) == (
-            "archive/site.yaml",
+            "archive/site_example_site_v1.0.0.yaml",
             renamed,
             hashlib.sha256(renamed).hexdigest(),
         )
         assert repository.get_version_source("site-v1") == (
-            "archive/site.yaml",
+            "archive/site_example_site_v1.0.0.yaml",
             renamed,
             hashlib.sha256(renamed).hexdigest(),
         )
