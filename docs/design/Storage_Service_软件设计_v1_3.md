@@ -622,9 +622,9 @@ System Test 必须遵守以下规定：
 
 ## 3.1 系统边界与基线
 
-Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。**这是用户确认的下一阶段目标契约**：当前 main 的 Contracts v1_38 仍采用 `raw/engineering/business`，且 RAW 为协议驱动解码后的标量；新 `raw` 若表示未解码协议载荷，需要 Sink/Collector 后续联合明确数据载荷类型和传输可行性。本版同步新增 Contracts v1_39 的 Storage RPC 设计，不宣称上游 Producer 已改造。
+Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。Storage 开发分支目前已有 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_40 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
 
-设计目标依照 `main@dc6af967653bf74d274e8302fe70d4a6015f3417`：总体逻辑架构 v1_22、Collector v1_35、Sink v1_70、Contracts v1_38、Configuration Service v1_15。**不修改上游模块生产代码；Storage 专用接口由 Contracts v1_39 定义，Storage 实现 Server，CLI 在编码阶段实现客户端**；本文件同时规定 Storage 自身内部实现目标；新增 Storage 对外接口统一由 Contracts v1_39 定义，并在未来编码阶段生成 Proto。上述设计中若有尚未落地的消息格式或订阅服务，本文件明确列为集成前置，不称作已可运行。
+基准为实际读取的 `design/config-activation-selection-20261121` 分支总体架构 v1_26、Contracts v1_40、Configuration v1_17，以及当前 Storage 开发分支已有的 `src/contracts/storage_service.proto` 与生产实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。跨分支尚未引入的配置查询 RPC 按第 8 章作为独立联调阻断，不能以假接口替代。
 
 ## 3.2 需求清单
 
@@ -633,13 +633,13 @@ Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliab
 | R-01 | 消费 Sink→Kafka Reliable 单点记录；业务等级由记录 `data_level` 指示 | 拒绝不支持的线格式与等级 |
 | R-02 | 以 `wind_farm_id`、`device_type`、`device_id`、`point_table_id` 定位存储归属 | 不靠 Kafka JSON 的 `schema_version` 推断点表版本 |
 | R-03 | TDengine 不存在库、超级表、子表时按需创建，再写数据 | 空数据库首批合法样本入库 |
-| R-04 | 复用 `GetConfigBundle` 一次获取所需的完整版本闭包，验证后原子替换本地配置快照 | 保留同一逻辑配置的多个确定版本，拒绝不完整或哈希冲突闭包 |
-| R-05 | 首次遇到未知 `point_table_id` 立即主动重新拉取当前完整配置闭包 | 拉取后精确匹配原 ID，不自动换成最新点表 |
+| R-04 | 按 `deployment_id/service_id` 获取 Deployment 当前选中的服务有效闭包；验证所有不可变文件、绑定及目标摘要后原子切换 | 不按 `ListConfigs` 推荐版本选择；缺少正式配置 RPC 则阻断联调 |
+| R-05 | 首次遇到未知 `point_table_id` 立即查询可信历史闭包并核验原始 Device/Model/PointTable 身份 | 缺少完整历史证据时暂停分区、不提交 Offset，不替换为当前活动版本 |
 | R-06 | 广播提示、进程启动、配置重连和周期对账触发配置收敛 | 丢广播不永久丢配置更新；独立生效 |
 | R-07 | 数据确认写入后才提交 Kafka Offset；重放必须幂等且不覆盖不相关点位 | 数据库故障、超时、重启无静默丢失 |
 | R-08 | 提供有界历史查询、统计、CSV 导出、备份、诊断 | 真实数据库验证，不以 Mock 代替 |
 | R-09 | 缓存、Kafka 积压、DDL、SQL、查询、导出、备份均有边界 | 资源饱和后可诊断和可恢复 |
-| R-10 | Storage 仅新增自己的代码与测试，不要求改变 Collector/Sink/Contracts/Configuration | 跨模块现有接口不被改写 |
+| R-10 | 本轮仅修改 Storage 的代码、设计、Storage 专属配置与测试；共享接口差异记录为外部依赖 | 不修改 Collector/Sink/Contracts/Configuration/Core/CLI 的生产文件 |
 | R-11 | Storage Service 业务配置声明 TDengine 原生数据库参数，特别是数据最长保留期 `KEEP` | 首次建库准确应用原生参数；不自行开发定时清理器 |
 | R-12 | 启动/重启、服务配置生效后自动对账本模块管理的 TDengine 数据库参数 | 差异可见；支持在线修改者执行受控 `ALTER DATABASE` 并复查 |
 | R-13 | 不可在线修改参数、DDL 失败或结构冲突时停止受影响库的写入，不删库重建 | 故障可诊断，不错误提交 Kafka Offset，不影响无关数据库 |
@@ -800,9 +800,9 @@ $$
 
 **触发**：当前 Kafka Record 的 `point_table_id` 在本地已验证配置快照中不存在。
 
-**流程**：暂停该分区待处理进度 → 通过现有 `ListConfigs` 在一致查询快照下读取 `snapshot_revision_id` → 用现有 `GetConfigBundle(roots[], revision_id, include_dependencies=true)` 完整拉取 Storage 所需闭包 → 验证响应和版本清单 → 原子替换快照 → **再次用原 `point_table_id` 精确查找** → 找到后恢复 UC-01/02。
+**流程**：暂停受影响分区后续提交 → 查找本地不可变历史归档 → 必要时按完整 `point_table_id` 查询历史受管闭包 → 验证 PointTable/DeviceModel/Device Instance 的固定版本及内容摘要 → 持久化可信历史证据并再次匹配原始 `point_table_id` → 找到后恢复 UC-01/02。当前分支缺失历史查询 RPC 时本步骤明确 BLOCKED_EXTERNAL，不回退旧的推荐版本查询。
 
-**业务规则**：本地只有一套完整配置快照，版本索引在快照内部同时覆盖可返回的现行及历史 PointTable；原子替换时不能只保留每个 `config_id` 的最高版本。拉取是整个所需根配置闭包，不是按消息逐个补丁文件。配置版本、全局发布 `revision_id`、Kafka 线格式 `schema_version` 含义不同。
+**业务规则**：Storage 维护一套活动服务闭包和独立累积的历史语义归档；历史检索不替换当前活动 Service。不同固定版本分别建立索引，同一 `config_id` 的历史版本不折叠成最新版本。服务闭包摘要、仓库发布游标和 Kafka 线格式版本各有独立含义。
 
 **关键约束**：重新拉取后仍没有原 ID 时，不采用其他 PointTable 版本、不能凭 `device_type` 猜测字段；保持分区暂停和告警。若最新闭包未包含需要的历史版本，属于配置可获得性/闭包覆盖缺口，不可宣称拉取已解决。
 
@@ -875,7 +875,7 @@ flowchart LR
     STORAGE -->|"批量写入 / 查询"| TD[("TDengine")]
     CFG["Configuration Service"] -->|"修订提示"| N[("NATS Core")]
     N -->|"wh.config.changed"| STORAGE
-    STORAGE -->|"GetConfigBundle"| CFG
+    STORAGE -->|"GetServiceConfigBundle / GetPointTableBundle"| CFG
     CLI["CLI / gRPC Client"] <-->|"管理 / 查询"| STORAGE
 ```
 
@@ -912,7 +912,7 @@ flowchart TB
 
 ## 6.1 统一数据身份及 Kafka 输入
 
-依据 Contracts v1_38 §11.9，目标 Kafka JSON v2 是**每个 SampleItem 一条 Record**，必填身份字段包括：`wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id`、`batch_id`、`point_id`、`sample_id`。记录还含 `data_level`、`business_point_id`、`unit`、`value`、`quality`、`sample_time`、`publish_time`、`receive_time`、`max_staleness_ms`。原样保留 Quality、时间戳和样本身份。
+依据 Storage 开发分支当前 Sink Kafka JSON v2 实现及设计分支 Contracts 的目标线格式，**每个 SampleItem 一条 Record**，必填身份字段包括：`wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id`、`batch_id`、`point_id`、`sample_id`。记录还含 `data_level`、`business_point_id`、`unit`、`value`、`quality`、`sample_time`、`publish_time`、`receive_time`、`max_staleness_ms`。原样保留 Quality、时间戳和样本身份。
 
 - `point_table_id = point_table_<template_id>_v<file_version>`（不含 `.yaml`），例如 `point_table_modbus_wtg_sim_v1.0.0`；**一个 ID 已同时标识点表及版本**。
 - `schema_version=2` 是 Kafka JSON **线格式版本**；`file_version` 是受管 YAML 文件版本；`revision_id` 是 Configuration 全局发布视图版本。三者不可当作 PointTable 数据身份。
@@ -920,7 +920,7 @@ flowchart TB
 - BUSINESS 存储使用标准 `business_point_id` 和标准 `unit`；RAW/PROTOCOL 使用来源 `point_id` 及本等级定义的值/单位身份，不能混写为同一标准业务列。
 - `data_level` 是**数据处理等级**，与 Kafka `schema_version`（消息结构版本）以及 `point_table_id`（不可变解释规则版本）严格分离。
 
-当前 `src/contracts/sample_batch.py` 仍为 v2，而最新设计规定 Collector→Sink v3 和 Kafka 输出 v2。Storage 设计以目标 Kafka JSON v2 为输入，但**这不是当前 Sink 已经输出的格式**；部署前需要证明实际 Kafka Record 符合该既定目标契约。本轮不修改 Sink 生产代码或既有 Kafka 契约；仅在 Contracts v1_39 中新增 Storage 专属 RPC。
+Storage 开发分支已有 SampleBatch v3、Sink Kafka JSON v2 的实现；最终准出仍需真实数据链及运行配置证明。独立配置设计分支 Contracts v1_40 尚有 `engineering` 的旧表述，与当前生产枚举不一致，作为外部契约冲突登记。本轮不修改 Sink 或共享 Contracts。
 
 ## 6.2 PointTable 与版本索引
 
@@ -1526,7 +1526,7 @@ Kafka 记录过期、Offset 越界或 Broker 删除尚未消费数据时报告�
 
 ## 11.5 缺失配置与热更新并发
 
-收到未知 `point_table_id` 时先查本地当前完整配置快照，再通过现有 `ListConfigs` 修订获取路径及 `GetConfigBundle` 完整拉取、校验、原子替换后重试精确查找。**最新配置不等于最新点表可替代历史点表**；完整返回仅保证请求 roots 的固定依赖闭包，不保证任意历史 PointTable 全库可见。缺少目标版本时拒绝解释，不能改用当前推荐版本。
+收到未知 `point_table_id` 时先查本地不可变历史归档，再按当前正式可用的历史闭包查询能力取得固定版本及设备绑定证据；成功验证后只补充历史索引，不改变活动 Service 版本。**当前发布配置不等于可以替换历史点表**；历史查询 RPC 在本开发分支缺失时保持受影响 Partition/Offset 阻断，绝不退回推荐版本或猜测身份。
 
 配置切换时每个批次固定引用一个已验证快照代际，不能中途换单位/类型。配置失效期间，若现有快照包含消息所需不可变闭包，可依旧代际完成当前数据写入；若需新的库策略而无法验证，禁止该库写入。拉取单飞、退避有上限；快照落盘和 CURRENT 指针切换须可断电恢复。
 
@@ -1578,7 +1578,7 @@ stateDiagram-v2
 
 ## 12.1 对外接口范围
 
-Storage 专用 RPC 唯一权威以 Contracts v1_40 第 14 章及后续冻结版本为准，正式文件位于 src/contracts/storage_service.proto。Storage 只实现服务端，严禁重复维护独立的请求/响应结构。跨模块配置选择及状态字段统一修改 src/contracts，Storage 只实现自身 RPC。通用服务状态、诊断等优先复用既有 Common 接口模型，具体实现按现有 Proto 确认，不凭空增加重复接口。
+Storage 对外 RPC 以当前分支 `src/contracts/storage_service.proto` 与 `src/contracts/common.proto` 为唯一可执行权威；参考设计分支 Contracts v1_40 用于识别新增配置目标而不是宣称当前已部署。Storage 只实现既有 Server，禁止自行复制/拓展共享 Proto。Config/状态目标字段不在现有共享接口时标记外部前置，不通过私有扩展假造已支持。
 
 | 业务组 | 计划操作 | 输出 |
 |---|---|---|
@@ -1897,7 +1897,7 @@ $$
 | T-12 | 配置哈希冲突/非法单位 | 拒绝解释并阻断入库 |
 | T-13 | Query/Aggregate/CSV/Backup | 实库读回、边界控制及任务恢复 |
 | T-14 | 完整 E2E | DG→Gateway→Collector→NATS→Sink→Kafka→Storage→TDengine 真实比对 |
-| T-15 | Kafka JSON v1 与目标 v2 | 旧格式不得被误读作 v2；目标未上线则明确 NOT_RUN |
+| T-15 | Kafka JSON v1 与当前严格 v2 | 旧格式必须拒绝；当前 Sink v2 需由真实 Producer Record 与 Storage 入库验证，未实测不能 PASS |
 | T-16 | 首次建库原生 KEEP、DURATION、PRECISION | 生成 DDL，回读实际数据库参数符合配置 |
 | T-17 | 重启后已有库 KEEP 不一致 | 授权条件下 `ALTER DATABASE` 成功，回读一致，保持全部已有表 |
 | T-18 | 配置热更新 CACHEMODEL/CACHESIZE | 仅变更有差异参数，复查后恢复受影响库写入 |
@@ -2035,7 +2035,7 @@ $$
 
 ## 16.1 权威与可执行边界
 
-本章为 v1_0 规范性决策。旧章节中标作候选的实现事项以本章为准；其他章节没有被覆盖的需求继续有效。Storage 专用 RPC 的请求、响应、字段号、权限和错误码只在 Contracts v1_39 第 14 章定义，Storage 负责实现。上游 Kafka 目标 raw/protocol/business 仍未正式成为 Sink 生产输出；目前 raw/engineering/business 不能被 Storage 当作同义数据。未完成上游迁移时仅运行严格目标格式的 Storage 集成测试，完整端到端结果标 NOT_RUN。
+本章规定 v1_3 的实现与验收冻结边界；若本章与第 8/13 章发生冲突，以新配置闭包及分级安全策略为准。Storage 专用 RPC 由本开发分支现有 `src/contracts/storage_service.proto` 唯一定义，Storage 只实现服务端。当前 Sink 已有 Kafka JSON v2 生产实现但 E2E 尚未全面收口；`raw/engineering/business` 与 `raw/protocol/business` 不可自动互通，历史/配置查询接口缺失也不允许降级绕过。
 
 ## 16.2 冻结 TDengine 物理模型
 
@@ -2189,7 +2189,7 @@ Repository `revision_id` 仅做游标；目标和活动闭包摘要使用 §8.2 
 | G-03 配置 | 未知 PointTable 全量重拉、历史不可变归档、断电恢复和旧版本精确回放 |
 | G-04 Contracts | 第 14 章唯一 Proto 权威，正式生成物/CLI 只用生成 Stub，权限和错误矩阵可执行 |
 | G-05 安全与运行 | 无 TLS/mTLS，按风险分级授权、脱敏状态可选免令牌；受限 SQL/路径、单实例启动拒绝多主 |
-| G-06 E2E | Unit/Component/Integration/System 对应测试证据；未改造的 Sink 格式全链标 NOT_RUN |
+| G-06 E2E | Unit/Component/Integration/System 对应真实证据；Sink v2 线格式和身份链完整验证，外部阻断逐项注明 |
 | G-07 质量 | ruff、mypy、lint-imports、pytest、proto 一致性独立复测，无伪造 PASS |
 
 **S1 设计收口结论：READY_FOR_S2（仅限 Storage 范围，外部接口联调仍受阻）。C2 仍未满足准出条件。** G-01 的真实 TDengine 3.3.6.13 定向验证已有独立报告；G-02、G-03 必须在完成 Deployment 统一配置契约、数据等级统一、完整 E2E 与故障注入后重新验收。ChatGPT 负责全部生产代码设计、集中开发和缺陷修复；Claude Code 只承担独立审查、测试、Fixture 及小范围修复。未经指令不创建 PR、不合并 main。
