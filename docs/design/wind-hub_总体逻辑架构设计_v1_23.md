@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_22 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_23 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -317,6 +317,19 @@ Configuration Service 统一持有全局候选、不可变版本和已发布修�
 业务模块之间的协作使用 RPC、消息或规定的工业协议；静态依赖不能由运行时箭头推断。
 
 # 5. Configuration 统一配置体系
+
+### 2026-11-21 统一配置契约（规范性修订）
+旧版 Service 直接声明模板目录、固定版本 Instance 路径以及推荐版本自动切换的描述均废止；编码阶段应同步清理旧字段和调用方。
+1. 配置依赖为 Service → Instances → Templates。Service 仅引用 Instance 逻辑身份、不引用 Template；Instance 固定引用不可变 Template ID 和版本；禁止 latest 漂移引用。
+2. CLI 继续全量发布；Configuration 保存不可变版本、部署选择与全局发布修订。Deployment 依据部署域明确选择 Service/Instance 的版本；发布新版本不自动激活。
+3. Deployment 修改采用 CAS、request_id 幂等和闭包校验。Service 启动、收到广播及周期对账时读取自己的目标配置和固定模板闭包，验证内容摘要。离线 Service 不阻断其他服务。
+4. Service 自行决定热更新或等待重启；相关配置按照一致性单元切换，失败保留可用配置。回滚仅调整 Deployment 指向的已有版本。
+5. 状态报告 target_revision 和 active_revision，二者表示服务的完整有效闭包而非单独 Service 文件版本。部分热更新不能报告完全收敛，无关模块修改不能引起虚假不一致。
+6. Configuration 自身引导配置本地独立，避免自引用循环。
+
+Deployment 是版本选择表；Service 引用 devices-farm-a、collector-tasks-a 等实例逻辑身份，Deployment 唯一解析为固定版本。Task 属于 Collector 专属 Instance；Device Instance 增加 group，Device Model 不含 Task。
+
+
 
 ## 5.1 配置对象与分类
 

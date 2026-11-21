@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_39 · 20261119 · Storage RPC 接口扩展</p>
+<p class="subtitle">v1_40 · 20261119 · Storage RPC 接口扩展</p>
 
 <style>
 body {
@@ -906,6 +906,19 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 `ModelVariable` 包含 `point_id,business_point_id,data_type,unit,role,writable,optional minimum/maximum,description,source`。`source=POINT_TABLE` 对设备点表生效；独立 `WEATHER_INPUT` 的 `business_point_id` 可为空，不能错误继承点表版本。`point_table_version` 表示设备当前点表版本而非天气 Schema 版本。`UpdateVariables` 必须拒绝非输入、不可写、重复、越界及非法值；合法输入依 `effective_step` 在模拟时间步生效，`GetInputExecution` 返回 PENDING/APPLIED/UNKNOWN 证据；不通过响应确认替代实际物理步执行。
 
 # 10. Configuration Repository 新增接口契约
+
+### 2026-11-21 统一配置契约（规范性修订）
+旧版 Service 直接声明模板目录、固定版本 Instance 路径以及推荐版本自动切换的描述均废止；编码阶段应同步清理旧字段和调用方。
+1. 配置依赖为 Service → Instances → Templates。Service 仅引用 Instance 逻辑身份、不引用 Template；Instance 固定引用不可变 Template ID 和版本；禁止 latest 漂移引用。
+2. CLI 继续全量发布；Configuration 保存不可变版本、部署选择与全局发布修订。Deployment 依据部署域明确选择 Service/Instance 的版本；发布新版本不自动激活。
+3. Deployment 修改采用 CAS、request_id 幂等和闭包校验。Service 启动、收到广播及周期对账时读取自己的目标配置和固定模板闭包，验证内容摘要。离线 Service 不阻断其他服务。
+4. Service 自行决定热更新或等待重启；相关配置按照一致性单元切换，失败保留可用配置。回滚仅调整 Deployment 指向的已有版本。
+5. 状态报告 target_revision 和 active_revision，二者表示服务的完整有效闭包而非单独 Service 文件版本。部分热更新不能报告完全收敛，无关模块修改不能引起虚假不一致。
+6. Configuration 自身引导配置本地独立，避免自引用循环。
+
+Deployment 版本选择与服务闭包查询接口归 src/contracts/configuration_repository.proto，Configuration 实现。复用现有候选发布、修订查询与 bundle 能力；必要的新增 RPC 应规定 CAS、request_id、部署身份、闭包哈希及错误。服务状态两个修订字段归共享 Contracts，不另设激活 RPC。
+
+
 
 ## 10.1 状态与权威来源
 

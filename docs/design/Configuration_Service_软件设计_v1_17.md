@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_16 · 20261119 · 全量目录事务与不可变配置版本</p>
+<p class="subtitle">v1_17 · 20261119 · 全量目录事务与不可变配置版本</p>
 
 <style>
 body {
@@ -764,6 +764,19 @@ Configuration 是全系统唯一权威配置库，SQLite 保存发布修订、�
 Configuration 自身由本地独立 Service YAML 引导，不把其数据库访问参数存入正在启动的 SQLite。存储、Collector、Sink 和业务管理模块必须使用正式的配置读接口，无权隐式写入版本库。
 
 ## 3.2 UR-01 完整目录配置发布
+
+### 2026-11-21 统一配置契约（规范性修订）
+旧版 Service 直接声明模板目录、固定版本 Instance 路径以及推荐版本自动切换的描述均废止；编码阶段应同步清理旧字段和调用方。
+1. 配置依赖为 Service → Instances → Templates。Service 仅引用 Instance 逻辑身份、不引用 Template；Instance 固定引用不可变 Template ID 和版本；禁止 latest 漂移引用。
+2. CLI 继续全量发布；Configuration 保存不可变版本、部署选择与全局发布修订。Deployment 依据部署域明确选择 Service/Instance 的版本；发布新版本不自动激活。
+3. Deployment 修改采用 CAS、request_id 幂等和闭包校验。Service 启动、收到广播及周期对账时读取自己的目标配置和固定模板闭包，验证内容摘要。离线 Service 不阻断其他服务。
+4. Service 自行决定热更新或等待重启；相关配置按照一致性单元切换，失败保留可用配置。回滚仅调整 Deployment 指向的已有版本。
+5. 状态报告 target_revision 和 active_revision，二者表示服务的完整有效闭包而非单独 Service 文件版本。部分热更新不能报告完全收敛，无关模块修改不能引起虚假不一致。
+6. Configuration 自身引导配置本地独立，避免自引用循环。
+
+新增 Deployment 选择事务、版本唯一性、CAS、引用闭包校验；SetRecommendedVersion 只作推荐元数据。广播仅通知，服务轮询补偿。按部署和服务身份返回配置闭包。
+
+
 
 ### 3.2.1 触发、输入和输出
 
