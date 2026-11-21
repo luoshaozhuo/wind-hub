@@ -143,7 +143,11 @@ class DeploymentObserver:
         try:
             bundle = await self.fetch()
             self.repository_revision = bundle.repository_revision
-            if bundle.target_revision == self.target_revision and not self.last_error:
+            if (
+                bundle.target_revision == self.target_revision
+                and self.active_revision == self.target_revision
+                and not self.last_error
+            ):
                 return
             self.target_revision = bundle.target_revision
             complete = await apply(bundle)
@@ -173,11 +177,14 @@ class DeploymentObserver:
                         async def on_notice(_message: object) -> None:
                             wake.set()
 
+                        async def on_reconnect() -> None:
+                            wake.set()
+
                         client = await nats.connect(
                             servers=self.nats_servers,
                             connect_timeout=2,
                             max_reconnect_attempts=-1,
-                            reconnected_cb=wake.set,
+                            reconnected_cb=on_reconnect,
                         )
                         await client.subscribe("wh.config.changed", cb=on_notice)
                     except Exception:
