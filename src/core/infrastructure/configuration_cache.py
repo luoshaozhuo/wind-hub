@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -66,9 +67,17 @@ def stage_selected_bundle(
         if instance.config_type != kind or instance.config_id != config_id:
             raise ValueError("Repository Instance identity mismatch")
         selected.setdefault(kind, {})[config_id] = {"file_version": instance.file_version}
+    # This synthesized local selector must match the process's explicit
+    # bootstrap Deployment version; it is not a new Repository publication.
+    manifest_version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0")
+    if not re.fullmatch(
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+        manifest_version,
+    ):
+        raise ValueError("invalid cached Deployment version")
     manifest = {
         "schema_version": 1,
-        "file_version": "1.0.0",
+        "file_version": manifest_version,
         "deployment_id": deployment_id,
         "services": {
             service_id: {
@@ -101,7 +110,7 @@ def stage_selected_bundle(
                 os.fsync(stream.fileno())
         manifests = configs / "deployments"
         manifests.mkdir(parents=True, exist_ok=True)
-        manifest_path = manifests / f"deployment_{deployment_id}_v1.0.0.yaml"
+        manifest_path = manifests / f"deployment_{deployment_id}_v{manifest_version}.yaml"
         with manifest_path.open("x", encoding="utf-8") as stream:
             yaml.safe_dump(manifest, stream, allow_unicode=True, sort_keys=False)
             stream.flush()
