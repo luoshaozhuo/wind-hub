@@ -217,10 +217,11 @@ async def real_runtime(tmp_path: Path, request: pytest.FixtureRequest) -> Any:
     farm = "c2-t5-" + request.node.name.replace("test_", "")[:130] + uuid.uuid4().hex[:12]
     config = StorageConfig.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "file_version": "1.0.0",
             "service_id": "storage-c2-t5",
             "allowed_wind_farms": [farm],
+            "config_sources": {"instances": {"site": "site-c2-t5", "devices": "device-c2-t5"}},
             "kafka": {
                 "bootstrap_servers": "127.0.0.1:9092",
                 "topic": "windhub-history",

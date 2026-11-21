@@ -85,9 +85,12 @@ def _bundle(
         deployment_id="prod-a",
         target_revision=hashlib.sha256(
             json.dumps(
-                [config.model_dump(mode="json") if config else _config().model_dump(mode="json"),
-                 sorted(tables.items())],
-                sort_keys=True, default=str,
+                [
+                    config.model_dump(mode="json") if config else _config().model_dump(mode="json"),
+                    sorted(tables.items()),
+                ],
+                sort_keys=True,
+                default=str,
             ).encode()
         ).hexdigest(),
         point_table_versions=tables,
@@ -163,13 +166,8 @@ class _Fetcher:
     ) -> tuple[RepositoryDocument, ...]:
         for document in self.documents.values():
             raw = yaml.safe_load(document.yaml_bytes)
-            if (
-                f"point_table_{document.config_id}_v{raw['file_version']}"
-                == point_table_id
-            ):
-                self.calls.append(
-                    (document.config_type, document.config_id, document.version_id)
-                )
+            if f"point_table_{document.config_id}_v{raw['file_version']}" == point_table_id:
+                self.calls.append((document.config_type, document.config_id, document.version_id))
                 if self.failure is not None:
                     raise self.failure
                 return (document,)
@@ -220,9 +218,7 @@ class _Client:
     async def get_current_revision(self) -> int:
         return self.bundles[0].revision_id
 
-    async def fetch_service_bundle(
-        self, *, deployment_id: str, service_id: str
-    ) -> StorageBundle:
+    async def fetch_service_bundle(self, *, deployment_id: str, service_id: str) -> StorageBundle:
         assert deployment_id == "prod-a"
         assert service_id == "storage-main"
         self.calls += 1
@@ -398,7 +394,9 @@ async def test_yaml_identity_and_same_revision_mutation_are_rejected(tmp_path: P
         resolver=resolver,
         active=_bundle(1, {OLD: ("turbine", "v1")}),
     )
-    with pytest.raises(ConfigHistoryUnavailableError, match="changed an immutable revision"):
+    with pytest.raises(
+        ConfigHistoryUnavailableError, match="changed an immutable repository revision"
+    ):
         await watcher.refresh_now()
     assert watcher.status == "CONFIG_HISTORY_UNAVAILABLE"
     assert metadata.pins == {}

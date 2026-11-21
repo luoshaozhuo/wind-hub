@@ -36,8 +36,11 @@ def _document(
         yaml_sha256=hashlib.sha256(data).hexdigest(),
         content_sha256=hashlib.sha256(
             json.dumps(
-                content, sort_keys=True, ensure_ascii=False,
-                separators=(",", ":"), allow_nan=False,
+                content,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
             ).encode("utf-8")
         ).hexdigest(),
         relative_path=f"{kind}/{config_id}_{version}.yaml",
@@ -51,38 +54,55 @@ def _files() -> list[pb.ConfigYamlDocument]:
     return [
         _document("service", "storage-main", "1.1.0", service),
         _document(
-            "site", "example_site", "1.0.0",
+            "site",
+            "example_site",
+            "1.0.0",
             {"schema_version": 1, "file_version": "1.0.0", "site_id": "farm-a"},
         ),
         _document(
-            "device", "farm-a", "1.0.0",
+            "device",
+            "farm-a",
+            "1.0.0",
             {
-                "schema_version": 1, "file_version": "1.0.0",
+                "schema_version": 1,
+                "file_version": "1.0.0",
                 "devices": {"WTG01": {"model": {"id": "model", "version": "1.0.0"}}},
             },
         ),
         _document(
-            "device_model", "model", "1.0.0",
+            "device_model",
+            "model",
+            "1.0.0",
             {
-                "schema_version": 1, "file_version": "1.0.0",
-                "template_id": "model", "device_type_id": "turbine",
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "template_id": "model",
+                "device_type_id": "turbine",
                 "point_table": {"id": "shared", "version": "1.0.0"},
             },
         ),
         _document(
-            "point_table", "shared", "1.0.0",
+            "point_table",
+            "shared",
+            "1.0.0",
             {
-                "schema_version": 1, "file_version": "1.0.0",
-                "template_id": "shared", "device_type": "turbine",
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "template_id": "shared",
+                "device_type": "turbine",
                 "points": {"power": {"unit": "kW"}},
             },
         ),
         _document(
-            "business_points", "standard", "1.0.0",
+            "business_points",
+            "standard",
+            "1.0.0",
             {"schema_version": 1, "file_version": "1.0.0"},
         ),
         _document(
-            "units", "standard", "1.0.0",
+            "units",
+            "standard",
+            "1.0.0",
             {"schema_version": 1, "file_version": "1.0.0"},
         ),
     ]
@@ -99,8 +119,10 @@ def _service_response(
             manifest.update(encoded)
     closure = [
         (
-            doc.config_id.config_type, doc.config_id.config_id,
-            doc.file_version, doc.content_sha256,
+            doc.config_id.config_type,
+            doc.config_id.config_id,
+            doc.file_version,
+            doc.content_sha256,
         )
         for doc in documents
     ]
@@ -153,9 +175,7 @@ async def test_deployment_service_bundle_has_exact_selected_identity(
         archive=archive,
     )
     client._stub = cast(Any, _Stub(_service_response(_files())))
-    bundle = await client.fetch_service_bundle(
-        deployment_id="prod-a", service_id="storage-main"
-    )
+    bundle = await client.fetch_service_bundle(deployment_id="prod-a", service_id="storage-main")
     assert bundle.deployment_id == "prod-a"
     assert len(bundle.target_revision) == 64
     assert bundle.revision_id == 10
@@ -179,9 +199,7 @@ async def test_service_bundle_rejects_wrong_closure_sha(
     )
     client._stub = cast(Any, _Stub(_service_response(_files(), bad_target=True)))
     with pytest.raises(ConfigHistoryUnavailableError, match="digest mismatch"):
-        await client.fetch_service_bundle(
-            deployment_id="prod-a", service_id="storage-main"
-        )
+        await client.fetch_service_bundle(deployment_id="prod-a", service_id="storage-main")
     assert not archive.saved
 
 
@@ -190,7 +208,8 @@ async def test_historical_point_table_bundle_requires_exact_manifest(
 ) -> None:
     monkeypatch.setenv("TEST_CONFIGURATION_TOKEN", "x" * 40)
     docs = [
-        doc for doc in _files()
+        doc
+        for doc in _files()
         if doc.config_id.config_type in {"point_table", "business_points", "units"}
     ]
     entries = [
@@ -204,15 +223,14 @@ async def test_historical_point_table_bundle_requires_exact_manifest(
         }
         for doc in docs
     ]
-    entries.sort(
-        key=lambda item: (
-            item["config_type"], item["config_id"], item["version_id"]
-        )
-    )
+    entries.sort(key=lambda item: (item["config_type"], item["config_id"], item["version_id"]))
     digest = hashlib.sha256(
         json.dumps(
-            entries, sort_keys=True, ensure_ascii=False,
-            separators=(",", ":"), allow_nan=False,
+            entries,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
         ).encode()
     ).hexdigest()
 
@@ -299,9 +317,7 @@ async def test_service_bundle_rejects_malformed_semantic_documents_before_archiv
     )
     client._stub = cast(Any, _Stub(_service_response(docs)))
     with pytest.raises(ConfigHistoryUnavailableError):
-        await client.fetch_service_bundle(
-            deployment_id="prod-a", service_id="storage-main"
-        )
+        await client.fetch_service_bundle(deployment_id="prod-a", service_id="storage-main")
     assert archive.saved == []
 
 
@@ -310,7 +326,11 @@ def test_service_v2_only_allows_module_configuration_inside_service() -> None:
         (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
     assert set(document) == {
-        "schema_version", "file_version", "service_id", "config_sources", "service"
+        "schema_version",
+        "file_version",
+        "service_id",
+        "config_sources",
+        "service",
     }
     config = load_storage_config(yaml.safe_dump(document).encode())
     assert config.service_id == "storage-main"

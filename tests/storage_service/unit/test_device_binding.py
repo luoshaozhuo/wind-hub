@@ -391,16 +391,12 @@ def test_bundle_rejects_incomplete_or_mismatched_device_closure(
     changes: dict[str, str], expected: str
 ) -> None:
     with pytest.raises(ConfigHistoryUnavailableError, match=expected):
-        _parse_device_closure(
-            _raw_closure(**changes), site_id="site", devices_id="fleet"
-        )
+        _parse_device_closure(_raw_closure(**changes), site_id="site", devices_id="fleet")
 
 
 def test_deployment_missing_selected_instance_rejected() -> None:
     with pytest.raises(ConfigHistoryUnavailableError, match="missing or ambiguous"):
-        _parse_device_closure(
-            _raw_closure(), site_id="unknown", devices_id="fleet"
-        )
+        _parse_device_closure(_raw_closure(), site_id="unknown", devices_id="fleet")
 
 
 def test_bundle_retains_multiple_instances_from_one_versioned_device_document() -> None:

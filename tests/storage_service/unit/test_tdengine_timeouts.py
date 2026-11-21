@@ -106,10 +106,11 @@ class _Module:
 def _config(connections: int = 1) -> StorageConfig:
     return StorageConfig.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "file_version": "1.0.0",
             "service_id": "storage-timeout-test",
             "allowed_wind_farms": ["farm"],
+            "config_sources": {"instances": {"site": "site-timeout", "devices": "device-timeout"}},
             "kafka": {
                 "bootstrap_servers": "127.0.0.1:9092",
                 "topic": "history",
