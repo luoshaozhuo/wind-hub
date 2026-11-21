@@ -13,15 +13,27 @@ from commander.infrastructure.persistence.event_repository import EventRepositor
 from core.application.protocol_registry import ProtocolRegistry
 
 
+class CommanderSettingsSource:
+    """Select a validated immutable Service path for each reload."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def __call__(self):
+        return load_service_settings(self.path)
+
+
 def build_commander(
     *,
     service_config: Path,
     protocol_registry: ProtocolRegistry,
+    settings_source: CommanderSettingsSource | None = None,
 ) -> CommanderService:
     """Build an inert service after recovering interrupted configuration commits."""
     config_path = service_config.resolve(strict=True)
     recover_config_commit(config_path.parent.parent)
-    settings = load_service_settings(config_path)
+    source = settings_source or CommanderSettingsSource(config_path)
+    settings = source()
     audit_transport = NatsAuditTransport(
         settings.nats_servers,
         stream=settings.audit_stream,
@@ -32,7 +44,7 @@ def build_commander(
         simulation_factory=GatewaySimulationSession,
         native_session_factory=protocol_registry.create,
         audit_transport=audit_transport,
-        settings_loader=lambda: load_service_settings(config_path),
+        settings_loader=source,
         journal_factory=lambda current: EventRepository(
             current.sqlite_path,
             max_storage_bytes=current.max_storage_bytes,

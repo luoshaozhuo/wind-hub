@@ -114,6 +114,8 @@ class CommanderService:
         self._watchdog: asyncio.Task[None] | None = None
         self._recovered = 0
         self._restart_required = False
+        self.target_revision = ""
+        self.active_revision = ""
         self._cleanup_interval = 60.0
         self._storage_admission_limit = 0.0
         self._shutdown_grace = 10.0
