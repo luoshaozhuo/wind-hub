@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -595,5 +596,40 @@ async def test_unrelated_repository_revision_does_not_rewrite_storage_snapshot(
 
     assert watcher.status == "READY"
     assert client.calls == 1
+    assert metadata.pins == {}
+    assert snapshot.stored == []
+
+
+async def test_rejected_device_model_rebinding_is_not_persisted(
+    tmp_path: Path,
+) -> None:
+    pins = {OLD: ("turbine", "v1")}
+    active = _bundle(1, pins)
+    original = active.device_bindings[0]
+    conflicting = replace(
+        original,
+        model=replace(original.model, device_type_id="different"),
+    )
+    updated = StorageBundle(
+        configuration=active.configuration,
+        revision_id=2,
+        point_table_versions=pins,
+        business_points_pin=None,
+        device_bindings=(conflicting,),
+    )
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=active.device_bindings,
+    )
+    watcher, metadata, snapshot = _watcher(
+        client=_Client(updated), resolver=resolver, active=active
+    )
+
+    with pytest.raises(ConfigHistoryUnavailableError, match="DeviceModel version was rebound"):
+        await watcher.refresh_now()
+
+    assert watcher.status == "CONFIG_HISTORY_UNAVAILABLE"
     assert metadata.pins == {}
     assert snapshot.stored == []
