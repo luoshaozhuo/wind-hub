@@ -7,6 +7,7 @@ another Deployment when its explicitly selected dependency is missing.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,7 +87,16 @@ def select_local_service(
     file_version = raw.get("file_version")
     if not isinstance(service_id, str) or not isinstance(file_version, str):
         raise ValueError("Service identity and version are required")
-    selected_id = deployment_id or os.environ.get("WIND_HUB_DEPLOYMENT_ID")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", service_id):
+        raise ValueError("invalid Service identity")
+    if not re.fullmatch(
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+        file_version,
+    ):
+        raise ValueError("invalid Service file version")
+    if service_path.name != f"service_{service_id}_v{file_version}.yaml":
+        raise ValueError("Service file name differs from its identity and version")
+    selected_id = deployment_id if deployment_id is not None else os.environ.get("WIND_HUB_DEPLOYMENT_ID")
     if selected_id is not None and (
         not isinstance(selected_id, str)
         or not selected_id
@@ -103,6 +113,9 @@ def select_local_service(
         if not isinstance(payload, dict):
             raise ValueError("Deployment must be a mapping")
         selected = parse_deployment(payload)
+        selected_version = payload["file_version"]
+        if checked.name != f"deployment_{selected.deployment_id}_v{selected_version}.yaml":
+            raise ValueError("Deployment filename differs from selected identity/version")
         if selected.deployment_id != selected_id and selected_id is not None:
             continue
         service = selected.services.get(service_id)
@@ -133,6 +146,8 @@ def select_local_service(
         instance = read_yaml(instance_path)
         if not isinstance(instance, dict) or instance.get("file_version") != selection.file_version:
             raise ValueError(f"Instance header does not match selected version: {role}")
+        if type(instance.get("schema_version")) is not int or instance["schema_version"] != 1:
+            raise ValueError(f"unsupported selected Instance schema: {role}")
         instances[role] = instance_path
     templates = root / "templates"
     if templates.is_symlink() or not templates.is_dir():
