@@ -61,14 +61,16 @@ def main() -> None:
                 selected_observer.deployment_id,
                 selected_observer.service_id,
             )
+            # Target is a verified published closure, not an Apply outcome.
+            service.target_revision = bundle.target_revision
             previous = source.path
             source.path = cached
             try:
                 report = await service.reload()
-            except Exception:
+            finally:
+                # Never leave a live SettingsLoader pointing at a pending
+                # generation. A future reload must select it explicitly.
                 source.path = previous
-                raise
-            service.target_revision = bundle.target_revision
             if report.blocked or report.restart_required:
                 return False
             service.active_revision = bundle.target_revision
