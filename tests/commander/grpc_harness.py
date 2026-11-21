@@ -55,11 +55,10 @@ def _service_yaml(
     return f"""\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: farm-a
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -142,9 +141,6 @@ protocol:
   version: 1.1.0
 point_table:
   id: modbus_wtg
-  version: 1.0.0
-task:
-  id: turbine_all
   version: 1.0.0
 """
 
@@ -381,14 +377,26 @@ async def build_stack(
     ``service/config/instances/devices.yaml``。
     """
     service_dir = tmp_path / "service"
-    root = service_dir / "config"
+    root = service_dir / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     db_path = service_dir / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     stream = audit_stream or f"{stream_prefix}_{uuid.uuid4().hex[:12]}"
     subject = audit_subject or f"commander.{label}.{uuid.uuid4().hex[:8]}"
-    yaml_path = service_dir / "commander.yaml"
+    yaml_path = root / "services" / "service_commander_v1.0.0.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    deployment_path = root / "deployments" / "deployment_commander-test_v1.0.0.yaml"
+    deployment_path.parent.mkdir(parents=True, exist_ok=True)
+    deployment_path.write_text(
+        "schema_version: 1\nfile_version: '1.0.0'\n"
+        "deployment_id: commander-test\n"
+        "services:\n  commander:\n    config_id: commander\n"
+        "    file_version: '1.0.0'\n"
+        "instances:\n  device:\n    farm-a:\n"
+        "      file_version: '1.4.0'\n",
+        encoding="utf-8",
+    )
     yaml_text = _service_yaml(db_path, nats_url, stream=stream, subject=subject)
     if recovery is not None:
         yaml_text += (
@@ -409,7 +417,7 @@ async def build_stack(
         )
     yaml_path.write_text(yaml_text, encoding="utf-8")
     if modbus_port is not None:
-        devices_yaml = root / "instances" / "devices.yaml"
+        devices_yaml = root / "instances" / "device_farm-a_v1.4.0.yaml"
         devices_yaml.write_text(
             devices_yaml.read_text(encoding="utf-8")
             + "".join(
@@ -426,7 +434,7 @@ async def build_stack(
         table.write_text(_SETPOINT_TABLE, encoding="utf-8")
         model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
         model.write_text(_MODELS_TABLE, encoding="utf-8")
-        business = root / "templates" / "business_points_standard.yaml"
+        business = root / "templates" / "business_points_standard_v1.4.0.yaml"
         text = business.read_text(encoding="utf-8")
         if "  setpoint_power:" not in text:
             business.write_text(
