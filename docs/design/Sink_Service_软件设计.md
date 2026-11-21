@@ -4,6 +4,8 @@
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
+> **Deployment 版本激活与故障恢复**：Main 在首次启动读取显式选中的 Service；存在持久化 CURRENT Generation 时重启读取其唯一版本化 Service 文件。目标 Service/Instance/Template 闭包完整验证后提交 CURRENT；Service 级变更等待 Main 重启。存活 Main 的 Worker 重新拉起时必须绑定 Main 实际 active Generation，不得使用尚未激活的 CURRENT 目标；仅正常 Apply 指令读取 CURRENT。target_revision 与 active_revision 仅在完整收敛后相等，部分失败保留旧激活身份。
+
 
 <style>
 body {
