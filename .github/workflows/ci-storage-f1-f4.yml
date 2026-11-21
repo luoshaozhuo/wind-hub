@@ -1,0 +1,63 @@
+name: Storage F1-F4 Native Verification
+
+on:
+  push:
+    branches:
+      - feat/storage-service-v1-implementation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-f1-f4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install project environment
+        run: |
+          python -m pip install --upgrade pip poetry
+          poetry config virtualenvs.create false
+          poetry install --all-extras --no-interaction
+      - name: RPC generation matches tracked bindings
+        run: python scripts/generate_rpc.py --check
+      - name: Check Storage and F3/F4 test lint
+        run: |
+          ruff check src/storage_service tests/storage_service tests/configuration_service/integration/test_storage_deployment_flow.py tests/support/configuration_live.py
+          ruff format --check src/storage_service tests/storage_service tests/configuration_service/integration/test_storage_deployment_flow.py tests/support/configuration_live.py
+      - name: MyPy whole source
+        run: mypy src
+      - name: Import-linter
+        run: lint-imports
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+    env:
+      WIND_HUB_TEST_NATS_URL: nats://127.0.0.1:4222
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install project environment
+        run: |
+          python -m pip install --upgrade pip poetry
+          poetry config virtualenvs.create false
+          poetry install --all-extras --no-interaction
+      - name: Storage unit and component
+        run: pytest -q tests/storage_service/unit tests/storage_service/component
+      - name: CLI Configuration to Storage Deployment and NATS
+        run: pytest -q tests/configuration_service/integration/test_storage_deployment_flow.py
