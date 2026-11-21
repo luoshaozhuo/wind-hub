@@ -503,7 +503,7 @@ def validate_snapshot(
         raise ConfigurationError("parsed snapshot document closure mismatch")
     service_files = [path for path in docs if path.startswith("configs/services/")]
     if len(service_files) != 1 or not re.fullmatch(
-        r"configs/services/service_[A-Za-z0-9_.-]+_v\\d+\\.\\d+\\.\\d+\\.yaml",
+        r"configs/services/service_[A-Za-z0-9_.-]+_v\d+\.\d+\.\d+\.yaml",
         service_files[0] if service_files else "",
     ):
         raise ConfigurationError("expected one versioned Sink Service configuration")

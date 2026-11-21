@@ -34,7 +34,7 @@ def config_sources(
         matches = [
             path for path in available
             if path.startswith(prefix)
-            and re.fullmatch(r"\\d+\\.\\d+\\.\\d+\\.yaml", path[len(prefix):])
+            and re.fullmatch(r"\d+\.\d+\.\d+\.yaml", path[len(prefix):])
         ]
         if len(matches) != 1:
             raise ConfigurationError(f"{family}: ambiguous or missing selected Instance version")

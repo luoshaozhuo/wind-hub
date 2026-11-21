@@ -28,12 +28,11 @@ from sink_service.infrastructure.secrets import resolve_secret
 
 _LOG = logging.getLogger(__name__)
 _SUBJECT = "wh.config.changed"
-_ROOT = pb.ConfigId(config_type="service", config_id="sink_service")
 _MAX_BUNDLE_BYTES = 16 * 1024 * 1024
 _MAX_DOCUMENTS = 1000
 
 
-def _payloads(bundle: pb.GetConfigBundleResponse) -> dict[str, bytes]:
+def _payloads(bundle: pb.GetServiceConfigBundleResponse) -> dict[str, bytes]:
     """Authenticate all source files before selecting a local Sink closure."""
     if not 0 < len(bundle.files) <= _MAX_DOCUMENTS:
         raise ConfigurationError("invalid Configuration bundle file count")
@@ -90,12 +89,12 @@ def _payloads(bundle: pb.GetConfigBundleResponse) -> dict[str, bytes]:
 
 def _local_snapshot(files: Mapping[str, bytes]) -> tuple[SnapshotFile, ...]:
     """Extract a strict Sink closure from the verified repository response."""
-    service_path = "configs/services/sink_service.yaml"
-    data = files.get(service_path)
-    if data is None:
-        raise ConfigurationError("Configuration bundle omits Sink Service")
-    service = parse_yaml(data.decode("utf-8"))
-    sources, template_root = config_sources(service)
+    candidates = [path for path in files if path.startswith("configs/services/")]
+    if len(candidates) != 1:
+        raise ConfigurationError("selected Service bundle requires exactly one Service")
+    service_path = candidates[0]
+    service = parse_yaml(files[service_path].decode("utf-8"))
+    sources, template_root = config_sources(service, files)
     required: set[str] = {service_path, *sources.values()}
     for family, pathname in sources.items():
         content = files.get(pathname)
@@ -129,6 +128,9 @@ class ConfigurationSubscriber:
         self._interval: int = sync.get("poll_interval_seconds", 30)
         self._manager = manager
         self._revision = 0
+        self._target_revision = ""
+        self._deployment_id = service["deployment_id"]
+        self._service_id = service["service_id"]
 
     async def _reconcile(self) -> None:
         token = resolve_secret(self._token_ref)
@@ -140,28 +142,25 @@ class ConfigurationSubscriber:
             options=[("grpc.max_receive_message_length", _MAX_BUNDLE_BYTES + 1048576)],
         ) as channel:
             stub = rpc.ConfigurationRepositoryServiceStub(channel)
-            current = await stub.GetCurrentRevision(
-                pb.GetCurrentRevisionRequest(), timeout=10, metadata=metadata
-            )
-            if current.revision_id < 1:
-                raise ConfigurationError("Configuration has no committed revision")
-            if current.revision_id == self._revision:
-                return
-            bundle = await stub.GetConfigBundle(
-                pb.GetConfigBundleRequest(
-                    roots=[_ROOT],
-                    revision_id=current.revision_id,
-                    include_dependencies=True,
+            bundle = await stub.GetServiceConfigBundle(
+                pb.GetServiceConfigBundleRequest(
+                    deployment_id=self._deployment_id,
+                    service_id=self._service_id,
+                    revision_id=0,
                 ),
                 timeout=20,
                 metadata=metadata,
             )
-        if bundle.revision_id != current.revision_id:
-            raise ConfigurationError("Configuration bundle revision mismatch")
+        if bundle.repository_revision_id < 1 or len(bundle.target_revision) != 64:
+            raise ConfigurationError("Configuration Service bundle has invalid revision")
+        if self._target_revision == bundle.target_revision:
+            self._revision = bundle.repository_revision_id
+            return
         local = _local_snapshot(_payloads(bundle))
         verified = validate_snapshot(local)
         if verified.revision == self._manager.disk.revision:
-            self._revision = current.revision_id
+            self._revision = bundle.repository_revision_id
+            self._target_revision = bundle.target_revision
             return
         wire = [
             (
@@ -174,7 +173,8 @@ class ConfigurationSubscriber:
         ]
         candidate_id, _ = await self._manager.push(wire, self._manager.disk.revision)
         result = await self._manager.apply(candidate_id, self._manager.disk.revision)
-        self._revision = current.revision_id
+        self._revision = bundle.repository_revision_id
+        self._target_revision = bundle.target_revision
         if result.restart_required or result.pending or result.error:
             _LOG.warning(
                 "Sink configuration committed but application is pending restart/convergence"

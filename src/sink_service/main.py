@@ -20,12 +20,12 @@ from sink_service.infrastructure.worker_registry import WorkerRegistryView
 from sink_service.infrastructure.writer_lease import WriterLease
 
 logger = logging.getLogger(__name__)
-SERVICE_FILE = "configs/services/sink_service.yaml"
+SERVICE_FILE = "configs/services/service_sink-west_v1.2.0.yaml"
 
 
 async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) -> None:
-    if service_file != SERVICE_FILE:
-        raise ValueError("canonical Service file required")
+    if not service_file.startswith("configs/services/service_") or not service_file.endswith(".yaml"):
+        raise ValueError("versioned Service file required")
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
