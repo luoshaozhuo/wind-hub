@@ -259,7 +259,10 @@ def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[s
             str(PORTS[name]),
         ]
     if name == "sink":
-        return [*base, "sink_service.main", "--config-root", str(root)]
+        return [
+            *base, "sink_service.main", "--config-root", str(root),
+            "--service-file", f"configs/services/{paths[name].name}",
+        ]
     return [*base, "commander", "--config", str(paths[name])]
 
 
