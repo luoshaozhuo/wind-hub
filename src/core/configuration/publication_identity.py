@@ -70,7 +70,7 @@ def resolve_publication_identity(
         if not logical_id or document.get("template_id") != logical_id:
             raise ValueError(f"template path/id mismatch: {relative_path}")
         return PublicationIdentity(config_type, logical_id, version)
-    # Versioned deployment and business files have stable identities independent of paths.
+    # Versioned deployment and business files have identities independent of paths.
     if len(parts) == 2 and parts[0] == "deployments":
         name = parts[1]
         marker = f"_v{version}.yaml"
@@ -89,6 +89,7 @@ def resolve_publication_identity(
             "sinks_": "sink",
             "deliveries_": "delivery",
             "collector_tasks_": "collector_tasks",
+            "scenarios_": "scenario",
         }
         for prefix, kind in sorted(prefixes.items(), key=lambda item: -len(item[0])):
             if name.startswith(prefix) and name.endswith(marker):

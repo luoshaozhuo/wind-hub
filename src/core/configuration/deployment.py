@@ -47,7 +47,17 @@ def _version(value: object, label: str) -> str:
 
 
 def parse_deployment(document: Mapping[str, object]) -> DeploymentSelection:
-    """Parse a deployment without inferring missing versions or defaults."""
+    """Parse explicit Service and Instance version selections.
+
+    Args:
+        document: Deployment configuration data.
+
+    Returns:
+        Immutable deployment identity and its selected configuration versions.
+
+    Raises:
+        ValueError: The document has invalid identities, versions or structure.
+    """
     if set(document) != {
         "schema_version", "file_version", "deployment_id", "services", "instances"
     }:
@@ -83,7 +93,9 @@ def parse_deployment(document: Mapping[str, object]) -> DeploymentSelection:
                 raise ValueError("invalid Deployment Instance selection")
             key = (config_type, config_id)
             instances[key] = VersionSelection(
-                config_type, config_id, _version(raw["file_version"], "instance.file_version")
+                config_type,
+                config_id,
+                _version(raw["file_version"], "instance.file_version"),
             )
     return DeploymentSelection(deployment_id, services, instances)
 
@@ -105,7 +117,9 @@ def service_instance_refs(
     for role, config_id in refs.items():
         if role not in role_types:
             raise ValueError(f"unsupported Service Instance role: {role}")
-        result.append((role_types[role], _identifier(config_id, f"instance role {role}")))
+        result.append(
+            (role_types[role], _identifier(config_id, f"instance role {role}"))
+        )
     if len(result) != len(set(result)):
         raise ValueError("Service references the same Instance more than once")
     return tuple(sorted(result))
@@ -116,12 +130,16 @@ def closure_sha256(
     service_id: str,
     documents: Iterable[tuple[str, str, str, str]],
 ) -> str:
-    """Hash the immutable, effective document closure, independent of global revision."""
+    """Hash the effective immutable closure independently of global revision."""
     identities = sorted(set(documents))
     if not identities:
         raise ValueError("service closure must not be empty")
     digest = hashlib.sha256()
-    for value in (_identifier(deployment_id, "deployment_id"), _identifier(service_id, "service_id")):
+    principals = (
+        _identifier(deployment_id, "deployment_id"),
+        _identifier(service_id, "service_id"),
+    )
+    for value in principals:
         encoded = value.encode("utf-8")
         digest.update(len(encoded).to_bytes(4, "big"))
         digest.update(encoded)
