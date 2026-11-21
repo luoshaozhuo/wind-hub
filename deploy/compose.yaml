@@ -16,6 +16,9 @@ x-service: &service
   stop_grace_period: 40s
   security_opt:
     - no-new-privileges:true
+  environment:
+    WIND_HUB_DEPLOYMENT_ID: "${WIND_HUB_DEPLOYMENT_ID:?Set Deployment ID}"
+    WIND_HUB_DEPLOYMENT_VERSION: "${WIND_HUB_DEPLOYMENT_VERSION:?Set Deployment version}"
 
 services:
   gateway:
@@ -37,6 +40,8 @@ services:
   collector-realtime:
     <<: *service
     environment:
+      WIND_HUB_DEPLOYMENT_ID: "${WIND_HUB_DEPLOYMENT_ID:?Set Deployment ID}"
+      WIND_HUB_DEPLOYMENT_VERSION: "${WIND_HUB_DEPLOYMENT_VERSION:?Set Deployment version}"
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
       WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
       WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
@@ -57,6 +62,8 @@ services:
   collector-reliable:
     <<: *service
     environment:
+      WIND_HUB_DEPLOYMENT_ID: "${WIND_HUB_DEPLOYMENT_ID:?Set Deployment ID}"
+      WIND_HUB_DEPLOYMENT_VERSION: "${WIND_HUB_DEPLOYMENT_VERSION:?Set Deployment version}"
       WIND_HUB_COLLECTOR_ADMIN_TOKEN: "${WIND_HUB_COLLECTOR_ADMIN_TOKEN:?Set management token}"
       WIND_HUB_COLLECTOR_TLS_CERT: "${WIND_HUB_COLLECTOR_TLS_CERT:-/etc/wind-hub/certs/collector.pem}"
       WIND_HUB_COLLECTOR_TLS_KEY: "${WIND_HUB_COLLECTOR_TLS_KEY:-/etc/wind-hub/certs/collector.key}"
@@ -80,6 +87,8 @@ services:
       - sink_service.main
       - --config-root
       - /etc/wind-hub
+      - --service-file
+      - ${WIND_HUB_SINK_CONFIG:?Set Deployment-selected Sink Service}
 
   commander:
     <<: *service
