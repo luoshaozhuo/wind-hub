@@ -126,6 +126,29 @@ def test_local_push_cannot_mutate_scenario_instance(configs_root) -> None:  # no
         manager.push(files, manager.settings.revision)
 
 
+def test_duplicate_gateway_is_rejected_at_scenario_publication_boundary(
+    configs_root,
+) -> None:  # noqa: ANN001
+    service_path = configs_root(
+        scenarios=ship_scenarios_document(
+            {"gw-test": "127.0.0.1:59999"},
+            mappings=[("gw-test", "GW01.pitch_angle")],
+        ),
+    )
+    settings = load_settings(service_path)
+    selected = settings.scenarios_file
+    assert selected is not None
+    scenario = yaml.safe_load(selected.read_text(encoding="utf-8"))
+    duplicate = dict(scenario["scenarios"][0]["gateways"][0])
+    scenario["scenarios"][0]["gateways"].append(duplicate)
+    selected.write_text(
+        yaml.safe_dump(scenario, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(GeneratorError, match="duplicate Gateway ID"):
+        load_settings(service_path)
+
+
 def test_scenario_version_change_requires_repository_publication(configs_root) -> None:  # noqa: ANN001
     service_path = configs_root(
         scenarios=ship_scenarios_document(
