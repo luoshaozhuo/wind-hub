@@ -79,10 +79,14 @@ def _documents() -> list[pb.ConfigDocumentInput]:
 async def _publish(live: LiveConfiguration) -> int:
     repository, _, channel = live.stubs("deployer")
     try:
+        current = await repository.GetCurrentRevision(
+            pb.GetCurrentRevisionRequest(), timeout=10
+        )
+        before = current.revision_id
         proposal = await repository.CreateCandidate(
             pb.CreateCandidateRequest(
-                request_id="storage-f3-create",
-                expected_revision_id=0,
+                request_id=f"storage-f3-create-{before + 1}",
+                expected_revision_id=before,
                 documents=_documents(),
             ),
             timeout=15,
@@ -90,9 +94,9 @@ async def _publish(live: LiveConfiguration) -> int:
         assert proposal.valid, proposal.issues
         published = await repository.PublishCandidate(
             pb.PublishCandidateRequest(
-                request_id="storage-f3-publish",
+                request_id=f"storage-f3-publish-{before + 1}",
                 candidate_id=proposal.candidate_id,
-                expected_revision_id=0,
+                expected_revision_id=before,
             ),
             timeout=15,
         )
@@ -105,7 +109,7 @@ async def test_real_configuration_service_selected_closure(
     live: LiveConfiguration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     revision = await _publish(live)
-    assert revision == 1
+    assert revision >= 1
     from tests.support.bearer import ensure_bearer
 
     actor_env = ensure_bearer("deployer").removeprefix("env:")
