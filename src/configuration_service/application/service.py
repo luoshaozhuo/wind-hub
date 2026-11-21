@@ -366,7 +366,6 @@ class ConfigurationApplication:
                     raise RepositoryConflictError(
                         f"Deployment references absent staged version: {key}"
                     )
-                # All selected versions must be part of this atomic directory.
             for service_id, service_ref in deployment.services.items():
                 service = by_key[("service", service_id, service_ref.file_version)]
                 source = service.canonical_payload
@@ -377,7 +376,6 @@ class ConfigurationApplication:
                         raise RepositoryConflictError(
                             "Deployment has no version for required Service Instance"
                         )
-        return selected
 
     def _compile_versions(
         self, documents: Sequence[PreparedDocument], expected_revision: int
