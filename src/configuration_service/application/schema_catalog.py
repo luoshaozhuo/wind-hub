@@ -53,7 +53,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "protocol": "object",
         "point_table": "object",
         "simulation": "object",
-        "task": "object",
     },
     "service": {
         "service_id": "string",
@@ -79,7 +78,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "replay": "object",
         "diagnose": "object",
         "recording": "object",
-        "scenarios": "array",
         "wind_farm_id": "string",
         "deployment_id": "string",
         "config_root": "string",
@@ -94,14 +92,6 @@ _FIELDS: dict[str, dict[str, str]] = {
         "deployment_id": "string",
         "services": "object",
         "instances": "object",
-    },
-    "task": {
-        "template_id": "string",
-        "point_group": "string",
-        "interval": "number",
-        "desired_state": "string",
-        "tasks": "object",
-        "revision": "string",
     },
     "delivery": {
         "template_id": "string",

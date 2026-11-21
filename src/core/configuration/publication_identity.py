@@ -33,16 +33,8 @@ _TEMPLATE_TYPES = {
     "point_tables": ("point_table", "point_table_"),
     "device_models": ("device_model", "device_model_"),
     "protocols": ("protocol", "protocol_"),
-    "tasks": ("task", "task_"),
     "sinks": ("sink", "sink_"),
     "deliveries": ("delivery", "delivery_"),
-}
-_INSTANCE_TYPES = {
-    "devices": "device",
-    "devices_sim": "device",
-    "site": "site",
-    "sinks": "sink",
-    "deliveries": "delivery",
 }
 _VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 
@@ -97,11 +89,7 @@ def resolve_publication_identity(
                 if not config_id:
                     raise ValueError("empty versioned Instance identity")
                 return PublicationIdentity(kind, config_id, version)
-        name = parts[1].removesuffix(".yaml")
-        instance_type = _INSTANCE_TYPES.get(name)
-        if instance_type is None:
-            raise ValueError(f"unsupported instance file: {relative_path}")
-        return PublicationIdentity(instance_type, name, version)
+        raise ValueError(f"unsupported unversioned Instance file: {relative_path}")
     if len(parts) == 2 and parts[0] == "services":
         name = parts[1]
         marker = f"_v{version}.yaml"
@@ -110,10 +98,7 @@ def resolve_publication_identity(
             if not config_id or document.get("service_id") != config_id:
                 raise ValueError("Service filename/id mismatch")
             return PublicationIdentity("service", config_id, version)
-        name = parts[1].removesuffix(".yaml")
-        if name.startswith("service_configuration_v"):
-            raise ValueError("Configuration bootstrap must be outside publication root")
-        return PublicationIdentity("service", name, version)
+        raise ValueError(f"unsupported unversioned Service file: {relative_path}")
     if relative_path == f"templates/business_points_standard_v{version}.yaml":
         return PublicationIdentity("business_points", "standard", version)
     if relative_path == f"templates/units_standard_v{version}.yaml":
