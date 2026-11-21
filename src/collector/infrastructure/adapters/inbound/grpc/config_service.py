@@ -25,6 +25,7 @@ from collector.infrastructure.config.snapshot_repository import SnapshotConflict
 from contracts import common_pb2 as pb
 from contracts import common_pb2_grpc as rpc
 from core.application.errors import ConfigError
+from core.infrastructure.configuration_repository import DeploymentObserver
 
 _SENSITIVE_KEYS = frozenset(
     {
@@ -88,12 +89,14 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         acquisition: CollectorAcquisition,
         telemetry: CollectorTelemetry,
         publisher: CollectorPublisher,
+        observer: DeploymentObserver | None = None,
     ) -> None:
         self._manager = manager
         self._lifecycle = lifecycle
         self._acquisition = acquisition
         self._telemetry = telemetry
         self._publisher = publisher
+        self._observer = observer
         self._diagnostics = CollectorDiagnostics(acquisition, publisher, TcpNetworkProbe())
         self._started_at = datetime.now(UTC)
         self._event_pages: dict[
@@ -143,6 +146,8 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
                 ),
             ],
         )
+        response.target_revision = self._observer.target_revision if self._observer else ""
+        response.active_revision = self._observer.active_revision if self._observer else ""
         response.observed_at.FromDatetime(datetime.now(UTC))
         return response
 

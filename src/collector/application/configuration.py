@@ -125,11 +125,18 @@ class CollectorConfigurationManager:
                 validate=self._validate,
             )
             files = await asyncio.to_thread(self._repository.read_generation, result.revision)
-            current_service = self._runtime_files.get(self._service_key(files))
-            next_service = files[self._service_key(files)]
+            current_service_key = (
+                self._service_key(self._runtime_files) if self._runtime_files else ""
+            )
+            next_service_key = self._service_key(files)
+            current_service = self._runtime_files.get(current_service_key)
+            next_service = files[next_service_key]
             self._restart_pending = bool(
                 current_service is not None
-                and self._restart_required(current_service, next_service)
+                and (
+                    current_service_key != next_service_key
+                    or self._restart_required(current_service, next_service)
+                )
             )
             # Service-owned source references are startup-only. A new
             # Instance/Template tree must never leak into the live runtime
