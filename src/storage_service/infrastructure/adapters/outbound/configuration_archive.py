@@ -380,7 +380,8 @@ class ConfigurationPointTableResolver:
                             ]
                             if len(matched) != 1:
                                 raise ConfigHistoryUnavailableError(
-                                    "historical bundle does not contain the fixed PointTable version"
+                                    "historical bundle does not contain the fixed "
+                                    "PointTable version"
                                 )
                             document = matched[0]
                         else:
