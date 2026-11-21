@@ -23,9 +23,8 @@ import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_definition import DeliveryDefinition
-from sink_service.application.delivery_point import select_delivery_points
 from sink_service.application.realtime import BatchOutcome
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_delivery_point
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
 from tests.sink_service._stage1_fixtures import (
@@ -138,7 +137,9 @@ def _batch(points: int) -> SampleBatch:
         wind_farm_id=FARM,
         collector_id=COLLECTOR,
         task_id="task-r9",
+        device_type="wind_turbine",
         device_id=DEVICE,
+        point_table_id="point_table_wtg_sim_v1.0.0",
         publish_time=now,
         samples=tuple(
             SampleItem(
@@ -152,6 +153,10 @@ def _batch(points: int) -> SampleBatch:
             for idx in range(points)
         ),
     )
+
+
+def _encoded(batch: SampleBatch, items: tuple[SampleItem, ...]) -> tuple[bytes, ...]:
+    return encode_kafka_points(batch, items, data_level="protocol")
 
 
 def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payloads() -> None:
@@ -169,10 +174,10 @@ def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payload
     assert key == f"{FARM}:{COLLECTOR}:{DEVICE}".encode()
     # 进程重启稳定的设备锁亲和：crc32（非随机化 hash）。
     assert stripe == crc32(key) % 128
-    # 与权威 DeliveryPoint 编码逐字节相等
-    legacy = select_delivery_points(batch)
+    # 与权威批量编码器逐字节相等
+    expected = _encoded(batch, batch.samples)
     assert len(payloads) == 500
-    assert all(payloads[i] == encode_delivery_point(legacy[i]) for i in range(500))
+    assert all(payloads[i] == expected[i] for i in range(500))
     assert port.received_total == 500
     assert port.delivered_total == 500
     assert port.write_success_total == 500
@@ -193,12 +198,9 @@ def test_more_than_500_points_split_with_heartbeat_between_subbatches() -> None:
     assert port.delivered_total == 1024
     assert port.write_success_total == 1024
     # 第二批首个 payload 仍是正确的第 500 点（子批索引不错位）
-    assert adapter.encoded_calls[1][0][0] == encode_delivery_point(
-        select_delivery_points(batch)[500]
-    )
-    assert adapter.encoded_calls[2][0][-1] == encode_delivery_point(
-        select_delivery_points(batch)[1023]
-    )
+    expected = _encoded(batch, batch.samples)
+    assert adapter.encoded_calls[1][0][0] == expected[500]
+    assert adapter.encoded_calls[2][0][-1] == expected[1023]
 
 
 def test_non_kafka_target_never_calls_preencoded_interface() -> None:
@@ -221,9 +223,9 @@ def test_point_selector_filters_before_encoding_and_accounting() -> None:
     batch = _batch(10)
     assert asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), batch)) is True
     payloads, _key, _stripe = adapter.encoded_calls[0]
+    selected = tuple(item for item in batch.samples if item.point_id in {"p001", "p002"})
     assert len(payloads) == 2
-    legacy = select_delivery_points(batch, frozenset({"p001", "p002"}))
-    assert list(payloads) == [encode_delivery_point(sample) for sample in legacy]
+    assert list(payloads) == list(_encoded(batch, selected))
     assert port.received_total == 2
     assert port.delivered_total == 2
 

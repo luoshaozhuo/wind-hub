@@ -37,7 +37,7 @@ _CONFIG_SOURCES = {
 }
 
 _BASE_SERVICE: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "file_version": "1.0.0",
     "service_id": "sink-west",
     "wind_farm_id": "farm-a",
@@ -52,13 +52,10 @@ _BASE_SERVICE: dict[str, Any] = {
         "default_deadline_ms": 5000,
     },
     "security": {
-        "ca_cert": "tls/ca.crt",
-        "server_cert": "tls/sink.crt",
-        "server_key": "tls/sink.key",
         "callers": [
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                 "permissions": ["query", "control", "config"],
             }
         ],
@@ -183,6 +180,7 @@ _REALTIME_DELIVERY_TEMPLATE = {
         "period_ms": 100,
         "absolute_threshold": 1.0,
         "relative_threshold": 0.01,
+        "data_level": "protocol",
     },
     "staleness": {"max_age_ms": 60000},
 }
@@ -199,6 +197,7 @@ _RELIABLE_DELIVERY_TEMPLATE = {
         "retry_max_ms": 60000,
         "dead_letter_subject": "wh.dlq",
     },
+    "output": {"data_level": "protocol"},
 }
 
 

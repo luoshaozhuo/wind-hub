@@ -67,16 +67,9 @@ def _status_for(exc: ConfigurationError) -> grpc.StatusCode:
     return grpc.StatusCode.FAILED_PRECONDITION
 
 
-def _peer_identity(context: grpc.aio.ServicerContext[Any, Any]) -> str:
-    """Use only the mTLS certificate SAN; never a self-declared request field."""
-    identities = (context.auth_context() or {}).get("x509_subject_alternative_name", ())
-    for raw in identities:
-        if not isinstance(raw, bytes):
-            continue
-        identity = raw.decode("utf-8", errors="strict")
-        if identity.startswith("spiffe://"):
-            return identity
-    return "unknown-authenticated-peer"
+def _peer_identity(_context: grpc.aio.ServicerContext[Any, Any]) -> str:
+    """Do not log Bearer secrets or self-declared caller metadata."""
+    return "authorized-bearer-caller"
 
 
 def _delivery(
@@ -685,7 +678,6 @@ def build_grpc_server(
     registry: DeliveryRegistry | WorkerRegistryView,
     service_id: str,
     role: str,
-    credentials: grpc.ServerCredentials,
     address: str,
     max_active_rpcs: int,
     max_request_bytes: int,
@@ -713,6 +705,6 @@ def build_grpc_server(
     sink_service_pb2_grpc.add_SinkServiceServicer_to_server(
         SinkServiceServer(registry, config, observability), server
     )
-    if server.add_secure_port(address, credentials) == 0:
-        raise ConfigurationError(f"cannot bind secure gRPC endpoint: {address}")
+    if server.add_insecure_port(address) == 0:
+        raise ConfigurationError(f"cannot bind internal gRPC endpoint: {address}")
     return server

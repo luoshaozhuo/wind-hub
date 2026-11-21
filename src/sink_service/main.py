@@ -11,9 +11,9 @@ from pathlib import Path
 
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.observability import Observability
-from sink_service.infrastructure.adapters.inbound.grpc_credentials import server_credentials
 from sink_service.infrastructure.adapters.inbound.grpc_server import build_grpc_server
 from sink_service.infrastructure.config_io import read_snapshot
+from sink_service.infrastructure.config_subscription import ConfigurationSubscriber
 from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from sink_service.infrastructure.supervisor import WorkerSupervisor
 from sink_service.infrastructure.worker_registry import WorkerRegistryView
@@ -65,7 +65,6 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
             registry=registry,
             service_id=service["service_id"],
             role="main",
-            credentials=server_credentials(service["security"]),
             address=f"{grpc_config['listen_host']}:{grpc_config['listen_port']}",
             max_active_rpcs=grpc_config["max_active_rpcs"],
             max_request_bytes=grpc_config["max_request_bytes"],
@@ -75,6 +74,13 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         await server.start()
         await supervisor.start()
         await registry.refresh()
+        # Every service reconciles independently; broadcast is only a wakeup.
+        # The Repository's revision and complete dependency bundle are authoritative.
+        if service["config_sync"].get("repository_endpoint") and service["config_sync"].get(
+            "repository_token_ref"
+        ):
+            subscriber = ConfigurationSubscriber(manager, service)
+            background.append(asyncio.create_task(subscriber.run(stop)))
         background.append(asyncio.create_task(supervisor.supervise(stop)))
         background.append(
             asyncio.create_task(

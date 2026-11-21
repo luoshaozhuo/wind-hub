@@ -84,7 +84,7 @@ def _write_concurrent_root(
         callers=[
             {
                 "caller_id": "maintenance",
-                "certificate_identity": "spiffe://wind-hub/maintenance",
+                "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
                 "permissions": ["query", "control", "config"],
             }
         ],

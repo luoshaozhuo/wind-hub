@@ -83,13 +83,15 @@ def fixed_batch(
     collector = harness.rt_collector if mode == "realtime" else harness.reliable_collector
     suffix = uuid4().hex
     return SampleBatch(
-        schema_version=2,
+        schema_version=3,
         batch_id=f"r4e-{mode}-{suffix}",
         mode=mode,  # type: ignore[arg-type]
         wind_farm_id=FARM,
         collector_id=collector,
         task_id=f"r4e-fixed-{mode}",
+        device_type="wtg",
         device_id=device_id,
+        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
         publish_time=datetime.now(UTC),
         samples=(
             SampleItem(
@@ -323,8 +325,14 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
     }
     grpc_port = reserve_port()
     modbus_port = reserve_port()
+    sink_listener_port = reserve_port()
+    # Reuse the harness Sink token so the existing Sink process can authenticate
+    # to the target gateway's loopback Bearer listener without a process restart.
+    sink_token = harness.gateway_sink_token
     service_path = _write_gateway_service(plant, grpc_port=grpc_port, pki=pki)
     document = _load(service_path)
+    # Dual-listener: mTLS management port plus a loopback-only Sink Bearer port.
+    document["grpc"]["sink_listener_port"] = sink_listener_port
     servers = [item for item in document["servers"] if item["device_id"] == "WTG_SIM01"]
     assert len(servers) == 1
     servers[0]["server_id"] = "gw-wtg_sim01"
@@ -351,8 +359,10 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             str(plant),
         ],
         cwd=plant,
+        env={"WIND_HUB_GATEWAY_SINK_TOKEN": sink_token},
     )
     endpoint = f"127.0.0.1:{grpc_port}"
+    sink_endpoint = f"127.0.0.1:{sink_listener_port}"
     endpoints = dict(harness.endpoints)
     endpoints["gateway"] = endpoint
     cli_config = root / "cli.yaml"
@@ -363,7 +373,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         processes=harness.cli.processes,
         gateway_pki=pki,
         commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-        sink_bundle=harness.sink.bundle,
     )
     cli_document = _load(cli_config)
     cli_document["services"][service_name] = {
@@ -413,18 +422,12 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         candidate_sinks = next(candidate_snapshot.rglob("sinks.yaml"))
         sinks = _load(candidate_sinks)
         connection = sinks["sinks"]["gateway_sink"]["connection"]
-        connection["endpoint"] = endpoint
+        # Route through the target gateway's loopback Sink Bearer listener,
+        # not its mTLS management port (the Sink GatewayOutput is plaintext).
+        connection["endpoint"] = sink_endpoint
         connection["gateway_id"] = "gw-wtg_sim01"
         _dump(candidate_sinks, sinks)
         await _push_apply_sink_snapshot(harness, candidate_snapshot, candidate_revision)
-        sink_cert, sink_key = pki["clients"]["sink"]
-        harness.cli.processes["sink"]["env"]["WH_FULLCHAIN_GATEWAY_TLS"] = json.dumps(
-            {
-                "ca_pem": pki["ca"].read_text(encoding="utf-8"),
-                "client_cert_pem": sink_cert.read_text(encoding="utf-8"),
-                "client_key_pem": sink_key.read_text(encoding="utf-8"),
-            }
-        )
         _write_cli(
             harness.cli_rt,
             collector="collector_realtime",
@@ -432,7 +435,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             processes=harness.cli.processes,
             gateway_pki=harness.pki,
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-            sink_bundle=harness.sink.bundle,
         )
         _write_cli(
             harness.cli_rel,
@@ -441,7 +443,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             processes=harness.cli.processes,
             gateway_pki=harness.pki,
             commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
-            sink_bundle=harness.sink.bundle,
         )
         return target
     except BaseException:

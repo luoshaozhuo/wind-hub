@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_70 · 20261118</p>
+<p class="subtitle">软件设计 · 持续维护</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -308,7 +308,7 @@ $$
 
 | 规范文献 | 适用范围 | 强制规则 |
 |---|---|---|
-| 《符号体系.md》（v1_1） | 数学公式、标量、矢量、矩阵、张量、时间导数等 | 同一物理或数学量必须保持符号和对象层级一致，不得因编码便利擅自换符号；统计标量可新增本文件局部符号，但须显式定义、不与既有符号冲突 |
+| 《符号体系.md》 | 数学公式、标量、矢量、矩阵、张量、时间导数等 | 同一物理或数学量必须保持符号和对象层级一致，不得因编码便利擅自换符号；统计标量可新增本文件局部符号，但须显式定义、不与既有符号冲突 |
 | 《软件系统建模图形与表达规范.md》（v0_2） | 业务流程、算法流程、DFD、状态、时序、伪代码、图题及图形语义 | 按建模目的选图；流程图区分过程、判断、输入输出、子过程与存储；数据流与控制流不得混用；Mermaid 初始化及图题遵循对应条款 |
 | “项目对外接口定义”、“项目专用接口定义”、“项目数据契约” | 对外 RPC 和采样数据契约 | 实际字段、枚举、消息结构以代码库当前已冻结契约为准，不在需求书臆造字段或新接口 |
 
@@ -2902,7 +2902,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # 字段说明：名称 — 作用；合法取值；示例/缺省
 #
 # [身份与配置来源]
-# schema_version — 配置结构版本；固定 1。
+# schema_version — Service 的安全与配置结构契约；固定 2。
 # file_version — 文件版本；X.Y.Z 数字字符串，如 1.0.0。
 # service_id — 当前服务实例的逻辑标识；非空字符串，如 sink-west。
 # wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
@@ -2923,9 +2923,9 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # default_deadline_ms — RPC 默认截止时间；整数 1..5000 ms，如 5000。
 #
 # [安全与调用方]
-# gRPC 默认绑定回环地址；跨主机只使用受控专用网络和网络访问控制。
+# gRPC 使用内网明文传输并由 Bearer Token 强制授权；跨主机必须使用受控专用网络和网络访问控制。
 # callers[].caller_id — 授权调用方的唯一业务标识；非空字符串，如 maintenance。
-# callers[].token_env — 运行时访问令牌的环境变量名称；如 WIND_HUB_SINK_ADMIN_TOKEN。
+# callers[].token_env — Token Secret 引用，格式 env:NAME；如 env:WH_SINK_MAINT_TOKEN。
 # callers[].permissions — 该调用方允许的操作类别；query（查询）、
 #   control（启停/控制）、config（配置）；按最小权限分配。
 #   令牌值仅由环境变量/受控文件提供，禁止写入 YAML 或日志。
@@ -3007,8 +3007,8 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 #
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
-schema_version: 1
-file_version: 1.0.0
+schema_version: 2
+file_version: 1.1.0
 service_id: sink-west
 wind_farm_id: farm-a
 deployment_id: prod-a
@@ -3022,16 +3022,19 @@ config_sources:
 
 grpc:
   listen_host: 127.0.0.1
-  listen_port: 50061
+  listen_port: 50053
   max_active_rpcs: 64
   max_request_bytes: 2097152
   default_deadline_ms: 5000
 
 security:
   callers:
-    - caller_id: maintenance
-      token_env: WIND_HUB_SINK_ADMIN_TOKEN
+    - caller_id: cli
+      token_env: env:WIND_HUB_SINK_CLI_TOKEN
       permissions: [query, control, config]
+    - caller_id: web_server
+      token_env: env:WIND_HUB_SINK_WEB_TOKEN
+      permissions: [query, control]
 
 nats:
   servers: [nats://127.0.0.1:4222]
@@ -3479,17 +3482,34 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 ## 12.1.5 三级转换和对外数据包格式
 
-**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 字段、示例和校验见 Contracts §11.6；Sink→Kafka/Redis 的目标 JSON v2 字段、示例和编码见 Contracts §11.9。Sink 不定义另一套冗余结构。当前生产接收 v2、Kafka 输出 v1，均为**待迁移实现**。
+**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 见 Contracts §11.6；Sink→Kafka 的单点 JSON v2 见 Contracts §11.9，并与 Storage §6.5 对齐。两条线格式分别演进；配置的 `file_version` 和报文的 `schema_version` 不可混用。
 
-Delivery 的 `output.data_level` 取 `raw`、`engineering`、`business`，默认 `business`：
+每个 Delivery 的 `output.data_level` **必须显式配置**，仅允许 `raw`、`protocol`、`business`，不得默认 `business` 或把旧 `engineering` 静默重命名为 `protocol`。
 
-| 级别 | 转换流程 | 输出身份 |
-|---|---|---|
-| RAW | 验证源消息后直接使用协议解码标量 | 源 `point_id`；业务 ID 和单位为 null |
-| ENGINEERING | RAW → 历史 PointTable 比例/偏移及工程单位 | 源 `point_id` 与工程 `unit`，业务 ID 为 null |
-| BUSINESS | ENGINEERING → BusinessPoint 映射与标准单位换算 | 保留源 `point_id`、写入 `business_point_id` 和标准 `unit` |
+| 等级 | 数据语义 | 依赖条件 | 输出身份 |
+|---|---|---|---|
+| RAW | 协议解码之前取得的原始帧/字节载荷，非已解码数值 | Driver 必须提供经来源和长度核实的原始载荷及其受控编码，现阶段不具备 | 源设备/帧或点定位；业务点和标准单位无值 |
+| PROTOCOL | Driver 完成协议字节序、数据类型等解码后的标量；尚未应用 PointTable scale/offset、工程或标准单位换算 | SampleBatch v3 来源身份与标量验证 | 源 `point_id`，`business_point_id=null`，`unit=null` |
+| BUSINESS | PROTOCOL 经历史 PointTable scale/offset、BusinessPoint 映射及 Units 标准换算的结果 | 必须有 `point_table_id` 对应的不可变完整依赖闭包；无法验证时不交付 | 同时保留来源 `point_id` 与标准 `business_point_id`、`unit` |
 
-`point_table_id` 是数据解释规则的不可变完整标识，Sink 缓存以该 ID 为键查询 PointTable 及固定依赖闭包，**不依赖全局 `config_revision_id`**。历史 JetStream 消息重放时必须用原 `point_table_id`，禁止读取当前推荐的最新点表替代。RAW 可不读取 Configuration 用于诊断；其他等级无已验证点表缓存且 Configuration 不可用时按受控重试、DLQ/失败语义处理，不得静默回退为 RAW。可靠交付的 ACK 只在每个 Delivery 实际下游确认之后发出。
+**当前代码能力边界（开发中）**：Collector 停止发布前的工程值换算，SampleBatch 严格 v3，Kafka 输出 JSON v2。PROTOCOL 可直接派发；BUSINESS 已具备基于 `GetPointTableBundle` 历史闭包的运行时转换代码，但**必须**在受控 Sink Service 配置中声明 `config_sync.repository_endpoint`、`repository_token_ref`（仅 `env:` Secret 引用）及 `approved_point_table_manifests`（完整点表 ID 到精确 64 位 SHA-256 映射），并由实际现场映射审查批准。未获批准的 `point_table_id` 一律拒绝，历史闭包失效、网络失败和哈希冲突不得改用推荐版本或自动降级；Reliable 采用原 JetStream 失败重投。业务换算复用 Core 标准类型、工程值及 Units 换算，整型保留 64 位精度，无法无损转换时拒绝。RAW 由于尚无 Driver 原始报文字节来源，依然禁止发布；完整准入仍需 RAW 生产链路和独立测试完成。
+
+每条 Kafka Record 必须携带 `data_level`；Storage 按 `raw=1`、`protocol=2`、`business=3` 存储且不进行二次解码。原始身份、质量、时间、`sample_id`、`point_table_id` 在转换中不得覆盖。Reliable 源 ACK 只在目标持久确认后进行；未知结果保持 JetStream 重投语义。历史重放必须使用随消息固定的 `point_table_id`，不得切换至 Configuration 当前推荐版本。
+
+**配置发布**：Delivery 模板通过 v1.1.0 文件显式选择等级，保留 v1.0.0 历史字节；实例引用更改需升级 `file_version`。GW2MW 未经现场验证的业务点映射不得进入批准清单。
+
+**BUSINESS 配置来源准入（新增，可选；启用时必须完整）**：
+
+```yaml
+config_sync:
+  apply_timeout_ms: 10000
+  repository_endpoint: "127.0.0.1:50061"
+  repository_token_ref: "env:WH_SINK_CONFIG_QUERY_TOKEN"
+  approved_point_table_manifests:
+    point_table_modbus_verified_v1.0.0: "<经现场证明并从 Repository 固定闭包获取的64位SHA-256>"
+```
+
+上述内容是**格式示意，不是可直接部署的批准配置**。正式业务数据须替换为已验证的精确哈希，未核验的 GW2MW 点表不能填入。主运行配置不应因为尚无有效现场证据而设置虚构哈希。
 
 Kafka Reliable 按单点 Record 组织 JSON v2；Redis Value 使用统一的投影后 JSON 字段，Adapter 自行决定 Key/TTL/CAS；Modbus 寄存器镜像与 Gateway `UpdateVariables` 无法直接传输 JSON 来源元数据，必须由 Delivery 的目标映射和配置版本切换保证正确解释。输入、转换和发送阶段各自可观测；原消息不可被修改，同批次不同 Delivery 可用不同等级输出。
 
@@ -3942,7 +3962,7 @@ lint-imports
 | Sink Reliable | 批量 JetStream 消费、逐点目标确认、整条消息安全 ACK、部分成功重投与 DLQ、InProgress 续约 |
 | Service 配置与测试 | 校验真实生效的批量字节/消息上限、流过滤、新旧消息版本切换；无隐式兼容或旧接口残留 |
 
-上述是跨模块核验清单，不自动代表缺失实现或验收通过；Contracts Schema 2 和当前 Sink B2 开发分支实现需分别核对，真实 Collector/Sink 联调结论以实际测试报告为准。
+上述是跨模块核验清单，不自动代表缺失实现或验收通过；Contracts 当前报文契约和 Sink 实现需分别核对，真实 Collector/Sink 联调结论以实际测试报告为准。
 
 > **v1_37 历史修订说明（2026-11-09）**：以用户提供 v1_36 为基线，第 1～2 章原文保留；保留 Schema 2 源批与受控设备级并发决策，将 B2 Kafka Builder/Metadata/Future 确认纳入 §10.7.2 和 §12.1.4，将加权近似 P99 纳入 §3.5.3 和 §13.3.2，将独立验收纳入 §14.5.6；更新 Kafka 1.1.0 开发分支状态及历史基线表述。不增加第 15 章，不扩展 13 RPC，也不把线下测试视为已通过。
 
@@ -3954,6 +3974,12 @@ lint-imports
 Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
 
 ## A.2 广播、拉取、对账和独立生效
+
+Sink Main 已实现可选的 Repository 订阅对账：首先订阅 `wh.config.changed`，然后以 `GetCurrentRevision` 的权威修订进行定时核对；需要更新时通过 `GetConfigBundle` 获取完整 YAML 依赖闭包，验证逐文件哈希、全体 Manifest 及 Semantic Hash，筛选当前 Sink Service 的精确引用并使用既有单写入方 CAS/Apply 提交。NATS 广播只负责唤醒，丢失通知或网络重连不能跳过周期对账。下游其他业务模块是否具备同样能力须独立验收；本设计不将 Sink 单模块实现夸称为全仓完成。
+
+`config_sync.repository_endpoint` 与 `repository_token_ref` 必须成对；`repository_token_ref` 只能引用环境变量。可配置 `poll_interval_seconds`（整数 5..3600，省略则 30 秒），`approved_point_table_manifests` 为 BUSINESS 专用的已核验映射清单。存储提交成功但 Worker 未生效时必须公开 pending/restart 状态，而不是报告一致生效。
+
+
 
 ```mermaid
 sequenceDiagram
@@ -3982,4 +4008,16 @@ sequenceDiagram
 
 ## 附录 B：内部 gRPC 适配范围
 
-遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。
+遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。Sink Main 及 CLI 当前生产代码已切换至按调用方 Token 校验（无 mTLS），但测试、Fixture 和其他客户端的迁移仍需独立验证。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。
+
+### B.1 Industrial Gateway 注入端口与认证边界
+
+Industrial Gateway 管理/控制面可保留独立的 mTLS 入口供现有 Gateway 外部调用方使用，**Sink→Gateway 的内部写入链路不复用该入口**。在管理面启用 mTLS 的部署中，Gateway 可以显式配置 `grpc.sink_listener_port`：
+
+- 仅绑定 `127.0.0.1:<sink_listener_port>`，必须不同于管理端口和工业协议监听端口；不能暴露在公网或容器网络通配地址；跨容器部署须确保二者共享受控 loopback 命名空间，否则不得启用。
+- 启用前须在 Gateway 和 Sink 进程中注入一致的至少 32 字符 `WIND_HUB_GATEWAY_SINK_TOKEN`，令牌只从环境变量读取，不存储到 Service/Sink Instance 配置文档；不得在日志中打印。
+- Sink 对 `ClaimTargets`、`UpdateVariables` 附加 `Authorization: Bearer <token>`，Gateway 独立验证 loopback 来源、精确 Token 与 `inject` 权限；其余读、配置、诊断、生命周期及仿真控制 RPC 不因该 Token 获得权限。原有租约主体与变量范围约束继续生效。
+- Token 错误、缺失或目标连接失败均 fail-closed；不能通过禁用 Gateway 主管理面 mTLS、扩大 CLI 明文豁免或恢复旧证书字段绕过准入。
+- 对未启用 mTLS 的已有 loopback-only Gateway 部署，保持既有内网本地调用模式；禁止借此将匿名注入接口暴露至非 loopback 监听地址。
+
+此双入口边界为 Gateway 现行管理面与 Sink 内部数据面显式隔离，不代表恢复 Sink Main 的 mTLS。跨服务部署需另行设计受控互通通道及身份验证，不可将 loopback-only 能力延伸为远程明文调用。

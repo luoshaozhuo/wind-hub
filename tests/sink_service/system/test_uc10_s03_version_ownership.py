@@ -77,12 +77,12 @@ class TestUC10S03:
     async def test_unsupported_schema_version_fails_closed(
         self, sink_harness: SinkSystemHarness
     ) -> None:
-        """schema_version=2 是不支持的配置世代，必须拒绝启动。"""
+        """Service schema_version=3 不受支持，必须拒绝启动。"""
         sink_harness.write_dual_channel_root()
         await sink_harness.provision_streams()
         service_path = sink_harness.root / SERVICE_FILE
         doc = yaml.safe_load(service_path.read_text(encoding="utf-8"))
-        doc["schema_version"] = 2
+        doc["schema_version"] = 3
         service_path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
         proc = start_sink_service_from_root(
@@ -91,7 +91,7 @@ class TestUC10S03:
         try:
             code = await _wait_process_exit(proc)
             assert code != 0, "unsupported schema_version must be rejected"
-            assert "unsupported schema_version" in proc.read_log()
+            assert "Sink Service requires token-security schema" in proc.read_log()
         finally:
             proc.kill_tree()
             proc.close_log()
@@ -144,7 +144,7 @@ class TestUC10S03:
             dlq_stream=sink_harness.dlq_stream,
             dlq_subject=sink_harness.dlq_subject,
             token=f"{sink_harness.token}b",
-            bundle=sink_harness.bundle,
+            auth_tokens=dict(sink_harness.auth_tokens),
         )
         try:
             await harness_b.start()

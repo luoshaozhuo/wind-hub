@@ -12,26 +12,12 @@ from tests.support.configuration_live import LiveConfiguration
 pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 
 
-async def publish(
-    repository,
-    request_id: str,
-    version: str,
-    revision: int,
-    dependencies: tuple[str, ...] = (),
-) -> tuple[int, str]:
-    item = document("history", version)
-    if dependencies:
-        payload = yaml.safe_load(item.yaml_bytes)
-        payload["config_sources"] = [
-            {"config_type": "site", "config_id": "history", "file_version": dependency}
-            for dependency in dependencies
-        ]
-        item.yaml_bytes = yaml.safe_dump(payload).encode()
+async def _stage_and_publish(repository, request_id: str, revision: int, documents):
     staged = await repository.CreateCandidate(
         pb.CreateCandidateRequest(
             request_id=f"{request_id}-create",
             expected_revision_id=revision,
-            documents=[item],
+            documents=documents,
         )
     )
     result = await repository.PublishCandidate(
@@ -41,7 +27,16 @@ async def publish(
             expected_revision_id=revision,
         )
     )
-    return result.revision_id, result.published[0].version_id
+    return result
+
+
+def _with_source(item, dependency: str) -> pb.ConfigDocumentInput:
+    payload = yaml.safe_load(item.yaml_bytes)
+    payload["config_sources"] = [
+        {"config_type": "task", "config_id": "history", "file_version": dependency}
+    ]
+    item.yaml_bytes = yaml.safe_dump(payload).encode()
+    return item
 
 
 @pytest.mark.asyncio
@@ -50,17 +45,31 @@ async def test_versions_and_references_last_page_and_version_watermark(
 ) -> None:
     repository, _common, channel = live.stubs("deployer")
     try:
-        revision, version1 = await publish(repository, "history-v1", "1.0.0", 0)
-        revision, version2 = await publish(repository, "history-v2", "2.0.0", revision)
-        identity = pb.ConfigId(config_type="site", config_id="history")
+        identity = pb.ConfigId(config_type="task", config_id="history")
+        v1 = document("history", "1.0.0")
+        published_v1 = await _stage_and_publish(repository, "history-v1", 0, [v1])
+        revision = published_v1.revision_id
+        version1 = published_v1.published[0].version_id
+
+        v2 = _with_source(document("history", "2.0.0"), "1.0.0")
+        published_v2 = await _stage_and_publish(repository, "history-v2", revision, [v1, v2])
+        revision = published_v2.revision_id
+        version2 = next(
+            item.version_id for item in published_v2.published if item.file_version == "2.0.0"
+        )
+
         first = await repository.ListConfigVersions(
-            pb.ListConfigVersionsRequest(config_id=identity, page_size=1)
+            pb.ListConfigVersionsRequest(config_id=identity, page_size=1, include_deprecated=True)
         )
         assert [item.version_id for item in first.versions] == [version1]
         assert first.next_page_token
-        revision, _version3 = await publish(
-            repository, "history-v3", "3.0.0", revision, ("1.0.0", "2.0.0")
+
+        # A standalone new root retires the older files from the active
+        # directory while keeping every immutable version queryable.
+        published_v3 = await _stage_and_publish(
+            repository, "history-v3", revision, [document("history", "3.0.0")]
         )
+        revision = published_v3.revision_id
         await repository.DeprecateConfigVersion(
             pb.DeprecateConfigVersionRequest(
                 request_id="history-deprecate",
@@ -69,16 +78,36 @@ async def test_versions_and_references_last_page_and_version_watermark(
                 expected_revision_id=revision,
             )
         )
-        last = await repository.ListConfigVersions(
+        # The version watermark is frozen by the first page cursor, so open a
+        # fresh first page after the deprecation revision and walk every page.
+        page = await repository.ListConfigVersions(
             pb.ListConfigVersionsRequest(
                 config_id=identity,
                 page_size=1,
-                page_token=first.next_page_token,
+                include_deprecated=True,
             )
         )
-        assert [item.version_id for item in last.versions] == [version2]
-        assert not last.versions[0].deprecated
-        assert last.next_page_token == ""
+        seen: list[pb.ConfigVersionSummary] = list(page.versions)
+        token = page.next_page_token
+        while token:
+            page = await repository.ListConfigVersions(
+                pb.ListConfigVersionsRequest(
+                    config_id=identity,
+                    page_size=1,
+                    page_token=token,
+                    include_deprecated=True,
+                )
+            )
+            seen.extend(page.versions)
+            token = page.next_page_token
+        assert token == ""
+        assert [item.version_id for item in seen] == [
+            version1,
+            version2,
+            published_v3.published[0].version_id,
+        ]
+        v2_summary = next(item for item in seen if item.version_id == version2)
+        assert v2_summary.deprecated
         references = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version1,

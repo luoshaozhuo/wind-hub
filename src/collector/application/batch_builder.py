@@ -50,30 +50,50 @@ class BatchBuilder:
             max_staleness_ms=self._staleness if self._delivery == "realtime" else None,
         )
 
-    def _batch(self, device_id: str, samples: tuple[SampleItem, ...]) -> SampleBatch:
+    def _batch(
+        self,
+        device_id: str,
+        device_type: str,
+        point_table_id: str,
+        samples: tuple[SampleItem, ...],
+    ) -> SampleBatch:
         return SampleBatch(
             batch_id=uuid4().hex,
             mode=self._delivery,
             wind_farm_id=self._site_id,
             collector_id=self.collector_id,
             task_id=device_id,
+            device_type=device_type,
             device_id=device_id,
+            point_table_id=point_table_id,
             publish_time=datetime.now(UTC),
             samples=samples,
         )
 
-    def pack(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> list[SampleBatch]:
+    def pack(
+        self,
+        device_id: str,
+        samples: tuple[ProtocolSample, ...],
+        *,
+        device_type: str,
+        point_table_id: str,
+    ) -> list[SampleBatch]:
         if not samples:
             return []
         point_ids = [sample.point_id for sample in samples]
         if len(set(point_ids)) != len(point_ids):
             raise ValueError("duplicate point_id in acquisition batch")
+        device_type = validate_subject_token(device_type)
+        if not point_table_id.startswith("point_table_") or "_v" not in point_table_id:
+            raise ValueError("immutable point_table_id required")
         items = tuple(self._item(sample) for sample in samples)
         batches: list[SampleBatch] = []
         start = 0
         while start < len(items):
             count = min(self._max_samples, len(items) - start)
-            candidate = self._batch(device_id, items[start : start + count])
+            candidate = self._batch(
+                device_id, device_type, point_table_id, items[start : start + count]
+            )
             while count:
                 try:
                     candidate.encode(max_samples=self._max_samples, max_bytes=self._max_bytes)
@@ -82,7 +102,9 @@ class BatchBuilder:
                     if count == 1:
                         raise
                     count //= 2
-                    candidate = self._batch(device_id, items[start : start + count])
+                    candidate = self._batch(
+                        device_id, device_type, point_table_id, items[start : start + count]
+                    )
             batches.append(candidate)
             start += count
         return batches

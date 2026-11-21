@@ -49,7 +49,10 @@ def _sample(
         wind_farm_id=farm,
         collector_id=collector,
         task_id=task,
+        device_type="wind_turbine",
         device_id=device,
+        point_table_id="point_table_wtg_sim_v1.0.0",
+        batch_id="batch-test",
         point_id=point,
         sample_id=sample_id,
         value=value,
@@ -85,7 +88,9 @@ def _batch_msg(
         wind_farm_id=farm,
         collector_id=collector,
         task_id=task,
+        device_type="wind_turbine",
         device_id=device,
+        point_table_id="point_table_wtg_sim_v1.0.0",
         publish_time=now,
         samples=(
             SampleItem(

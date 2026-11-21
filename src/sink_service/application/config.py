@@ -145,13 +145,13 @@ def _validate_sink(
         "redis": {"host", "port"},
         "kafka": {"bootstrap_servers"},
         "modbus_tcp": {"listen_host", "port"},
-        "gateway": {"endpoint", "gateway_id", "credential_ref"},
+        "gateway": {"endpoint", "gateway_id"},
     }
     require_keys(
         connection,
         f"sinks.{sink_id}.connection",
         frozenset(connection_keys[str(kind)]),
-        frozenset({"credential_ref"}),
+        frozenset({"credential_ref"} if kind in ("redis", "kafka") else ()),
     )
     output = expect_mapping(template.get("output"), f"sinks.{sink_id}.output")
     output_keys = {
@@ -215,8 +215,6 @@ def _validate_sink(
         if not delimiter or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
             raise ConfigurationError(f"sinks.{sink_id}: Gateway endpoint must be host:port")
         expect_nonempty_str(connection.get("gateway_id"), f"sinks.{sink_id}.gateway_id")
-        if not reference:
-            raise ConfigurationError(f"sinks.{sink_id}: Gateway requires mTLS credential_ref")
         expect_positive_int(output.get("lease_ms"), f"sinks.{sink_id}.lease_ms", 60000)
         if output["lease_ms"] < 1000:
             raise ConfigurationError(f"sinks.{sink_id}: lease_ms below 1000")
@@ -270,6 +268,12 @@ def _validate_delivery(
     if sink_id not in sinks:
         raise ConfigurationError(f"deliveries.{delivery_id}: unknown Sink {sink_id}")
     kind, caps = sinks[sink_id]
+    # The Kafka adapter only accepts encoded, durable records. Realtime
+    # DeliveryPoint writes have no valid Kafka wire path and must never start.
+    if kind == "kafka" and mode != "reliable":
+        raise ConfigurationError(f"deliveries.{delivery_id}: Kafka requires Reliable delivery")
+    if kind != "kafka" and mode != "realtime":
+        raise ConfigurationError(f"deliveries.{delivery_id}: {kind} requires Realtime delivery")
     if not caps[mode]:
         raise ConfigurationError(f"deliveries.{delivery_id}: incompatible Sink capability")
     if kind == "modbus_tcp" and mode == "reliable":
@@ -352,9 +356,13 @@ def _validate_delivery(
         require_keys(
             output,
             f"deliveries.{delivery_id}.output",
-            frozenset({"policy", "period_ms"}),
+            frozenset({"policy", "period_ms", "data_level"}),
             frozenset({"absolute_threshold", "relative_threshold"}),
         )
+        if output.get("data_level") != "protocol":
+            raise ConfigurationError(
+                f"deliveries.{delivery_id}: only verified PROTOCOL output is currently supported"
+            )
         if output.get("policy") not in ("periodic", "on_change", "change_with_heartbeat"):
             raise ConfigurationError(f"deliveries.{delivery_id}: unknown output policy")
         expect_positive_int(output.get("period_ms"), f"deliveries.{delivery_id}.period_ms")
@@ -391,10 +399,53 @@ def _validate_delivery(
                     "template_id",
                     "delivery_mode",
                     "source_filter",
+                    "output",
                     "reliable",
                 }
             ),
         )
+        reliable_output = expect_mapping(template.get("output"), f"deliveries.{delivery_id}.output")
+        require_keys(
+            reliable_output,
+            f"deliveries.{delivery_id}.output",
+            frozenset({"data_level"}),
+        )
+        level = reliable_output["data_level"]
+        if level not in ("protocol", "business"):
+            raise ConfigurationError(
+                f"deliveries.{delivery_id}: RAW requires an original undecoded payload"
+            )
+        if level == "business":
+            if kind != "kafka":
+                raise ConfigurationError(
+                    f"deliveries.{delivery_id}: BUSINESS needs a verified Kafka encoder"
+                )
+            sync = expect_mapping(service.get("config_sync"), "service.config_sync")
+            endpoint = expect_nonempty_str(
+                sync.get("repository_endpoint"), "config_sync.repository_endpoint"
+            )
+            host, sep, port = endpoint.rpartition(":")
+            if not sep or not host or not port.isdecimal() or not 1 <= int(port) <= 65535:
+                raise ConfigurationError("config_sync.repository_endpoint must be host:port")
+            token = expect_nonempty_str(
+                sync.get("repository_token_ref"), "config_sync.repository_token_ref"
+            )
+            if not token.startswith("env:"):
+                raise ConfigurationError("Configuration repository requires env: token")
+            approved = expect_mapping(
+                sync.get("approved_point_table_manifests"),
+                "config_sync.approved_point_table_manifests",
+            )
+            if not approved or any(
+                not isinstance(point_table_id, str)
+                or not point_table_id.startswith("point_table_")
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[a-f0-9]{64}", digest) is None
+                for point_table_id, digest in approved.items()
+            ):
+                raise ConfigurationError(
+                    "BUSINESS requires approved exact PointTable manifest digests"
+                )
         if kind == "kafka" and caps["supports_concurrent_write"] and len(source["devices"]) != 1:
             raise ConfigurationError(
                 f"deliveries.{delivery_id}: concurrent Kafka requires one explicit device"

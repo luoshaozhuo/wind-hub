@@ -4,6 +4,7 @@ import pytest
 
 from core.application.errors import ConfigError
 from core.configuration.business_points import parse_business_points
+from core.configuration.shared_point_tables import _point
 from core.domain import BusinessPointId, DataType
 from tests.support.units import minimal_unit_catalog
 
@@ -38,3 +39,27 @@ def test_parse_shared_business_point() -> None:
 def test_reject_invalid_business_point(definition: dict[str, object]) -> None:
     with pytest.raises(ConfigError):
         parse_business_points({"business_points": {"power": definition}}, minimal_unit_catalog())
+
+
+def test_point_requires_explicit_business_identity() -> None:
+    units = minimal_unit_catalog()
+    catalog = parse_business_points(
+        {"business_points": {"active_power": {"data_type": "float32", "unit": "kilowatt"}}},
+        units,
+    )
+    entry = {
+        "address": {"register_type": "holding", "address": 0},
+        "data_type": "float32",
+        "unit": "kilowatt",
+    }
+    with pytest.raises(ConfigError, match="business_point_id"):
+        _point("active_power", entry, "modbus", catalog, units)
+
+    point = _point(
+        "source_power",
+        {**entry, "business_point_id": "active_power"},
+        "modbus",
+        catalog,
+        units,
+    )
+    assert point.business_point_id == "active_power"

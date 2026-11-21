@@ -59,7 +59,9 @@ def _batch(
         wind_farm_id="farm-a",
         collector_id="collector-1",
         task_id="wtg-01",
+        device_type="wind_turbine",
         device_id="wtg-01",
+        point_table_id="point_table_wtg_sim_v1.0.0",
         publish_time=publish_time,
         samples=samples if samples is not None else (_item(),),
     )
@@ -68,15 +70,15 @@ def _batch(
 # ---------- schema_version 严格性 ----------
 
 
-def test_schema_version_is_literal_2_and_wire_requires_int_2() -> None:
+def test_schema_version_is_literal_3_and_wire_requires_int_3() -> None:
     batch = _batch()
-    assert batch.schema_version == 2
+    assert batch.schema_version == 3
     payload = batch.encode()
     decoded = SampleBatch.decode(payload, "realtime")
-    assert decoded.schema_version == 2
+    assert decoded.schema_version == 3
 
 
-@pytest.mark.parametrize("version", [1, 3, "2", 2.0, None])
+@pytest.mark.parametrize("version", [1, 2, "3", 3.0, None])
 def test_decode_rejects_non_literal_schema_version(version: object) -> None:
     document = json.loads(_batch().encode())
     if version is None:
@@ -135,7 +137,9 @@ def test_batch_identity_fields_use_subject_validation(field: str) -> None:
         "wind_farm_id": "farm-a",
         "collector_id": "collector-1",
         "task_id": "wtg-01",
+        "device_type": "wind_turbine",
         "device_id": "wtg-01",
+        "point_table_id": "point_table_wtg_sim_v1.0.0",
         "publish_time": _AWARE,
         "samples": (_item(),),
     }
@@ -381,7 +385,16 @@ def test_identity_is_stable_across_resends_and_publish_time_restamp() -> None:
     identity = batch.identity
     resent = batch.model_copy(update={"publish_time": datetime.now(UTC)})
     assert resent.identity == identity
-    assert identity == ("farm-a", "collector-1", "wtg-01", "wtg-01", "realtime", "batch-0001")
+    assert identity == (
+        "farm-a",
+        "collector-1",
+        "wtg-01",
+        "wind_turbine",
+        "wtg-01",
+        "point_table_wtg_sim_v1.0.0",
+        "realtime",
+        "batch-0001",
+    )
 
 
 def test_model_is_frozen() -> None:

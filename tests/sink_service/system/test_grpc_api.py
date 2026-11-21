@@ -1,17 +1,8 @@
-"""§14.3 test_grpc_api：正式 mTLS 接口可用性与 URI SAN 授权矩阵（真实进程）。
+"""Real Sink three-process gRPC authorization matrix with scoped Bearer callers.
 
-表 14-3 要求 CommonService 9 项 + SinkService 4 项在真实 gRPC Server/Stub、
-mTLS 与授权拦截器下逐项可调用。本模块在真实三进程服务上验证认证/授权边界：
-
-- 全权限调用方（spiffe://wind-hub/maintenance）query/control/config 均可达；
-- query-only 调用方（spiffe://wind-hub/readonly）query 放行、control 与
-  config 一律 PERMISSION_DENIED；
-- 未登记证书（spiffe://wind-hub/outsider，CA 合法但不在 security.callers）
-  任何 RPC 一律 PERMISSION_DENIED；
-- 明文非 TLS 通道在握手阶段被拒，不进入任何业务方法。
-
-被测拦截器为生产 ``PeerAuthorization``，证书由系统测试 TLS 束真实签发，
-无 Mock、无测试专用服务端分支。
+A privileged caller may query, control and stage configuration. A query-only
+caller must not control Deliveries or alter configuration. Unregistered or
+missing Bearer tokens are denied by the production PeerAuthorization interceptor.
 """
 
 from __future__ import annotations
@@ -36,12 +27,12 @@ pytestmark = [
 _CALLERS = [
     {
         "caller_id": "maintenance",
-        "certificate_identity": "spiffe://wind-hub/maintenance",
+        "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
         "permissions": ["query", "control", "config"],
     },
     {
         "caller_id": "readonly",
-        "certificate_identity": "spiffe://wind-hub/readonly",
+        "token_env": "env:WIND_HUB_SINK_READONLY_TOKEN",
         "permissions": ["query"],
     },
 ]
@@ -65,7 +56,7 @@ async def _status_code(channel: grpc.aio.Channel, rpc: str) -> grpc.StatusCode |
     return None
 
 
-class TestMtlsAuthorizationMatrix:
+class TestBearerAuthorizationMatrix:
     async def test_full_permission_caller_reaches_all_rpc_classes(
         self, sink_harness: SinkSystemHarness
     ) -> None:
@@ -100,10 +91,8 @@ class TestMtlsAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_unregistered_certificate_denied_even_with_valid_ca(
-        self, sink_harness: SinkSystemHarness
-    ) -> None:
-        """outsider：CA 合法但身份未登记，query 同样 PERMISSION_DENIED。"""
+    async def test_unregistered_bearer_denied(self, sink_harness: SinkSystemHarness) -> None:
+        """未注册 Bearer 身份无法访问任何 RPC。"""
         sink_harness.write_dual_channel_root(reliable=False, callers=_CALLERS)
         await sink_harness.provision_streams()
         await sink_harness.start()
@@ -114,19 +103,14 @@ class TestMtlsAuthorizationMatrix:
         finally:
             await sink_harness.stop()
 
-    async def test_plaintext_channel_is_rejected_before_any_handler(
-        self, sink_harness: SinkSystemHarness
-    ) -> None:
-        """无客户端证书的明文通道在 TLS 握手期失败，业务方法不可达。"""
+    async def test_missing_bearer_is_rejected(self, sink_harness: SinkSystemHarness) -> None:
+        """明文连接可达，但缺失 Bearer 必须得到 UNAUTHENTICATED。"""
         sink_harness.write_dual_channel_root(reliable=False)
         await sink_harness.provision_streams()
         await sink_harness.start()
         try:
             async with grpc.aio.insecure_channel(f"127.0.0.1:{sink_harness.grpc_port}") as channel:
                 code = await _status_code(channel, "query")
-                assert code in {
-                    grpc.StatusCode.UNAVAILABLE,
-                    grpc.StatusCode.UNAUTHENTICATED,
-                }
+                assert code == grpc.StatusCode.UNAUTHENTICATED
         finally:
             await sink_harness.stop()

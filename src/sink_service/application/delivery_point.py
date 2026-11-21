@@ -1,7 +1,7 @@
 """A validated source point projected into Sink-owned delivery context.
 
 This is an output value object, not a second NATS wire protocol.
-Contracts alone decode and validate SampleBatch v2.
+Contracts alone decode and validate SampleBatch v3.
 """
 
 from __future__ import annotations
@@ -20,7 +20,10 @@ class DeliveryPoint:
     wind_farm_id: str
     collector_id: str
     task_id: str
+    device_type: str
     device_id: str
+    point_table_id: str
+    batch_id: str
     point_id: str
     sample_id: str
     value: float | int | bool | str | None
@@ -37,7 +40,10 @@ class DeliveryPoint:
             wind_farm_id=batch.wind_farm_id,
             collector_id=batch.collector_id,
             task_id=batch.task_id,
+            device_type=batch.device_type,
             device_id=batch.device_id,
+            point_table_id=batch.point_table_id,
+            batch_id=batch.batch_id,
             point_id=item.point_id,
             sample_id=item.sample_id,
             value=item.value,

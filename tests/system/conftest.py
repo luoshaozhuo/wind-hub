@@ -29,7 +29,12 @@ from tests.support.process import (
     start_sink_service_from_root,
     start_web_server,
 )
-from tests.support.sink_harness import DEFAULT_COLLECTOR_ID, DEFAULT_NAMESPACE, write_sink_root
+from tests.support.sink_harness import (
+    DEFAULT_COLLECTOR_ID,
+    DEFAULT_NAMESPACE,
+    TEST_SINK_CLI_TOKEN,
+    write_sink_root,
+)
 from tests.support.wait import wait_tcp_port, wait_until
 
 #: full_stack 现场的稳定身份：collector_id 由本 fixture 显式指定，
@@ -93,7 +98,12 @@ async def sink_service_factory(
             namespace=namespace,
             deployment_id=deployment_id or f"sys-{grpc_port}",
         )
-        proc = start_sink_service_from_root(root, grpc_port=grpc_port, log_dir=tmp_path)
+        proc = start_sink_service_from_root(
+            root,
+            grpc_port=grpc_port,
+            log_dir=tmp_path,
+            env_extra={"WIND_HUB_SINK_CLI_TOKEN": TEST_SINK_CLI_TOKEN},
+        )
         started.append(proc)
         try:
             # 管理面无健康 RPC；gRPC 端口可连即装配完成，端到端就绪由

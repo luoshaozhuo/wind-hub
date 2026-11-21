@@ -8,7 +8,7 @@ import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from core.application import (
@@ -21,7 +21,7 @@ from core.application import (
     SubscriptionHandle,
     validate_read_many_results,
 )
-from core.domain import Device, PointAccess, PointTable, engineering_value
+from core.domain import Device, PointAccess, PointTable
 
 from .ports.acquisition import MetricsSubjectPort, SampleSink
 from .telemetry import CollectorTelemetry
@@ -38,6 +38,8 @@ class DevicePlan:
     interval: float
     desired_state: str
     mode: str
+    device_type: str
+    point_table_id: str
     data_types: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -282,17 +284,11 @@ class DeviceWorker:
             or self.actual_state in {"RECOVERING", "STOPPING"}
         ):
             return
-        converted: list[ProtocolSample] = []
-        for sample in samples:
-            point = self.plan.point_table.points.get(sample.point_id)
-            if point is None:
-                continue
-            try:
-                value = engineering_value(point, sample.value)
-                converted.append(replace(sample, value=value))
-            except (ValueError, TypeError, OverflowError) as exc:
-                self.last_error = f"{sample.point_id}: {exc}"
-                converted.append(replace(sample, quality=Quality.BAD))
+        # Preserve protocol-decoded scalars. Scale/offset and BusinessPoint
+        # conversion belong to Sink, using the immutable PointTable closure.
+        converted = [
+            sample for sample in samples if sample.point_id in self.plan.point_table.points
+        ]
         if any(sample.quality is Quality.GOOD for sample in converted):
             if self._recovery_started is not None:
                 if self.telemetry is not None:
@@ -314,7 +310,12 @@ class DeviceWorker:
                 self.telemetry.increment(prefix + "points.collected", len(converted))
                 self.telemetry.increment(prefix + "points.bad", bad)
             self.last_samples = tuple(converted)
-            await self.sink.publish(str(self.plan.device.device_id), tuple(converted))
+            await self.sink.publish(
+                str(self.plan.device.device_id),
+                tuple(converted),
+                device_type=self.plan.device_type,
+                point_table_id=self.plan.point_table_id,
+            )
 
     async def _poll_loop(self, point_ids: tuple[str, ...]) -> None:
         next_slot = time.monotonic()

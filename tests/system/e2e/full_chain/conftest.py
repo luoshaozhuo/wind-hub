@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -49,7 +50,6 @@ from tests.cli.test_r1f3_strict_cli_e2e import (
 from tests.commander.grpc_harness import build_pki
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
 from tests.support.collector_config_tree import _dump
 from tests.support.commander_mtls import write_commander_service
@@ -454,6 +454,7 @@ class FullChainHarness:
         self.endpoints: dict[str, str] = {}
         self.modbus_ports: dict[str, int] = {}
         self.gw_grpc_endpoint = ""
+        self.gateway_sink_token = ""
         self.cli_rt: Path = root / "cli-realtime.yaml"
         self.cli_rel: Path = root / "cli-reliable.yaml"
         self.sink: SinkSystemHarness | None = None
@@ -607,6 +608,9 @@ def _build_and_start(
     cli = StrictCliE2E(root)
     harness = FullChainHarness(root, stack, cli)
     ports = {name: reserve_port() for name in SERVICES}
+    ports["gateway_sink"] = reserve_port()
+    gateway_sink_token = os.urandom(32).hex()
+    harness.gateway_sink_token = gateway_sink_token
     harness.ports = ports
     harness.endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
     harness.modbus_ports = {device_id: reserve_port() for device_id in E2E_DEVICES}
@@ -636,6 +640,7 @@ def _build_and_start(
 
     gateway_service = _write_gateway_service(plant, grpc_port=ports["gateway"], pki=pki)
     gateway_document = _load(gateway_service)
+    gateway_document["grpc"]["sink_listener_port"] = ports["gateway_sink"]
     servers = gateway_document["servers"]
     assert [item["device_id"] for item in servers] == list(SIM_DEVICES)
     servers.append(
@@ -729,7 +734,6 @@ def _build_and_start(
     _dump(commander_service, document)
 
     # ---------------- sink ----------------
-    bundle = write_mtls_bundle(root / "sink-pki")
     sink = SinkSystemHarness(
         root=root / "sink",
         stack=stack,
@@ -740,7 +744,6 @@ def _build_and_start(
         dlq_stream=f"WH_DLQ_FC_{harness.token.upper()}",
         dlq_subject=f"wh.fullchain.dlq.{harness.token}",
         token=harness.token,
-        bundle=bundle,
     )
     harness.sink = sink
     asyncio.run(_provision_kafka_topic(stack.kafka, sink.kafka_topic))
@@ -751,8 +754,7 @@ def _build_and_start(
     sink_service_document = _load(sink_service)
     sink_service_document["wind_farm_id"] = FARM
     _dump(sink_service, sink_service_document)
-    sink.bundle = write_mtls_bundle(sink.root)
-    bundle = sink.bundle
+    cli.sink_token = sink.auth_tokens["admin"]
     bounded_rt = {
         "wind_farm_id": FARM,
         "collector_id": harness.rt_collector,
@@ -835,9 +837,8 @@ def _build_and_start(
         "template_id": "gateway_realtime",
         "template_version": "1.0.0",
         "connection": {
-            "endpoint": harness.gw_grpc_endpoint,
+            "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
             "gateway_id": "gw-wtg_sim01",
-            "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
         },
         "overrides": {},
     }
@@ -853,9 +854,8 @@ def _build_and_start(
             "template_id": "gateway_realtime",
             "template_version": "1.0.0",
             "connection": {
-                "endpoint": harness.gw_grpc_endpoint,
+                "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
                 "gateway_id": f"gw-{suffix}",
-                "credential_ref": "env:WH_FULLCHAIN_GATEWAY_TLS",
             },
             "overrides": {},
         }
@@ -903,7 +903,7 @@ def _build_and_start(
                 str(plant),
             ],
             plant,
-            {},
+            {"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
         ),
         "data-generator": (
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
@@ -956,13 +956,8 @@ def _build_and_start(
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             sink.root,
             {
-                "WH_FULLCHAIN_GATEWAY_TLS": json.dumps(
-                    {
-                        "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                        "client_cert_pem": clients["sink"][0].read_text(encoding="utf-8"),
-                        "client_key_pem": clients["sink"][1].read_text(encoding="utf-8"),
-                    }
-                )
+                "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
             },
         ),
         "commander": (
@@ -981,7 +976,6 @@ def _build_and_start(
         processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
     _write_cli(
         harness.cli_rel,
@@ -990,7 +984,6 @@ def _build_and_start(
         processes=cli.processes,
         gateway_pki=pki,
         commander_pki=commander_pki,
-        sink_bundle=bundle,
     )
 
     try:

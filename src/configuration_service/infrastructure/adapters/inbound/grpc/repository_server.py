@@ -1,4 +1,4 @@
-"""Authenticated gRPC adapters for the configuration repository."""
+"""Token-authorized gRPC adapters for the configuration repository."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ from typing import Any, TypeVar
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from configuration_service.application.directory_manifest import (
+    DirectoryFile,
+    build_directory_manifest,
+)
 from configuration_service.application.metrics import RpcMetrics
 from configuration_service.application.service import (
     ConfigurationApplication,
@@ -38,7 +42,7 @@ T = TypeVar("T")
 
 
 class AuthenticationError(Exception):
-    """Authenticated mTLS client certificate is missing or invalid."""
+    """Required caller token is absent or invalid."""
 
 
 def _timestamp(value: str | None = None) -> Timestamp:
@@ -68,6 +72,7 @@ def _yaml_output(value: DocumentOutput) -> pb.ConfigYamlDocument:
         content_sha256=value.content_sha256,
         yaml_sha256=value.yaml_sha256,
         schema_ref=value.schema_ref,
+        relative_path=value.relative_path,
     )
 
 
@@ -111,12 +116,7 @@ def guarded(
         except grpc.RpcError:
             raise
         except Exception as exc:
-            names = context.auth_context().get("x509_common_name", ())
-            actor = (
-                names[0].decode("utf-8", "replace")
-                if names and isinstance(names[0], bytes) and names[0]
-                else "unauthenticated"
-            )
+            actor = "unauthenticated"
             try:
                 self.app.repository.record_rejected_operation(
                     actor_id=actor,
@@ -137,33 +137,65 @@ def guarded(
 
 
 class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
-    """Serve all twelve repository RPCs with mandatory mTLS authorization."""
+    """Serve repository RPCs with mandatory per-caller token authorization."""
 
     def __init__(
         self,
         application: ConfigurationApplication,
         *,
         permissions: dict[str, frozenset[str]],
+        tokens: dict[str, str],
         cursor_secret: bytes,
         submit_backup: Callable[[str], None],
+        revision_notify: Callable[[int], None],
         metrics: RpcMetrics,
     ) -> None:
         self.app = application
         self.metrics = metrics
         self.submit_backup = submit_backup
+        self.revision_notify = revision_notify
         self.permissions = permissions
+        if not tokens or set(tokens) != set(permissions):
+            raise ValueError("authorized callers and token identities must match")
+        if len(set(tokens.values())) != len(tokens) or any(
+            len(value) < 32 for value in tokens.values()
+        ):
+            raise ValueError("configuration access tokens must be unique and sufficiently long")
+        self._tokens = dict(tokens)
         if len(cursor_secret) < 32:
             raise ValueError("cursor secret must be at least 32 bytes")
         self.secret = cursor_secret
 
+    def _notify_revision(self, revision_id: int) -> None:
+        """Broadcast an already-committed revision without weakening its durability."""
+        try:
+            self.revision_notify(revision_id)
+        except Exception:
+            _LOG.exception(
+                "could not schedule NATS revision notice: revision=%s",
+                revision_id,
+            )
+
     def _actor(self, context: grpc.ServicerContext, role: str) -> str:
-        certificate = context.auth_context()
-        names = certificate.get("x509_common_name", ())
-        if not names or not isinstance(names[0], bytes) or not names[0].strip():
-            raise AuthenticationError("valid mTLS identity required")
-        actor = names[0].decode("utf-8").strip()
-        if not actor:
-            raise AuthenticationError("valid mTLS identity required")
+        metadata = context.invocation_metadata()
+        authorization = [item[1] for item in metadata if item[0].lower() == "authorization"]
+        if (
+            len(authorization) != 1
+            or not isinstance(authorization[0], str)
+            or not authorization[0].startswith("Bearer ")
+        ):
+            raise AuthenticationError("valid authorization token required")
+        supplied = authorization[0][7:]
+        if len(supplied) < 32:
+            raise AuthenticationError("valid authorization token required")
+        matched = [
+            actor
+            for actor, expected in self._tokens.items()
+            if hmac.compare_digest(supplied, expected)
+        ]
+        if len(matched) != 1:
+            raise AuthenticationError("valid authorization token required")
+        actor = matched[0]
         roles = self.permissions.get(actor, frozenset())
         if role not in roles and "admin" not in roles:
             raise PermissionError("missing repository permission")
@@ -201,7 +233,12 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected_revision_id must be provided")
         data = tuple(
-            DocumentInput(_identity(item.config_id), item.file_name, item.yaml_bytes)
+            DocumentInput(
+                _identity(item.config_id),
+                item.file_name,
+                item.yaml_bytes,
+                relative_path=item.relative_path,
+            )
             for item in request.documents
         )
         if not request.request_id:
@@ -227,10 +264,16 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 base_revision_id=request.expected_revision_id,
                 issues=[pb.ValidationIssue(error_code="SCHEMA_INVALID", message=str(exc))],
             )
+        manifest = build_directory_manifest(
+            tuple(DirectoryFile(item.relative_path, item.yaml_bytes) for item in request.documents),
+            max_documents=self.app.limits.max_documents_per_publication,
+            max_bytes=self.app.limits.max_request_bytes,
+        )
         return pb.CreateCandidateResponse(
             candidate_id=candidate_id,
             valid=True,
             base_revision_id=request.expected_revision_id,
+            manifest_sha256=manifest.sha256,
             document_results=[
                 pb.DocumentValidationResult(
                     config_id=_config_id(doc.identity),
@@ -255,6 +298,10 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             expected_revision=request.expected_revision_id,
             candidate_id=request.candidate_id,
         )
+        # A committed revision survives notification failure. Offline subscribers
+        # reconcile with the repository on start, reconnect and periodic refresh.
+        if not result.replayed:
+            self._notify_revision(result.revision_id)
         # Request ordering is the durable candidate document ordering.
         staged = self.app.repository.get_candidate(request.candidate_id, actor)
         docs = staged["documents"]
@@ -272,6 +319,46 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             published=items,
             committed_at=_timestamp(self.app.repository.get_revision_timestamp(result.revision_id)),
             already_applied=result.replayed,
+        )
+
+    @guarded
+    def GetCurrentRevision(
+        self, request: pb.GetCurrentRevisionRequest, context: grpc.ServicerContext
+    ) -> pb.GetCurrentRevisionResponse:
+        del request
+        self._actor(context, "query")
+        revision, manifest, committed = self.app.repository.get_current_manifest()
+        response = pb.GetCurrentRevisionResponse(revision_id=revision, manifest_sha256=manifest)
+        if committed is not None:
+            response.committed_at.CopyFrom(_timestamp(committed))
+        return response
+
+    @guarded
+    def GetPointTableBundle(
+        self, request: pb.GetPointTableBundleRequest, context: grpc.ServicerContext
+    ) -> pb.GetPointTableBundleResponse:
+        self._actor(context, "query")
+        documents, manifest = self.app.get_point_table_bundle(
+            request.point_table_id,
+            expected_manifest_sha256=request.expected_manifest_sha256 or None,
+        )
+        root = [
+            item
+            for item in documents
+            if item.identity.config_type == "point_table"
+            and request.point_table_id
+            == f"point_table_{item.identity.config_id}_v{item.file_version}"
+        ]
+        if len(root) != 1:
+            raise RepositoryConflictError("immutable PointTable root is ambiguous")
+        typed_rows = self.app.repository.get_projection_rows(root[0].version_id, "point_tables")
+        if len(typed_rows) != 1:
+            raise RepositoryConflictError("PointTable typed identity is incomplete")
+        return pb.GetPointTableBundleResponse(
+            point_table_id=request.point_table_id,
+            device_type=str(typed_rows[0]["device_type"] or ""),
+            documents=[_yaml_output(item) for item in documents],
+            manifest_sha256=manifest,
         )
 
     @guarded
@@ -308,8 +395,12 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         )
         digest = hashlib.sha256()
         for item in result:
-            digest.update(item.version_id.encode())
-            digest.update(item.yaml_sha256.encode())
+            # The manifest authenticates the exact path, immutable version
+            # and bytes, not merely the document's logical identity.
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                digest.update(len(encoded).to_bytes(4, "big"))
+                digest.update(encoded)
         return pb.GetConfigBundleResponse(
             revision_id=request.revision_id,
             files=[_yaml_output(item) for item in result],
@@ -511,6 +602,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         actor = self._actor(context, "publish")
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected revision required")
+        prior_revision = self.app.repository.current_revision()
         revision, previous = self.app.repository.set_recommended_version(
             actor_id=actor,
             request_id=request.request_id,
@@ -525,6 +617,8 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         )
         if previous is not None:
             result.previous_version_id = previous
+        if revision > prior_revision:
+            self._notify_revision(revision)
         return result
 
     @guarded
@@ -534,6 +628,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         actor = self._actor(context, "admin")
         if not request.HasField("expected_revision_id"):
             raise ValueError("expected revision required")
+        prior_revision = self.app.repository.current_revision()
         revision, count = self.app.repository.deprecate_version(
             actor_id=actor,
             request_id=request.request_id,
@@ -541,6 +636,8 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
             reason=request.reason,
             expected_revision=request.expected_revision_id,
         )
+        if revision > prior_revision:
+            self._notify_revision(revision)
         return pb.DeprecateConfigVersionResponse(
             revision_id=revision,
             version_id=request.version_id,

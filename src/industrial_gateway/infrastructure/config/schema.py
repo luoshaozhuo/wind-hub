@@ -60,6 +60,7 @@ class TlsConfig(StrictModel):
 class GrpcConfig(StrictModel):
     listen_host: str = "127.0.0.1"
     listen_port: int = Field(default=50073, ge=1, le=65535)
+    sink_listener_port: int | None = Field(default=None, ge=1, le=65535)
     max_active_rpcs: int = Field(default=64, ge=1)
     request_max_bytes: int = Field(default=2097152, ge=1)
     tls: TlsConfig = Field(default_factory=TlsConfig)
@@ -83,6 +84,11 @@ class GrpcConfig(StrictModel):
                 raise ValueError("invalid grpc identity permissions")
         if self.tls.enabled and not self.permissions:
             raise ValueError("production mTLS requires explicit identity permissions")
+        if self.sink_listener_port is not None:
+            if not self.tls.enabled:
+                raise ValueError("Gateway Sink listener requires an mTLS management listener")
+            if self.sink_listener_port == self.listen_port:
+                raise ValueError("Gateway Sink listener port must differ from management port")
         if not self.tls.enabled and self.listen_host not in {
             "127.0.0.1",
             "::1",
@@ -226,6 +232,8 @@ class GatewayServiceConfig(StrictModel):
         identifiers: set[str] = set()
         devices: set[str] = set()
         listeners: list[tuple[str, int]] = [(self.grpc.listen_host, self.grpc.listen_port)]
+        if self.grpc.sink_listener_port is not None:
+            listeners.append(("127.0.0.1", self.grpc.sink_listener_port))
         for server in self.servers:
             if server.server_id in identifiers:
                 raise ValueError(f"duplicate server_id: {server.server_id}")

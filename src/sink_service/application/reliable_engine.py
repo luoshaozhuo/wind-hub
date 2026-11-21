@@ -69,7 +69,7 @@ class ReliableDeliveryEngine:
         """Implemented by the JetStream metadata adapter."""
         raise NotImplementedError
 
-    def _encode_kafka_points(
+    async def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
         """Implemented by the Kafka output serialization adapter."""
@@ -94,6 +94,32 @@ class ReliableDeliveryEngine:
                 except Exception:
                     logger.warning("DLQ source ACK extension failed", exc_info=True)
         await asyncio.shield(transfer)
+
+    async def _encode_with_heartbeat(
+        self,
+        message: ReliableMessagePort,
+        batch: SampleBatch,
+        items: tuple[SampleItem, ...],
+    ) -> tuple[bytes, ...]:
+        """Keep source ownership while a historical mapping is fetched and verified."""
+        task = asyncio.create_task(self._encode_kafka_points(batch, items))
+        interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
+        try:
+            while not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+                except TimeoutError:
+                    try:
+                        await message.extend()
+                    except Exception:
+                        logger.warning("source ACK extension during mapping failed", exc_info=True)
+            return await asyncio.shield(task)
+        finally:
+            # Unlike an already submitted target write, a pending read-only
+            # metadata query can be cancelled safely on Delivery shutdown.
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     async def _write_with_heartbeat(
         self,
@@ -173,7 +199,7 @@ class ReliableDeliveryEngine:
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
                 chunk_items = selected[start : start + 500]
-                payloads = self._encode_kafka_points(batch, chunk_items)
+                payloads = await self._encode_with_heartbeat(message, batch, chunk_items)
                 chunk_length = len(chunk_items)
             else:
                 chunk = samples[start : start + 500]

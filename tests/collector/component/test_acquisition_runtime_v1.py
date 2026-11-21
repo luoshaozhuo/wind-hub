@@ -34,7 +34,7 @@ pytestmark = [pytest.mark.component, pytest.mark.mock_service]
 CONFIG = Path(__file__).resolve().parents[3] / "configs"
 
 
-def _device() -> tuple[Device, PointTable]:
+def _device() -> tuple[Device, PointTable, str, str]:
     shared = SharedDocumentLoader(
         SharedConfigPaths(
             CONFIG / "instances",
@@ -46,7 +46,8 @@ def _device() -> tuple[Device, PointTable]:
     snapshot = build_shared_snapshot(shared)
     device = next(iter(snapshot.site.devices.values()))
     model = snapshot.device_models[device.device_model_id]
-    return device, snapshot.point_tables[model.point_table_id]
+    table = snapshot.point_tables[model.point_table_id]
+    return device, table, str(model.device_type_id), table.point_table_id
 
 
 class FakeDriver:
@@ -96,17 +97,34 @@ class FakePublisher:
     async def stop(self) -> None:
         return None
 
-    async def publish(self, device_id: str, samples: tuple[ProtocolSample, ...]) -> None:
+    async def publish(
+        self,
+        device_id: str,
+        samples: tuple[ProtocolSample, ...],
+        *,
+        device_type: str,
+        point_table_id: str,
+    ) -> None:
         self.received.append((device_id, samples))
+        self.last_device_type = device_type
+        self.last_point_table_id = point_table_id
 
 
 @pytest.mark.asyncio
 async def test_poll_starts_and_stops_with_owned_session() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeDriver()
     publisher = FakePublisher()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         publisher,
         timeout=0.2,
@@ -134,10 +152,18 @@ async def test_poll_starts_and_stops_with_owned_session() -> None:
 async def test_stale_callback_during_recovery_never_promotes_running(
     needs_reconnect: bool, state: str
 ) -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     publisher = FakePublisher()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
         timeout=0.2,
@@ -159,10 +185,18 @@ async def test_stale_callback_during_recovery_never_promotes_running(
 
 @pytest.mark.asyncio
 async def test_transient_isolation_with_healthy_io_still_promotes_running() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     publisher = FakePublisher()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
         timeout=0.2,
@@ -186,10 +220,18 @@ async def test_transient_isolation_with_healthy_io_still_promotes_running() -> N
 
 @pytest.mark.asyncio
 async def test_stop_intent_does_not_start_protocol_session() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeDriver()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "STOP", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "STOP",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.2,
@@ -204,12 +246,20 @@ async def test_stop_intent_does_not_start_protocol_session() -> None:
 
 @pytest.mark.asyncio
 async def test_unsettled_read_is_not_overlapped_by_reconnect() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeDriver()
     release = asyncio.Event()
     driver.slow_read = release
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.03,
@@ -229,7 +279,7 @@ async def test_unsettled_read_is_not_overlapped_by_reconnect() -> None:
 
 @pytest.mark.asyncio
 async def test_device_reconfigure_replaces_only_changed_worker() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     drivers: list[FakeDriver] = []
 
     def factory(_device: Device, _table: PointTable) -> ProtocolPort:
@@ -238,7 +288,23 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
         return cast(ProtocolPort, driver)
 
     runtime = CollectorAcquisition(factory, FakePublisher())
-    plan = AcquisitionPlan("site", (DevicePlan(device, table, 0.1, "STOP", "poll"),), 1, 1, 0.02)
+    plan = AcquisitionPlan(
+        "site",
+        (
+            DevicePlan(
+                device,
+                table,
+                0.1,
+                "STOP",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
+        ),
+        1,
+        1,
+        0.02,
+    )
     await runtime.start(plan)
     try:
         key = str(device.device_id)
@@ -246,7 +312,21 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
         await runtime.reconfigure(plan)
         assert runtime.workers[key] is before
         changed = AcquisitionPlan(
-            "site", (DevicePlan(device, table, 0.1, "START", "poll"),), 1, 1, 0.02
+            "site",
+            (
+                DevicePlan(
+                    device,
+                    table,
+                    0.1,
+                    "START",
+                    "poll",
+                    device_type=device_type,
+                    point_table_id=point_table_id,
+                ),
+            ),
+            1,
+            1,
+            0.02,
         )
         await runtime.reconfigure(changed)
         assert runtime.workers[key] is not before
@@ -301,10 +381,18 @@ class FakeListenDriver(FakeDriver):
 
 @pytest.mark.asyncio
 async def test_subscribe_mode_owns_remote_notification_handle() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeSubscribeDriver()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "subscribe"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "subscribe",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.2,
@@ -323,10 +411,18 @@ async def test_subscribe_mode_owns_remote_notification_handle() -> None:
 
 @pytest.mark.asyncio
 async def test_listen_mode_owns_local_listener_handle() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeListenDriver()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "listen"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "listen",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.2,
@@ -367,11 +463,19 @@ class FakeInterrogationDriver(FakeDriver):
 
 @pytest.mark.asyncio
 async def test_active_read_falls_back_to_serial_read_one() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeReadOneDriver()
     driver.open = True
     worker = DeviceWorker(
-        DevicePlan(device, table, 1.0, "STOP", "poll"),
+        DevicePlan(
+            device,
+            table,
+            1.0,
+            "STOP",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.2,
@@ -391,11 +495,19 @@ async def test_active_read_falls_back_to_serial_read_one() -> None:
 
 @pytest.mark.asyncio
 async def test_interrogation_requires_protocol_capability() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     unsupported = FakeDriver()
     unsupported.open = True
     worker = DeviceWorker(
-        DevicePlan(device, table, 1.0, "STOP", "poll"),
+        DevicePlan(
+            device,
+            table,
+            1.0,
+            "STOP",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, unsupported),
         FakePublisher(),
         timeout=0.2,
@@ -422,10 +534,18 @@ class FakeBlockedHealthDriver(FakeDriver):
 
 @pytest.mark.asyncio
 async def test_health_timeout_never_reopens_unsettled_session() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeBlockedHealthDriver()
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.02, "START", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=0.03,
@@ -447,7 +567,7 @@ async def test_health_timeout_never_reopens_unsettled_session() -> None:
 
 @pytest.mark.asyncio
 async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     second = replace(device, device_id=DeviceId("broken"))
 
     def factory(candidate: Device, _table: PointTable) -> ProtocolPort:
@@ -459,8 +579,24 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
     plan = AcquisitionPlan(
         "site",
         (
-            DevicePlan(device, table, 0.1, "STOP", "poll"),
-            DevicePlan(second, table, 0.1, "STOP", "poll"),
+            DevicePlan(
+                device,
+                table,
+                0.1,
+                "STOP",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
+            DevicePlan(
+                second,
+                table,
+                0.1,
+                "STOP",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
         ),
         0.5,
         0.5,
@@ -476,7 +612,7 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
 
 @pytest.mark.asyncio
 async def test_blocked_device_does_not_block_other_incremental_updates() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     second = replace(device, device_id=DeviceId("second"))
     gate = asyncio.Event()
     created: dict[str, list[FakeDriver]] = {}
@@ -492,8 +628,24 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
     first = AcquisitionPlan(
         "site",
         (
-            DevicePlan(device, table, 0.02, "START", "poll"),
-            DevicePlan(second, table, 0.02, "START", "poll"),
+            DevicePlan(
+                device,
+                table,
+                0.02,
+                "START",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
+            DevicePlan(
+                second,
+                table,
+                0.02,
+                "START",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
         ),
         read_timeout=0.03,
         connect_timeout=0.2,
@@ -506,8 +658,24 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
         changed = AcquisitionPlan(
             "site",
             (
-                DevicePlan(device, table, 0.03, "START", "poll"),
-                DevicePlan(second, table, 0.03, "START", "poll"),
+                DevicePlan(
+                    device,
+                    table,
+                    0.03,
+                    "START",
+                    "poll",
+                    device_type=device_type,
+                    point_table_id=point_table_id,
+                ),
+                DevicePlan(
+                    second,
+                    table,
+                    0.03,
+                    "START",
+                    "poll",
+                    device_type=device_type,
+                    point_table_id=point_table_id,
+                ),
             ),
             0.03,
             0.2,
@@ -528,13 +696,21 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
 
 @pytest.mark.asyncio
 async def test_timed_out_active_rpc_keeps_device_session_owned() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
     driver = FakeDriver()
     gate = asyncio.Event()
     driver.slow_read = gate
     driver.open = True
     worker = DeviceWorker(
-        DevicePlan(device, table, 0.1, "STOP", "poll"),
+        DevicePlan(
+            device,
+            table,
+            0.1,
+            "STOP",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+        ),
         cast(ProtocolPort, driver),
         FakePublisher(),
         timeout=2.0,
@@ -559,7 +735,7 @@ async def test_timed_out_active_rpc_keeps_device_session_owned() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
-    device, table = _device()
+    device, table, device_type, point_table_id = _device()
 
     # One transient close failure across the whole factory: the replacement
     # worker's later close (and process stop) must succeed.
@@ -587,7 +763,17 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
     acquisition = CollectorAcquisition(factory, FakePublisher())
     initial = AcquisitionPlan(
         "site",
-        (DevicePlan(device, table, 1.0, "STOP", "poll"),),
+        (
+            DevicePlan(
+                device,
+                table,
+                1.0,
+                "STOP",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
+        ),
         0.2,
         0.2,
         0.02,
@@ -598,7 +784,17 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
     original = acquisition.workers[key]
     changed = AcquisitionPlan(
         "site",
-        (DevicePlan(device, table, 0.5, "STOP", "poll"),),
+        (
+            DevicePlan(
+                device,
+                table,
+                0.5,
+                "STOP",
+                "poll",
+                device_type=device_type,
+                point_table_id=point_table_id,
+            ),
+        ),
         0.2,
         0.2,
         0.02,

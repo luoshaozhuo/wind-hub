@@ -133,7 +133,7 @@ array: [1, "1", true, null]
 
 
 def test_shipped_bootstrap_loads_from_local_yaml_without_repository() -> None:
-    settings = load_settings(ROOT / "configs/services/service_configuration_v1.0.0.yaml")
+    settings = load_settings(ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml")
     assert settings.service_id == "configuration-main"
     assert settings.permissions["wind-hub-cli-admin"] == frozenset({"query", "publish", "admin"})
     assert settings.page_size == 100
@@ -141,7 +141,7 @@ def test_shipped_bootstrap_loads_from_local_yaml_without_repository() -> None:
 
 
 def test_bootstrap_rejects_unknown_nested_fields(tmp_path: Path) -> None:
-    source = ROOT / "configs/services/service_configuration_v1.0.0.yaml"
+    source = ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml"
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
     raw["grpc"]["unknown_option"] = True
     path = tmp_path / "configuration.yaml"

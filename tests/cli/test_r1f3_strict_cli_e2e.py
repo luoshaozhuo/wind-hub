@@ -1,4 +1,4 @@
-"""严格 CLI 独立进程 E2E：真实六身份、mTLS、双采集与四路 Sink 输出。"""
+"""严格 CLI 独立进程 E2E：独立鉴权、双采集与四路 Sink 输出。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from tests.data_generator.conftest import _real_tree, simulation_document, write
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
-from tests.sink_service._stage1_tls import write_mtls_bundle
 from tests.sink_service.system.conftest import SinkSystemHarness
 from tests.support.collector_config_tree import write_collector_modbus_tree
 from tests.support.commander_mtls import write_commander_service
@@ -66,7 +65,6 @@ def _write_cli(
     processes: dict[str, dict[str, Any]],
     gateway_pki: dict[str, object],
     commander_pki: Any,
-    sink_bundle: dict[str, Path],
 ) -> Path:
     clients = cast(dict[str, tuple[Path, Path]], gateway_pki["clients"])
     gateway_crt, gateway_key = clients["cli"]
@@ -81,11 +79,6 @@ def _write_cli(
             "client_cert": str(commander_pki.tmp / "ops.crt"),
             "client_key": str(commander_pki.tmp / "ops.key"),
         },
-        "sink": {
-            "ca_cert": str(sink_bundle["ca"]),
-            "client_cert": str(sink_bundle["admin_crt"]),
-            "client_key": str(sink_bundle["admin_key"]),
-        },
     }
     services: dict[str, dict[str, Any]] = {}
     for name in SERVICES:
@@ -94,11 +87,12 @@ def _write_cli(
             profile = "gateway"
         services[name] = {
             "grpc_endpoint": endpoints[name],
-            "tls_profile": profile,
             "manager": "process",
             "target": name,
             "process": processes[name],
         }
+        if name != "sink":
+            services[name]["tls_profile"] = profile
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
         "tls_profile": "gateway",
@@ -144,6 +138,7 @@ class StrictCliE2E:
         self.processes: dict[str, dict[str, Any]] = {}
         self.cli_realtime = root / "cli-realtime.yaml"
         self.cli_reliable = root / "cli-reliable.yaml"
+        self.sink_token: str | None = None
 
     def register_process(
         self, name: str, argv: list[str], *, cwd: Path, env: dict[str, str] | None = None
@@ -163,6 +158,8 @@ class StrictCliE2E:
             environment.pop("WIND_HUB_COLLECTOR_ADMIN_TOKEN", None)
         else:
             environment["WIND_HUB_COLLECTOR_ADMIN_TOKEN"] = token
+        if self.sink_token is not None:
+            environment["WIND_HUB_SINK_CLI_TOKEN"] = self.sink_token
         return environment
 
     async def cli(
@@ -496,7 +493,11 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         _dump(commander_service, commander_doc)
         await _provision_commander_audit(stack.nats, audit_stream, audit_subject)
 
-        bundle = write_mtls_bundle(tmp_path / "sink-pki")
+        gateway_sink_port = reserve_port()
+        gateway_sink_token = os.urandom(32).hex()
+        gateway_service_doc = yaml.safe_load(gateway_service.read_text(encoding="utf-8"))
+        gateway_service_doc["grpc"]["sink_listener_port"] = gateway_sink_port
+        _dump(gateway_service, gateway_service_doc)
         sink = SinkSystemHarness(
             root=tmp_path / "sink",
             stack=stack,
@@ -507,12 +508,9 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             dlq_stream=f"WH_DLQ_STRICT_{token.upper()}",
             dlq_subject=f"wh.strict.dlq.{token}",
             token=token,
-            bundle=bundle,
         )
         sink.write_dual_channel_root()
-        # The shared fixture owns the config-root PKI; CLI and server must use that same CA.
-        bundle = write_mtls_bundle(sink.root)
-        sink.bundle = bundle
+        harness.sink_token = sink.auth_tokens["admin"]
         deliveries_path = sink.root / DELIVERIES_INSTANCE
         deliveries_doc = yaml.safe_load(deliveries_path.read_text(encoding="utf-8"))
         deliveries_doc["deliveries"]["ems_power"]["source"]["collector_id"] = rt_collector
@@ -555,9 +553,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "template_id": "gateway_realtime",
             "template_version": "1.0.0",
             "connection": {
-                "endpoint": endpoints["gateway"],
+                "endpoint": f"127.0.0.1:{gateway_sink_port}",
                 "gateway_id": "gw-strict",
-                "credential_ref": "env:WH_STRICT_GATEWAY_TLS",
             },
             "overrides": {},
         }
@@ -598,6 +595,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 str(gateway_root),
             ],
             cwd=SRC,
+            env={"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
         )
         harness.register_process(
             "data-generator",
@@ -630,19 +628,14 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 cwd=SRC,
                 env=common_env,
             )
-        sink_crt, sink_key = clients["sink"]
-        gateway_credentials = json.dumps(
-            {
-                "ca_pem": Path(pki["ca"]).read_text(encoding="utf-8"),
-                "client_cert_pem": sink_crt.read_text(encoding="utf-8"),
-                "client_key_pem": sink_key.read_text(encoding="utf-8"),
-            }
-        )
         harness.register_process(
             "sink",
             [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
             cwd=sink.root,
-            env={"WH_STRICT_GATEWAY_TLS": gateway_credentials},
+            env={
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
+            },
         )
         harness.register_process(
             "commander",
@@ -656,7 +649,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             processes=harness.processes,
             gateway_pki=pki,
             commander_pki=commander_pki,
-            sink_bundle=bundle,
         )
         _write_cli(
             harness.cli_reliable,
@@ -665,7 +657,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             processes=harness.processes,
             gateway_pki=pki,
             commander_pki=commander_pki,
-            sink_bundle=bundle,
         )
 
         for name in SERVICES:

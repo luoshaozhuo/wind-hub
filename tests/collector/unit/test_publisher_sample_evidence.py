@@ -44,23 +44,45 @@ def _sample(point_id: str) -> ProtocolSample:
     return ProtocolSample(point_id=point_id, value=1.0, timestamp=datetime.now(UTC))
 
 
+# Real point-table identities shipped under configs/templates/point_tables.
+_IDENTITY = {
+    "WTG": ("wind_turbine", "point_table_modbus_wtg_sim_v1.0.0"),
+    "PV": ("photovoltaic", "point_table_modbus_pv_sim_v1.0.0"),
+    "BESS": ("battery_energy_storage", "point_table_modbus_bess_sim_v1.0.0"),
+}
+
+
+def _identity(device_id: str) -> dict[str, str]:
+    for prefix, (device_type, point_table_id) in _IDENTITY.items():
+        if device_id.startswith(prefix):
+            return {"device_type": device_type, "point_table_id": point_table_id}
+    return {
+        "device_type": "wind_turbine",
+        "point_table_id": "point_table_modbus_wtg_sim_v1.0.0",
+    }
+
+
+def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+    return builder.pack(device_id, samples, **_identity(device_id))
+
+
 async def test_evidence_keeps_latest_sample_per_device_and_point() -> None:
     publisher = _publisher()
     publisher._connection = _FakeConnection()
 
-    await publisher._send(publisher._builder.pack("WTG_SIM01", (_sample("wind_speed"),))[0])
+    await publisher._send(_pack(publisher._builder, "WTG_SIM01", (_sample("wind_speed"),))[0])
     first = next(
         item for item in publisher.last_sample_evidence if item["point_id"] == "wind_speed"
     )
 
     # 宽扇出：大量其他点位的批次进入缓存。
     await publisher._send(
-        publisher._builder.pack("WTG_SIM01", tuple(_sample(f"other_point_{i}") for i in range(40)))[
-            0
-        ]
+        _pack(
+            publisher._builder, "WTG_SIM01", tuple(_sample(f"other_point_{i}") for i in range(40))
+        )[0]
     )
     await publisher._send(
-        publisher._builder.pack("PV_SIM01", tuple(_sample(f"pv_{i}") for i in range(40)))[0]
+        _pack(publisher._builder, "PV_SIM01", tuple(_sample(f"pv_{i}") for i in range(40)))[0]
     )
 
     evidence = publisher.last_sample_evidence
@@ -72,7 +94,7 @@ async def test_evidence_keeps_latest_sample_per_device_and_point() -> None:
 
     # 同点位刷新后保留有界历史（K 条），新条目在尾部。
     for _ in range(CollectorPublisher._EVIDENCE_HISTORY + 3):
-        await publisher._send(publisher._builder.pack("WTG_SIM01", (_sample("wind_speed"),))[0])
+        await publisher._send(_pack(publisher._builder, "WTG_SIM01", (_sample("wind_speed"),))[0])
     wind = [
         item
         for item in publisher.last_sample_evidence
@@ -89,7 +111,9 @@ async def test_evidence_is_bounded_and_diagnostics_filter_by_device() -> None:
 
     for device in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01"):
         for index in range(120):
-            await publisher._send(publisher._builder.pack(device, (_sample(f"point_{index}"),))[0])
+            await publisher._send(
+                _pack(publisher._builder, device, (_sample(f"point_{index}"),))[0]
+            )
 
     evidence = publisher.last_sample_evidence
     # 键数有界；每个（设备、点位）的历史不超过 K。
@@ -112,7 +136,7 @@ async def test_evidence_starts_empty_and_ignores_unrelated_devices() -> None:
     publisher._connection = _FakeConnection()
     assert publisher.last_sample_evidence == ()
 
-    await publisher._send(publisher._builder.pack("OTHER_DEVICE", (_sample("wind_speed"),))[0])
+    await publisher._send(_pack(publisher._builder, "OTHER_DEVICE", (_sample("wind_speed"),))[0])
     filtered = [
         item for item in publisher.last_sample_evidence if item.get("device_id") == "WTG_SIM01"
     ]

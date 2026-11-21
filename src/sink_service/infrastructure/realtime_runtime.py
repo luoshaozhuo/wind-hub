@@ -74,7 +74,6 @@ class SinkOutputPool(SharedSinkOutputPool):
             ]
             adapter = GatewayOutput(
                 endpoint=connection["endpoint"],
-                credential_ref=connection["credential_ref"],
                 gateway_id=connection["gateway_id"],
                 owner_id=f"{snapshot.service['deployment_id']}:{sink_id}",
                 mappings=fixed_mapping,

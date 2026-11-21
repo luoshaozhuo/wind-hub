@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_15 · 20261118 · 全系统配置库与 SQLite 结构化存储</p>
+<p class="subtitle">v1_16 · 20261119 · 全量目录事务与不可变配置版本</p>
 
 <style>
 body {
@@ -1229,7 +1229,7 @@ stateDiagram-v2
 
 ## 5.4 核心逻辑协作
 
-系统发布为 `scan directory → upload manifest/chunks → finalize/validate → BEGIN IMMEDIATE → CAS → insert/reuse immutable versions → replace complete revision_files membership → commit → best-effort NATS broadcast`。所有读请求在单个一致性 SQLite 读事务内完成。业务模块对其实际配置生效自行负责。
+系统发布为 `scan directory → CreateCandidate(documents[]) → preflight/validate → BEGIN IMMEDIATE → CAS → insert/reuse immutable versions → replace complete revision_files membership → commit → best-effort NATS broadcast`。所有读请求在单个一致性 SQLite 读事务内完成。业务模块对其实际配置生效自行负责。
 
 # 6. 进程视图
 
@@ -1317,7 +1317,7 @@ flowchart TB
 
 ## 9.1 唯一接口契约来源
 
-**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现有 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；新增 Configuration Repository RPC 应先在 Contracts 设计与 Proto 中定稿，再同步实现。本次以《Contracts 软件设计 v1_31》新增 Repository 专章，逐一给出建议请求和响应字段，作为后续 Contracts 修订输入；**该目标契约尚未写入正式 Proto**。
+**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现有 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；新增 Configuration Repository RPC 应先在 Contracts 设计与 Proto 中定稿，再同步实现。本次以《Contracts 软件设计 v1_31》新增 Repository 专章，逐一给出建议请求和响应字段，作为后续 Contracts 修订输入；**该契约由 `contracts/configuration_repository.proto` 定义，实现与生成文件必须遵守生成一致性门禁**。
 
 | 入口类别 | 契约权威 | 本模块实现职责 | 关联需求 |
 |---|---|---|---|
@@ -1426,6 +1426,8 @@ Schema 发布由**随软件版本交付并签名/校验的受控 Schema 包**完
 **固定引用闭包**：某个已发布源版本引用目标版本 `B@v1` 时，即使当前 revision 推荐 `B@v2`，`GetConfigBundle` 仍必须读取 `B@v1`。因此“同一 revision”是指**根配置选用的修订一致且读取期间拥有一个 SQLite 快照**，绝不表示所有依赖都强制等于 `revision_members` 的当前推荐版本。闭包允许同时包含同一文档的两个固定历史版本；输出以 `(config_id,version_id)` 唯一标识文件，不能按 config_id 覆盖。
 
 **废弃规则**：只记录 `version_events`，保留已经存在的历史引用和查询；禁止将已废弃版本加入新发布的引用，除非发布策略明确授权；禁止废弃当前 revision 中仍被推荐的版本（需先切换推荐目标）。`DeprecateConfigVersion` 与 `SetRecommendedVersion` 均形成新 revision；原版本和旧 revision 不可被改写。
+
+**版本身份冻结**：同一 `(config_type, config_id, file_version)` 的规范化内容、原始 YAML 字节和来源相对路径都不可更改；任何一项变化必须提高 `file_version`。候选 `validate_only` 必须验证全部目录文件、固定引用闭包、循环引用和已有版本身份，与正式发布具有一致的业务拒绝条件；正式发布在 SQLite CAS 事务内复核以防并发竞态。当前目录不能重新引入已废弃版本，历史查询不受影响。
 
 **目录全集与多版本共存的迁移要求**：原 `revision_members` 只有推荐/根选择版本，不能表示一个根目录中同对象多版本并存。目标新增 `revision_files` 为完整文件目录的唯一成员集合，`candidate_documents` 增加 `relative_path` 及 YAML 哈希并将主键改为 `(candidate_id,relative_path)`；该调整不增加第三张候选文件表。发布时服务端依 `CreateCandidate(documents[])` 的完整集合一次性生成全量 Manifest 和 `revision_files`，对旧版本表、Projection、查询及测试执行原子 Schema 迁移，不保留两套候选存储方案。已使用历史修订的根成员必须按可证明的原身份规则迁移；无法无损重建的旧修订不能虚构文件路径，应明确拒绝迁移并保留旧库备份。
 
@@ -1596,7 +1598,7 @@ semantic_points:
 # schema_version: 必填整数；当前服务配置 Schema=1
 # file_version: 必填；MAJOR.MINOR.PATCH
 # service_id: 必填唯一字符串
-# grpc.host: 必填 IP/主机名；示例 127.0.0.1
+# grpc.host: 必填受控内网监听地址；本机示例 127.0.0.1。非回环须在部署层隔离访问并配置防火墙
 # grpc.port: 必填 TCP 端口 1..65535
 # grpc: 内部标准 gRPC，不启用 TLS；跨主机必须使用隔离网络与防火墙
 # repository.sqlite_path: 必填；SQLite 数据库文件绝对路径
@@ -1651,13 +1653,13 @@ limits:
   max_workers: 16
 ```
 
-配置的 `security.token_sources` 是本轮目标新增 Schema，当前 `configuration_service.settings` 尚未支持，编码时必须同步更新启动配置校验和 CLI/模块令牌注入，不得将示例称为现行可直接运行配置。
+Configuration 的 `security.token_sources` 与 `permissions` 由本机引导配置定义，令牌仅从 `env:` 读取，调用方和权限集合必须完全对应。Configuration gRPC 在受控内部网络提供无 mTLS 的明文传输，必须携带授权 Bearer 令牌；跨容器或跨主机部署时必须由网络隔离、ACL 和防火墙阻止未授权访问，严禁将端点暴露在公网。CLI 从 `WIND_HUB_CONFIG_CLI_ADMIN_TOKEN` 读取管理员令牌。
 
 **本引导配置不属于 CLI 根目录全量发布的业务 YAML。** 配置发布后，NATS 广播失败不回滚已提交的 SQLite 修订；模块依赖订阅后查询、重连和周期对账恢复。NATS 连接配置也须列入正式 Configuration 自身 Service Schema 与运维诊断。
 
 ## 11.2.1 启动配置的不可动态变更项
 
-SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略属于**重启生效**配置。`PushConfigSnapshot` 只创建受控候选；`ApplyConfigSnapshot` 对上述字段必须返回 `restart_required=true`，不得在仍使用旧连接时半途切换数据库或访问策略。Candidate/运行态/磁盘态及失败回滚语义完全遵照现有 `common.proto`；启动配置不再作为配置库的业务文档发布。直接由已认证的管理员管理本机引导 YAML，不允许普通查询方读取密钥或实际敏感路径。
+SQLite 文件路径、gRPC/NATS 连接地址及访问控制策略均属于独立的**重启生效**引导配置，不经 Configuration 业务目录发布。CLI 向配置库发布使用 `config publish --root`，调用 `CreateCandidate` / `PublishCandidate`；查询当前修订使用 `config revision`，核验不可变 PointTable 历史闭包使用 `config point-table-bundle`。旧的逐模块 `PushConfigSnapshot` / `ApplyConfigSnapshot` 不得作为 Configuration 发布路径。引导文件只能由授权本机运维维护，不能通过配置库的普通读写接口覆盖；令牌和敏感路径不得向普通查询方返回。
 
 ## 11.3 配置读取、修改与应用
 
@@ -1679,7 +1681,7 @@ Configuration 是全局业务语义、PointTable 及历史配置的唯一权威�
 
 **数据包的 `point_table_id` 是唯一的数据解释身份，不另传全局 `config_revision_id` 或 `data_version`**。同一 ID 必须确定唯一且不可变的点表内容（点位集合、类型、比例/偏移、单位），以及准确固定的 BusinessPoint 与 Units 等依赖**版本闭包**；若任何解释语义变化，必须注册新 `point_table_id`，不可只改同名 YAML 内容或变更其引用的推荐版本。Configuration 的全局 `revision_id` 仍用于配置发布、查询当前推荐视图及业务模块运行生效，不是遥测数据版本。
 
-Configuration 必须支持按精确 `point_table_id` 拉取不可变完整解释闭包的正式 `GetPointTableBundle` 查询能力（字段见 Contracts §10.3.13），包括已不再推荐但历史消息仍引用的 ID；删除策略不得物理清除仍可重放的历史定义。现有 `GetConfigBundle(roots,revision_id)` 不等价于按 PointTable ID 的专用查询，目标接口尚未实现，编码之前需补齐 Contracts、配置库、权限及缓存失效测试。
+Configuration 必须支持按精确 `point_table_id` 拉取不可变完整解释闭包的正式 `GetPointTableBundle` 查询能力（字段见 Contracts §10.3.13），包括已不再推荐但历史消息仍引用的 ID；删除策略不得物理清除仍可重放的历史定义。现有 `GetConfigBundle(roots,revision_id)` 不等价于按 PointTable ID 的专用查询，接口在 Contracts 中声明并由 Configuration 实现；应以生成一致性、权限、固定依赖闭包和缓存失效测试作为准入门禁。
 
 ## 11.6.1 目录快照与广播故障恢复设计
 
@@ -1750,7 +1752,7 @@ Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Stora
 
 ## 14.2 测试目录与 Marker
 
-测试按 `tests/src/configuration_service/{unit,component,integration,system}/` 组织，分别标注现有 pytest `unit`、`component`、`integration`、`system` Marker；专题 Marker 必须先在项目配置登记。真实进程由 CLI 启动，测试管理其 SQLite 数据目录与证书环境。
+测试按 `tests/src/configuration_service/{unit,component,integration,system}/` 组织，分别标注现有 pytest `unit`、`component`、`integration`、`system` Marker；专题 Marker 必须先在项目配置登记。真实进程由 CLI 启动，测试管理其 SQLite 数据目录、Bearer Token 环境变量和受控内部网络。
 
 ## 14.3 测试文件矩阵
 
@@ -1801,7 +1803,7 @@ Kafka 消息中点表版本和 Store Schema 身份契约由 Collector/Sink/Stora
 | G6 跨模块同步 | 语义点和业务点身份变更涉及的 Core/Collector/Sink/Storage/CLI 契约和调用方修改清单已明确；冻结模块改变须单独批准 | 禁止默认改动冻结模块 |
 | G7 测试准入 | 每项 UR/UC、RPC、异常、崩溃和 YAML 往返均有可执行验收用例 | 不认定为可验收实现 |
 
-本设计属于**目标行为基线**。新 Proto、SQLite DDL、全量 YAML 映射及真实运行测试尚未执行，不能把文档审校当成实现 PASS。进入实施前应以最新分支 HEAD 再次核实源码和配置样例；若 G1–G3 的实现映射出现新的未覆盖类型，先补齐设计、测试约束，再编码。
+本设计属于**目标行为基线**。Proto、SQLite DDL 及全量目录生产实现已进入开发分支；独立的生成一致性检查、静态门禁与真实运行测试仍须执行，不能把代码提交当作验收 PASS。进入实施前应以最新分支 HEAD 再次核实源码和配置样例；若 G1–G3 的实现映射出现新的未覆盖类型，先补齐设计、测试约束，再编码。
 ## 附录 B：内部 gRPC 适配范围
 
-本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。现有代码与测试的证书要求属于待移除实现，正式配置字段、客户端、权限测试须与总体设计同步迁移。本模块不得削弱自身业务安全状态机和故障恢复规则。
+本模块遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：业务模块间不配置 TLS/客户端证书；仅使用受控内网 Endpoint，并对变更、控制及敏感查询执行服务端令牌权限验证。配置服务端、CLI 及测试环境必须使用令牌访问控制，不允许为了旧测试恢复 mTLS 或匿名回退。本模块不得削弱自身业务安全状态机和故障恢复规则。

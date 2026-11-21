@@ -10,7 +10,7 @@ import logging
 import time
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import nats
 from nats.aio.client import Client
@@ -27,7 +27,10 @@ from sink_service.application.ports.reliable import ReliableMessagePort
 from sink_service.application.reliable_engine import ReliableDeliveryEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 from sink_service.infrastructure.adapters.inbound.reliable_message import JetStreamMessage
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
+from sink_service.infrastructure.adapters.outbound.historical_point_table import (
+    HistoricalPointTableClient,
+)
+from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel, encode_kafka_points
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,20 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self._subscription: Any = None
         self._adapter: Any = None
         self._kafka_target = False
+        delivery = snapshot.deliveries[definition.delivery_id]
+        delivery_template = _template(
+            snapshot, "deliveries", delivery["template_id"], delivery["template_version"]
+        )
+        self._data_level = cast(DataLevel, delivery_template["output"]["data_level"])
+        sync = snapshot.service.get("config_sync", {})
+        endpoint = sync.get("repository_endpoint", "")
+        token_ref = sync.get("repository_token_ref", "")
+        approved = sync.get("approved_point_table_manifests", {})
+        self._history = (
+            HistoricalPointTableClient(endpoint, token_ref, approved)
+            if self._data_level == "business"
+            else None
+        )
         self.last_error = ""
         self.received_total = 0
         self.received_batches_total = 0
@@ -365,10 +382,18 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         except (NatsTimeoutError, TimeoutError) as exc:
             raise TimeoutError from exc
 
-    def _encode_kafka_points(
+    async def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
-        return encode_kafka_points(batch, items)
+        if self._data_level == "business":
+            if self._history is None:
+                raise ConfigurationError("BUSINESS requires historical repository configuration")
+            table = await self._history.get(batch.point_table_id, batch.device_type)
+            values = {item.sample_id: table.project(item.point_id, item.value) for item in items}
+            return encode_kafka_points(
+                batch, items, data_level=self._data_level, business_values=values
+            )
+        return encode_kafka_points(batch, items, data_level=self._data_level)
 
     async def _dead_letter(
         self,
@@ -414,7 +439,9 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
                 wind_farm_id=sample.wind_farm_id,
                 collector_id=sample.collector_id,
                 task_id=sample.task_id,
+                device_type=sample.device_type,
                 device_id=sample.device_id,
+                point_table_id=sample.point_table_id,
                 publish_time=sample.publish_time,
                 samples=(
                     SampleItem(

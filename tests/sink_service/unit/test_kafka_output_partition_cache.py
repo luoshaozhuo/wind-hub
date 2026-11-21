@@ -20,12 +20,16 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
+from zlib import crc32
 
 import aiokafka
 import pytest
 
-from sink_service.application.delivery_point import DeliveryPoint
+from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.domain.config import ConfigurationError
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
+    encode_kafka_points,
+)
 from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
 
 pytestmark = [pytest.mark.unit, pytest.mark.reliability]
@@ -34,24 +38,6 @@ FARM = "farm-a"
 COLLECTOR = "collector-1"
 TOPIC = "qa-topic"
 CACHE_CAP = 10000
-
-
-def _sample(sample_id: str, *, device: str = "WT001") -> DeliveryPoint:
-    now = datetime.now(UTC)
-    return DeliveryPoint(
-        wind_farm_id=FARM,
-        collector_id=COLLECTOR,
-        task_id="task-1",
-        device_id=device,
-        point_id="active_power",
-        sample_id=sample_id,
-        value=1.0,
-        quality="good",  # type: ignore[arg-type]
-        sample_time=now,
-        publish_time=now,
-        receive_time=None,
-        max_staleness_ms=5000,
-    )
 
 
 class _FakeCluster:
@@ -67,6 +53,26 @@ class _FakeCluster:
     def fire_metadata_event(self) -> None:
         for listener in list(self.listeners):
             listener(self)
+
+
+class _FakeClient:
+    def __init__(self, cluster: _FakeCluster) -> None:
+        self.cluster = cluster
+
+    async def _wait_on_metadata(self, topic: str) -> None:
+        return None
+
+
+class _BatchBuilder:
+    def __init__(self) -> None:
+        self.records: list[tuple[bytes, bytes]] = []
+
+    def append(self, *, key: bytes, value: bytes, timestamp: Any) -> object:
+        self.records.append((key, value))
+        return object()
+
+    def close(self) -> None:
+        return None
 
 
 class _TrackingFuture:
@@ -102,9 +108,10 @@ class _FakeProducer:
         self.partition_fails = partition_fails
         self.start_fails = start_fails
         self.confirm_fails = confirm_fails
-        self.client = type("Client", (), {"cluster": _FakeCluster()})()
+        self.client = _FakeClient(_FakeCluster())
         self.send_calls: list[tuple[str, bytes, int | None]] = []
         self.futures: list[_TrackingFuture] = []
+        self.batch_calls: list[tuple[str, int | None]] = []
         self.partition_calls = 0
         self.started = False
         self.stopped = False
@@ -116,6 +123,21 @@ class _FakeProducer:
 
     async def stop(self) -> None:
         self.stopped = True
+
+    def create_batch(self) -> _BatchBuilder:
+        return _BatchBuilder()
+
+    async def send_batch(
+        self, builder: _BatchBuilder, topic: str, partition: int | None
+    ) -> _TrackingFuture:
+        if self.send_fails:
+            raise RuntimeError("produce refused")
+        for key, _value in builder.records:
+            self.send_calls.append((topic, key, partition))
+        self.batch_calls.append((topic, partition))
+        future = _TrackingFuture(fail=self.confirm_fails)
+        self.futures.append(future)
+        return future
 
     async def send(self, topic: str, *, key: bytes, value: bytes, partition: int | None) -> Any:
         self.send_calls.append((topic, key, partition))
@@ -142,6 +164,43 @@ class _FakeProducer:
 
 def _key(device: str) -> bytes:
     return ":".join((FARM, COLLECTOR, device)).encode("utf-8")
+
+
+def _stripe(device: str) -> int:
+    return crc32(_key(device)) % 128
+
+
+def _encoded(device: str, sample_ids: list[str]) -> tuple[bytes, ...]:
+    now = datetime.now(UTC)
+    batch = SampleBatch(
+        batch_id="b-cache",
+        mode="reliable",
+        wind_farm_id=FARM,
+        collector_id=COLLECTOR,
+        task_id="task-1",
+        device_type="wind_turbine",
+        device_id=device,
+        point_table_id="point_table_wtg_sim_v1.0.0",
+        publish_time=now,
+        samples=tuple(
+            SampleItem(
+                point_id=f"p{index:03d}",
+                sample_id=sample_id,
+                value=1.0,
+                quality="good",
+                sample_time=now,
+                max_staleness_ms=None,
+            )
+            for index, sample_id in enumerate(sample_ids)
+        ),
+    )
+    return encode_kafka_points(batch, batch.samples, data_level="protocol")
+
+
+async def _write(output: KafkaOutput, device: str, sample_ids: list[str]):
+    return await output.write_encoded_batch(
+        _encoded(device, sample_ids), key=_key(device), stripe=_stripe(device)
+    )
 
 
 @pytest.fixture
@@ -258,19 +317,22 @@ async def test_same_key_partitions_once_then_uses_explicit_partition(
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch(tuple(_sample(f"s{i}") for i in range(5)))
+        outcome = await _write(output, "WT001", [f"s{i}" for i in range(5)])
         producer: _FakeProducer = producer_env["producer"]
         assert outcome.error == ""
         assert outcome.delivered == (0, 1, 2, 3, 4)
-        # 首条 miss：send(partition=None) + 一次 _partition；其余 4 条显式分区。
+        # One key resolves its partition exactly once; the whole batch is sent
+        # under that partition via a single send_batch.
         assert producer.partition_calls == 1
-        assert [call[2] for call in producer.send_calls] == [None, 1, 1, 1, 1]
+        assert len(producer.batch_calls) == 1
+        assert [call[2] for call in producer.send_calls] == [1, 1, 1, 1, 1]
         assert dict(output._partition_cache) == {_key("WT001"): 1}  # noqa: SLF001
 
-        # 第二批：全部缓存命中，partitioner 零调用。
-        outcome2 = await output.write_batch(tuple(_sample(f"s{i}") for i in range(5, 8)))
+        # Second batch: cache hit, the partitioner is not invoked again.
+        outcome2 = await _write(output, "WT001", [f"s{i}" for i in range(5, 8)])
         assert outcome2.delivered == (0, 1, 2)
         assert producer.partition_calls == 1
+        assert len(producer.batch_calls) == 2
         assert all(call[2] == 1 for call in producer.send_calls[5:])
     finally:
         await output.close()
@@ -282,18 +344,21 @@ async def test_distinct_keys_get_independent_cached_partitions(
     output = _output()
     await output.open()
     try:
-        samples = tuple(_sample(f"s{i}", device=f"WT{i:03d}") for i in range(1, 5))
-        outcome = await output.write_batch(samples)
+        devices = [f"WT{i:03d}" for i in range(1, 5)]
+        # Each device key is a separate pre-encoded batch in the durable path.
+        outcomes = [await _write(output, device, [f"s{i}"]) for i, device in enumerate(devices, 1)]
         producer: _FakeProducer = producer_env["producer"]
-        assert outcome.delivered == (0, 1, 2, 3)
+        assert all(outcome.delivered == (0,) for outcome in outcomes)
         assert producer.partition_calls == 4
-        expected = {_key(f"WT{i:03d}"): i % 6 for i in range(1, 5)}
+        expected = {_key(device): i % 6 for i, device in enumerate(devices, 1)}
         assert dict(output._partition_cache) == expected  # noqa: SLF001
-        # 再来一轮：零 partitioner 调用，分区与首轮一致。
-        await output.write_batch(samples)
-        assert producer.partition_calls == 4
+        # Second round: zero additional partitioner calls, same partitions.
+        before = producer.partition_calls
+        for i, device in enumerate(devices, 1):
+            await _write(output, device, [f"s{i}-again"])
+        assert producer.partition_calls == before
         assert [call[2] for call in producer.send_calls[4:]] == [
-            expected[_key(f"WT{i:03d}")] for i in range(1, 5)
+            expected[_key(device)] for device in devices
         ]
     finally:
         await output.close()
@@ -305,27 +370,25 @@ async def test_cache_is_bounded_lru_and_evicts_least_recently_used(
     output = _output()
     await output.open()
     try:
-        # 填满 CACHE_CAP 个不同 Key。
-        first_batch = tuple(
-            _sample(f"fill-{i}", device=f"WT{i:03d}") for i in range(1, CACHE_CAP + 1)
-        )
-        await output.write_batch(first_batch)
+        # Fill CACHE_CAP distinct device keys, one pre-encoded batch each.
+        for index in range(1, CACHE_CAP + 1):
+            await _write(output, f"WT{index:03d}", [f"fill-{index}"])
         cache: OrderedDict[bytes, int] = output._partition_cache  # noqa: SLF001
         assert len(cache) == CACHE_CAP
-        # 触碰最老 Key，使其变为最近使用，淘汰目标顺延到第二个 Key。
+        # Touch the oldest key so eviction moves to the second-oldest.
         oldest_key = _key("WT001")
         second_key = _key("WT002")
         newest_key = _key(f"WT{CACHE_CAP:03d}")
-        await output.write_batch((_sample("touch", device="WT001"),))
-        await output.write_batch((_sample("overflow", device=f"WT{CACHE_CAP + 1:03d}"),))
+        await _write(output, "WT001", ["touch"])
+        await _write(output, f"WT{CACHE_CAP + 1:03d}", ["overflow"])
         assert len(cache) == CACHE_CAP
-        assert oldest_key in cache  # 刚被触碰，保留
-        assert second_key not in cache  # 最久未用，被淘汰
+        assert oldest_key in cache  # just touched, retained
+        assert second_key not in cache  # least-recently-used, evicted
         assert newest_key in cache
-        # 淘汰后重新写入该 Key：重新 miss 并经 partitioner 解析。
+        # Re-writing the evicted key misses again and goes through the partitioner.
         producer: _FakeProducer = producer_env["producer"]
         calls_before = producer.partition_calls
-        await output.write_batch((_sample("refill", device="WT002"),))
+        await _write(output, "WT002", ["refill"])
         assert producer.partition_calls == calls_before + 1
         assert second_key in cache
     finally:
@@ -336,16 +399,17 @@ async def test_metadata_event_invalidates_cache(producer_env: dict[str, Any]) ->
     output = _output()
     await output.open()
     try:
-        await output.write_batch(tuple(_sample(f"s{i}") for i in range(3)))
+        await _write(output, "WT001", [f"s{i}" for i in range(3)])
         producer: _FakeProducer = producer_env["producer"]
         assert producer.partition_calls == 1
         producer.client.cluster.fire_metadata_event()
         assert output._partition_cache == {}  # noqa: SLF001
-        # 失效后下一条重新 miss，但分区映射不变（同 metadata 代）。
-        await output.write_batch((_sample("after"),))
+        # After invalidation the next write misses again but resolves the same
+        # partition for the same metadata generation.
+        await _write(output, "WT001", ["after"])
         assert producer.partition_calls == 2
         assert dict(output._partition_cache) == {_key("WT001"): 1}  # noqa: SLF001
-        assert producer.send_calls[-1][2] is None
+        assert producer.send_calls[-1][2] == 1
     finally:
         await output.close()
 
@@ -360,81 +424,80 @@ async def test_send_failure_marks_batch_errored_and_keeps_cache_empty(
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch(tuple(_sample(f"s{i}") for i in range(3)))
+        outcome = await _write(output, "WT001", [f"s{i}" for i in range(3)])
         assert outcome.delivered == ()
         assert "not queued" in outcome.error
-        # send 在缓存写入前抛出，缓存不得残留半截状态。
+        # The failure rolls the partition cache back; no half state remains.
         assert output._partition_cache == {}  # noqa: SLF001
         producer: _FakeProducer = producer_env["producer"]
-        # break 语义：首条失败后不得继续尝试后续样本。
-        assert len(producer.send_calls) == 1
+        # send_batch raised before enqueuing any record.
+        assert len(producer.batch_calls) == 0
+        assert len(producer.send_calls) == 0
     finally:
         await output.close()
 
 
-async def test_partition_resolution_failure_defers_to_broker_confirmation(
+async def test_partition_resolution_failure_blocks_enqueue_without_fabricating_success(
     producer_env: dict[str, Any],
 ) -> None:
-    # v1_23（2f2ccf8f）新契约：分区缓存仅为加速，send 已入队的 Future 必须
-    # 被持有到 Broker 终局。_partition 失败只清空缓存，不得把已确认写入误判
-    # 失败（否则上层 NAK 重投会制造重复写），也不得孤儿化该 Future。
+    # Client-side partition resolution happens before send_batch in the durable
+    # path: a resolution failure must clear the cache and enqueue nothing.
     producer_env["flags"]["partition_fails"] = True
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch((_sample("s0"),))
+        outcome = await _write(output, "WT001", ["s0"])
         producer: _FakeProducer = producer_env["producer"]
-        assert outcome.delivered == (0,)
-        assert outcome.error == ""
+        assert outcome.delivered == ()
+        assert "partition unavailable" in outcome.error
         assert output._partition_cache == {}  # noqa: SLF001
         assert producer.partition_calls == 1
-        assert len(producer.futures) == 1 and producer.futures[0].awaited == 1
+        assert len(producer.batch_calls) == 0
+        assert producer.futures == []
     finally:
         await output.close()
 
 
-async def test_partition_resolution_failure_with_rejected_confirmation_is_not_delivered(
+async def test_rejected_broker_confirmation_is_not_delivered_and_future_awaited(
     producer_env: dict[str, Any],
 ) -> None:
-    producer_env["flags"]["partition_fails"] = True
+    # Partition resolves, but the broker confirmation future fails: the record
+    # is never delivered and the future is still fully awaited (no orphan).
     producer_env["flags"]["confirm_fails"] = True
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch((_sample("s0"),))
+        outcome = await _write(output, "WT001", ["s0"])
         producer: _FakeProducer = producer_env["producer"]
-        # Broker 终局失败：样本不得进入 delivered，Future 仍被完整等待。
         assert outcome.delivered == ()
         assert "not confirmed" in outcome.error
-        assert output._partition_cache == {}  # noqa: SLF001
         assert producer.partition_calls == 1
         assert len(producer.futures) == 1 and producer.futures[0].awaited == 1
     finally:
         await output.close()
 
 
-async def test_partition_resolution_failure_never_orphans_submitted_futures(
+async def test_multi_record_batch_keeps_all_confirmations_under_one_partition(
     producer_env: dict[str, Any],
 ) -> None:
-    # 多样本批次：每个样本 send 成功后先持有 Future 再做缓存维护，
-    # _partition 持续失败时全部 Future 仍须被 await，缓存保持空。
-    producer_env["flags"]["partition_fails"] = True
+    # All records in one device batch share the resolved partition; a single
+    # send_batch confirmation settles every index.
     output = _output()
     await output.open()
     try:
-        outcome = await output.write_batch(tuple(_sample(f"s{i}") for i in range(3)))
+        outcome = await _write(output, "WT001", [f"s{i}" for i in range(3)])
         producer: _FakeProducer = producer_env["producer"]
         assert outcome.delivered == (0, 1, 2)
-        assert output._partition_cache == {}  # noqa: SLF001
-        assert producer.partition_calls == 3
-        assert len(producer.futures) == 3
-        assert all(future.awaited == 1 for future in producer.futures)
+        assert producer.partition_calls == 1
+        assert len(producer.batch_calls) == 1
+        assert len(producer.futures) == 1 and producer.futures[0].awaited == 1
     finally:
         await output.close()
 
 
-async def test_write_batch_without_open_returns_error_outcome() -> None:
+async def test_write_encoded_batch_without_open_returns_error_outcome() -> None:
     output = _output()
-    outcome = await output.write_batch((_sample("s0"),))
+    key, stripe = _key("WT001"), _stripe("WT001")
+    outcome = await output.write_encoded_batch(_encoded("WT001", ["s0"]), key=key, stripe=stripe)
     assert outcome.delivered == ()
     assert "not connected" in outcome.error

@@ -107,7 +107,7 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    raw_business_id = entry.get("business_point_id", point_id)
+    raw_business_id = entry.get("business_point_id")
     identity = BusinessPointId(_name(raw_business_id, f"{context}.business_point_id"))
     business_point = business_points.get(identity)
     if business_point is None:

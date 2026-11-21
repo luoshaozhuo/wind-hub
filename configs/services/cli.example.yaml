@@ -1,7 +1,8 @@
+# Configuration CLI requires WIND_HUB_CONFIG_CLI_ADMIN_TOKEN (32+ chars)
 # Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
 # in the CLI process environment. Never put the token value in this YAML.
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.1.0"
 cli:
   prompt: "wind-hub> "
   output_format: table
@@ -16,11 +17,10 @@ cli:
 services:
   configuration:
     grpc_endpoint: "127.0.0.1:51060"
-    tls_profile: local
     manager: process
     target: configuration
     process:
-      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/services/service_configuration_v1.0.0.yaml"]
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/deploy/configuration/service_configuration_v1.1.0.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/configuration.log"
@@ -39,7 +39,6 @@ services:
     target: commander
   sink:
     grpc_endpoint: "127.0.0.1:50053"
-    tls_profile: local
     manager: process
     target: sink
     process:

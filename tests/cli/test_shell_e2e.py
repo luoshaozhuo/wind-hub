@@ -89,20 +89,24 @@ class PtyShell:
             self.proc.wait(timeout=5)
 
 
-def _config(tmp_path: Path, certs: dict[str, Path], port: int) -> Path:
+def _config(tmp_path: Path, certs: dict[str, Path], port: int, insecure_port: int) -> Path:
     cfg = tmp_path / "cli.yaml"
-    services = "\n".join(
-        f"""  {name}:
-    grpc_endpoint: "localhost:{port}"
-    tls_profile: mtls"""
-        for name in (
-            "collector",
-            "commander",
-            "sink",
-            "gateway",
-            "data_generator",
-        )
-    )
+    token_services = {"sink", "configuration"}
+    rendered = []
+    for name in (
+        "collector",
+        "commander",
+        "sink",
+        "gateway",
+        "data_generator",
+        "configuration",
+    ):
+        target = insecure_port if name in token_services else port
+        block = f'  {name}:\n    grpc_endpoint: "localhost:{target}"\n'
+        if name not in token_services:
+            block += "    tls_profile: mtls\n"
+        rendered.append(block)
+    services = "\n".join(rendered)
     cfg.write_text(
         f"""schema_version: 1
 file_version: "1.0.0"
@@ -130,7 +134,11 @@ def test_shell_start_command_exit(cli_env: Any, tmp_path: Any) -> None:
             service_id="collector", software_version="1.0", contract_version="v1"
         ),
     )
-    shell = PtyShell(_config(tmp_path, cli_env.server.cert_files, cli_env.server.port))
+    shell = PtyShell(
+        _config(
+            tmp_path, cli_env.server.cert_files, cli_env.server.port, cli_env.server.insecure_port
+        )
+    )
     try:
         shell.read_for("wind-hub>")
         shell.send("service info collector")
@@ -146,7 +154,11 @@ def test_shell_start_command_exit(cli_env: Any, tmp_path: Any) -> None:
 
 def test_shell_history_navigation_and_redaction(cli_env: Any, tmp_path: Any) -> None:
     """S02：上方向键回放会话历史；含 token 的命令不进入历史（再按上键不会回放它）。"""
-    shell = PtyShell(_config(tmp_path, cli_env.server.cert_files, cli_env.server.port))
+    shell = PtyShell(
+        _config(
+            tmp_path, cli_env.server.cert_files, cli_env.server.port, cli_env.server.insecure_port
+        )
+    )
     try:
         shell.read_for("wind-hub>")
         shell.send("net ping 127.0.0.1")
@@ -175,7 +187,11 @@ def test_shell_unreachable_keeps_session(cli_env: Any, tmp_path: Any) -> None:
         __import__("grpc").StatusCode.UNAVAILABLE,
         "down",
     )
-    shell = PtyShell(_config(tmp_path, cli_env.server.cert_files, cli_env.server.port))
+    shell = PtyShell(
+        _config(
+            tmp_path, cli_env.server.cert_files, cli_env.server.port, cli_env.server.insecure_port
+        )
+    )
     try:
         shell.read_for("wind-hub>")
         shell.send("service info collector")
@@ -218,7 +234,11 @@ def test_shell_ctrl_c_cancels_inflight_rpc_and_continues(cli_env: Any, tmp_path:
             raise
 
     cli_env.server.respond(cli_env.server.method_path("CommonService", "GetServiceInfo"), slow)
-    shell = PtyShell(_config(tmp_path, cli_env.server.cert_files, cli_env.server.port))
+    shell = PtyShell(
+        _config(
+            tmp_path, cli_env.server.cert_files, cli_env.server.port, cli_env.server.insecure_port
+        )
+    )
 
     def interrupt_once(label: str) -> None:
         before = len(cli_env.server.calls)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
+from configuration_service.application.directory_manifest import DirectoryManifest
 from configuration_service.domain.models import (
     CommitResult,
     ConfigIdentity,
@@ -38,6 +39,7 @@ class RepositoryPort(Protocol):
         request_id: str,
         expected_revision: int,
         documents: Sequence[PreparedDocument],
+        manifest: DirectoryManifest,
         ttl_seconds: int,
         max_candidates: int,
     ) -> str: ...
@@ -80,6 +82,13 @@ class RepositoryPort(Protocol):
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]: ...
 
+    def get_point_table_versions(
+        self,
+        point_table_id: str,
+        *,
+        max_versions: int,
+    ) -> tuple[dict[str, Any], ...]: ...
+
     def create_backup_task(
         self,
         *,
@@ -90,6 +99,12 @@ class RepositoryPort(Protocol):
     ) -> str: ...
 
     def current_revision(self) -> int: ...
+
+    def get_current_manifest(self) -> tuple[int, str, str | None]: ...
+
+    def get_version_source(
+        self, version_id: str, *, revision_id: int = 0
+    ) -> tuple[str, bytes, str] | None: ...
 
     def get_revision_timestamp(self, revision_id: int) -> str: ...
 
@@ -201,6 +216,7 @@ class DocumentCodecPort(Protocol):
         dependency_versions: Mapping[str, str],
         device_bindings: Mapping[str, tuple[str, str, str, str]],
         table_device_type: str | None,
+        point_table_parent: tuple[str, str] | None = None,
     ) -> tuple[RowProjection, ...]: ...
 
     def reconstruct_document(

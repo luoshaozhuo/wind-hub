@@ -1,8 +1,9 @@
-"""Configuration Repository CLI commands, using the shared mTLS runtime."""
+"""Configuration Repository CLI commands with complete directory publication."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import uuid
@@ -14,6 +15,11 @@ from google.protobuf.json_format import MessageToDict
 
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
+from core.configuration.publication_identity import (
+    resolve_publication_identity,
+    validate_relative_path,
+)
+from core.infrastructure.config import ConfigOperationError, parse_yaml
 
 configuration = typer.Typer(help="Manage versioned configuration repository.")
 
@@ -25,7 +31,11 @@ def _request(method: str, request: Any, service: str) -> Any:
         from cli.main import runtime
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
-        result = await getattr(client, method)(request)
+        result = await getattr(client, method)(
+            request,
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, method),
+        )
         return MessageToDict(result, preserving_proto_field_name=True)
 
     from cli.main import _run
@@ -37,53 +47,109 @@ def _identity(config_type: str, config_id: str) -> pb.ConfigId:
     return pb.ConfigId(config_type=config_type, config_id=config_id)
 
 
-@configuration.command("candidate")
-def candidate(
-    config_type: str,
-    config_id: str,
-    file: Path,
-    expected_revision: int,
+@configuration.command("publish")
+def publish(
+    root: Path = typer.Option(..., "--root", help="Complete configuration directory"),
     service: str = "configuration",
     request_id: str = "",
     validate_only: bool = False,
 ) -> None:
-    """Validate or stage a YAML document at a fixed repository revision."""
-    data = file.read_bytes()
-    _request(
-        "CreateCandidate",
-        pb.CreateCandidateRequest(
-            request_id=request_id or uuid.uuid4().hex,
-            expected_revision_id=expected_revision,
-            documents=[
-                pb.ConfigDocumentInput(
-                    config_id=_identity(config_type, config_id),
-                    file_name=file.name,
-                    yaml_bytes=data,
-                )
-            ],
-            validate_only=validate_only,
-        ),
-        service,
-    )
+    """Validate and atomically publish the entire --root tree, not a file patch."""
+    if root.is_symlink() or not root.is_dir():
+        raise typer.BadParameter("configuration root must be a real directory")
+    root = root.resolve(strict=True)
+    # Reject hidden directory links as well as linked files: pathlib.rglob
+    # does not traverse symlinked directories, which would silently omit data.
+    entries = tuple(root.rglob("*"))
+    for entry in entries:
+        if entry.is_symlink():
+            raise typer.BadParameter(f"configuration tree contains symlink: {entry}")
+        if entry.is_file() and entry.suffix == ".yml":
+            raise typer.BadParameter(f"use canonical .yaml suffix: {entry}")
+    paths = sorted(entry for entry in entries if entry.is_file() and entry.suffix == ".yaml")
+    if not paths or len(paths) > 1000:
+        raise typer.BadParameter("configuration root must contain 1..1000 YAML files")
+    documents: list[pb.ConfigDocumentInput] = []
+    seen_paths: set[str] = set()
+    total_bytes = 0
+    for path in paths:
+        if path.is_symlink() or not path.resolve(strict=True).is_relative_to(root):
+            raise typer.BadParameter(f"unsafe YAML path: {path}")
+        relative_path = path.relative_to(root).as_posix()
+        if relative_path.casefold() in seen_paths:
+            raise typer.BadParameter(f"duplicate YAML path: {relative_path}")
+        seen_paths.add(relative_path.casefold())
+        content = path.read_bytes()
+        total_bytes += len(content)
+        if total_bytes > 64 * 1024 * 1024:
+            raise typer.BadParameter("publication exceeds 64 MiB")
+        try:
+            raw = parse_yaml(content.decode("utf-8"))
+            identity = resolve_publication_identity(relative_path, raw)
+        except (UnicodeError, ValueError, KeyError, ConfigOperationError) as exc:
+            raise typer.BadParameter(f"invalid configuration {relative_path}: {exc}") from exc
+        documents.append(
+            pb.ConfigDocumentInput(
+                config_id=_identity(identity.config_type, identity.config_id),
+                file_name=path.name,
+                yaml_bytes=content,
+                relative_path=relative_path,
+            )
+        )
 
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
 
-@configuration.command("publish")
-def publish(
-    candidate_id: str,
-    expected_revision: int,
-    service: str = "configuration",
-    request_id: str = "",
-) -> None:
-    """Publish a frozen candidate atomically, without applying business modules."""
-    _request(
-        "PublishCandidate",
-        pb.PublishCandidateRequest(
-            candidate_id=candidate_id,
-            expected_revision_id=expected_revision,
-            request_id=request_id or uuid.uuid4().hex,
-        ),
-        service,
-    )
+        session = runtime()
+        client = rpc.ConfigurationRepositoryServiceStub(session.channel(service))
+        metadata = session.get_rpc_metadata(service, "GetCurrentRevision")
+        timeout = session.target(service).timeout
+        current = await client.GetCurrentRevision(
+            pb.GetCurrentRevisionRequest(), timeout=timeout, metadata=metadata
+        )
+        operation_id = request_id or uuid.uuid4().hex
+        staged = await client.CreateCandidate(
+            pb.CreateCandidateRequest(
+                request_id=f"{operation_id}-stage",
+                expected_revision_id=current.revision_id,
+                documents=documents,
+                validate_only=validate_only,
+            ),
+            timeout=timeout,
+            metadata=metadata,
+        )
+        if not staged.valid:
+            raise RuntimeError(
+                "complete configuration directory rejected: "
+                + str(MessageToDict(staged, preserving_proto_field_name=True))
+            )
+        if validate_only:
+            return {
+                "valid": True,
+                "base_revision_id": current.revision_id,
+                "manifest_sha256": staged.manifest_sha256,
+                "file_count": len(documents),
+                "published": False,
+            }
+        committed = await client.PublishCandidate(
+            pb.PublishCandidateRequest(
+                candidate_id=staged.candidate_id,
+                expected_revision_id=current.revision_id,
+                request_id=f"{operation_id}-commit",
+            ),
+            timeout=timeout,
+            metadata=metadata,
+        )
+        return {
+            "revision_id": committed.revision_id,
+            "already_applied": committed.already_applied,
+            "manifest_sha256": staged.manifest_sha256,
+            "file_count": len(documents),
+        }
+
+    from cli.main import _run
+
+    _run("config publish", invoke())
 
 
 @configuration.command("list")
@@ -130,13 +196,26 @@ def versions(
 @configuration.command("get")
 def get(
     config_type: str,
-    config_id: str,
-    output: Path,
+    config_id: str = "",
+    output: Path | None = None,
     version_id: str = "",
     revision_id: int = -1,
     service: str = "configuration",
+    scope: str = "",
+    candidate_id: str = "",
 ) -> None:
-    """Save verified full-Header YAML from an exact version or revision."""
+    """Export Repository YAML, or explicitly query a service snapshot with --scope."""
+    if scope:
+        if config_id or version_id or revision_id >= 0:
+            raise typer.BadParameter("snapshot scope cannot use Repository selectors")
+        from .snapshot_commands import get_snapshot
+
+        get_snapshot(config_type, scope, output, candidate_id)
+        return
+    if candidate_id:
+        raise typer.BadParameter("--candidate-id requires --scope candidate")
+    if not config_id or output is None:
+        raise typer.BadParameter("Repository get requires config_id and output")
     if (not version_id) == (revision_id < 0):
         raise typer.BadParameter("provide exactly one of version_id or revision_id")
     req = pb.GetConfigRequest(config_id=_identity(config_type, config_id))
@@ -149,7 +228,11 @@ def get(
         from cli.main import runtime
 
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
-        result = await client.GetConfig(req)
+        result = await client.GetConfig(
+            req,
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetConfig"),
+        )
         data = result.document.yaml_bytes
         if hashlib.sha256(data).hexdigest() != result.document.yaml_sha256:
             raise RuntimeError("downloaded YAML SHA-256 mismatch")
@@ -183,26 +266,25 @@ def bundle(
                 roots=[_identity(config_type, config_id)],
                 revision_id=revision_id,
                 include_dependencies=dependencies,
-            )
+            ),
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetConfigBundle"),
         )
         manifest = hashlib.sha256()
         names: set[str] = set()
         files: list[tuple[str, bytes]] = []
         for item in response.files:
-            name = item.file_name
-            if (
-                not name.endswith(".yaml")
-                or name in names
-                or name != Path(name).name
-                or "\\" in name
-                or name in (".", "..")
-            ):
-                raise ValueError("duplicate or unsafe configuration filename")
+            name = item.relative_path
+            validate_relative_path(name)
+            if name in names:
+                raise ValueError("duplicate configuration path")
             data = item.yaml_bytes
             if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
                 raise RuntimeError("bundle contains incorrect YAML checksum")
-            manifest.update(item.version_id.encode("utf-8"))
-            manifest.update(item.yaml_sha256.encode("ascii"))
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                manifest.update(len(encoded).to_bytes(4, "big"))
+                manifest.update(encoded)
             names.add(name)
             files.append((name, data))
         if (
@@ -217,6 +299,7 @@ def bundle(
             staging = Path(directory)
             for name, data in files:
                 path = staging / name
+                path.parent.mkdir(parents=True, exist_ok=True)
                 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(data)
@@ -232,6 +315,73 @@ def bundle(
     from cli.main import _run
 
     _run("configuration bundle", invoke())
+
+
+@configuration.command("revision")
+def current_revision(service: str = "configuration") -> None:
+    """Read the authoritative current directory revision and manifest digest."""
+    _request("GetCurrentRevision", pb.GetCurrentRevisionRequest(), service)
+
+
+@configuration.command("point-table-bundle")
+def point_table_bundle(
+    point_table_id: str,
+    service: str = "configuration",
+    expected_manifest_sha256: str = "",
+) -> None:
+    """Verify one immutable historical PointTable interpretation closure."""
+
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
+
+        session = runtime()
+        client = rpc.ConfigurationRepositoryServiceStub(session.channel(service))
+        result = await client.GetPointTableBundle(
+            pb.GetPointTableBundleRequest(
+                point_table_id=point_table_id,
+                expected_manifest_sha256=expected_manifest_sha256,
+            ),
+            timeout=session.target(service).timeout,
+            metadata=session.get_rpc_metadata(service, "GetPointTableBundle"),
+        )
+        paths: set[str] = set()
+        entries: list[dict[str, str]] = []
+        for doc in result.documents:
+            validate_relative_path(doc.relative_path)
+            if doc.relative_path in paths:
+                raise RuntimeError("duplicate historical PointTable bundle path")
+            if hashlib.sha256(doc.yaml_bytes).hexdigest() != doc.yaml_sha256:
+                raise RuntimeError("historical PointTable YAML checksum mismatch")
+            paths.add(doc.relative_path)
+            entries.append(
+                {
+                    "config_type": doc.config_id.config_type,
+                    "config_id": doc.config_id.config_id,
+                    "version_id": doc.version_id,
+                    "content_sha256": doc.content_sha256,
+                    "yaml_sha256": doc.yaml_sha256,
+                    "relative_path": doc.relative_path,
+                }
+            )
+        entries.sort(key=lambda item: (item["config_type"], item["config_id"], item["version_id"]))
+        actual = hashlib.sha256(
+            json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if not entries or actual != result.manifest_sha256:
+            raise RuntimeError("historical PointTable manifest checksum mismatch")
+        return {
+            "point_table_id": result.point_table_id,
+            "device_type": result.device_type,
+            "manifest_sha256": result.manifest_sha256,
+            "documents": len(entries),
+            "total_bytes": sum(len(doc.yaml_bytes) for doc in result.documents),
+        }
+
+    from cli.main import _run
+
+    _run("configuration point-table-bundle", invoke())
 
 
 @configuration.command("references")
@@ -328,98 +478,22 @@ def backup_status(task_id: str, service: str = "configuration") -> None:
     _request("GetBackupTask", pb.GetBackupTaskRequest(task_id=task_id), service)
 
 
+@configuration.command("push")
+def push_snapshot_command(target: str, directory: Path, expected_revision: str = "") -> None:
+    """Stage a complete configuration snapshot in one service."""
+    from .snapshot_commands import push_snapshot
+
+    push_snapshot(target, directory, expected_revision)
+
+
 @configuration.command("apply")
-def apply_revision(
+def apply_snapshot_command(
     target: str,
-    manifest: Path,
-    revision_id: int,
-    repository: str = "configuration",
+    candidate_id: str,
+    expected_revision: str = "",
+    yes: bool = typer.Option(False, "--yes"),
 ) -> None:
-    """Push explicitly mapped repository YAML into one service's CommonService."""
-    from core.infrastructure.config import parse_yaml
+    """Apply a staged service snapshot with explicit confirmation."""
+    from .snapshot_commands import apply_snapshot
 
-    raw = parse_yaml(manifest.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
-        raise typer.BadParameter("manifest schema_version must be 1")
-    files = raw.get("files")
-    if not isinstance(files, list) or not files:
-        raise typer.BadParameter("manifest requires at least one config file")
-
-    async def invoke() -> dict[str, Any]:
-        from cli.main import runtime
-        from contracts import common_pb2 as common
-        from contracts import common_pb2_grpc as common_rpc
-
-        source = rpc.ConfigurationRepositoryServiceStub(runtime().channel(repository))
-        destination = common_rpc.CommonServiceStub(runtime().channel(target))
-        disk = await destination.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK),
-            metadata=runtime().get_rpc_metadata(target, "GetConfigSnapshot"),
-        )
-        snapshots: dict[str, common.SnapshotFile] = {
-            item.relative_path: common.SnapshotFile(
-                relative_path=item.relative_path,
-                content=item.content,
-                size_bytes=item.size_bytes,
-                sha256=item.sha256,
-            )
-            for item in disk.files
-        }
-        if len(snapshots) != len(disk.files):
-            raise ValueError("current disk snapshot contains duplicate paths")
-        paths: set[str] = set()
-        for entry in files:
-            if not isinstance(entry, dict):
-                raise ValueError("manifest file entries must be objects")
-            relative_path = str(entry["relative_path"])
-            normalized = Path(relative_path)
-            if normalized.is_absolute() or ".." in normalized.parts or relative_path in paths:
-                raise ValueError("manifest paths must be distinct and relative")
-            paths.add(relative_path)
-            config_id = _identity(str(entry["config_type"]), str(entry["config_id"]))
-            query = pb.GetConfigRequest(config_id=config_id)
-            if "version_id" in entry:
-                query.version_id = str(entry["version_id"])
-            else:
-                query.revision_id = revision_id
-            result = await source.GetConfig(query)
-            content = result.document.yaml_bytes
-            if hashlib.sha256(content).hexdigest() != result.document.yaml_sha256:
-                raise RuntimeError("downloaded YAML digest mismatch")
-            if relative_path not in snapshots:
-                raise ValueError("target path must already exist in the disk snapshot")
-            snapshots[relative_path] = common.SnapshotFile(
-                relative_path=relative_path,
-                content=content,
-                size_bytes=len(content),
-                sha256=result.document.yaml_sha256,
-            )
-        staged = await destination.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(
-                files=[snapshots[path] for path in sorted(snapshots)],
-                expected_revision=disk.revision,
-            ),
-            metadata=runtime().get_rpc_metadata(target, "PushConfigSnapshot"),
-        )
-        if not staged.valid:
-            raise RuntimeError(
-                "target rejected configuration snapshot: "
-                + str(MessageToDict(staged, preserving_proto_field_name=True))
-            )
-        applied = await destination.ApplyConfigSnapshot(
-            common.ApplyConfigSnapshotRequest(
-                candidate_id=staged.candidate_id,
-                expected_revision=disk.revision,
-            ),
-            metadata=runtime().get_rpc_metadata(target, "ApplyConfigSnapshot"),
-        )
-        return {
-            "applied": True,
-            "target": target,
-            "repository_revision": revision_id,
-            "result": MessageToDict(applied, preserving_proto_field_name=True),
-        }
-
-    from cli.main import _run
-
-    _run("configuration apply", invoke())
+    apply_snapshot(target, candidate_id, expected_revision, yes)

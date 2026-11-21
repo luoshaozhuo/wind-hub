@@ -36,16 +36,14 @@ def _field(name: str, kind: str = "object", *, required: bool = False) -> dict[s
 # nested rules without changing the transport or storage schema.
 _FIELDS: dict[str, dict[str, str]] = {
     "units": {"quantities": "object", "units": "object"},
-    "semantic_points": {"semantic_points": "object"},
-    "business_points": {"business_points": "object", "device_type": "string"},
+    "business_points": {"business_points": "object"},
     "point_table": {
         "template_id": "string",
         "device_type": "string",
         "protocol": "string",
         "points": "object",
-        "inherits": "object",
-        "parent_version_id": "string",
-        "parent_point_table_id": "string",
+        "parent": "object",
+        "remove_points": "array",
     },
     "device": {"devices": "object", "revision": "string"},
     "device_model": {
@@ -136,7 +134,6 @@ _FIELDS: dict[str, dict[str, str]] = {
 }
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "units": ("quantities", "units"),
-    "semantic_points": ("semantic_points",),
     "business_points": ("business_points",),
     "point_table": ("template_id", "protocol", "points"),
     "device": ("devices",),
@@ -248,7 +245,9 @@ def iter_schemas() -> Iterator[SchemaSpec]:
         for name, kind in kinds.items():
             properties[name] = {"type": kind}
             if kind == "array":
-                properties[name]["items"] = {"type": "object"}
+                properties[name]["items"] = {
+                    "type": "string" if name == "remove_points" else "object"
+                }
             header[name] = _field(name, kind, required=name in _REQUIRED.get(config_type, ()))
             if config_type == "service" and name in _NESTED_FIELDS:
                 nested_schema, nested_header = _nested_definition(name)
@@ -269,3 +268,41 @@ def iter_schemas() -> Iterator[SchemaSpec]:
             },
             header=header,
         )
+        if config_type == "service":
+            from copy import deepcopy
+
+            updated = deepcopy(properties)
+            updated_header = deepcopy(header)
+            caller_schema = updated["security"]["properties"]["callers"]["items"]
+            caller_fields = {
+                "caller_id": {"type": "string"},
+                "token_env": {"type": "string"},
+                "permissions": {"type": "array", "items": {"type": "string"}},
+            }
+            caller_schema["properties"] = caller_fields
+            caller_schema["required"] = ["caller_id", "token_env", "permissions"]
+            caller_header = updated_header["security"]["properties"]["callers"]
+            caller_header["properties"] = {
+                key: _field(
+                    key,
+                    "array" if key == "permissions" else "string",
+                    required=True,
+                )
+                for key in caller_fields
+            }
+            caller_header["properties"]["permissions"]["items"] = {
+                "type": "string",
+                "description": "调用者权限名称",
+                "example": "query",
+            }
+            updated_header["schema_version"] = _field("配置结构版本 2", "integer", required=True)
+            yield SchemaSpec(
+                config_type="service",
+                schema_version=2,
+                fields={
+                    "properties": updated,
+                    "required": ["schema_version", "file_version"],
+                    "additionalProperties": False,
+                },
+                header=updated_header,
+            )

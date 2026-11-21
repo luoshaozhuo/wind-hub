@@ -219,8 +219,11 @@ def load_config(path: Path) -> CLIConfig:
             and (not isinstance(isula_binary, str) or not Path(isula_binary).is_absolute())
         ):
             raise ValueError(f"{name}.isula_binary must be absolute")
-        if endpoint is not None and profile is None:
-            raise ValueError(f"{name}.tls_profile is required for mTLS")
+        internal_token_services = {"configuration", "sink"}
+        if name in internal_token_services and profile is not None:
+            raise ValueError(f"{name} internal gRPC no longer supports TLS profiles")
+        if endpoint is not None and name not in internal_token_services and profile is None:
+            raise ValueError(f"{name}.tls_profile is required")
         targets[name] = ServiceTarget(
             name,
             endpoint,
@@ -297,23 +300,26 @@ class Runtime:
             endpoint = target.grpc_endpoint
             if endpoint is None:
                 raise ValueError(f"service has no gRPC endpoint: {name}")
-            if target.tls_profile is None:
-                raise ValueError(f"mTLS profile is required for {name}")
-            profile = self.config().profiles[target.tls_profile]
-            credentials = grpc.ssl_channel_credentials(
-                root_certificates=profile.ca_cert.read_bytes(),
-                private_key=profile.client_key.read_bytes(),
-                certificate_chain=profile.client_cert.read_bytes(),
-            )
             max_message = self.config().snapshot_max_bytes * 2 + 1048576
-            channel = grpc.aio.secure_channel(
-                endpoint,
-                credentials,
-                options=(
-                    ("grpc.max_send_message_length", max_message),
-                    ("grpc.max_receive_message_length", max_message),
-                ),
+            options = (
+                ("grpc.max_send_message_length", max_message),
+                ("grpc.max_receive_message_length", max_message),
             )
+            if target.service_id in {"configuration", "sink"}:
+                # The Configuration endpoint must be reachable only on the
+                # deployment's isolated internal network; the CLI supplies
+                # per-caller bearer authorization via RPC metadata.
+                channel = grpc.aio.insecure_channel(endpoint, options=options)
+            else:
+                if target.tls_profile is None:
+                    raise ValueError(f"TLS profile required for {name}")
+                profile = self.config().profiles[target.tls_profile]
+                credentials = grpc.ssl_channel_credentials(
+                    root_certificates=profile.ca_cert.read_bytes(),
+                    private_key=profile.client_key.read_bytes(),
+                    certificate_chain=profile.client_cert.read_bytes(),
+                )
+                channel = grpc.aio.secure_channel(endpoint, credentials, options=options)
             self._channels[target.service_id] = channel
         return self._channels[target.service_id]
 
@@ -338,6 +344,17 @@ class Runtime:
             "ReadPoints",
             "InterrogateDevice",
         }
+        token_service = self.target(service).service_id
+        if token_service in {"configuration", "sink"}:
+            env_key = (
+                "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN"
+                if token_service == "configuration"
+                else "WIND_HUB_SINK_CLI_TOKEN"
+            )
+            token = os.getenv(env_key, "")
+            if len(token) < 32 or token.strip() != token:
+                raise PermissionError(f"{token_service} CLI requires its authorized token")
+            return (("authorization", f"Bearer {token}"),)
         if service == "collector" and method in protected:
             return self.collector_admin_metadata()
         return None

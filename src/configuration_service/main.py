@@ -1,9 +1,10 @@
-"""Configuration Service executable: local YAML bootstrap and mTLS gRPC."""
+"""Configuration Service executable: local YAML bootstrap and authorized gRPC."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -24,6 +25,9 @@ from configuration_service.infrastructure.adapters.inbound.grpc.common_server im
 from configuration_service.infrastructure.adapters.inbound.grpc.repository_server import (
     RepositoryServicer,
 )
+from configuration_service.infrastructure.adapters.outbound.nats.revision_notifier import (
+    RevisionBroadcaster,
+)
 from configuration_service.infrastructure.adapters.outbound.sqlite.backup import (
     SQLiteBackupManager,
 )
@@ -39,14 +43,17 @@ from contracts import common_pb2_grpc, configuration_repository_pb2_grpc
 _LOG = logging.getLogger(__name__)
 
 
-def _credentials(settings: ServerSettings) -> grpc.ServerCredentials:
-    """Require validated client certificates on every externally exposed RPC."""
-    ca = settings.ca_file.read_bytes()
-    cert = settings.cert_file.read_bytes()
-    key = settings.key_file.read_bytes()
-    return grpc.ssl_server_credentials(
-        [(key, cert)], root_certificates=ca, require_client_auth=True
-    )
+def _load_actor_tokens(settings: ServerSettings) -> dict[str, str]:
+    """Resolve authorized identities to independent deployment-injected tokens."""
+    tokens: dict[str, str] = {}
+    for actor, variable in settings.token_sources.items():
+        token = os.environ.get(variable, "")
+        if len(token) < 32 or token.strip() != token:
+            raise ValueError(f"missing or invalid token for authorized actor {actor}")
+        if token in tokens.values():
+            raise ValueError("duplicate configuration access token")
+        tokens[actor] = token
+    return tokens
 
 
 def serve(settings: ServerSettings, bootstrap: Path) -> None:
@@ -64,8 +71,14 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         max_workers=settings.max_backup_jobs, thread_name_prefix="configuration-backup"
     )
     backups = SQLiteBackupManager(repository, settings.backup_root)
+    notifier = RevisionBroadcaster(
+        settings.nats_servers,
+        subject=settings.nats_subject,
+        connect_timeout_ms=settings.nats_connect_timeout_ms,
+    )
     server: grpc.Server | None = None
     try:
+        notifier.start()
         interrupted = backups.recover()
         if interrupted:
             _LOG.warning("marked %s interrupted backup jobs", interrupted)
@@ -121,8 +134,10 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
         repository_servicer = RepositoryServicer(
             application,
             permissions=settings.permissions,
+            tokens=_load_actor_tokens(settings),
             cursor_secret=cursor_secret,
             submit_backup=schedule_backup,
+            revision_notify=notifier.enqueue,
             metrics=rpc_metrics,
         )
         common_servicer = CommonServicer(
@@ -139,7 +154,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             worker_pool,
             maximum_concurrent_rpcs=settings.max_concurrent_queries,
             options=[
-                ("grpc.max_receive_message_length", settings.max_request_bytes),
+                ("grpc.max_receive_message_length", settings.max_request_bytes + protobuf_headroom),
                 (
                     "grpc.max_send_message_length",
                     settings.max_bundle_bytes + protobuf_headroom,
@@ -150,9 +165,10 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
             repository_servicer, server
         )
         common_pb2_grpc.add_CommonServiceServicer_to_server(common_servicer, server)
-        bind = f"{settings.host}:{settings.port}"
-        if server.add_secure_port(bind, _credentials(settings)) == 0:
-            raise RuntimeError("failed to bind secure Configuration Service endpoint")
+        host = f"[{settings.host}]" if ":" in settings.host else settings.host
+        bind = f"{host}:{settings.port}"
+        if server.add_insecure_port(bind) == 0:
+            raise RuntimeError("failed to bind Configuration Service endpoint")
         server.start()
         _LOG.info("Configuration Service listening at %s", bind)
         should_stop = False
@@ -168,6 +184,7 @@ def serve(settings: ServerSettings, bootstrap: Path) -> None:
     finally:
         if server is not None:
             server.stop(grace=5).wait(timeout=10)
+        notifier.close()
         backup_pool.shutdown(wait=True, cancel_futures=False)
         worker_pool.shutdown(wait=True, cancel_futures=True)
         repository.close()

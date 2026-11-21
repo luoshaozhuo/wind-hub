@@ -1,15 +1,15 @@
-"""系统恢复测试专用：构造 v1_21 权威 Sink Service 单 Service 配置根。
+"""系统恢复测试专用：构造权威 Sink Service 单 Service 配置根。
 
 新架构下 ``wind-hub-sink-service`` 只接受 ``--config-root`` 与
-``--service-file``：gRPC 监听、mTLS、NATS、Sink 连接与 Delivery 过滤
+``--service-file``：gRPC 监听、Bearer 鉴权、NATS、Sink 连接与 Delivery 过滤
 全部来自配置根内的 canonical 文档树。本模块复用 Sink Service 自己的
-阶段一夹具（:mod:`tests.sink_service._stage1_fixtures` 与
-:mod:`tests.sink_service._stage1_tls`），保证系统测试不会漂移出生产
+阶段一夹具（:mod:`tests.sink_service._stage1_fixtures`），保证系统测试不会漂移出生产
 校验器接受的布局；只把连接地址、身份与过滤范围参数化为恢复测试所需。
 """
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,6 @@ from tests.sink_service._stage1_fixtures import (
     template_path,
     write_tree,
 )
-from tests.sink_service._stage1_tls import write_mtls_bundle
 
 #: 恢复测试的固定 Sink/Delivery 身份。
 SINK_ID = "redis_sink"
@@ -33,9 +32,10 @@ DEFAULT_NAMESPACE = "wind-hub"
 #: Delivery source 过滤器必须与此一致，否则批次零匹配被过滤 ACK（不出数）。
 DEFAULT_WIND_FARM_ID = "test"
 DEFAULT_COLLECTOR_ID = "system-test"
+TEST_SINK_CLI_TOKEN = secrets.token_hex(32)
 MAINTENANCE_CALLER = {
     "caller_id": "maintenance",
-    "certificate_identity": "spiffe://wind-hub/maintenance",
+    "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
     "permissions": ["query", "control", "config"],
 }
 
@@ -75,7 +75,6 @@ def write_sink_root(
     points 在生产引擎中表示该身份下全收（``realtime.py`` accepts 语义）。
     """
     root.mkdir(parents=True, exist_ok=True)
-    write_mtls_bundle(root)
     redis_host, _, redis_port = redis_address.rpartition(":")
 
     service = service_document(

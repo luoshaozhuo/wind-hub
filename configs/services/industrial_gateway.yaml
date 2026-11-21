@@ -2,6 +2,11 @@
 # config_sources.instances.devices: explicitly choose devices.yaml for real devices
 #   or devices_sim.yaml for simulation; never merge these inventories implicitly.
 # grpc: Gateway management listener, separate from industrial protocol Server ports.
+# grpc.sink_listener_port: optional local Sink injection listener (1..65535).
+#   Only available when the management port uses mTLS; always binds 127.0.0.1.
+#   Set WIND_HUB_GATEWAY_SINK_TOKEN (>=32 characters) in Gateway and Sink processes.
+#   Sink endpoint must target 127.0.0.1:<sink_listener_port>; no remote plaintext ingress.
+#   Allowed operations: ClaimTargets and UpdateVariables (inject authorization only).
 # servers[]: one device per protocol listener; IDs and ports must be unique.
 # servers[].control.enabled: false by default in this safe example.
 # servers[].control.target.kind: none | commander.

@@ -34,6 +34,7 @@ from .semantic_matrix import (
     RPC_ROWS,
     SemanticEntry,
 )
+from .test_e2e_surface_matrix import EXPECTED_LEAF_COUNT, REPOSITORY_ONLY_LEAVES
 
 pytestmark = [
     pytest.mark.end_to_end,
@@ -57,9 +58,13 @@ def test_semantic_matrix_has_exact_73_cli_51_rpc_and_54_common_deployments() -> 
     """Descriptor/CLI 注册树是分母；Common 部署视图不混入 51 唯一 RPC。"""
     cli = {row.key: row for row in CLI_ROWS}
     rpc = {row.key: row for row in RPC_ROWS}
-    assert len(CLI_ROWS) == len(cli) == 73
+    # This six-service topology has no Configuration Repository target, so the
+    # Repository-only leaves are out of scope here (covered by real-process
+    # suites under tests/configuration_service/integration).
+    in_topology_words = set(_command_words()) - REPOSITORY_ONLY_LEAVES
+    assert len(CLI_ROWS) == len(cli) == EXPECTED_LEAF_COUNT
     assert len(RPC_ROWS) == len(rpc) == 51
-    assert set(cli) == set(_command_words())
+    assert set(cli) == in_topology_words
     assert len(COMMON_DEPLOYMENT_ROWS) == 54
     assert len(COMMON_DEPLOYMENTS) == 6
     assert len(COMMON_METHODS) == 9
@@ -294,6 +299,10 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
     empty = root / "empty"
     for directory in (left, right, empty):
         directory.mkdir(parents=True, exist_ok=True)
+    # The snapshot CLI rejects empty trees locally before any RPC; a valid YAML
+    # lets the push reach the service so the fixture's PERMISSION_DENIED outcome
+    # (no config_write grant) is actually exercised over the wire.
+    (empty / "snapshot_probe.yaml").write_text("probe: true\n", encoding="utf-8")
     attestation = root / "untrusted-attestation.bin"
     attestation.write_bytes(b"not-a-trusted-isolation-proof")
     batch = root / "batch.json"
@@ -625,6 +634,10 @@ async def test_common_service_semantics_on_all_six_deployments(
 ) -> None:
     """执行 6×9 部署矩阵，配置拒绝逐服务比较 DISK 与文件不变。"""
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
+    # In-process Runtime calls need the internal Bearer tokens that the
+    # subprocess CLI harness injects via its environment.
+    assert full_chain.sink is not None
+    monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", full_chain.sink.auth_tokens["admin"])
     runtime = Runtime(full_chain.cli_rt, "json")
     expected_identity = {
         "gateway": ("industrial_gateway", "gateway"),

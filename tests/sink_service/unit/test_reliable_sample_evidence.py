@@ -98,7 +98,9 @@ def _batch(samples: list[tuple[str, str]], *, device: str = _DEVICE) -> SampleBa
         wind_farm_id=_FARM,
         collector_id=_COLLECTOR,
         task_id="task-qa",
+        device_type="wind_turbine",
         device_id=device,
+        point_table_id="point_table_wtg_sim_v1.0.0",
         publish_time=now,
         samples=tuple(
             SampleItem(

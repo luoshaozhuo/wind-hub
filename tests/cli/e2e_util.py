@@ -33,9 +33,13 @@ def write_cli_yaml(
     prompt: str = "wind-hub> ",
 ) -> Path:
     managers = managers or {}
+    # Sink and Configuration use internal Bearer-token channels without TLS.
+    token_services = {"sink", "configuration"}
     blocks = []
     for name, endpoint in endpoints.items():
-        block = f'  {name}:\n    grpc_endpoint: "{endpoint}"\n    tls_profile: mtls\n'
+        block = f'  {name}:\n    grpc_endpoint: "{endpoint}"\n'
+        if name not in token_services:
+            block += "    tls_profile: mtls\n"
         if name in managers:
             for key, value in managers[name].items():
                 block += f"    {key}: {value}\n"

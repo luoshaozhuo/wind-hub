@@ -64,6 +64,16 @@ class ConfigurationRepositoryServiceStub:
                 request_serializer=contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.SerializeToString,
                 response_deserializer=contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.FromString,
                 _registered_method=True)
+        self.GetPointTableBundle = channel.unary_unary(
+                '/windhub.configuration.v1.ConfigurationRepositoryService/GetPointTableBundle',
+                request_serializer=contracts_dot_configuration__repository__pb2.GetPointTableBundleRequest.SerializeToString,
+                response_deserializer=contracts_dot_configuration__repository__pb2.GetPointTableBundleResponse.FromString,
+                _registered_method=True)
+        self.GetCurrentRevision = channel.unary_unary(
+                '/windhub.configuration.v1.ConfigurationRepositoryService/GetCurrentRevision',
+                request_serializer=contracts_dot_configuration__repository__pb2.GetCurrentRevisionRequest.SerializeToString,
+                response_deserializer=contracts_dot_configuration__repository__pb2.GetCurrentRevisionResponse.FromString,
+                _registered_method=True)
         self.ListReferences = channel.unary_unary(
                 '/windhub.configuration.v1.ConfigurationRepositoryService/ListReferences',
                 request_serializer=contracts_dot_configuration__repository__pb2.ListReferencesRequest.SerializeToString,
@@ -130,6 +140,18 @@ class ConfigurationRepositoryServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetConfigBundle(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetPointTableBundle(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCurrentRevision(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -203,6 +225,16 @@ def add_ConfigurationRepositoryServiceServicer_to_server(servicer, server):
                     servicer.GetConfigBundle,
                     request_deserializer=contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.FromString,
                     response_serializer=contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.SerializeToString,
+            ),
+            'GetPointTableBundle': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPointTableBundle,
+                    request_deserializer=contracts_dot_configuration__repository__pb2.GetPointTableBundleRequest.FromString,
+                    response_serializer=contracts_dot_configuration__repository__pb2.GetPointTableBundleResponse.SerializeToString,
+            ),
+            'GetCurrentRevision': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCurrentRevision,
+                    request_deserializer=contracts_dot_configuration__repository__pb2.GetCurrentRevisionRequest.FromString,
+                    response_serializer=contracts_dot_configuration__repository__pb2.GetCurrentRevisionResponse.SerializeToString,
             ),
             'ListReferences': grpc.unary_unary_rpc_method_handler(
                     servicer.ListReferences,
@@ -397,6 +429,60 @@ class ConfigurationRepositoryService:
             '/windhub.configuration.v1.ConfigurationRepositoryService/GetConfigBundle',
             contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.SerializeToString,
             contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPointTableBundle(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.configuration.v1.ConfigurationRepositoryService/GetPointTableBundle',
+            contracts_dot_configuration__repository__pb2.GetPointTableBundleRequest.SerializeToString,
+            contracts_dot_configuration__repository__pb2.GetPointTableBundleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCurrentRevision(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.configuration.v1.ConfigurationRepositoryService/GetCurrentRevision',
+            contracts_dot_configuration__repository__pb2.GetCurrentRevisionRequest.SerializeToString,
+            contracts_dot_configuration__repository__pb2.GetCurrentRevisionResponse.FromString,
             options,
             channel_credentials,
             insecure,

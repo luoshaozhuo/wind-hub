@@ -157,7 +157,15 @@ class TestUC09S03:
             (root_b / "CURRENT").unlink()
 
             proc_b = start_sink_service_from_root(
-                root_b, grpc_port=sink_harness.grpc_port, log_dir=root_b
+                root_b,
+                grpc_port=sink_harness.grpc_port,
+                log_dir=root_b,
+                env_extra={
+                    # The second instance resolves the same token_env references;
+                    # without these secrets it fails before reaching bind.
+                    "WIND_HUB_SINK_CLI_TOKEN": sink_harness.auth_tokens["admin"],
+                    "WIND_HUB_SINK_READONLY_TOKEN": sink_harness.auth_tokens["readonly"],
+                },
             )
             try:
                 code = await _wait_process_exit(proc_b)

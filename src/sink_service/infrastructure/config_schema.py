@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sink_service.domain.config import (
@@ -93,30 +94,24 @@ def validate_service_technology(service: dict[str, Any]) -> None:
     if metrics.get("overrun_policy") != "skip":
         raise ConfigurationError("metrics.overrun_policy must be skip")
     security = expect_mapping(service.get("security"), "service.security")
-    require_keys(
-        security,
-        "security",
-        frozenset({"ca_cert", "server_cert", "server_key", "callers"}),
-    )
-    for field in ("ca_cert", "server_cert", "server_key"):
-        expect_nonempty_str(security.get(field), f"security.{field}")
+    require_keys(security, "security", frozenset({"callers"}))
     callers = security.get("callers")
     if not isinstance(callers, list) or not callers:
         raise ConfigurationError("security.callers: expected non-empty list")
     caller_ids: set[str] = set()
-    identities: set[str] = set()
+    token_refs: set[str] = set()
     for index, raw in enumerate(callers):
         location = f"security.callers[{index}]"
         caller = expect_mapping(raw, location)
         require_keys(
             caller,
             location,
-            frozenset({"caller_id", "certificate_identity", "permissions"}),
+            frozenset({"caller_id", "token_env", "permissions"}),
         )
         caller_id = expect_nonempty_str(caller["caller_id"], f"{location}.caller_id")
-        identity = expect_nonempty_str(
-            caller["certificate_identity"], f"{location}.certificate_identity"
-        )
+        token_ref = expect_nonempty_str(caller["token_env"], f"{location}.token_env")
+        if re.fullmatch(r"env:[A-Za-z_][A-Za-z0-9_]*", token_ref) is None:
+            raise ConfigurationError(f"{location}: invalid token environment reference")
         permissions = caller["permissions"]
         if (
             not isinstance(permissions, list)
@@ -125,14 +120,64 @@ def validate_service_technology(service: dict[str, Any]) -> None:
             or len(permissions) != len(set(permissions))
         ):
             raise ConfigurationError(f"{location}.permissions: invalid permission set")
-        if caller_id in caller_ids or identity in identities:
-            raise ConfigurationError(f"{location}: duplicated caller identity")
+        if caller_id in caller_ids or token_ref in token_refs:
+            raise ConfigurationError(f"{location}: duplicate caller or token reference")
         caller_ids.add(caller_id)
-        identities.add(identity)
+        token_refs.add(token_ref)
     sync = expect_mapping(service.get("config_sync"), "service.config_sync")
     expect_positive_int(sync.get("apply_timeout_ms"), "config_sync.apply_timeout_ms")
-    if set(sync) != {"apply_timeout_ms"}:
-        raise ConfigurationError("unsupported config_sync fields")
+    require_keys(
+        sync,
+        "config_sync",
+        frozenset({"apply_timeout_ms"}),
+        frozenset(
+            {
+                "repository_endpoint",
+                "repository_token_ref",
+                "approved_point_table_manifests",
+                "poll_interval_seconds",
+            }
+        ),
+    )
+    repo_keys = {"repository_endpoint", "repository_token_ref"}
+    if repo_keys & set(sync):
+        if not repo_keys.issubset(sync):
+            raise ConfigurationError("repository endpoint and token must be supplied together")
+        endpoint = expect_nonempty_str(
+            sync["repository_endpoint"], "config_sync.repository_endpoint"
+        )
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host or not port.isdecimal() or not 1 <= int(port) <= 65535:
+            raise ConfigurationError("configuration repository endpoint must be host:port")
+        reference = expect_nonempty_str(
+            sync["repository_token_ref"], "config_sync.repository_token_ref"
+        )
+        if re.fullmatch(r"env:[A-Za-z_][A-Za-z0-9_]*", reference) is None:
+            raise ConfigurationError("repository token requires an env: Secret")
+        approved = expect_mapping(
+            sync.get("approved_point_table_manifests", {}),
+            "approved_point_table_manifests",
+        )
+        if len(approved) > 128 or any(
+            not isinstance(point_table_id, str)
+            or re.fullmatch(
+                r"point_table_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+",
+                point_table_id,
+            )
+            is None
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[a-f0-9]{64}", digest) is None
+            for point_table_id, digest in approved.items()
+        ):
+            raise ConfigurationError("invalid approved historical PointTable manifests")
+    if "approved_point_table_manifests" in sync and not repo_keys.issubset(sync):
+        raise ConfigurationError("approved PointTable list requires repository connection")
+    if "poll_interval_seconds" in sync:
+        interval = sync["poll_interval_seconds"]
+        if type(interval) is not int or not 5 <= interval <= 3600:
+            raise ConfigurationError("config_sync.poll_interval_seconds must be 5..3600")
+        if not repo_keys.issubset(sync):
+            raise ConfigurationError("Configuration polling requires repository connection")
     shutdown = expect_mapping(service.get("shutdown"), "service.shutdown")
     require_keys(shutdown, "shutdown", frozenset({"grace_seconds"}))
     expect_positive_int(shutdown.get("grace_seconds"), "shutdown.grace_seconds")

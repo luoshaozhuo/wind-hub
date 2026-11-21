@@ -52,7 +52,7 @@ from tests.support.recovery_helpers import (
     recovery_collector_tree,
     wait_status,
 )
-from tests.support.sink_harness import DELIVERY_ID, write_sink_root
+from tests.support.sink_harness import DELIVERY_ID, TEST_SINK_CLI_TOKEN, write_sink_root
 from tests.support.wait import wait_redis_value, wait_tcp_port, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.redis, pytest.mark.real_service]
@@ -114,7 +114,12 @@ async def sink_factory(tmp_path: Path, nats_service: str, redis_service: str):
             namespace=SINK_NAMESPACE,
             deployment_id=f"res-{grpc_port}",
         )
-        proc = start_sink_service_from_root(root, grpc_port=grpc_port, log_dir=tmp_path)
+        proc = start_sink_service_from_root(
+            root,
+            grpc_port=grpc_port,
+            log_dir=tmp_path,
+            env_extra={"WIND_HUB_SINK_CLI_TOKEN": TEST_SINK_CLI_TOKEN},
+        )
         started.append(proc)
         try:
             # 管理面无就绪 RPC；gRPC 端口可连即装配完成，端到端就绪由
@@ -181,21 +186,18 @@ async def _single_running_instance(proc: CollectorProcess) -> None:
 
 
 async def _delivery_restart_cycle(root: Path, grpc_port: int) -> None:
-    """正式 Delivery 生命周期重建 consumer：Stop → Start（mTLS 管理面）。
+    """正式 Delivery 生命周期重建 consumer：Stop → Start（Bearer 管理面）。
 
     旧 Sink 级 RestartSink 管理面不存在安全 RPC；S-7 裁定只能以
     StopDelivery/StartDelivery 组合表达同等 consumer 协程重建。
     """
-    credentials = grpc.ssl_channel_credentials(
-        root_certificates=(root / "tls" / "ca.crt").read_bytes(),
-        private_key=(root / "tls" / "admin.key").read_bytes(),
-        certificate_chain=(root / "tls" / "admin.crt").read_bytes(),
-    )
-    async with grpc.aio.secure_channel(f"127.0.0.1:{grpc_port}", credentials) as channel:
+    metadata = (("authorization", f"Bearer {TEST_SINK_CLI_TOKEN}"),)
+    async with grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}") as channel:
         stub = sink_service_pb2_grpc.SinkServiceStub(channel)
-        detail = await stub.GetDelivery(common_pbx.ObjectId(id=DELIVERY_ID))
+        detail = await stub.GetDelivery(common_pbx.ObjectId(id=DELIVERY_ID), metadata=metadata)
         stopped = await stub.StopDelivery(
-            common_pbx.OperationRequest(id=DELIVERY_ID, expected_revision=detail.delivery.revision)
+            common_pbx.OperationRequest(id=DELIVERY_ID, expected_revision=detail.delivery.revision),
+            metadata=metadata,
         )
         assert stopped.accepted, stopped.message
         detail = await stub.GetDelivery(common_pbx.ObjectId(id=DELIVERY_ID))
