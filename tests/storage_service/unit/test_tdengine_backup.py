@@ -49,7 +49,7 @@ class _Metadata:
 
 def _config(tmp_path: Path) -> StorageConfig:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
     return config.model_copy(
         update={
