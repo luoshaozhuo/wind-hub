@@ -484,6 +484,7 @@ def load_settings(service_path: Path) -> Settings:
         {
             "service_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "shared_revision": shared.revision,
+            "scenarios_sha256": hashlib.sha256(paths["scenarios"].read_bytes()).hexdigest(),
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -500,4 +501,5 @@ def load_settings(service_path: Path) -> Settings:
         paths["units"],
         paths["business_points"],
         paths["templates_root"],
+        paths["scenarios"],
     )

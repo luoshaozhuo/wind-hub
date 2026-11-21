@@ -150,6 +150,8 @@ class SnapshotManager:
             settings.units_file,
             settings.business_points_file,
         }
+        if settings.scenarios_file is not None:
+            paths.add(settings.scenarios_file)
         documents = SharedDocumentLoader(
             SharedConfigPaths(
                 instances=settings.site_file.parent,

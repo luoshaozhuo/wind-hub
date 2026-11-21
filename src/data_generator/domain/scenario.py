@@ -40,6 +40,7 @@ class Settings:
     units_file: Path
     business_points_file: Path
     templates_root: Path
+    scenarios_file: Path | None = None
 
 
 def resolve_history(root: Path, relative: str) -> Path:
