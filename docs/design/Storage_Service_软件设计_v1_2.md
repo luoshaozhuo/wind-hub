@@ -1225,7 +1225,7 @@ sequenceDiagram
 
 1. 配置设计分支的 Contracts v1_40 §11.7/§11.9 仍写 `raw/engineering/business`，而 Storage / 当前生产迁移使用 `raw/protocol/business`。二者业务含义并不相同：**必须统一 Contracts、Sink、Storage 设计和实际线格式，不能把字符串直接等价映射**。在最终语义冻结前保留契约阻断。
 2. 配置设计分支新增了 `GetServiceConfigBundle`、`GetCurrentRevision`、`GetPointTableBundle`，当前 Storage 开发分支尚在使用 `ListConfigs` + `GetConfigBundle` 的旧选择路径。编码前须合入/对齐协议定义、生成物和 Configuration 服务实现，不能凭设计断言运行中已部署。
-3. `Sink_Service_软件设计.md` 附录仍允许 Gateway 管理口 mTLS 双入口，与本轮内部模块统一 Bearer 的安全方案不完全一致。**Storage 本身不引入任何 mTLS/证书回退**；跨模块必须先明确 Gateway 内部管理口统一 Bearer 与独立外部 Recovery Authority TLS 的界限，不复用旧双口证书准入。
+3. 本轮 Storage 安全边界已核实：`src/storage_service/infrastructure/adapters/inbound/grpc_server.py` 使用受控内网 `add_insecure_port` + 每 RPC Bearer 令牌鉴权和风场/权限校验；`src/storage_service/infrastructure/adapters/outbound/configuration_grpc.py` 使用 `grpc.aio.insecure_channel` + Bearer 元数据；`src/storage_service/settings.py` 引导配置仅引用 `token_env`。Storage **不启用 TLS/mTLS，不接受客户端证书身份作为授权依据，也不提供匿名回退**。Gateway、Sink 及外部 Recovery Authority 的安全设计属于其他模块，不在本轮 Storage 修改范围；不得以 Storage 为理由修改它们的生产代码。
 4. 配置设计分支的 `wind-hub_跨模块测试设计_v0_35.md` 还含旧的 ENGINEERING 数据等级、默认 BUSINESS 与旧 CLI 固定分母假设；应和 Contracts/Sink/Collector 当前运行契约一并修订，不得把旧测试场景当作 Storage 正确性准出依据。
 
 本章为目标设计，不表示上述两个分支已在运行代码层完成合流。
