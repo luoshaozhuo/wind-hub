@@ -375,7 +375,8 @@ class ConfigurationPointTableResolver:
                                 point_table_id=point_table_id
                             )
                             matched = [
-                                item for item in bundle
+                                item
+                                for item in bundle
                                 if (item.config_type, item.config_id, item.version_id) == key
                             ]
                             if len(matched) != 1:

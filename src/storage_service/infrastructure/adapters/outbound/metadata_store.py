@@ -563,9 +563,7 @@ class MetadataStore:
                         identity,
                     ).fetchone()
                     if previous is not None and previous[0] != raw:
-                        raise MetadataConflictError(
-                            "immutable device binding cannot be rebound"
-                        )
+                        raise MetadataConflictError("immutable device binding cannot be rebound")
                     if previous is None:
                         db.execute(
                             """INSERT INTO device_binding_pins (
@@ -582,11 +580,15 @@ class MetadataStore:
     def list_device_bindings(self) -> tuple[DeviceBinding, ...]:
         """Recover all pinned historical devices without selecting latest models."""
         with self._mutex:
-            rows = self._db().execute(
-                """SELECT binding_json FROM device_binding_pins
+            rows = (
+                self._db()
+                .execute(
+                    """SELECT binding_json FROM device_binding_pins
                    ORDER BY wind_farm_id, device_id, point_table_id,
                             device_version_id"""
-            ).fetchall()
+                )
+                .fetchall()
+            )
         result: list[DeviceBinding] = []
         for (serialized,) in rows:
             try:

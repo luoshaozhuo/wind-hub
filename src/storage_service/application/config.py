@@ -320,7 +320,9 @@ def load_storage_config(source: bytes) -> StorageConfig:
     parameters = data["service"]
     if set(parameters) & header:
         raise ValueError("Storage Service parameters cannot redefine envelope identity")
-    return StorageConfig.model_validate({
-        **{key: value for key, value in data.items() if key != "service"},
-        **parameters,
-    })
+    return StorageConfig.model_validate(
+        {
+            **{key: value for key, value in data.items() if key != "service"},
+            **parameters,
+        }
+    )

@@ -94,7 +94,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                         pending.revision_id == bundle.revision_id
                         and pending.target_revision != bundle.target_revision
                     ):
-                        raise RuntimeError("same revision has conflicting persisted closures")
+                        raise RuntimeError(
+                            "same revision has conflicting persisted closures"
+                        ) from exc
                 if bundle.configuration.service_id != bootstrap.service_id:
                     raise RuntimeError("saved Configuration service_id mismatch") from exc
                 if bundle.deployment_id != bootstrap.deployment_id:
@@ -196,9 +198,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     consumer=consumer,
                     cursor_secret=cursor_secret,
                     config_status=lambda: watcher.status,
-                    config_revisions=lambda: (
-                        watcher.target_revision, watcher.active_revision
-                    ),
+                    config_revisions=lambda: (watcher.target_revision, watcher.active_revision),
                     metrics=metrics,
                 )
                 await consumer.start()

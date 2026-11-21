@@ -10,17 +10,16 @@ import asyncio
 import hashlib
 import json
 import math
-import re
 import os
+import re
 from dataclasses import dataclass, field
 
 import grpc
 import yaml
 
-from core.configuration.deployment import closure_sha256
-
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
+from core.configuration.deployment import closure_sha256
 from storage_service.application.config import (
     DeviceBinding,
     DeviceClosurePins,
@@ -101,9 +100,7 @@ _RepositoryYamlLoader.add_implicit_resolver(
 )
 
 
-def _repository_mapping(
-    loader: yaml.SafeLoader, node: yaml.MappingNode
-) -> dict[str, object]:
+def _repository_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict[str, object]:
     result: dict[str, object] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=True)
@@ -154,10 +151,14 @@ def _yaml_object(document: RepositoryDocument) -> dict[str, object]:
 def _document_content_hash(document: RepositoryDocument) -> str:
     parsed = _yaml_object(document)
     encoded = json.dumps(
-        parsed, sort_keys=True, ensure_ascii=False,
-        separators=(",", ":"), allow_nan=False,
+        parsed,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
 
 def _point_table_identity(key: _ConfigKey, raw: dict[str, object]) -> str:
     _config_type, config_id, file_version = key
@@ -186,10 +187,10 @@ def _parse_device_closure(
         for key, document in objects.items()
         if key[0] in {"point_table", "device_model", "device", "site"}
     }
-    sites = [(key, raw) for key, raw in documents.items()
-             if key[0] == "site" and key[1] == site_id]
-    devices = [(key, raw) for key, raw in documents.items()
-               if key[0] == "device" and key[1] == devices_id]
+    sites = [(key, raw) for key, raw in documents.items() if key[0] == "site" and key[1] == site_id]
+    devices = [
+        (key, raw) for key, raw in documents.items() if key[0] == "device" and key[1] == devices_id
+    ]
     if len(sites) != 1 or len(devices) != 1:
         raise ConfigHistoryUnavailableError(
             "Deployment-selected Site/Device Instance is missing or ambiguous"
@@ -254,27 +255,40 @@ def _parse_device_closure(
         ref = value.get("model")
         if not isinstance(ref, dict):
             raise ConfigHistoryUnavailableError("device model pin is missing")
-        model = models.get((ref.get("id"), ref.get("version")))
+        model_id = ref.get("id")
+        model_version = ref.get("version")
+        if not isinstance(model_id, str) or not isinstance(model_version, str):
+            raise ConfigHistoryUnavailableError("device model pin must use exact identities")
+        model = models.get((model_id, model_version))
         if model is None:
             raise ConfigHistoryUnavailableError("device references absent fixed DeviceModel")
         table_id = model.point_table_id
-        key = next((item for item in documents
-                    if item[0] == "point_table"
-                    and _point_table_identity(item, documents[item]) == table_id), None)
-        if key is None:
+        point_table_key = next(
+            (
+                item
+                for item in documents
+                if item[0] == "point_table"
+                and _point_table_identity(item, documents[item]) == table_id
+            ),
+            None,
+        )
+        if point_table_key is None:
             raise ConfigHistoryUnavailableError("model PointTable pin is missing")
-        pins[table_id] = (key[1], objects[key].version_id)
-        bindings.append(DeviceBinding(
-            wind_farm_id=wind_farm_id,
-            device_id=device_id,
-            device_config_id=device_key[1],
-            device_version_id=objects[device_key].version_id,
-            device_file_version=device_key[2],
-            site_config_id=site_key[1],
-            site_file_version=site_key[2],
-            model=model,
-        ))
+        pins[table_id] = (point_table_key[1], objects[point_table_key].version_id)
+        bindings.append(
+            DeviceBinding(
+                wind_farm_id=wind_farm_id,
+                device_id=device_id,
+                device_config_id=device_key[1],
+                device_version_id=objects[device_key].version_id,
+                device_file_version=device_key[2],
+                site_config_id=site_key[1],
+                site_file_version=site_key[2],
+                model=model,
+            )
+        )
     return pins, tuple(bindings)
+
 
 class ConfigurationGrpcClient:
     """Request exact versions and revision-pinned bundle; never use a latest-version alias."""
@@ -384,25 +398,23 @@ class ConfigurationGrpcClient:
                 or parsed["schema_version"] != item.schema_version
                 or parsed.get("file_version") != item.file_version
             ):
-                raise ConfigHistoryUnavailableError(
-                    "historical document schema identity mismatch"
-                )
+                raise ConfigHistoryUnavailableError("historical document schema identity mismatch")
             if _document_content_hash(doc) != item.content_sha256:
-                raise ConfigHistoryUnavailableError(
-                    "historical semantic content digest mismatch"
-                )
+                raise ConfigHistoryUnavailableError("historical semantic content digest mismatch")
             identity = (doc.config_type, doc.config_id, doc.version_id)
             if identity in seen:
                 raise ConfigHistoryUnavailableError("duplicate historical document identity")
             seen.add(identity)
-            items.append({
-                "config_type": doc.config_type,
-                "config_id": doc.config_id,
-                "version_id": doc.version_id,
-                "content_sha256": item.content_sha256,
-                "yaml_sha256": doc.yaml_sha256,
-                "relative_path": item.relative_path,
-            })
+            items.append(
+                {
+                    "config_type": doc.config_type,
+                    "config_id": doc.config_id,
+                    "version_id": doc.version_id,
+                    "content_sha256": item.content_sha256,
+                    "yaml_sha256": doc.yaml_sha256,
+                    "relative_path": item.relative_path,
+                }
+            )
             documents.append(doc)
             if (
                 doc.config_type == "point_table"
@@ -416,14 +428,13 @@ class ConfigurationGrpcClient:
         kinds = {doc.config_type for doc in documents}
         if roots != 1 or not {"point_table", "business_points", "units"} <= kinds:
             raise ConfigHistoryUnavailableError("incomplete historical semantic closure")
-        items.sort(
-            key=lambda item: (
-                item["config_type"], item["config_id"], item["version_id"]
-            )
-        )
+        items.sort(key=lambda item: (item["config_type"], item["config_id"], item["version_id"]))
         encoded = json.dumps(
-            items, sort_keys=True, ensure_ascii=False,
-            separators=(",", ":"), allow_nan=False,
+            items,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
         ).encode("utf-8")
         digest = hashlib.sha256(encoded).hexdigest()
         if digest != response.manifest_sha256 or (
@@ -434,9 +445,7 @@ class ConfigurationGrpcClient:
             await asyncio.to_thread(self._archive.persist, doc)
         return tuple(documents)
 
-    async def fetch_service_bundle(
-        self, *, deployment_id: str, service_id: str
-    ) -> StorageBundle:
+    async def fetch_service_bundle(self, *, deployment_id: str, service_id: str) -> StorageBundle:
         """Consume only the effective Deployment-selected service closure."""
         response = await self._client().GetServiceConfigBundle(
             pb.GetServiceConfigBundleRequest(
@@ -452,8 +461,8 @@ class ConfigurationGrpcClient:
         objects: dict[_ConfigKey, RepositoryDocument] = {}
         closure: list[tuple[str, str, str, str]] = []
         for item in response.files:
-            for field in (item.relative_path, item.version_id, item.yaml_sha256):
-                data = field.encode("utf-8")
+            for manifest_part in (item.relative_path, item.version_id, item.yaml_sha256):
+                data = manifest_part.encode("utf-8")
                 manifest.update(len(data).to_bytes(4, "big"))
                 manifest.update(data)
             document = _document(item)
@@ -489,8 +498,9 @@ class ConfigurationGrpcClient:
             raise ConfigHistoryUnavailableError("invalid selected service closure") from exc
         if fingerprint != response.target_revision:
             raise ConfigHistoryUnavailableError("selected service closure digest mismatch")
-        services = [doc for key, doc in objects.items()
-                    if key[0] == "service" and key[1] == service_id]
+        services = [
+            doc for key, doc in objects.items() if key[0] == "service" and key[1] == service_id
+        ]
         if len(services) != 1:
             raise ConfigHistoryUnavailableError("selected Service identity is ambiguous")
         config = load_storage_config(services[0].yaml_bytes)
