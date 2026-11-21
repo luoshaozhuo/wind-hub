@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import logging
+import os
 import signal
 from pathlib import Path
 
-from industrial_gateway.assembly import assemble_gateway
 from core.configuration.local_selection import select_local_service
-from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.configuration_cache import stage_selected_bundle
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
+from industrial_gateway.assembly import assemble_gateway
 from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import (
     create_gateway_grpc_server,
 )
