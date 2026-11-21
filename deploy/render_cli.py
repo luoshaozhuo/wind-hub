@@ -24,7 +24,7 @@ SERVICE_NAMES = (
     "commander",
 )
 
-DEFAULT_DEPLOYMENT_PATH = "configs/deployments/deployment_prod-a_v1.1.0.yaml"
+DEFAULT_DEPLOYMENT_PATH = "configs/deployments/deployment_prod-a_v1.2.0.yaml"
 
 DEFAULT_FILES = {
     "gateway": "service_gateway_v1.2.0.yaml",

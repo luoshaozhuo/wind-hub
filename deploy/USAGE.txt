@@ -5,7 +5,7 @@ Scope
 -----
 This directory provides one Python 3.11 OCI image, an isolated-Linux
 Docker Compose convenience stack, a deployment manifest generator,
-a two-Collector config generator, and native container provisioning.
+versioned Collector Service configurations, and native container provisioning.
 
 The real E2E qualification remains CLI-started native Linux business
 processes and independently provisioned NATS/JetStream, Redis, Kafka and
@@ -19,7 +19,7 @@ deploy this Compose file on a shared or untrusted host. Do not expose
 plaintext control listeners on an external interface.
 
 Never commit the populated deploy/.env, TLS keys, or Collector tokens.
-All scripts refuse to overwrite existing deployment CLI/Collector YAML.
+Deployment configuration is immutable; scripts refuse to overwrite generated CLI YAML.
 All business processes need the correct mTLS identity, least privilege
 permissions, source trees, and writable owned state directories.
 
@@ -30,22 +30,23 @@ and install credentials in /srv/wind-hub/certs. The root must be readable
 and writable by the selected unprivileged UID/GID.
 
 The repository ships example configurations, NOT production credentials.
+Publish the complete versioned root with its Deployment and use the same
+selected versions for all business services; these scripts alone do not
+make legacy runtime config loaders compatible with the new schema.
 Adjust gateway, Commander and Data Generator control endpoints, dynamic
 device ports, Sink Delivery sources, and broker addresses for the host.
 Verify certificate CN/SAN and module permission mappings independently.
 
-Step 2: Generate two Collector service files
---------------------------------------------
-  python deploy/prepare_collectors.py --root /srv/wind-hub
-
-This creates configs/services/collector-realtime.yaml and
-collector-reliable.yaml from the shipped collector.yaml, and changes
-only the delivery mode. Correct source devices, stream subjects, broker
-URLs and startup options before starting.
+Step 2: Validate the Deployment selected versions
+-------------------------------------------------
+Use configs/deployments/deployment_prod-a_v1.2.0.yaml and the shipped
+versioned Service/Instance/Template files. Realtime and Reliable Collector
+Services are separate immutable configurations; do not generate unversioned
+Collector files or infer the latest version.
 
 Step 3A: Native Linux CLI deployment
 ------------------------------------
-Set the Sink service's config_root to /srv/wind-hub. Install wind-hub
+Set the Sink service's config_root to /srv/wind-hub for host execution. Install wind-hub
 into the host's Python environment. Create a private 0600 collector.env
 containing exactly these four assignments, with absolute host paths:
   WIND_HUB_COLLECTOR_TLS_CERT=/srv/wind-hub/certs/collector.pem
@@ -56,14 +57,14 @@ Then:
 
   python deploy/render_cli.py \
     --root /srv/wind-hub --mode process \
-    --output /srv/wind-hub/configs/services/cli.yaml \
+    --output /srv/wind-hub/cli-runtime.yaml \
     --python /ABSOLUTE/PATH/TO/python \
     --ca /srv/wind-hub/certs/ca.pem \
     --client-cert /srv/wind-hub/certs/cli.pem \
     --client-key /srv/wind-hub/certs/cli.key \
     --collector-env-file /ABSOLUTE/PATH/collector.env
 
-  wind-hub --config /srv/wind-hub/configs/services/cli.yaml \
+  wind-hub --config /srv/wind-hub/cli-runtime.yaml \
     service start gateway --yes
 
 The generated YAML contains TLS paths but never the admin token. Export the
@@ -74,7 +75,7 @@ serializing the token into configuration.
 Use the same CLI for all six module processes, then check readiness:
 
   python deploy/check_ready.py \
-    --config /srv/wind-hub/configs/services/cli.yaml --timeout 90
+    --config /srv/wind-hub/cli-runtime.yaml --timeout 90
 
 Step 3B: Docker Compose convenience stack
 -----------------------------------------
@@ -92,14 +93,14 @@ host-network-reachable service addresses.
 For a container-resident RPC-only CLI config, generate with:
   python deploy/render_cli.py \
     --root /srv/wind-hub --mode rpc --runtime-prefix /etc/wind-hub \
-    --output /srv/wind-hub/configs/services/cli-container.yaml \
+    --output /srv/wind-hub/cli-container-runtime.yaml \
     --ca /srv/wind-hub/certs/ca.pem \
     --client-cert /srv/wind-hub/certs/cli.pem \
     --client-key /srv/wind-hub/certs/cli.key
 
   docker compose --env-file deploy/.env -f deploy/compose.yaml \
     run --rm --no-deps cli --config \
-    /etc/wind-hub/configs/services/cli-container.yaml service status
+    /etc/wind-hub/cli-container-runtime.yaml service status
 
 The in-container CLI config is RPC-only. It MUST NOT use process mode,
 which would otherwise spawn unrelated processes inside the transient
@@ -160,7 +161,7 @@ Use CLI service start to start each pre-created target.
 Create the HOST CLI manager map:
   python deploy/render_cli.py --root /srv/wind-hub \
     --mode containerd \
-    --output /srv/wind-hub/configs/services/cli-containerd.yaml \
+    --output /srv/wind-hub/cli-containerd-runtime.yaml \
     --ca /srv/wind-hub/certs/ca.pem \
     --client-cert /srv/wind-hub/certs/cli.pem \
     --client-key /srv/wind-hub/certs/cli.key
