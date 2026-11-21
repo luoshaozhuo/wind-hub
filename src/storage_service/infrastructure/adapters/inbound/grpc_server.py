@@ -107,16 +107,25 @@ class AuthorizationError(PermissionError):
 
 
 class AuthorizationPolicy:
-    """Every client must authenticate; no insecure anonymous/mTLS fallback."""
+    """Explicitly scoped tokens, with opt-in sanitized public health endpoints."""
 
     def __init__(self, config: StorageConfig) -> None:
         self._callers = config.auth.callers
         self._farms = frozenset(config.allowed_wind_farms)
+        self._allow_unauthenticated_status = config.grpc.allow_unauthenticated_status
         supplied = [os.environ.get(caller.token_env) for caller in self._callers]
         if any(not token or len(token) < 32 for token in supplied):
             raise ValueError("all Storage caller tokens require 32+ bytes")
         if len(set(supplied)) != len(supplied):
             raise ValueError("Storage caller tokens must be distinct")
+
+    def allow_public_status(self, context: grpc.aio.ServicerContext[Any, Any]) -> bool:
+        """Only an explicitly enabled, credential-free status request is public."""
+        if not self._allow_unauthenticated_status:
+            return False
+        headers = dict(context.invocation_metadata() or ())
+        # A supplied but invalid credential is never treated as anonymous.
+        return "authorization" not in headers
 
     def require(
         self,
@@ -264,7 +273,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.Empty,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetServiceInfoResponse:
-        self._auth.require(context, permission="storage.inspect", farm=None)
+        is_public = self._auth.allow_public_status(context)
+        if not is_public:
+            self._auth.require(context, permission="storage.inspect", farm=None)
         response = common.GetServiceInfoResponse(
             service_id=self._config.service_id,
             process_role="storage",
@@ -280,7 +291,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.Empty,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetServiceStatusResponse:
-        self._auth.require(context, permission="storage.inspect", farm=None)
+        is_public = self._auth.allow_public_status(context)
+        if not is_public:
+            self._auth.require(context, permission="storage.inspect", farm=None)
         status = self._config_status()
         response = common.GetServiceStatusResponse(
             health="HEALTHY" if status == "READY" else "DEGRADED",
@@ -288,7 +301,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 common.DependencyHealth(
                     name="configuration",
                     health="HEALTHY" if status == "READY" else "UNHEALTHY",
-                    detail=status,
+                    detail="" if is_public else status,
                 )
             ],
         )
@@ -301,7 +314,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.Empty,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetCapabilitiesResponse:
-        self._auth.require(context, permission="storage.inspect", farm=None)
+        is_public = self._auth.allow_public_status(context)
+        if not is_public:
+            self._auth.require(context, permission="storage.inspect", farm=None)
         return common.GetCapabilitiesResponse(
             rpc_names=[
                 "GetServiceInfo",
