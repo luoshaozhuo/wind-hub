@@ -122,13 +122,20 @@ def document_input(
     file_version: str,
     **fields: Any,
 ) -> DocumentInput:
-    relative_path = publication_path(config_type, config_id, file_version)
+    # Sink/Delivery share one repository identity type for their Instance
+    # and Template documents. The template_id field disambiguates the YAML
+    # path; the stored config_type remains the actual repository type.
+    template_family = config_type in {"sink", "delivery"} and "template_id" in fields
+    if template_family:
+        relative_path = publication_path(f"{config_type}_template", config_id, file_version)
+    else:
+        relative_path = publication_path(config_type, config_id, file_version)
     payload = {
         "schema_version": 1,
         "file_version": file_version,
         **fields,
     }
-    if config_type in _TEMPLATE_PATHS:
+    if config_type in _TEMPLATE_PATHS or template_family:
         payload.setdefault("template_id", config_id)
     if config_type == "service":
         payload.setdefault("service_id", config_id)
