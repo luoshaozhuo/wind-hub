@@ -24,7 +24,7 @@ SERVICE_NAMES = (
 )
 
 DEFAULT_FILES = {
-    "configuration": "service_configuration_v1.0.0.yaml",
+    "configuration": "service_configuration_v1.1.0.yaml",
     "storage": "storage_bootstrap_v1.0.0.yaml",
     "gateway": "industrial_gateway-sim.example.yaml",
     "data-generator": "data-generator-sim.example.yaml",
@@ -75,7 +75,8 @@ def _service_files(root: Path, names: dict[str, str]) -> dict[str, Path]:
         filename = names[name]
         if "/" in filename or filename in {".", ".."}:
             raise ValueError(f"{name}: expected a filename in configs/services")
-        path = _relative(root, f"configs/services/{filename}")
+        root_path = "deploy/configuration" if name == "configuration" else "configs/services"
+        path = _relative(root, f"{root_path}/{filename}")
         _document(path)
         result[name] = path
     return result
