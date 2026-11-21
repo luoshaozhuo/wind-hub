@@ -26,6 +26,7 @@ from core.configuration.versioned_templates import (
     VersionedTemplateRepository,
 )
 from core.domain import DeviceId
+from collector.application.ports.task_intents import TaskIntentPort
 from core.infrastructure.config import read_yaml
 
 
@@ -304,7 +305,12 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         raise ConfigError("some Device groups lack Collector Tasks")
 
 
-def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRuntime:
+def parse_collector_runtime(
+    paths: SnapshotPaths,
+    revision: str,
+    *,
+    task_intents: TaskIntentPort | None = None,
+) -> ConfiguredRuntime:
     """Resolve Collector configuration and concrete per-device acquisition plans."""
     validate_collector_snapshot(paths)
     documents = SharedDocumentLoader(
@@ -320,8 +326,13 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
     runtime = raw_service.get("runtime", {})
     watchdog = raw_service.get("watchdog", {})
     raw_instances = read_yaml(paths.devices)["devices"]
-    raw_tasks = read_yaml(paths.tasks)["tasks"]
+    task_document = read_yaml(paths.tasks)
+    raw_tasks = task_document["tasks"]
     tasks_by_group = {item["group"]: item for item in raw_tasks.values()}
+    intents = (
+        task_intents.read_intents(task_document["file_version"])
+        if task_intents is not None else {}
+    )
     devices: list[DevicePlan] = []
     for device_id, definition in documents.devices.items():
         if not definition.enabled:
@@ -329,7 +340,7 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
         config = raw_instances[device_id]
         overrides = config.get("overrides", {})
         task = tasks_by_group[config["group"]]
-        intent = task["desired_state"]
+        intent = intents.get(device_id, task["desired_state"])
         device = snapshot.site.devices[DeviceId(device_id)]
         device_model = snapshot.device_models[device.device_model_id]
         protocol_name = definition.templates.protocol.document["protocol"]
