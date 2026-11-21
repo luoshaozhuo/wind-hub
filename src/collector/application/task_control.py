@@ -50,6 +50,9 @@ class CollectorTaskControl:
                 task_version,
                 desired_state,
             )
+            current_revision, _ = await asyncio.to_thread(self._configuration.get_disk)
+            if current_revision != revision:
+                raise SnapshotConflictError("Task configuration changed while accepting intent")
             errors = await self._lifecycle.converge(paths, revision)
             current = self._configuration.status()
             return ConfigurationStatus(

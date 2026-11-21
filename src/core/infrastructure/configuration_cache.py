@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -78,10 +79,14 @@ def stage_selected_bundle(
     }
     destination = cache_root / bundle.target_revision
     expected_path = destination / "configs" / service_path
+    if destination.is_symlink():
+        raise ValueError("cached Service generation cannot be a symlink")
     if expected_path.is_file() and not expected_path.is_symlink():
         if expected_path.read_bytes() != bundle.files[service_path]:
             raise ValueError("cached Service identity has changed")
         return expected_path
+    if destination.exists():
+        raise ValueError("incomplete configuration cache generation already exists")
     stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=cache_root))
     try:
         configs = stage / "configs"
@@ -105,6 +110,4 @@ def stage_selected_bundle(
         return expected_path
     finally:
         if stage.exists():
-            import shutil
-
             shutil.rmtree(stage)

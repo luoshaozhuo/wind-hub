@@ -76,6 +76,8 @@ def select_local_service(
     if service_path.parent.name != "services":
         raise ValueError("Service must reside in configs/services")
     root = service_path.parent.parent
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("configuration root must be an ordinary directory")
     service_path = _safe_file(root, Path("services") / service_path.name)
     raw = read_yaml(service_path)
     if not isinstance(raw, dict):

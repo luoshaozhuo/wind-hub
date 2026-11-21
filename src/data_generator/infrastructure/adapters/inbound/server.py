@@ -18,7 +18,6 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
 from core.domain import DeviceId
 from core.infrastructure.configuration_repository import DeploymentObserver
-from data_generator.application.configuration import ConfigFile as FileContent
 from data_generator.application.configuration import ConfigurationCoordinator
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.application.runtime import GenerationState, Runtime
