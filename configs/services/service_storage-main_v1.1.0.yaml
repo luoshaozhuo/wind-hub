@@ -1,4 +1,4 @@
-# Storage Service v2: Deployment selects the exact Service and Instance versions.
+# Storage Service v2: Deployment-selected instances; operational parameters under service.
 # schema_version: required int 2; file_version: required semantic triple MAJOR.MINOR.PATCH.
 # service_id: required nonempty string <= 256 bytes.
 # allowed_wind_farms: required nonempty unique list of authorized farm IDs;
@@ -42,70 +42,71 @@
 schema_version: 2
 file_version: 1.1.0
 service_id: storage-main
-allowed_wind_farms: [farm-a]
 config_sources:
   instances:
     site: example_site
     devices: farm-a
-grpc:
-  listen_host: 127.0.0.1
-  listen_port: 51110
-  max_active_rpcs: 64
-  allow_unauthenticated_status: false
-auth:
-  callers:
-    - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
-      permissions:
-        [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
-      wind_farms: [farm-a]
-kafka:
-  bootstrap_servers: 127.0.0.1:9092
-  topic: windhub-history
-  group_id: storage-main
-  max_poll_records: 500
-  max_partition_workers: 4
-  max_buffer_records: 20000
-  max_buffer_bytes: 67108864
-  commit_interval_ms: 1000
-tdengine:
-  endpoint: 127.0.0.1:6041
-  credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
-  database:
-    precision: us
-    duration: 10d
-    keep: 365d
-    cachemodel: none
-    cachesize: 1
-  max_connections: 8
-  max_inflight_sql: 4
-  max_concurrent_ddl: 2
-  batch_max_records: 1000
-  batch_max_bytes: 1048576
-  batch_wait_ms: 20
-  write_timeout_ms: 10000
-configuration:
-  reconcile_interval_s: 60
-  cache_max_bytes: 268435456
-query:
-  max_page_size: 1000
-  max_range_days: 31
-  max_concurrent: 4
-  timeout_ms: 30000
-export:
-  root: /var/lib/wind-hub/storage/exports
-  max_jobs: 2
-  max_bytes: 1073741824
-backup:
-  enabled: false
-  root: /var/lib/wind-hub/storage/backups
-  max_jobs: 1
-  max_bytes: 53687091200
-  timeout_s: 600
-retry:
-  initial_ms: 500
-  max_ms: 30000
-  max_attempts: 0
-reconciliation:
-  auto_alter: false
-  allow_retention_shrink: false
-  owner_instance_id: storage-main
+service:
+  allowed_wind_farms: [farm-a]
+  grpc:
+    listen_host: 127.0.0.1
+    listen_port: 51110
+    max_active_rpcs: 64
+    allow_unauthenticated_status: false
+  auth:
+    callers:
+      - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
+        permissions:
+          [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
+        wind_farms: [farm-a]
+  kafka:
+    bootstrap_servers: 127.0.0.1:9092
+    topic: windhub-history
+    group_id: storage-main
+    max_poll_records: 500
+    max_partition_workers: 4
+    max_buffer_records: 20000
+    max_buffer_bytes: 67108864
+    commit_interval_ms: 1000
+  tdengine:
+    endpoint: 127.0.0.1:6041
+    credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
+    database:
+      precision: us
+      duration: 10d
+      keep: 365d
+      cachemodel: none
+      cachesize: 1
+    max_connections: 8
+    max_inflight_sql: 4
+    max_concurrent_ddl: 2
+    batch_max_records: 1000
+    batch_max_bytes: 1048576
+    batch_wait_ms: 20
+    write_timeout_ms: 10000
+  configuration:
+    reconcile_interval_s: 60
+    cache_max_bytes: 268435456
+  query:
+    max_page_size: 1000
+    max_range_days: 31
+    max_concurrent: 4
+    timeout_ms: 30000
+  export:
+    root: /var/lib/wind-hub/storage/exports
+    max_jobs: 2
+    max_bytes: 1073741824
+  backup:
+    enabled: false
+    root: /var/lib/wind-hub/storage/backups
+    max_jobs: 1
+    max_bytes: 53687091200
+    timeout_s: 600
+  retry:
+    initial_ms: 500
+    max_ms: 30000
+    max_attempts: 0
+  reconciliation:
+    auto_alter: false
+    allow_retention_shrink: false
+    owner_instance_id: storage-main
