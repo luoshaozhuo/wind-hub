@@ -313,10 +313,41 @@ def snapshot_files(docs: dict[str, dict[str, Any]]) -> tuple[SnapshotFile, ...]:
 
 
 def write_tree(root: Path, docs: dict[str, dict[str, Any]]) -> None:
+    """Materialize selected files and a separate Deployment bootstrap manifest."""
     for path, doc in docs.items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False).encode())
+    service = docs[SERVICE_FILE]
+    sources = service["config_sources"]["instances"]
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": service["deployment_id"],
+        "services": {
+            service["service_id"]: {
+                "config_id": service["service_id"],
+                "file_version": service["file_version"],
+            }
+        },
+        "instances": {
+            "sink": {sources["sinks"]: {"file_version": docs[SINKS_INSTANCE]["file_version"]}},
+            "delivery": {
+                sources["deliveries"]: {
+                    "file_version": docs[DELIVERIES_INSTANCE]["file_version"]
+                }
+            },
+        },
+    }
+    manifest = (
+        root / "configs" / "deployments"
+        / f"deployment_{service['deployment_id']}_v1.0.0.yaml"
+    )
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        yaml.safe_dump(deployment, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
 
 
 def wire_files(
