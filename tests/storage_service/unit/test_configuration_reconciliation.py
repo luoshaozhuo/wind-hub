@@ -81,6 +81,14 @@ def _bundle(
     return StorageBundle(
         configuration=config or _config(),
         revision_id=revision,
+        deployment_id="prod-a",
+        target_revision=hashlib.sha256(
+            json.dumps(
+                [config.model_dump(mode="json") if config else _config().model_dump(mode="json"),
+                 sorted(tables.items())],
+                sort_keys=True, default=str,
+            ).encode()
+        ).hexdigest(),
         point_table_versions=tables,
         business_points_pin=None,
         device_bindings=_bindings(tables),
@@ -185,7 +193,13 @@ class _Client:
         self.release: asyncio.Event | None = None
         self.failure: Exception | None = None
 
-    async def fetch_service_bundle(self, *, service_id: str) -> StorageBundle:
+    async def get_current_revision(self) -> int:
+        return self.bundles[0].revision_id
+
+    async def fetch_service_bundle(
+        self, *, deployment_id: str, service_id: str
+    ) -> StorageBundle:
+        assert deployment_id == "prod-a"
         assert service_id == "storage-main"
         self.calls += 1
         self.active += 1
@@ -214,6 +228,7 @@ def _watcher(
         resolver=resolver,
         bundle=active,
         service_id="storage-main",
+        deployment_id="prod-a",
         servers=["nats://127.0.0.1:4222"],
         metadata=cast(Any, metadata),
         snapshot=cast(Any, snapshot),
@@ -611,6 +626,8 @@ async def test_rejected_device_model_rebinding_is_not_persisted(
     updated = StorageBundle(
         configuration=active.configuration,
         revision_id=2,
+        deployment_id="prod-a",
+        target_revision="b" * 64,
         point_table_versions=pins,
         business_points_pin=None,
         device_bindings=(conflicting,),
