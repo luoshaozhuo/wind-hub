@@ -931,3 +931,49 @@ Commander 的指令幂等、独立隔离证明、fencing、SQLite 持久结果�
 **接口与配置迁移**：所有模块启动配置删除仅供内部 gRPC 证书认证的 `tls`、`ca_cert`、`client_cert`、`client_key`、`tls_profile` 等字段；明确新 Schema、调用端配置与启动方式，不保留隐式安全降级或兼容路径。外部第三方网络连接如有独立协议安全需求，不受内部 gRPC 简化设计取代。
 
 **代码状态**：当前 main 的部分模块仍包含证书加载、证书身份解析和相关集成测试；本附录是**目标设计而非已实现行为**，需在生产代码集中整改后才能验收通过。相关旧测试应按正式新契约更新，严禁简单跳过权限、租约、隔离证明与控制安全测试。
+
+
+## 5.7 Deployment 选择清单与编码契约（2026-11-21 冻结）
+
+### 5.7.1 三层引用与字段结构
+Deployment 属于 Configuration Repository 的受管对象，不构成第四类业务配置；其作用是选择 Service 和 Instance 的不可变版本。一个服务只依赖 Instances，Instance 可通过固定版本依赖 Templates。模板内部必要的模板引用亦必须固定 ID/版本并校验无环。
+
+```yaml
+# configs/deployments/deployment_farm_a_v1.0.0.yaml（目标 Schema）
+schema_version: 1
+file_version: "1.0.0"
+deployment_id: farm-a
+services:
+  collector-realtime:
+    config_id: collector-realtime
+    file_version: "1.1.0"
+  sink-west:
+    config_id: sink-west
+    file_version: "1.0.0"
+instances:
+  devices:
+    farm-a:
+      file_version: "1.2.0"
+  collector_tasks:
+    farm-a:
+      file_version: "1.1.0"
+  site:
+    farm-a:
+      file_version: "1.0.0"
+```
+
+Deployment 中 `services` 的映射键是 service_id，值的 config_id 必须相同；`instances` 一级键是 config_type，二级键是 config_id，三级选择 file_version，禁止同一类型/ID 存在多个目标版本。Service 使用 `config_sources.instances.<role>: <config_id>`；角色对应的 config_type 在各模块 Schema 中固定声明，不能仅按相同字符串猜测类型。实例没有被目标 Service 引用时，其版本升级不得触发该 Service 的运行配置变化。
+
+### 5.7.2 发布与切换
+CLI 仅调用完整目录 `CreateCandidate` / `PublishCandidate`；Deployment 清单与其引用的当前目录文件一并做静态校验、不可变版本与 CAS 校验，成功后原子替换部署目标，不新增第二次 Activate 调用。可发布未引用新版本供后续选择；仍被 Deployment 引用的版本不得被全量目录删除导致闭包不完整。多 Deployment 允许并存，选择时以最小引导提供的 deployment_id/service_id 定位。
+广播 `wh.config.changed` 只作为事件游标，服务查询目标闭包、比对本地摘要后自行应用；无关变更立即退出，不重复重建采集/派发进程。配置读取、哈希验证、持久缓存及业务应用成功才可更新活动摘要；无法热更新则等待重启。需要重启的静态字段不得在运行进程偷偷变更。
+
+### 5.7.3 活动版本与安全失败
+`target_revision` / `active_revision` 统一定义为本服务的有效闭包 SHA-256（64 位小写十六进制），由按 UTF-8 顺序排序的 `config_type/config_id/file_version/content_sha256` 四元组以长度前缀方式串联计算；`deployment_id/service_id` 作为身份绑定数据参加摘要。仓库全局整数 `revision_id` 只做事件游标。服务完成整体目标应用才更新 active_revision；部分应用不等于全量活动版本一致，使用现有诊断信息说明原因。无法获得完整目标依赖时保留上次可信活动配置并报错；没有合法缓存不得 READY。控制安全变更不允许交叉使用新旧字段；跨模块不保证同时切换，控制接口须在不兼容期间 fail-closed。
+
+### 5.7.4 Collector Group / Task 示例
+Device Instance 增加 `group`，单台设备一个采集组；Collector 专属 `collector_tasks` Instance 定义 Task 的 `group`、`interval_ms`、`desired_state`。Device Model 不包含 Task、Task Template 或采集分组。Collector Service 只引用 site、devices、tasks 等 Instance 身份。相同设备不得同时受两个任务采集，修改组的切换需先完成旧计划停止和释放，再启动新计划。CLI 人工启停的原有运行控制持久化规则须与不可变任务定义的期望状态建立明确优先级并纳入集成测试；不得修改已发布 YAML 版本。
+
+### 5.7.5 编码准入及变更边界
+协议文件统一归 `src/contracts`，Configuration 实现服务端；Core 负责固定版本闭包解析；CLI 负责全量发布及查询，服务模块只负责运行应用。删除旧的 Service 模板根目录、Task Template、基于文件路径选择 Instance 的解释器/测试/样例，不保留兼容分支。Configuration 引导不参加自身 Deployment 选择。应用配置、变量映射、协议点表、Reliable ACK、Commander fencing 等原有安全约束必须保持。
+

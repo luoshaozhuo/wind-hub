@@ -645,3 +645,21 @@ reason: "template only; not executed"
 ## 附录 B：内部 gRPC 适配范围
 
 遵从《wind-hub 总体逻辑架构设计》§5.3.2 的统一内部通信规则：内部 gRPC 不启用 TLS/客户端证书；在受控隔离网络中通信，敏感查询及变更/控制操作使用经服务端验证的受控令牌。现行生产代码仍存在证书相关配置及测试，需同步迁移。模块特有的租约、可信恢复证明、幂等、鉴权及审计约束不得因传输层简化而取消。
+
+
+## 15. 配置契约调整集中开发与验收计划（2026-11-21）
+
+**范围**：仅本轮 Deployment 版本选择、Service→Instance→Template 引用整改、Collector group/task 调度、配置状态与跨模块对账。不得顺带重写采集、物理仿真、派发或控制算法；web 模块不在本轮生产代码范围。
+
+| 阶段 | 生产开发内容 | 交付和检查 |
+|---|---|---|
+| C1 基础契约 | Contracts Proto 定义部署目标闭包查询与统一状态字段；Configuration 完整目录发布中解析 Deployment，持久化与验证选择；Core 提供唯一解析与摘要 | 文档/Proto/实现一致，拒绝缺失身份、引用环、同版本内容冲突、CAS 并发与错误摘要 |
+| C2 配置数据 | 迁移 `configs/` 和 `deploy/` 下 Service 实例逻辑身份；新增 Deployment 文件及 `collector_tasks` Instance；Device Instance 增加 `group`，删除 Task 模板引用 | 所有目标配置能按新 schema 生成完整闭包；旧格式不能通过准入 |
+| C3 服务适配 | Collector/Gateway/Commander/Data Generator/Sink/Storage 接入统一目标解析、热更或重启等待、应用摘要；Sink Worker 与 Collector 设备级切换遵守安全边界 | 业务无意外行为变化，无法热更新不虚报活动版本 |
+| C4 CLI | CLI 保留单根目录全量发布；支持展示 Deployment 选择、各服务目标与活动修订、差异及错误；统一调用新 Contracts | 不增加逐模块配置通知或独立激活命令 |
+| C5 集中自审 | 全仓搜索删除旧字段与废弃代码；检查全部 RPC 调用方、Fixture、配置样例、脚本和文档 | 无旧 `config_sources.templates`、旧 Task Template 依赖、新旧 Schema 双轨；无多余版本文件 |
+| C6 Claude 独立验收 | 执行静态检查、单模块、组件、Integration、CLI 全命令及跨模块 E2E；反馈后 ChatGPT 负责生产修复再复测 | ruff/mypy/import-linter/pytest 门禁及配置语义矩阵，附真实命令、退出码和未执行项 |
+
+**最小验收矩阵**：未选新版不生效；修改 Device/Task Instance 不变 Service；group 迁移不重复采集；PointTable 固定版本及控制安全；Service 静态字段等待重启；断网/丢广播/重启对账；错误模板引用拒绝；多部署域隔离；共享 Instance 跨服务版本一致；配置回滚；Reliable 消息不丢且不重复确认。E2E 中间件/数据库由测试代码单独启动，其他模块均由 CLI 启动为进程，业务操作由 CLI 发出。
+
+**当前阶段限制**：本计划仅为设计与编码准入，不代表代码或测试已实施。进入编码时应先检查本分支 HEAD 与最新远端，保持分支不变；不建立 PR、不合并 main、不 rebase、不 force push。
