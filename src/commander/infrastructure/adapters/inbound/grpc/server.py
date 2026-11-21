@@ -400,7 +400,15 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
         await self._boundary.require(context, "query")
         health = self._boundary.service.health()
         return common_pb2.GetServiceStatusResponse(
-            health="HEALTHY" if health.ready else health.state.value,
+            health=(
+                "DEGRADED"
+                if (
+                    self._boundary.service.target_revision
+                    != self._boundary.service.active_revision
+                    and self._boundary.service.target_revision
+                )
+                else ("HEALTHY" if health.ready else health.state.value)
+            ),
             dependencies=[
                 common_pb2.DependencyHealth(name=name, health="HEALTHY" if healthy else "DEGRADED")
                 for name, healthy in (

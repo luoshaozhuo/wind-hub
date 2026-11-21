@@ -139,7 +139,13 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         )
         workers = getattr(self._registry, "worker_health", {})
         worker_unavailable = any(value != "RUNNING" for value in workers.values())
-        configuration_pending = self._config.disk.revision != self._config.runtime.revision
+        configuration_pending = (
+            self._config.disk.revision != self._config.runtime.revision
+            or (
+                bool(self._config.target_revision)
+                and self._config.target_revision != self._config.active_revision
+            )
+        )
         health = (
             "DEGRADED"
             if degraded or worker_unavailable or self._config.last_error or configuration_pending

@@ -146,6 +146,12 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
                 ),
             ],
         )
+        if (
+            state is Lifecycle.RUNNING
+            and self._observer is not None
+            and self._observer.target_revision != self._observer.active_revision
+        ):
+            response.health = "DEGRADED"
         response.target_revision = self._observer.target_revision if self._observer else ""
         response.active_revision = self._observer.active_revision if self._observer else ""
         response.observed_at.FromDatetime(datetime.now(UTC))
