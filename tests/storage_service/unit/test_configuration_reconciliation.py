@@ -185,8 +185,10 @@ class _Metadata:
         *,
         point_table_versions: dict[str, tuple[str, str]],
         business_points_pin: tuple[str, str] | None,
+        device_bindings: tuple[DeviceBinding, ...] = (),
     ) -> None:
         assert business_points_pin is None
+        assert isinstance(device_bindings, tuple)
         for table_id, pin in point_table_versions.items():
             previous = self.pins.setdefault(table_id, pin)
             if previous != pin:
