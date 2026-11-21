@@ -175,7 +175,6 @@ def test_scenario_version_change_requires_repository_publication(configs_root) -
     assert manager.get("RUNTIME") == manager.get("DISK")
 
 
-
 def test_service_file_change_requires_restart(configs_root) -> None:  # noqa: ANN001
     service_path = configs_root(
         scenarios=ship_scenarios_document(

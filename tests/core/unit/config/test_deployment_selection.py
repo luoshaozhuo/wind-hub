@@ -47,12 +47,8 @@ def published_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 "schema_version": 1,
                 "file_version": version,
                 "deployment_id": "test",
-                "services": {
-                    "gateway": {"config_id": "gateway", "file_version": "1.0.0"}
-                },
-                "instances": {
-                    "device": {"sample": {"file_version": version}}
-                },
+                "services": {"gateway": {"config_id": "gateway", "file_version": "1.0.0"}},
+                "instances": {"device": {"sample": {"file_version": version}}},
             },
         )
     return service

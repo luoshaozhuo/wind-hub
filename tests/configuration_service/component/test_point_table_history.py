@@ -51,7 +51,9 @@ def _standards() -> tuple[DocumentInput, ...]:
         DocumentInput(
             identity=ConfigIdentity("business_points", "standard"),
             file_name="business_points_standard_v1.4.0.yaml",
-            yaml_bytes=(ROOT / "configs/templates/business_points_standard_v1.4.0.yaml").read_bytes(),
+            yaml_bytes=(
+                ROOT / "configs/templates/business_points_standard_v1.4.0.yaml"
+            ).read_bytes(),
             relative_path="templates/business_points_standard_v1.4.0.yaml",
         ),
     )

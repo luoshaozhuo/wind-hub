@@ -50,7 +50,12 @@ def test_candidate_idempotency_and_request_payload_conflict(
         validate_only=False,
     )
     assert replay == first
-    changed = document_input("collector_tasks", "alpha", "1.0.0", tasks={"sample": {"group": "changed", "desired_state": "STOP"}})
+    changed = document_input(
+        "collector_tasks",
+        "alpha",
+        "1.0.0",
+        tasks={"sample": {"group": "changed", "desired_state": "STOP"}},
+    )
     with pytest.raises(IdempotencyConflictError):
         app.create_candidate(
             actor_id="publisher",
@@ -231,8 +236,18 @@ def test_full_revision_snapshot_and_recommendation_keep_history_immutable(
     app: ConfigurationApplication,
 ) -> None:
     identity = document_input("collector_tasks", "alpha", "1.0.0").identity
-    alpha_v1 = document_input("collector_tasks", "alpha", "1.0.0", tasks={"sample": {"group": "v1", "desired_state": "STOP"}})
-    alpha_v2 = document_input("collector_tasks", "alpha", "2.0.0", tasks={"sample": {"group": "v2", "desired_state": "STOP"}})
+    alpha_v1 = document_input(
+        "collector_tasks",
+        "alpha",
+        "1.0.0",
+        tasks={"sample": {"group": "v1", "desired_state": "STOP"}},
+    )
+    alpha_v2 = document_input(
+        "collector_tasks",
+        "alpha",
+        "2.0.0",
+        tasks={"sample": {"group": "v2", "desired_state": "STOP"}},
+    )
     beta = document_input("collector_tasks", "beta", "1.0.0")
     revision1, (version1,) = publish_documents(app, (alpha_v1,), request_id="v1")
     # Both immutable alpha versions coexist in the complete root; the highest
@@ -332,8 +347,12 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
 ) -> None:
     a_doc = document_input("collector_tasks", "a", "1.0.0")
     rev1, (a_version,) = publish_documents(app, (a_doc,), request_id="a")
-    b_doc = document_input("collector_tasks", "b", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")])
-    c_doc = document_input("collector_tasks", "c", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")])
+    b_doc = document_input(
+        "collector_tasks", "b", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")]
+    )
+    c_doc = document_input(
+        "collector_tasks", "c", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")]
+    )
     # Every publication is a complete root snapshot, so the unchanged closure
     # is restated; immutable versions resolve back to their existing ids.
     rev2, ids = publish_documents(
@@ -346,7 +365,10 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
         "collector_tasks",
         "d",
         "1.0.0",
-        config_sources=[reference("collector_tasks", "b", "1.0.0"), reference("collector_tasks", "c", "1.0.0")],
+        config_sources=[
+            reference("collector_tasks", "b", "1.0.0"),
+            reference("collector_tasks", "c", "1.0.0"),
+        ],
     )
     rev3, rev3_ids = publish_documents(
         app,
@@ -375,8 +397,18 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
 
 def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) -> None:
     documents = (
-        document_input("collector_tasks", "a", "1.0.0", config_sources=[reference("collector_tasks", "b", "1.0.0")]),
-        document_input("collector_tasks", "b", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")]),
+        document_input(
+            "collector_tasks",
+            "a",
+            "1.0.0",
+            config_sources=[reference("collector_tasks", "b", "1.0.0")],
+        ),
+        document_input(
+            "collector_tasks",
+            "b",
+            "1.0.0",
+            config_sources=[reference("collector_tasks", "a", "1.0.0")],
+        ),
     )
     # Cycles are rejected while staging the full directory, before a candidate
     # id is issued or any SQLite write becomes visible.

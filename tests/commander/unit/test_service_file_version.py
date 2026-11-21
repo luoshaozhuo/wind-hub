@@ -35,21 +35,16 @@ def _write(tmp_path: Path, document: dict) -> Path:
     copytree(source / "instances", root / "instances")
     copytree(source / "templates", root / "templates")
     version = document.get("file_version")
-    valid_version = (
-        isinstance(version, str)
-        and bool(re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version))
+    valid_version = isinstance(version, str) and bool(
+        re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version)
     )
     selected_version = version if valid_version else "1.4.0"
     deployment = {
         "schema_version": 1,
         "file_version": "1.0.0",
         "deployment_id": "unit-test",
-        "services": {
-            "commander": {"config_id": "commander", "file_version": selected_version}
-        },
-        "instances": {
-            "device": {"farm-a": {"file_version": "1.4.0"}}
-        },
+        "services": {"commander": {"config_id": "commander", "file_version": selected_version}},
+        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
     }
     deployment_path = root / "deployments" / "deployment_unit-test_v1.0.0.yaml"
     deployment_path.parent.mkdir(parents=True)

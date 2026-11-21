@@ -58,8 +58,14 @@ async def test_old_generation_remains_readable_after_switch(tmp_path: Path) -> N
     current = await repository.commit(
         second.candidate_id, expected_revision=old.revision, validate=_validate
     )
-    assert old.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes() == b"schema_version: 1\n"
-    assert current.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes() == b"schema_version: 2\n"
+    assert (
+        old.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes()
+        == b"schema_version: 1\n"
+    )
+    assert (
+        current.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes()
+        == b"schema_version: 2\n"
+    )
 
 
 @pytest.mark.asyncio

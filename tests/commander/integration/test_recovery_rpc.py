@@ -169,7 +169,12 @@ def test_shipped_roles_reserve_recover_for_maintenance() -> None:
     """出厂仅 maintenance 可恢复；普通 EMS 控制身份不得隐式获得该权限。"""
     import yaml
 
-    shipped = Path(__file__).resolve().parents[3] / "configs" / "services" / "service_commander_v1.4.0.yaml"
+    shipped = (
+        Path(__file__).resolve().parents[3]
+        / "configs"
+        / "services"
+        / "service_commander_v1.4.0.yaml"
+    )
     document = yaml.safe_load(shipped.read_text(encoding="utf-8"))
     callers: list[dict[str, object]] = document["security"]["callers"]
     grants: dict[object, set[object]] = {

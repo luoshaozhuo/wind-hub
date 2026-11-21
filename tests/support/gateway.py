@@ -559,9 +559,7 @@ def write_config_tree(
             "schema_version": 1,
             "file_version": "1.0.0",
             "deployment_id": "gateway-test",
-            "services": {
-                "gateway": {"config_id": "gateway", "file_version": "1.0.0"}
-            },
+            "services": {"gateway": {"config_id": "gateway", "file_version": "1.0.0"}},
             "instances": {
                 "device": {"gateway-test": {"file_version": "1.0.0"}},
                 "site": {"gateway-test": {"file_version": "1.0.0"}},

@@ -47,9 +47,7 @@ def test_worker_recovery_rejects_unknown_generation(tmp_path: Path) -> None:
         "/configs/services/service_sink-west_v1.0.0.yaml",
     ],
 )
-def test_worker_recovery_rejects_unsafe_or_unversioned_paths(
-    tmp_path: Path, path: str
-) -> None:
+def test_worker_recovery_rejects_unsafe_or_unversioned_paths(tmp_path: Path, path: str) -> None:
     store, revision = _committed(tmp_path)
     with pytest.raises(ConfigurationError):
         store.load_generation(revision, path)

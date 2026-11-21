@@ -109,7 +109,10 @@ async def test_restart_required_does_not_claim_runtime_activation(tmp_path: Path
         _files()["services/service_collector-realtime_v1.0.0.yaml"],
     ]
     assert runtime.calls[-1] == second.runtime_revision
-    assert manager.get_runtime()["services/service_collector-realtime_v1.0.0.yaml"] == _files()["services/service_collector-realtime_v1.0.0.yaml"]
+    assert (
+        manager.get_runtime()["services/service_collector-realtime_v1.0.0.yaml"]
+        == _files()["services/service_collector-realtime_v1.0.0.yaml"]
+    )
     assert not second.converged
 
 
@@ -196,9 +199,9 @@ async def test_service_source_change_waits_for_restart(tmp_path: Path) -> None:
     assert len(runtime.calls) == 1
 
     altered = dict(original)
-    altered["services/service_collector-realtime_v1.0.0.yaml"] = original["services/service_collector-realtime_v1.0.0.yaml"].replace(
-        b"site: example_site", b"site: another_site"
-    )
+    altered["services/service_collector-realtime_v1.0.0.yaml"] = original[
+        "services/service_collector-realtime_v1.0.0.yaml"
+    ].replace(b"site: example_site", b"site: another_site")
     altered["instances/site_example_site_v1.0.0.yaml"] = b"site_id: new_site\n"
     candidate, _ = manager.push(altered, expected_revision=first.disk_revision)
     result = await manager.apply(candidate, expected_revision=first.disk_revision)

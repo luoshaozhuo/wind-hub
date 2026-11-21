@@ -333,15 +333,12 @@ def write_tree(root: Path, docs: dict[str, dict[str, Any]]) -> None:
         "instances": {
             "sink": {sources["sinks"]: {"file_version": docs[SINKS_INSTANCE]["file_version"]}},
             "delivery": {
-                sources["deliveries"]: {
-                    "file_version": docs[DELIVERIES_INSTANCE]["file_version"]
-                }
+                sources["deliveries"]: {"file_version": docs[DELIVERIES_INSTANCE]["file_version"]}
             },
         },
     }
     manifest = (
-        root / "configs" / "deployments"
-        / f"deployment_{service['deployment_id']}_v1.0.0.yaml"
+        root / "configs" / "deployments" / f"deployment_{service['deployment_id']}_v1.0.0.yaml"
     )
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(

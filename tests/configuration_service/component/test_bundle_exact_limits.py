@@ -43,7 +43,9 @@ def test_exact_single_document_and_bundle_limits_succeed(
         app,
         (
             root_doc,
-            document_input("collector_tasks", "dependent", "1.0.0", config_sources=[reference("root")]),
+            document_input(
+                "collector_tasks", "dependent", "1.0.0", config_sources=[reference("root")]
+            ),
         ),
         expected_revision=1,
         request_id="exact-dependent",
@@ -52,7 +54,9 @@ def test_exact_single_document_and_bundle_limits_succeed(
     dependent = app.get_config(ConfigIdentity("collector_tasks", "dependent"), revision_id=revision)
 
     single_app = limited_app(app, max_bundle_bytes=len(root.yaml_bytes))
-    exact_single = single_app.get_config(ConfigIdentity("collector_tasks", "root"), revision_id=revision)
+    exact_single = single_app.get_config(
+        ConfigIdentity("collector_tasks", "root"), revision_id=revision
+    )
     assert len(exact_single.yaml_bytes) == single_app.limits.max_bundle_bytes
 
     exact_bytes = len(root.yaml_bytes) + len(dependent.yaml_bytes)

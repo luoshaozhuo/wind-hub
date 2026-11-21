@@ -106,7 +106,9 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         assert published_v1.revision_id == 1
         assert published_v1.committed_at.seconds > 0
         version1 = published_v1.published[0].version_id
-        listed = await repository.ListConfigs(pb.ListConfigsRequest(config_type="collector_tasks"), timeout=10)
+        listed = await repository.ListConfigs(
+            pb.ListConfigsRequest(config_type="collector_tasks"), timeout=10
+        )
         assert listed.items[0].recommended_version_id == version1
         versions = await repository.ListConfigVersions(
             pb.ListConfigVersionsRequest(

@@ -106,9 +106,7 @@ def test_deployment_version_does_not_guess_latest(tmp_path: Path) -> None:
     "value",
     ("instances/device_farm-a_v1.0.0.yaml", "../escape", "", "/absolute"),
 )
-def test_path_references_are_not_logical_instance_ids(
-    tmp_path: Path, value: str
-) -> None:
+def test_path_references_are_not_logical_instance_ids(tmp_path: Path, value: str) -> None:
     service = _tree(tmp_path)
     doc = yaml.safe_load(service.read_text(encoding="utf-8"))
     doc["config_sources"]["instances"]["devices"] = value
