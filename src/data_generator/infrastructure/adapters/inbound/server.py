@@ -517,86 +517,22 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.PushConfigSnapshotRequest,
         context: Any,
     ) -> common.PushConfigSnapshotResponse:
-        # The transaction owns the lock after client cancellation.
-        return await asyncio.shield(asyncio.create_task(self._push_snapshot(request)))
-
-    async def _push_snapshot(
-        self,
-        request: common.PushConfigSnapshotRequest,
-    ) -> common.PushConfigSnapshotResponse:
-        try:
-            files = tuple(FileContent(f.relative_path, bytes(f.content)) for f in request.files)
-            for original, item in zip(request.files, files, strict=False):
-                if original.size_bytes != len(item.data):
-                    raise GeneratorError("snapshot size mismatch")
-                if original.sha256 and original.sha256 != file_sha256(item.data):
-                    raise GeneratorError("snapshot SHA-256 mismatch")
-            candidate = await self._configuration.push(files, request.expected_revision)
-        except (GeneratorError, OSError, ValueError) as exc:
-            return common.PushConfigSnapshotResponse(
-                valid=False,
-                validation=[
-                    common.ValidationIssue(
-                        path="snapshot",
-                        code=config_error_code(exc),
-                        message=str(exc),
-                    )
-                ],
-                base_revision=self._configuration.disk_revision,
-            )
-        return common.PushConfigSnapshotResponse(
-            candidate_id=candidate,
-            valid=True,
-            base_revision=self._configuration.disk_revision,
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(
         self,
         request: common.ApplyConfigSnapshotRequest,
         context: Any,
     ) -> common.ApplyConfigSnapshotResponse:
-        # Cancellation of the caller cannot release a live file-commit lock.
-        return await asyncio.shield(asyncio.create_task(self._apply_snapshot(request)))
-
-    async def _apply_snapshot(
-        self,
-        request: common.ApplyConfigSnapshotRequest,
-    ) -> common.ApplyConfigSnapshotResponse:
-        try:
-            applied = await self._configuration.apply(
-                request.candidate_id, request.expected_revision
-            )
-        except (GeneratorError, OSError, ValueError) as exc:
-            return common.ApplyConfigSnapshotResponse(
-                file_commit="FAILED",
-                apply_results=[
-                    common.ApplicationResult(
-                        object_id="config",
-                        status="FAILED",
-                        error_code=config_error_code(exc),
-                        message=str(exc),
-                    )
-                ],
-                effective_revision=self._configuration.disk_revision,
-            )
-        self.diagnostics = Diagnostics(self.runtime.settings)
-        return common.ApplyConfigSnapshotResponse(
-            file_commit="COMMITTED",
-            effective_revision=applied.effective_revision,
-            restart_required=applied.restart_required,
-            application_id=request.candidate_id,
-            apply_results=[
-                common.ApplicationResult(
-                    object_id=scenario_id,
-                    message=(
-                        f"disk_revision={applied.disk_revision}; "
-                        f"effective_revision={applied.effective_revision}"
-                    ),
-                    status=status,
-                )
-                for scenario_id, status in applied.scenarios
-            ],
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(
         self,

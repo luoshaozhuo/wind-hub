@@ -280,82 +280,21 @@ class CollectorConfigRpc(rpc.CommonServiceServicer):
         self, request: pb.PushConfigSnapshotRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.PushConfigSnapshotResponse:
         await self._authorize(context)
-        try:
-            files: dict[str, bytes] = {}
-            for entry in request.files:
-                if entry.relative_path in files:
-                    raise SnapshotError("duplicate snapshot file")
-                if entry.size_bytes != len(entry.content):
-                    raise SnapshotError("snapshot size does not match content")
-                if entry.sha256 and entry.sha256 != hashlib.sha256(entry.content).hexdigest():
-                    raise SnapshotError("snapshot checksum mismatch")
-                files[entry.relative_path] = bytes(entry.content)
-            candidate_id, base_revision = await asyncio.to_thread(
-                self._manager.push,
-                files,
-                expected_revision=request.expected_revision,
-            )
-            return pb.PushConfigSnapshotResponse(
-                candidate_id=candidate_id,
-                valid=True,
-                base_revision=base_revision,
-            )
-        except SnapshotConflictError as exc:
-            await context.abort(grpc.StatusCode.ABORTED, str(exc))
-        except (SnapshotError, ConfigError, ValueError) as exc:
-            return pb.PushConfigSnapshotResponse(
-                valid=False,
-                validation=[pb.ValidationIssue(path="", code="INVALID_CONFIG", message=str(exc))],
-            )
-        raise AssertionError("aborted")
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(  # noqa: N802 — method name is required by common.proto
         self, request: pb.ApplyConfigSnapshotRequest, context: grpc.aio.ServicerContext[Any, Any]
     ) -> pb.ApplyConfigSnapshotResponse:
         await self._authorize(context)
-        try:
-            status = await self._manager.apply(
-                request.candidate_id, expected_revision=request.expected_revision
-            )
-            return pb.ApplyConfigSnapshotResponse(
-                file_commit=status.disk_revision,
-                effective_revision=status.runtime_revision,
-                restart_required=status.restart_required,
-                application_id=request.candidate_id,
-                apply_results=(
-                    [
-                        pb.ApplicationResult(
-                            object_id=name,
-                            status="APPLY_FAILED",
-                            error_code="CONVERGENCE_FAILED",
-                            message=message,
-                        )
-                        for name, message in sorted(status.apply_errors.items())
-                    ]
-                    + (
-                        [
-                            pb.ApplicationResult(
-                                object_id="services/collector.yaml",
-                                status="RESTART_REQUIRED",
-                            )
-                        ]
-                        if status.restart_required
-                        else []
-                    )
-                    + (
-                        [pb.ApplicationResult(object_id="collector-config", status="APPLIED")]
-                        if status.converged
-                        else []
-                    )
-                ),
-            )
-        except SnapshotConflictError as exc:
-            await context.abort(grpc.StatusCode.ABORTED, str(exc))
-        except ConfigError as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        except SnapshotError as exc:
-            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-        raise AssertionError("aborted")
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(  # noqa: N802
         self, request: pb.GetMetricsRequest, context: grpc.aio.ServicerContext[Any, Any]

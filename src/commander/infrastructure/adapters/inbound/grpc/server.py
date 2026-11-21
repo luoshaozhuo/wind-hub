@@ -450,17 +450,19 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
 
     async def PushConfigSnapshot(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "reload")
-        try:
-            return await self._snapshots.push(request)
-        except Exception as exc:
-            await self._boundary.invalid(context, exc)
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "reload")
-        try:
-            return await self._snapshots.apply(request)
-        except Exception as exc:
-            await self._boundary.invalid(context, exc)
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "query")
