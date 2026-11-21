@@ -117,7 +117,11 @@ def write_live_configuration(root: Path, pki: Pki, port: int) -> LiveConfigurati
             "sqlite_path": str(database),
             "backup_root": str(root / "backups"),
         },
-        "nats": {"servers": ["nats://127.0.0.1:1"]},
+        "nats": {
+            "servers": [os.environ.get("WIND_HUB_TEST_NATS_URL", "nats://127.0.0.1:1")],
+            "subject": "wh.config.changed",
+            "connect_timeout_ms": 1000,
+        },
         "security": {
             "cursor_secret_file": str(secret),
             "token_sources": {
