@@ -54,6 +54,9 @@ def main() -> None:
         )
 
         async def apply_candidate(bundle: SelectedBundle) -> bool:
+            # The verified Repository target must be visible even if local
+            # cache staging or validation fails before reload.
+            service.target_revision = bundle.target_revision
             cached = await asyncio.to_thread(
                 stage_selected_bundle,
                 bundle,
@@ -61,8 +64,6 @@ def main() -> None:
                 selected_observer.deployment_id,
                 selected_observer.service_id,
             )
-            # Target is a verified published closure, not an Apply outcome.
-            service.target_revision = bundle.target_revision
             previous = source.path
             source.path = cached
             try:
