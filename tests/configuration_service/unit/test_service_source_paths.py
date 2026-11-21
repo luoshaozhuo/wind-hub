@@ -1,63 +1,66 @@
-"""Full-root service source references must be canonical and not escape publication."""
+"""Service references only logical Instance identities, never repository paths."""
 
 from __future__ import annotations
 
 import pytest
 
-from configuration_service.application.service import ConfigurationApplication
-from configuration_service.domain.models import ConfigIdentity, PreparedDocument
+from core.configuration.deployment import (
+    INSTANCE_ROLE_TYPES,
+    parse_deployment,
+    service_instance_refs,
+)
+
+pytestmark = pytest.mark.unit
 
 
-def _document(config_id: str) -> PreparedDocument:
-    return PreparedDocument(
-        identity=ConfigIdentity("device", config_id),
-        schema_ref="device:1",
-        file_version="1.0.0",
-        content_sha256="0" * 64,
-        canonical_payload={"schema_version": 1, "file_version": "1.0.0", "devices": {}},
-    )
+@pytest.mark.parametrize("identity", ["farm-a", "sim"])
+def test_service_references_typed_logical_device_identity(identity: str) -> None:
+    service = {"config_sources": {"instances": {"devices": identity}}}
+    assert service_instance_refs(service, INSTANCE_ROLE_TYPES) == (("device", identity),)
 
 
 @pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        ("configs/instances/devices.yaml", "real"),
-        ("configs/instances/devices_sim.yaml", "sim"),
-    ],
+    "identity",
+    ["../../etc/passwd", "configs/instances/device_farm-a_v1.4.0.yaml", "", "/absolute"],
 )
-def test_source_paths_bind_only_available_device_instances(
-    app: ConfigurationApplication, path: str, expected: str
-) -> None:
-    documents = (_document("devices"), _document("devices_sim"))
-    version_ids = {
-        ("device", "devices", "1.0.0"): "real",
-        ("device", "devices_sim", "1.0.0"): "sim",
-    }
-    result = app._resolve_legacy_sources(
-        {"instances": {"devices": path}},
-        documents,
-        version_ids,
-    )
-    assert result == [(expected, "config_sources.instances")]
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "../../etc/passwd",
-        "configs/instances/../instances/devices.yaml",
-        "configs/instances/devices.yml",
-        "configs/instances/sinks.yaml",
-        "/configs/instances/devices.yaml",
-    ],
-)
-def test_source_paths_reject_ambiguous_or_noncanonical_instance(
-    app: ConfigurationApplication, path: str
-) -> None:
-    document = _document("devices")
-    with pytest.raises(ValueError, match="invalid config_sources.instances.devices path"):
-        app._resolve_legacy_sources(
-            {"instances": {"devices": path}},
-            (document,),
-            {("device", "devices", "1.0.0"): "real"},
+def test_service_rejects_path_or_unsafe_instance_identity(identity: str) -> None:
+    with pytest.raises(ValueError, match="identity|invalid|must"):
+        service_instance_refs(
+            {"config_sources": {"instances": {"devices": identity}}},
+            INSTANCE_ROLE_TYPES,
         )
+
+
+def test_template_root_and_direct_version_are_forbidden() -> None:
+    with pytest.raises(ValueError, match="instances only"):
+        service_instance_refs(
+            {
+                "config_sources": {
+                    "instances": {"devices": "farm-a"},
+                    "templates": {"root": "configs/templates"},
+                }
+            },
+            INSTANCE_ROLE_TYPES,
+        )
+    with pytest.raises(ValueError, match="identity|invalid"):
+        service_instance_refs(
+            {"config_sources": {"instances": {"devices": "farm-a@1.4.0"}}},
+            INSTANCE_ROLE_TYPES,
+        )
+
+
+def test_deployment_selects_exact_device_version() -> None:
+    manifest = parse_deployment(
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "test",
+            "services": {
+                "gateway": {"config_id": "gateway", "file_version": "1.0.0"}
+            },
+            "instances": {
+                "device": {"farm-a": {"file_version": "1.4.0"}}
+            },
+        }
+    )
+    assert manifest.instances[("device", "farm-a")].file_version == "1.4.0"
