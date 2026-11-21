@@ -33,10 +33,15 @@ def _input(
     )
 
 
-def _documents() -> list[pb.ConfigDocumentInput]:
+def _documents(*, static_update: bool = False) -> list[pb.ConfigDocumentInput]:
     service = yaml.safe_load(
         (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
+    if static_update:
+        service["file_version"] = "1.1.1"
+        service["service"]["query"]["max_page_size"] = 999
+    service_version = "1.1.1" if static_update else "1.1.0"
+    deployment_version = "1.0.1" if static_update else "1.0.0"
     return [
         _input("units", "standard", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
@@ -69,11 +74,11 @@ def _documents() -> list[pb.ConfigDocumentInput]:
             "schema_version": 1, "file_version": "1.0.0",
             "devices": {"WTG01": {"model": {"id": "storage-model", "version": "1.0.0"}}},
         }),
-        _input("service", "storage-main", "1.1.0", service),
-        _input("deployment", "prod-a", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0", "deployment_id": "prod-a",
+        _input("service", "storage-main", service_version, service),
+        _input("deployment", "prod-a", deployment_version, {
+            "schema_version": 1, "file_version": deployment_version, "deployment_id": "prod-a",
             "services": {
-                "storage-main": {"config_id": "storage-main", "file_version": "1.1.0"}
+                "storage-main": {"config_id": "storage-main", "file_version": service_version}
             },
             "instances": {
                 "site": {"example_site": {"file_version": "1.0.0"}},
@@ -83,7 +88,7 @@ def _documents() -> list[pb.ConfigDocumentInput]:
     ]
 
 
-async def _publish(live: LiveConfiguration) -> int:
+async def _publish(live: LiveConfiguration, *, static_update: bool = False) -> int:
     repository, _, channel = live.stubs("deployer")
     try:
         current = await repository.GetCurrentRevision(
@@ -94,7 +99,7 @@ async def _publish(live: LiveConfiguration) -> int:
             pb.CreateCandidateRequest(
                 request_id=f"storage-f3-create-{before + 1}",
                 expected_revision_id=before,
-                documents=_documents(),
+                documents=_documents(static_update=static_update),
             ),
             timeout=15,
         )
@@ -171,3 +176,70 @@ async def test_real_nats_broadcast_after_configuration_publication(
     finally:
         await subscription.unsubscribe()
         await connection.close()
+
+
+async def test_real_configuration_restart_target_does_not_replace_active(
+    live: LiveConfiguration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+        ConfigurationPointTableResolver,
+    )
+    from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+        StorageBundleSnapshot,
+    )
+    from storage_service.infrastructure.adapters.outbound.configuration_watch import (
+        StorageConfigurationWatcher,
+    )
+    from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+    from tests.support.bearer import ensure_bearer
+
+    await _publish(live)
+    actor_env = ensure_bearer("deployer").removeprefix("env:")
+    monkeypatch.setenv("WIND_HUB_STORAGE_F3_CONFIG_TOKEN", os.environ[actor_env])
+    archive = ImmutableConfigArchive(tmp_path / "archive")
+    client = ConfigurationGrpcClient(
+        endpoint=f"127.0.0.1:{live.port}",
+        token_env="WIND_HUB_STORAGE_F3_CONFIG_TOKEN",
+        archive=archive,
+    )
+    await client.open()
+    try:
+        active = await client.fetch_service_bundle(
+            deployment_id="prod-a", service_id="storage-main"
+        )
+        with MetadataStore(tmp_path / "metadata.sqlite3") as metadata:
+            metadata.register_semantic_pins(
+                point_table_versions=active.point_table_versions,
+                business_points_pin=active.business_points_pin,
+                device_bindings=active.device_bindings,
+            )
+            snapshot = StorageBundleSnapshot(tmp_path / "snapshots")
+            snapshot.store(active)
+            resolver = ConfigurationPointTableResolver(
+                fetcher=client,
+                archive=archive,
+                point_table_versions=active.point_table_versions,
+                business_points_version=active.business_points_pin,
+                device_bindings=active.device_bindings,
+            )
+            watcher = StorageConfigurationWatcher(
+                client=client,
+                resolver=resolver,
+                bundle=active,
+                service_id="storage-main",
+                deployment_id="prod-a",
+                servers=["nats://127.0.0.1:4222"],
+                metadata=metadata,
+                snapshot=snapshot,
+            )
+            changed_revision = await _publish(live, static_update=True)
+            await watcher.refresh_now()
+            assert watcher.repository_revision_id == changed_revision
+            assert watcher.status == "RESTART_REQUIRED"
+            assert watcher.target_revision != watcher.active_revision
+            assert snapshot.load() == active
+            pending = snapshot.load_target()
+            assert pending.target_revision == watcher.target_revision
+            assert pending.configuration.query.max_page_size == 999
+    finally:
+        await client.close()
