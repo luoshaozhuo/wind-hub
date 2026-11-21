@@ -1,0 +1,63 @@
+# Configuration Service 独立引导配置；部署到受控目录，不进入业务 configs 根目录。
+# schema_version: 必填整数；当前固定 1
+# file_version: 必填字符串 MAJOR.MINOR.PATCH；此文件 1.1.0
+# service_id: 必填非空服务身份，例如 configuration-main
+# grpc.host: 必填监听 IP/主机；内网普通 gRPC，无 TLS，示例 127.0.0.1
+# grpc.port: 必填整数 1..65535，示例 51060
+# repository.sqlite_path: 必填数据库绝对路径
+# repository.backup_root: 必填备份目录绝对路径
+# nats.servers: 必填非空 nats:// 地址列表，用于发送修订广播
+# nats.subject: 必填固定 wh.config.changed，不使用 Queue Group
+# nats.connect_timeout_ms: 必填整数 1..120000 毫秒
+# security.cursor_secret_file: 必填绝对路径；文件至少含 32 字节
+# security.token_sources: 必填；身份 -> env:ENV_NAME，令牌只存在于环境中
+# security.permissions: 必填；身份 -> [query,publish,admin] 的非空权限列表
+#   token_sources 与 permissions 身份集合必须完全一致；令牌各异且长度至少 32
+# limits.max_request_bytes: 必填整数 1024..67108864 字节
+# limits.max_bundle_bytes: 必填整数 1024..67108864 字节
+# limits.max_documents_per_publication: 必填整数 1..1000
+# limits.max_dependencies: 必填整数 1..100000
+# limits.candidate_ttl_seconds: 必填整数 1..86400 秒
+# limits.write_timeout_ms: 必填整数 1..120000 毫秒
+# limits.max_candidates: 必填整数 1..100000
+# limits.max_backup_jobs: 必填整数 1..64
+# limits.max_concurrent_queries: 必填整数 1..1024
+# limits.page_size: 可选整数 1..1000，默认 100
+# limits.max_workers: 可选整数 1..256，默认 16
+schema_version: 1
+file_version: 1.1.0
+service_id: configuration-main
+grpc:
+  host: 127.0.0.1
+  port: 51060
+repository:
+  sqlite_path: /var/lib/wind-hub/configuration/configuration.db
+  backup_root: /var/backups/wind-hub/configuration
+nats:
+  servers: [nats://127.0.0.1:4222]
+  subject: wh.config.changed
+  connect_timeout_ms: 2000
+security:
+  cursor_secret_file: /etc/wind-hub/configuration/cursor-secret
+  token_sources:
+    wind-hub-cli-admin: env:WIND_HUB_CONFIG_CLI_ADMIN_TOKEN
+    wind-hub-collector: env:WIND_HUB_CONFIG_COLLECTOR_TOKEN
+    wind-hub-sink: env:WIND_HUB_CONFIG_SINK_TOKEN
+    wind-hub-gateway: env:WIND_HUB_CONFIG_GATEWAY_TOKEN
+  permissions:
+    wind-hub-cli-admin: [query, publish, admin]
+    wind-hub-collector: [query]
+    wind-hub-sink: [query]
+    wind-hub-gateway: [query]
+limits:
+  max_request_bytes: 1048576
+  max_bundle_bytes: 4194304
+  max_documents_per_publication: 100
+  max_dependencies: 1000
+  candidate_ttl_seconds: 3600
+  write_timeout_ms: 10000
+  max_candidates: 128
+  max_backup_jobs: 1
+  max_concurrent_queries: 32
+  page_size: 100
+  max_workers: 16
