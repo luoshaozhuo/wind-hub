@@ -2849,6 +2849,18 @@ DLQ 持久记录 `dead_letter_id`、来源 Stream/Consumer/sequence、`batch_id/
 **可靠性边界：** JetStream ACK、Kafka Broker ACK、DLQ PubAck、Modbus 寄存器镜像更新是不同确认层次；至少一次传递可能重复，不保证恢复 Broker 已过期/删除的数据。
 # 11. 配置管理与生效
 
+### 配置身份、发布及活动版本（最终契约）
+- **不可变配置身份**：`config_type + config_id + file_version`；`schema_version` 为结构版本，`file_version` 为内容版本；同身份同版本的字节及依赖不可改写。Deployment 文件本身也应有唯一不可变身份、`file_version`、`schema_version`。
+- **Service 的实例引用**：`config_sources.instances.<role>: <config_id>`；角色只用于服务业务解析，不形成 Template 直接引用。Deployment 的 `instances` 选择应按 `config_type/config_id` 作为复合键，不因文件路径和目录扫描选择版本。多个 Service 可以依赖同一实例；相同逻辑身份在一个部署修订内仅对应一个版本。
+- **Deployment**：包含 `deployment_id`、`services` 的 Service ID/版本映射和 `instances` 的类型/ID/版本映射；由 CLI 一次完整目录发布，Repository 校验后在同一原子提交中将该部署的活动选择指针改为所发布清单。不存在单独二次激活操作和逐模块通知调用；只发布未被清单引用的 Template/Instance 文件不会使运行实例变更。多个部署域互不干扰。
+- **有效闭包**：以 `deployment_id + service_id` 查询 Deployment 选定的 Service、其直接 Instance、Instance 的固定 Template 依赖以及任何被固定引用的单位/业务点。统一按确定性路径顺序计算闭包摘要；全局仓库修订只作为查询/事件游标，不得与服务有效闭包的状态字段混淆。
+- **target_revision / active_revision**：两者类型与算法相同，均为服务有效闭包的确定性摘要（推荐 SHA-256 十六进制），而不是 repository 的 `revision_id` 或单独 YAML 的 `file_version`。成功热更新或重启并完整应用目标后两者相等；部分应用保持旧的 active_revision，同时报告可用的逐资源诊断信息。服务停机不宣称处于活动状态。
+- **更新策略**：配置快照先完整获取、校验、持久缓存；Service 判断热更与静态字段。一个不允许混用的依赖单元应原子替换或整体延期，不能把新的 PointTable 与旧控制映射拼接。广播丢失由启动/重连/周期查询补偿；重复、乱序通知不得回退到旧目标。
+- **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
+
+Sink Service 引用 `sinks-main`、`deliveries-main` 等 Instance 逻辑身份，由 Deployment 选取版本。Delivery/Sink Instance 分别引用自己的固定版本 Template；Main 解析闭包并协调两个 Worker，维持单 Delivery 的可靠 ACK、目标所有权与变更隔离。
+
+
 ### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
 统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
 CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。

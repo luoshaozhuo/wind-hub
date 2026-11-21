@@ -1496,6 +1496,19 @@ flowchart TB
 
 # 6. 通用配置数据处理设计
 
+### 配置身份、发布及活动版本（最终契约）
+- **不可变配置身份**：`config_type + config_id + file_version`；`schema_version` 为结构版本，`file_version` 为内容版本；同身份同版本的字节及依赖不可改写。Deployment 文件本身也应有唯一不可变身份、`file_version`、`schema_version`。
+- **Service 的实例引用**：`config_sources.instances.<role>: <config_id>`；角色只用于服务业务解析，不形成 Template 直接引用。Deployment 的 `instances` 选择应按 `config_type/config_id` 作为复合键，不因文件路径和目录扫描选择版本。多个 Service 可以依赖同一实例；相同逻辑身份在一个部署修订内仅对应一个版本。
+- **Deployment**：包含 `deployment_id`、`services` 的 Service ID/版本映射和 `instances` 的类型/ID/版本映射；由 CLI 一次完整目录发布，Repository 校验后在同一原子提交中将该部署的活动选择指针改为所发布清单。不存在单独二次激活操作和逐模块通知调用；只发布未被清单引用的 Template/Instance 文件不会使运行实例变更。多个部署域互不干扰。
+- **有效闭包**：以 `deployment_id + service_id` 查询 Deployment 选定的 Service、其直接 Instance、Instance 的固定 Template 依赖以及任何被固定引用的单位/业务点。统一按确定性路径顺序计算闭包摘要；全局仓库修订只作为查询/事件游标，不得与服务有效闭包的状态字段混淆。
+- **target_revision / active_revision**：两者类型与算法相同，均为服务有效闭包的确定性摘要（推荐 SHA-256 十六进制），而不是 repository 的 `revision_id` 或单独 YAML 的 `file_version`。成功热更新或重启并完整应用目标后两者相等；部分应用保持旧的 active_revision，同时报告可用的逐资源诊断信息。服务停机不宣称处于活动状态。
+- **更新策略**：配置快照先完整获取、校验、持久缓存；Service 判断热更与静态字段。一个不允许混用的依赖单元应原子替换或整体延期，不能把新的 PointTable 与旧控制映射拼接。广播丢失由启动/重连/周期查询补偿；重复、乱序通知不得回退到旧目标。
+- **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
+
+### 稳定闭包摘要
+以 `config_type/config_id/file_version/content_sha256` 作为有序元组，按 UTF-8 字节序排序并使用长度前缀串联后 SHA-256；此摘要用于单 Service 的目标/活动一致性，不包含无关 Service 的文件、不包含全局修订游标。所有引用按明确版本解析、循环与冲突必须拒绝。
+
+
 ### 2026-11-21 统一配置契约（规范性修订）
 旧版 Service 直接声明模板目录、固定版本 Instance 路径以及推荐版本自动切换的描述均废止；编码阶段应同步清理旧字段和调用方。
 1. 配置依赖为 Service → Instances → Templates。Service 仅引用 Instance 逻辑身份、不引用 Template；Instance 固定引用不可变 Template ID 和版本；禁止 latest 漂移引用。
