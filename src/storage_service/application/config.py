@@ -314,4 +314,13 @@ def load_storage_config(source: bytes) -> StorageConfig:
     data = yaml.load(source.decode("utf-8"), Loader=_UniqueLoader)
     if not isinstance(data, dict):
         raise ValueError("Storage configuration must be a YAML mapping")
-    return StorageConfig.model_validate(data)
+    header = {"schema_version", "file_version", "service_id", "config_sources", "service"}
+    if set(data) != header or not isinstance(data["service"], dict):
+        raise ValueError("Storage Service v2 must use the canonical service envelope")
+    parameters = data["service"]
+    if set(parameters) & header:
+        raise ValueError("Storage Service parameters cannot redefine envelope identity")
+    return StorageConfig.model_validate({
+        **{key: value for key, value in data.items() if key != "service"},
+        **parameters,
+    })
