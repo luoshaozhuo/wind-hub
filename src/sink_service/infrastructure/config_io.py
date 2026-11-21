@@ -97,8 +97,11 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
         if not relative.startswith("configs/services/") or not relative.endswith(".yaml"):
             raise ConfigurationError("Service must be an explicit Service pathname")
         selected.append(relative)
-    if selected != ["configs/services/sink_service.yaml"]:
-        raise ConfigurationError("canonical Service pathname required")
+    from core.configuration.local_selection import select_local_service
+
+    selection = select_local_service(root / selected[0], deployment_id=None)
+    if selection.service_id != "sink-west":
+        raise ConfigurationError("incorrect selected Sink Service")
 
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
@@ -115,7 +118,11 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     files = [safe_file(path) for path in service_paths]
     service = _yaml_doc(files[0])
     validate_service(service)
-    instance_paths, template_root = config_sources(service)
+    instances = selection.instances
+    instance_paths = {
+        role: f"configs/instances/{file.name}" for role, file in instances.items()
+    }
+    template_root = "configs/templates"
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}
     required: set[str] = set()
