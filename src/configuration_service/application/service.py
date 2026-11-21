@@ -350,6 +350,7 @@ class ConfigurationApplication:
         }
         deployments = [doc for doc in documents if doc.identity.config_type == "deployment"]
         selected: dict[str, tuple[str, ...]] = {}
+        visited: set[str] = set()
         role_types = {
             "site": "site",
             "devices": "device",
@@ -360,6 +361,11 @@ class ConfigurationApplication:
         }
         for document in deployments:
             deployment = parse_deployment(document.canonical_payload)
+            if deployment.deployment_id in visited:
+                raise RepositoryConflictError(
+                    "multiple Deployment versions for one identity in active directory"
+                )
+            visited.add(deployment.deployment_id)
             if deployment.deployment_id != document.identity.config_id:
                 raise ValueError("Deployment identity does not match file identity")
             target_ids: list[str] = []

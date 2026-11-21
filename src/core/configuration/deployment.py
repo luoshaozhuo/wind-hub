@@ -114,12 +114,7 @@ def closure_sha256(
         encoded = value.encode("utf-8")
         digest.update(len(encoded).to_bytes(4, "big"))
         digest.update(encoded)
-    seen: set[tuple[str, str]] = set()
     for kind, config_id, version, content_sha in identities:
-        key = (kind, config_id)
-        if key in seen:
-            raise ValueError("conflicting versions of the same logical configuration")
-        seen.add(key)
         _identifier(kind, "config_type")
         _identifier(config_id, "config_id")
         _version(version, "file_version")
