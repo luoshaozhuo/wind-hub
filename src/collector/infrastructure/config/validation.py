@@ -45,6 +45,7 @@ def resolve_source_paths(config_file: Path) -> SnapshotPaths:
         templates=selected.templates,
         site=site_path,
         devices=devices_path,
+        tasks=selected.instances["tasks"],
     )
 
 
@@ -197,7 +198,7 @@ def _template_references(category: str, folder: Path) -> Iterator[tuple[Path, Te
 
 def _validate_all_templates(root: Path) -> None:
     repository = VersionedTemplateRepository(root)
-    for category in ("protocols", "device_models", "point_tables", "tasks"):
+    for category in ("protocols", "device_models", "point_tables"):
         folder = root / category
         if not folder.is_dir():
             continue
@@ -208,27 +209,15 @@ def _validate_all_templates(root: Path) -> None:
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: unsupported protocol")
             elif category == "device_models":
-                # Shared device models need not define Collector task scheduling.
-                # Explicit task references remain strictly checked.
                 if "task" in document:
-                    resolve_model_templates(repository, template)
-                else:
-                    resolve_device_templates(repository, template)
+                    raise ConfigError("Device Model cannot declare Collector Task")
+                resolve_device_templates(repository, template)
             elif category == "point_tables":
                 if document.get("protocol") not in {"ads", "modbus", "iec104"}:
                     raise ConfigError(f"{path}: point table protocol missing")
                 if not isinstance(document.get("points"), Mapping):
                     raise ConfigError(f"{path}: points must be a mapping")
                 validate_point_table_chain(repository, template)
-            elif category == "tasks":
-                interval = document.get("interval")
-                if isinstance(interval, bool) or not isinstance(interval, int | float):
-                    raise ConfigError(f"{path}: task interval must be numeric")
-                _positive(interval, f"{path}.interval")
-                if document.get("point_group") != "all":
-                    raise ConfigError(f"{path}: Collector tasks must select all dynamic points")
-                if document.get("desired_state", "STOP") not in ("START", "STOP"):
-                    raise ConfigError(f"{path}: invalid task default desired_state")
 
 
 def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | None = None) -> None:
@@ -249,17 +238,12 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         "logs",
         "identity",
         "config_sources",
+        "service_id",
     }
     unknown = set(service) - allowed
     if unknown:
         raise ConfigError(f"unknown Collector service fields: {sorted(unknown)}")
-    references = _source_references(service)
-    if source_root is not None:
-        authorized_root = source_root.resolve()
-        for value in references:
-            requested = Path(value)
-            if requested.is_absolute() and not requested.resolve().is_relative_to(authorized_root):
-                raise ConfigError("absolute service reference escapes config root")
+    _source_references(service)
     validate_service_settings(service)
     _validate_all_templates(paths.templates)
     shared = SharedDocumentLoader(
@@ -278,39 +262,46 @@ def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | Non
         table = snapshot.point_tables[model.point_table_id]
         for point_id in table.points:
             validate_subject_token(point_id)
-    templates = VersionedTemplateRepository(paths.templates)
-    device_document = read_yaml(paths.devices or paths.instances / "devices.yaml")
-    _reject_unknown(
-        device_document, {"schema_version", "file_version", "devices"}, "devices document"
-    )
+    task_file = paths.tasks
+    if task_file is None or not task_file.is_file():
+        raise ConfigError("Deployment-selected Collector Task Instance is required")
+    task_doc = read_yaml(task_file)
+    if not isinstance(task_doc, dict) or set(task_doc) != {
+        "schema_version", "file_version", "tasks"
+    }:
+        raise ConfigError("invalid Collector Task Instance document")
+    tasks = task_doc["tasks"]
+    if not isinstance(tasks, dict) or not tasks:
+        raise ConfigError("Collector Task Instance must define tasks")
+    device_document = read_yaml(paths.devices)
     raw_devices = device_document.get("devices")
     if not isinstance(raw_devices, dict):
         raise ConfigError("devices must be a mapping")
-    known_ids = {str(identifier) for identifier in snapshot.site.devices}
-    for device_id, definition in shared.devices.items():
-        model_templates = resolve_model_templates(templates, definition.templates.model)
-        task_document = model_templates.task.document
-        interval = task_document.get("interval")
-        if isinstance(interval, bool) or not isinstance(interval, int | float) or interval <= 0:
-            raise ConfigError(f"{device_id}: invalid acquisition interval")
-        if task_document.get("desired_state", "STOP") not in ("START", "STOP"):
-            raise ConfigError(f"{device_id}: invalid task default desired state")
-        point_group = task_document.get("point_group")
-        if point_group != "all":
-            raise ConfigError(f"{device_id}: Collector task must collect all dynamic points")
-        instance = raw_devices[device_id]
-        if not isinstance(instance, dict):
-            raise ConfigError(f"{device_id}: invalid device instance")
-        overrides = instance.get("overrides", {})
-        if not isinstance(overrides, dict) or set(overrides) - {"protocol_options", "task"}:
-            raise ConfigError(f"{device_id}: unsupported device overrides")
-        task_override = overrides.get("task", {})
-        if not isinstance(task_override, dict) or set(task_override) - {"desired_state"}:
-            raise ConfigError(f"{device_id}: unsupported task overrides")
-        if task_override.get("desired_state", "STOP") not in ("START", "STOP"):
-            raise ConfigError(f"{device_id}: invalid task desired_state")
-        if device_id not in known_ids:
-            raise ConfigError(f"{device_id}: unresolved device in shared snapshot")
+    groups: dict[str, dict[str, object]] = {}
+    for device_id, raw in raw_devices.items():
+        if not isinstance(raw, dict):
+            raise ConfigError(f"{device_id}: device must be a mapping")
+        group = raw.get("group")
+        if not isinstance(group, str) or not group:
+            raise ConfigError(f"{device_id}: invalid device group")
+        groups[group] = raw
+    used: set[str] = set()
+    for task_id, raw in tasks.items():
+        if not isinstance(task_id, str) or not isinstance(raw, dict):
+            raise ConfigError("invalid Collector Task")
+        if set(raw) != {"group", "point_group", "interval_ms", "desired_state"}:
+            raise ConfigError(f"{task_id}: unsupported Task keys")
+        group = raw["group"]
+        if group not in groups or group in used:
+            raise ConfigError(f"{task_id}: missing or duplicate device group")
+        used.add(group)
+        if raw["point_group"] != "all" or raw["desired_state"] not in {"START", "STOP"}:
+            raise ConfigError(f"{task_id}: invalid Task selection or desired state")
+        interval = raw["interval_ms"]
+        if type(interval) is not int or interval < 1:
+            raise ConfigError(f"{task_id}: invalid Task interval_ms")
+    if set(groups) != used:
+        raise ConfigError("some Device groups lack Collector Tasks")
 
 
 def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRuntime:
@@ -328,19 +319,17 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
     raw_service = read_yaml(paths.service)
     runtime = raw_service.get("runtime", {})
     watchdog = raw_service.get("watchdog", {})
-    template_repo = VersionedTemplateRepository(paths.templates)
-    raw_instances = read_yaml(paths.devices or paths.instances / "devices.yaml")["devices"]
+    raw_instances = read_yaml(paths.devices)["devices"]
+    raw_tasks = read_yaml(paths.tasks)["tasks"]
+    tasks_by_group = {item["group"]: item for item in raw_tasks.values()}
     devices: list[DevicePlan] = []
     for device_id, definition in documents.devices.items():
         if not definition.enabled:
             continue
-        model = resolve_model_templates(template_repo, definition.templates.model)
         config = raw_instances[device_id]
         overrides = config.get("overrides", {})
-        task_overrides = overrides.get("task", {})
-        intent = task_overrides.get(
-            "desired_state", model.task.document.get("desired_state", "STOP")
-        )
+        task = tasks_by_group[config["group"]]
+        intent = task["desired_state"]
         device = snapshot.site.devices[DeviceId(device_id)]
         device_model = snapshot.device_models[device.device_model_id]
         protocol_name = definition.templates.protocol.document["protocol"]
@@ -360,7 +349,7 @@ def parse_collector_runtime(paths: SnapshotPaths, revision: str) -> ConfiguredRu
             DevicePlan(
                 device=device,
                 point_table=point_table,
-                interval=float(model.task.document["interval"]),
+                interval=task["interval_ms"] / 1000.0,
                 desired_state=intent,
                 mode=mode,
                 device_type=str(device_model.device_type_id),

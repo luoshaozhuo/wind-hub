@@ -219,7 +219,7 @@ class SharedDocumentLoader:
             raw = _mapping(value, f"device {device_id}")
             _keys(
                 raw,
-                frozenset({"model", "endpoint", "overrides", "enabled", "name"}),
+                frozenset({"model", "endpoint", "overrides", "enabled", "name", "group"}),
                 f"device {device_id}",
             )
             model = self._repository.resolve(_reference(raw.get("model"), device_id))
