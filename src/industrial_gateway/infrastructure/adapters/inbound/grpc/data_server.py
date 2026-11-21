@@ -702,8 +702,12 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
                 detail="periodic snapshot ready" if ready else "first sample pending",
             )
         )
+        observer = self._snapshots.observer
+        pending = observer is not None and observer.target_revision != observer.active_revision
         status = common.GetServiceStatusResponse(
-            health="DEGRADED" if unhealthy else "HEALTHY",
+            health="DEGRADED" if unhealthy or pending else "HEALTHY",
+            target_revision=observer.target_revision if observer is not None else "",
+            active_revision=observer.active_revision if observer is not None else "",
             dependencies=dependencies,
         )
         status.observed_at.FromDatetime(datetime.now(UTC))
