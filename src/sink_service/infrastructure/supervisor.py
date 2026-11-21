@@ -11,9 +11,9 @@ import os
 import socket
 import struct
 import tempfile
+from collections.abc import Callable
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from collections.abc import Callable
 
 from sink_service.infrastructure.ipc import (
     ControlOperation,
