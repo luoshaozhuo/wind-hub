@@ -38,6 +38,7 @@ class StorageConfigurationWatcher:
         resolver: ConfigurationPointTableResolver,
         bundle: StorageBundle,
         service_id: str,
+        deployment_id: str,
         servers: Sequence[str],
         metadata: MetadataStore,
         snapshot: StorageBundleSnapshot,
@@ -48,6 +49,11 @@ class StorageConfigurationWatcher:
         self._resolver = resolver
         self._active = bundle
         self._service_id = service_id
+        self._deployment_id = deployment_id
+        self.target_revision = bundle.target_revision
+        self.active_revision = bundle.target_revision
+        self.repository_revision_id = bundle.revision_id
+        self.last_reconcile_error = ""
         self._servers = list(servers)
         self._metadata = metadata
         self._snapshot = snapshot
@@ -69,10 +75,12 @@ class StorageConfigurationWatcher:
                 await self._reconcile()
             except ConfigHistoryUnavailableError as exc:
                 self.status = "CONFIG_HISTORY_UNAVAILABLE"
+                self.last_reconcile_error = type(exc).__name__
                 self._reconcile_error = exc
                 raise
             except Exception as exc:
                 self.status = "CONFIG_RECONCILE_DEGRADED"
+                self.last_reconcile_error = type(exc).__name__
                 self._reconcile_error = exc
                 raise
             except BaseException as exc:
@@ -80,57 +88,46 @@ class StorageConfigurationWatcher:
                 raise
             else:
                 self._reconcile_error = None
+                self.last_reconcile_error = ""
             finally:
                 self._reconcile_generation += 1
 
     async def _reconcile(self) -> None:
-        updated = await self._client.fetch_service_bundle(service_id=self._service_id)
-        if updated.revision_id < self._active.revision_id:
+        updated = await self._client.fetch_service_bundle(
+            deployment_id=self._deployment_id, service_id=self._service_id
+        )
+        if updated.deployment_id != self._deployment_id:
+            raise ConfigHistoryUnavailableError("Deployment identity changed in response")
+        if updated.revision_id < self.repository_revision_id:
             raise ConfigHistoryUnavailableError("Configuration authority revision moved backwards")
-        if updated.revision_id == self._active.revision_id:
-            if (
-                updated.configuration != self._active.configuration
-                or updated.point_table_versions != self._active.point_table_versions
-                or updated.business_points_pin != self._active.business_points_pin
-                or updated.device_bindings != self._active.device_bindings
-            ):
+        if updated.revision_id == self.repository_revision_id:
+            if updated.target_revision != self.target_revision:
                 raise ConfigHistoryUnavailableError(
-                    "Configuration authority changed an immutable revision"
+                    "Configuration authority changed an immutable repository revision"
                 )
+            self.status = "RESTART_REQUIRED" if self.target_revision != self.active_revision else "READY"
+            return
+
+        self.repository_revision_id = updated.revision_id
+        self.target_revision = updated.target_revision
+        if updated.target_revision == self.active_revision:
+            # A Repository publication unrelated to this Service changes only
+            # the global cursor. No disk writes or runtime replacement occur.
             self.status = "READY"
             return
-        # Repository-wide publication does not imply that this Storage Service's
-        # effective dependency closure changed. Do not rewrite persisted state.
-        if (
-            updated.configuration == self._active.configuration
-            and updated.point_table_versions == self._active.point_table_versions
-            and updated.business_points_pin == self._active.business_points_pin
-            and updated.device_bindings == self._active.device_bindings
-        ):
-            self._active = updated
-            self.status = "READY"
-            return
-        # Changing brokers, DB credentials, retention, security or export limits
-        # requires a controlled restart. No hot reconfiguration of in-flight IO.
+
         old = self._active.configuration.model_dump(exclude={"config_sources", "file_version"})
         new = updated.configuration.model_dump(exclude={"config_sources", "file_version"})
         if old != new:
             self.status = "RESTART_REQUIRED"
-            _LOG.warning(
-                "Storage config changed outside immutable reference set; "
-                "continue on verified revision %d until controlled restart",
-                self._active.revision_id,
-            )
+            _LOG.warning("Storage target requires controlled restart")
             return
-        # Reject immutable rebinding before touching the durable SQLite pins
-        # or replacing the on-disk generation. Otherwise a failed in-memory
-        # promotion could leave the next restart observing a rejected bundle.
+
         self._resolver.validate_immutable_pins(
             point_table_versions=updated.point_table_versions,
             business_points_pin=updated.business_points_pin,
             device_bindings=updated.device_bindings,
         )
-        # SQLite commit precedes any in-memory generation switch.
         await asyncio.to_thread(
             self._metadata.register_semantic_pins,
             point_table_versions=updated.point_table_versions,
@@ -143,8 +140,10 @@ class StorageConfigurationWatcher:
             device_bindings=updated.device_bindings,
         )
         self._active = updated
+        self.active_revision = updated.target_revision
+        self.last_reconcile_error = ""
         self.status = "READY"
-        _LOG.info("Storage accepted Configuration revision %d", updated.revision_id)
+        _LOG.info("Storage accepted effective closure %s", self.active_revision)
 
     async def run(self, stop: asyncio.Event) -> None:
         connection: NatsClient | None = None
