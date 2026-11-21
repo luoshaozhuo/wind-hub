@@ -71,7 +71,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
             snapshot = StorageBundleSnapshot(base / "configuration-snapshots")
             restored_from_snapshot = False
             try:
-                bundle = await configuration.fetch_service_bundle(service_id=bootstrap.service_id)
+                bundle = await configuration.fetch_service_bundle(
+                    deployment_id=bootstrap.deployment_id, service_id=bootstrap.service_id
+                )
             except (grpc.aio.AioRpcError, TimeoutError, ConnectionError) as exc:
                 if isinstance(exc, grpc.aio.AioRpcError) and exc.code() not in (
                     grpc.StatusCode.UNAVAILABLE,
@@ -81,6 +83,8 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 bundle = await asyncio.to_thread(snapshot.load)
                 if bundle.configuration.service_id != bootstrap.service_id:
                     raise RuntimeError("saved Configuration service_id mismatch") from exc
+                if bundle.deployment_id != bootstrap.deployment_id:
+                    raise RuntimeError("saved Configuration deployment_id mismatch") from exc
                 restored_from_snapshot = True
                 _LOG.warning(
                     "using verified previous Configuration revision %d while unavailable",
@@ -154,6 +158,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     resolver=point_tables,
                     bundle=bundle,
                     service_id=bootstrap.service_id,
+                    deployment_id=bootstrap.deployment_id,
                     servers=bootstrap.nats.servers,
                     metadata=metadata,
                     snapshot=snapshot,
@@ -170,6 +175,9 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     consumer=consumer,
                     cursor_secret=cursor_secret,
                     config_status=lambda: watcher.status,
+                    config_revisions=lambda: (
+                        watcher.target_revision, watcher.active_revision
+                    ),
                     metrics=metrics,
                 )
                 await consumer.start()
