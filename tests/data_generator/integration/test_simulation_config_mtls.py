@@ -29,8 +29,8 @@ PROJECT_ROOT = Path(__file__).parents[3]
 def _provision_paired_configs(root: Path) -> tuple[Path, Path]:
     """Materialize the documented certificate paths; examples ship no key material."""
     shutil.copytree(PROJECT_ROOT / "configs", root / "configs")
-    generator_path = root / "configs/services/data-generator-sim.example.yaml"
-    gateway_path = root / "configs/services/industrial_gateway-sim.example.yaml"
+    generator_path = root / "configs/services/service_data-generator-sim_v1.0.3.yaml"
+    gateway_path = root / "configs/services/service_gateway-sim_v1.1.3.yaml"
     pki = write_mtls_pki(root / "generated-pki", ("generator", "data-generator"))
     certs = root / "certs"
     certs.mkdir()
