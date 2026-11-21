@@ -399,7 +399,7 @@ def write_config_tree(
     *,
     commander_endpoint: str,
     grpc_port: int,
-    service_name: str = "service.yaml",
+    service_name: str = "services/service_gateway_v1.0.0.yaml",
     forward_queue_capacity: int = 1024,
     max_forward_inflight: int = 16,
     submit_deadline_ms: int = 5000,
@@ -454,11 +454,11 @@ def write_config_tree(
         servers.append(server)
 
     _dump(
-        root / "instances" / "devices.yaml",
+        root / "instances" / "device_gateway-test_v1.0.0.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "devices": devices},
     )
     _dump(
-        root / "instances" / "site.yaml",
+        root / "instances" / "site_gateway-test_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -467,7 +467,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "units_standard.yaml",
+        root / "templates" / "units_standard_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -476,7 +476,7 @@ def write_config_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points_standard.yaml",
+        root / "templates" / "business_points_standard_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -524,10 +524,8 @@ def write_config_tree(
     service: dict[str, Any] = {
         "schema_version": 1,
         "file_version": "1.0.0",
-        "config_sources": {
-            "instances": {"devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
+        "service_id": "gateway",
+        "config_sources": {"instances": {"devices": "gateway-test"}},
         "grpc": {
             "listen_host": "127.0.0.1",
             "listen_port": grpc_port,
@@ -555,6 +553,21 @@ def write_config_tree(
             "collect_interval_ms": 1000,
         },
     }
+    _dump(
+        root / "deployments" / "deployment_gateway-test_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "gateway-test",
+            "services": {
+                "gateway": {"config_id": "gateway", "file_version": "1.0.0"}
+            },
+            "instances": {
+                "device": {"gateway-test": {"file_version": "1.0.0"}},
+                "site": {"gateway-test": {"file_version": "1.0.0"}},
+            },
+        },
+    )
     service_path = root / service_name
     _dump(service_path, service)
     return service_path
