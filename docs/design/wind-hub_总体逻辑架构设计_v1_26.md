@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_25 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_26 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -935,14 +935,14 @@ Commander 的指令幂等、独立隔离证明、fencing、SQLite 持久结果�
 Deployment 属于 Configuration Repository 的受管对象，不构成第四类业务配置；其作用是选择 Service 和 Instance 的不可变版本。一个服务只依赖 Instances，Instance 可通过固定版本依赖 Templates。模板内部必要的模板引用亦必须固定 ID/版本并校验无环。
 
 ```yaml
-# configs/deployments/deployment_prod-a_v1.2.0.yaml（当前真实示例）
+# configs/deployments/deployment_prod-a_v1.3.0.yaml（当前真实示例）
 # Deployment 为同一部署域原子选择所有 Service / Instance 的不可变版本。
 # schema_version: 1；file_version: MAJOR.MINOR.PATCH；deployment_id: 唯一部署身份。
 # services.<service_id>.config_id 必须与映射键一致；file_version 为精确版本。
 # instances.<config_type>.<config_id>.file_version 为同部署域的唯一目标版本。
 # 实例依赖模板由 Instance 固定引用；Service 不允许直接引用 Template。
 schema_version: 1
-file_version: "1.2.0"
+file_version: "1.3.0"
 deployment_id: prod-a
 services:
   collector-realtime:
@@ -981,10 +981,10 @@ instances:
       file_version: "1.0.0"
   sink:
     prod-a:
-      file_version: "1.1.0"
+      file_version: "1.2.0"
   delivery:
     prod-a:
-      file_version: "1.2.0"
+      file_version: "1.3.0"
 ```
 
 Deployment 中 `services` 的映射键是 service_id，值的 config_id 必须相同；`instances` 一级键是 config_type，二级键是 config_id，三级选择 file_version，禁止同一类型/ID 存在多个目标版本。Service 使用 `config_sources.instances.<role>: <config_id>`；角色对应的 config_type 在各模块 Schema 中固定声明，不能仅按相同字符串猜测类型。实例没有被目标 Service 引用时，其版本升级不得触发该 Service 的运行配置变化。

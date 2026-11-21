@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_34 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_35 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -275,7 +275,7 @@ C2 已将所有受管 YAML 改为带版本后缀的正式文件，以下清单�
 ~~~text
 configs/
 ├── deployments/
-│   ├── deployment_prod-a_v1.2.0.yaml
+│   ├── deployment_prod-a_v1.3.0.yaml
 │   └── deployment_sim-a_v1.1.0.yaml
 ├── instances/
 │   ├── site_example_site_v1.1.0.yaml
@@ -285,8 +285,8 @@ configs/
 │   ├── collector_tasks_sim_v1.0.0.yaml
 │   ├── scenarios_prod-a_v1.0.0.yaml
 │   ├── scenarios_sim_v1.0.3.yaml
-│   ├── sinks_prod-a_v1.1.0.yaml
-│   └── deliveries_prod-a_v1.2.0.yaml
+│   ├── sinks_prod-a_v1.2.0.yaml
+│   └── deliveries_prod-a_v1.3.0.yaml
 ├── services/
 │   ├── service_collector-realtime_v1.1.0.yaml
 │   ├── service_collector-reliable_v1.0.0.yaml
@@ -323,7 +323,7 @@ configs/
 | Generator | `service_data-generator-sim_v1.0.3.yaml` + `scenarios_sim_v1.0.3.yaml` | 场景 wind-plant-physical，确定性激励 |
 | Gateway | `service_gateway-sim_v1.1.3.yaml` | gRPC 50073，五 Server；控制安全规则保持有效 |
 | Collector | `service_collector-sim_v1.0.0.yaml` + `collector_tasks_sim_v1.0.0.yaml` | 验证按 group 调度、不重复采集；真实部署另外有 Realtime/Reliable 双 Service |
-| Sink | `service_sink-west_v1.2.0.yaml` + Sinks/Deliveries Instance | 现有配置仅示例目标；E2E 使用隔离四种目标 Fixture |
+| Sink | `service_sink-west_v1.2.0.yaml` + Sinks/Deliveries Instance | 包含 Redis/Kafka/Modbus/Gateway 四类 Sink；Gateway Delivery 默认 STOP，授权与变量映射需 E2E 实证 |
 | Commander | `service_commander-sim_v1.0.0.yaml` | 仿真控制、Gateway 权限与请求身份一致 |
 | CLI | `service_cli_v1.2.0.yaml` | 所有业务进程由 CLI 启动；中间件独立启动 |
 | 外部 | NATS/JetStream、Redis、Kafka、TDengine | 隔离命名空间；由测试代码单独管理 |
