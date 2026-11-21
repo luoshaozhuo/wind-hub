@@ -517,10 +517,8 @@ Contracts §11.6 统一规定 Collector→NATS→Sink 的 SampleBatch v3 输入�
 ```yaml
 config_sources:
   instances:
-    site: configs/instances/site.yaml
-    devices: configs/instances/devices.yaml
-  templates:
-    root: configs/templates
+    site: site-farm-a
+    devices: devices-farm-a
 ```
 
 `instances` 是可选的直接实例文件路径映射，`templates.root` 是可选的模板根目录声明；具体子键、必要性和允许路径由使用它的 Service Schema 约束。不得随意给不支持该字段的配置文件添加 `config_sources`，也不得用它代替 Template 内部的精确版本引用。
@@ -548,8 +546,8 @@ config_sources:
 # file_version: "1.0.0"             # 必填；MAJOR.MINOR.PATCH
 # config_sources:                   # 配置直接来源
 #   instances:
-#     site: configs/instances/site.yaml      # 场站实例 pathname
-#     devices: configs/instances/devices.yaml # 设备实例 pathname
+#     site: site-farm-a      # 场站实例 pathname
+#     devices: devices-farm-a # 设备实例 pathname
 #   templates:
 #     root: configs/templates       # 模板根目录 pathname
 # runtime:
@@ -583,10 +581,8 @@ schema_version: 1
 file_version: "1.0.0"
 config_sources:
   instances:
-    site: configs/instances/site.yaml
-    devices: configs/instances/devices.yaml
-  templates:
-    root: configs/templates
+    site: site-farm-a
+    devices: devices-farm-a
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10

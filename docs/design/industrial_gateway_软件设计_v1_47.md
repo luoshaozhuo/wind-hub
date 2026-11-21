@@ -1762,7 +1762,7 @@ Gateway Service 只引用 devices、gateway_servers 等具体 Instance 的逻辑
 |---|---|---|
 | `configs/services/industrial_gateway.yaml` | 服务启动参数指定的 Service 文件 | Gateway 唯一专属服务配置，含配置源引用、gRPC、Server 监听及控制转发参数 |
 | `config_sources.instances.devices` | `configs/instances/devices.yaml` | **必填**；直接指定公共设备实例文件 pathname；实际文件名可变，不使用默认文件名 |
-| `config_sources.templates.root` | `configs/templates` | **必填**；指定公共模板根目录；通过实例或模板所声明的 ID、版本关系解析间接依赖 |
+| Template 间接来源 | Instance 固定版本的模板引用链 | Service 不声明模板根目录，按有效闭包校验 |
 | 公共设备实例中的 `endpoint` | 由公共文件定义 | 指向实际设备的客户端连接目的端点，**不是** Gateway 协议 Server 的监听端点 |
 | Service `servers[].listen` | 由本 Service 定义 | 工业协议 Server 对外监听地址和端口；一个 Server 仅关联一个实际设备 |
 
@@ -1803,9 +1803,7 @@ schema_version: 1                   # 整数 1；不支持其他 Schema 版本�
 file_version: "1.0.0"              # 服务配置文件版本，MAJOR.MINOR.PATCH
 config_sources:
   instances:
-    devices: configs/instances/devices.yaml  # 必填；公共设备实例 pathname，无默认文件
-  templates:
-    root: configs/templates                 # 必填；模板解析根 pathname，无默认目录
+    devices: devices-farm-a  # Instance 逻辑身份，由 Deployment 选版本
 grpc:
   listen_host: "127.0.0.1"        # 本地 gRPC 监听主机；非本机访问必须使用隔离网络和访问控制
   listen_port: 50073              # 1..65535；必须与活动协议监听端口不冲突

@@ -3179,10 +3179,10 @@ Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集�
 
 | 类别 | 物理路径示例 | 引用与所有权 | 生效规则 |
 |---|---|---|---|
-| Service | `configs/services/collector.yaml` | Collector 运行参数；`config_sources.instances.site`、`config_sources.instances.devices` 与 `config_sources.templates.root` 三个字符串直接指定需读取的两份 Instance 文件及 Template 根目录 | Service 修改（包含 Instance/Template 路径）保存并标记 `RESTART_REQUIRED`，当前进程继续使用旧 Service 引用图 |
+| Service | `configs/services/collector.yaml` | Collector 运行参数；仅声明 site/devices/tasks 的 Instance 逻辑身份 | 不兼容的静态参数修改等待重启 |
 | Instance | `configs/instances/site.yaml` | 场站身份及其直接字段；不需要重复声明 Template 路径 | 变更后按受影响范围热生效 |
 | Instance | `configs/instances/devices.yaml` | 设备实例；各 `devices.<ID>.model` 仅声明 `id`、`version`，不得重复配置 Template 根目录 | 实例、型号引用修改后按设备增量热生效 |
-| Template | `configs/templates/` | 协议、型号、点表、任务、工程单位、业务点等共享模板；已发布精确版本不可变 | 由 Service 的 `config_sources.templates.root` 定位仓库，再按 Instance 的型号 ID/版本解析精确依赖；不得自动选最新版本 |
+| Template | `configs/templates/` | 由 Instance 的不可变版本引用间接解析；不得自动选择最新版本 |
 | 其他服务的配置 | `configs/services/commander.yaml` 等 | 由各自服务拥有；Collector 不读取、不管理 | 不纳入 Collector 候选 |
 
 ```mermaid
@@ -3312,10 +3312,8 @@ schema_version: 1
 file_version: 1.0.0
 config_sources:
   instances:
-    site: configs/instances/site.yaml
-    devices: configs/instances/devices.yaml
-  templates:
-    root: configs/templates
+    site: site-farm-a
+    devices: devices-farm-a
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10
@@ -3902,10 +3900,10 @@ UC。以下状态均为 `NOT_RUN`，不表示实现失败或通过。
 | 编号 | 对应场景 | 输入与操作 | 必须观察到的结果 |
 |---|---|---|---|
 | CFG-PATH-01 | UC-08-S01 | 仅 `--config`，Service 明确引用自定义名称的 site/devices 及自定义 Template 根目录 | 从指定文件启动，不访问任何硬编码默认目录 |
-| CFG-PATH-02 | UC-08-S02 | Service 缺少 `config_sources.instances.site`、`config_sources.instances.devices` 或 `config_sources.templates.root` 任一必需字段 | 启动校验失败，无自动补齐或同名文件回退 |
+| CFG-PATH-02 | UC-08-S02 | Service 缺少必需 Instance 逻辑引用或 Deployment 缺少对应版本选择 | 启动校验失败，无自动回退 |
 | CFG-PATH-03 | UC-08-S02 | 相对于配置根目录的路径、绝对路径、非字符串或空字符串、无权限目标、`..` 逃逸、符号链接逃逸、目录冒充文件 | 合法授权路径成功解析，不合法引用在启动/Push 阶段失败 |
 | CFG-PATH-04 | UC-04-S01 | Push 指向全部必需文件、模板版本的完整候选；随后 Get/Apply | Push 不替换运行配置，Apply 使用同一引用图和候选内部逻辑键 |
-| CFG-PATH-05 | UC-04-S02 | Push 修改 Service 的 Instance 或 Template 路径并 Apply | 返回 `RESTART_REQUIRED`；当前运行时仍使用旧 Service 引用，不立即切换 |
+| CFG-PATH-05 | UC-04-S02 | 变更 Deployment 对 Device/Task Instance 的选定版本 | 可安全应用的完整任务闭包热更新，否则等待重启 |
 | CFG-PATH-06 | UC-04-S03 | 进程在 CURRENT 切换前后崩溃、重启；来源目录另有同名文件 | 恢复只按已提交 manifest 引用图加载，绝不回退或混读外部目录 |
 | CFG-PATH-07 | UC-04-S02 | 在不同目录准备两个 Template 仓库，分别由两份 Service 配置显式绑定；Instance 保持相同型号 ID/版本 | 只解析 Service 明确指定的仓库；精确 ID/版本校验，不读取其他仓库同名模板 |
 | CFG-PATH-08 | UC-08-S02 | 在 `devices.yaml` 中错误增加 Template 根目录字段，或在 Service 中写入 `{pathname: ...}` 包裹结构、遗漏 Template 路径 | 严格 Schema 拒绝重复/缺失来源，不能回退到 Instance 声明或默认路径 |

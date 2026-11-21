@@ -2919,7 +2919,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # config_sources.instances.sinks — Sink 实例文件；configs/instances/*.yaml。
 # config_sources.instances.deliveries — Delivery 实例文件；configs/instances/*.yaml；
 #   必须与 sinks 文件路径不同。
-# config_sources.templates.root — 模板根目录；configs/templates 或其子目录。
+# 模板按 Instance 中固定 ID/版本引用，由 Deployment 所选闭包解析。
 #   路径均相对 config_root；不得包含 ../、符号链接或越界路径。
 #   模板按准确 ID/版本引用，不扫描目录或使用隐式默认来源。
 #
@@ -3023,10 +3023,8 @@ deployment_id: prod-a
 config_root: /etc/wind-hub
 config_sources:
   instances:
-    sinks: configs/instances/sinks.yaml
-    deliveries: configs/instances/deliveries.yaml
-  templates:
-    root: configs/templates
+    sinks: sinks-main
+    deliveries: deliveries-main
 
 grpc:
   listen_host: 127.0.0.1

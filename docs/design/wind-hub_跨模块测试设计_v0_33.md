@@ -317,7 +317,7 @@ configs/
 | 五设备 | `instances/devices_sim.yaml` + 准确型号与点表 | WTG/PV/BESS/GRID/PPC_SIM01；源 Modbus 端口 15021～15025 |
 | Generator | `services/data-generator-sim.example.yaml` | Scenario `wind-plant-physical`、5 设备、0.05 s 步长；确定性场景由合法 Service 场景版本表达 |
 | Gateway 源 | `services/industrial_gateway-sim.example.yaml` | gRPC 50073，五 Server；仅 PPC 配置工业控制映射；验证内网路由、访问令牌与控制权限 |
-| Collector | `services/collector.yaml`、`templates/tasks/` | 当前仍引用真实 `devices.yaml`；必须建立隔离模拟 Service 和合法采样任务 |
+| Collector | `services/collector.yaml`、`instances/collector_tasks.yaml` | 当前仍引用真实 `devices.yaml`；必须建立隔离模拟 Service 和合法采样任务 |
 | Sink | `services/sink_service.yaml`、`instances/sinks.yaml`、`instances/deliveries.yaml` | 现有过滤为 WT001/WT002，地址属示例；测试使用隔离实例与四种目标，不能误写真实目标 |
 | Sink→Gateway | `templates/sinks/gateway_realtime_v1.0.0.yaml` | 正式 GatewayOutput、target_mappings、内网访问授权 凭据、独立变量与租约 |
 | Commander | `services/commander.yaml` | 模拟控制设备、Gateway 授权与请求身份一致 |

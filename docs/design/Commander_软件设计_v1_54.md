@@ -2556,7 +2556,7 @@ Commander 专属服务配置为 `configs/services/commander.yaml`。服务配置
 |---|---|---|
 | `commander.yaml` | 服务专属：网络、安全、调度、SQLite、审计及配置入口 | 启动参数明确传入服务配置路径；服务级变更需要重启 |
 | `config_sources.instances.devices` | 直接依赖的共享设备实例文件 | 显式 pathname；设备级安全热更新 |
-| `config_sources.templates.root` | 直接依赖的共享模板定位根目录 | 显式 pathname；作为实例引用的解析边界 |
+| 模板间接依赖 | Instance 中固定的模板身份及版本 | 按 Deployment 有效闭包解析，不允许 Service 直接声明模板根目录 |
 | 设备型号、协议、点表、业务点和单位模板 | 通过实例和模板引用链到达的间接依赖 | 仅按引用 ID、精确版本及 Core 规则解析，不重复声明路径 |
 
 设备实例 `model: {id, version}` 指向设备型号；型号引用 `protocol` 和 `point_table` 等版本化模板。Commander 只消费控制所需的协议、点表和设备信息，不执行采集任务；间接加载的文件必须属于已声明模板根目录，不得搜索隐式默认目录或回退为“最新版”。
@@ -2576,9 +2576,7 @@ file_version: "1.0.0"                  # 必填；MAJOR.MINOR.PATCH 字符串
 
 config_sources:
   instances:
-    devices: configs/instances/devices.yaml # 必填：直接使用的设备实例文件 pathname
-  templates:
-    root: configs/templates                 # 必填：模板解析根目录 pathname
+    devices: devices-farm-a # 必填：直接使用的设备实例文件 pathname
 
 grpc:
   listen_host: "0.0.0.0"               # 监听地址
