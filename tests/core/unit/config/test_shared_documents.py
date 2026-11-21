@@ -6,6 +6,7 @@ from pathlib import Path
 from shutil import copytree
 
 import pytest
+import yaml
 
 from core.application.errors import ConfigError
 from core.configuration.shared_documents import (
@@ -20,8 +21,8 @@ def _paths() -> SharedConfigPaths:
     return SharedConfigPaths(
         instances=_CONFIGS / "instances",
         templates=_CONFIGS / "templates",
-        site_file=_CONFIGS / "instances" / "site.yaml",
-        devices_file=_CONFIGS / "instances" / "devices.yaml",
+        site_file=_CONFIGS / "instances" / "site_example_site_v1.1.0.yaml",
+        devices_file=_CONFIGS / "instances" / "device_farm-a_v1.4.0.yaml",
     )
 
 
@@ -50,7 +51,7 @@ def test_shared_loader_requires_explicit_devices_and_site_files(tmp_path: Path) 
     site_only = SharedConfigPaths(
         instances=tmp_path,
         templates=_CONFIGS / "templates",
-        site_file=tmp_path / "site.yaml",
+        site_file=tmp_path / "site_example_site_v1.1.0.yaml",
     )
     with pytest.raises(ConfigError, match="devices_file must be provided explicitly"):
         SharedDocumentLoader(site_only).load()
@@ -60,7 +61,7 @@ def test_shared_loader_requires_explicit_devices_and_site_files(tmp_path: Path) 
             SharedConfigPaths(
                 instances=tmp_path,
                 templates=_CONFIGS / "templates",
-                devices_file=tmp_path / "devices.yaml",
+                devices_file=tmp_path / "device_farm-a_v1.4.0.yaml",
             )
         ).load()
 
@@ -78,9 +79,11 @@ def test_shared_loader_requires_explicit_devices_and_site_files(tmp_path: Path) 
 def test_shared_loader_rejects_invalid_file_version(tmp_path: Path) -> None:
     instances = tmp_path / "instances"
     copytree(_CONFIGS / "instances", instances)
-    site = instances / "site.yaml"
+    site = instances / "site_example_site_v1.1.0.yaml"
+    document = yaml.safe_load(site.read_text(encoding="utf-8"))
+    document["file_version"] = "latest"
     site.write_text(
-        site.read_text(encoding="utf-8").replace("file_version: 1.0.0", "file_version: latest"),
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
     loader = SharedDocumentLoader(
@@ -88,7 +91,7 @@ def test_shared_loader_rejects_invalid_file_version(tmp_path: Path) -> None:
             instances=instances,
             templates=_CONFIGS / "templates",
             site_file=site,
-            devices_file=instances / "devices.yaml",
+            devices_file=instances / "device_farm-a_v1.4.0.yaml",
         )
     )
     with pytest.raises(ConfigError, match="file_version"):
