@@ -102,6 +102,15 @@ class _Fetcher:
     ) -> RepositoryDocument:
         return self.documents[version_id]
 
+    async def fetch_point_table_bundle(
+        self, *, point_table_id: str, expected_manifest_sha256: str = ""
+    ) -> tuple[RepositoryDocument, ...]:
+        for document in self.documents.values():
+            raw = yaml.safe_load(document.yaml_bytes)
+            if f"point_table_{document.config_id}_v{raw['file_version']}" == point_table_id:
+                return (document,)
+        raise ConfigHistoryUnavailableError("historical PointTable not found")
+
 
 def _resolver(
     directory: Path,
