@@ -7,21 +7,68 @@ import hashlib
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import grpc
 import nats
+import yaml
 
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
 from core.configuration.deployment import closure_sha256
 from core.configuration.publication_identity import resolve_publication_identity
-from core.infrastructure.config.generic_yaml import parse_yaml
 
 _LOG = logging.getLogger(__name__)
 _MAX_FILES = 1024
 _MAX_BYTES = 32 * 1024 * 1024
+
+class _PublishedLoader(yaml.SafeLoader):
+    """Match the Repository's YAML 1.2 scalar and duplicate-key semantics."""
+
+    yaml_implicit_resolvers = {
+        key: [
+            (tag, pattern)
+            for tag, pattern in resolvers
+            if tag not in ("tag:yaml.org,2002:bool", "tag:yaml.org,2002:timestamp")
+        ]
+        for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    }
+
+
+_PublishedLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$"),
+    list("tTfF"),
+)
+
+
+def _published_mapping(loader: _PublishedLoader, node: yaml.MappingNode) -> dict[str, object]:
+    values: dict[str, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if not isinstance(key, str) or key in values:
+            raise ValueError("invalid or duplicate published YAML key")
+        values[key] = loader.construct_object(value_node, deep=True)
+    return values
+
+
+_PublishedLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _published_mapping
+)
+
+
+def _published_yaml(raw: bytes) -> dict[str, object]:
+    """Load the same exact semantic data used to sign immutable publications."""
+    source = raw.decode("utf-8", errors="strict")
+    if any(isinstance(event, yaml.AliasEvent) for event in yaml.parse(source)):
+        raise ValueError("published YAML aliases are forbidden")
+    documents = list(yaml.load_all(source, Loader=_PublishedLoader))
+    if len(documents) != 1 or not isinstance(documents[0], dict):
+        raise ValueError("published YAML must have one mapping")
+    return documents[0]
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +102,7 @@ def verify_selected_bundle(
             manifest.update(encoded)
         if hashlib.sha256(raw).hexdigest() != item.yaml_sha256:
             raise ValueError("configuration file content hash mismatch")
-        payload = parse_yaml(raw.decode("utf-8", errors="strict"))
+        payload = _published_yaml(raw)
         if not isinstance(payload, dict) or (
             payload.get("schema_version") != item.schema_version
             or payload.get("file_version") != item.file_version
@@ -80,7 +127,7 @@ def verify_selected_bundle(
     selected = [
         path for path, content in files.items()
         if path.startswith("services/")
-        and resolve_publication_identity(path, parse_yaml(content.decode("utf-8"))).config_id
+        and resolve_publication_identity(path, _published_yaml(content)).config_id
         == service_id
     ]
     if len(selected) != 1:
@@ -107,6 +154,10 @@ class DeploymentObserver:
             raise ValueError("invalid configuration reconcile interval")
         self.deployment_id = deployment_id
         self.service_id = service_id
+        # Bearer credentials are never sent over remote cleartext connections.
+        host = endpoint.rsplit(":", 1)[0].strip("[]")
+        if host not in {"127.0.0.1", "::1", "localhost"}:
+            raise ValueError("Configuration Repository bearer transport must be loopback")
         self.endpoint = endpoint
         self.token_env = token_env
         self.nats_servers = nats_servers
