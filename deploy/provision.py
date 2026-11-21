@@ -52,7 +52,10 @@ def _commands(name: str, service_files: dict[str, str]) -> list[str]:
             str(PORTS[name]),
         ]
     if name == "sink":
-        return ["sink_service.main", "--config-root", "/etc/wind-hub"]
+        return [
+            "sink_service.main", "--config-root", "/etc/wind-hub",
+            "--service-file", f"configs/services/{service_files[name]}",
+        ]
     return ["commander", "--config", service]
 
 
