@@ -13,7 +13,6 @@ import yaml
 from storage_service.application.config import (
     DeviceBinding,
     DeviceModel,
-    FixedConfigSource,
     load_storage_config,
 )
 from storage_service.application.ingestion import (
@@ -299,21 +298,6 @@ def _repository_document(
     )
 
 
-def _config_sources() -> list[FixedConfigSource]:
-    return [
-        FixedConfigSource(config_type="device_model", config_id="model", file_version="1.0.0"),
-        FixedConfigSource(
-            config_type="device",
-            config_id="fleet",
-            file_version="1.0.0",
-            site_config_id="site",
-            site_id="farm-1",
-            site_file_version="1.0.0",
-        ),
-        FixedConfigSource(config_type="site", config_id="site", file_version="1.0.0"),
-    ]
-
-
 def _raw_closure(
     *,
     table_template: str = "shared",
@@ -381,54 +365,31 @@ def _raw_closure(
 @pytest.mark.parametrize(
     ("changes", "expected"),
     [
-        ({"instance_model_version": "9.9.9"}, "DeviceModel version is absent"),
-        ({"model_table_version": "9.9.9"}, "PointTable version is absent"),
-        ({"table_device_type": "photovoltaic"}, "device_type disagrees"),
+        ({"instance_model_version": "9.9.9"}, "device references absent fixed DeviceModel"),
+        ({"model_table_version": "9.9.9"}, "pinned PointTable is absent"),
+        ({"table_device_type": "photovoltaic"}, "device_type conflicts"),
         ({"table_template": "other"}, "PointTable document identity"),
-        ({"site_payload_id": "other"}, "Site document identity"),
-        ({"site_document_version": "2.0.0"}, "Site document identity"),
+        ({"site_document_version": "2.0.0"}, "selected Site identity"),
     ],
 )
 def test_bundle_rejects_incomplete_or_mismatched_device_closure(
-    changes: dict[str, str | None], expected: str
+    changes: dict[str, str], expected: str
 ) -> None:
     with pytest.raises(ConfigHistoryUnavailableError, match=expected):
-        _parse_device_closure(_raw_closure(**changes), _config_sources())
-
-
-def test_device_source_cannot_implicitly_bind_an_undeclared_site() -> None:
-    sources = [source for source in _config_sources() if source.config_type != "site"]
-
-    with pytest.raises(ConfigHistoryUnavailableError, match="independent exact Site ConfigSource"):
-        _parse_device_closure(_raw_closure(), sources)
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        FixedConfigSource(config_type="site", config_id="farm-1", file_version="1.0.0"),
-        FixedConfigSource(config_type="device_model", config_id="model", file_version="1.0.0"),
-    ],
-)
-def test_only_device_source_accepts_site_fields(source: FixedConfigSource) -> None:
-    with pytest.raises(ValueError, match="only valid for device"):
-        FixedConfigSource.model_validate(
-            {
-                **source.model_dump(),
-                "site_config_id": "site",
-                "site_id": "farm-1",
-                "site_file_version": "1.0.0",
-            }
+        _parse_device_closure(
+            _raw_closure(**changes), site_id="site", devices_id="fleet"
         )
 
 
-def test_device_source_requires_site_fields() -> None:
-    with pytest.raises(ValueError, match="requires site_config_id/site_id/site_file_version"):
-        FixedConfigSource(config_type="device", config_id="fleet", file_version="1.0.0")
+def test_deployment_missing_selected_instance_rejected() -> None:
+    with pytest.raises(ConfigHistoryUnavailableError, match="missing or ambiguous"):
+        _parse_device_closure(
+            _raw_closure(), site_id="unknown", devices_id="fleet"
+        )
 
 
 def test_bundle_retains_multiple_instances_from_one_versioned_device_document() -> None:
-    points, bindings = _parse_device_closure(_raw_closure(), _config_sources())
+    points, bindings = _parse_device_closure(_raw_closure(), site_id="site", devices_id="fleet")
 
     assert points == {TABLE: ("shared", "point_table-1.0.0")}
     assert {binding.device_id for binding in bindings} == {"WTG01", "WTG02"}
@@ -440,24 +401,6 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
 ) -> None:
     config = load_storage_config(
         (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
-    )
-    config = config.model_copy(
-        update={
-            "config_sources": [
-                FixedConfigSource(
-                    config_type="device_model", config_id="model", file_version="1.0.0"
-                ),
-                FixedConfigSource(
-                    config_type="device",
-                    config_id="fleet",
-                    file_version="1.0.0",
-                    site_config_id="site",
-                    site_id="farm-1",
-                    site_file_version="1.0.0",
-                ),
-                FixedConfigSource(config_type="site", config_id="site", file_version="1.0.0"),
-            ]
-        }
     )
     tables = {
         TABLE: ("shared", "pin-1.0.0"),
@@ -472,6 +415,8 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
         StorageBundle(
             configuration=config,
             revision_id=2,
+            deployment_id="prod-a",
+            target_revision="a" * 64,
             point_table_versions=tables,
             business_points_pin=None,
             device_bindings=bindings,
