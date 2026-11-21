@@ -106,11 +106,19 @@ def test_own_bootstrap_cannot_be_admitted_to_repository(
     app: ConfigurationApplication,
 ) -> None:
     path = BOOTSTRAP
+    # Rebase the real shipped bootstrap document onto the test application's
+    # own service id so publication identity resolution succeeds and the
+    # admission guard itself is exercised (local bootstrap stays outside the
+    # repository, regardless of its service id).
+    source_bytes = path.read_bytes().replace(
+        b"service_id: configuration-main",
+        b"service_id: configuration-test",
+    )
     item = DocumentInput(
         identity=ConfigIdentity("service", "configuration-test"),
-        file_name=path.name,
-        yaml_bytes=path.read_bytes(),
-        relative_path="services/service_configuration_v1.0.0.yaml",
+        file_name="service_configuration-test_v1.1.0.yaml",
+        yaml_bytes=source_bytes,
+        relative_path="services/service_configuration-test_v1.1.0.yaml",
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.create_candidate(

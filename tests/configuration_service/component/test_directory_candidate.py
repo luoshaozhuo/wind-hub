@@ -51,9 +51,11 @@ def test_rejects_duplicate_logical_file_version(
 def test_rejects_configuration_service_bootstrap_in_full_root(
     app: ConfigurationApplication,
 ) -> None:
+    # The filename identity must agree with service_id before preparation can
+    # reach the bootstrap guard; the test app owns the "configuration-test" id.
     bootstrap = DirectoryFile(
-        "services/service_configuration_v1.0.0.yaml",
-        b"schema_version: 1\nfile_version: 1.0.0\n" b"service_id: configuration-main\n",
+        "services/service_configuration-test_v1.0.0.yaml",
+        b"schema_version: 1\nfile_version: 1.0.0\n" b"service_id: configuration-test\n",
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.prepare_directory((bootstrap,))

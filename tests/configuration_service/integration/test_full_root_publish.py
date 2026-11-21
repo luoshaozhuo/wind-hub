@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 def _full_root(live: LiveConfiguration) -> Path:
     directory = live.root / "configs"
     (directory / "templates/point_tables").mkdir(parents=True)
-    for filename in ("units_standard.yaml", "business_points_standard.yaml"):
+    for filename in ("units_standard_v1.2.0.yaml", "business_points_standard_v1.4.0.yaml"):
         shutil.copyfile(
             PROJECT_ROOT / "configs/templates" / filename,
             directory / "templates" / filename,

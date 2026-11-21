@@ -28,7 +28,8 @@ def test_existing_commander_caller_array_is_admitted_and_reconstructed(
     revision, _ = publish_documents(app, documents, request_id="caller-array")
     item = input_for(ROOT / "configs/services/service_commander_v1.4.0.yaml")
     version_id = app.repository.resolve_version(
-        item.identity, original_file_version(ROOT / "configs/services/service_commander_v1.4.0.yaml")
+        item.identity,
+        original_file_version(ROOT / "configs/services/service_commander_v1.4.0.yaml"),
     )
     restored = app.get_config(item.identity, version_id=version_id)
     source = (ROOT / "configs/services/service_commander_v1.4.0.yaml").read_bytes()
@@ -50,7 +51,9 @@ def test_invalid_legacy_template_root_is_rejected(app: ConfigurationApplication,
         "1.0.0",
         config_sources={"templates": {"root": root}},
     )
-    with pytest.raises((ValueError, RepositoryConflictError), match="root|templates"):
+    with pytest.raises(
+        (ValueError, RepositoryConflictError), match="root|templates|instances only"
+    ):
         app.create_candidate(
             actor_id="publisher",
             request_id=f"unsafe-root-{root}",
@@ -72,6 +75,7 @@ def register_nested_schema(app: ConfigurationApplication) -> None:
             "properties": {
                 "schema_version": {"type": "integer"},
                 "file_version": {"type": "string"},
+                "service_id": {"type": "string"},
                 "security": {
                     "type": "object",
                     "required": ["callers"],
@@ -159,6 +163,7 @@ def test_array_schema_without_items_fails_closed(app: ConfigurationApplication) 
             "properties": {
                 "schema_version": {"type": "integer"},
                 "file_version": {"type": "string"},
+                "service_id": {"type": "string"},
                 "servers": {"type": "array"},
             },
             "required": ["schema_version", "file_version", "servers"],

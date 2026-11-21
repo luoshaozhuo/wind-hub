@@ -42,7 +42,7 @@ def test_template_root_and_direct_version_are_forbidden() -> None:
             },
             INSTANCE_ROLE_TYPES,
         )
-    with pytest.raises(ValueError, match="identity|invalid"):
+    with pytest.raises(ValueError, match="identifier"):
         service_instance_refs(
             {"config_sources": {"instances": {"devices": "farm-a@1.4.0"}}},
             INSTANCE_ROLE_TYPES,
@@ -55,12 +55,8 @@ def test_deployment_selects_exact_device_version() -> None:
             "schema_version": 1,
             "file_version": "1.0.0",
             "deployment_id": "test",
-            "services": {
-                "gateway": {"config_id": "gateway", "file_version": "1.0.0"}
-            },
-            "instances": {
-                "device": {"farm-a": {"file_version": "1.4.0"}}
-            },
+            "services": {"gateway": {"config_id": "gateway", "file_version": "1.0.0"}},
+            "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
         }
     )
     assert manifest.instances[("device", "farm-a")].file_version == "1.4.0"

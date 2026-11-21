@@ -106,7 +106,9 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     # A second revision keeps the immutable v1 next to the new v2 in the root.
     root_v2 = _task_root(live, ("1.0.0", "2.0.0"))
     live.cli("config", "publish", "--root", str(root_v2))
-    versions_after = live.cli("config", "versions", "collector_tasks", "cli", "--include-deprecated")
+    versions_after = live.cli(
+        "config", "versions", "collector_tasks", "cli", "--include-deprecated"
+    )
     version_ids = [item["version_id"] for item in versions_after["data"]["versions"]]
     assert len(version_ids) == 2
     version2 = next(
@@ -161,14 +163,14 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     assert backup_replay["data"]["task_id"] == task_id
     for _ in range(100):
         task = live.cli("config", "backup-status", task_id)
-        if task["data"]["collector_tasks"]["state"] in {
+        if task["data"]["task"]["state"] in {
             "BACKUP_STATE_SUCCEEDED",
             "BACKUP_STATE_FAILED",
         }:
             break
         time.sleep(0.05)
-    assert task["data"]["collector_tasks"]["state"] == "BACKUP_STATE_SUCCEEDED"
-    assert task["data"]["collector_tasks"]["integrity_verified"] is True
+    assert task["data"]["task"]["state"] == "BACKUP_STATE_SUCCEEDED"
+    assert task["data"]["task"]["integrity_verified"] is True
 
     point_root = _point_table_root(live)
     live.cli("config", "publish", "--root", str(point_root))

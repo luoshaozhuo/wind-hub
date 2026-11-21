@@ -19,16 +19,16 @@ SUBJECT = "wh.config.changed"
 
 
 def _root(live: LiveConfiguration) -> Path:
+    # Task Templates were retired; publish a versioned collector_tasks Instance.
     directory = live.root / "nats-root"
-    tasks = directory / "templates/tasks"
-    tasks.mkdir(parents=True, exist_ok=True)
-    (tasks / "task_nats_v1.0.0.yaml").write_text(
+    instances = directory / "instances"
+    instances.mkdir(parents=True, exist_ok=True)
+    (instances / "collector_tasks_nats_v1.0.0.yaml").write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
-                "template_id": "nats",
-                "point_group": "nats",
+                "tasks": {},
             },
             sort_keys=False,
         ),

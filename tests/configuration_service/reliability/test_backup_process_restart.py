@@ -60,15 +60,15 @@ def test_full_root_publish_survives_real_process_restarts(tmp_path) -> None:
     live.cli("service", "start", "configuration", "--yes")
     try:
         root = tmp_path / "restart-root"
-        tasks = root / "templates/tasks"
-        tasks.mkdir(parents=True)
-        (tasks / "task_restart_v1.0.0.yaml").write_text(
+        # Task Templates were retired; publish a versioned collector_tasks Instance.
+        instances = root / "instances"
+        instances.mkdir(parents=True)
+        (instances / "collector_tasks_restart_v1.0.0.yaml").write_text(
             yaml.safe_dump(
                 {
                     "schema_version": 1,
                     "file_version": "1.0.0",
-                    "template_id": "restart",
-                    "point_group": "restart",
+                    "tasks": {},
                 },
                 sort_keys=False,
             ),

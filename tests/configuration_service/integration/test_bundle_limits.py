@@ -72,13 +72,15 @@ async def publish(
 async def publish_dependency_pair(repository: object) -> None:
     # Pad both documents so their byte size stays above the 1024-byte minimum
     # enforced for configured bundle quotas, keeping exact-boundary tests legal.
-    padding = {"point_group": "p" * 1200}
+    # The padding lives inside the schema-known tasks mapping; unknown top-level
+    # fields are rejected by the strict collector_tasks schema.
+    padding = {"tasks": {"pad": "p" * 1200}}
     root = document("root", "1.0.0", **padding)
     await publish(repository, [root], request_id="root", expected_revision=0)
     dependent = document("dependent", "1.0.0", **padding)
     payload = yaml.safe_load(dependent.yaml_bytes)
     payload["config_sources"] = [
-        {"config_type": "task", "config_id": "root", "file_version": "1.0.0"}
+        {"config_type": "collector_tasks", "config_id": "root", "file_version": "1.0.0"}
     ]
     dependent.yaml_bytes = yaml.safe_dump(payload).encode()
     # Full-directory snapshots restate the pinned root in the same revision.
@@ -91,7 +93,7 @@ async def publish_dependency_pair(repository: object) -> None:
 
 
 def identity(config_id: str) -> pb.ConfigId:
-    return pb.ConfigId(config_type="task", config_id=config_id)
+    return pb.ConfigId(config_type="collector_tasks", config_id=config_id)
 
 
 @pytest.mark.asyncio
@@ -103,7 +105,7 @@ async def test_single_document_export_limit_is_resource_exhausted(
     try:
         oversized = document("oversized", "1.0.0")
         payload = yaml.safe_load(oversized.yaml_bytes)
-        payload["point_group"] = "x" * 1500
+        payload["tasks"] = {"pad": "x" * 1500}
         oversized.yaml_bytes = yaml.safe_dump(payload).encode()
         await publish(repository, [oversized], request_id="oversized", expected_revision=0)
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
