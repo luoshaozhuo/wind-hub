@@ -163,6 +163,10 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert "manager" not in gateway
         assert payload["tls_profiles"]["local"]["client_key"] == "/etc/wind-hub/certs/cli.key"
     assert "manager" not in payload["services"]["collector"]
+    if mode == "process":
+        assert payload["services"]["sink"]["process"]["argv"][-2:] == [
+            "--service-file", "configs/services/service_sink-west_v1.0.0.yaml"
+        ]
 
 
 def test_render_rejects_malformed_nested_config(tmp_path: Path, scripts: SimpleNamespace) -> None:
@@ -206,7 +210,10 @@ def test_compose_collector_identity_and_tls_match_native_contract(
         assert command[command.index("--collector-id") + 1] == expected
         assert command[command.index("--state-directory") + 1].endswith(expected)
         environment = row["environment"]
-        assert set(environment) == scripts.render.COLLECTOR_ENV_KEYS
+        assert set(environment) == scripts.render.COLLECTOR_ENV_KEYS | {
+            "WIND_HUB_DEPLOYMENT_ID",
+            "WIND_HUB_DEPLOYMENT_VERSION",
+        }
 
 
 def test_render_rejects_group_readable_private_key(
