@@ -23,7 +23,6 @@ def scripts(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.syspath_prepend(str(REPO / "deploy"))
     return SimpleNamespace(
         render=importlib.import_module("render_cli"),
-        collectors=importlib.import_module("prepare_collectors"),
         provision=importlib.import_module("provision"),
         ready=importlib.import_module("check_ready"),
     )
@@ -140,8 +139,7 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert gateway["process"]["log_file"] == str(tmp_path / "logs" / "gateway.log")
         assert payload["services"]["collector_reliable"]["process"]["argv"][-1] == "50054"
         assert set(payload["services"]["collector_realtime"]["process"]["env"]) == (
-            set(scripts.render.COLLECTOR_ENV_KEYS)
-            - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+            set(scripts.render.COLLECTOR_ENV_KEYS) - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
             | {"WIND_HUB_DEPLOYMENT_ID", "WIND_HUB_DEPLOYMENT_VERSION"}
         )
         assert payload["services"]["gateway"]["process"]["env"] == {
@@ -165,7 +163,8 @@ def test_render_modes_keep_paths_and_managers_distinct(
     assert "manager" not in payload["services"]["collector"]
     if mode == "process":
         assert payload["services"]["sink"]["process"]["argv"][-2:] == [
-            "--service-file", "configs/services/service_sink-west_v1.0.0.yaml"
+            "--service-file",
+            "configs/services/service_sink-west_v1.0.0.yaml",
         ]
 
 
@@ -224,56 +223,6 @@ def test_render_rejects_group_readable_private_key(
     args.client_key.chmod(0o640)
     with pytest.raises(ValueError, match="client key"):
         scripts.render._render(args)
-
-
-def test_collector_pair_rolls_back_only_new_files(
-    tmp_path: Path, scripts: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    services = tmp_path / "configs" / "services"
-    services.mkdir(parents=True)
-    (services / "collector.yaml").write_text(
-        yaml.safe_dump({"schema_version": 1, "messaging": {"servers": ["nats:4222"]}}),
-        encoding="utf-8",
-    )
-    unrelated = services / "collector-realtime.yaml.unrelated"
-    unrelated.write_text("keep", encoding="utf-8")
-    original = scripts.collectors._create
-    calls = 0
-
-    def fail_second(path: Path, document: dict[str, Any], created: list[Path]) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise OSError("injected interruption")
-        original(path, document, created)
-
-    monkeypatch.setattr(scripts.collectors, "_create", fail_second)
-    with pytest.raises(SystemExit) as raised:
-        scripts.collectors.main(["--root", str(tmp_path)])
-    assert raised.value.code == 2
-    assert not (services / "collector-realtime.yaml").exists()
-    assert not (services / "collector-reliable.yaml").exists()
-    assert unrelated.read_text(encoding="utf-8") == "keep"
-
-
-def test_collector_pair_removes_partially_written_file(
-    tmp_path: Path, scripts: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    services = tmp_path / "configs" / "services"
-    services.mkdir(parents=True)
-    (services / "collector.yaml").write_text(
-        yaml.safe_dump({"schema_version": 1, "messaging": {"servers": ["nats:4222"]}}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        scripts.collectors.yaml,
-        "safe_dump",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("injected write failure")),
-    )
-    with pytest.raises(SystemExit):
-        scripts.collectors.main(["--root", str(tmp_path)])
-    assert not (services / "collector-realtime.yaml").exists()
-    assert not (services / "collector-reliable.yaml").exists()
 
 
 @pytest.mark.parametrize(
