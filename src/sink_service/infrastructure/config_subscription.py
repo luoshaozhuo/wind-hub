@@ -82,6 +82,9 @@ class ConfigurationSubscriber:
     def __init__(self, manager: ConfigManager, service: dict[str, Any]) -> None:
         sync = service["config_sync"]
         self._endpoint: str = sync["repository_endpoint"]
+        host = self._endpoint.rsplit(":", 1)[0].strip("[]")
+        if host not in {"127.0.0.1", "::1", "localhost"}:
+            raise ConfigurationError("Bearer Repository endpoint must be loopback")
         self._token_ref: str = sync["repository_token_ref"]
         self._servers: list[str] = list(service["nats"]["servers"])
         self._interval: int = sync.get("poll_interval_seconds", 30)
