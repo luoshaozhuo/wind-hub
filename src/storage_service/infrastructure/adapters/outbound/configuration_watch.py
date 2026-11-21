@@ -96,9 +96,6 @@ class StorageConfigurationWatcher:
         revision = await self._client.get_current_revision()
         if revision < self.repository_revision_id:
             raise ConfigHistoryUnavailableError("Configuration publication cursor moved backwards")
-        if revision == self.repository_revision_id and self.target_revision == self.active_revision:
-            self.status = "READY"
-            return
         updated = await self._client.fetch_service_bundle(
             deployment_id=self._deployment_id, service_id=self._service_id
         )
