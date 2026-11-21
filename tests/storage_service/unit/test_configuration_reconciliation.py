@@ -588,9 +588,7 @@ async def test_unrelated_repository_revision_does_not_rewrite_storage_snapshot(
     )
     active = _bundle(7, pins)
     client = _Client(_bundle(8, pins))
-    watcher, metadata, snapshot = _watcher(
-        client=client, resolver=resolver, active=active
-    )
+    watcher, metadata, snapshot = _watcher(client=client, resolver=resolver, active=active)
 
     await watcher.refresh_now()
 
