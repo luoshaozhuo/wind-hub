@@ -198,9 +198,13 @@ class _Metadata:
 class _Snapshot:
     def __init__(self) -> None:
         self.stored: list[StorageBundle] = []
+        self.pending: list[StorageBundle] = []
 
     def store(self, bundle: StorageBundle) -> None:
         self.stored.append(bundle)
+
+    def store_target(self, bundle: StorageBundle) -> None:
+        self.pending.append(bundle)
 
 
 class _Client:
@@ -426,6 +430,7 @@ async def test_restart_required_keeps_verified_old_closure(tmp_path: Path) -> No
     await watcher.refresh_now()
     assert watcher.status == "RESTART_REQUIRED"
     assert watcher.target_revision != watcher.active_revision
+    assert [bundle.revision_id for bundle in snapshot.pending] == [2]
     assert metadata.pins == {}
     assert snapshot.stored == []
     await resolver.require_exact_versions([_sample(OLD)])
