@@ -66,6 +66,13 @@ class CollectorConfigurationManager:
         self._errors: dict[str, str] = {}
         self._committed: OrderedDict[str, tuple[str, ConfigurationStatus]] = OrderedDict()
 
+    @staticmethod
+    def _service_key(files: dict[str, bytes]) -> str:
+        matches = [name for name in files if name.startswith("services/service_")]
+        if len(matches) != 1:
+            raise SnapshotConflictError("Collector generation must contain one Service")
+        return matches[0]
+
     def active_paths(self) -> SnapshotPaths:
         return self._repository.active_paths()
 
@@ -118,8 +125,8 @@ class CollectorConfigurationManager:
                 validate=self._validate,
             )
             files = await asyncio.to_thread(self._repository.read_generation, result.revision)
-            current_service = self._runtime_files.get("services/collector.yaml")
-            next_service = files["services/collector.yaml"]
+            current_service = self._runtime_files.get(self._service_key(files))
+            next_service = files[self._service_key(files)]
             self._restart_pending = bool(
                 current_service is not None
                 and self._restart_required(current_service, next_service)
@@ -152,6 +159,7 @@ class CollectorConfigurationManager:
                 templates=result.paths.templates,
                 site=result.paths.site,
                 devices=result.paths.devices,
+                tasks=result.paths.tasks,
             )
             try:
                 self._errors = await self._runtime.converge(effective_paths, target_revision)
@@ -188,7 +196,7 @@ class CollectorConfigurationManager:
                 return self.status()
             files, active_paths = await asyncio.to_thread(self._read_retry_material, revision)
             if self._restart_pending and self._runtime_service_path is not None:
-                files["services/collector.yaml"] = self._runtime_files["services/collector.yaml"]
+                files["services/collector.yaml"] = self._runtime_files[self._service_key(self._runtime_files)]
             effective = SnapshotPaths(
                 service=(
                     self._runtime_service_path
@@ -199,6 +207,7 @@ class CollectorConfigurationManager:
                 templates=active_paths.templates,
                 site=active_paths.site,
                 devices=active_paths.devices,
+                tasks=active_paths.tasks,
             )
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision
