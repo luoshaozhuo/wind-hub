@@ -1,14 +1,14 @@
-# 仿真 电网 Modbus TCP 共享点表；仅定义地址/编码，不存放仿真额定参数。
+# 仿真 储能 Modbus TCP 共享点表；仅定义地址/编码，不存放仿真额定参数。
 # 版本化模板。新仿真设备实例单独登记，不复用真实现场点表。
 # input 只读，holding 仅为允许外部控制的模型输入；非控制内部状态不得外写。
 # 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
 schema_version: 1
-template_id: modbus_grid_sim
-file_version: 1.0.0
+template_id: modbus_bess_sim
+file_version: "1.1.0"
 protocol: modbus
 points:
-  grid_frequency:
-    business_point_id: grid_frequency
+  soc:
+    business_point_id: battery_soc
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -16,12 +16,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: hertz
+    unit: percent
     scale: 1.0
     offset: 0.0
-    description: "电网频率"
-  frequency_deviation:
-    business_point_id: frequency_deviation
+    description: "电池实际荷电状态"
+  soh:
+    business_point_id: battery_soh
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -29,12 +29,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: hertz
+    unit: percent
     scale: 1.0
     offset: 0.0
-    description: "频率偏差"
-  frequency_rocof:
-    business_point_id: frequency_rocof
+    description: "电池健康状态"
+  stored_energy:
+    business_point_id: sim_stored_energy
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -42,12 +42,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: hertz_per_second
+    unit: watt_hour
     scale: 1.0
     offset: 0.0
-    description: "频率变化率"
-  grid_voltage:
-    business_point_id: grid_voltage
+    description: "电池当前储能"
+  available_charge_power:
+    business_point_id: sim_available_charge_power
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -55,12 +55,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: volt
+    unit: watt
     scale: 1.0
     offset: 0.0
-    description: "PCC线电压"
-  voltage_deviation:
-    business_point_id: sim_voltage_deviation
+    description: "当前允许充电功率"
+  available_discharge_power:
+    business_point_id: sim_available_discharge_power
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -68,12 +68,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: volt
+    unit: watt
     scale: 1.0
     offset: 0.0
-    description: "母线电压偏差"
-  grid_current:
-    business_point_id: grid_current
+    description: "当前允许放电功率"
+  battery_voltage:
+    business_point_id: battery_voltage
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -81,12 +81,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: ampere
+    unit: volt
     scale: 1.0
     offset: 0.0
-    description: "PCC交流电流"
-  sim_apparent_power:
-    business_point_id: apparent_power
+    description: "电池直流端电压"
+  battery_current:
+    business_point_id: battery_current
     point_groups: [all, measurement]
     address:
       register_type: input
@@ -94,16 +94,42 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: volt_ampere
+    unit: ampere
     scale: 1.0
     offset: 0.0
-    description: "三相视在功率"
+    description: "电池直流电流"
+  battery_loss:
+    business_point_id: sim_battery_loss
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 14
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "电池内阻损耗"
+  battery_temperature:
+    business_point_id: battery_temperature
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 16
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "电池温度"
   active_power:
     business_point_id: sim_active_power
     point_groups: [all, measurement]
     address:
       register_type: input
-      address: 14
+      address: 18
       count: 2
       slave_id: 1
     data_type: float32
@@ -116,7 +142,7 @@ points:
     point_groups: [all, measurement]
     address:
       register_type: input
-      address: 16
+      address: 20
       count: 2
       slave_id: 1
     data_type: float32
@@ -124,12 +150,25 @@ points:
     scale: 1.0
     offset: 0.0
     description: "实际交流无功"
+  pcs_current:
+    business_point_id: sim_pcs_current
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 22
+      count: 2
+      slave_id: 1
+    data_type: float32
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "PCS交流电流"
   sim_power_factor:
     business_point_id: power_factor
     point_groups: [all, measurement]
     address:
       register_type: input
-      address: 18
+      address: 24
       count: 2
       slave_id: 1
     data_type: float32
@@ -137,25 +176,38 @@ points:
     scale: 1.0
     offset: 0.0
     description: "交流功率因数"
-  grid_status:
-    business_point_id: sim_grid_status
+  pcs_status:
+    business_point_id: sim_pcs_status
     point_groups: [all, measurement]
     address:
       register_type: input
-      address: 20
+      address: 26
       count: 2
       slave_id: 1
     data_type: int32
     unit: none
     scale: 1.0
     offset: 0.0
-    description: "电网连接状态"
+    description: "PCS运行状态"
+  bms_status:
+    business_point_id: sim_bms_status
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 28
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "BMS运行状态"
   fault_status:
     business_point_id: sim_fault_status
     point_groups: [all, measurement]
     address:
       register_type: input
-      address: 22
+      address: 30
       count: 2
       slave_id: 1
     data_type: int32
@@ -163,8 +215,21 @@ points:
     scale: 1.0
     offset: 0.0
     description: "故障状态码"
-  grid_frequency_input:
-    business_point_id: sim_grid_frequency_input
+  control_result:
+    business_point_id: sim_control_result
+    point_groups: [all, measurement]
+    address:
+      register_type: input
+      address: 32
+      count: 2
+      slave_id: 1
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "上次控制执行结果"
+  soc_target:
+    business_point_id: sim_soc_target
     point_groups: [all, control]
     address:
       register_type: holding
@@ -172,12 +237,12 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: hertz
+    unit: percent
     scale: 1.0
     offset: 0.0
-    description: "外生频率扰动输入"
-  grid_voltage_source:
-    business_point_id: sim_grid_voltage_source
+    description: "目标SOC 非实际SOC"
+  active_power_setpoint:
+    business_point_id: sim_active_power_setpoint
     point_groups: [all, control]
     address:
       register_type: holding
@@ -185,20 +250,20 @@ points:
       count: 2
       slave_id: 1
     data_type: float32
-    unit: volt
+    unit: watt
     scale: 1.0
     offset: 0.0
-    description: "等值电源电压设定"
-  grid_connected:
-    business_point_id: sim_grid_connected
+    description: "外部有功需求"
+  reactive_power_setpoint:
+    business_point_id: sim_reactive_power_setpoint
     point_groups: [all, control]
     address:
       register_type: holding
       address: 4
-      count: 1
+      count: 2
       slave_id: 1
-    data_type: uint16
-    unit: none
+    data_type: float32
+    unit: var
     scale: 1.0
     offset: 0.0
-    description: "电网连接条件"
+    description: "外部无功需求"

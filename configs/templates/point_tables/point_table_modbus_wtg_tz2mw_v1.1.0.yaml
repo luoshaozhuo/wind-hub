@@ -9,7 +9,7 @@
 # 原始设备参数：3 台设备均为 TCP 502、modbus_uid=1；此处仅在点表中记录 slave_id=1。
 schema_version: 1
 template_id: modbus_wtg_tz2mw
-file_version: 1.0.0
+file_version: "1.1.0"
 protocol: modbus
 points:
   # 电网有功功率测量；源键 measured_power_S32；rw=Read；原始数据类型 int32。

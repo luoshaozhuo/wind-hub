@@ -9,7 +9,7 @@
 # 监测点不得包含命令选项；控制点的访问语义依赖 address.type 以 C_ 开头。
 schema_version: 1
 template_id: iec104_wtg
-file_version: 1.0.0
+file_version: "1.1.0"
 protocol: iec104
 points:
   active_power:

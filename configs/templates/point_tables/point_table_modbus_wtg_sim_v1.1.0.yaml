@@ -4,7 +4,7 @@
 # 32 位值占两个连续寄存器；word_order 由协议模板 modbus_tcp 指定。
 schema_version: 1
 template_id: modbus_wtg_sim
-file_version: 1.0.0
+file_version: "1.1.0"
 protocol: modbus
 points:
   wind_speed:
