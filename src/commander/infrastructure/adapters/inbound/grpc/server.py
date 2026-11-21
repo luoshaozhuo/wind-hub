@@ -411,6 +411,8 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
                 )
             ],
             observed_at=_timestamp(datetime.now(UTC)),
+            target_revision=self._boundary.service.target_revision,
+            active_revision=self._boundary.service.active_revision,
         )
 
     async def GetCapabilities(self, request: Any, context: Any) -> Any:

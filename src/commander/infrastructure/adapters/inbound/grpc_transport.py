@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from commander.infrastructure.adapters.inbound.grpc.server import register_servi
 from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
 from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
 from core.infrastructure.config import read_yaml
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 
 
 def _section(value: object, name: str) -> dict[str, Any]:
@@ -117,14 +119,27 @@ async def start_grpc(service: CommanderService, service_config: Path) -> grpc.ai
     return server
 
 
-async def run_grpc(service: CommanderService, service_config: Path) -> None:
-    """Start the application, serve gRPC and stop safely on cancellation."""
+async def run_grpc(
+    service: CommanderService,
+    service_config: Path,
+    *,
+    observer: DeploymentObserver | None = None,
+    apply_selected: Callable[[SelectedBundle], Awaitable[bool]] | None = None,
+) -> None:
+    """Serve gRPC and reconcile Deployment while preserving I/O ownership."""
     await service.start()
     server: grpc.aio.Server | None = None
+    stop = asyncio.Event()
+    task: asyncio.Task[None] | None = None
     try:
         server = await start_grpc(service, service_config)
+        if observer is not None and apply_selected is not None:
+            task = asyncio.create_task(observer.run(stop, apply_selected))
         await server.wait_for_termination()
     finally:
+        stop.set()
+        if task is not None:
+            await task
         if server is not None:
             await server.stop(grace=5)
         operation = asyncio.create_task(service.stop())
