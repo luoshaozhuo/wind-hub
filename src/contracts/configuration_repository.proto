@@ -282,7 +282,7 @@ message GetCurrentRevisionResponse {
 message GetServiceConfigBundleRequest {
   string deployment_id = 1;
   string service_id = 2;
-  optional uint64 revision_id = 3;
+  uint64 revision_id = 3; // 0 means current published revision
 }
 message GetServiceConfigBundleResponse {
   uint64 repository_revision_id = 1;
