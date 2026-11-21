@@ -383,7 +383,7 @@ Deployment 是版本选择表；Service 引用 devices-farm-a、collector-tasks-
 
 ## 5.1 配置对象与分类
 
-wind-hub 配置统一划分为 **Service、Instance、Template** 三类；分类依据是配置对象的**用途和所有权**，而不是是否带版本号或 YAML 的物理文件数量。`configs/` 是逻辑配置根目录，各服务通过明确路径使用所需配置。
+wind-hub 配置统一划分为 **Service、Instance、Template** 三类；分类依据是配置对象的**用途和所有权**，而不是是否带版本号或 YAML 的物理文件数量。`configs/` 是逻辑配置根目录，各服务通过 Deployment 指定的逻辑身份和固定版本使用所需配置。
 
 <p class="table-caption">表 5-1 配置对象分类</p>
 
@@ -396,7 +396,7 @@ wind-hub 配置统一划分为 **Service、Instance、Template** 三类；分类
 
 **内容归属规则：** Service 规定如何运行；Instance 规定运行对象是谁、引用何种型号或策略；Template 规定可复用对象是什么以及具备何种属性和约束。同一事实只在其权威配置中定义，不跨类别重复维护。
 
-设备通信端点归 Instance；协议参数 Schema、点表与型号固定参数归 Template；运行调度、生成场景选择与外部输入归所属 Service。物理仿真型号的额定值、结构参数、查表及固定控制策略属于 Device Model Template；不把这些定义重复写入设备实例或运行场景。
+设备通信端点归 Instance；协议参数 Schema、点表与型号固定参数归 Template；运行调度的通用控制参数归所属 Service；具体 Collector Task 和场景实例归所属 Instance。物理仿真型号的额定值、结构参数、查表及固定控制策略属于 Device Model Template；不把这些定义重复写入设备实例或运行场景。
 
 ## 5.2 权威配置库与全量目录快照
 

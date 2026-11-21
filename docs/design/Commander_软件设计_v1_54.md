@@ -2576,7 +2576,7 @@ file_version: "1.0.0"                  # 必填；MAJOR.MINOR.PATCH 字符串
 
 config_sources:
   instances:
-    devices: devices-farm-a # 必填：直接使用的设备实例文件 pathname
+    devices: devices-farm-a # 必填：Device Instance 的逻辑身份
 
 grpc:
   listen_host: "0.0.0.0"               # 监听地址

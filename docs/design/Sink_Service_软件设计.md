@@ -3670,7 +3670,7 @@ tests/src/
 | `test_delivery_runtime.py` | component | reliability | concurrency | Sink 共享、独立 Consumer、停止收敛 |
 | `test_realtime_cache.py` | component | performance | load | 有界合并、丢弃、最新值与重启清空 |
 | `test_config_snapshot.py` | component | contract | normal、exception | Get/Push/Apply 校验、候选、冲突及版本 |
-| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | 单 Service 显式 Instance pathname；Template 根目录与扁平文件名；缺失/越界/旧版目录/默认路径回退拒绝；切换配置来源需重启 |
+| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | Service 逻辑 Instance 身份、Deployment 版本选择、Template 固定闭包；拒绝缺失/歧义/旧 pathname 字段；静态变更需重启 |
 | `test_worker_ipc.py` | component | reliability | recovery、timeout | Main/子进程版本确认、超时与部分收敛 |
 | `test_metrics.py` | component | contract | exception | 初始化、时间窗口、周期计算、跳周期、延迟分位数及快照不可用 |
 | `test_diagnose.py` | component | security | exception、timeout | 诊断分阶段证据、无副作用、限流 |
@@ -3964,7 +3964,7 @@ lint-imports
 | Modbus TCP Server | 1 个 float32+质量寄存器、500 点、地址冲突、Reliable 模式 | 值与质量同时可读；正确连续映射；冲突及 Reliable 拒绝 |
 | 并发能力 | 单写入 Adapter 配 `max_safe_inflight=2` | Push 拒绝；已在途 I/O 超时不提前回收额度 |
 | 双数据进程优先级 | 实时和补发共用目标、分别具有/没有物理隔离或目标侧配额 | 有保障时实测实时优先；无保障不允许声称优先级成立 |
-| 配置来源 | 同配置域两 Service 指向同一路径、不同 pathname、缺失实例、目录扫描诱饵、旧式分层模板、Template 未引用 | 仅匹配显式文件和精确引用闭包；不同来源/缺失/旧路径拒绝；未引用模板不被读取或删除；变更来源提示重启 |
+| 配置来源 | 同部署域不同 Service 复用 Instance 逻辑身份、版本缺失、旧路径字段、未引用模板 | 每个逻辑身份选定唯一版本，拒绝旧路径/不完整闭包；未引用模板不触发重启 |
 | 完整快照 | Template 缺失、版本原地覆盖、Main 配置写入冲突、CAS 冲突 | 完整候选原子拒绝；正式文件和 active_revision 均不被错误改变 |
 | 容量性能 | 单实例两通道同时运行；30 台、10 Hz、实时 100 点/台、可靠 500 点/台为参考负载；优先连续 600 s 稳态；独立实测 Publisher | 分别提交输入、接收、目标确认、积压增长、CPU/RSS、P99、错误与背压；报告最高可持续稳定值/s及参考达成率；未达到参考值不单独判 FAIL，证据不足不得标容量测量 PASS |
 

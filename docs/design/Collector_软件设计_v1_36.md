@@ -1442,7 +1442,7 @@ flowchart TD
 
   R-07                                候选、磁盘正式版本、内存实际版本及各设备应用状态应独立报告，不能把部分成功说成全部成功。
 
-  R-08                                Service 以三个必填字符串直接指定 site/devices Instance 文件和 Template 根目录；Device.model 仅保留精确 ID/版本；不得读取默认文件或额外的路径字段。
+  R-08                                Service 通过实例逻辑身份声明 site/devices/tasks；Deployment 为每个实例确定版本，Device.model 保留固定 ID/版本；不得读取默认路径或直接引用 Template 根目录。
 
   R-09                                启动、Get/Push/Apply、崩溃恢复均按同一引用图解析；路径变更须整体校验，Service 引用变更只在重启后切换有效来源。
   ------------------------------------------------------------------------------------------------------------------------------
@@ -2496,7 +2496,7 @@ sequenceDiagram
   participant T as TaskRuntime
   participant G as gRPC Server
   M->>M: --config 指定唯一 Service 文件（不接受隐式默认 Instance/Template）
-  M->>M: 解析 Service → Instance 路径 → Template 根目录
+  M->>M: 查询 Deployment → 解析 Service / Instance / Template 固定版本闭包
   M->>M: 校验引用图、装配／日志／线程池／信号
   M->>A: start()
   opt ADS 已配置
@@ -2871,7 +2871,7 @@ flowchart LR
  end
  subgraph H["Collector 部署节点"]
    C["Collector 独立进程"]
-   CFG["Service → Instance → Template 显式路径引用"]
+   CFG["Deployment 选版本，Service → Instance → Template 固定依赖"]
    CFG --> C
  end
  CLI["管理客户端 / CLI"] <-->|"内部 gRPC"| C
@@ -3333,7 +3333,7 @@ Get
 的 diff 在客户端完成。
 
 Apply
-指定候选及预期版本，复核校验与权限后，仅原子提交 Collector 自己拥有的 Service/私有文件；公共 Instance/Template 由独立共享配置写入方发布，Collector 按已发布共享版本的有效差异安全增量应用到受影响设备；完整候选校验必须覆盖显式路径、目标文件、Template ID/版本及引用图一致性。`collector.yaml`
+Configuration 通过全量目录发布事务更新 Deployment 版本选择；Collector 仅查询自身有效闭包、校验并自主应用，不再通过模块本地候选事务发布公共文件。`collector.yaml`
 仅保存并报告需重启。**持久化成功但设备应用失败**时按设备记录目标版本、实际版本及错误，不回滚已成功设备，不虚称整体成功；可从正式状态查询继续收敛。候选期限、容量、并发配置写入及安全路径校验必须受控。Proto
 没有 Apply 请求幂等键；对同一 `candidate_id + expected_revision` 的重复
 Apply
@@ -3367,7 +3367,7 @@ flowchart TD
 ```
 ## 11.6 配置示例与版本契约
 
-实例必须以不可变模板 ID+版本精确引用；Service 直接声明两份 Instance 文件及 Template 根目录的路径。Device Instance 不再声明 Template 根目录，型号 ID/版本由 Service 指定的 Template 仓库解析；每个模板已发布版本不能原地重写。`configs/instances/devices.yaml`
+Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其所需 Instance 的逻辑身份；所选版本由 Deployment 确定，任何模板已发布版本不能原地重写。`configs/instances/devices.yaml`
 的设备运行意图仅由本设备实例覆盖，手动 STOP
 不修改共享模板。设备实例示例见第 11.2 节，服务配置示例见第 11.4
 节。上述示例字段为设计约束，具体字段名须与项目当前配置 Schema
@@ -3401,7 +3401,7 @@ ID、版本和 application_id 查询证据，不盲目重复提交。
 
 ## 11.8 配置事务、候选持久化与运行版本收敛
 
-部署时通过 `--config` 指明唯一 Collector Service 文件；仓库示例为 `configs/services/collector.yaml`，但运行时不能硬编码该位置。Service 显式指向所需的 Instance 文件和 Template 根目录；Device Instance 仅保留模板 ID/精确版本引用。快照中的 `SnapshotFile.relative_path` 使用固定的受管逻辑键（`services/collector.yaml`、`instances/site.yaml`、`instances/devices.yaml`、`templates/...`），它只用于快照/manifest 内部寻址，**不是来源目录的默认路径**；整个引用图必须校验并绑定到同一 generation。
+业务配置由最小引导的 service_id/deployment_id 定位 Deployment 所选 Service；Service 指定 Instance 逻辑身份，由 Deployment 选具体版本；Device Instance 仅保留模板 ID/精确版本引用。快照中的 `SnapshotFile.relative_path` 使用固定的受管逻辑键（`services/collector.yaml`、`instances/site.yaml`、`instances/devices.yaml`、`templates/...`），它只用于快照/manifest 内部寻址，**不是来源目录的默认路径**；整个引用图必须校验并绑定到同一 generation。
 
 候选配置采用服务端持久化暂存，首版固定约束如下：单候选总大小不超过 16
 MiB、文件数不超过 256、同时有效候选不超过 8 个、TTL 为 3600
@@ -3886,7 +3886,7 @@ UC。以下状态均为 `NOT_RUN`，不表示实现失败或通过。
 | CFG-PATH-05 | UC-04-S02 | 变更 Deployment 对 Device/Task Instance 的选定版本 | 可安全应用的完整任务闭包热更新，否则等待重启 |
 | CFG-PATH-06 | UC-04-S03 | 进程在 CURRENT 切换前后崩溃、重启；来源目录另有同名文件 | 恢复只按已提交 manifest 引用图加载，绝不回退或混读外部目录 |
 | CFG-PATH-07 | UC-04-S02 | 在不同目录准备两个 Template 仓库，分别由两份 Service 配置显式绑定；Instance 保持相同型号 ID/版本 | 只解析 Service 明确指定的仓库；精确 ID/版本校验，不读取其他仓库同名模板 |
-| CFG-PATH-08 | UC-08-S02 | 在 `devices.yaml` 中错误增加 Template 根目录字段，或在 Service 中写入 `{pathname: ...}` 包裹结构、遗漏 Template 路径 | 严格 Schema 拒绝重复/缺失来源，不能回退到 Instance 声明或默认路径 |
+| CFG-PATH-08 | UC-08-S02 | Service 中写入 Template 根目录、文件路径或缺失必需 Instance 身份 | 严格 Schema 拒绝旧字段和缺失依赖，不允许回退 |
 
 上述测试未执行时统一标记 `NOT_RUN`，不计作 PASS。所有配置引用字段必须在 Unit、Component、System 三层分别验证解析函数、快照事务和真实进程行为；测试目录重构时同步检查原夹具的 `--instances` / `--templates` 调用并删除旧入口参数。
 

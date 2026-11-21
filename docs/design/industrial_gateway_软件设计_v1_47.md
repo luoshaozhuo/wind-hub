@@ -1722,7 +1722,7 @@ Gateway 在 `capture()` 将事件放入全局有界队列后，以该队列的**
 
 **工业客户端写入路径**：协议 Server 以请求级写事件为准，而非变量值变化；同值重复写必须保留不同事件。IEC104 Select 阶段不转发，仅有效 Execute 阶段允许提交。Gateway 对每个请求生成且保存独立 request_id，使用 Commander SubmitCommand 和 GetRequestResult，未知受理不得以新 ID 重发。协议 ACK、Commander 接受、实际设备完成是三类不同证据；仅支持写后回调或无法区分事件来源的协议库不得声称具备写前拒绝或可靠控制确认。Core 协议 Client Driver 不代替此处的协议 Server。
 
-**配置及测试**：Service 从 config_sources.instances.devices / templates.root 装载已解析路径，Configuration 共享库按总体设计第 5 章管理共享版本与源清单，Gateway 管理协议 Server 及变量运行态。租约令牌过期、释放、重启或配置变更后失效。System ST 覆盖协议真实客户端同值重复写、IEC104 Select/Execute、租约抢占与失效、无权批次零修改、逐点部分失败、UpdateVariables 不转发 Commander、Commander UNKNOWN 与协议 ACK 差异；没有真实协议环境时标 NOT_RUN。
+**配置及测试**：Service 从 Deployment 确定的 devices Instance 和固定模板闭包装载配置，Configuration 共享库按总体设计第 5 章管理共享版本与源清单，Gateway 管理协议 Server 及变量运行态。租约令牌过期、释放、重启或配置变更后失效。System ST 覆盖协议真实客户端同值重复写、IEC104 Select/Execute、租约抢占与失效、无权批次零修改、逐点部分失败、UpdateVariables 不转发 Commander、Commander UNKNOWN 与协议 ACK 差异；没有真实协议环境时标 NOT_RUN。
 
 # 10. 核心技术与数据契约
 
@@ -1838,7 +1838,7 @@ metrics:
 | Push | 完整候选、`expected_revision` | 校验必填路径、指定实例文件及其在指定模板根目录的依赖闭包；只暂存候选，不修改运行态 | `candidate_id`、逐项验证结果 |
 | Apply | `candidate_id`、`expected_revision` | 先提交受管配置文件集合，再按受影响范围应用；Server 监听和进程级参数的生效需遵守重启规则 | 磁盘修订号、运行修订号、逐实例结果、`restart_required` |
 
-**一致性边界：** Service 配置快照只拥有 Gateway 专属文件；Gateway 私有 Apply 不得静默改写公共 Instance 和 Template。公共配置由项目统一的配置 Writer/发布路径管理，修改前检查全部引用服务。Service 指定的 `instances.devices` 或 `templates.root` 发生变更时，作为配置源切换处理：候选阶段重新验证整条引用链，禁止混用不同根目录或不同版本的部分解析结果。成功提交磁盘文件不等同运行态全部生效；部分失败必须逐实例报告。
+**一致性边界：** Service 配置快照只拥有 Gateway 专属文件；Gateway 私有 Apply 不得静默改写公共 Instance 和 Template。公共配置由项目统一的配置 Writer/发布路径管理，修改前检查全部引用服务。Deployment 对 `instances.devices` 的版本选择发生变更时，必须重新验证整条引用链；不得混用不同版本的点表和控制映射。成功提交磁盘文件不等同运行态全部生效；部分失败必须逐实例报告。
 
 ## 11.5 实现状态与适配边界
 
