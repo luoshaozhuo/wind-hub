@@ -378,6 +378,15 @@ class ConfigurationGrpcClient:
         seen: set[tuple[str, str, str]] = set()
         for item in response.documents:
             doc = _document(item)
+            parsed = _yaml_object(doc)
+            if (
+                type(parsed.get("schema_version")) is not int
+                or parsed["schema_version"] != item.schema_version
+                or parsed.get("file_version") != item.file_version
+            ):
+                raise ConfigHistoryUnavailableError(
+                    "historical document schema identity mismatch"
+                )
             if _document_content_hash(doc) != item.content_sha256:
                 raise ConfigHistoryUnavailableError(
                     "historical semantic content digest mismatch"
@@ -448,6 +457,15 @@ class ConfigurationGrpcClient:
                 manifest.update(len(data).to_bytes(4, "big"))
                 manifest.update(data)
             document = _document(item)
+            parsed = _yaml_object(document)
+            if (
+                type(parsed.get("schema_version")) is not int
+                or parsed["schema_version"] != item.schema_version
+                or parsed.get("file_version") != item.file_version
+            ):
+                raise ConfigHistoryUnavailableError(
+                    "Configuration document schema identity mismatch"
+                )
             if _document_content_hash(document) != item.content_sha256:
                 raise ConfigHistoryUnavailableError(
                     "Configuration semantic content digest mismatch"
