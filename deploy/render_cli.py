@@ -310,6 +310,11 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"TLS material must be under root for container path mapping: {path}")
         return str(args.runtime_prefix / source.relative_to(root))
 
+    deployment = _document(deployment_path)
+    deployment_env = {
+        "WIND_HUB_DEPLOYMENT_ID": str(deployment["deployment_id"]),
+        "WIND_HUB_DEPLOYMENT_VERSION": str(deployment["file_version"]),
+    }
     services: dict[str, Any] = {}
     for name in SERVICE_NAMES:
         row: dict[str, Any] = {
@@ -325,7 +330,10 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
                     "process": {
                         "argv": _argv(name, paths, root, python),
                         "cwd": str(root),
-                        "env": collector_env if name.startswith("collector_") else {},
+                        "env": {
+                            **deployment_env,
+                            **(collector_env if name.startswith("collector_") else {}),
+                        },
                         "state_dir": str(root / "state" / "cli-processes"),
                         "log_file": str(root / "logs" / f"{name}.log"),
                     },
