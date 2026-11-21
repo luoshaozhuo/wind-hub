@@ -90,41 +90,13 @@ class DeviceClosurePins(dict[str, tuple[str, str]]):
         self.device_bindings = device_bindings
 
 
-class FixedConfigSource(_StrictModel):
-    config_type: Literal[
-        "point_table", "business_points", "units", "device_model", "device", "site"
-    ]
-    config_id: str = Field(min_length=1, max_length=256)
-    file_version: str
-    site_config_id: str | None = Field(default=None, min_length=1, max_length=256)
-    site_id: str | None = Field(default=None, min_length=1, max_length=256)
-    site_file_version: str | None = None
+class InstanceSources(_StrictModel):
+    site: str = Field(min_length=1, max_length=256)
+    devices: str = Field(min_length=1, max_length=256)
 
-    @field_validator("file_version", "site_file_version")
-    @classmethod
-    def validate_version(cls, value: str | None) -> str | None:
-        if value is not None and re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", value) is None:
-            raise ValueError("source file_version must be MAJOR.MINOR.PATCH")
-        return value
 
-    @model_validator(mode="after")
-    def validate_device_site(self) -> FixedConfigSource:
-        if self.config_type == "device":
-            if (
-                self.site_config_id is None
-                or self.site_id is None
-                or self.site_file_version is None
-            ):
-                raise ValueError(
-                    "device ConfigSource requires site_config_id/site_id/site_file_version"
-                )
-        elif (
-            self.site_config_id is not None
-            or self.site_id is not None
-            or self.site_file_version is not None
-        ):
-            raise ValueError("Site reference fields are only valid for device ConfigSource")
-        return self
+class ConfigSources(_StrictModel):
+    instances: InstanceSources
 
 
 class KafkaConfig(_StrictModel):
@@ -276,11 +248,11 @@ class AuthConfig(_StrictModel):
 
 
 class StorageConfig(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
     allowed_wind_farms: list[str] = Field(min_length=1)
-    config_sources: list[FixedConfigSource] = Field(default_factory=list)
+    config_sources: ConfigSources
     kafka: KafkaConfig
     grpc: GrpcConfig
     auth: AuthConfig
@@ -308,11 +280,6 @@ class StorageConfig(_StrictModel):
         names = [item.token_env for item in self.auth.callers]
         if len(names) != len(set(names)):
             raise ValueError("caller token environment names must be unique")
-        identities = [
-            (item.config_type, item.config_id, item.file_version) for item in self.config_sources
-        ]
-        if len(identities) != len(set(identities)):
-            raise ValueError("duplicate exact ConfigSource identities")
         if self.service_id != self.reconciliation.owner_instance_id:
             raise ValueError("Storage owner_instance_id must equal service_id in v1")
         if self.kafka.max_poll_records > self.kafka.max_buffer_records:
