@@ -70,13 +70,45 @@ def resolve_publication_identity(
         if not logical_id or document.get("template_id") != logical_id:
             raise ValueError(f"template path/id mismatch: {relative_path}")
         return PublicationIdentity(config_type, logical_id, version)
+    # Versioned deployment and business files have stable identities independent of paths.
+    if len(parts) == 2 and parts[0] == "deployments":
+        name = parts[1]
+        marker = f"_v{version}.yaml"
+        if not name.startswith("deployment_") or not name.endswith(marker):
+            raise ValueError("Deployment filename/version mismatch")
+        config_id = name[len("deployment_") : -len(marker)]
+        if not config_id or document.get("deployment_id") != config_id:
+            raise ValueError("Deployment filename/id mismatch")
+        return PublicationIdentity("deployment", config_id, version)
     if len(parts) == 2 and parts[0] == "instances":
+        name = parts[1]
+        marker = f"_v{version}.yaml"
+        prefixes = {
+            "device_": "device",
+            "site_": "site",
+            "sinks_": "sink",
+            "deliveries_": "delivery",
+            "collector_tasks_": "collector_tasks",
+        }
+        for prefix, kind in sorted(prefixes.items(), key=lambda item: -len(item[0])):
+            if name.startswith(prefix) and name.endswith(marker):
+                config_id = name[len(prefix) : -len(marker)]
+                if not config_id:
+                    raise ValueError("empty versioned Instance identity")
+                return PublicationIdentity(kind, config_id, version)
         name = parts[1].removesuffix(".yaml")
         instance_type = _INSTANCE_TYPES.get(name)
         if instance_type is None:
             raise ValueError(f"unsupported instance file: {relative_path}")
         return PublicationIdentity(instance_type, name, version)
     if len(parts) == 2 and parts[0] == "services":
+        name = parts[1]
+        marker = f"_v{version}.yaml"
+        if name.startswith("service_") and name.endswith(marker):
+            config_id = name[len("service_") : -len(marker)]
+            if not config_id or document.get("service_id") != config_id:
+                raise ValueError("Service filename/id mismatch")
+            return PublicationIdentity("service", config_id, version)
         name = parts[1].removesuffix(".yaml")
         if name.startswith("service_configuration_v"):
             raise ValueError("Configuration bootstrap must be outside publication root")

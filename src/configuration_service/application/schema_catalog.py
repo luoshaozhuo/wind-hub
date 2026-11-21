@@ -89,6 +89,12 @@ _FIELDS: dict[str, dict[str, str]] = {
         "network_probe": "object",
     },
     "site": {"site_id": "string", "name": "string"},
+    "collector_tasks": {"tasks": "object"},
+    "deployment": {
+        "deployment_id": "string",
+        "services": "object",
+        "instances": "object",
+    },
     "task": {
         "template_id": "string",
         "point_group": "string",
@@ -139,6 +145,8 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     "device": ("devices",),
     "device_model": ("template_id",),
     "site": ("site_id",),
+    "collector_tasks": ("tasks",),
+    "deployment": ("deployment_id", "services", "instances"),
     "protocol": ("template_id",),
 }
 
