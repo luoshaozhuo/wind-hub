@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_35 · 20261118</p>
+<p class="subtitle">v1_36 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -3162,6 +3162,14 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 故障不得阻塞后台采集或无界积压。
 
 # 11. 配置与动态生效
+
+### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
+CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
+
+Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集任务定义属于 Collector 专属 Instance（逻辑身份如 collector-tasks-a），由 Collector Service 通过 config_sources.instances.tasks 引用。共享 Device Instance 增加 group 字段，Collector 的 Task 按 group 选择设备。设备模型只描述设备属性能力；group 是实例分组属性，不与模型绑定。一个 Collector 采集范围内每设备同一时刻至多由一个 Task 负责；任务重分组先停止旧采集再启动新采集，保持采样批次内映射一致。Task 与 Device 的版本均由 Deployment 选择；同版本 Service 在 Task 或 Device 变更时可以热更新。旧 task_template_id、task_version 引用链需在配置、实现、Fixture 和测试中集中迁移。
+
+
 
 **配置与数据契约：**现有代码以 `SampleBatch(schema_version=2)` 运行；目标以 Contracts v1_38、总体设计 v1_22 的 v3 版本和集中 Configuration gRPC 拉取为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
 

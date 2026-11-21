@@ -2849,6 +2849,14 @@ DLQ 持久记录 `dead_letter_id`、来源 Stream/Consumer/sequence、`batch_id/
 **可靠性边界：** JetStream ACK、Kafka Broker ACK、DLQ PubAck、Modbus 寄存器镜像更新是不同确认层次；至少一次传递可能重复，不保证恢复 Broker 已过期/删除的数据。
 # 11. 配置管理与生效
 
+### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
+CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
+
+Sink Service 仅通过 Instance 逻辑身份引用 sinks、deliveries；由 Deployment 选择两个 Instance 的版本。Sinks/Deliveries Instance 中仍固定引用各自 Sink/Delivery Template 的 ID 与版本，禁止 Service 通过模板根目录选择模板。Main 解析完整版本闭包后发给 Realtime/Reliable Worker；仅在全部受影响 Worker 完成一致性校验与必要协调时标记 active_revision，静态 Service 参数改变则要求重启。切换 Reliable Delivery 不得破坏未 ACK 消息的处理和重投语义，Realtime 不得丢失安全切换所需的目标 lease 隔离。
+
+
+
 本章给出**有效配置文件、字段归属、校验条件和生效状态**。Gateway 类型是本轮新增的目标 Schema，须随代码实施后方可称为运行时有效。所有 YAML 为本章所规定的结构示例；实际部署必须使用已发布的精确模板版本与有效实例引用。
 
 ## 11.1 如何组织独立配置域

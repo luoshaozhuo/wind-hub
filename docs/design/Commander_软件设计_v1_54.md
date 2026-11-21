@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_53 · 20261118</p>
+<p class="subtitle">v1_54 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -2537,6 +2537,14 @@ SQLite 需持久保存 request_id、可信 caller_id、规范化指纹、command
 已落盘但尚未发布的审计事件继续由 JetStream Outbox 补发；尚未落盘的事件明确不保证恢复。物理设备会话、I/O 资源所有权和旧进程隔离规则继续按第 6 章执行。
 
 # 11. 配置与动态生效
+
+### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
+CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
+
+Commander Service 仅依赖 devices 等 Instance 逻辑身份；Device Instance 再引用协议、点表与设备模型的明确不可变版本。Service 不直接引用模板目录。配置切换必须在命令接纳/执行边界保护已接收命令的控制语义、授权及 fencing；控制点解释不匹配时拒绝控制，不得沿用不兼容的旧点表。静态安全和监听参数在重启后应用。
+
+
 
 ## 11.1 配置文件或配置源体系
 

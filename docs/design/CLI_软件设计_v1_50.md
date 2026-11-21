@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_49 · 20261118</p>
+<p class="subtitle">v1_50 · 20261118</p>
 
 <style>
 body {
@@ -1986,6 +1986,14 @@ Message      : Process restarted; service readiness not confirmed
 管理器操作成功不意味着 gRPC 一定已就绪。`service stop`/`restart` 对真实容器或独立 Linux 进程 生效；不能只改 CLI 内存状态。
 
 ## 10.4 配置管理与目录比较输出
+
+### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
+CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
+
+保留根目录全量发布，不要求逐一指定文件。CLI 应展示 Deployment 对 Service/Instance 的选定版本及目标/活动修订差异；不逐模块推送、不设人工配置激活流程。变更 Deployment 选择仍通过既有候选发布路径，遵守 CAS、request_id 和全目录校验。配置比较增加部署选择差异；所有命令的认证权限必须与 Contracts 一致。
+
+
 
 ```text
 wind-hub> config get collector --output ./collector_snapshot
