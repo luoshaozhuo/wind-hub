@@ -33,6 +33,7 @@ class StorageBundleSnapshot:
             raise ValueError("Configuration snapshot root must be absolute")
         directory.mkdir(parents=True, mode=0o700, exist_ok=True)
         self._path = directory / "accepted_bundle.json"
+        self._pending_path = directory / "target_bundle.json"
 
     @staticmethod
     def _encode(bundle: StorageBundle) -> bytes:
@@ -66,17 +67,28 @@ class StorageBundleSnapshot:
         ).encode()
 
     def store(self, bundle: StorageBundle) -> None:
+        """Persist only a fully applied active closure."""
+        self._store_at(self._path, bundle)
+
+    def store_target(self, bundle: StorageBundle) -> None:
+        """Persist a validated restart-required target without activating it."""
+        self._store_at(self._pending_path, bundle)
+
+    def load_target(self) -> StorageBundle:
+        return self._load_at(self._pending_path)
+
+    def _store_at(self, path: Path, bundle: StorageBundle) -> None:
         if bundle.revision_id <= 0 or not bundle.point_table_versions or not bundle.device_bindings:
             raise ConfigHistoryUnavailableError("cannot persist an incomplete Storage snapshot")
         content = self._encode(bundle)
-        if self._path.exists():
-            previous = self.load()
+        if path.exists():
+            previous = self._load_at(path)
             if previous.revision_id > bundle.revision_id:
                 raise ConfigHistoryUnavailableError(
                     "refusing to replace accepted Configuration revision with an older one"
                 )
             if previous.revision_id == bundle.revision_id:
-                if self._path.read_bytes() != content:
+                if path.read_bytes() != content:
                     raise ConfigHistoryUnavailableError(
                         "same Configuration revision has changed its immutable closure"
                     )
@@ -84,16 +96,16 @@ class StorageBundleSnapshot:
         staging: str | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                dir=self._path.parent, prefix=".bundle-", delete=False
+                dir=path.parent, prefix=".bundle-", delete=False
             ) as stream:
                 staging = stream.name
                 os.fchmod(stream.fileno(), 0o600)
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(staging, self._path)
+            os.replace(staging, path)
             staging = None
-            parent_fd = os.open(self._path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(parent_fd)
             finally:
@@ -103,11 +115,15 @@ class StorageBundleSnapshot:
                 os.unlink(staging)
 
     def load(self) -> StorageBundle:
+        """Restore only the previous fully activated generation."""
+        return self._load_at(self._path)
+
+    def _load_at(self, path: Path) -> StorageBundle:
         """Reject tampered/partial snapshots and incompatible schema versions."""
         try:
-            if self._path.is_symlink() or self._path.stat().st_size > 1024 * 1024:
+            if path.is_symlink() or path.stat().st_size > 1024 * 1024:
                 raise ConfigHistoryUnavailableError("Configuration snapshot path is unsafe")
-            encoded = self._path.read_bytes()
+            encoded = path.read_bytes()
             envelope = json.loads(encoded)
             payload = envelope["payload"]
             canonical = json.dumps(
