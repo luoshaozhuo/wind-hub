@@ -100,14 +100,13 @@ class StorageConfigurationWatcher:
             raise ConfigHistoryUnavailableError("Deployment identity changed in response")
         if updated.revision_id < self.repository_revision_id:
             raise ConfigHistoryUnavailableError("Configuration authority revision moved backwards")
-        if updated.revision_id == self.repository_revision_id:
-            if updated.target_revision != self.target_revision:
-                raise ConfigHistoryUnavailableError(
-                    "Configuration authority changed an immutable repository revision"
-                )
-            self.status = "RESTART_REQUIRED" if self.target_revision != self.active_revision else "READY"
-            return
-
+        if (
+            updated.revision_id == self.repository_revision_id
+            and updated.target_revision != self.target_revision
+        ):
+            raise ConfigHistoryUnavailableError(
+                "Configuration authority changed an immutable repository revision"
+            )
         self.repository_revision_id = updated.revision_id
         self.target_revision = updated.target_revision
         if updated.target_revision == self.active_revision:
