@@ -75,6 +75,28 @@ class GenerationStore:
             raise ConfigurationError("committed generation Service selection mismatch")
         return validate_snapshot(tuple(files))
 
+    def selected_service_path(self) -> str:
+        """Return the sole Service selected by the persisted CURRENT generation.
+
+        The caller's bootstrap filename is not authoritative after a published
+        Deployment switches to another immutable Service file version.
+        """
+        identifier = self._current.read_text(encoding="ascii").strip()
+        directory = self._generation(identifier)
+        if directory.is_symlink() or not directory.is_dir():
+            raise ConfigurationError("missing or unsafe committed generation")
+        service_root = directory / "configs" / "services"
+        if service_root.is_symlink() or not service_root.is_dir():
+            raise ConfigurationError("missing or unsafe committed Service directory")
+        names = [
+            path.name
+            for path in service_root.iterdir()
+            if path.is_file() and not path.is_symlink() and path.name.endswith(".yaml")
+        ]
+        if len(names) != 1 or not names[0].startswith("service_"):
+            raise ConfigurationError("committed generation has no unique versioned Service")
+        return "configs/services/" + names[0]
+
     def load(self, service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
         if (
