@@ -103,6 +103,12 @@ def select_local_service(
         or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for char in selected_id)
     ):
         raise ValueError("invalid deployment identity")
+    selected_version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION")
+    if selected_version is not None and not re.fullmatch(
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+        selected_version,
+    ):
+        raise ValueError("invalid selected Deployment version")
     deployments = root / "deployments"
     if deployments.is_symlink() or not deployments.is_dir():
         raise ValueError("Deployment directory is absent or unsafe")
@@ -113,10 +119,12 @@ def select_local_service(
         if not isinstance(payload, dict):
             raise ValueError("Deployment must be a mapping")
         selected = parse_deployment(payload)
-        selected_version = payload["file_version"]
-        if checked.name != f"deployment_{selected.deployment_id}_v{selected_version}.yaml":
+        manifest_version = payload["file_version"]
+        if checked.name != f"deployment_{selected.deployment_id}_v{manifest_version}.yaml":
             raise ValueError("Deployment filename differs from selected identity/version")
         if selected.deployment_id != selected_id and selected_id is not None:
+            continue
+        if selected_version is not None and manifest_version != selected_version:
             continue
         service = selected.services.get(service_id)
         if service is not None:
