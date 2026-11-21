@@ -10,7 +10,7 @@
 # Core 对 ADS 点表暂统一视为可读写；控制权限应由 PLC、上层命令授权及联锁保障。
 schema_version: 1
 template_id: ads_wtg_4xems
-file_version: 1.0.0
+file_version: "1.1.0"
 protocol: ads
 points:
   # 有功功率调节使能（推测：1=允许，0=禁止，需确认）

@@ -114,9 +114,9 @@ def resolve_publication_identity(
         if name.startswith("service_configuration_v"):
             raise ValueError("Configuration bootstrap must be outside publication root")
         return PublicationIdentity("service", name, version)
-    if relative_path == "templates/business_points_standard.yaml":
+    if relative_path == f"templates/business_points_standard_v{version}.yaml":
         return PublicationIdentity("business_points", "standard", version)
-    if relative_path == "templates/units_standard.yaml":
+    if relative_path == f"templates/units_standard_v{version}.yaml":
         return PublicationIdentity("units", "standard", version)
     if relative_path == f"templates/observability_v{version}.yaml":
         return PublicationIdentity("observability", "observability", version)

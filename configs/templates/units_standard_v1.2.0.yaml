@@ -3,7 +3,7 @@
 # 单位换算：基准值 = 原值 × scale_to_base + offset_to_base。
 # dB、dBm 等对数单位以及依赖上下文的单位，需采用专门模型处理。
 schema_version: 1
-file_version: 1.1.0
+file_version: "1.2.0"
 quantities:
   dimensionless:
     base_unit: none
