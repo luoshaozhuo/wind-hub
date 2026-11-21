@@ -128,6 +128,20 @@ def _selected_service_names(root: Path, deployment_path: Path) -> dict[str, str]
         root / "configs" / "deployments"
     ):
         raise ValueError("Deployment file must be inside configs/deployments")
+    deployment_id = deployment.get("deployment_id")
+    deployment_version = deployment.get("file_version")
+    if (
+        not isinstance(deployment_id, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", deployment_id) is None
+        or not isinstance(deployment_version, str)
+        or re.fullmatch(
+            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+            deployment_version,
+        ) is None
+        or deployment_path.name
+        != f"deployment_{deployment_id}_v{deployment_version}.yaml"
+    ):
+        raise ValueError("invalid Deployment identity or version")
     selected = deployment.get("services")
     if not isinstance(selected, dict):
         raise ValueError("Deployment.services must be a mapping")
