@@ -2584,33 +2584,16 @@ sequenceDiagram
 
 ## 6.5 Task 期望状态及持久化
 
-废止 `auto_start`，只使用
-**`desired_state: START | STOP`**。`CollectorTaskDefinition` 定义缺省状态，`Device`
-实例的 `overrides.task.desired_state` 优先；外部 gRPC
-手动启停**仅修改设备实例配置**，不修改共享模板。`desired_state`
-是唯一的期望状态权威，实际状态对外采用 `Task.actual_state`
-字符串（§9.3）；必须区分运行、已停、正在安全停止、故障隔离或未收敛，不能仅以
-STOPPED 证明同步 I/O 已结束。
+Task 的静态定义位于 Collector 专属 `collector_tasks` Instance，`desired_state: START | STOP` 是该不可变配置版本的默认意图。外部 CLI/gRPC 手动启停不得修改设备实例 YAML 或已发布 Task Instance；运行控制记录由 Collector 本地受控存储持久化（键包括 Task ID 与当前 Task Instance 版本）。手动意图优先于当前版本的默认值，重启后继续有效。Deployment 改为新的 Task Instance 版本后，原版本手动覆盖失效，以新版本所声明期望状态重新收敛。
 
-  ---------------------------------------------------------------------------------------------
-  事件                                持久化及运行规则
-  ----------------------------------- ---------------------------------------------------------
-  第一次启动／进程重启                从完整有效配置解析每台设备的 `desired_state`；START
-                                      尝试采集，STOP 保持停止
-
-  手动 Start                          版本校验→原子持久化该 Device 的
-                                      `desired_state=START`→启动或等待连接恢复
-
-  手动 Stop                           版本校验→原子持久化该 Device 的
-                                      `desired_state=STOP`→停止对应采集句柄；重连、重启不复活
-
-  断线                                期望状态不变；实际不可采集、等待 Watchdog
-
-  Watchdog 重连                       恢复该设备所有 `desired_state=START` 的 Task；STOP 不恢复
-
-  运行时应用失败                      已保存的 desired_state 不回滚，向 gRPC 报告
-                                      `APPLY_FAILED` 和设备级未收敛原因，重试收敛
-  ---------------------------------------------------------------------------------------------
+| 场景 | 处理 |
+|---|---|
+| 首次启动/重启 | 解析当前 Deployment 选定 Task Instance，叠加同版本已持久化控制意图 |
+| 手动 Start/Stop | 权限及预期修订检查 → 原子持久化运行意图 → 安全执行；持久化失败不得执行 |
+| 设备断线和 Watchdog | 保留有效意图；只恢复 START 的设备任务，STOP 不复活 |
+| Device group 迁移 | 安全停止并释放旧任务所属资源，再启动新组调度，禁止双采集 |
+| 切换 Task Instance 版本 | 废弃旧版本覆盖意图，以新版本 desired_state 为准，保留审计记录 |
+| 执行失败 | 返回未收敛与明确错误，不将已接纳意图误报为实际运行 |
 
 **Reliable 来源事件原子接纳。** Reliable 模式同一来源采集事件经组批得到的全部子批必须在有界队列中一次性接纳；当剩余容量不足时，在配置的等待上限内等待空位，仍不足则整体拒绝，不得发布前缀后向调用方返回拒绝。整个事件的全部子批超过队列容量上限时应整体拒绝。成功接纳后，JetStream PubAck 重试仍复用原始身份，不重新生成 batch_id 或 sample_id。
 
@@ -2642,12 +2625,12 @@ flowchart TD
   F --> G["Watchdog 重连成功"]
   G --> A
   E --> H["手动 Stop 请求"]
-  H --> I["写入 devices.yaml 的 STOP"]
+  H --> I["持久化 Task 运行意图 STOP"]
   I --> Q{"旧 I/O 已安全结束?"}
   Q -->|否| X["STOPPING / ISOLATED：保留底层所有权"]
   Q -->|是| C
   C --> J["手动 Start 请求"]
-  J --> K["写入 devices.yaml 的 START"]
+  J --> K["持久化 Task 运行意图 START"]
   K --> A
 ```
 
@@ -3252,7 +3235,7 @@ Service 的 Instance 角色缺失、Deployment 缺少逻辑身份版本、Templa
 - `schema_version` 表示结构契约，`file_version` 表示不可变内容版本；同逻辑身份同版本内容不许改写。
 - Device Instance 通过精确的 Device Model ID/版本引用其协议与点表链；Device Model 中禁止 Task 定义、Collector Task Instance 引用及采集组属性。
 - 设备 `group` 是单值字符串；Collector Task Instance 包含 `tasks.<task_id>.group`、`interval_ms`、`desired_state`。同一 Collector 内两个活动任务不能对同一 Device 并发采集。
-- Task 的期望状态属于被选定的 Task Instance；实际状态属于 Collector 运行时。CLI 手动启动/停止必须明确与既有持久化控制记录的优先级，不能修改已发布的不可变 YAML。新部署目标覆盖既有控制意图时须按受控规则协调并记录。
+- Task 的默认期望状态由 Task Instance 决定；同版本的 CLI 持久化运行意图优先，版本切换时旧覆盖失效；实际状态由 Collector Runtime 管理，不修改已发布 YAML。新部署目标覆盖既有控制意图时须按受控规则协调并记录。
 - Device 组变更通过新版本 Device Instance 发布，Collector 在设备级安全点先停止旧计划再启动新计划；失败不得重复采集或混用点表版本。
 - Unit、BusinessPoint、PointTable 的历史语义继续按固定版本依赖处理，禁止静默使用推荐最新版本。
 

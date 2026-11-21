@@ -1828,17 +1828,11 @@ metrics:
 | 两个活动 Server 监听端点冲突，或一个 Server 试图承载多个设备/Unit ID | 拒绝；保持 Server ↔ 实际设备 1:1 |
 | 协议库不具备规定写入事件/ACK 扩展能力却启用真实控制 | 拒绝控制映射启用；不妨碍不含真实控制的合法 Server 使用 |
 
-## 11.4 Get / Push / Apply 与生效范围
+## 11.4 Configuration 全量发布与 Gateway 自主应用
 
-<p class="table-caption">表 11-3 配置快照操作</p>
+Configuration Repository 是业务配置发布的唯一写入方，CLI 以完整目录执行 `CreateCandidate` / `PublishCandidate`。Gateway 订阅修订通知、在启动或周期对账时根据 `deployment_id + service_id` 查询目标闭包，按 Deployment 已选 Device Instance 与固定模板版本验证身份、哈希、点表和控制映射。受控热更可在安全边界进行；监听端口、管理入口等静态字段需要重启。查询状态报告本服务有效闭包的 `target_revision` 与 `active_revision`；配置更改未完全生效不能虚报两者一致。
 
-| 操作 | 输入 | 行为与边界 | 输出 |
-|---|---|---|---|
-| Get | `SnapshotScope`、候选 ID（适用时） | 读取真实作用域的配置快照；包含 Service 的 `config_sources` 原始 pathname，不替换为 Loader 发现的文件 | 文件集合、版本、应用结果 |
-| Push | 完整候选、`expected_revision` | 校验必填路径、指定实例文件及其在指定模板根目录的依赖闭包；只暂存候选，不修改运行态 | `candidate_id`、逐项验证结果 |
-| Apply | `candidate_id`、`expected_revision` | 先提交受管配置文件集合，再按受影响范围应用；Server 监听和进程级参数的生效需遵守重启规则 | 磁盘修订号、运行修订号、逐实例结果、`restart_required` |
-
-**一致性边界：** Service 配置快照只拥有 Gateway 专属文件；Gateway 私有 Apply 不得静默改写公共 Instance 和 Template。公共配置由项目统一的配置 Writer/发布路径管理，修改前检查全部引用服务。Deployment 对 `instances.devices` 的版本选择发生变更时，必须重新验证整条引用链；不得混用不同版本的点表和控制映射。成功提交磁盘文件不等同运行态全部生效；部分失败必须逐实例报告。
+Gateway 历史本地 `Get/Push/ApplyConfigSnapshot` 接口可继续供兼容性审计和历史说明引用，但不得用于修改集中权威 Service/Instance/Template，也不承担通知发布。实施阶段必须同步调整全部调用方、测试和文档，避免两套配置写入机制。
 
 ## 11.5 实现状态与适配边界
 

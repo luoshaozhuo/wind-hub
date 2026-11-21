@@ -596,10 +596,9 @@ config_sources:
 # file_version: "1.0.0"             # 必填；MAJOR.MINOR.PATCH
 # config_sources:                   # 配置直接来源
 #   instances:
-#     site: site-farm-a      # 场站实例 pathname
-#     devices: devices-farm-a # 设备实例 pathname
-#   templates:
-#     root: configs/templates       # 模板根目录 pathname
+#     site: site-farm-a       # 场站实例逻辑 ID
+#     devices: devices-farm-a # 设备实例逻辑 ID
+#     tasks: collector-tasks-farm-a # 采集任务 Instance 逻辑 ID
 # runtime:
 #   shutdown_timeout: 30           # 秒，正数；进程关闭等待上限
 #   connect_timeout: 10            # 秒，正数；连接超时
