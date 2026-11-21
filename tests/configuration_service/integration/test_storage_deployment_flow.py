@@ -23,7 +23,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _input(kind: str, identity: str, version: str, document: dict[str, Any]) -> pb.ConfigDocumentInput:
+def _input(
+    kind: str, identity: str, version: str, document: dict[str, Any]
+) -> pb.ConfigDocumentInput:
     return pb.ConfigDocumentInput(
         config_id=pb.ConfigId(config_type=kind, config_id=identity),
         file_name=f"{kind}_{identity}_v{version}.yaml",
@@ -146,7 +148,7 @@ async def test_real_configuration_service_selected_closure(
 
 
 async def test_real_nats_broadcast_after_configuration_publication(
-    live: LiveConfiguration, monkeypatch: pytest.MonkeyPatch
+    live: LiveConfiguration,
 ) -> None:
     target = os.getenv("WIND_HUB_TEST_NATS_URL")
     if not target:
