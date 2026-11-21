@@ -34,6 +34,10 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         except NotImplementedError:
             logger.warning("signal handlers unavailable")
     store = GenerationStore(config_root)
+    if (config_root / "CURRENT").exists():
+        # A restart must follow the committed Deployment-selected Service
+        # version, even when the original bootstrap filename is now obsolete.
+        service_file = store.selected_service_path()
     lease = WriterLease(config_root)
     lease.acquire()
     supervisor = WorkerSupervisor(config_root, service_file)
