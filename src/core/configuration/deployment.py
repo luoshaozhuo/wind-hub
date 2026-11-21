@@ -19,6 +19,8 @@ INSTANCE_ROLE_TYPES: dict[str, str] = {
     "scenarios": "scenario",
 }
 
+INSTANCE_CONFIG_TYPES = frozenset(INSTANCE_ROLE_TYPES.values())
+
 
 @dataclass(frozen=True, slots=True)
 class VersionSelection:
@@ -85,6 +87,8 @@ def parse_deployment(document: Mapping[str, object]) -> DeploymentSelection:
     instances: dict[tuple[str, str], VersionSelection] = {}
     for config_type, typed in raw_instances.items():
         config_type = _identifier(config_type, "instance config_type")
+        if config_type not in INSTANCE_CONFIG_TYPES:
+            raise ValueError("Deployment may select only Instance configuration types")
         if not isinstance(typed, dict):
             raise ValueError("Deployment instance type must contain a mapping")
         for config_id, raw in typed.items():

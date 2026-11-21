@@ -267,7 +267,6 @@ class ConfigurationApplication:
                 raise ValueError("caller ConfigId does not match the source YAML path")
             if item.file_name != file.relative_path.rsplit("/", 1)[-1]:
                 raise ValueError("candidate filename must match its relative_path")
-        self._validate_deployments(prepared)
         self._compile_versions(prepared, expected_revision)
         # A dry-run must reject the same immutable-version violations as commit.
         # Validate source bytes as well as canonical semantics: YAML comments
@@ -331,7 +330,6 @@ class ConfigurationApplication:
                     canonical_payload=payload,
                 )
             )
-        self._validate_deployments(documents)
         return self.repository.publish_candidate(
             actor_id=actor_id,
             request_id=request_id,
