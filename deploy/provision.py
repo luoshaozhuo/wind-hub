@@ -15,6 +15,7 @@ from render_cli import (
     DEFAULT_DEPLOYMENT_PATH,
     SERVICE_NAMES,
     _collector_environment,
+    _document,
     _relative,
     _selected_service_names,
     _service_files,
@@ -72,6 +73,11 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         raise ValueError("isulad executable path must be absolute")
     deployment_path = _relative(root, args.deployment)
     service_files = _selected_service_names(root, deployment_path)
+    deployment = _document(deployment_path)
+    selected_env = (
+        f"WIND_HUB_DEPLOYMENT_ID={deployment['deployment_id']}",
+        f"WIND_HUB_DEPLOYMENT_VERSION={deployment['file_version']}",
+    )
     files = _service_files(root, service_files)
     _validate_bindings(root, files, "container", deployment_path)
     env_flags = _private_env(
@@ -106,6 +112,7 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
                     "--mount",
                     f"type=bind,src={root},dst=/etc/wind-hub,options=rbind:rw",
                     *role_env,
+                    *[value for item in selected_env for value in ("--env", item)],
                     args.image,
                     ident,
                     "python",
@@ -130,6 +137,7 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
                     "-v",
                     f"{root}:/etc/wind-hub:rw",
                     *role_env,
+                    *[value for item in selected_env for value in ("-e", item)],
                     args.image,
                     *_commands(name, service_files),
                 ]
