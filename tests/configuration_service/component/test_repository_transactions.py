@@ -34,7 +34,7 @@ def reference(config_type: str, config_id: str, file_version: str) -> dict[str, 
 def test_candidate_idempotency_and_request_payload_conflict(
     app: ConfigurationApplication,
 ) -> None:
-    item = document_input("task", "alpha", "1.0.0")
+    item = document_input("collector_tasks", "alpha", "1.0.0")
     first, _ = app.create_candidate(
         actor_id="publisher",
         request_id="same",
@@ -50,7 +50,7 @@ def test_candidate_idempotency_and_request_payload_conflict(
         validate_only=False,
     )
     assert replay == first
-    changed = document_input("task", "alpha", "1.0.0", point_group="changed")
+    changed = document_input("collector_tasks", "alpha", "1.0.0", tasks={"sample": {"group": "changed", "desired_state": "STOP"}})
     with pytest.raises(IdempotencyConflictError):
         app.create_candidate(
             actor_id="publisher",
@@ -64,7 +64,7 @@ def test_candidate_idempotency_and_request_payload_conflict(
 def test_publish_replay_is_stable_and_reused_request_is_rejected(
     app: ConfigurationApplication,
 ) -> None:
-    item = document_input("task", "alpha", "1.0.0")
+    item = document_input("collector_tasks", "alpha", "1.0.0")
     candidate, _ = app.create_candidate(
         actor_id="publisher",
         request_id="create",
@@ -93,7 +93,7 @@ def test_publish_replay_is_stable_and_reused_request_is_rejected(
         actor_id="publisher",
         request_id="create-other",
         expected_revision=1,
-        documents=(document_input("task", "other", "1.0.0"),),
+        documents=(document_input("collector_tasks", "other", "1.0.0"),),
         validate_only=False,
     )
     with pytest.raises(IdempotencyConflictError):
@@ -113,7 +113,7 @@ def test_only_one_cas_candidate_can_publish(app: ConfigurationApplication) -> No
             actor_id="publisher",
             request_id=f"create-{name}",
             expected_revision=0,
-            documents=(document_input("task", name, "1.0.0"),),
+            documents=(document_input("collector_tasks", name, "1.0.0"),),
             validate_only=False,
         )
         candidates.append(candidate)
@@ -140,7 +140,7 @@ def test_concurrent_publish_has_one_cas_winner(app: ConfigurationApplication) ->
             actor_id="publisher",
             request_id=f"create-{name}",
             expected_revision=0,
-            documents=(document_input("task", name, "1.0.0"),),
+            documents=(document_input("collector_tasks", name, "1.0.0"),),
             validate_only=False,
         )
         candidates.append(candidate)
@@ -165,7 +165,7 @@ def test_concurrent_publish_has_one_cas_winner(app: ConfigurationApplication) ->
 
 
 def test_expired_candidate_cannot_publish(app: ConfigurationApplication) -> None:
-    item = document_input("task", "alpha", "1.0.0")
+    item = document_input("collector_tasks", "alpha", "1.0.0")
     candidate, _ = app.create_candidate(
         actor_id="publisher",
         request_id="create",
@@ -192,8 +192,8 @@ def test_failed_projection_rolls_back_entire_publication(
     app: ConfigurationApplication,
 ) -> None:
     documents = (
-        document_input("task", "one", "1.0.0"),
-        document_input("task", "two", "1.0.0"),
+        document_input("collector_tasks", "one", "1.0.0"),
+        document_input("collector_tasks", "two", "1.0.0"),
     )
     candidate, prepared = app.create_candidate(
         actor_id="publisher",
@@ -230,10 +230,10 @@ def test_failed_projection_rolls_back_entire_publication(
 def test_full_revision_snapshot_and_recommendation_keep_history_immutable(
     app: ConfigurationApplication,
 ) -> None:
-    identity = document_input("task", "alpha", "1.0.0").identity
-    alpha_v1 = document_input("task", "alpha", "1.0.0", point_group="v1")
-    alpha_v2 = document_input("task", "alpha", "2.0.0", point_group="v2")
-    beta = document_input("task", "beta", "1.0.0")
+    identity = document_input("collector_tasks", "alpha", "1.0.0").identity
+    alpha_v1 = document_input("collector_tasks", "alpha", "1.0.0", tasks={"sample": {"group": "v1", "desired_state": "STOP"}})
+    alpha_v2 = document_input("collector_tasks", "alpha", "2.0.0", tasks={"sample": {"group": "v2", "desired_state": "STOP"}})
+    beta = document_input("collector_tasks", "beta", "1.0.0")
     revision1, (version1,) = publish_documents(app, (alpha_v1,), request_id="v1")
     # Both immutable alpha versions coexist in the complete root; the highest
     # version becomes the recommended one.
@@ -296,7 +296,7 @@ def test_deprecated_dependency_cannot_be_newly_bound(
         expected_revision=revision2,
     )
     consumer = document_input(
-        "task",
+        "collector_tasks",
         "consumer",
         "1.0.0",
         config_sources=[reference("units", "standard", "1.0.0")],
@@ -330,10 +330,10 @@ def test_deprecated_dependency_cannot_be_newly_bound(
 def test_shared_diamond_closure_is_deduplicated_and_topological(
     app: ConfigurationApplication,
 ) -> None:
-    a_doc = document_input("task", "a", "1.0.0")
+    a_doc = document_input("collector_tasks", "a", "1.0.0")
     rev1, (a_version,) = publish_documents(app, (a_doc,), request_id="a")
-    b_doc = document_input("task", "b", "1.0.0", config_sources=[reference("task", "a", "1.0.0")])
-    c_doc = document_input("task", "c", "1.0.0", config_sources=[reference("task", "a", "1.0.0")])
+    b_doc = document_input("collector_tasks", "b", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")])
+    c_doc = document_input("collector_tasks", "c", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")])
     # Every publication is a complete root snapshot, so the unchanged closure
     # is restated; immutable versions resolve back to their existing ids.
     rev2, ids = publish_documents(
@@ -343,10 +343,10 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
         request_id="bc",
     )
     d_doc = document_input(
-        "task",
+        "collector_tasks",
         "d",
         "1.0.0",
-        config_sources=[reference("task", "b", "1.0.0"), reference("task", "c", "1.0.0")],
+        config_sources=[reference("collector_tasks", "b", "1.0.0"), reference("collector_tasks", "c", "1.0.0")],
     )
     rev3, rev3_ids = publish_documents(
         app,
@@ -356,7 +356,7 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
     )
     d_version = rev3_ids[-1]
     bundle = app.repository.get_bundle_versions(
-        (document_input("task", "d", "1.0.0").identity,),
+        (document_input("collector_tasks", "d", "1.0.0").identity,),
         rev3,
         max_versions=4,
     )
@@ -367,7 +367,7 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
     assert set(ids).issubset(ordered)
     with pytest.raises(RepositoryCapacityExceededError, match="exceeds limit"):
         app.repository.get_bundle_versions(
-            (document_input("task", "d", "1.0.0").identity,),
+            (document_input("collector_tasks", "d", "1.0.0").identity,),
             rev3,
             max_versions=3,
         )
@@ -375,8 +375,8 @@ def test_shared_diamond_closure_is_deduplicated_and_topological(
 
 def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) -> None:
     documents = (
-        document_input("task", "a", "1.0.0", config_sources=[reference("task", "b", "1.0.0")]),
-        document_input("task", "b", "1.0.0", config_sources=[reference("task", "a", "1.0.0")]),
+        document_input("collector_tasks", "a", "1.0.0", config_sources=[reference("collector_tasks", "b", "1.0.0")]),
+        document_input("collector_tasks", "b", "1.0.0", config_sources=[reference("collector_tasks", "a", "1.0.0")]),
     )
     # Cycles are rejected while staging the full directory, before a candidate
     # id is issued or any SQLite write becomes visible.
@@ -394,7 +394,7 @@ def test_cyclic_candidate_is_rejected_atomically(app: ConfigurationApplication) 
 def test_restart_preserves_versions_and_releases_ownership(
     repository: SQLiteRepository, app: ConfigurationApplication, tmp_path
 ) -> None:
-    item = document_input("task", "alpha", "1.0.0")
+    item = document_input("collector_tasks", "alpha", "1.0.0")
     _, (version_id,) = publish_documents(app, (item,), request_id="restart")
     app.get_config(item.identity, version_id=version_id)
     repository.close()
