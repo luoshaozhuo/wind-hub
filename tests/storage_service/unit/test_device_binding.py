@@ -475,3 +475,31 @@ def test_sqlite_persists_historical_device_bindings_across_restart(
             )
         assert metadata.list_device_bindings() == (binding,)
         assert metadata.list_semantic_pins()[TABLE][0] == pins[TABLE]
+
+
+def test_restart_target_is_durable_without_replacing_active_snapshot(tmp_path: Path) -> None:
+    config = load_storage_config(
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+    )
+    binding = _binding()
+    active = StorageBundle(
+        configuration=config,
+        revision_id=10,
+        deployment_id="prod-a",
+        target_revision="a" * 64,
+        point_table_versions={TABLE: ("shared", "pin-1.0.0")},
+        business_points_pin=None,
+        device_bindings=(binding,),
+    )
+    snapshot = StorageBundleSnapshot(tmp_path / "snapshot")
+    snapshot.store(active)
+    target = replace(active, revision_id=11, target_revision="b" * 64)
+    snapshot.store_target(target)
+
+    assert snapshot.load() == active
+    assert snapshot.load_target() == target
+
+    # A pending target never authorizes overwriting a verified active
+    # generation with a stale authority revision.
+    with pytest.raises(ConfigHistoryUnavailableError, match="older one"):
+        snapshot.store_target(replace(target, revision_id=9))
