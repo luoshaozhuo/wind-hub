@@ -143,20 +143,10 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         )
         assert not empty_references.edges
 
-        # Revision 2 keeps the immutable v1 in the complete root and adds v2,
-        # which pins v1 as its exact dependency.
-        doc_v2 = document(
-            "rpc-task",
-            "2.0.0",
-            name="rpc-task-v2",
-            config_sources=[
-                {
-                    "config_type": "collector_tasks",
-                    "config_id": "rpc-task",
-                    "file_version": "1.0.0",
-                }
-            ],
-        )
+        # Revision 2 retains both immutable versions; an Instance cannot
+        # depend on another Instance version. Template dependency edges are
+        # exercised independently in the typed-reference contract tests.
+        doc_v2 = document("rpc-task", "2.0.0", name="rpc-task-v2")
         published_v2 = await _publish(repository, "rpc-v2", 1, [doc_v1, doc_v2])
         assert published_v2.revision_id == 2
         version2 = next(
@@ -170,7 +160,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert {item.version_id for item in bundle.files} == {version1, version2}
+        assert {item.version_id for item in bundle.files} == {version2}
         outbound = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version2,
@@ -178,7 +168,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert outbound.edges[0].target_version_id == version1
+        assert not outbound.edges
         inbound = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version1,
@@ -186,7 +176,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert inbound.edges[0].source_version_id == version2
+        assert not inbound.edges
         recommended = await repository.SetRecommendedVersion(
             pb.SetRecommendedVersionRequest(
                 request_id="rpc-recommend-v1",
@@ -222,7 +212,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert deprecated.deprecated and deprecated.referencing_versions_count == 1
+        assert deprecated.deprecated and deprecated.referencing_versions_count == 0
         stats = await repository.GetRepositoryStats(
             pb.GetRepositoryStatsRequest(
                 scope=pb.REPOSITORY_STATS_SCOPE_ALL,
