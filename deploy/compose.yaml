@@ -23,7 +23,7 @@ services:
     command:
       - industrial_gateway.main
       - --config
-      - /etc/wind-hub/${WIND_HUB_GATEWAY_CONFIG:-configs/services/industrial_gateway-sim.example.yaml}
+      - /etc/wind-hub/${WIND_HUB_GATEWAY_CONFIG:-configs/services/service_gateway_v1.2.0.yaml}
       - --project-root
       - /etc/wind-hub
 
@@ -32,7 +32,7 @@ services:
     command:
       - data_generator.main
       - --config
-      - /etc/wind-hub/${WIND_HUB_DATA_GENERATOR_CONFIG:-configs/services/data-generator-sim.example.yaml}
+      - /etc/wind-hub/${WIND_HUB_DATA_GENERATOR_CONFIG:-configs/services/service_data-generator_v1.1.0.yaml}
 
   collector-realtime:
     <<: *service
@@ -86,7 +86,7 @@ services:
     command:
       - commander
       - --config
-      - /etc/wind-hub/${WIND_HUB_COMMANDER_CONFIG:-configs/services/commander.yaml}
+      - /etc/wind-hub/${WIND_HUB_COMMANDER_CONFIG:-configs/services/service_commander_v1.4.0.yaml}
 
   cli:
     <<: *service

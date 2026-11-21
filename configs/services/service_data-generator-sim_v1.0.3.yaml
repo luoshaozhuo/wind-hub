@@ -15,7 +15,7 @@ service:
 output:
   max_inflight: 1
   grpc_timeout_seconds: 3.0
-  # 与 industrial_gateway-sim.example.yaml 的 mTLS 信任根匹配。
+  # 与 service_gateway-sim_v1.1.3.yaml 的 mTLS 信任根匹配。
   # 证书由部署/测试设施生成；以下绝对路径不是仓库自带资产。
   gateway_tls:
     ca_file: /etc/wind-hub/certs/ca.pem

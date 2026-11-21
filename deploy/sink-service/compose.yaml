@@ -1,6 +1,6 @@
 # One Sink Service container = one Main + Realtime + Reliable child processes.
 # Set WIND_HUB_SINK_CONFIG_ROOT to a writable directory containing configs/
-# and TLS credentials. Configure the NATS endpoint in sink_service.yaml.
+# and TLS credentials. Configure the NATS endpoint in the selected Sink Service YAML.
 services:
   sink-service:
     build:
@@ -11,11 +11,11 @@ services:
       - --config-root
       - /etc/wind-hub
       - --service-file
-      - configs/services/sink_service.yaml
+      - configs/services/service_sink-west_v1.2.0.yaml
     volumes:
       - ${WIND_HUB_SINK_CONFIG_ROOT:?Specify writable Sink configuration root}:/etc/wind-hub:rw
     ports:
-      - "127.0.0.1:${WIND_HUB_SINK_GRPC_PORT:-50061}:50061"
+      - "127.0.0.1:${WIND_HUB_SINK_GRPC_PORT:-50053}:50053"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

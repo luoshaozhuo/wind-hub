@@ -1,4 +1,4 @@
-# 仿真设备专用清单；和 devices.yaml 共用 Schema，不包含额定参数。
+# 仿真设备专用清单；与真实设备 Instance 使用同一设备 Schema，不包含额定参数。
 # endpoint 是隔离的仿真工业协议服务地址，真实服务部署后按监听地址修改。
 schema_version: 1
 file_version: 1.1.0

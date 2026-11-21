@@ -3,7 +3,7 @@
 # 配置继承优先级：设备实例 > 设备型号 > 本协议模板 > Core 默认值。
 #
 # 【远程 PLC 地址】以下字段不属于 protocol_options，因此不写入本模板正文：
-# - configs/instances/devices.yaml 中的 endpoint.host：目标 PLC IP/主机名，必须提供。
+# - configs/instances/device_farm-a_v1.3.0.yaml 中的 endpoint.host：目标 PLC IP/主机名，必须提供。
 # - endpoint.port：目标 AMS Runtime Port；TwinCAT 2 首个 Runtime 默认为 801。
 # - 设备型号 endpoint_defaults.port：可指定型号统一的目标 AMS Runtime Port。
 # - AMS Runtime Port 801 与 ADS Router TCP 端口（通常 48898）不是同一个端口。

@@ -43,7 +43,7 @@ services:
     manager: process
     target: sink
     process:
-      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/etc/wind-hub/sink"]
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/etc/wind-hub"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/sink.log"
@@ -60,7 +60,7 @@ services:
     manager: process
     target: data-generator
     process:
-      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/services/data-generator.yaml"]
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/configs/services/service_data-generator_v1.1.0.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/data-generator.log"
