@@ -37,7 +37,7 @@ from .infrastructure.config.service_identity import sources_changed
 from .infrastructure.config.snapshot_repository import (
     CollectorSnapshotRepository,
 )
-from .infrastructure.config.task_control import mutate_device_intent
+from .infrastructure.config.task_intents import SqliteTaskIntentStore
 from .infrastructure.config.validation import (
     parse_collector_runtime,
     resolve_source_paths,
@@ -269,7 +269,11 @@ async def assemble_collector(
         telemetry=telemetry,
         metrics_subject=metrics_emitter,
     )
-    lifecycle = CollectorLifecycle(parse_collector_runtime, acquisition)
+    intents = SqliteTaskIntentStore(Path(state_directory) / "task_intents.sqlite3")
+    lifecycle = CollectorLifecycle(
+        partial(parse_collector_runtime, task_intents=intents),
+        acquisition,
+    )
 
     def requires_restart(old: bytes, new: bytes) -> bool:
         return bool(yaml.safe_load(old) != yaml.safe_load(new))
@@ -310,7 +314,7 @@ async def assemble_collector(
             token_env="WIND_HUB_CONFIGURATION_TOKEN",
             nats_servers=list(messaging["servers"]),
         )
-    task_control = CollectorTaskControl(configuration, mutate_device_intent)
+    task_control = CollectorTaskControl(configuration, lifecycle, intents)
     register_collector_rpc(
         server,
         common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher, observer),
