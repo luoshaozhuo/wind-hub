@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 from dataclasses import dataclass, field
 
@@ -274,6 +275,80 @@ class ConfigurationGrpcClient:
             raise ConfigHistoryUnavailableError("configuration repository returned wrong version")
         await asyncio.to_thread(self._archive.persist, document)
         return document
+
+    async def get_current_revision(self) -> int:
+        """Read the authoritative publication cursor, not a recommended version."""
+        response = await self._client().GetCurrentRevision(
+            pb.GetCurrentRevisionRequest(),
+            timeout=self._timeout,
+            metadata=self._metadata(),
+        )
+        if response.revision_id <= 0:
+            raise ConfigHistoryUnavailableError("Configuration has no published revision")
+        return int(response.revision_id)
+
+    async def fetch_point_table_bundle(
+        self, *, point_table_id: str, expected_manifest_sha256: str = ""
+    ) -> tuple[RepositoryDocument, ...]:
+        """Archive a historical interpretation closure without asserting device ownership."""
+        response = await self._client().GetPointTableBundle(
+            pb.GetPointTableBundleRequest(
+                point_table_id=point_table_id,
+                expected_manifest_sha256=expected_manifest_sha256,
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata(),
+        )
+        if response.point_table_id != point_table_id:
+            raise ConfigHistoryUnavailableError("wrong historical PointTable identity")
+        items: list[dict[str, str]] = []
+        documents: list[RepositoryDocument] = []
+        roots = 0
+        seen: set[tuple[str, str, str]] = set()
+        for item in response.documents:
+            doc = _document(item)
+            identity = (doc.config_type, doc.config_id, doc.version_id)
+            if identity in seen:
+                raise ConfigHistoryUnavailableError("duplicate historical document identity")
+            seen.add(identity)
+            items.append({
+                "config_type": doc.config_type,
+                "config_id": doc.config_id,
+                "version_id": doc.version_id,
+                "content_sha256": item.content_sha256,
+                "yaml_sha256": doc.yaml_sha256,
+                "relative_path": item.relative_path,
+            })
+            documents.append(doc)
+            if (
+                doc.config_type == "point_table"
+                and point_table_id == f"point_table_{doc.config_id}_v{item.file_version}"
+            ):
+                _point_table_identity(
+                    ("point_table", doc.config_id, item.file_version),
+                    _yaml_object(doc),
+                )
+                roots += 1
+        kinds = {doc.config_type for doc in documents}
+        if roots != 1 or not {"point_table", "business_points", "units"} <= kinds:
+            raise ConfigHistoryUnavailableError("incomplete historical semantic closure")
+        items.sort(
+            key=lambda item: (
+                item["config_type"], item["config_id"], item["version_id"]
+            )
+        )
+        encoded = json.dumps(
+            items, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        if digest != response.manifest_sha256 or (
+            expected_manifest_sha256 and digest != expected_manifest_sha256
+        ):
+            raise ConfigHistoryUnavailableError("historical semantic manifest mismatch")
+        for doc in documents:
+            await asyncio.to_thread(self._archive.persist, doc)
+        return tuple(documents)
 
     async def fetch_service_bundle(
         self, *, deployment_id: str, service_id: str
