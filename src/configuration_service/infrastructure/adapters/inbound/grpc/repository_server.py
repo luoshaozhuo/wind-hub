@@ -334,6 +334,32 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         return response
 
     @guarded
+    def GetServiceConfigBundle(
+        self, request: pb.GetServiceConfigBundleRequest, context: grpc.ServicerContext
+    ) -> pb.GetServiceConfigBundleResponse:
+        self._actor(context, "query")
+        if not request.deployment_id or not request.service_id:
+            raise ValueError("deployment_id and service_id are required")
+        revision, target, documents = self.app.get_service_config_bundle(
+            request.deployment_id,
+            request.service_id,
+            request.revision_id or None,
+        )
+        manifest = hashlib.sha256()
+        for item in documents:
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                manifest.update(len(encoded).to_bytes(4, "big"))
+                manifest.update(encoded)
+        return pb.GetServiceConfigBundleResponse(
+            repository_revision_id=revision,
+            target_revision=target,
+            files=[_yaml_output(item) for item in documents],
+            manifest_sha256=manifest.hexdigest(),
+            total_bytes=sum(len(item.yaml_bytes) for item in documents),
+        )
+
+    @guarded
     def GetPointTableBundle(
         self, request: pb.GetPointTableBundleRequest, context: grpc.ServicerContext
     ) -> pb.GetPointTableBundleResponse:

@@ -1210,3 +1210,48 @@ class GetCurrentRevisionResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GetCurrentRevisionResponse: _TypeAlias = GetCurrentRevisionResponse  # noqa: Y015
+
+@_typing.final
+class GetServiceConfigBundleRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    DEPLOYMENT_ID_FIELD_NUMBER: _builtins.int
+    SERVICE_ID_FIELD_NUMBER: _builtins.int
+    REVISION_ID_FIELD_NUMBER: _builtins.int
+    deployment_id: _builtins.str
+    service_id: _builtins.str
+    revision_id: _builtins.int
+    def __init__(
+        self,
+        *,
+        deployment_id: _builtins.str = ...,
+        service_id: _builtins.str = ...,
+        revision_id: _builtins.int = ...,
+    ) -> None: ...
+
+Global___GetServiceConfigBundleRequest: _TypeAlias = GetServiceConfigBundleRequest  # noqa: Y015
+
+@_typing.final
+class GetServiceConfigBundleResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    REPOSITORY_REVISION_ID_FIELD_NUMBER: _builtins.int
+    TARGET_REVISION_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
+    MANIFEST_SHA256_FIELD_NUMBER: _builtins.int
+    TOTAL_BYTES_FIELD_NUMBER: _builtins.int
+    repository_revision_id: _builtins.int
+    target_revision: _builtins.str
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[ConfigYamlDocument]: ...
+    manifest_sha256: _builtins.str
+    total_bytes: _builtins.int
+    def __init__(
+        self,
+        *,
+        repository_revision_id: _builtins.int = ...,
+        target_revision: _builtins.str = ...,
+        files: _typing.Iterable[ConfigYamlDocument] | None = ...,
+        manifest_sha256: _builtins.str = ...,
+        total_bytes: _builtins.int = ...,
+    ) -> None: ...
+
+Global___GetServiceConfigBundleResponse: _TypeAlias = GetServiceConfigBundleResponse  # noqa: Y015
