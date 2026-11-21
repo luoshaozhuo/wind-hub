@@ -516,6 +516,34 @@ class ConfigurationApplication:
                     if resolved_id is None:
                         resolved_id = self.repository.resolve_version(identity, file_version)
                     references.append((resolved_id, f"template.{field_name}"))
+            # Sink and Delivery instances pin the Templates used by each item.
+            # Service versions remain independent of the selected Instance versions.
+            if document.identity.config_type in {"sink", "delivery"}:
+                category = (
+                    "sinks" if document.identity.config_type == "sink" else "deliveries"
+                )
+                records = document.canonical_payload.get(category)
+                if records is not None:
+                    if not isinstance(records, dict):
+                        raise ValueError(f"{category} must be a mapping")
+                    for instance_id, instance in records.items():
+                        if not isinstance(instance, dict):
+                            raise ValueError(f"{category}.{instance_id} must be a mapping")
+                        template_id = instance.get("template_id")
+                        template_version = instance.get("template_version")
+                        if not isinstance(template_id, str) or not template_id:
+                            raise ValueError("Instance template_id is required")
+                        if not isinstance(template_version, str) or not template_version:
+                            raise ValueError("Instance template_version is required")
+                        identity = ConfigIdentity(document.identity.config_type, template_id)
+                        key = (identity.config_type, identity.config_id, template_version)
+                        target_id = new_ids.get(key)
+                        if target_id is None:
+                            target_id = self.repository.resolve_version(
+                                identity, template_version
+                            )
+                        references.append((target_id, "instance.template"))
+
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
