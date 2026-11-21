@@ -533,6 +533,17 @@ class MetadataStore:
                             (full_id, *identity),
                         )
                 for binding in device_bindings:
+                    table_pin = point_table_versions.get(binding.point_table_id)
+                    if table_pin is None:
+                        existing_pin = db.execute(
+                            """SELECT config_id, version_id FROM semantic_pins
+                               WHERE point_table_id=?""",
+                            (binding.point_table_id,),
+                        ).fetchone()
+                        if existing_pin is None:
+                            raise MetadataConflictError(
+                                "device binding has no durable PointTable identity"
+                            )
                     identity = (
                         binding.wind_farm_id,
                         binding.device_id,
