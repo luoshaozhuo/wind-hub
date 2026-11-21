@@ -1,6 +1,6 @@
 <h1 class="title">Storage Service 软件设计</h1>
 
-<p class="subtitle">v1_0 · 20261119 · 编码准入设计冻结</p>
+<p class="subtitle">v1_1 · 20261119 · 编码准入设计冻结</p>
 
 <style>
 body {font-family:"Microsoft YaHei";font-size:16px;line-height:1.75;color:#24292f}
@@ -1153,6 +1153,14 @@ flowchart TD
 **禁止**为达吞吐目标提前确认 Kafka Offset、忽略 SQL UNKNOWN、放弃 Schema 校验或绕过正确性检查。具体参数的默认值与上下限应在 Storage Service YAML 与验证记录中统一冻结，不复制 Sink Service 的数字。
 
 # 8. Configuration 集成与版本演进
+
+### 2026-11-21 统一配置版本选择与生效规则（规范性修订）
+Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
+Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
+
+Storage 业务 Service 通过 Deployment 选择版本；如引入配置实例，必须由 Service 引用 Instance 逻辑身份、由 Instance 固定引用 Template。Storage 对历史数据的 PointTable 版本检索是数据解码的历史证据获取，不等于 Service 的当前配置依赖；不得强制以当前活动版本解释历史样本。TDengine 数据库参数有独立的可热变更/待重启/不可变更约束，不能因 Deployment 新版而无条件执行 DDL。继续使用现有 schema、数据库命名和幂等恢复设计。
+
+
 
 ## 8.1 复用现有接口的唯一方案
 

@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_32 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_33 · 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -250,6 +250,23 @@ Sink 的 Gateway 出站 Adapter **已实现**于 `src/sink_service/infrastructur
 模型数学准确性由各模型设计与单模块验证负责，本文件验证源输出到各目标的跨模块可追溯一致性。
 
 # 5. 共享配置、运行环境与进程启动
+
+### 2026-11-21 统一配置版本选择与生效规则（规范性修订）
+Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
+Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
+
+新增 Configuration/Deployment 跨模块验收矩阵（设计目标，代码尚未实现）：
+1. 全量发布只新增不可变版本；未修改 Deployment 的 Service/Instance 目标保持原值。
+2. 同 Service 版本仅升级 Device Instance，验证采集 Device 数及配置修订变化，其他模块无关配置不触发重启。
+3. Collector Task 定义归 collector_tasks Instance；更改采样周期 100→200 ms，稳定运行时验证采样节拍；Device group fast→slow，验证无重复调度。
+4. PointTable 经 Device Instance→Template 引用链升级，验证 Collector、Gateway、Commander 对同一目标闭包的解析及控制安全隔离。
+5. Sink Sinks/Deliveries 版本变更后验证 Realtime 与 Reliable 切换以及 ACK/重投，Service 静态参数更新保持旧运行直至 CLI 重启。
+6. 断线 Service 不阻断其它服务；重连或进程重启后查询 Deployment 目标并收敛；旧版本回滚，记录两项修订字段及实际结果。
+7. 配置引用缺失、歧义、循环、同身份/版本内容冲突、错误摘要及并发 CAS 均必须拒绝，保持活动闭包不变。
+8. 通过 CLI 启动 Collector、Commander、Gateway、Data Generator、Sink、Storage；NATS、Kafka、Redis、TDengine 由测试程序独立启动；控制操作全部经 CLI，结果用真值文件、gRPC 读回、消息/数据库及状态输出交叉检验。
+配置文件及路径需按改造后的正式 Schema 更新测试 Fixture，不得以设计示例伪装已实现配置。
+
+
 
 ## 5.1 配置结构、版本号与 E2E 文件命名
 

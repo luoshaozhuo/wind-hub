@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_55 · 20261118</p>
+<p class="subtitle">v1_56 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -2972,6 +2972,14 @@ points:
 5. 仿真点表和真实设备点表分别注册；编码阶段实现并执行单元、契约、真实 Gateway 映射以及三相/能量守恒测试。未经实际端到端测试不得称为完成实现。
 
 # 11. 配置管理专题
+
+### 2026-11-21 统一配置版本选择与生效规则（规范性修订）
+Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
+Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
+
+Data Generator Service 只引用 devices、模型运行场景等 Instance 逻辑身份，部署版本由 Deployment 选择；Device Instance 通过固定版本引用 Device Model 和 PointTable。数值物理参数及场景参数分别按现有所有权管理，不能由 Service 直接依赖 Template。设备实例/参数可热更新的前提是模型状态迁移可定义且不会破坏真值输出与命令响应一致性；否则需要显式重启后完整应用目标。
+
+
 
 ## 11.1 配置目录与唯一事实源
 

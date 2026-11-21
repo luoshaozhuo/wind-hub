@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_46 · 20261118</p>
+<p class="subtitle">v1_47 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -1743,6 +1743,14 @@ Gateway 管理的当前字段存储是协议适配器的统一数据来源；gRP
 一个 `server_id` 只能绑定一个实际 `device_id`，同一服务域一个设备不能绑定两个 Server；公共设备实例的连接 endpoint 与 Gateway Server 的 listen 分离。对当前协议库不能实现请求级事件、读写来源隔离或合法地址映射的实例，禁止声明对应的控制映射已受支持。未验证的行为必须在 `GetCapabilities` 和测试报告中明确列为未支持。
 
 # 11. 配置设计
+
+### 2026-11-21 统一配置版本选择与生效规则（规范性修订）
+Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
+Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
+
+Gateway Service 只引用 devices、gateway_servers 等具体 Instance 的逻辑身份，版本在 Deployment 里选择。设备和 Server 实例分别通过明确引用链获取 Model、PointTable、Protocol Template；不能直接读取 Service 下的 templates.root。热更新点表与变量映射需要原子交换，不能使安全控制读写在同一事务中混用旧新解释；监听绑定和安全入口变更等待重启。
+
+
 
 ## 11.1 配置文件与权威边界
 
