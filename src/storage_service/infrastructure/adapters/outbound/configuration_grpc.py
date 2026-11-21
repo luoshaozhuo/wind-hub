@@ -406,6 +406,10 @@ class ConfigurationGrpcClient:
         )
         if not pins or not bindings:
             raise ConfigHistoryUnavailableError("selected service has no device semantics")
+        if not {item.wind_farm_id for item in bindings} <= set(config.allowed_wind_farms):
+            raise ConfigHistoryUnavailableError(
+                "selected Device Instances exceed Storage authorized wind farms"
+            )
         catalogs = [key for key in objects if key[0] == "business_points"]
         if len(catalogs) != 1:
             raise ConfigHistoryUnavailableError("selected BusinessPoint catalog is ambiguous")
