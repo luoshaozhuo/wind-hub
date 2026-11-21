@@ -2186,10 +2186,32 @@ Repository `revision_id` 仅做游标；目标和活动闭包摘要使用 §8.2 
 |---|---|
 | G-01 Schema | 目标版本 TDengine 3.3.6.13 执行 §16.2 DDL、插入、查询和类型往返 |
 | G-02 幂等 | 异值同 logical_key 不静默覆盖、同内容重放无额外逻辑点、旧代际响应不提前提交 |
-| G-03 配置 | 未知 PointTable 全量重拉、历史不可变归档、断电恢复和旧版本精确回放 |
-| G-04 Contracts | 第 14 章唯一 Proto 权威，正式生成物/CLI 只用生成 Stub，权限和错误矩阵可执行 |
+| G-03 配置 | Deployment 闭包目标/活动摘要、未知 PointTable 的历史精确查询、不可变归档、断电恢复和旧版本回放；外部配置 RPC 缺失时不宣称 PASS |
+| G-04 Contracts | 当前共享 storage_service.proto 唯一接口权威；不在 Storage 复制接口，配置新增 RPC 缺失时明确外部阻断 |
 | G-05 安全与运行 | 无 TLS/mTLS，按风险分级授权、脱敏状态可选免令牌；受限 SQL/路径、单实例启动拒绝多主 |
 | G-06 E2E | Unit/Component/Integration/System 对应真实证据；Sink v2 线格式和身份链完整验证，外部阻断逐项注明 |
 | G-07 质量 | ruff、mypy、lint-imports、pytest、proto 一致性独立复测，无伪造 PASS |
+
+## 16.11 S2 Storage 集中编码工作包与外部依赖
+
+| 工作包 | Storage 文件范围 | 编码目标 / 准入验证 |
+|---|---|---|
+| S2-A 配置解析 | `application/config.py`, `settings.py` | Schema v2、Deployment ID、本地引导、Service 仅引用 Site/Devices Instance 逻辑 ID；严格删除旧固定版本列表；同步 Storage 专属配置示例 |
+| S2-B 配置与闭包适配 | `infrastructure/adapters/outbound/configuration_grpc.py`, `configuration_archive.py`, `configuration_snapshot.py`, `configuration_watch.py` | 正式接口边界、精确绑定、目标/活动闭包和仓库游标区分；单飞/通知/周期补偿；先验证再持久化；失败保持活动旧代 |
+| S2-C 运行态与身份 | `main.py`, `application/ingestion.py`, `infrastructure/adapters/outbound/metadata_store.py` | 引导与闭包选择、Kafka/TDengine 动态边界、历史归档与在途 Record 代际固定；不提前提交 Offset |
+| S2-D 安全 | `infrastructure/adapters/inbound/grpc_server.py`, `application/config.py` | 无 TLS/mTLS；仅三项脱敏 Common 状态在显式开关下可匿名；敏感读/写强制 Bearer、场站范围、任务所有权、拒绝越权 |
+| S2-E 一致性审查 | `src/storage_service/**` 与 Storage 专属配置/测试/设计 | 所有调用方、引用、注释一致；无旧路径回退/重复实现；静态门禁和定向测试后统一交 Claude 复测 |
+
+**严格修改白名单**：`src/storage_service/**`、`tests/storage_service/**`、Storage 专属 `configs/services/service_storage-*` 和 `configs/services/storage_bootstrap_*`、本 Storage 设计文档；不得改共享 Contracts/Core、Configuration、CLI、Collector、Sink、Gateway 的代码及通用配置。必要的 Storage 专属集成 Fixture 仅在测试目录中修改；跨模块测试由 Claude 依独立验收计划负责。
+
+**外部前置登记**：
+- E-01：Configuration 开发分支正式 Proto/服务端缺少 `GetServiceConfigBundle/GetPointTableBundle/GetCurrentRevision`。未经合流，不可调用、不补私有实现，S2 可完成自身类型与校验逻辑，但跨服务集成为 BLOCKED_EXTERNAL。
+- E-02：服务通用状态若无 `target_revision/active_revision` 独立字段，不自行修改 `common.proto`，按外部契约依赖登记；不能以全局整数修订伪装两个 SHA-256。
+- E-03：参考设计分支 Contracts 的 `engineering` 与 Storage 生产 `protocol` 存在语义差异；Storage 不做无证据别名兼容，跨模块语义冻结交相关模块。
+- E-04：PV/BESS GatewayOutput 非 Storage 缺陷不纳入本轮代码；如阻断系统链路，独立记录 P1 与复现证据。
+
+**S2 出口**：Storage 自有静态检查及定向测试有实际证据，完成代码自审并形成外部阻断清单；尚未就绪的共享 RPC 不得造成虚假的全绿结论。Claude 只进行独立测试、测试代码/Fixture 与小修复，较大生产缺陷仍由 ChatGPT 负责。
+
+---
 
 **S1 设计收口结论：READY_FOR_S2（仅限 Storage 范围，外部接口联调仍受阻）。C2 仍未满足准出条件。** G-01 的真实 TDengine 3.3.6.13 定向验证已有独立报告；G-02、G-03 必须在完成 Deployment 统一配置契约、数据等级统一、完整 E2E 与故障注入后重新验收。ChatGPT 负责全部生产代码设计、集中开发和缺陷修复；Claude Code 只承担独立审查、测试、Fixture 及小范围修复。未经指令不创建 PR、不合并 main。
