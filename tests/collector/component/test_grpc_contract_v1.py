@@ -7,7 +7,6 @@ from pathlib import Path
 
 import grpc
 import pytest
-import yaml
 
 from collector.assembly import assemble_collector
 from contracts import collector_pb2 as collector
@@ -23,15 +22,12 @@ AUTH = (("x-windhub-admin-token", "test-collector-admin"),)
 @pytest.mark.asyncio
 async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
-    for folder in ("instances", "templates"):
+    # The real process bootstraps through Deployment-based exact version
+    # selection: copy the complete shipped tree and address the versioned
+    # Service file; deployment_prod-a is the sole selector of collector-realtime.
+    for folder in ("services", "instances", "templates", "deployments"):
         shutil.copytree(CONFIG_ROOT / folder, tmp_path / folder)
-    service = yaml.safe_load(
-        (CONFIG_ROOT / "services" / "collector.yaml").read_text(encoding="utf-8")
-    )
-    service["file_version"] = "1.0.0"
-    service_path = tmp_path / "services" / "collector.yaml"
-    service_path.parent.mkdir()
-    service_path.write_text(yaml.safe_dump(service), encoding="utf-8")
+    service_path = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
     app = await assemble_collector(
         service_path,
         state_directory=tmp_path / "state",
