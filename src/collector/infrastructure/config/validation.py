@@ -17,7 +17,6 @@ from core.configuration.document_version import validate_document_version
 from core.configuration.effective import resolve_effective_device
 from core.configuration.template_graph import (
     resolve_device_templates,
-    resolve_model_templates,
     validate_point_table_chain,
 )
 from core.configuration.versioned_templates import (
@@ -338,7 +337,6 @@ def parse_collector_runtime(
         if not definition.enabled:
             continue
         config = raw_instances[device_id]
-        overrides = config.get("overrides", {})
         task = tasks_by_group[config["group"]]
         intent = intents.get(device_id, task["desired_state"])
         device = snapshot.site.devices[DeviceId(device_id)]

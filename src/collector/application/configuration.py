@@ -153,7 +153,10 @@ class CollectorConfigurationManager:
                     self._committed.popitem(last=False)
                 return outcome
             if self._restart_pending and current_service is not None:
-                files[self._service_key(files)] = current_service
+                # Model the actually retained Service under its original identity.
+                # Never assign old YAML bytes to a new immutable version filename.
+                files.pop(next_service_key)
+                files[current_service_key] = current_service
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision
             effective_paths = SnapshotPaths(
@@ -203,7 +206,10 @@ class CollectorConfigurationManager:
                 return self.status()
             files, active_paths = await asyncio.to_thread(self._read_retry_material, revision)
             if self._restart_pending and self._runtime_service_path is not None:
-                files[self._service_key(files)] = self._runtime_files[self._service_key(self._runtime_files)]
+                selected_key = self._service_key(files)
+                retained_key = self._service_key(self._runtime_files)
+                files.pop(selected_key)
+                files[retained_key] = self._runtime_files[retained_key]
             effective = SnapshotPaths(
                 service=(
                     self._runtime_service_path

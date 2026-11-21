@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from commander.application.service_lifecycle import CommanderService
+from commander.application.settings import ServiceSettings
 from commander.infrastructure.adapters.outbound.gateway import GatewaySimulationSession
 from commander.infrastructure.adapters.outbound.nats_audit import NatsAuditTransport
 from commander.infrastructure.config.config_commit import recover_config_commit
 from commander.infrastructure.config.service_settings import load_service_settings
-from commander.application.settings import ServiceSettings
 from commander.infrastructure.persistence.event_repository import EventRepository
 from core.application.protocol_registry import ProtocolRegistry
 

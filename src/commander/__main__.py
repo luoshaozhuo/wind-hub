@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from commander.assembly import CommanderSettingsSource, build_commander
@@ -33,7 +34,7 @@ def main() -> None:
         settings_source=source,
     )
     observer: DeploymentObserver | None = None
-    apply_selected = None
+    apply_selected: Callable[[SelectedBundle], Awaitable[bool]] | None = None
     endpoint = os.environ.get("WIND_HUB_CONFIGURATION_ENDPOINT", "")
     if endpoint:
         selection = select_local_service(args.config)
@@ -51,7 +52,7 @@ def main() -> None:
             )
         )
 
-        async def apply_selected(bundle: SelectedBundle) -> bool:
+        async def apply_candidate(bundle: SelectedBundle) -> bool:
             cached = await asyncio.to_thread(
                 stage_selected_bundle,
                 bundle,
@@ -71,6 +72,8 @@ def main() -> None:
                 return False
             service.active_revision = bundle.target_revision
             return True
+
+        apply_selected = apply_candidate
 
     asyncio.run(
         run_grpc(service, args.config, observer=observer, apply_selected=apply_selected)
