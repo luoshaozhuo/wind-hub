@@ -28,7 +28,11 @@ from configuration_service.domain.models import (
     RepositoryConflictError,
     RepositoryNotFoundError,
 )
-from core.configuration.deployment import parse_deployment, service_instance_refs
+from core.configuration.deployment import (
+    closure_sha256,
+    parse_deployment,
+    service_instance_refs,
+)
 from core.configuration.publication_identity import resolve_publication_identity
 
 
@@ -870,6 +874,70 @@ class ConfigurationApplication:
         if sum(len(item.yaml_bytes) for item in output) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration bundle exceeds response limit")
         return output
+
+    def get_service_config_bundle(
+        self,
+        deployment_id: str,
+        service_id: str,
+        revision_id: int | None = None,
+    ) -> tuple[int, str, tuple[DocumentOutput, ...]]:
+        """Resolve only one Service's selected immutable version closure."""
+        revision = self.repository.current_revision() if revision_id is None else revision_id
+        if revision < 1:
+            raise RepositoryNotFoundError("no published Deployment")
+        deployment_doc = self.get_config(
+            ConfigIdentity("deployment", deployment_id), revision_id=revision
+        )
+        deployment = parse_deployment(
+            self.codec.parse_yaml(
+                deployment_doc.yaml_bytes, max_bytes=self.limits.max_request_bytes
+            )
+        )
+        selection = deployment.services.get(service_id)
+        if selection is None:
+            raise RepositoryNotFoundError("Service not selected by Deployment")
+        service_identity = ConfigIdentity("service", service_id)
+        service_vid = self.repository.resolve_version(service_identity, selection.file_version)
+        service_record = self.repository.get_version(service_identity, version_id=service_vid)
+        service_doc = self._restore(service_record, revision_id=0)
+        service_raw = self.codec.parse_yaml(
+            service_doc.yaml_bytes, max_bytes=self.limits.max_request_bytes
+        )
+        if service_raw.get("service_id", service_id) != service_id:
+            raise RepositoryConflictError("selected Service identity mismatch")
+        roles = {
+            "site": "site", "devices": "device", "tasks": "collector_tasks",
+            "sinks": "sink", "deliveries": "delivery", "scenarios": "scenario",
+        }
+        root_ids = [service_vid]
+        for config_type, config_id in service_instance_refs(service_raw, roles):
+            ref = deployment.instances.get((config_type, config_id))
+            if ref is None:
+                raise RepositoryConflictError("Deployment lacks required Instance selection")
+            root_ids.append(
+                self.repository.resolve_version(
+                    ConfigIdentity(config_type, config_id), ref.file_version
+                )
+            )
+        records = self.repository.get_version_closure(
+            root_ids, max_versions=self.limits.max_dependencies
+        )
+        result = self._unique_export_paths(
+            tuple(self._restore(row, revision_id=0) for row in records)
+        )
+        if sum(len(doc.yaml_bytes) for doc in result) > self.limits.max_bundle_bytes:
+            raise RepositoryCapacityExceededError("Service configuration bundle too large")
+        fingerprint = closure_sha256(
+            deployment_id, service_id,
+            (
+                (
+                    doc.identity.config_type, doc.identity.config_id,
+                    doc.file_version, doc.content_sha256,
+                )
+                for doc in result
+            ),
+        )
+        return revision, fingerprint, result
 
     def get_point_table_bundle(
         self,
