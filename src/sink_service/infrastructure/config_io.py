@@ -37,7 +37,7 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
     except (UnicodeError, ConfigOperationError) as exc:
         raise ConfigurationError(f"{item.path}: invalid YAML") from exc
     doc = expect_mapping(raw, item.path)
-    if item.path == "configs/services/sink_service.yaml":
+    if item.path.startswith("configs/services/service_"):
         if type(doc.get("schema_version")) is not int or doc["schema_version"] != 2:
             raise ConfigurationError("Sink Service requires token-security schema")
     else:
@@ -78,9 +78,10 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
 
 def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     docs = {item.path: _yaml_doc(item) for item in files}
-    service = docs.get("configs/services/sink_service.yaml")
-    if service is None:
-        raise ConfigurationError("missing canonical Sink Service configuration")
+    service_files = [name for name in docs if name.startswith("configs/services/")]
+    if len(service_files) != 1:
+        raise ConfigurationError("expected one versioned Sink Service document")
+    service = docs[service_files[0]]
     validate_service_technology(service)
     return validate_semantics(files, docs)
 

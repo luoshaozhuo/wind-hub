@@ -28,20 +28,22 @@ from sink_service.infrastructure.secrets import resolve_secret
 
 _LOG = logging.getLogger(__name__)
 _SUBJECT = "wh.config.changed"
-_MAX_BUNDLE_BYTdef _payloads(
+_MAX_BUNDLE_BYTES = 16 * 1024 * 1024
+_MAX_DOCUMENTS = 1000
+
+
+def _payloads(
     bundle: pb.GetServiceConfigBundleResponse,
     deployment_id: str,
     service_id: str,
 ) -> dict[str, bytes]:
-    """Verify the same authoritative manifest and closure digest as other services."""
+    """Verify the published complete immutable closure before any application."""
     selected = verify_selected_bundle(bundle, deployment_id, service_id)
-    if len(selected.files) > _MAX_DOCUMENTS:
-        raise ConfigurationError("Sink configuration exceeds document limit")
+    if not 0 < len(selected.files) <= _MAX_DOCUMENTS:
+        raise ConfigurationError("Sink selected bundle exceeds document limit")
     if sum(map(len, selected.files.values())) > _MAX_BUNDLE_BYTES:
-        raise ConfigurationError("Sink configuration exceeds byte limit")
+        raise ConfigurationError("Sink selected bundle exceeds byte limit")
     return {"configs/" + name: value for name, value in selected.files.items()}
-n bundle manifest mismatch")
-    return files
 
 
 def _local_snapshot(files: Mapping[str, bytes]) -> tuple[SnapshotFile, ...]:
