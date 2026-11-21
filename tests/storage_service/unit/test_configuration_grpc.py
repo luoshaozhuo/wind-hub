@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -175,3 +176,75 @@ async def test_service_bundle_rejects_wrong_closure_sha(
             deployment_id="prod-a", service_id="storage-main"
         )
     assert not archive.saved
+
+
+async def test_historical_point_table_bundle_requires_exact_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_CONFIGURATION_TOKEN", "x" * 40)
+    docs = [
+        doc for doc in _files()
+        if doc.config_id.config_type in {"point_table", "business_points", "units"}
+    ]
+    entries = [
+        {
+            "config_type": doc.config_id.config_type,
+            "config_id": doc.config_id.config_id,
+            "version_id": doc.version_id,
+            "content_sha256": doc.content_sha256,
+            "yaml_sha256": doc.yaml_sha256,
+            "relative_path": doc.relative_path,
+        }
+        for doc in docs
+    ]
+    entries.sort(
+        key=lambda item: (
+            item["config_type"], item["config_id"], item["version_id"]
+        )
+    )
+    digest = hashlib.sha256(
+        json.dumps(
+            entries, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":"), allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+    class _PointStub:
+        def __init__(self, *, corrupt: bool) -> None:
+            self.corrupt = corrupt
+
+        def __getattr__(self, name: str) -> Any:
+            if name != "GetPointTableBundle":
+                raise AttributeError(name)
+            return self._get
+
+        async def _get(self, request: object, **kwargs: object) -> object:
+            assert isinstance(request, pb.GetPointTableBundleRequest)
+            assert request.point_table_id == "point_table_shared_v1.0.0"
+            return pb.GetPointTableBundleResponse(
+                point_table_id=request.point_table_id,
+                documents=docs,
+                manifest_sha256="0" * 64 if self.corrupt else digest,
+            )
+
+    archive = _Archive()
+    client = ConfigurationGrpcClient(
+        endpoint="127.0.0.1:1",
+        token_env="TEST_CONFIGURATION_TOKEN",
+        archive=archive,
+    )
+    client._stub = cast(Any, _PointStub(corrupt=False))
+    records = await client.fetch_point_table_bundle(
+        point_table_id="point_table_shared_v1.0.0",
+        expected_manifest_sha256=digest,
+    )
+    assert len(records) == 3
+    assert len(archive.saved) == 3
+
+    client._stub = cast(Any, _PointStub(corrupt=True))
+    with pytest.raises(ConfigHistoryUnavailableError, match="manifest mismatch"):
+        await client.fetch_point_table_bundle(
+            point_table_id="point_table_shared_v1.0.0",
+            expected_manifest_sha256=digest,
+        )
+    assert len(archive.saved) == 3
