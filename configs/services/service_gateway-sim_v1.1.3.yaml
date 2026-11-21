@@ -1,6 +1,6 @@
 # Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
 # Instance 固定引用 Template，Service 不声明 templates.root。
-# Industrial Gateway simulation target, aligned with device_sim_v1.1.0.yaml and
+# Industrial Gateway simulation target, aligned with device_sim_v1.2.0.yaml and
 # Data Generator scenario wind-plant-physical.
 # Management gRPC listener is plaintext loopback; never expose it outside host.
 # Industrial client control always enters Commander. Only Commander can call the

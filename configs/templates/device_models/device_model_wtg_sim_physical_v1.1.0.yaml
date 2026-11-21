@@ -1,4 +1,4 @@
-# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator 服务配置中定义。
+# 独立物理仿真设备型号；参数与共享点表绑定，运行工况在 Data Generator Scenario Instance 中定义。
 schema_version: 1
 template_id: wtg_sim_physical
 file_version: "1.1.0"
