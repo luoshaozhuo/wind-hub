@@ -1213,6 +1213,8 @@ Global___GetCurrentRevisionResponse: _TypeAlias = GetCurrentRevisionResponse  # 
 
 @_typing.final
 class GetServiceConfigBundleRequest(_message.Message):
+    """Query one Deployment-selected Service and its immutable dependency closure."""
+
     DESCRIPTOR: _descriptor.Descriptor
 
     DEPLOYMENT_ID_FIELD_NUMBER: _builtins.int
@@ -1221,6 +1223,7 @@ class GetServiceConfigBundleRequest(_message.Message):
     deployment_id: _builtins.str
     service_id: _builtins.str
     revision_id: _builtins.int
+    """0 means current published revision"""
     def __init__(
         self,
         *,
@@ -1247,10 +1250,10 @@ class GetServiceConfigBundleResponse(_message.Message):
     TOTAL_BYTES_FIELD_NUMBER: _builtins.int
     repository_revision_id: _builtins.int
     target_revision: _builtins.str
-    @_builtins.property
-    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigYamlDocument]: ...
     manifest_sha256: _builtins.str
     total_bytes: _builtins.int
+    @_builtins.property
+    def files(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigYamlDocument]: ...
     def __init__(
         self,
         *,

@@ -989,7 +989,7 @@ class SQLiteRepository:
             raise ValueError("version roots and max_versions are required")
         with self.read() as connection:
             return self._load_version_closure(
-                connection, list(sorted(set(version_ids))), max_versions=max_versions
+                connection, sorted(set(version_ids)), max_versions=max_versions
             )
 
     def get_point_table_versions(

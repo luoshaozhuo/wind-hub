@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +24,28 @@ pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 ROOT = Path(__file__).resolve().parents[3]
 
 
+# Authoritative publication directory layout, matching
+# core.configuration.publication_identity.resolve_publication_identity.
+_RELATIVE_DIRS = {
+    "units": "templates",
+    "business_points": "templates",
+    "point_table": "templates/point_tables",
+    "device_model": "templates/device_models",
+    "site": "instances",
+    "device": "instances",
+    "service": "services",
+    "deployment": "deployments",
+}
+
+
 def _input(
     kind: str, identity: str, version: str, document: dict[str, Any]
 ) -> pb.ConfigDocumentInput:
+    file_name = f"{kind}_{identity}_v{version}.yaml"
     return pb.ConfigDocumentInput(
         config_id=pb.ConfigId(config_type=kind, config_id=identity),
-        file_name=f"{kind}_{identity}_v{version}.yaml",
+        file_name=file_name,
+        relative_path=f"{_RELATIVE_DIRS[kind]}/{file_name}",
         yaml_bytes=yaml.safe_dump(document, sort_keys=False).encode("utf-8"),
     )
 
@@ -43,68 +60,112 @@ def _documents(*, static_update: bool = False) -> list[pb.ConfigDocumentInput]:
     service_version = "1.1.1" if static_update else "1.1.0"
     deployment_version = "1.0.1" if static_update else "1.0.0"
     return [
-        _input("units", "standard", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "quantities": {"power": {"base_unit": "kilowatt"}},
-            "units": {
-                "kilowatt": {"quantity": "power", "symbol": "kW"}
+        _input(
+            "units",
+            "standard",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "quantities": {"power": {"base_unit": "kilowatt"}},
+                "units": {"kilowatt": {"quantity": "power", "symbol": "kW"}},
             },
-        }),
-        _input("business_points", "standard", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "business_points": {
-                "power": {"data_type": "float32", "unit": "kilowatt"}
+        ),
+        _input(
+            "business_points",
+            "standard",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "business_points": {"power": {"data_type": "float32", "unit": "kilowatt"}},
             },
-        }),
-        _input("point_table", "storage-points", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "template_id": "storage-points", "protocol": "modbus",
-            "device_type": "turbine",
-            "points": {
-                "power": {
-                    "unit": "kilowatt",
-                    "business_point_id": "power",
-                    "data_type": "float32",
-                }
+        ),
+        _input(
+            "point_table",
+            "storage-points",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "template_id": "storage-points",
+                "protocol": "modbus",
+                "device_type": "turbine",
+                "points": {
+                    "power": {
+                        "unit": "kilowatt",
+                        "business_point_id": "power",
+                        "data_type": "float32",
+                    }
+                },
             },
-        }),
-        _input("device_model", "storage-model", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "template_id": "storage-model", "device_type_id": "turbine",
-            "point_table": {"id": "storage-points", "version": "1.0.0"},
-        }),
-        _input("site", "example_site", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "site_id": "farm-a",
-        }),
-        _input("device", "farm-a", "1.0.0", {
-            "schema_version": 1, "file_version": "1.0.0",
-            "devices": {"WTG01": {"model": {"id": "storage-model", "version": "1.0.0"}}},
-        }),
+        ),
+        _input(
+            "device_model",
+            "storage-model",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "template_id": "storage-model",
+                "device_type_id": "turbine",
+                "point_table": {"id": "storage-points", "version": "1.0.0"},
+            },
+        ),
+        _input(
+            "site",
+            "example_site",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "site_id": "farm-a",
+            },
+        ),
+        _input(
+            "device",
+            "farm-a",
+            "1.0.0",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "devices": {"WTG01": {"model": {"id": "storage-model", "version": "1.0.0"}}},
+            },
+        ),
         _input("service", "storage-main", service_version, service),
-        _input("deployment", "prod-a", deployment_version, {
-            "schema_version": 1, "file_version": deployment_version, "deployment_id": "prod-a",
-            "services": {
-                "storage-main": {"config_id": "storage-main", "file_version": service_version}
+        _input(
+            "deployment",
+            "prod-a",
+            deployment_version,
+            {
+                "schema_version": 1,
+                "file_version": deployment_version,
+                "deployment_id": "prod-a",
+                "services": {
+                    "storage-main": {"config_id": "storage-main", "file_version": service_version}
+                },
+                "instances": {
+                    "site": {"example_site": {"file_version": "1.0.0"}},
+                    "device": {"farm-a": {"file_version": "1.0.0"}},
+                },
             },
-            "instances": {
-                "site": {"example_site": {"file_version": "1.0.0"}},
-                "device": {"farm-a": {"file_version": "1.0.0"}},
-            },
-        }),
+        ),
     ]
 
 
 async def _publish(live: LiveConfiguration, *, static_update: bool = False) -> int:
     repository, _, channel = live.stubs("deployer")
     try:
-        current = await repository.GetCurrentRevision(
-            pb.GetCurrentRevisionRequest(), timeout=10
-        )
+        current = await repository.GetCurrentRevision(pb.GetCurrentRevisionRequest(), timeout=10)
         before = current.revision_id
+        # An identical re-publication is idempotent and does not advance the
+        # revision, so request ids must not be derived from ``before + 1``:
+        # a later distinct publication would otherwise reuse an id with a
+        # different payload and be rejected as an idempotency conflict.
+        call_id = uuid.uuid4().hex
         proposal = await repository.CreateCandidate(
             pb.CreateCandidateRequest(
-                request_id=f"storage-f3-create-{before + 1}",
+                request_id=f"storage-f3-create-{call_id}",
                 expected_revision_id=before,
                 documents=_documents(static_update=static_update),
             ),
@@ -113,7 +174,7 @@ async def _publish(live: LiveConfiguration, *, static_update: bool = False) -> i
         assert proposal.valid, proposal.issues
         published = await repository.PublishCandidate(
             pb.PublishCandidateRequest(
-                request_id=f"storage-f3-publish-{before + 1}",
+                request_id=f"storage-f3-publish-{call_id}",
                 candidate_id=proposal.candidate_id,
                 expected_revision_id=before,
             ),
