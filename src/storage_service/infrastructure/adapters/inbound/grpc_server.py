@@ -400,8 +400,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: pb.QuerySamplesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QuerySamplesResponse:
+        self._auth.require(
+            context, permission="storage.read", farm=request.filter.wind_farm_id
+        )
         filter_ = _filter(request.filter)
-        self._auth.require(context, permission="storage.read", farm=filter_.wind_farm_id)
         page = await self._query.query(
             filter_,
             page_size=request.page_size or 200,
@@ -461,8 +463,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: pb.QueryAggregatesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
+        self._auth.require(
+            context, permission="storage.read", farm=request.filter.wind_farm_id
+        )
         filter_ = _filter(request.filter)
-        self._auth.require(context, permission="storage.read", farm=filter_.wind_farm_id)
         if request.aggregation not in (
             pb.STORAGE_AGGREGATION_COUNT,
             pb.STORAGE_AGGREGATION_MIN,
