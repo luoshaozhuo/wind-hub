@@ -8,6 +8,7 @@ from typing import Any
 
 from commander.application.settings import ServiceSettings, SimulationGatewayTarget
 from core.infrastructure.config import read_yaml
+from core.configuration.local_selection import select_local_service
 
 
 def _mapping(raw: object, name: str) -> dict[str, Any]:
@@ -98,6 +99,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         {
             "schema_version",
             "file_version",
+            "service_id",
             "config_sources",
             "grpc",
             "security",
@@ -119,40 +121,11 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         is None
     ):
         raise ValueError("commander file_version must be MAJOR.MINOR.PATCH")
-    sources = _mapping(raw.get("config_sources"), "config_sources")
-    _keys(sources, {"instances", "templates"}, "config_sources")
-    instances = _mapping(sources.get("instances"), "config_sources.instances")
-    templates = _mapping(sources.get("templates"), "config_sources.templates")
-    _keys(instances, {"devices"}, "config_sources.instances")
-    _keys(templates, {"root"}, "config_sources.templates")
-
-    def source_path(value: object, name: str, *, directory: bool) -> Path:
-        if not isinstance(value, str) or not value.strip() or value.strip() != value:
-            raise ValueError(f"{name}: nonempty pathname required")
-        candidate = Path(value)
-        if ".." in candidate.parts or "\\" in value:
-            raise ValueError(f"{name}: path traversal is not allowed")
-        if not candidate.is_absolute():
-            service_dir = Path(path).resolve().parent
-            candidate = (
-                service_dir.parent.joinpath(*candidate.parts[1:])
-                if candidate.parts and candidate.parts[0] == "configs"
-                else service_dir / candidate
-            )
-        try:
-            resolved = candidate.resolve(strict=True)
-        except OSError as exc:
-            raise ValueError(f"{name}: source unavailable: {candidate}") from exc
-        if not (resolved.is_dir() if directory else resolved.is_file()):
-            raise ValueError(f"{name}: incorrect source kind: {resolved}")
-        return resolved
-
-    devices_path = source_path(
-        instances.get("devices"), "config_sources.instances.devices", directory=False
-    )
-    templates_root = source_path(
-        templates.get("root"), "config_sources.templates.root", directory=True
-    )
+    selected = select_local_service(Path(path))
+    if set(selected.instances) != {"devices"}:
+        raise ValueError("Commander must select exactly the devices Instance")
+    devices_path = selected.instances["devices"]
+    templates_root = selected.templates
     simulation = _mapping(raw.get("simulation_targets", {}), "simulation_targets")
     simulation_targets: dict[str, SimulationGatewayTarget] = {}
     for device_id, raw_target in simulation.items():

@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from core.application.errors import ConfigError
 from core.configuration import SharedConfigPaths, SharedDocumentLoader
+from core.configuration.local_selection import select_local_service
 from core.configuration.shared_documents import SharedDeviceDefinition
 from core.configuration.versioned_templates import config_hash
 from core.domain import ConnectionEndpoint
@@ -193,12 +194,11 @@ def load_gateway(
         read_yaml(service_pathname) if candidate_document is None else candidate_document
     )
     service = GatewayServiceConfig.model_validate(service_document)
-    device_file = service_path(root, service.config_sources.instances.devices)
-    templates_root = service_path(root, service.config_sources.templates.root)
-    if not device_file.is_file():
-        raise ConfigError(f"missing configured devices instance: {device_file}")
-    if not templates_root.is_dir():
-        raise ConfigError(f"missing configured templates root: {templates_root}")
+    selection = select_local_service(service_pathname)
+    if set(selection.instances) != {"devices"}:
+        raise ConfigError("Gateway must reference one devices Instance")
+    device_file = selection.instances["devices"]
+    templates_root = selection.templates
     shared = SharedDocumentLoader(
         SharedConfigPaths(instances=device_file.parent, templates=templates_root)
     ).load_devices(
