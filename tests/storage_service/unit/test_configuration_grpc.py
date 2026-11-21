@@ -9,9 +9,11 @@ from typing import Any, cast
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from contracts import configuration_repository_pb2 as pb
 from core.configuration.deployment import closure_sha256
+from storage_service.application.config import load_storage_config
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
@@ -248,3 +250,23 @@ async def test_historical_point_table_bundle_requires_exact_manifest(
             expected_manifest_sha256=digest,
         )
     assert len(archive.saved) == 3
+
+
+def test_service_v2_rejects_legacy_fixed_template_sources() -> None:
+    document = yaml.safe_load(
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+    )
+    document["config_sources"] = [
+        {"config_type": "point_table", "config_id": "shared", "file_version": "1.0.0"}
+    ]
+    with pytest.raises(ValidationError):
+        load_storage_config(yaml.safe_dump(document).encode())
+
+
+def test_service_v2_requires_both_selected_instance_roles() -> None:
+    document = yaml.safe_load(
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+    )
+    del document["config_sources"]["instances"]["site"]
+    with pytest.raises(ValidationError):
+        load_storage_config(yaml.safe_dump(document).encode())
