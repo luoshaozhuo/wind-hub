@@ -101,9 +101,6 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     from core.configuration.local_selection import select_local_service
 
     selection = select_local_service(root / selected[0], deployment_id=None)
-    if selection.service_id != "sink-west":
-        raise ConfigurationError("incorrect selected Sink Service")
-
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
         if target.is_symlink() or any(
