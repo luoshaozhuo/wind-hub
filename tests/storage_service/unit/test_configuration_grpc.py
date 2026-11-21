@@ -104,7 +104,7 @@ async def test_bundle_keeps_multiple_versions_of_same_config_identity(
 ) -> None:
     monkeypatch.setenv("TEST_CONFIGURATION_TOKEN", "x" * 40)
     service_payload = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
     service_payload["config_sources"] = [
         {"config_type": "point_table", "config_id": "shared", "file_version": "1.0.0"},
