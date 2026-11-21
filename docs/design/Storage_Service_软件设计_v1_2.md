@@ -1962,6 +1962,9 @@ $$
 | D-09 | legacy full-chain 的 config push/apply、证书主体、73 个 CLI 分母与新协议不符 | 删除过时假设，维护唯一当前 CLI 矩阵，不能直接跳过实际业务失败 |
 | D-10 | PV/BESS GatewayOutput 目标变量回零根因未定 | 必须复现并定位映射/租约/样本路由，不得以测试失效掩盖 |
 | D-11 | 真实 taosdump 恢复、部分长时性能未完成 | 保持 NOT_EXECUTED，不计 C2 PASS；按最终验收阶段执行 |
+| D-12 | Claude 新增的 Collector BatchBuilder._item 在采集侧调用 engineering_value/convert_value，并把原解码标量作为 RAW；与 Sink 负责等级选择及 Storage 文档“RAW 可为未解码协议载荷”的边界不一致 | 统一正式语义和数据来源，明确无原始载荷时 RAW 能力边界；不能伪造上游原始字节，也不能把 ENGINEERING 改名成 PROTOCOL |
+| D-13 | Collector BatchBuilder._batch 暂把 task_id 设置为 device_id，新设计采用独立 collector_tasks Instance + Device.group | 随 Task Instance / group 契约迁移正确传播任务身份，更新 CLI 与完整 E2E 断言 |
+| D-14 | Sink GatewayOutput 的 PV/BESS golden 值回零，Claude 尚未定位根因 | ChatGPT 独立定位映射/租约/路由并修复生产代码，Claude 负责复测 |
 
 ## 15.1 TDengine 规范性 SQL 参考
 
