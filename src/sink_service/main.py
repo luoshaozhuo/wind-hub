@@ -40,7 +40,7 @@ async def run_sink_service(config_root: Path, service_file: str = SERVICE_FILE) 
         service_file = store.selected_service_path()
     lease = WriterLease(config_root)
     lease.acquire()
-    supervisor = WorkerSupervisor(config_root, service_file)
+    supervisor = WorkerSupervisor(config_root, service_file, lambda: manager.runtime.revision)
     server = None
     background: list[asyncio.Task[None]] = []
     try:
