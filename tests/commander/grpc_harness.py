@@ -416,31 +416,33 @@ async def build_stack(
             + "".join(f"    {key}: {json.dumps(value)}\n" for key, value in recovery.items())
         )
     yaml_path.write_text(yaml_text, encoding="utf-8")
-    if modbus_port is not None:
-        devices_yaml = root / "instances" / "device_farm-a_v1.4.0.yaml"
-        devices_yaml.write_text(
-            devices_yaml.read_text(encoding="utf-8")
-            + "".join(
-                _device_block(
-                    device_id,
-                    (device_ports or {}).get(device_id, modbus_port),
-                    label,
-                )
-                for device_id in device_ids
-            ),
+    # All integration scenarios require the same WT01 identity and binding;
+    # tests without a live Modbus endpoint use an unbound reserved port.
+    selected_port = modbus_port if modbus_port is not None else free_port()
+    devices_yaml = root / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices_yaml.write_text(
+        devices_yaml.read_text(encoding="utf-8")
+        + "".join(
+            _device_block(
+                device_id,
+                (device_ports or {}).get(device_id, selected_port),
+                label,
+            )
+            for device_id in device_ids
+        ),
+        encoding="utf-8",
+    )
+    table = root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml"
+    table.write_text(_SETPOINT_TABLE, encoding="utf-8")
+    model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
+    model.write_text(_MODELS_TABLE, encoding="utf-8")
+    business = root / "templates" / "business_points_standard_v1.4.0.yaml"
+    text = business.read_text(encoding="utf-8")
+    if "  setpoint_power:" not in text:
+        business.write_text(
+            text + _BUSINESS_POINTS.split("business_points:\n", 1)[1],
             encoding="utf-8",
         )
-        table = root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml"
-        table.write_text(_SETPOINT_TABLE, encoding="utf-8")
-        model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
-        model.write_text(_MODELS_TABLE, encoding="utf-8")
-        business = root / "templates" / "business_points_standard_v1.4.0.yaml"
-        text = business.read_text(encoding="utf-8")
-        if "  setpoint_power:" not in text:
-            business.write_text(
-                text + _BUSINESS_POINTS.split("business_points:\n", 1)[1],
-                encoding="utf-8",
-            )
     if prepare is not None:
         prepare(service_dir)
 
