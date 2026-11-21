@@ -405,6 +405,7 @@ async def test_restart_required_keeps_verified_old_closure(tmp_path: Path) -> No
 
     await watcher.refresh_now()
     assert watcher.status == "RESTART_REQUIRED"
+    assert watcher.target_revision != watcher.active_revision
     assert metadata.pins == {}
     assert snapshot.stored == []
     await resolver.require_exact_versions([_sample(OLD)])
@@ -608,6 +609,8 @@ async def test_unrelated_repository_revision_does_not_rewrite_storage_snapshot(
     await watcher.refresh_now()
 
     assert watcher.status == "READY"
+    assert watcher.target_revision == watcher.active_revision
+    assert watcher.repository_revision_id == 8
     assert client.calls == 1
     assert metadata.pins == {}
     assert snapshot.stored == []
