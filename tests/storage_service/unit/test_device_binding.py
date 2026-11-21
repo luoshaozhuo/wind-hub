@@ -439,7 +439,7 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
     tmp_path: Path,
 ) -> None:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
     config = config.model_copy(
         update={
