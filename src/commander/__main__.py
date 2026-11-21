@@ -12,8 +12,8 @@ from commander.assembly import CommanderSettingsSource, build_commander
 from commander.infrastructure.adapters.inbound.grpc_transport import run_grpc
 from core.application.protocol_registry import ProtocolRegistry
 from core.configuration.local_selection import select_local_service
-from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.configuration_cache import stage_selected_bundle
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 
