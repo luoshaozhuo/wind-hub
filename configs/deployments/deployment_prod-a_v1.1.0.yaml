@@ -4,12 +4,15 @@
 # instances.<config_type>.<config_id>.file_version 为同部署域的唯一目标版本。
 # 实例依赖模板由 Instance 固定引用；Service 不允许直接引用 Template。
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.1.0"
 deployment_id: prod-a
 services:
-  collector:
-    config_id: collector
+  collector-realtime:
+    config_id: collector-realtime
     file_version: "1.1.0"
+  collector-reliable:
+    config_id: collector-reliable
+    file_version: "1.0.0"
   commander:
     config_id: commander
     file_version: "1.4.0"

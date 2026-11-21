@@ -7,7 +7,7 @@ config_sources:
     devices: farm-a
     tasks: farm-a
 file_version: 1.1.0
-service_id: collector
+service_id: collector-realtime
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10
