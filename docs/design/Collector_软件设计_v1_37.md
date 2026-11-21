@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_36 · 20261118</p>
+<p class="subtitle">v1_37 · 20261118</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
 
@@ -3158,7 +3158,7 @@ Metrics 及事件表达。任何缓存均有上限及过期规则，NATS
 ### Collector Task / Device Group 最终配置 Schema（目标）
 人工启停通过已有 Collector 管理 RPC 更新本地持久化运行意图，键为 `task_id + collector_tasks.file_version`，优先于该版本的 `desired_state`；重启恢复同版本的覆盖状态。当 Deployment 选定新的 Collector Task Instance 版本时，该任务的旧版本覆盖状态失效，以新版本 `desired_state` 重新协调。控制记录写入失败不改变实际意图；不写入已发布的 Instance YAML。
 ```yaml
-# configs/instances/devices_farm_a_v1.2.0.yaml
+# configs/instances/device_farm-a_v1.2.0.yaml
 schema_version: 1
 file_version: "1.2.0"
 devices:
@@ -3172,7 +3172,7 @@ devices:
     endpoint: {host: 192.168.1.102}
 ```
 ```yaml
-# configs/instances/collector_tasks_farm_a_v1.1.0.yaml
+# configs/instances/collector_tasks_farm-a_v1.1.0.yaml
 schema_version: 1
 file_version: "1.1.0"
 tasks:
@@ -3189,9 +3189,9 @@ tasks:
 # Collector Service 中只记录实例逻辑身份
 config_sources:
   instances:
-    site: site-farm-a
-    devices: devices-farm-a
-    tasks: collector-tasks-farm-a
+    site: farm-a
+    devices: farm-a
+    tasks: farm-a
 ```
 `group` 是 Device **Instance** 的采集归组属性，不属于 Device Model；一个设备至多一个 `group`；Collector Task 的 `group` 必须在本服务所选设备集内非空且唯一归属，禁止多个 Task 同时采集同一设备。任务期望状态随 Collector Task Instance 版本持久化，运行时实际状态不写入不可变配置。现有 CLI 手动启停接口需明确其控制意图持久化与 Deployment 的关系；不得直接改写已发布 YAML。迁移设备组必须按设备停止旧任务、确认后才启动新任务；失败可恢复到旧的有效采集计划。
 
@@ -3276,8 +3276,8 @@ schema_version: 1
 file_version: 1.0.0
 config_sources:
   instances:
-    site: site-farm-a
-    devices: devices-farm-a
+    site: farm-a
+    devices: farm-a
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10

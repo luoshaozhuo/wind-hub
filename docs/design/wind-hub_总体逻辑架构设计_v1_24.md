@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_23 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_24 · 20261118 · 系统级数据流、配置管理与模块内部架构</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -329,7 +329,7 @@ Configuration Service 统一持有全局候选、不可变版本和已发布修�
 
 ### Collector Task / Device Group 最终配置 Schema（目标）
 ```yaml
-# configs/instances/devices_farm_a_v1.2.0.yaml
+# configs/instances/device_farm-a_v1.2.0.yaml
 schema_version: 1
 file_version: "1.2.0"
 devices:
@@ -343,7 +343,7 @@ devices:
     endpoint: {host: 192.168.1.102}
 ```
 ```yaml
-# configs/instances/collector_tasks_farm_a_v1.1.0.yaml
+# configs/instances/collector_tasks_farm-a_v1.1.0.yaml
 schema_version: 1
 file_version: "1.1.0"
 tasks:
@@ -360,9 +360,9 @@ tasks:
 # Collector Service 中只记录实例逻辑身份
 config_sources:
   instances:
-    site: site-farm-a
-    devices: devices-farm-a
-    tasks: collector-tasks-farm-a
+    site: farm-a
+    devices: farm-a
+    tasks: farm-a
 ```
 `group` 是 Device **Instance** 的采集归组属性，不属于 Device Model；一个设备至多一个 `group`；Collector Task 的 `group` 必须在本服务所选设备集内非空且唯一归属，禁止多个 Task 同时采集同一设备。任务期望状态随 Collector Task Instance 版本持久化，运行时实际状态不写入不可变配置。现有 CLI 手动启停接口需明确其控制意图持久化与 Deployment 的关系；不得直接改写已发布 YAML。迁移设备组必须按设备停止旧任务、确认后才启动新任务；失败可恢复到旧的有效采集计划。
 
@@ -377,7 +377,7 @@ config_sources:
 5. 状态报告 target_revision 和 active_revision，二者表示服务的完整有效闭包而非单独 Service 文件版本。部分热更新不能报告完全收敛，无关模块修改不能引起虚假不一致。
 6. Configuration 自身引导配置本地独立，避免自引用循环。
 
-Deployment 是版本选择表；Service 引用 devices-farm-a、collector-tasks-a 等实例逻辑身份，Deployment 唯一解析为固定版本。Task 属于 Collector 专属 Instance；Device Instance 增加 group，Device Model 不含 Task。
+Deployment 是版本选择表；Service 引用 farm-a 等带类型约束的实例逻辑身份，Deployment 唯一解析为固定版本。Task 属于 Collector 专属 Instance；Device Instance 增加 group，Device Model 不含 Task。
 
 
 
@@ -567,8 +567,8 @@ Contracts §11.6 统一规定 Collector→NATS→Sink 的 SampleBatch v3 输入�
 ```yaml
 config_sources:
   instances:
-    site: site-farm-a
-    devices: devices-farm-a
+    site: farm-a
+    devices: farm-a
 ```
 
 `config_sources.instances` 是 Service 所需实例的逻辑身份映射；其实际版本由 Deployment 清单唯一确定，Service 不得定义 `templates.root`。不得随意给不支持该字段的配置文件添加 `config_sources`，也不得用它代替 Template 内部的精确版本引用。
@@ -596,9 +596,9 @@ config_sources:
 # file_version: "1.0.0"             # 必填；MAJOR.MINOR.PATCH
 # config_sources:                   # 配置直接来源
 #   instances:
-#     site: site-farm-a       # 场站实例逻辑 ID
-#     devices: devices-farm-a # 设备实例逻辑 ID
-#     tasks: collector-tasks-farm-a # 采集任务 Instance 逻辑 ID
+#     site: farm-a       # 场站实例逻辑 ID
+#     devices: farm-a # 设备实例逻辑 ID
+#     tasks: farm-a # 采集任务 Instance 逻辑 ID
 # runtime:
 #   shutdown_timeout: 30           # 秒，正数；进程关闭等待上限
 #   connect_timeout: 10            # 秒，正数；连接超时
@@ -630,8 +630,8 @@ schema_version: 1
 file_version: "1.0.0"
 config_sources:
   instances:
-    site: site-farm-a
-    devices: devices-farm-a
+    site: farm-a
+    devices: farm-a
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10
@@ -950,7 +950,7 @@ services:
     config_id: sink-west
     file_version: "1.0.0"
 instances:
-  devices:
+  device:
     farm-a:
       file_version: "1.2.0"
   collector_tasks:
