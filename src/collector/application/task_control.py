@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 from collector.application.config_models import SnapshotConflictError, SnapshotError
 from collector.application.configuration import CollectorConfigurationManager, ConfigurationStatus
 from collector.application.lifecycle import CollectorLifecycle
 from collector.application.ports.task_intents import TaskIntentPort
-from core.infrastructure.config import read_yaml
 
 
 class CollectorTaskControl:
@@ -19,10 +21,12 @@ class CollectorTaskControl:
         configuration: CollectorConfigurationManager,
         lifecycle: CollectorLifecycle,
         intents: TaskIntentPort,
+        read_config: Callable[[Path], dict[str, Any]],
     ) -> None:
         self._configuration = configuration
         self._lifecycle = lifecycle
         self._intents = intents
+        self._read_config = read_config
         self._lock = asyncio.Lock()
 
     async def set_desired(
@@ -38,10 +42,10 @@ class CollectorTaskControl:
             paths = self._configuration.active_paths()
             if paths.tasks is None or paths.devices is None:
                 raise SnapshotError("selected Collector Tasks/Devices unavailable")
-            devices = read_yaml(paths.devices).get("devices", {})
+            devices = self._read_config(paths.devices).get("devices", {})
             if device_id not in devices or devices[device_id].get("enabled", True) is False:
                 raise LookupError("unknown or disabled Collector device")
-            task_version = read_yaml(paths.tasks).get("file_version")
+            task_version = self._read_config(paths.tasks).get("file_version")
             if not isinstance(task_version, str) or not task_version:
                 raise SnapshotError("invalid selected Task Instance version")
             await asyncio.to_thread(

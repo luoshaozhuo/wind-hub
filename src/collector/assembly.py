@@ -314,7 +314,7 @@ async def assemble_collector(
             token_env="WIND_HUB_CONFIGURATION_TOKEN",
             nats_servers=list(messaging["servers"]),
         )
-    task_control = CollectorTaskControl(configuration, lifecycle, intents)
+    task_control = CollectorTaskControl(configuration, lifecycle, intents, read_yaml)
     register_collector_rpc(
         server,
         common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher, observer),
