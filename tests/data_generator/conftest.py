@@ -101,12 +101,13 @@ def write_service_yaml(
     service = {
         "schema_version": 1,
         "file_version": "1.0.0",
+        "service_id": "data-generator",
         "config_sources": {
             "instances": {
-                "site": "instances/site.yaml",
-                "devices": "instances/devices.yaml",
+                "site": "example_site",
+                "devices": "farm-a",
+                "scenarios": "test",
             },
-            "templates": {"root": "templates"},
         },
         "service": {"grpc_bind": bind},
         "output": {"max_inflight": max_inflight, "grpc_timeout_seconds": output_timeout},
@@ -126,9 +127,39 @@ def write_service_yaml(
     }
     if recording is not None:
         service["recording"] = recording
-    if scenarios is not None:
-        service["scenarios"] = scenarios
-    path = root / "services" / "data-generator.yaml"
+    scenario_file = root / "instances" / "scenarios_test_v1.0.0.yaml"
+    if scenarios is None:
+        # Default source is an actual published scenario Instance, not an
+        # obsolete embedded Service scenario.
+        source = REPO_CONFIGS / "instances" / "scenarios_prod-a_v1.0.0.yaml"
+        scenario_file.write_bytes(source.read_bytes())
+    else:
+        _dump(
+            scenario_file,
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "scenarios": scenarios,
+            },
+        )
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "dg-test",
+        "services": {
+            "data-generator": {
+                "config_id": "data-generator",
+                "file_version": "1.0.0",
+            }
+        },
+        "instances": {
+            "site": {"example_site": {"file_version": "1.1.0"}},
+            "device": {"farm-a": {"file_version": "1.4.0"}},
+            "scenario": {"test": {"file_version": "1.0.0"}},
+        },
+    }
+    _dump(root / "deployments" / "deployment_dg-test_v1.0.0.yaml", deployment)
+    path = root / "services" / "service_data-generator_v1.0.0.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(service, sort_keys=False), encoding="utf-8")
     return path
