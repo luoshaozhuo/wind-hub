@@ -131,18 +131,28 @@ class CollectorSnapshotRepository:
             if total > max_bytes:
                 raise SnapshotError("snapshot byte limit exceeded")
             result.append((path, value))
-        required_instances = {
-            "services/collector.yaml",
-            "instances/site.yaml",
-            "instances/devices.yaml",
-        }
-        if not required_instances.issubset(files):
-            raise SnapshotError("snapshot missing required configuration files")
+        def exactly_one(folder: str, prefix: str) -> None:
+            matches = [
+                name for name in files
+                if name.startswith(f"{folder}/{prefix}")
+                and name.endswith(".yaml")
+                and "_v" in name
+            ]
+            if len(matches) != 1:
+                raise SnapshotError(f"snapshot requires exactly one {prefix} document")
+
+        for folder, prefix in (
+            ("services", "service_"),
+            ("instances", "site_"),
+            ("instances", "device_"),
+            ("instances", "collector_tasks_"),
+        ):
+            exactly_one(folder, prefix)
         if not {
-            "templates/units_standard.yaml",
-            "templates/business_points_standard.yaml",
+            "templates/units_standard_v1.2.0.yaml",
+            "templates/business_points_standard_v1.4.0.yaml",
         }.issubset(files):
-            raise SnapshotError("snapshot missing shared catalogs")
+            raise SnapshotError("snapshot missing required shared catalogs")
         return tuple(result), snapshot_digest(dict(result))
 
     def _candidate_path(self, candidate_id: str) -> Path:
