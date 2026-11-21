@@ -246,6 +246,7 @@ class GrpcConfig(_StrictModel):
     listen_host: Literal["127.0.0.1", "::1"] = "127.0.0.1"
     listen_port: int = Field(default=51110, ge=1, le=65535)
     max_active_rpcs: int = Field(default=64, ge=1, le=512)
+    allow_unauthenticated_status: bool = False
 
 
 class CallerPermission(_StrictModel):
