@@ -42,6 +42,11 @@ class RepositoryDocument:
 
 
 class DocumentFetcher(Protocol):
+    async def fetch_point_table_bundle(
+        self, *, point_table_id: str, expected_manifest_sha256: str = ""
+    ) -> tuple[RepositoryDocument, ...]:
+        """Fetch one immutable historical interpretation bundle."""
+
     async def fetch_by_version(
         self, *, config_type: str, config_id: str, version_id: str
     ) -> RepositoryDocument:
@@ -349,18 +354,41 @@ class ConfigurationPointTableResolver:
         self._device_bindings = merged_device_bindings
 
     async def _load(
-        self, *, config_type: str, config_id: str, version_id: str
+        self,
+        *,
+        config_type: str,
+        config_id: str,
+        version_id: str,
+        point_table_id: str | None = None,
     ) -> Mapping[str, Any]:
         key = (config_type, config_id, version_id)
         if key not in self._loaded:
             async with self._lock:
                 if key not in self._loaded:
                     try:
-                        document = await self._fetcher.fetch_by_version(
-                            config_type=config_type,
-                            config_id=config_id,
-                            version_id=version_id,
-                        )
+                        if config_type == "point_table":
+                            if point_table_id is None:
+                                raise ConfigHistoryUnavailableError(
+                                    "historical PointTable identity is required"
+                                )
+                            bundle = await self._fetcher.fetch_point_table_bundle(
+                                point_table_id=point_table_id
+                            )
+                            matched = [
+                                item for item in bundle
+                                if (item.config_type, item.config_id, item.version_id) == key
+                            ]
+                            if len(matched) != 1:
+                                raise ConfigHistoryUnavailableError(
+                                    "historical bundle does not contain the fixed PointTable version"
+                                )
+                            document = matched[0]
+                        else:
+                            document = await self._fetcher.fetch_by_version(
+                                config_type=config_type,
+                                config_id=config_id,
+                                version_id=version_id,
+                            )
                         if (document.config_type, document.config_id, document.version_id) != key:
                             raise ConfigHistoryUnavailableError("repository returned wrong version")
                         await asyncio.to_thread(self._archive.persist, document)
@@ -457,6 +485,7 @@ class ConfigurationPointTableResolver:
                 config_type="point_table",
                 config_id=config_id,
                 version_id=version_id,
+                point_table_id=sample.point_table_id,
             )
             self._require_table_identity(
                 point_table_id=sample.point_table_id,
