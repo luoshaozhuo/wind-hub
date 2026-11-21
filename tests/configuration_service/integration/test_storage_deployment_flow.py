@@ -59,7 +59,14 @@ def _documents(*, static_update: bool = False) -> list[pb.ConfigDocumentInput]:
         _input("point_table", "storage-points", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
             "template_id": "storage-points", "protocol": "modbus",
-            "device_type": "turbine", "points": {"power": {"unit": "kW"}},
+            "device_type": "turbine",
+            "points": {
+                "power": {
+                    "unit": "kilowatt",
+                    "business_point_id": "power",
+                    "data_type": "float32",
+                }
+            },
         }),
         _input("device_model", "storage-model", "1.0.0", {
             "schema_version": 1, "file_version": "1.0.0",
