@@ -71,13 +71,14 @@ def test_resolve_rejects_file_version_mismatch(tmp_path: Path) -> None:
 
 def test_flat_categories_use_flat_versioned_filenames() -> None:
     templates = _CONFIGS / "templates"
-    for category in ("protocols", "point_tables", "device_models", "tasks"):
+    # Task Template 已退役（45ed5ec14），shipped 模板仅保留三个扁平版本化类别。
+    for category in ("protocols", "point_tables", "device_models"):
         base = templates / category
         assert base.is_dir()
         assert not any(path.is_dir() for path in base.iterdir()), f"{category} 仍含嵌套目录"
         prefix = TEMPLATE_FILE_PREFIXES[category]
         assert list(base.glob(f"{prefix}*_v*.yaml")), f"{category} 缺少扁平版本文件"
-    assert (templates / "tasks" / "task_turbine_all_v1.0.0.yaml").is_file()
+    assert not (templates / "tasks").exists(), "退役的 Task Template 目录不得恢复"
 
 
 def test_point_table_inheritance_cycle_rejected(tmp_path: Path) -> None:
