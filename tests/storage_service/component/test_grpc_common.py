@@ -144,3 +144,47 @@ async def test_global_retry_is_permission_denied_for_farm_scoped_operator(
     finally:
         await channel.close()
         await server.stop(grace=0)
+
+
+async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+    base = _config()
+    config = base.model_copy(
+        update={
+            "grpc": base.grpc.model_copy(
+                update={"allow_unauthenticated_status": True}
+            )
+        }
+    )
+    server = _server(config)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+    common_stub = common_rpc.CommonServiceStub(channel)
+    storage_stub = storage_rpc.StorageServiceStub(channel)
+    try:
+        info = await common_stub.GetServiceInfo(common.Empty())
+        assert info.process_role == "storage"
+        status = await common_stub.GetServiceStatus(common.Empty())
+        assert status.health == "HEALTHY"
+        assert all(not dependency.detail for dependency in status.dependencies)
+        capabilities = await common_stub.GetCapabilities(common.Empty())
+        assert "QuerySamples" in capabilities.rpc_names
+
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await common_stub.GetServiceInfo(
+                common.Empty(), metadata=(("authorization", "Bearer invalid"),)
+            )
+        assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+        with pytest.raises(grpc.aio.AioRpcError) as denied:
+            await storage_stub.GetStorageStats(storage_pb.GetStorageStatsRequest())
+        assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+        with pytest.raises(grpc.aio.AioRpcError) as denied_query:
+            await storage_stub.QuerySamples(storage_pb.QuerySamplesRequest())
+        assert denied_query.value.code() == grpc.StatusCode.UNAUTHENTICATED
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
