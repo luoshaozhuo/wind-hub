@@ -153,7 +153,7 @@ def _build(
     commit_timeout_ms: int | None = None,
 ) -> KafkaStorageConsumer:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
     )
     if retry is not None:
         config = config.model_copy(update={"retry": config.retry.model_copy(update=retry)})
