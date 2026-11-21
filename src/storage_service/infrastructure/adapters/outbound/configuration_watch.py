@@ -111,6 +111,14 @@ class StorageConfigurationWatcher:
                 self._active.revision_id,
             )
             return
+        # Reject immutable rebinding before touching the durable SQLite pins
+        # or replacing the on-disk generation. Otherwise a failed in-memory
+        # promotion could leave the next restart observing a rejected bundle.
+        self._resolver.validate_immutable_pins(
+            point_table_versions=updated.point_table_versions,
+            business_points_pin=updated.business_points_pin,
+            device_bindings=updated.device_bindings,
+        )
         # SQLite commit precedes any in-memory generation switch.
         await asyncio.to_thread(
             self._metadata.register_semantic_pins,
