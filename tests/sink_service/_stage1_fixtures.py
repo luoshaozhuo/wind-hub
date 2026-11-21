@@ -1,7 +1,7 @@
 """Shared builders for Sink Service v1_20 single-Service configuration snapshots.
 
 v1_20 stores every snapshot pathname under ``configs/``: exactly one
-``services/sink_service.yaml`` owned by Main, two explicit Instance files and
+``services/service_sink-west_v1.0.0.yaml`` owned by Main, two explicit Instance files and
 flat exact-version templates. The layout mirrors the production
 ``config_sources`` / ``template_path`` contract so the fixtures cannot drift
 into a layout the validator would reject.
@@ -23,17 +23,16 @@ import yaml
 from sink_service.domain.config import SnapshotFile
 
 # Canonical config-root-relative pathnames shared by the whole suite.
-SERVICE_FILE = "configs/services/sink_service.yaml"
-SINKS_INSTANCE = "configs/instances/sinks.yaml"
-DELIVERIES_INSTANCE = "configs/instances/deliveries.yaml"
+SERVICE_FILE = "configs/services/service_sink-west_v1.0.0.yaml"
+SINKS_INSTANCE = "configs/instances/sinks_prod-a_v1.0.0.yaml"
+DELIVERIES_INSTANCE = "configs/instances/deliveries_prod-a_v1.0.0.yaml"
 TEMPLATE_ROOT = "configs/templates"
 
 _CONFIG_SOURCES = {
     "instances": {
-        "sinks": SINKS_INSTANCE,
-        "deliveries": DELIVERIES_INSTANCE,
+        "sinks": "prod-a",
+        "deliveries": "prod-a",
     },
-    "templates": {"root": TEMPLATE_ROOT},
 }
 
 _BASE_SERVICE: dict[str, Any] = {
