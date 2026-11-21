@@ -67,12 +67,15 @@ def main() -> None:
             source.path = cached
             try:
                 report = await service.reload()
-            finally:
-                # Never leave a live SettingsLoader pointing at a pending
-                # generation. A future reload must select it explicitly.
+            except BaseException:
                 source.path = previous
+                raise
             if report.blocked or report.restart_required:
+                # A partially applied configuration cannot become the future
+                # authoritative settings source of this still-running process.
+                source.path = previous
                 return False
+            # Fully converged: future reloads must retain the active selection.
             service.active_revision = bundle.target_revision
             return True
 
