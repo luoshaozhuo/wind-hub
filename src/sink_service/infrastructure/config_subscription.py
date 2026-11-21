@@ -121,7 +121,12 @@ class ConfigurationSubscriber:
         ):
             self._revision = bundle.repository_revision_id
             return
-        local = _local_snapshot(_payloads(bundle, self._deployment_id, self._service_id))
+        payloads = _payloads(bundle, self._deployment_id, self._service_id)
+        # A verified target remains observable even when local validation or
+        # activation fails; only complete convergence advances active_revision.
+        self._manager.report_selected(bundle.target_revision, active=False)
+        self._target_revision = bundle.target_revision
+        local = _local_snapshot(payloads)
         verified = validate_snapshot(local)
         if verified.revision == self._manager.disk.revision:
             converged = (
