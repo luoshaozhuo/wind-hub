@@ -121,6 +121,9 @@ class StorageConfigurationWatcher:
         old = self._active.configuration.model_dump(exclude={"config_sources", "file_version"})
         new = updated.configuration.model_dump(exclude={"config_sources", "file_version"})
         if old != new:
+            # The process must keep running on the old active closure, while
+            # the verified target survives a restart or Configuration outage.
+            await asyncio.to_thread(self._snapshot.store_target, updated)
             self.status = "RESTART_REQUIRED"
             _LOG.warning("Storage target requires controlled restart")
             return
