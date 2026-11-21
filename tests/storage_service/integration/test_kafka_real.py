@@ -103,7 +103,7 @@ async def test_commit_timeout_replay_restart_and_rebalance_recovery(tmp_path: Pa
         await producer.start()
         await producer.send_and_wait(topic, b'{"record":0}', key=b"farm:collector:device")
         base = load_storage_config(
-            (ROOT / "configs/services/service_storage-main_v1.0.1.yaml").read_bytes()
+            (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
         )
         config = base.model_copy(
             update={
