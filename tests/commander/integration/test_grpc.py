@@ -189,27 +189,24 @@ async def test_all_seventeen_rpcs_registered_and_callable(pki, grpc_stack) -> No
     )
     assert points.points
 
-    # 候选生命周期（全量磁盘文件原样推送，必然校验通过）。
-    pushed = await common_dep.PushConfigSnapshot(
-        common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
-        timeout=30,
-    )
-    assert pushed.valid is True and pushed.candidate_id
-    cand = await common_dep.GetConfigSnapshot(
-        common_pb2.GetConfigSnapshotRequest(
-            scope=common_pb2.SNAPSHOT_SCOPE_CANDIDATE, candidate_id=pushed.candidate_id
-        ),
-        timeout=5,
-    )
-    assert cand.revision == disk.revision
-    applied = await common_dep.ApplyConfigSnapshot(
-        common_pb2.ApplyConfigSnapshotRequest(
-            candidate_id=pushed.candidate_id, expected_revision=disk.revision
-        ),
-        timeout=30,
-    )
-    assert applied.file_commit == disk.revision
-    assert applied.restart_required is False
+    # Push/Apply remain registered and callable but fail closed under the
+    # Configuration Repository sole-publisher contract (Deployment activation).
+    with pytest.raises(grpc.aio.AioRpcError) as push_rejected:
+        await common_dep.PushConfigSnapshot(
+            common_pb2.PushConfigSnapshotRequest(
+                files=disk.files, expected_revision=disk.revision
+            ),
+            timeout=30,
+        )
+    assert push_rejected.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+    with pytest.raises(grpc.aio.AioRpcError) as apply_rejected:
+        await common_dep.ApplyConfigSnapshot(
+            common_pb2.ApplyConfigSnapshotRequest(
+                candidate_id="retired", expected_revision=disk.revision
+            ),
+            timeout=30,
+        )
+    assert apply_rejected.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
     metrics = await common_ops.GetMetrics(
         common_pb2.GetMetricsRequest(scope="commander", window_ms=1000), timeout=5

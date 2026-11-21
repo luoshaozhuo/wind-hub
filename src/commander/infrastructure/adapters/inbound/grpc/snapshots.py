@@ -29,6 +29,14 @@ from core.configuration.shared_documents import SharedConfigPaths, SharedDocumen
 from core.configuration.shared_snapshot import build_shared_snapshot
 
 
+def _sole_catalog(templates_root: Path, prefix: str) -> Path:
+    """Resolve the unique pinned versioned catalog, failing closed on ambiguity."""
+    matches = tuple(templates_root.glob(f"{prefix}_v*.yaml"))
+    if len(matches) != 1 or matches[0].is_symlink():
+        raise ConfigError(f"{prefix}: exactly one pinned catalog is required")
+    return matches[0]
+
+
 class ConfigSnapshots:
     """Disk/candidate config snapshots; never expose service secrets through Get."""
 
@@ -94,8 +102,8 @@ class ConfigSnapshots:
         paths = (
             self._service_config,
             settings.devices_path,
-            settings.templates_root / "units_standard.yaml",
-            settings.templates_root / "business_points_standard.yaml",
+            _sole_catalog(settings.templates_root, "units_standard"),
+            _sole_catalog(settings.templates_root, "business_points_standard"),
         )
         files = {self._relative(path): path.read_bytes() for path in paths}
         documents = SharedDocumentLoader(
@@ -166,11 +174,11 @@ class ConfigSnapshots:
                 },
                 sort_keys=False,
             ).encode("utf-8"),
-            self._relative(settings.templates_root / "units_standard.yaml"): yaml.safe_dump(
-                plain_document(documents.units), sort_keys=False
-            ).encode("utf-8"),
             self._relative(
-                settings.templates_root / "business_points_standard.yaml"
+                _sole_catalog(settings.templates_root, "units_standard")
+            ): yaml.safe_dump(plain_document(documents.units), sort_keys=False).encode("utf-8"),
+            self._relative(
+                _sole_catalog(settings.templates_root, "business_points_standard")
             ): yaml.safe_dump(plain_document(documents.business_points), sort_keys=False).encode(
                 "utf-8"
             ),
@@ -416,10 +424,9 @@ class ConfigSnapshots:
             ):
                 raise ValueError(f"file is not part of Commander config sources: {name}")
             content = bytes(item.content)
-            is_versioned_template = (
-                target.is_relative_to(settings.templates_root)
-                or any(target.is_relative_to(root) for root in additional_template_roots)
-            ) and target.name not in {"units_standard.yaml", "business_points_standard.yaml"}
+            is_versioned_template = target.is_relative_to(settings.templates_root) or any(
+                target.is_relative_to(root) for root in additional_template_roots
+            )
             if is_versioned_template and target.is_file() and target.read_bytes() != content:
                 raise ValueError(f"versioned template is immutable: {name}")
             candidate[name] = content
