@@ -57,6 +57,7 @@ class StorageBootstrap(_Settings):
     schema_version: Literal[1]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
+    deployment_id: str = Field(min_length=1, max_length=256)
     configuration: ConfigurationEndpoint
     nats: NatsEndpoint
     cache: LocalCache
