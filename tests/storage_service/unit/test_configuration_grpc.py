@@ -275,3 +275,31 @@ def test_service_v2_requires_both_selected_instance_roles() -> None:
     del document["config_sources"]["instances"]["site"]
     with pytest.raises(ValidationError):
         load_storage_config(yaml.safe_dump(document).encode())
+
+
+@pytest.mark.parametrize("corruption", ["semantic_hash", "duplicate_yaml_key", "yaml_alias"])
+async def test_service_bundle_rejects_malformed_semantic_documents_before_archive(
+    monkeypatch: pytest.MonkeyPatch, corruption: str
+) -> None:
+    monkeypatch.setenv("TEST_CONFIGURATION_TOKEN", "x" * 40)
+    docs = _files()
+    if corruption == "semantic_hash":
+        docs[1].content_sha256 = "f" * 64
+    elif corruption == "duplicate_yaml_key":
+        docs[1].yaml_bytes += b"site_id: conflicting\n"
+        docs[1].yaml_sha256 = hashlib.sha256(docs[1].yaml_bytes).hexdigest()
+    else:
+        docs[1].yaml_bytes += b"extra: &repeat same\ncopy: *repeat\n"
+        docs[1].yaml_sha256 = hashlib.sha256(docs[1].yaml_bytes).hexdigest()
+    archive = _Archive()
+    client = ConfigurationGrpcClient(
+        endpoint="127.0.0.1:1",
+        token_env="TEST_CONFIGURATION_TOKEN",
+        archive=archive,
+    )
+    client._stub = cast(Any, _Stub(_service_response(docs)))
+    with pytest.raises(ConfigHistoryUnavailableError):
+        await client.fetch_service_bundle(
+            deployment_id="prod-a", service_id="storage-main"
+        )
+    assert archive.saved == []
