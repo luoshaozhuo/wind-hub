@@ -41,7 +41,6 @@ _PUBLISHED_TEMPLATE_PREFIXES = (
     "templates/protocols/",
     "templates/device_models/",
     "templates/point_tables/",
-    "templates/tasks/",
 )
 
 
@@ -93,20 +92,23 @@ class CollectorSnapshotRepository:
             raise SnapshotError("unsafe snapshot path")
         path = PurePosixPath(relative_path)
         parts = path.parts
-        if parts == ("services", "collector.yaml"):
-            return relative_path
-        if parts in {("instances", "site.yaml"), ("instances", "devices.yaml")}:
+        if (
+            len(parts) == 2
+            and parts[0] in {"services", "instances"}
+            and parts[1].endswith(".yaml")
+            and "_v" in parts[1]
+        ):
             return relative_path
         if parts in {
-            ("templates", "units_standard.yaml"),
-            ("templates", "business_points_standard.yaml"),
+            ("templates", "units_standard_v1.2.0.yaml"),
+            ("templates", "business_points_standard_v1.4.0.yaml"),
         }:
             return relative_path
         # Only the current flat Template structure is supported.
         if (
             len(parts) == 3
             and parts[0] == "templates"
-            and parts[1] in {"protocols", "device_models", "point_tables", "tasks"}
+            and parts[1] in {"protocols", "device_models", "point_tables"}
             and parts[2].endswith(".yaml")
             and parts[2] != ".yaml"
         ):

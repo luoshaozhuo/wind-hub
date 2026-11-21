@@ -173,9 +173,9 @@ class SharedDocumentLoader:
         selected_device_ids: frozenset[str] | None = None,
     ) -> SharedDocuments:
         device_doc = read_stable_document(devices_path)
-        units = read_stable_document(self._paths.templates / "units_standard.yaml")
+        units = read_stable_document(self._paths.templates / "units_standard_v1.2.0.yaml")
         business_points = read_stable_document(
-            self._paths.templates / "business_points_standard.yaml"
+            self._paths.templates / "business_points_standard_v1.4.0.yaml"
         )
         if site:
             _keys(

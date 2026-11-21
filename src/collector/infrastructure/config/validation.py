@@ -30,77 +30,34 @@ from core.infrastructure.config import read_yaml
 
 
 def resolve_source_paths(config_file: Path) -> SnapshotPaths:
-    """Resolve only paths explicitly named by the service configuration.
+    """Resolve exactly the Instances selected by the active Deployment."""
+    from core.configuration.local_selection import select_local_service
 
-    Paths are relative to the config root (the parent of services/), never
-    the process working directory. Reject symlinks and escaping paths.
-    """
-    service_file = config_file.absolute()
-    if service_file.parent.name != "services":
-        raise ConfigError("Collector service file must reside in a services directory")
-    config_root = service_file.parent.parent.resolve()
-    if not service_file.is_file() or service_file.is_symlink() or service_file.parent.is_symlink():
-        raise ConfigError("Collector service file is missing or unsafe")
-    service = read_yaml(service_file)
-    references = _source_references(service)
-
-    def resolve(value: str, *, directory: bool) -> Path:
-        requested = Path(value)
-        if requested.is_absolute():
-            candidate = requested
-        elif requested.parts and requested.parts[0] == "configs":
-            candidate = config_root.joinpath(*requested.parts[1:])
-        else:
-            candidate = config_root / requested
-        # Do not allow a symlink in any existing path segment.
-        current = candidate
-        while current != config_root and current != current.parent:
-            if current.is_symlink():
-                raise ConfigError(f"configuration reference uses symlink: {value}")
-            current = current.parent
-        target = candidate.resolve()
-        if not target.is_relative_to(config_root):
-            raise ConfigError(f"configuration reference escapes config root: {value}")
-        if not (target.is_dir() if directory else target.is_file()):
-            raise ConfigError(f"configuration reference missing or invalid: {value}")
-        return target
-
-    site, devices, templates = references
-    site_path = resolve(site, directory=False)
-    devices_path = resolve(devices, directory=False)
-    template_root = resolve(templates, directory=True)
-    if site_path == devices_path:
-        raise ConfigError("site and devices must reference different instance files")
+    try:
+        selected = select_local_service(config_file)
+        site_path = selected.instances["site"]
+        devices_path = selected.instances["devices"]
+    except (KeyError, ValueError, OSError) as exc:
+        raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
     return SnapshotPaths(
-        service=service_file,
-        instances=config_root,
-        templates=template_root,
+        service=selected.service_path,
+        instances=selected.service_path.parent.parent,
+        templates=selected.templates,
         site=site_path,
         devices=devices_path,
     )
 
 
-def _source_references(service: Mapping[str, object]) -> tuple[str, str, str]:
-    sources = _section(service, "config_sources")
-    if set(sources) != {"instances", "templates"}:
-        raise ConfigError("config_sources requires exactly instances and templates")
-    instances = sources["instances"]
-    if not isinstance(instances, dict) or set(instances) != {"site", "devices"}:
-        raise ConfigError("config_sources.instances requires exactly site and devices")
-    templates = sources["templates"]
-    if not isinstance(templates, dict) or set(templates) != {"root"}:
-        raise ConfigError("config_sources.templates requires exactly root")
-    site = instances["site"]
-    devices = instances["devices"]
-    template_root = templates["root"]
-    if not all(isinstance(value, str) for value in (site, devices, template_root)):
-        raise ConfigError("config_sources paths must be strings")
-    if any(
-        not value.strip() or chr(0) in value or chr(92) in value or ".." in Path(value).parts
-        for value in (site, devices, template_root)
-    ):
-        raise ConfigError("config_sources paths must be safe, nonempty strings")
-    return site, devices, template_root
+def _source_references(service: Mapping[str, object]) -> tuple[str, ...]:
+    """Return validated Collector Instance logical identities."""
+    from core.configuration.deployment import INSTANCE_ROLE_TYPES, service_instance_refs
+
+    refs = service_instance_refs(service, INSTANCE_ROLE_TYPES)
+    if {role for role in service.get("config_sources", {}).get("instances", {})} != {
+        "site", "devices", "tasks"
+    }:
+        raise ConfigError("Collector requires site, devices and tasks Instance roles")
+    return tuple(config_id for _, config_id in refs)
 
 
 def _positive(value: object, field: str) -> float:
