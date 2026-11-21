@@ -17,6 +17,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
 from core.domain import DeviceId
+from core.infrastructure.configuration_repository import DeploymentObserver
 from data_generator.application.configuration import ConfigFile as FileContent
 from data_generator.application.configuration import ConfigurationCoordinator
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
@@ -399,8 +400,11 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
 
 
 class CommonService(common_rpc.CommonServiceServicer):
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(
+        self, runtime: Runtime, observer: DeploymentObserver | None = None
+    ) -> None:
         self.runtime = runtime
+        self.observer = observer
         self.snapshots = SnapshotManager(runtime.settings)
         self._configuration = ConfigurationCoordinator(runtime, self.snapshots)
         self.diagnostics = Diagnostics(runtime.settings)
@@ -435,7 +439,16 @@ class CommonService(common_rpc.CommonServiceServicer):
             for gateway_id in scenario.gateways
         }
         return common.GetServiceStatusResponse(
-            health="DEGRADED" if failed or unsafe else "HEALTHY",
+            health=(
+                "DEGRADED"
+                if failed or unsafe or (
+                    self.observer is not None
+                    and self.observer.target_revision != self.observer.active_revision
+                )
+                else "HEALTHY"
+            ),
+            target_revision=self.observer.target_revision if self.observer else "",
+            active_revision=self.observer.active_revision if self.observer else "",
             dependencies=[
                 common.DependencyHealth(
                     name=f"gateway:{gateway_id}",
@@ -701,7 +714,9 @@ def validate_rpc_contracts() -> None:
                 )
 
 
-def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
+def make_server(
+    runtime: Runtime, bind: str, observer: DeploymentObserver | None = None
+) -> grpc.aio.Server:
     validate_rpc_contracts()
     security = runtime.settings.service.get("security")
     if security is not None and (
@@ -732,7 +747,7 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
         raise GeneratorError("insecure gRPC listener restricted to loopback")
     server = grpc.aio.server()
     dg_rpc.add_DataGeneratorServiceServicer_to_server(DataGeneratorService(runtime), server)
-    common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime), server)
+    common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime, observer), server)
     if tls:
         files = {}
         for key in ("cert_file", "key_file", "ca_file"):
