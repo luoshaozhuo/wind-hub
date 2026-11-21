@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -145,7 +144,7 @@ async def test_deployment_service_bundle_has_exact_selected_identity(
         token_env="TEST_CONFIGURATION_TOKEN",
         archive=archive,
     )
-    client._stub = _Stub(_service_response(_files()))  # type: ignore[assignment]
+    client._stub = cast(Any, _Stub(_service_response(_files())))
     bundle = await client.fetch_service_bundle(
         deployment_id="prod-a", service_id="storage-main"
     )
@@ -170,7 +169,7 @@ async def test_service_bundle_rejects_wrong_closure_sha(
         token_env="TEST_CONFIGURATION_TOKEN",
         archive=archive,
     )
-    client._stub = _Stub(_service_response(_files(), bad_target=True))  # type: ignore[assignment]
+    client._stub = cast(Any, _Stub(_service_response(_files(), bad_target=True)))
     with pytest.raises(ConfigHistoryUnavailableError, match="digest mismatch"):
         await client.fetch_service_bundle(
             deployment_id="prod-a", service_id="storage-main"
