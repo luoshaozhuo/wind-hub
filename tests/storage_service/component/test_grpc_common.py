@@ -41,7 +41,7 @@ def _config() -> StorageConfig:
     )
 
 
-def _server(config: StorageConfig) -> grpc.aio.Server:
+def _server(config: StorageConfig, *, config_status: str = "READY") -> grpc.aio.Server:
     return build_storage_grpc_server(
         config=config,
         metadata=cast(Any, object()),
@@ -50,7 +50,7 @@ def _server(config: StorageConfig) -> grpc.aio.Server:
         point_tables=cast(Any, object()),
         consumer=cast(Any, object()),
         cursor_secret=b"x" * 32,
-        config_status=lambda: "READY",
+        config_status=lambda: config_status,
         metrics=StorageRuntimeMetrics(),
     )
 
@@ -158,7 +158,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
             )
         }
     )
-    server = _server(config)
+    server = _server(config, config_status="CONFIG_HISTORY_UNAVAILABLE")
     await server.start()
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
     common_stub = common_rpc.CommonServiceStub(channel)
@@ -167,7 +167,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         info = await common_stub.GetServiceInfo(common.Empty())
         assert info.process_role == "storage"
         status = await common_stub.GetServiceStatus(common.Empty())
-        assert status.health == "HEALTHY"
+        assert status.health == "DEGRADED"
         assert all(not dependency.detail for dependency in status.dependencies)
         capabilities = await common_stub.GetCapabilities(common.Empty())
         assert "QuerySamples" in capabilities.rpc_names
