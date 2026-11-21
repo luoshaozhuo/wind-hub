@@ -1,4 +1,4 @@
-"""出厂服务配置对共享实例与模板的显式引用契约。"""
+"""Shipped Service → Instance → Template selection contract tests."""
 
 from __future__ import annotations
 
@@ -6,44 +6,48 @@ from pathlib import Path
 
 import pytest
 
+from core.configuration.local_selection import select_local_service
 from core.infrastructure.config import read_yaml
 
 pytestmark = [pytest.mark.unit, pytest.mark.safety]
 
-_ROOT = Path(__file__).resolve().parents[4]
-_CONFIGS = _ROOT / "configs"
+_CONFIGS = Path(__file__).resolve().parents[4] / "configs"
 
-
-@pytest.mark.parametrize(
-    "service_name",
-    ("collector.yaml", "commander.yaml", "industrial_gateway.yaml", "data-generator-service.yaml"),
+_SERVICES = (
+    "service_collector-realtime_v1.1.0.yaml",
+    "service_collector-reliable_v1.0.0.yaml",
+    "service_commander_v1.4.0.yaml",
+    "service_gateway_v1.2.0.yaml",
+    "service_data-generator_v1.1.0.yaml",
+    "service_sink-west_v1.2.0.yaml",
 )
-def test_shared_source_paths_are_explicit_and_resolvable(service_name: str) -> None:
-    service = read_yaml(_CONFIGS / "services" / service_name)
-    assert service["schema_version"] == 1
-    assert "configuration" not in service
+
+
+@pytest.mark.parametrize("service_name", _SERVICES)
+def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
+    path = _CONFIGS / "services" / service_name
+    service = read_yaml(path)
+    assert service["schema_version"] in {1, 2}
+    assert service["service_id"]
     sources = service["config_sources"]
-    assert set(sources) == {"instances", "templates"}
+    assert set(sources) == {"instances"}
     assert isinstance(sources["instances"], dict) and sources["instances"]
-    assert set(sources["templates"]) == {"root"}
-
-    refs = [*sources["instances"].values(), sources["templates"]["root"]]
-    for value in refs:
-        assert isinstance(value, str)
-        candidate = Path(value)
-        assert not candidate.is_absolute()
-        assert candidate.parts[0] == "configs"
-        assert ".." not in candidate.parts
-        assert (_ROOT / candidate).exists(), f"{service_name}: missing {value}"
+    selection = select_local_service(path)
+    assert set(selection.instances) == set(sources["instances"])
+    for role, selected in selection.instances.items():
+        assert selected.is_file()
+        assert selected.suffix == ".yaml"
+        assert "_v" in selected.stem
+        assert selected.parent == _CONFIGS / "instances", role
+    assert selection.templates == _CONFIGS / "templates"
 
 
-def test_all_shared_service_templates_are_directories() -> None:
-    for service_name in (
-        "collector.yaml",
-        "commander.yaml",
-        "industrial_gateway.yaml",
-        "data-generator-service.yaml",
-    ):
-        service = read_yaml(_CONFIGS / "services" / service_name)
-        root = service["config_sources"]["templates"]["root"]
-        assert (_ROOT / root).is_dir()
+@pytest.mark.parametrize("service_name", _SERVICES)
+def test_service_does_not_reference_template_paths(service_name: str) -> None:
+    service = read_yaml(_CONFIGS / "services" / service_name)
+    for identity in service["config_sources"]["instances"].values():
+        assert isinstance(identity, str)
+        assert identity
+        assert "/" not in identity
+        assert "\\" not in identity
+        assert identity not in {".", "..", "latest"}
