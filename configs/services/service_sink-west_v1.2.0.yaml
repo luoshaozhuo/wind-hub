@@ -1,3 +1,5 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
 # Sink Service 主服务配置：每容器一份
 #
 # 使用：按现场修改下方生效值；此处数字是示例，不是默认值。
@@ -24,11 +26,7 @@
 # wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
 # deployment_id — 部署实例标识；非空字符串，如 prod-a。
 # config_root — 配置文件根目录；非空路径，如 /etc/wind-hub。
-# config_sources.instances.sinks — Sink 实例文件；configs/instances/*.yaml。
-# config_sources.instances.deliveries — Delivery 实例文件；configs/instances/*.yaml；
 #   必须与 sinks 文件路径不同。
-# config_sources.templates.root — 模板根目录；configs/templates 或其子目录。
-#   路径均相对 config_root；不得包含 ../、符号链接或越界路径。
 #   模板按准确 ID/版本引用，不扫描目录或使用隐式默认来源。
 #
 # [gRPC 管理面]
@@ -130,17 +128,15 @@
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
 schema_version: 2
-file_version: 1.1.0
+file_version: 1.2.0
 service_id: sink-west
 wind_farm_id: farm-a
 deployment_id: prod-a
 config_root: /etc/wind-hub
 config_sources:
   instances:
-    sinks: configs/instances/sinks.yaml
-    deliveries: configs/instances/deliveries.yaml
-  templates:
-    root: configs/templates
+    sinks: prod-a
+    deliveries: prod-a
 
 grpc:
   listen_host: 0.0.0.0

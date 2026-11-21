@@ -1,5 +1,6 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
 # Industrial Gateway Service v1.1.0 — per-Server control routing.
-# config_sources.instances.devices: explicitly choose devices.yaml for real devices
 #   or devices_sim.yaml for simulation; never merge these inventories implicitly.
 # grpc: Gateway management listener, separate from industrial protocol Server ports.
 # grpc.sink_listener_port: optional local Sink injection listener (1..65535).
@@ -23,13 +24,11 @@
 # Forwarding is best-effort, bounded and non-persistent; no retry on unknown result.
 # All target credentials and trust roots must be provisioned by deployment.
 schema_version: 1
-file_version: "1.1.0"
-
+file_version: "1.2.0"
+service_id: gateway
 config_sources:
   instances:
-    devices: configs/instances/devices.yaml
-  templates:
-    root: configs/templates
+    devices: farm-a
 
 grpc:
   listen_host: "127.0.0.1"

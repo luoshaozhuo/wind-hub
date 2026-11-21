@@ -1,11 +1,13 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
 schema_version: 1
 config_sources:
   instances:
-    site: configs/instances/site.yaml
-    devices: configs/instances/devices.yaml
-  templates:
-    root: configs/templates
-file_version: 1.0.0
+    site: example_site
+    devices: farm-a
+    tasks: farm-a
+file_version: 1.1.0
+service_id: collector
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10

@@ -1,3 +1,5 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
 # Industrial Gateway simulation target, aligned with devices_sim.yaml and
 # Data Generator scenario wind-plant-physical.
 # Management gRPC listener is plaintext loopback; never expose it outside host.
@@ -6,12 +8,11 @@
 # Provision /etc/wind-hub/certs in deployment or test setup; no keys ship in the repository.
 # Configure trusted mTLS certificates and CN permissions before enabling control.
 schema_version: 1
-file_version: "1.1.2"
+file_version: "1.1.3"
+service_id: gateway-sim
 config_sources:
   instances:
-    devices: configs/instances/devices_sim.yaml
-  templates:
-    root: configs/templates
+    devices: sim
 grpc:
   listen_host: "127.0.0.1"
   listen_port: 50073

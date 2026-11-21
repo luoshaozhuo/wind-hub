@@ -1,0 +1,54 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+# Scenario 配置由 Instance 提供；此 Service 只声明场景 Instance 身份。
+# 设备型号参数来自 templates/device_models，管理端点属于各 Gateway 路由。
+schema_version: 1
+file_version: "1.0.3"
+service_id: data-generator-sim
+config_sources:
+  instances:
+    site: example_site
+    devices: sim
+    scenarios: sim
+service:
+  grpc_bind: "127.0.0.1:50061"
+output:
+  max_inflight: 1
+  grpc_timeout_seconds: 3.0
+  # 与 industrial_gateway-sim.example.yaml 的 mTLS 信任根匹配。
+  # 证书由部署/测试设施生成；以下绝对路径不是仓库自带资产。
+  gateway_tls:
+    ca_file: /etc/wind-hub/certs/ca.pem
+    cert_file: /etc/wind-hub/certs/generator.pem
+    key_file: /etc/wind-hub/certs/generator.key
+buffer:
+  max_batches: 128
+  max_points_per_batch: 1000
+replay:
+  read_batch_size: 1000
+diagnose:
+  max_concurrent: 2
+  timeout_seconds: 10.0
+  permit_wait_seconds: 0.5
+recording:
+  enabled: false
+  directory: artifacts/data-generator
+metrics:
+  enabled: true
+  sample_seconds: 1.0
+  window_seconds: 60
+  retain_seconds: 3600
+  max_series: 2000
+
+# 安全配置示例：证书需由部署环境提供，且对端证书 CN 与权限键严格匹配。
+# 模型变量写入 RPC 必须通过身份和权限验证，不允许明文访问。
+security:
+  tls:
+    cert_file: /etc/wind-hub/certs/data-generator.pem
+    key_file: /etc/wind-hub/certs/data-generator.key
+    ca_file: /etc/wind-hub/certs/ca.pem
+  permissions:
+    cli: [variables_read, variables_update]
+    gateway: [variables_read, variables_update]
+
+# 版本化场景归属本服务；设备固有参数从 device_models 装配。
