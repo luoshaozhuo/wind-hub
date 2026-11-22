@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -10,10 +12,10 @@ from pathlib import Path
 
 import yaml
 
-from core.configuration.deployment import INSTANCE_ROLE_TYPES, service_instance_refs
+from core.configuration.deployment import INSTANCE_ROLE_TYPES, closure_sha256, service_instance_refs
 from core.configuration.publication_identity import resolve_publication_identity
 from core.infrastructure.config.generic_yaml import parse_yaml
-from core.infrastructure.configuration_repository import SelectedBundle
+from core.infrastructure.configuration_repository import SelectedBundle, _published_yaml
 
 _INSTANCE_PREFIXES = {
     "site": "site",
@@ -90,9 +92,8 @@ def stage_selected_bundle(
     expected_path = destination / "configs" / service_path
     if destination.is_symlink():
         raise ValueError("cached Service generation cannot be a symlink")
-    if expected_path.is_file() and not expected_path.is_symlink():
-        if expected_path.read_bytes() != bundle.files[service_path]:
-            raise ValueError("cached Service identity has changed")
+    if destination.exists():
+        _verify_cached_files(destination, bundle.files)
         return expected_path
     if destination.exists():
         raise ValueError("incomplete configuration cache generation already exists")
@@ -120,3 +121,119 @@ def stage_selected_bundle(
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+
+def _verify_cached_files(destination: Path, expected: dict[str, bytes]) -> None:
+    """Never trust an existing generation based on its Service file alone."""
+    configs = destination / "configs"
+    if destination.is_symlink() or configs.is_symlink():
+        raise ValueError("configuration cache contains a symlink")
+    actual: set[str] = set()
+    for node in configs.rglob("*"):
+        if node.is_symlink():
+            raise ValueError("configuration cache contains a symlink")
+        if node.is_file() and not node.is_relative_to(configs / "deployments"):
+            actual.add(node.relative_to(configs).as_posix())
+    if actual != set(expected):
+        raise ValueError("cached configuration closure differs from Repository selection")
+    for name, content in expected.items():
+        file = configs / name
+        if not file.is_file() or file.is_symlink() or file.read_bytes() != content:
+            raise ValueError("cached configuration closure has been modified")
+
+
+def _active_pointer(cache_root: Path, deployment_id: str, service_id: str) -> Path:
+    identity = hashlib.sha256(
+        json.dumps([deployment_id, service_id], separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return cache_root / f"active-{identity}.json"
+
+
+def mark_active_bundle(
+    cache_root: Path, deployment_id: str, service_id: str, bundle: SelectedBundle
+) -> None:
+    """Atomically record only an activated, locally verifiable generation."""
+    cache_root = cache_root.absolute()
+    version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0")
+    generation = cache_root / version / bundle.target_revision
+    _verify_cached_files(generation, bundle.files)
+    pointer = _active_pointer(cache_root, deployment_id, service_id)
+    payload = {
+        "revision": bundle.target_revision,
+        "repository_revision": bundle.repository_revision,
+        "deployment_version": version,
+    }
+    fd, temporary = tempfile.mkstemp(prefix=".active-", dir=cache_root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, pointer)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def load_active_bundle(
+    cache_root: Path, deployment_id: str, service_id: str
+) -> tuple[Path, SelectedBundle]:
+    """Recover the previous active closure only if every document hashes correctly."""
+    cache_root = cache_root.absolute()
+    if cache_root.is_symlink():
+        raise ValueError("configuration cache root is a symlink")
+    pointer = _active_pointer(cache_root, deployment_id, service_id)
+    if pointer.is_symlink():
+        raise ValueError("configuration active pointer is a symlink")
+    payload = json.loads(pointer.read_text(encoding="utf-8"))
+    version = payload["deployment_version"]
+    revision = payload["revision"]
+    repository_revision = payload["repository_revision"]
+    if (
+        not isinstance(version, str)
+        or not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version)
+        or not isinstance(revision, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", revision)
+        or type(repository_revision) is not int
+        or repository_revision < 1
+    ):
+        raise ValueError("invalid cached active selection")
+    generation = cache_root / version / revision
+    configs = generation / "configs"
+    if generation.is_symlink() or configs.is_symlink():
+        raise ValueError("configuration cache contains a symlink")
+    files: dict[str, bytes] = {}
+    identities: list[tuple[str, str, str, str]] = []
+    for file in configs.rglob("*.yaml"):
+        if file.is_symlink() or any(
+            parent.is_symlink() for parent in file.parents if parent.is_relative_to(configs)
+        ):
+            raise ValueError("configuration cache contains a symlink")
+        relative = file.relative_to(configs).as_posix()
+        if relative.startswith("deployments/"):
+            continue
+        if not relative.startswith(("services/", "instances/", "templates/")):
+            raise ValueError("unexpected cached configuration path")
+        content = file.read_bytes()
+        document = _published_yaml(content)
+        identity = resolve_publication_identity(relative, document)
+        canonical = json.dumps(
+            document, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+        identities.append(
+            (identity.config_type, identity.config_id, identity.file_version,
+             hashlib.sha256(canonical).hexdigest())
+        )
+        files[relative] = content
+    if not files or closure_sha256(deployment_id, service_id, identities) != revision:
+        raise ValueError("cached active configuration digest mismatch")
+    service_files = [
+        name for name in files
+        if name.startswith("services/")
+        and resolve_publication_identity(name, _published_yaml(files[name])).config_id == service_id
+    ]
+    if len(service_files) != 1:
+        raise ValueError("cached active configuration has no unique Service")
+    selected = SelectedBundle(revision, repository_revision, files)
+    _verify_cached_files(generation, files)
+    return configs / service_files[0], selected
