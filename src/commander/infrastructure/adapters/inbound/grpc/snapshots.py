@@ -6,6 +6,7 @@ import asyncio
 import fcntl
 import hashlib
 import os
+import re
 import ssl
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -197,28 +198,52 @@ class ConfigSnapshots:
         return files
 
     def _runtime_relative(self, path: Path) -> str:
-        """Address verified active-cache documents without granting disk write access.
+        """Serialize only documents retained by the effective runtime generation.
 
-        DISK and candidate paths remain restricted to the bootstrap root.
-        RUNTIME may hold a Repository-verified, separately staged generation.
+        Partial device reloads can retain old templates and activate new ones.
+        The two generations must be addressed by their original relative
+        configuration paths without allowing arbitrary cache-file reads.
         """
+        if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+            raise ValueError("runtime configuration contains a symlink")
         target = path.resolve(strict=True)
         if target.is_relative_to(self._root):
             return target.relative_to(self._root).as_posix()
-        settings = self._service.config_manager.active_settings
-        active_root = settings.devices_path.resolve().parent.parent
-        if settings.templates_root.resolve() != active_root / "templates":
-            raise ValueError("invalid active configuration cache root")
-        if not target.is_relative_to(active_root):
-            raise ValueError(f"configuration path outside active snapshot root: {path}")
-        relative = target.relative_to(active_root)
-        if not relative.parts or relative.parts[0] not in {"services", "instances", "templates"}:
-            raise ValueError("invalid active configuration document type")
-        if target.is_symlink() or any(
-            parent.is_symlink() for parent in target.parents if parent.is_relative_to(active_root)
-        ):
-            raise ValueError("active configuration contains a symlink")
-        return relative.as_posix()
+
+        manager = self._service.config_manager
+        documents = manager.documents
+        permitted: set[Path] = set()
+        for definition in documents.devices.values():
+            templates = definition.templates
+            for item in (
+                templates.model,
+                templates.protocol,
+                templates.point_table,
+                *templates.inherited_tables,
+            ):
+                permitted.add(item.path.resolve(strict=True))
+        if target not in permitted:
+            raise ValueError(f"configuration path outside effective runtime: {path}")
+
+        # A verified bundle is stored under cache/version/revision/configs.
+        # Only sibling generations under the same cache root are eligible.
+        cache_root = self._root
+        if self._root.name == "configs" and len(self._root.parents) >= 3:
+            cache_root = self._root.parents[2]
+        for root in target.parents:
+            if root.name != "configs" or not root.is_relative_to(cache_root):
+                continue
+            generation = root.parent
+            if not re.fullmatch(r"[a-f0-9]{64}", generation.name):
+                continue
+            if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", generation.parent.name):
+                continue
+            if generation.parent.parent != cache_root:
+                continue
+            relative = target.relative_to(root)
+            if relative.parts and relative.parts[0] == "templates":
+                return relative.as_posix()
+        raise ValueError(f"configuration path outside active snapshot root: {path}")
 
     @staticmethod
     def _file(name: str, content: bytes) -> common_pb2.SnapshotFile:
