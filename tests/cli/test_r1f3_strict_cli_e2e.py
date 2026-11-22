@@ -454,7 +454,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             protocol_doc = yaml.safe_load(protocol_source.read_text(encoding="utf-8"))
             protocol_doc["file_version"] = "1.0.0"
             _dump(protocol_source.with_name("protocol_modbus_tcp_v1.0.0.yaml"), protocol_doc)
-            service_path = root / "services" / "collector.yaml"
+            service_path = root / "services" / "service_collector-realtime_v1.1.0.yaml"
             document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
             document["messaging"]["delivery"] = delivery
             _dump(service_path, document)
@@ -613,7 +613,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                     "-m",
                     "collector.main",
                     "--config",
-                    str(collector_roots[name] / "services" / "collector.yaml"),
+                    str(collector_roots[name] / "services" / "service_collector-realtime_v1.1.0.yaml"),
                     "--state-directory",
                     str(tmp_path / name / "state"),
                     "--collector-id",
