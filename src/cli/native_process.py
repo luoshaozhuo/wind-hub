@@ -158,14 +158,20 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
             if len(address) != 2 or address[1].upper() != port_hex:
                 continue
             ip_hex = address[0].upper()
-            ipv4 = ip_hex in {"0100007F", "00000000"}
-            ipv6 = ip_hex in {
+            is_ipv4_table = table.endswith("/tcp")
+            # gRPC can use an IPv6 socket for an exact IPv4 loopback bind.
+            ipv4 = (
+                ip_hex in {"0100007F", "00000000"}
+                if is_ipv4_table
+                else ip_hex == "0000000000000000FFFF00000100007F"
+            )
+            ipv6 = not is_ipv4_table and ip_hex in {
                 "00000000000000000000000001000000",
                 "00000000000000000000000000000000",
             }
             if (
-                (host == "127.0.0.1" and table.endswith("/tcp") and ipv4)
-                or (host == "[::1]" and table.endswith("/tcp6") and ipv6)
+                (host == "127.0.0.1" and ipv4)
+                or (host == "[::1]" and ipv6)
                 or (host == "localhost" and (ipv4 or ipv6))
             ):
                 listeners.add(fields[9])

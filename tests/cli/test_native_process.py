@@ -136,26 +136,37 @@ async def test_foreign_health_endpoint_not_owned_by_managed_process(
             await manage_native_process(target, "stop")
 
 
+@pytest.mark.parametrize(
+    ("family", "listener_host", "endpoint_host"),
+    [
+        (socket.AF_INET, "127.0.0.1", "127.0.0.1"),
+        (socket.AF_INET6, "::1", "[::1]"),
+        (socket.AF_INET6, "::ffff:127.0.0.1", "127.0.0.1"),
+    ],
+)
 async def test_managed_listener_ownership_matches_process_group(
     tmp_path: Path,
+    family: socket.AddressFamily,
+    listener_host: str,
+    endpoint_host: str,
 ) -> None:
     import asyncio
 
     from cli.native_process import managed_endpoint_owned
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-        reservation.bind(("127.0.0.1", 0))
+    with socket.socket(family, socket.SOCK_STREAM) as reservation:
+        reservation.bind((listener_host, 0))
         port = reservation.getsockname()[1]
     target = replace(
         _target(
             tmp_path,
             "import socket, time",
-            "listener = socket.socket()",
-            f"listener.bind(('127.0.0.1', {port}))",
+            f"listener = socket.socket(socket.{family.name})",
+            f"listener.bind(({listener_host!r}, {port}))",
             "listener.listen()",
             "time.sleep(120)",
         ),
-        grpc_endpoint=f"127.0.0.1:{port}",
+        grpc_endpoint=f"{endpoint_host}:{port}",
     )
     try:
         await manage_native_process(target, "start")

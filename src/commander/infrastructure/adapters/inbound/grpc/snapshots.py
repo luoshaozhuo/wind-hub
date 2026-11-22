@@ -212,14 +212,10 @@ class ConfigSnapshots:
         if not target.is_relative_to(active_root):
             raise ValueError(f"configuration path outside active snapshot root: {path}")
         relative = target.relative_to(active_root)
-        if not relative.parts or relative.parts[0] not in {
-            "services", "instances", "templates"
-        }:
+        if not relative.parts or relative.parts[0] not in {"services", "instances", "templates"}:
             raise ValueError("invalid active configuration document type")
         if target.is_symlink() or any(
-            parent.is_symlink()
-            for parent in target.parents
-            if parent.is_relative_to(active_root)
+            parent.is_symlink() for parent in target.parents if parent.is_relative_to(active_root)
         ):
             raise ValueError("active configuration contains a symlink")
         return relative.as_posix()
