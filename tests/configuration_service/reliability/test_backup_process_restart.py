@@ -8,6 +8,7 @@ import signal
 import sqlite3
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -108,3 +109,45 @@ def test_corrupt_database_cli_start_fails_closed(tmp_path) -> None:
         assert started["status"] != "SUCCESS"
     finally:
         live.cli("service", "stop", "configuration", "--yes", check=False)
+
+
+def test_concurrent_cli_starts_keep_one_owner_and_reject_foreign_configuration(tmp_path) -> None:
+    """Independent CLI invocations must agree on the owner of the managed endpoint."""
+    port = reserve_port()
+    owner = write_live_configuration(tmp_path / "owner", port)
+    foreign = write_live_configuration(tmp_path / "foreign", port)
+    foreign.database_path.parent.mkdir(parents=True)
+    foreign.database_path.write_bytes(b"not-a-sqlite-database")
+    state_file = owner.root / "process-state/configuration.json"
+    foreign_state = foreign.root / "process-state/configuration.json"
+
+    def start_owner():
+        started_at = time.monotonic()
+        outcome = owner.cli("service", "start", "configuration", "--yes")
+        return outcome, time.monotonic() - started_at
+
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            starts = [pool.submit(start_owner) for _ in range(3)]
+            outcomes, elapsed = zip(*(start.result() for start in starts), strict=True)
+        processes = [outcome["data"]["process"] for outcome in outcomes]
+        pid = json.loads(state_file.read_text(encoding="utf-8"))["pid"]
+        assert {process["pid"] for process in processes} == {pid}
+        assert sum(bool(process.get("already_running")) for process in processes) == 2
+        assert all(outcome["data"]["business"]["health"] != "UNKNOWN" for outcome in outcomes)
+        for _ in range(3):
+            rejected = foreign.cli("service", "start", "configuration", "--yes", check=False)
+            assert rejected["exit_code"] != 0
+            assert "endpoint is already occupied" in json.dumps(rejected)
+            assert not foreign_state.exists()
+        assert json.loads(state_file.read_text(encoding="utf-8"))["pid"] == pid
+        assert not (foreign.root / "configuration.log").exists()
+        print(
+            f"Configuration port={port} owner_pid={pid} parallel_starts=3 "
+            f"foreign_rejections=3 cli_wall_seconds={[round(delay, 3) for delay in elapsed]}"
+        )
+    finally:
+        owner.cli("service", "stop", "configuration", "--yes", check=False)
+        foreign.cli("service", "stop", "configuration", "--yes", check=False)
+    assert not state_file.exists()
+    assert not foreign_state.exists()

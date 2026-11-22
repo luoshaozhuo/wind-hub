@@ -222,13 +222,14 @@ class StrictCliE2E:
 
     async def service(self, config: Path, operation: str, name: str) -> dict[str, Any]:
         result = await self.cli(config, "service", operation, name, "--yes", check=False)
-        process = result.get("data", {}).get("process", {})
         if operation == "stop":
             if result.get("status") != "SUCCESS":
-                raise AssertionError(f"service stop failed: {result}")
+                raise AssertionError(f"service stop {name} failed: {result}")
             return result
+        data = result.get("data")
+        process = data.get("process", {}) if isinstance(data, dict) else {}
         if not process.get("confirmed", False):
-            raise AssertionError(f"service {operation} not confirmed: {result}")
+            raise AssertionError(f"service {operation} {name} not confirmed: {result}")
         await self.poll_cli(
             config,
             "service",

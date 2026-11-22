@@ -79,9 +79,7 @@ async def test_new_service_write_timeout_requires_restart_and_bootstraps_new_val
     manager = _build_manager(selection)
     before = manager.active_settings.write_timeout
     fingerprint = manager.device_revision("WT-B1")
-    next_service = _select_new_service(
-        root, service, {"timeouts": {"write_default_ms": 2500}}
-    )
+    next_service = _select_new_service(root, service, {"timeouts": {"write_default_ms": 2500}})
     selection[0] = next_service
 
     report = await manager.reload()
@@ -145,9 +143,7 @@ async def test_unselected_new_template_does_not_rotate_device_fingerprint(
     original_revision = manager.revision
     fingerprint = manager.device_revision("WT-B1")
     new_model = root / "templates/device_models/device_model_modbus_wtg_v1.0.1.yaml"
-    document = _read(
-        root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
-    )
+    document = _read(root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml")
     document["file_version"] = "1.0.1"
     document["protocol_options"]["slave_id"] = 2
     _write(new_model, document)

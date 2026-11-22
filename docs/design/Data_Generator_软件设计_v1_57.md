@@ -1006,7 +1006,7 @@ flowchart TD
 
 | 主题 | 规范性规则 |
 |---|---|
-| 对外服务 | 实现 DataGeneratorService 目标八项（既有设备/场景查询、生成启停六项，加变量发现与更新两项）和 CommonService 九项，共 17 个 Unary RPC；新增两项须先更新 Contracts Proto。 |
+| 对外服务 | 实现 DataGeneratorService 九项（设备与场景查询、生成启停、变量发现与更新、请求级执行证据查询）和 CommonService 九项，共 18 个 Unary RPC。 |
 | 字段契约 | Proto 字段、oneof、optional、类型和返回消息以仓库 `src/contracts/` 为准，业务设计不得生成平行或不兼容的协议。 |
 | 实例控制 | StartGeneration 依据 `scenario_id` 与可选 `scenario_version` 绑定确定版本，受 `expected_revision` 冲突校验；StopGeneration 按 `generation_id` 操作；超时不等于完成停机。 |
 | 客户端边界 | Data Generator 另以 Client 身份调用 Gateway `UpdateVariables`，该 RPC 不属于 Data Generator 的 Server 接口。 |
@@ -1258,7 +1258,7 @@ flowchart LR
 | UC-01 | 模拟数据生成并输出 | UR-01、UR-03、UR-05 |
 | UC-02 | 按历史记录重放数据 | UR-02、UR-03、UR-05 |
 | UC-03 | 确认虚拟设备数据可在 Gateway 使用 | UR-01、UR-02、UR-03 |
-| UC-04 | 获取、推送并应用配置快照 | UR-05 |
+| UC-04 | 接收并激活 Repository 配置修订 | UR-05 |
 | UC-05 | 诊断来源到 Gateway 的数据通路 | UR-03、UR-06 |
 | UC-06 | 查看运行指标并识别异常 | UR-07 |
 | UC-07 | 通过服务接口管理和查询业务 | UR-04、UR-05、UR-06、UR-07 |
@@ -1487,7 +1487,7 @@ E -->|不确定| H["返回未知或未完成状态"]
 | 主要异常 | 认证失败；无效参数；不支持的能力；截止时间或取消 |
 | 后置条件 | 成功返回正式响应；失败或不确定状态均可区分 |
 | 关联需求 | UR-04、UR-05、UR-06、UR-07 |
-| UC-07-S01 主流程 | `DataGeneratorService` 目标八项及 `CommonService` 九项 RPC 正常调用；场景/设备查询、生成启停及公共服务操作 |
+| UC-07-S01 主流程 | `DataGeneratorService` 九项及 `CommonService` 九项 RPC 正常调用；场景/设备查询、生成启停及公共服务操作 |
 | UC-07-S02 关键边界 | `scenario_version` 可选、`expected_revision` 冲突、ID 不存在、分页、身份权限和并发请求 |
 | UC-07-S03 异常与恢复 | 截止时间、取消、生成启停不确定结果、请求失败及服务关闭 |
 
@@ -1546,7 +1546,7 @@ flowchart LR
 ```
 <p class="figure-caption">图 5-1 Data Generator 第 0 层数据流图</p>
 
-**执行与配置边界。** Application `SimulationCoordinator` 统一生成步调度和物理/随机模型的输出结果；现有设备数学模型保留原精度、状态推进和确定性种子规则。`GatewayOutputCoordinator` 负责多 Gateway 的变量映射、租约生命周期、写入限额、UNKNOWN 隔离与安全释放，依赖 `GatewayRpcPort`；Infrastructure `GatewayRpcClient` 专职 内网访问授权、Channel、Proto/Scalar 编码与实际 RPC。`HistoryReaderPort` 将重放时序与 CSV、SQLite 临时索引、文件资源所有权分离；`CsvHistoryReader` 只在 Infrastructure。配置 Get/Push/Apply 的事务协调与只读生效版本判定位于 Application `ConfigurationCoordinator`；Persistence Adapter 负责候选文件、磁盘事务日志及恢复，场景版本不可变和重启条件由 Application 策略定义。
+**执行与配置边界。** Application `SimulationCoordinator` 统一生成步调度和物理/随机模型的输出结果；现有设备数学模型保留原精度、状态推进和确定性种子规则。`GatewayOutputCoordinator` 负责多 Gateway 的变量映射、租约生命周期、写入限额、UNKNOWN 隔离与安全释放，依赖 `GatewayRpcPort`；Infrastructure `GatewayRpcClient` 专职 内网访问授权、Channel、Proto/Scalar 编码与实际 RPC。`HistoryReaderPort` 将重放时序与 CSV、SQLite 临时索引、文件资源所有权分离；`CsvHistoryReader` 只在 Infrastructure。Repository 负责配置发布事务。Data Generator 的 `ConfigManager` 负责只读快照、业务校验和运行激活，配置缓存保留已验证闭包以供恢复。
 
 ## 5.2 逻辑组件
 
@@ -1752,7 +1752,7 @@ stateDiagram-v2
 
 ## 6.3 调度、容量与背压
 
-**启动、停止与配置变更的目标占用裁决：** `StartGeneration` 在同一串行化控制边界中解析不可变 Scenario 版本，计算全部 `(gateway_id,variable_id)`，先检查设备活动归属及目标占用，后原子预留全部 Device 和目标键，再开始来源与 Gateway I/O；任意冲突导致整次启动拒绝且不创建可运行的部分实例。并发请求不能分别通过检查后重复占用。`StopGeneration` 先禁止新数据输出，等待已提交 I/O 安全收敛或可信隔离，再原子释放设备/目标占用；超时返回未收敛状态并保留冲突保护。`ApplyConfigSnapshot` 校验新旧配置和运行实例占用，不得把目标重新分配给另一活动 Generation；被替换版本的实例绑定与保留遵照 §11.5。
+**启动、停止与配置变更的目标占用裁决：** `StartGeneration` 在同一串行化控制边界中解析不可变 Scenario 版本，计算全部 `(gateway_id,variable_id)`，先检查设备活动归属及目标占用，后原子预留全部 Device 和目标键，再开始来源与 Gateway I/O；任意冲突导致整次启动拒绝且不创建可运行的部分实例。并发请求不能分别通过检查后重复占用。`StopGeneration` 先禁止新数据输出，等待已提交 I/O 安全收敛或可信隔离，再原子释放设备/目标占用；超时返回未收敛状态并保留冲突保护。Service 调和目标修订时校验新旧配置和运行实例占用，不得把目标重新分配给另一活动 Generation；被替换版本的实例绑定与保留遵照 §11.5。
 
 
 模拟源步序满足 $t_n=n\Delta t$、$n\geq1$，调度间隔配置为 `interval_seconds`。当单步运行超过周期时，同一模型不得重入；执行下一步前报告滞后并采取显式策略（首版为不补偿、逐步继续），不能为追赶时间发起重叠计算。
@@ -1904,7 +1904,7 @@ flowchart LR
 
 本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_27 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
-## 9.1 DataGeneratorService：八项现行 gRPC Server RPC
+## 9.1 DataGeneratorService：九项现行 gRPC Server RPC
 
 现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_27 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
@@ -1930,7 +1930,7 @@ flowchart LR
 
 ## 9.2 CommonService：九项必须实现的 gRPC Server RPC
 
-`src/contracts/common.proto` 定义包 `windhub.common.v1`、服务 `CommonService`，共 **9 个 unary RPC**。本服务应实现公共接口；它们不计入 `DataGeneratorService` 目标八项数量。
+`src/contracts/common.proto` 定义包 `windhub.common.v1`、服务 `CommonService`，共 **9 个 unary RPC**。本服务应实现公共接口；它们不计入 `DataGeneratorService` 的九项方法。
 
 <p class="table-caption">表 9-2 CommonService 方法与实现映射（已核实）</p>
 
@@ -1954,7 +1954,7 @@ flowchart LR
 
 ## 9.3 Gateway 客户端：正式 UpdateVariables 契约
 
-依据 `main@367481254518a2d3d79ebeeb80a41944897a7e84` 的 `src/contracts/industrial_gateway.proto`，`IndustrialGatewayService` 包含八项 Unary RPC，新增 `ClaimTargets`，并要求 `UpdateVariables` 携带租约令牌。Data Generator 作为 Gateway 客户端，使用只读目录查询、租约管理和数据更新方法。
+当前 `src/contracts/industrial_gateway.proto` 的 `IndustrialGatewayService` 包含十项 Unary RPC。Data Generator 作为 Gateway 客户端，使用只读目录查询、`ClaimTargets` 租约管理和携带租约令牌的 `UpdateVariables`。Gateway 对 Commander 提供的 `ExecuteSimulationCommand`、`GetSimulationExecutionResult` 走独立控制路径。
 
 <p class="table-caption">表 9-3 Gateway RPC 与 Data Generator 职责</p>
 
@@ -2080,7 +2080,7 @@ flowchart TB
 | 电网 | `GRID_SIM01` | `grid_sim` | `modbus_grid_sim` |
 | 电厂控制 | `PPC_SIM01` | `plant_controller_sim` | `modbus_plant_controller_sim` |
 
-**变量角色**：`input` 为模型输入（包括外部操作、气象层及内部控制指令），只有第 10.6 节明确标注“外部控制=是”的设备控制点和气象绑定输入允许经授权 `UpdateVariables` 修改；`parameter` 为只能通过配置 Apply 修改的模型参数；`state` 为内部连续/离散状态；`output` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 `wind_speed_mean` 是外部可控 `input`，`turbulence_intensity` 是配置 `parameter`，`wind_speed` 是 `output`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
+**变量角色**：`input` 为模型输入（包括外部操作、气象层及内部控制指令），只有第 10.6 节明确标注“外部控制=是”的设备控制点和气象绑定输入允许经授权 `UpdateVariables` 修改；`parameter` 为通过 Repository 选版及 Service 激活更新的模型参数；`state` 为内部连续/离散状态；`output` 为计算派生量。随机模型按逐点生成规则确定可修改对象；物理模型中 `wind_speed_mean` 是外部可控 `input`，`turbulence_intensity` 是配置 `parameter`，`wind_speed` 是 `output`。模型角色不同于 Modbus 寄存器读写属性，不允许把对外测量输出的可写性作为模型输入权限。
 
 ### 10.5.2 符号、单位与数值约定
 
@@ -2237,7 +2237,7 @@ I_v=\frac{\sigma_v}{\bar v}\quad(\bar v>0).
 \tag{10-5}
 $$
 
-约束：$\bar v\ge0$、$I_v\ge0$、$\tau_v>0$。`wind_speed_mean` 是外部可更新输入；`turbulence_intensity` 是场景配置参数；`wind_speed` 是只读派生输出。平均风速输入变更时保留 $z_k$，配置参数变更通过受控 Apply 生效；$\bar v=0$ 时强制输出零。零平均风速时湍流度统计比值无定义，不进行式 (10-5) 的除法。切入/切出风速是**风机保护门限**，不得通过裁剪风速分布实现。种子、状态初始化和相关时间由场景配置，不默认为 IEC/Kaimal 谱。
+约束：$\bar v\ge0$、$I_v\ge0$、$\tau_v>0$。`wind_speed_mean` 是外部可更新输入；`turbulence_intensity` 是场景配置参数；`wind_speed` 是只读派生输出。平均风速输入变更时保留 $z_k$，配置参数变更通过 Repository 选版及 Service 激活生效；$\bar v=0$ 时强制输出零。零平均风速时湍流度统计比值无定义，不进行式 (10-5) 的除法。切入/切出风速是**风机保护门限**，不得通过裁剪风速分布实现。种子、状态初始化和相关时间由场景配置，不默认为 IEC/Kaimal 谱。
 
 **计算例**：配置平均风速初值 10 m/s、湍流度 0.20、相关时间 10 s、固定步长 0.05 s，则目标标准差为 2 m/s；外部将平均风速改到 12 m/s 后使用相同 $z_k$ 连续推进，而不是重新播种。湍流度不提供运行时直接控制。
 
@@ -2715,7 +2715,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 ### 10.6.2 设备型号物理参数（不属于共享模板或 Modbus PointTable）
 
-**配置归属**：以下固定物理参数仅声明于 `configs/templates/device_models/<template_id>_<version>.yaml` 的 `simulation.parameters`，由共享设备实例的 `model.id + model.version` 精确引用。Data Generator 的 `services/*.yaml` 场景仅选择设备、运行模型、气象工况及外部控制关系，不得重复额定参数。Point Table 只登记工业协议点位及业务语义。物理参数应由共享配置权威写入方修改并经过精确版本装配；Data Generator 私有 Push/Apply 不直接修改共享设备型号。
+**配置归属**：以下固定物理参数仅声明于 `configs/templates/device_models/<template_id>_<version>.yaml` 的 `simulation.parameters`，由共享设备实例的 `model.id + model.version` 精确引用。Data Generator 的版本化 Scenario Instance仅选择设备、运行模型、气象工况及外部控制关系，不得重复额定参数。Point Table 只登记工业协议点位及业务语义。修改物理参数时，由 Repository 发布不可变 Device Model Template，再按 Deployment 选定的实例引用装配。
 
 本表中 **必填** 表示启用相应固定物理模型时必须给定有效值；**可选** 表示算法明确启用该功能时才要求配置。所有数值为可配置参数，不把示例设备的容量固定为 2 MW、1 MW 等型号。运行中不得通过 `UpdateVariables` 修改；变更必须发布新的不可变 DeviceModel/Instance 版本，经 Deployment 精确选版，由 Service 校验后安全激活或重启生效。
 
@@ -3131,7 +3131,7 @@ Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator �
 
 ### 12.2.1 运行观测补充
 
-`data_generator.batches_total` 计数的是来源产生并尝试派发的批次，**不是**原生网络实际发送数；`gateway.<id>.rpc_native_started_total` 才表示真正启动的 Gateway UpdateVariables 调用数量。指标 `max_series` 达限时必须保留 `data_generator.metrics_truncated=1` 作为明确降级标记，不可静默截断；空窗口 P99 仍不返回。来源预检目标变量不匹配的拒绝码为 `TARGET_VALIDATION_FAILED`，断线/服务不可用为 `GATEWAY_UNAVAILABLE`。Diagnose 的 permit 等待从服务配置 `diagnose.permit_wait_seconds`（0.01～10 秒，默认 0.5 秒）读取。Apply 的 `effective_revision` 永远指**当前生效运行版本**；当 `restart_required=true`，在 `apply_results.message` 显式带 `disk_revision=...; effective_revision=...`，也允许客户端通过 DISK 快照获取正式版本。
+`data_generator.batches_total` 计数的是来源产生并尝试派发的批次，**不是**原生网络实际发送数；`gateway.<id>.rpc_native_started_total` 才表示真正启动的 Gateway UpdateVariables 调用数量。指标 `max_series` 达限时必须保留 `data_generator.metrics_truncated=1` 作为明确降级标记，不可静默截断；空窗口 P99 仍不返回。来源预检目标变量不匹配的拒绝码为 `TARGET_VALIDATION_FAILED`，断线/服务不可用为 `GATEWAY_UNAVAILABLE`。Diagnose 的 permit 等待从服务配置 `diagnose.permit_wait_seconds`（0.01～10 秒，默认 0.5 秒）读取。通过服务状态区分 `target_revision` 与 `active_revision`，通过只读 RUNTIME 快照查询实际装配的运行文件。
 
 ## 12.3 安全与故障隔离
 
@@ -3162,7 +3162,7 @@ Data Generator 通过运行环境变量或受控密钥文件取得 Gateway 的�
 | `test_config_manager.py` | component | reliability | conflict | UC-04：唯一发布者拒绝、版本选择及失败保护 |
 | `test_diagnose.py` | component | reliability | no_targets | UC-05：诊断阶段、无目标和非侵入 |
 | `test_metrics.py` | component | performance | no_samples | UC-06：窗口、P99、缺样本、标签限额 |
-| `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 目标八方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
+| `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 九方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
 | `test_model_weather.py` | unit | reliability | deterministic | 气象昼夜、相关风速、均值与湍流度的配置/运行时权限区分 |
 | `test_wind_control.py` | unit | safety | energy_balance | 最优转速、恒功率、限功率模式的转矩/桨距/功率/动能一致性与切换 |
 | `test_bess_soc_pcs.py` | unit | safety | energy_balance | 化学储能/端口/热耗散余额、SOC 目标、AC/DC 效率、零有功无功补偿 |
@@ -3172,7 +3172,7 @@ Data Generator 通过运行环境变量或受控密钥文件取得 Gateway 的�
 | `test_history_reader.py` | integration | reliability | invalid_records | UC-02：真实历史 Reader 和异常数据 |
 | `test_simulation_system.py` | system | reliability | end_to_end | UC-01/03：独立 Data Generator 和 Gateway |
 | `test_replay_system.py` | system | reliability | end_to_end | UC-02/03：历史记录→Gateway 的真实链路 |
-| `test_config_system.py` | system | reliability | reload | UC-04/08：Get/Push/Apply 和重启要求 |
+| `test_config_system.py` | system | reliability | reload | UC-04/08：只读快照、退役 Push/Apply 拒绝及重启要求 |
 | `test_diagnose_system.py` | system | reliability | fault_injection | UC-05：分阶段故障、写入限制、空计划 |
 | `test_metrics_system.py` | system | performance | overload | UC-06：统计真实性、延迟、重启纪元 |
 | `test_grpc_system.py` | system | safety | deadline | UC-07：独立服务 Proto 兼容、权限/超时 |
@@ -3232,10 +3232,10 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-04、03 | UC-07-S03 停止时未收敛输出占用 | 5.3、6.3 | `test_grpc_system.py::test_stop_retains_target_until_io_settled` | system/safety/deadline | Stop 超时后另一 Generation 不能抢占，底层安全结束或可信隔离后方可取得目标 | 真实 Gateway 故障注入 |
 | UR-03 | UC-03-S03 单 Gateway 失败隔离及部分成功 | 6、9、12 | `test_lifecycle_system.py::test_gateway_fanout_partial_failure` | system/reliability/network_failure | A 超时/拒绝不回滚 B 已确认更新；逐点与逐目标指标准确 | 真实双 Gateway+故障注入 |
 | UR-03 | UC-03-S03 多目标背压独立性 | 6、9 | `test_lifecycle_system.py::test_fanout_bounded_backpressure` | system/performance/overload | 故障目标资源有界，健康目标继续输出；全局资源耗尽时暂停来源 | 真实双 Gateway |
-| UR-05 | UC-04-S01 Get/Push/Apply 正常  | 11 | `test_config_system.py::test_get_push_apply` | system/reliability/reload | Push 无生效；Apply 完整报告 | 独立服务 |
+| UR-05 | UC-04-S01 只读快照与退役写入口 | 11 | `test_config_system.py::test_get_push_apply` | system/reliability/reload | 查询快照成功，旧 Push/Apply 均返回 FAILED_PRECONDITION，运行修订不变 | 独立服务 |
 | UR-05 | UC-04-S02 无效目标与版本隔离 | 11 | `test_config_system.py::test_invalid_candidate_and_conflict`；Repository→Observer 专项 | system/reliability/conflict | 旧 Push/Apply 拒绝，非法目标可发布但不会激活，旧运行配置保持有效 | 真实 Repository/Data Generator |
-| UR-05 | UC-04-S03 服务配置变更/重启  | 6、11 | `test_config_system.py::test_restart_required` | system/reliability/restart | 文件提交与热生效区分 | 独立服务 |
-| UR-05 | UC-04-S03 文件应用异常  | 11 | `test_config_system.py::test_apply_failure_recovery` | system/reliability/fault_injection | 部分失败准确报告且无破坏 | 独立服务 |
+| UR-05 | UC-04-S03 服务配置变更/重启 | 6、11 | `test_config_system.py::test_restart_required` | system/reliability/restart | 新本地选版在重启后装配，旧进程的运行快照保持原版本 | 独立服务 |
+| UR-05 | UC-04-S03 遗留本地日志恢复 | 11 | `test_config_system.py::test_apply_failure_recovery` | system/reliability/fault_injection | 启动清理遗留中断事务，恢复原文件，场景仍可启动 | 独立服务 |
 | UR-06 | UC-05-S01 模拟/重放分阶段诊断  | 12 | `test_diagnose_system.py::test_simulate_replay_stages` | system/reliability/end_to_end | 逐项检查及覆盖范围真实 | 历史源/Gateway |
 | UR-06 | UC-05-S02 无目标/映射错误  | 12 | `test_diagnose_system.py::test_empty_and_bad_mapping` | system/reliability/no_targets | UNKNOWN/FAIL，不虚构 PASS | 独立服务 |
 | UR-06 | UC-05-S03 端口通而业务拒绝  | 12 | `test_diagnose_system.py::test_grpc_rejection` | system/reliability/fault_injection | 精确定位业务层，而非报告通路通 | 真实 Gateway |
@@ -3263,7 +3263,7 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 
 ## A.1 模块配置权威和初始引导
 
-Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。模块本地引导仅提供 `service_id`、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置；自身 Service 配置和关联 Instance/Template/Units/BusinessPoint 均通过 Configuration 按当前全局修订查询自身所需的**完整依赖闭包**。模块引导不依赖尚未读取到的自身远程 Service YAML；Configuration 自身引导配置除外。
+Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根目录中的**所有合法 YAML** 作为完整快照一次发布，不能由本模块独立推送或覆盖公共配置。目标引导仅提供 `service_id`、Deployment 身份、Configuration Endpoint、NATS Endpoint、令牌来源和持久化缓存位置。自身 Service 与相关 Instance、Template、Units 和 BusinessPoint 由 Repository 返回完整选定闭包。当前 Data Generator 启动器仍需 `--config` 指定版本化本地 Service，并用本地 Deployment 建立 Observer 选择身份。
 
 ## A.2 广播、拉取、对账和独立生效
 
@@ -3273,9 +3273,7 @@ sequenceDiagram
     participant N as NATS Core
     participant M as 本模块
     M->>N: 独立订阅 wh.config.changed
-    M->>C: GetCurrentRevision
-    C-->>M: 最新 revision_id
-    M->>C: GetConfigBundle(roots,revision_id)
+    M->>C: GetServiceConfigBundle(deployment_id, service_id, revision_id=0)
     C-->>M: 完整 YAML 闭包/manifest_sha256
     M->>M: 校验、持久化、安全生效
     C->>N: 广播 wh.config.changed
@@ -3286,7 +3284,7 @@ sequenceDiagram
 
 <p class="figure-caption">图 A-1 模块独立配置收敛</p>
 
-订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块记录 `seen_revision`、`downloaded_revision`、`effective_revision`、`restart_required` 和最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
+订阅建立后、NATS 重连后及可配置的周期性对账时读取 Configuration 当前修订，避免消息丢失；重复/乱序广播只合并为最新目标，不允许运行态回退。模块区分 Repository 事件游标、`target_revision`、`active_revision`、`restart_required` 与最近错误；**完整拉取不表示全量重启**，可在资源安全边界以差异热更新。网络、配置校验或其他模块离线都不能导致本模块把无效候选标记生效；无有效快照时不能报告 READY，已有合法持久快照可按故障隔离规则运行。其他模块的失败不阻断本模块。
 
 ## A.3 必须同步移除的旧路径
 
