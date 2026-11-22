@@ -101,7 +101,11 @@ def main() -> None:
 
         apply_selected = apply_candidate
 
-    asyncio.run(run_grpc(service, selected_config, observer=observer, apply_selected=apply_selected))
+    asyncio.run(
+        run_grpc(
+            service, selected_config, observer=observer, apply_selected=apply_selected
+        )
+    )
 
 
 if __name__ == "__main__":
