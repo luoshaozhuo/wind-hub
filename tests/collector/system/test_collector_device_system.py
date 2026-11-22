@@ -141,8 +141,7 @@ async def test_uc01_s02_disabled_device_rejects_start(
 ) -> None:
     handle = await collector(disabled_devices=(MODBUS,))
     _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
-    # D-22: a disabled device still exists in the committed inventory, so it
-    # is a refused precondition, distinct from a genuinely unknown device.
+    # Disabled devices are excluded from the active inventory; START is NOT_FOUND.
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await device_stub.StartTask(
             common.OperationRequest(
@@ -151,8 +150,7 @@ async def test_uc01_s02_disabled_device_rejects_start(
             ),
             metadata=ADMIN_METADATA,
         )
-    assert exc.value.code() == grpc.StatusCode.FAILED_PRECONDITION
-    assert "disabled" in exc.value.details()
+    assert exc.value.code() == grpc.StatusCode.NOT_FOUND
 
     with pytest.raises(grpc.aio.AioRpcError) as unknown:
         await device_stub.StartTask(
