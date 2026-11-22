@@ -67,7 +67,7 @@ def _service(
     def load_settings() -> ServiceSettings:
         return ServiceSettings(
             file_version="1.0.0",
-            devices_path=root / "instances" / "devices.yaml",
+            devices_path=root / "instances" / "device_farm-a_v1.4.0.yaml",
             templates_root=root / "templates",
             queue_timeout=1.0,
             connect_timeout=3.0,
