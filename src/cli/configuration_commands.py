@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import uuid
 from pathlib import Path
@@ -22,6 +23,19 @@ from core.configuration.publication_identity import (
 from core.infrastructure.config import ConfigOperationError, parse_yaml
 
 configuration = typer.Typer(help="Manage versioned configuration repository.")
+
+_LOCAL_STORAGE_BOOTSTRAP = re.compile(
+    r"services/storage_bootstrap_v"
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.yaml"
+)
+
+
+def _is_local_bootstrap(relative_path: str) -> bool:
+    """Exclude only known process bootstraps from the published YAML closure."""
+    return relative_path == "services/cli.example.yaml" or bool(
+        _LOCAL_STORAGE_BOOTSTRAP.fullmatch(relative_path)
+    )
+
 
 
 def _request(method: str, request: Any, service: str) -> Any:
@@ -54,7 +68,7 @@ def publish(
     request_id: str = "",
     validate_only: bool = False,
 ) -> None:
-    """Validate and atomically publish the entire --root tree, not a file patch."""
+    """Publish every Repository YAML under --root, excluding fixed local bootstraps."""
     if root.is_symlink() or not root.is_dir():
         raise typer.BadParameter("configuration root must be a real directory")
     root = root.resolve(strict=True)
@@ -66,7 +80,13 @@ def publish(
             raise typer.BadParameter(f"configuration tree contains symlink: {entry}")
         if entry.is_file() and entry.suffix == ".yml":
             raise typer.BadParameter(f"use canonical .yaml suffix: {entry}")
-    paths = sorted(entry for entry in entries if entry.is_file() and entry.suffix == ".yaml")
+    paths = sorted(
+        entry
+        for entry in entries
+        if entry.is_file()
+        and entry.suffix == ".yaml"
+        and not _is_local_bootstrap(entry.relative_to(root).as_posix())
+    )
     if not paths or len(paths) > 1000:
         raise typer.BadParameter("configuration root must contain 1..1000 YAML files")
     documents: list[pb.ConfigDocumentInput] = []
