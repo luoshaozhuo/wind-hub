@@ -662,12 +662,17 @@ def _gateway_tree(
     """写出自洽的 v1 配置树，返回 Service 文件路径。"""
     config_root = root / "configs"
     grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
+    grpc_port = int(grpc_port_text)
+    used_ports = {grpc_port}
     devices_document: dict[str, Any] = {}
     business_points: dict[str, dict[str, Any]] = {}
     servers: list[dict[str, Any]] = []
     single = len(devices) == 1
     for device_id, points in sorted(devices.items()):
         modbus_port = reserve_port()
+        while modbus_port in used_ports:
+            modbus_port = reserve_port()
+        used_ports.add(modbus_port)
         model_id = f"dg_model_{device_id.lower()}"
         table_id = f"dg_points_{device_id.lower()}"
         point_table: dict[str, dict[str, Any]] = {}
@@ -782,7 +787,7 @@ def _gateway_tree(
         "config_sources": {"instances": {"devices": "dg-test"}},
         "grpc": {
             "listen_host": grpc_host,
-            "listen_port": int(grpc_port_text),
+            "listen_port": grpc_port,
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
             "tls": (
