@@ -27,33 +27,52 @@ def main() -> None:
     registry.register("ads", ADSDriver)
     registry.register("modbus", ModbusDriver)
     registry.register("iec104", IEC104Driver)
-    source = CommanderSettingsSource(args.config)
-    service = build_commander(
-        service_config=args.config,
-        protocol_registry=registry,
-        settings_source=source,
-    )
     observer: DeploymentObserver | None = None
     apply_selected: Callable[[SelectedBundle], Awaitable[bool]] | None = None
+    selected_config = args.config
+    cache_root: Path | None = None
     endpoint = os.environ.get("WIND_HUB_CONFIGURATION_ENDPOINT", "")
     if endpoint:
+        # Bootstrap identity comes from the fixed local selector. The actual
+        # Service content and its static transport must come from the
+        # Repository-selected immutable version BEFORE process assembly.
         selection = select_local_service(args.config)
+        bootstrap_settings = CommanderSettingsSource(args.config)()
         observer = DeploymentObserver(
             deployment_id=selection.deployment_id,
             service_id=selection.service_id,
             endpoint=endpoint,
             token_env="WIND_HUB_CONFIGURATION_TOKEN",
-            nats_servers=list(source().nats_servers),
+            nats_servers=list(bootstrap_settings.nats_servers),
         )
-        selected_observer = observer
+        bundle = asyncio.run(observer.fetch())
         cache_root = Path(
             os.environ.get(
                 "WIND_HUB_CONFIGURATION_CACHE",
-                str(source().sqlite_path.parent / "configuration-cache"),
+                str(bootstrap_settings.sqlite_path.parent / "configuration-cache"),
             )
         )
+        selected_config = stage_selected_bundle(
+            bundle, cache_root, observer.deployment_id, observer.service_id
+        )
+        observer.target_revision = bundle.target_revision
+        observer.repository_revision = bundle.repository_revision
+
+    source = CommanderSettingsSource(selected_config)
+    service = build_commander(
+        service_config=selected_config,
+        protocol_registry=registry,
+        settings_source=source,
+    )
+    if observer is not None:
+        # No network listener is exposed before build and transport succeed.
+        service.target_revision = observer.target_revision
+        service.active_revision = observer.target_revision
+        observer.active_revision = observer.target_revision
+        selected_observer = observer
 
         async def apply_candidate(bundle: SelectedBundle) -> bool:
+            assert cache_root is not None
             # The verified Repository target must be visible even if local
             # cache staging or validation fails before reload.
             service.target_revision = bundle.target_revision
@@ -82,7 +101,7 @@ def main() -> None:
 
         apply_selected = apply_candidate
 
-    asyncio.run(run_grpc(service, args.config, observer=observer, apply_selected=apply_selected))
+    asyncio.run(run_grpc(service, selected_config, observer=observer, apply_selected=apply_selected))
 
 
 if __name__ == "__main__":
