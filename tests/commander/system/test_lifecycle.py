@@ -49,6 +49,7 @@ async def test_start_invalid_config(tmp_path) -> None:
     root = tmp_path / "bad" / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
+    (tmp_path / "bad" / "state").mkdir(parents=True, exist_ok=True)
     service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
     service_yaml.parent.mkdir(parents=True)
     service_yaml.write_text(
