@@ -1,7 +1,7 @@
 """Build complete, schema-valid Collector configuration trees for real processes.
 
 Every YAML document carries ``file_version``, including the shipped
-``configs/services/collector.yaml``. This fixture uses isolated versions.
+``configs/services/service_collector-realtime_v1.0.0.yaml``. This fixture uses isolated versions.
 The §11 Template/Service/Instance tree is consumed by a real
 ``collector.main`` process, never by in-process fakes.
 """
@@ -35,22 +35,25 @@ def write_config_tree(
     blackhole_port: int | None = None,
     hold_desired_state: str = "STOP",
     shutdown_timeout: float = 10,
-    site_ref: str = "instances/site.yaml",
-    devices_ref: str = "instances/devices.yaml",
+    site_ref: str = "site_alpha",
+    devices_ref: str = "farm-a",
     templates_ref: str = "templates",
 ) -> Path:
     """Write services/instances/templates roots; return the services directory."""
     services = root / "services"
     instances = root / "instances"
-    templates = root / templates_ref
+    templates = root / "templates"
     for directory in (services, instances, templates):
         directory.mkdir(parents=True, exist_ok=True)
 
+    if templates_ref != "templates":
+        raise ValueError("Template roots are no longer selected by Service")
+    service_id = f"collector-{delivery}"
     service = {
         **_HEADER,
+        "service_id": service_id,
         "config_sources": {
-            "instances": {"site": site_ref, "devices": devices_ref},
-            "templates": {"root": templates_ref},
+            "instances": {"site": site_ref, "devices": devices_ref, "tasks": "farm-a"},
         },
         "runtime": {
             "shutdown_timeout": shutdown_timeout,
@@ -73,10 +76,10 @@ def write_config_tree(
             "pending_capacity": 256,
         },
     }
-    (services / "collector.yaml").write_bytes(_dump(service))
+    (services / f"service_{service_id}_v1.0.0.yaml").write_bytes(_dump(service))
 
     site = {**_HEADER, "site_id": "site_alpha", "name": "Acceptance Site"}
-    site_path = root / site_ref
+    site_path = instances / f"site_{site_ref}_v1.0.0.yaml"
     site_path.parent.mkdir(parents=True, exist_ok=True)
     site_path.write_bytes(_dump(site))
 
@@ -85,6 +88,7 @@ def write_config_tree(
         device_doc["devices"]["modbus-1"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": modbus_port},
+            "group": "turbine",
             "overrides": {"task": {"desired_state": desired_state}},
         }
     if "iec104-1" in devices:
@@ -97,16 +101,18 @@ def write_config_tree(
         device_doc["devices"]["modbus-hold"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": blackhole_port},
+            "group": "turbine",
             "overrides": {"task": {"desired_state": hold_desired_state}},
         }
-    devices_path = root / devices_ref
+    devices_path = instances / f"device_{devices_ref}_v1.0.0.yaml"
     devices_path.parent.mkdir(parents=True, exist_ok=True)
     devices_path.write_bytes(_dump(device_doc))
 
-    (templates / "units_standard.yaml").write_bytes(
+    (templates / "units_standard_v1.2.0.yaml").write_bytes(
         _dump(
             {
                 **_HEADER,
+                "file_version": "1.2.0",
                 "quantities": {
                     "dimensionless": {"base_unit": "none"},
                     "active_power": {"base_unit": "watt"},
@@ -129,10 +135,11 @@ def write_config_tree(
             }
         )
     )
-    (templates / "business_points_standard.yaml").write_bytes(
+    (templates / "business_points_standard_v1.4.0.yaml").write_bytes(
         _dump(
             {
                 **_HEADER,
+                "file_version": "1.4.0",
                 "business_points": {
                     "active_power": {"data_type": "int32", "unit": "kilowatt"},
                     "rotor_speed": {"data_type": "float32", "unit": "rpm"},
@@ -161,7 +168,6 @@ def write_config_tree(
             "device_type_id": "turbine",
             "protocol": {"id": "modbus_tcp", "version": "1.0.0"},
             "point_table": {"id": "modbus_wtg", "version": "1.0.0"},
-            "task": {"id": "turbine_all", "version": "1.0.0"},
             "protocol_options": {"slave_id": 1, "word_order": "little_endian"},
         },
     )
@@ -174,7 +180,6 @@ def write_config_tree(
             "device_type_id": "turbine",
             "protocol": {"id": "iec104_tcp", "version": "1.0.0"},
             "point_table": {"id": "iec104_wtg", "version": "1.0.0"},
-            "task": {"id": "turbine_all", "version": "1.0.0"},
             "protocol_options": {"t0": 3.0, "t1": 3.0, "t2": 1.0, "t3": 10.0},
         },
     )
@@ -233,14 +238,37 @@ def write_config_tree(
             },
         },
     )
-    template(
-        "tasks",
-        "turbine_all",
-        {
-            **_HEADER,
-            "point_group": "all",
-            "interval": task_interval,
-            "desired_state": "STOP",
-        },
+    (instances / "collector_tasks_farm-a_v1.0.0.yaml").write_bytes(
+        _dump(
+            {
+                **_HEADER,
+                "tasks": {
+                    "turbine_all": {
+                        "group": "turbine",
+                        "point_group": "all",
+                        "interval_ms": max(1, round(task_interval * 1000)),
+                        "desired_state": "STOP",
+                    }
+                },
+            }
+        )
+    )
+    deployments = root / "deployments"
+    deployments.mkdir(exist_ok=True)
+    (deployments / "deployment_collector-acceptance_v1.0.0.yaml").write_bytes(
+        _dump(
+            {
+                **_HEADER,
+                "deployment_id": "collector-acceptance",
+                "services": {
+                    service_id: {"config_id": service_id, "file_version": "1.0.0"}
+                },
+                "instances": {
+                    "site": {site_ref: {"file_version": "1.0.0"}},
+                    "device": {devices_ref: {"file_version": "1.0.0"}},
+                    "collector_tasks": {"farm-a": {"file_version": "1.0.0"}},
+                },
+            }
+        )
     )
     return services
