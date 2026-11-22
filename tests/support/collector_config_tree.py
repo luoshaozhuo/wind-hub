@@ -1,15 +1,4 @@
-"""System harness：生成 Collector v2 三路径配置树（service / instances / templates）。
-
-生产 Collector CLI 只消费三路径：
-
-- ``services/collector.yaml``：服务级运行参数；
-- ``instances/``：``site.yaml`` + 设备实例文档 ``devices.yaml``；
-- ``templates/``：不可变版本化模板（protocol / point_table / device_model / task）。
-
-旧 system 测试的扁平 Core 目录仍由 Commander / Web Server / 协议从站消费，
-本模块只负责把 Collector 需要的那一半从出厂模板或扁平站点派生出来，
-不添加任何生产兼容层。
-"""
+"""Build immutable Deployment-selected Collector configuration trees for system tests."""
 
 from __future__ import annotations
 
@@ -21,10 +10,16 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIPPED = REPO_ROOT / "configs"
-
-#: 与 tests.support.control.DEFAULT_ADMIN_TOKEN 保持一致；system harness 同时
-#: 把它注入 Collector 与 Web Server 进程，设备级 START/STOP 必须携带该令牌。
 SYSTEM_ADMIN_TOKEN = "system-test-admin-token"
+
+SERVICE_NAME = "service_collector-realtime_v1.1.0.yaml"
+SERVICE_ID = "collector-realtime"
+SERVICE_VERSION = "1.1.0"
+DEVICE_INSTANCE_ID = "system"
+TASK_INSTANCE_ID = "system"
+INSTANCE_VERSION = "1.0.0"
+BUSINESS_CATALOG_VERSION = "1.4.0"
+UNITS_CATALOG_VERSION = "1.2.0"
 
 
 def _dump(path: Path, document: dict[str, Any]) -> None:
@@ -43,10 +38,69 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def _empty_tree(base: Path) -> Path:
-    """复制出厂三路径树（含 modbus_wtg 模板）作为 v2 测试树根。"""
     root = base / "v2"
     for name in ("services", "instances", "templates"):
         shutil.copytree(SHIPPED / name, root / name)
+    (root / "deployments").mkdir(parents=True)
+    return root
+
+
+def _identity(root: Path, site_id: str, devices: dict[str, Any], tasks: dict[str, Any]) -> None:
+    _dump(
+        root / "instances" / f"site_{site_id}_v{INSTANCE_VERSION}.yaml",
+        {
+            "schema_version": 1,
+            "file_version": INSTANCE_VERSION,
+            "site_id": site_id,
+            "name": f"System {site_id}",
+        },
+    )
+    _dump(
+        root / "instances" / f"device_{DEVICE_INSTANCE_ID}_v{INSTANCE_VERSION}.yaml",
+        {"schema_version": 1, "file_version": INSTANCE_VERSION, "devices": devices},
+    )
+    _dump(
+        root / "instances" / f"collector_tasks_{TASK_INSTANCE_ID}_v{INSTANCE_VERSION}.yaml",
+        {"schema_version": 1, "file_version": INSTANCE_VERSION, "tasks": tasks},
+    )
+
+
+def _service(root: Path, site_id: str, nats_url: str, settings: dict[str, Any]) -> Path:
+    path = root / "services" / SERVICE_NAME
+    service = _load(path)
+    service["service_id"] = SERVICE_ID
+    service["config_sources"] = {
+        "instances": {
+            "site": site_id,
+            "devices": DEVICE_INSTANCE_ID,
+            "tasks": TASK_INSTANCE_ID,
+        }
+    }
+    service["messaging"]["servers"] = [nats_url]
+    for key, value in settings.items():
+        if key == "messaging":
+            service["messaging"].update(value)
+        elif isinstance(value, dict):
+            service.setdefault(key, {}).update(value)
+        else:
+            service[key] = value
+    _dump(path, service)
+    _dump(
+        root / "deployments" / "deployment_collector-system_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "collector-system",
+            "services": {
+                SERVICE_ID: {"config_id": SERVICE_ID, "file_version": SERVICE_VERSION}
+            },
+            "instances": {
+                "site": {site_id: {"file_version": INSTANCE_VERSION}},
+                "device": {DEVICE_INSTANCE_ID: {"file_version": INSTANCE_VERSION}},
+                "collector_tasks": {TASK_INSTANCE_ID: {"file_version": INSTANCE_VERSION}},
+            },
+        },
+    )
     return root
 
 
@@ -60,128 +114,91 @@ def write_collector_modbus_tree(
     nats_url: str = "nats://127.0.0.1:4222",
     slave_id: int = 1,
 ) -> Path:
-    """单 Modbus 设备的 v2 三路径树（复用出厂 modbus_wtg 1.0.0 模板）。
-
-    任务期望态由出厂任务模板承载（turbine_all: STOP）；设备级 override
-    仅 protocol_options（未知键 fail-closed）。采集点为出厂模板
-    ``active_power``（holding@0, int32）；system 控制面 round-trip
-    不断言寄存器语义，数据面验证由 acquisition 套件负责。
-    """
+    """One real Modbus device, its Instance-owned task, and exact Deployment."""
     root = _empty_tree(base)
-    # 出厂 business_points 目录不含 gen_power/temp_int，且 rotor_speed 绑定
-    # revolution_per_minute；harness 点表使用 dimensionless（none）单位，
-    # 这里随树下发与点表严格一致的目录（units_standard.yaml 的 none 由出厂树提供）。
+    points = {
+        "rotor_speed": ("float32", 100),
+        "gen_power": ("float32", 102),
+        "temp_int": ("int16", 104),
+        "setpoint_power": ("float32", 200),
+    }
     _dump(
-        root / "templates" / "business_points_standard.yaml",
+        root / "templates" / f"business_points_standard_v{BUSINESS_CATALOG_VERSION}.yaml",
         {
             "schema_version": 1,
-            "file_version": "1.0.0",
+            "file_version": BUSINESS_CATALOG_VERSION,
             "business_points": {
-                "rotor_speed": {"data_type": "float32", "unit": "none"},
-                "gen_power": {"data_type": "float32", "unit": "none"},
-                "temp_int": {"data_type": "int16", "unit": "none"},
-                "setpoint_power": {"data_type": "float32", "unit": "none"},
+                point: {"data_type": data_type, "unit": "none"}
+                for point, (data_type, _address) in points.items()
             },
         },
     )
-    # v1 模板布局为扁平 ``<id>_<version>.yaml``；出厂树已无 modbus_wtg
-    # 型号，这里按 ModbusMockServer 的保持寄存器布局（100/102/104）生成
-    # 自包含点表与型号，协议模板与 turbine_all 任务复用出厂文件。
     _dump(
-        root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml",
+        root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
             "template_id": "modbus_wtg",
             "protocol": "modbus",
             "points": {
-                "rotor_speed": {
-                    "business_point_id": "rotor_speed",
+                point: {
+                    "business_point_id": point,
                     "point_groups": ["all"],
-                    "address": {"register_type": "holding", "address": 100},
-                    "data_type": "float32",
-                },
-                "gen_power": {
-                    "business_point_id": "gen_power",
-                    "point_groups": ["all"],
-                    "address": {"register_type": "holding", "address": 102},
-                    "data_type": "float32",
-                },
-                "temp_int": {
-                    "business_point_id": "temp_int",
-                    "point_groups": ["all"],
-                    "address": {"register_type": "holding", "address": 104},
-                    "data_type": "int16",
-                },
-                # 控制写点：与 ModbusMockServer 预留的 holding 200/201 及
-                # functional_config 的 setpoint_power 对齐，供 REST→Server→
-                # Commander→Modbus 全链路命令验收；holding 自动派生 READ_WRITE。
-                "setpoint_power": {
-                    "business_point_id": "setpoint_power",
-                    "point_groups": ["all", "control"],
-                    "address": {"register_type": "holding", "address": 200},
-                    "data_type": "float32",
-                },
+                    "address": {"register_type": "holding", "address": address},
+                    "data_type": data_type,
+                    "unit": "none",
+                }
+                for point, (data_type, address) in points.items()
             },
         },
     )
     _dump(
-        root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml",
+        root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
             "template_id": "modbus_wtg",
-            "name": "Harness Modbus Turbine",
+            "name": "System Modbus turbine",
             "device_type_id": "turbine",
-            # 出厂 modbus_tcp 协议模板已演进到 1.1.0（v1.0.0 随模板扁平
-            # 命名合并移除）；引用必须跟版本，绝不回退到最新版解析。
             "protocol": {"id": "modbus_tcp", "version": "1.1.0"},
             "point_table": {"id": "modbus_wtg", "version": "1.0.0"},
-            "task": {"id": "turbine_all", "version": "1.0.0"},
-            # ModbusMockServer 的寄存器布局是 big-endian float32；出厂协议
-            # 模板默认 little_endian，型号模板必须显式对齐，否则写命令按
-            # 小端编码、与从站布局及 functional_config（同栈 Web Server 侧）
-            # 的 big_endian 约定不一致。字序只允许配在型号模板（见
-            # Commander b1 有效选项契约），实例 overrides 不放该参数。
             "protocol_options": {"slave_id": slave_id, "word_order": "big_endian"},
         },
     )
-    _dump(
-        root / "instances" / "site.yaml",
+    _identity(
+        root,
+        site_id,
         {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "site_id": site_id,
-            "name": f"System {site_id}",
+            device_id: {
+                "enabled": True,
+                "group": "turbine",
+                "model": {"id": "modbus_wtg", "version": "1.0.0"},
+                "endpoint": {"host": "127.0.0.1", "port": port},
+                "overrides": {"protocol_options": {"slave_id": slave_id}},
+            }
+        },
+        {
+            "turbine_all": {
+                "group": "turbine",
+                "point_group": "all",
+                "interval_ms": 200,
+                "desired_state": desired_state,
+            }
         },
     )
-    _dump(
-        root / "instances" / "devices.yaml",
+    return _service(
+        root,
+        site_id,
+        nats_url,
         {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "devices": {
-                device_id: {
-                    "model": {"id": "modbus_wtg", "version": "1.0.0"},
-                    "endpoint": {"host": "127.0.0.1", "port": port},
-                    # ``task`` 为 Collector 持有的设备任务意图（core 加载器
-                    # 已按 Collector 契约放行）；protocol_options 同级生效。
-                    "overrides": {
-                        "protocol_options": {"slave_id": slave_id},
-                        "task": {"desired_state": desired_state},
-                    },
-                }
+            "runtime": {
+                "connect_timeout": 2.0,
+                "read_timeout": 2.0,
+                "shutdown_timeout": 5.0,
             },
+            "watchdog": {"interval": 0.5, "health_timeout": 0.5},
         },
     )
-    service = _load(root / "services" / "collector.yaml")
-    service["messaging"]["servers"] = [nats_url]
-    service.setdefault("runtime", {}).update(
-        {"connect_timeout": 2.0, "read_timeout": 2.0, "shutdown_timeout": 5.0}
-    )
-    service["watchdog"] = {"interval": 0.5, "health_timeout": 0.5}
-    _dump(root / "services" / "collector.yaml", service)
-    return root
 
 
 def build_collector_tree_from_site(
@@ -190,15 +207,8 @@ def build_collector_tree_from_site(
     *,
     nats_url: str = "nats://127.0.0.1:4222",
 ) -> Path:
-    """把 generate_virtual_site 产出的扁平站点派生为 v2 三路径树。
-
-    扁平站点的每个 point_table / device_model 成为 1.0.0 版本模板；
-    设备文档逐条转换为 model 引用 + endpoint + protocol_options 覆盖；
-    采集任务每设备唯一（v2 不再有 Task→设备组扇出），统一引用
-    ``device_all`` 1.0.0（point_group=all）。
-    """
+    """Translate a legacy *input fixture* into the current published closure."""
     root = _empty_tree(base)
-
     points_doc = _load(flat_site / "points.yaml")
     models_doc = _load(flat_site / "device_models.yaml")
     devices_doc = _load(flat_site / "devices.yaml")
@@ -206,198 +216,125 @@ def build_collector_tree_from_site(
     tasks_path = flat_site / "tasks.yaml"
     tasks_doc = _load(tasks_path) if tasks_path.exists() else {"tasks": {}}
 
-    point_tables = points_doc["point_tables"]
-    device_models = models_doc["device_models"]
+    business = _load(flat_site / "business_points.yaml")["business_points"]
+    units = _load(flat_site / "units.yaml")
+    _dump(
+        root / "templates" / f"business_points_standard_v{BUSINESS_CATALOG_VERSION}.yaml",
+        {
+            "schema_version": 1,
+            "file_version": BUSINESS_CATALOG_VERSION,
+            "business_points": business,
+        },
+    )
+    _dump(
+        root / "templates" / f"units_standard_v{UNITS_CATALOG_VERSION}.yaml",
+        {"schema_version": 1, "file_version": UNITS_CATALOG_VERSION, **units},
+    )
 
-    # 每个协议一个 protocol 模板（template_id 任意，protocol 字段必须是
-    # Core 协议名）；point_table / model 沿用扁平 ID 作为 template_id。
-    protocols = {model["protocol"] for model in device_models.values()}
-    for protocol in sorted(protocols):
+    models = models_doc["device_models"]
+    for protocol in sorted({model["protocol"] for model in models.values()}):
         _dump(
-            root / "templates" / "protocols" / f"protocol_{protocol}_default_v1.0.0.yaml",
+            root / "templates/protocols" / f"protocol_{protocol}_default_v1.0.0.yaml",
             {
-                # 协议模板经 shared_snapshot._content 只放行 protocol/
-                # protocol_options，且仅剥离 schema_version/file_version/
-                # template_id——不得带 template_version，否则 strict 键集
-                # 校验报 "unknown protocol template fields"（与出厂模板对齐）。
                 "schema_version": 1,
                 "file_version": "1.0.0",
                 "template_id": f"{protocol}_default",
                 "protocol": protocol,
             },
         )
-
-    # 扁平任务按具名 point_group 采点，而 v2 每设备唯一任务固定引用 all。
-    # 派生模板给每个点补 all 成员（原有成员保留、去重），使 v2 设备任务
-    # 覆盖扁平站点任务采集的同一点集，不删除任何既有点组归属。
-    for table_id, table in point_tables.items():
-        protocol = table["protocol"]
-        derived_points = {}
+    for table_id, table in points_doc["point_tables"].items():
+        result: dict[str, Any] = {}
         for point_id, point in table["points"].items():
-            groups = list(point.get("point_groups", []))
-            if "all" not in groups:
-                point = {**point, "point_groups": [*groups, "all"]}
-            derived_points[point_id] = point
+            unit = point.get("unit", business.get(point_id, {}).get("unit", "none"))
+            result[point_id] = {
+                **point,
+                "business_point_id": point.get("business_point_id", point_id),
+                "point_groups": sorted(set(point.get("point_groups", [])) | {"all"}),
+                "unit": unit,
+            }
         _dump(
-            root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
+            root / "templates/point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
                 "template_id": table_id,
-                "template_version": "1.0.0",
-                "protocol": protocol,
-                "points": derived_points,
+                "protocol": table["protocol"],
+                "points": result,
             },
         )
-
-    # 扁平任务按 device_group_id 引用点组与节拍；v2 型号直接引用任务模板。
-    # 为每个唯一 (point_group, interval) 组合生成一个任务模板，再按
-    # 「使用该型号的设备所属分组」为型号选定模板；无 tasks.yaml 时回退
-    # all/1.0s 单一模板。
-    flat_tasks = tasks_doc.get("tasks", {})
-    group_spec: dict[str, tuple[str, float, str]] = {
-        str(task["device_group_id"]): (
-            str(task.get("point_group", "all")),
-            float(task.get("interval", 1.0)),
-            str(task.get("desired_state", "STOP")),
-        )
-        for task in flat_tasks.values()
-    }
-    combo_ids: dict[tuple[str, float, str], str] = {}
-    for spec in group_spec.values():
-        if spec not in combo_ids:
-            combo_ids[spec] = f"task_{len(combo_ids):02d}"
-
-    def _model_task_ref(model_id: str) -> dict[str, str]:
-        for device in devices_doc["devices"].values():
-            if device.get("model_id") != model_id:
-                continue
-            for group_id in device.get("device_group_ids", []):
-                spec = group_spec.get(str(group_id))
-                if spec is not None:
-                    return {"id": combo_ids[spec], "version": "1.0.0"}
-        return {"id": "device_all", "version": "1.0.0"}
-
-    for model_id, model in device_models.items():
-        protocol = model["protocol"]
-        document: dict[str, Any] = {
+    for model_id, model in models.items():
+        document = {
             "schema_version": 1,
             "file_version": "1.0.0",
             "template_id": model_id,
-            "template_version": "1.0.0",
             "name": model_id,
             "device_type_id": model.get("device_type_id", "turbine"),
-            "protocol": {"id": f"{protocol}_default", "version": "1.0.0"},
+            "protocol": {"id": f"{model['protocol']}_default", "version": "1.0.0"},
             "point_table": {"id": model["point_table_id"], "version": "1.0.0"},
-            "task": _model_task_ref(model_id),
         }
-        if model.get("protocol_options"):
-            document["protocol_options"] = model["protocol_options"]
-        _dump(
-            root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
-            document,
-        )
+        for optional in ("protocol_options", "endpoint_defaults"):
+            if model.get(optional):
+                document[optional] = model[optional]
+        _dump(root / "templates/device_models" / f"device_model_{model_id}_v1.0.0.yaml", document)
 
-    for spec, task_id in combo_ids.items():
-        # v1 校验强制任务 point_group == "all"；上面已把扁平站点各点全部
-        # 补入 all 组成员，故这里归一为 all 不改变实际采集点集（具名组的
-        # 节拍/期望态仍由 spec 保留），只是不再下发 v1 已废除的具名组任务。
-        _point_group, interval, desired_state = spec
-        _dump(
-            root / "templates" / "tasks" / f"task_{task_id}_v1.0.0.yaml",
-            {
-                "schema_version": 1,
-                "file_version": "1.0.0",
-                "template_id": task_id,
-                "template_version": "1.0.0",
-                "point_group": "all",
-                "interval": interval,
-                "desired_state": desired_state,
-            },
+    # Task policy is specified by the collector_tasks Instance, never by models.
+    group_specs: dict[str, dict[str, Any]] = {}
+    for task in tasks_doc.get("tasks", {}).values():
+        group = str(task["device_group_id"])
+        interval = float(task.get("interval", 1.0))
+        group_specs[group] = {
+            "group": group,
+            "point_group": "all",
+            "interval_ms": max(1, round(interval * 1000)),
+            "desired_state": str(task.get("desired_state", "STOP")),
+        }
+    devices: dict[str, Any] = {}
+    for device_id, source in devices_doc["devices"].items():
+        groups = [str(group) for group in source.get("device_group_ids", [])]
+        group = next((g for g in groups if g in group_specs), groups[0] if groups else device_id)
+        group_specs.setdefault(
+            group,
+            {"group": group, "point_group": "all", "interval_ms": 1000, "desired_state": "STOP"},
         )
-    if not combo_ids:
-        _dump(
-            root / "templates" / "tasks" / "task_device_all_v1.0.0.yaml",
-            {
-                "schema_version": 1,
-                "file_version": "1.0.0",
-                "template_id": "device_all",
-                "template_version": "1.0.0",
-                "point_group": "all",
-                "interval": 1.0,
-                "desired_state": "STOP",
-            },
-        )
-
-    # 扁平站点的 units / business_points 与模板根解析器同源；扁平文档缺
-    # schema_version 头（旧 Core 适配器不要它），复制时补齐 v2 必需的头。
-    units_doc = _load(flat_site / "units.yaml")
-    _dump(
-        root / "templates" / "units_standard.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", **units_doc},
-    )
-    business_doc = _load(flat_site / "business_points.yaml")
-    _dump(
-        root / "templates" / "business_points_standard.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", **business_doc},
-    )
+        device = {
+            "enabled": source.get("enabled", True),
+            "group": group,
+            "model": {"id": source["model_id"], "version": "1.0.0"},
+            "endpoint": dict(source["endpoint"]),
+        }
+        if source.get("protocol_options"):
+            device["overrides"] = {"protocol_options": dict(source["protocol_options"])}
+        devices[device_id] = device
 
     site = system_doc.get("site", {})
-    _dump(
-        root / "instances" / "site.yaml",
-        {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "site_id": site.get("site_id", "virtual_windfarm"),
-            "name": site.get("name", "Virtual Wind Farm"),
-        },
+    site_id = str(site.get("site_id", "virtual_windfarm"))
+    _identity(
+        root,
+        site_id,
+        devices,
+        {f"task_{idx:02d}": spec for idx, spec in enumerate(group_specs.values())},
     )
-
-    v2_devices: dict[str, Any] = {}
-    for device_id, device in devices_doc["devices"].items():
-        entry: dict[str, Any] = {
-            "model": {"id": device["model_id"], "version": "1.0.0"},
-            "endpoint": dict(device["endpoint"]),
-        }
-        if device.get("protocol_options"):
-            entry["overrides"] = {"protocol_options": dict(device["protocol_options"])}
-        if device.get("enabled") is False:
-            entry["enabled"] = False
-        v2_devices[device_id] = entry
-    _dump(
-        root / "instances" / "devices.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", "devices": v2_devices},
-    )
-
-    service = _load(root / "services" / "collector.yaml")
-    messaging = system_doc.get("messaging")
-    if messaging:
-        service["messaging"] = {
-            "servers": messaging.get("servers", [nats_url]),
+    messaging = system_doc.get("messaging", {})
+    runtime = system_doc.get("runtime", {})
+    service_settings: dict[str, Any] = {
+        "messaging": {
             "delivery": messaging.get("delivery", "realtime"),
             "max_staleness_ms": messaging.get("max_staleness_ms", 60_000),
-        }
-    if system_doc.get("ads"):
-        service["ads"] = system_doc["ads"]
-    runtime = system_doc.get("runtime", {})
-    service.setdefault("runtime", {}).update(
-        {
+        },
+        "runtime": {
             "connect_timeout": runtime.get("connect_timeout", 10.0),
             "read_timeout": runtime.get("read_timeout", 5.0),
             "write_timeout": runtime.get("write_timeout", 5.0),
             "shutdown_timeout": runtime.get("shutdown_timeout", 30.0),
-        }
-    )
+        },
+    }
     if runtime.get("watchdog_interval") or runtime.get("health_timeout"):
-        service["watchdog"] = {
+        service_settings["watchdog"] = {
             "interval": runtime.get("watchdog_interval", 1.0),
             "health_timeout": runtime.get("health_timeout", 1.0),
         }
-    # v2 把发布队列容量配置迁到 metrics.pending_capacity（见 collector
-    # assembly 的 SamplePublisher 构造）；映射扁平 runtime.queue_maxsize，
-    # 否则固定默认值在目标负载下背压丢点。
-    queue_maxsize = runtime.get("queue_maxsize")
-    if queue_maxsize:
-        service.setdefault("metrics", {})["pending_capacity"] = int(queue_maxsize)
-    _dump(root / "services" / "collector.yaml", service)
-    return root
+    if runtime.get("queue_maxsize"):
+        service_settings["metrics"] = {"pending_capacity": int(runtime["queue_maxsize"])}
+    if system_doc.get("ads"):
+        service_settings["ads"] = system_doc["ads"]
+    return _service(root, site_id, nats_url, service_settings)
