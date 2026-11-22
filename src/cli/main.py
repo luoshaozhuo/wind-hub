@@ -223,25 +223,32 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
         if type(initial_pid) is not int or not isinstance(initial_tick, str):
             raise RuntimeError("managed process has no confirmed startup identity")
 
-        async def owned() -> bool:
+        async def owned() -> bool | frozenset[str]:
             return await asyncio.to_thread(
                 managed_endpoint_owned,
                 target,
                 expected_pid=initial_pid,
                 expected_start_tick=initial_tick,
+                return_inodes=True,
             )
 
     while True:
         try:
-            if managed and not await owned():
+            before = await owned() if managed else True
+            if not before:
                 if asyncio.get_running_loop().time() >= deadline:
                     raise RuntimeError("managed service does not own its gRPC listener")
                 await asyncio.sleep(0.2)
                 continue
             response = await context.call_common(name, "GetServiceStatus")
-            if managed and not await owned():
+            after = await owned() if managed else True
+            # Reject a response observed while the listener changed workers,
+            # even when the original process-group leader is unchanged.
+            if not after or after != before:
                 if asyncio.get_running_loop().time() >= deadline:
-                    raise RuntimeError("healthy gRPC response does not belong to managed process")
+                    raise RuntimeError(
+                        "healthy gRPC response does not belong to a stable managed listener"
+                    )
                 await asyncio.sleep(0.2)
                 continue
             result["business"] = response
