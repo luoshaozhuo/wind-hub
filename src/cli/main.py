@@ -247,7 +247,7 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
             if not after or after != before:
                 if asyncio.get_running_loop().time() >= deadline:
                     raise RuntimeError(
-                        "healthy gRPC response does not belong to a stable managed listener"
+                        "healthy gRPC response does not belong to managed process or stable listener"
                     )
                 await asyncio.sleep(0.2)
                 continue
