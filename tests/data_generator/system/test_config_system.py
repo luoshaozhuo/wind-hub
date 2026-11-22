@@ -117,7 +117,8 @@ async def test_invalid_candidate_and_conflict(
             await common_stub.GetConfigSnapshot(
                 common.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id="does-not-exist")
             )
-        assert exc.value.code() is grpc.StatusCode.NOT_FOUND
+        assert exc.value.code() is grpc.StatusCode.INVALID_ARGUMENT
+        assert exc.value.details() == "candidate not found"
         assert await _revision(common_stub) == revision
         state = await dg_stub.GetGeneration(common.ObjectId(id=started.generation_id))
         assert state.generation.actual_state in {"STARTING", "RUNNING"}
