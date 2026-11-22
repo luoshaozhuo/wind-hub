@@ -129,8 +129,9 @@ def managed_endpoint_owned(
     *,
     expected_pid: int | None = None,
     expected_start_tick: str | None = None,
-) -> bool:
-    """Verify every usable local address family against the managed process group.
+    return_inodes: bool = False,
+) -> bool | frozenset[str]:
+    """Verify listener ownership, optionally returning the exact socket identity.
 
     In particular, one owned IPv4 listener must not validate a foreign IPv6
     health response for a localhost endpoint.
@@ -220,13 +221,14 @@ def managed_endpoint_owned(
             continue
     # Do not accept one owned listener while another address family at the
     # same configured endpoint is served by a foreign process.
-    return (
+    valid = (
         bool(owned)
         and listeners <= owned
         and _running(state)
         and (expected_pid is None or state["pid"] == expected_pid)
         and (expected_start_tick is None or state["start_tick"] == expected_start_tick)
     )
+    return frozenset(owned) if valid and return_inodes else valid
 
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
