@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -66,6 +67,35 @@ async def test_stale_pid_identity_never_signals_unowned_pid(tmp_path: Path) -> N
     outcome = await manage_native_process(target, "stop")
     assert outcome["already_stopped"]
     assert not (state_dir / "native-demo.json").exists()
+
+
+async def test_occupied_loopback_endpoint_cannot_confirm_foreign_service(
+    tmp_path: Path,
+) -> None:
+    """A live unrelated listener must not make a failed spawn look ready."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        endpoint = f"127.0.0.1:{listener.getsockname()[1]}"
+        target = replace(
+            _target(tmp_path, "import time", "time.sleep(120)"),
+            grpc_endpoint=endpoint,
+        )
+        with pytest.raises(RuntimeError, match="already occupied"):
+            await manage_native_process(target, "start")
+        assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
+
+
+async def test_early_child_failure_is_not_confirmed_as_service_start(
+    tmp_path: Path,
+) -> None:
+    target = replace(
+        _target(tmp_path, "import sys", "sys.exit(19)"),
+        grpc_endpoint="127.0.0.1:1",
+    )
+    with pytest.raises(RuntimeError, match="exited during start confirmation"):
+        await manage_native_process(target, "start")
+    assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
 
 
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:
