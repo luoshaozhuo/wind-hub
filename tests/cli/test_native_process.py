@@ -113,6 +113,62 @@ async def test_restart_waits_for_previous_listener_to_disappear(tmp_path: Path) 
         await manage_native_process(target, "stop")
 
 
+async def test_foreign_health_endpoint_not_owned_by_managed_process(
+    tmp_path: Path,
+) -> None:
+    from cli.native_process import managed_endpoint_owned
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        target = replace(
+            _target(tmp_path, "import time", "time.sleep(120)"),
+            grpc_endpoint=f"127.0.0.1:{port}",
+        )
+        # The manager's process may exist, but it cannot own a socket opened
+        # by the foreign test process.
+        with patch("cli.native_process._foreign_loopback_listener", return_value=False):
+            await manage_native_process(target, "start")
+        try:
+            assert not managed_endpoint_owned(target)
+        finally:
+            await manage_native_process(target, "stop")
+
+
+async def test_managed_listener_ownership_matches_process_group(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from cli.native_process import managed_endpoint_owned
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    target = replace(
+        _target(
+            tmp_path,
+            "import socket, time",
+            "listener = socket.socket()",
+            f"listener.bind(('127.0.0.1', {port}))",
+            "listener.listen()",
+            "time.sleep(120)",
+        ),
+        grpc_endpoint=f"127.0.0.1:{port}",
+    )
+    try:
+        await manage_native_process(target, "start")
+        for _ in range(30):
+            if managed_endpoint_owned(target):
+                break
+            await asyncio.sleep(0.1)
+        assert managed_endpoint_owned(target)
+    finally:
+        await manage_native_process(target, "stop")
+    assert not managed_endpoint_owned(target)
+
+
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:
     target = _target(tmp_path, "import time", "time.sleep(0.3)")
     try:
