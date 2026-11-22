@@ -571,6 +571,7 @@ async def test_duplicate_target_mapping_rejected(
         rejected_service = configs_root(scenarios=duplicate)
         with pytest.raises(GeneratorError, match="duplicate output target"):
             load_settings(rejected_service)
+        await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
         state = await dg_stub.GetGeneration(common.ObjectId(id=generation_id))
         assert state.generation.actual_state == "RUNNING"
         assert await _runtime_revision(common_stub) == revision

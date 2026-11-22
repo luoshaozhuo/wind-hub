@@ -380,7 +380,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 "devices": {
                     "D01": {
                         "enabled": True,
-                        "model": {"id": "wtg_tz2mw", "version": "1.1.0"},
+                        "model": {"id": "wtg_tz2mw", "version": "1.3.0"},
                         "endpoint": {"host": "127.0.0.1", "port": modbus.port},
                         "overrides": {},
                     }

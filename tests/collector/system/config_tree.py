@@ -106,7 +106,6 @@ def write_config_tree(
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": blackhole_port},
             "group": "hold",
-            "overrides": {"task": {"desired_state": hold_desired_state}},
         }
     devices_path = instances / f"device_{devices_ref}_v1.0.0.yaml"
     devices_path.parent.mkdir(parents=True, exist_ok=True)
