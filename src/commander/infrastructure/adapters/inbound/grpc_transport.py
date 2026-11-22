@@ -125,6 +125,7 @@ async def run_grpc(
     *,
     observer: DeploymentObserver | None = None,
     apply_selected: Callable[[SelectedBundle], Awaitable[bool]] | None = None,
+    on_started: Callable[[], None] | None = None,
 ) -> None:
     """Serve gRPC and reconcile Deployment while preserving I/O ownership."""
     await service.start()
@@ -133,6 +134,8 @@ async def run_grpc(
     task: asyncio.Task[None] | None = None
     try:
         server = await start_grpc(service, service_config)
+        if on_started is not None:
+            on_started()
         if observer is not None and apply_selected is not None:
             task = asyncio.create_task(observer.run(stop, apply_selected))
         await server.wait_for_termination()
