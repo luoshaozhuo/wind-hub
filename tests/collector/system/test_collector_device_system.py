@@ -17,6 +17,7 @@ from tests.collector.system.conftest import ADMIN_METADATA, ClientsFactory, Real
 from tests.collector.system.helpers import (
     IEC104,
     MODBUS,
+    disk_revision,
     start_task,
     wait_actual,
 )
