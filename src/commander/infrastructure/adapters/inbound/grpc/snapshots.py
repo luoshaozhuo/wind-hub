@@ -165,8 +165,8 @@ class ConfigSnapshots:
                 }
             devices[device_id] = item
         files = {
-            self._relative(self._service_config): self._startup_service_content,
-            self._relative(settings.devices_path): yaml.safe_dump(
+            self._runtime_relative(self._service_config): self._startup_service_content,
+            self._runtime_relative(settings.devices_path): yaml.safe_dump(
                 {
                     "schema_version": 1,
                     "file_version": documents.devices_file_version,
@@ -174,10 +174,10 @@ class ConfigSnapshots:
                 },
                 sort_keys=False,
             ).encode("utf-8"),
-            self._relative(
+            self._runtime_relative(
                 _sole_catalog(settings.templates_root, "units_standard")
             ): yaml.safe_dump(plain_document(documents.units), sort_keys=False).encode("utf-8"),
-            self._relative(
+            self._runtime_relative(
                 _sole_catalog(settings.templates_root, "business_points_standard")
             ): yaml.safe_dump(plain_document(documents.business_points), sort_keys=False).encode(
                 "utf-8"
@@ -191,10 +191,38 @@ class ConfigSnapshots:
                 templates.point_table,
                 *templates.inherited_tables,
             ):
-                files[self._relative(template.path)] = yaml.safe_dump(
+                files[self._runtime_relative(template.path)] = yaml.safe_dump(
                     plain_document(template.document), sort_keys=False
                 ).encode("utf-8")
         return files
+
+    def _runtime_relative(self, path: Path) -> str:
+        """Address verified active-cache documents without granting disk write access.
+
+        DISK and candidate paths remain restricted to the bootstrap root.
+        RUNTIME may hold a Repository-verified, separately staged generation.
+        """
+        target = path.resolve(strict=True)
+        if target.is_relative_to(self._root):
+            return target.relative_to(self._root).as_posix()
+        settings = self._service.config_manager.active_settings
+        active_root = settings.devices_path.resolve().parent.parent
+        if settings.templates_root.resolve() != active_root / "templates":
+            raise ValueError("invalid active configuration cache root")
+        if not target.is_relative_to(active_root):
+            raise ValueError(f"configuration path outside active snapshot root: {path}")
+        relative = target.relative_to(active_root)
+        if not relative.parts or relative.parts[0] not in {
+            "services", "instances", "templates"
+        }:
+            raise ValueError("invalid active configuration document type")
+        if target.is_symlink() or any(
+            parent.is_symlink()
+            for parent in target.parents
+            if parent.is_relative_to(active_root)
+        ):
+            raise ValueError("active configuration contains a symlink")
+        return relative.as_posix()
 
     @staticmethod
     def _file(name: str, content: bytes) -> common_pb2.SnapshotFile:
@@ -252,7 +280,7 @@ class ConfigSnapshots:
                 if blocked:
                     response.validation.append(
                         common_pb2.ValidationIssue(
-                            path=self._relative(manager.active_settings.devices_path),
+                            path=self._runtime_relative(manager.active_settings.devices_path),
                             code="MIXED_EFFECTIVE_REVISION",
                             message=(
                                 "Runtime files are normalized from retained per-device "
