@@ -10,6 +10,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from shutil import copytree
+
+import yaml
 from uuid import uuid4
 
 import pytest
@@ -39,11 +41,10 @@ pytestmark = [
 _SERVICE_YAML = """\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: b1-test
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -67,21 +68,36 @@ def _build_tree(
     stream: str = "S",
     subject: str = "s",
 ) -> tuple[Path, Path]:
-    root = tmp_root / "config"
+    root = tmp_root / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
-    (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
+    (root / "instances" / "device_b1-test_v1.0.0.yaml").write_text(devices_yaml, encoding="utf-8")
     model_file = root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
     model_file.write_text(model_yaml, encoding="utf-8")
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(
+    (root / "templates/business_points_standard_v1.4.0.yaml").write_text(
         _BUSINESS_POINTS, encoding="utf-8"
     )
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    service_yaml = tmp_root / "commander.yaml"
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "b1-test",
+        "services": {
+            "commander": {"config_id": "commander", "file_version": "1.0.0"}
+        },
+        "instances": {
+            "device": {"b1-test": {"file_version": "1.0.0"}}
+        },
+    }
+    manifest = root / "deployments" / "deployment_b1-test_v1.0.0.yaml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(yaml.safe_dump(deployment, sort_keys=False), encoding="utf-8")
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
         _SERVICE_YAML.format(
             sqlite_path=str(db_path), nats_url=nats_url, stream=stream, subject=subject
