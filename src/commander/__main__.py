@@ -80,7 +80,6 @@ def main() -> None:
     )
     if observer is not None:
         assert cache_root is not None
-        mark_active_bundle(cache_root, observer.deployment_id, observer.service_id, bundle)
         # No network listener is exposed before build and transport succeed.
         service.target_revision = observer.target_revision
         service.active_revision = observer.target_revision
@@ -123,8 +122,20 @@ def main() -> None:
 
         apply_selected = apply_candidate
 
+    def persist_started_generation() -> None:
+        if observer is not None and cache_root is not None:
+            mark_active_bundle(
+                cache_root, observer.deployment_id, observer.service_id, bundle
+            )
+
     asyncio.run(
-        run_grpc(service, selected_config, observer=observer, apply_selected=apply_selected)
+        run_grpc(
+            service,
+            selected_config,
+            observer=observer,
+            apply_selected=apply_selected,
+            on_started=persist_started_generation if observer is not None else None,
+        )
     )
 
 
