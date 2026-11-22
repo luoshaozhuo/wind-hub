@@ -32,7 +32,7 @@ def _run_check(handle: CollectorHandle) -> subprocess.CompletedProcess[str]:
             "collector.main",
             "--check",
             "--config",
-            str(handle.services / "collector.yaml"),
+            str(handle.services / "service_collector-realtime_v1.0.0.yaml"),
         ],
         cwd=REPO_ROOT,
         env=env,
