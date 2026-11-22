@@ -8,11 +8,17 @@ import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+import grpc
+
 from commander.assembly import CommanderSettingsSource, build_commander
 from commander.infrastructure.adapters.inbound.grpc_transport import run_grpc
 from core.application.protocol_registry import ProtocolRegistry
 from core.configuration.local_selection import select_local_service
-from core.infrastructure.configuration_cache import stage_selected_bundle
+from core.infrastructure.configuration_cache import (
+    load_active_bundle,
+    mark_active_bundle,
+    stage_selected_bundle,
+)
 from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -45,16 +51,24 @@ def main() -> None:
             token_env="WIND_HUB_CONFIGURATION_TOKEN",
             nats_servers=list(bootstrap_settings.nats_servers),
         )
-        bundle = asyncio.run(observer.fetch())
         cache_root = Path(
             os.environ.get(
                 "WIND_HUB_CONFIGURATION_CACHE",
                 str(bootstrap_settings.sqlite_path.parent / "configuration-cache"),
             )
         )
-        selected_config = stage_selected_bundle(
-            bundle, cache_root, observer.deployment_id, observer.service_id
-        )
+        try:
+            bundle = asyncio.run(observer.fetch())
+        except (grpc.RpcError, OSError, TimeoutError):
+            # Offline startup is permitted only from the last fully activated,
+            # locally digest-verified Repository closure.
+            selected_config, bundle = load_active_bundle(
+                cache_root, observer.deployment_id, observer.service_id
+            )
+        else:
+            selected_config = stage_selected_bundle(
+                bundle, cache_root, observer.deployment_id, observer.service_id
+            )
         observer.target_revision = bundle.target_revision
         observer.repository_revision = bundle.repository_revision
 
@@ -65,6 +79,8 @@ def main() -> None:
         settings_source=source,
     )
     if observer is not None:
+        assert cache_root is not None
+        mark_active_bundle(cache_root, observer.deployment_id, observer.service_id, bundle)
         # No network listener is exposed before build and transport succeed.
         service.target_revision = observer.target_revision
         service.active_revision = observer.target_revision
@@ -95,7 +111,13 @@ def main() -> None:
                 # authoritative settings source of this still-running process.
                 source.path = previous
                 return False
-            # Fully converged: future reloads must retain the active selection.
+            # Persist the verified selection only after the complete reload.
+            mark_active_bundle(
+                cache_root,
+                selected_observer.deployment_id,
+                selected_observer.service_id,
+                bundle,
+            )
             service.active_revision = bundle.target_revision
             return True
 
