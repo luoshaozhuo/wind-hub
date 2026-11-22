@@ -22,7 +22,7 @@ import grpc
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from commander.application.service_lifecycle import CommanderService
 from commander.assembly import build_commander
@@ -175,6 +175,37 @@ def build_pki(tmp_path: Path) -> Pki:
             serialization.NoEncryption(),
         )
 
+    def key_usage(*, ca: bool) -> x509.KeyUsage:
+        return x509.KeyUsage(
+            digital_signature=not ca,
+            content_commitment=False,
+            key_encipherment=False,
+            data_encipherment=False,
+            key_agreement=False,
+            key_cert_sign=ca,
+            crl_sign=ca,
+            encipher_only=False,
+            decipher_only=False,
+        )
+
+    def issue_ca(
+        private: ec.EllipticCurvePrivateKey, common_name: str, serial: int
+    ) -> x509.Certificate:
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+        return (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(private.public_key())
+            .serial_number(serial)
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(private.public_key()), False)
+            .add_extension(key_usage(ca=True), critical=True)
+            .sign(private, hashes.SHA256())
+        )
+
     def issue(
         issuer_cert: x509.Certificate,
         issuer_key: ec.EllipticCurvePrivateKey,
@@ -183,6 +214,7 @@ def build_pki(tmp_path: Path) -> Pki:
         emails: list[str],
         *,
         server: bool = False,
+        loopback_san: bool = True,
         serial: int,
     ) -> x509.Certificate:
         builder = (
@@ -197,9 +229,22 @@ def build_pki(tmp_path: Path) -> Pki:
                 x509.BasicConstraints(ca=False, path_length=None),
                 critical=True,
             )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(subject_private.public_key()), False
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_key.public_key()), False
+            )
+            .add_extension(key_usage(ca=False), critical=True)
+            .add_extension(
+                x509.ExtendedKeyUsage(
+                    [ExtendedKeyUsageOID.SERVER_AUTH if server else ExtendedKeyUsageOID.CLIENT_AUTH]
+                ),
+                critical=False,
+            )
         )
         names: list[x509.GeneralName] = [x509.RFC822Name(email) for email in emails]
-        if server:
+        if server and loopback_san:
             names += [
                 x509.DNSName("localhost"),
                 x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
@@ -208,18 +253,7 @@ def build_pki(tmp_path: Path) -> Pki:
         return builder.sign(issuer_key, hashes.SHA256())
 
     ca_private = key()
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "WindHub Test CA")])
-    ca_cert = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_private.public_key())
-        .serial_number(1)
-        .not_valid_before(not_before)
-        .not_valid_after(not_after)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(ca_private, hashes.SHA256())
-    )
+    ca_cert = issue_ca(ca_private, "WindHub Test CA", 1)
 
     server_private = key()
     server_cert = issue(
@@ -236,6 +270,8 @@ def build_pki(tmp_path: Path) -> Pki:
         wrong_host_private,
         "wrong-authority-host",
         ["authority@windhub.test"],
+        server=True,
+        loopback_san=False,
         serial=4,
     )
 
@@ -257,18 +293,7 @@ def build_pki(tmp_path: Path) -> Pki:
         serial += 1
 
     rogue_ca_private = key()
-    rogue_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Rogue CA")])
-    rogue_ca = (
-        x509.CertificateBuilder()
-        .subject_name(rogue_name)
-        .issuer_name(rogue_name)
-        .public_key(rogue_ca_private.public_key())
-        .serial_number(900)
-        .not_valid_before(not_before)
-        .not_valid_after(not_after)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(rogue_ca_private, hashes.SHA256())
-    )
+    rogue_ca = issue_ca(rogue_ca_private, "Rogue CA", 900)
     rogue_private = key()
     rogue_cert = issue(
         rogue_ca,

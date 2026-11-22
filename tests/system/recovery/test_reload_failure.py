@@ -8,12 +8,19 @@ checking that local unpublished candidates cannot corrupt an active generation.
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
+from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
+from statistics import median
 
 import pytest
 import yaml
 
-from collector.infrastructure.config.validation import resolve_source_paths, validate_collector_snapshot
+from collector.infrastructure.config.validation import (
+    resolve_source_paths,
+    validate_collector_snapshot,
+)
 from core.application.errors import ConfigError
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import disk_snapshot_files, start_task_instance
@@ -52,6 +59,7 @@ class TestReloadFailureResilience:
         nats_service: str,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        record_property: Callable[[str, object], None],
     ) -> None:
         flat_dir = write_modbus_redis_config(
             tmp_path / "cfg", modbus_server.port, redis_service, nats_url=nats_service
@@ -83,14 +91,13 @@ class TestReloadFailureResilience:
         with monkeypatch.context() as scope:
             scope.setenv("WIND_HUB_DEPLOYMENT_ID", "collector-invalid")
             scope.setenv("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0")
-            with pytest.raises(ConfigError):
+            with pytest.raises(ConfigError, match=r"ghost-model.*REFERENCE_NOT_FOUND"):
                 validate_collector_snapshot(resolve_source_paths(service))
 
         assert proc.is_running()
         assert await disk_snapshot_files(proc.grpc_target) == original
-        continued = await wait_telemetry_value(
-            redis_service, after=str(first["sample_time"])
-        )
+        continued = await wait_telemetry_value(redis_service, after=str(first["sample_time"]))
+        assert continued["quality"] == "good"
 
         # A valid immutable Task Instance version is selected by a NEW
         # Deployment version; the existing runtime remains on its old revision.
@@ -108,11 +115,12 @@ class TestReloadFailureResilience:
 
         # The active process is not Repository-connected; only a supervised
         # restart is permitted to activate its newly selected immutable files.
-        proc.terminate()
+        assert proc.terminate() == 0
         fresh_dir = tmp_path / "selected-runtime"
         fresh_dir.mkdir()
         restarted = start_collector(
             root,
+            grpc_port=int(proc.grpc_target.rsplit(":", 1)[1]),
             log_dir=fresh_dir,
             env_extra={
                 "WIND_HUB_DEPLOYMENT_ID": "collector-system",
@@ -122,15 +130,24 @@ class TestReloadFailureResilience:
         try:
             await wait_grpc_ready(restarted.grpc_target)
             applied = await disk_snapshot_files(restarted.grpc_target)
-            new_task = yaml.safe_load(
-                applied["instances/collector_tasks_system_v1.0.1.yaml"]
-            )
+            new_task = yaml.safe_load(applied["instances/collector_tasks_system_v1.0.1.yaml"])
             assert all(task["interval_ms"] == 500 for task in new_task["tasks"].values())
             await start_task_instance(restarted.grpc_target, instance_id=DEVICE_ID)
+            started_at = datetime.now(UTC)
             final = await wait_telemetry_value(
-                redis_service, after=str(continued["sample_time"])
+                redis_service,
+                match=lambda value: datetime.fromisoformat(str(value["sample_time"])) > started_at,
             )
             assert final["quality"] == "good"
+            times = [datetime.fromisoformat(str(final["sample_time"]))]
+            for _ in range(4):
+                final = await wait_telemetry_value(redis_service, after=str(final["sample_time"]))
+                assert final["quality"] == "good"
+                times.append(datetime.fromisoformat(str(final["sample_time"])))
+            intervals = [(right - left).total_seconds() for left, right in pairwise(times)]
+            assert median(intervals) == pytest.approx(0.5, abs=0.15), intervals
+            record_property("observed_sample_intervals_s", ",".join(map(str, intervals)))
+            assert restarted.terminate() == 0
         finally:
             if restarted.is_running():
                 restarted.terminate()

@@ -24,8 +24,9 @@ from tests.data_generator.conftest import _real_tree, simulation_document, write
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
+from tests.sink_service._stage1_fixtures import SERVICE_FILE as SINK_SERVICE_FILE
 from tests.sink_service.system.conftest import SinkSystemHarness
-from tests.support.collector_config_tree import write_collector_modbus_tree
+from tests.support.collector_config_tree import SERVICE_NAME, write_collector_modbus_tree
 from tests.support.commander_mtls import write_commander_service
 from tests.support.gateway import ServerSpec, reserve_port, write_config_tree, write_mtls_pki
 
@@ -454,7 +455,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             protocol_doc = yaml.safe_load(protocol_source.read_text(encoding="utf-8"))
             protocol_doc["file_version"] = "1.0.0"
             _dump(protocol_source.with_name("protocol_modbus_tcp_v1.0.0.yaml"), protocol_doc)
-            service_path = root / "services" / "service_collector-realtime_v1.1.0.yaml"
+            service_path = root / "services" / SERVICE_NAME
             document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
             document["messaging"]["delivery"] = delivery
             _dump(service_path, document)
@@ -551,7 +552,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         sink_modbus_port = reserve_port()
         sinks_doc["sinks"]["gateway_sink"] = {
             "template_id": "gateway_realtime",
-            "template_version": "1.0.0",
+            "template_version": "1.1.0",
             "connection": {
                 "endpoint": f"127.0.0.1:{gateway_sink_port}",
                 "gateway_id": "gw-strict",
@@ -565,13 +566,13 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "overrides": {},
         }
         _dump(sinks_path, sinks_doc)
-        for template_name in ("gateway_realtime", "modbus_registers"):
-            source = (
-                SRC.parent / "configs" / "templates" / "sinks" / f"sink_{template_name}_v1.0.0.yaml"
-            )
-            target = (
-                sink.root / "configs" / "templates" / "sinks" / f"sink_{template_name}_v1.0.0.yaml"
-            )
+        for template_name, version in (
+            ("gateway_realtime", "1.1.0"),
+            ("modbus_registers", "1.0.0"),
+        ):
+            relative = Path("configs/templates/sinks") / f"sink_{template_name}_v{version}.yaml"
+            source = SRC.parent / relative
+            target = sink.root / relative
             _dump(target, yaml.safe_load(source.read_text(encoding="utf-8")))
         await sink.provision_streams()
 
@@ -613,7 +614,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                     "-m",
                     "collector.main",
                     "--config",
-                    str(collector_roots[name] / "services" / "service_collector-realtime_v1.1.0.yaml"),
+                    str(collector_roots[name] / "services" / SERVICE_NAME),
                     "--state-directory",
                     str(tmp_path / name / "state"),
                     "--collector-id",
@@ -630,7 +631,15 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             )
         harness.register_process(
             "sink",
-            [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
+            [
+                python,
+                "-m",
+                "sink_service.main",
+                "--config-root",
+                str(sink.root),
+                "--service-file",
+                SINK_SERVICE_FILE,
+            ],
             cwd=sink.root,
             env={
                 "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,

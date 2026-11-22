@@ -184,7 +184,8 @@ def start_collector(
     service_file = config_tree / "services" / "service_collector-realtime_v1.1.0.yaml"
     if not service_file.is_file():
         raise FileNotFoundError(
-            f"{config_tree} is not a valid config tree: missing services/service_collector-realtime_v1.1.0.yaml"
+            f"{config_tree} is not a valid config tree: "
+            f"missing {service_file.relative_to(config_tree)}"
         )
     env = dict(env_extra or {})
     if admin_token is not None:

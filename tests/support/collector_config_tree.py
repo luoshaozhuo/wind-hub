@@ -91,9 +91,7 @@ def _service(root: Path, site_id: str, nats_url: str, settings: dict[str, Any]) 
             "schema_version": 1,
             "file_version": "1.0.0",
             "deployment_id": "collector-system",
-            "services": {
-                SERVICE_ID: {"config_id": SERVICE_ID, "file_version": SERVICE_VERSION}
-            },
+            "services": {SERVICE_ID: {"config_id": SERVICE_ID, "file_version": SERVICE_VERSION}},
             "instances": {
                 "site": {site_id: {"file_version": INSTANCE_VERSION}},
                 "device": {DEVICE_INSTANCE_ID: {"file_version": INSTANCE_VERSION}},

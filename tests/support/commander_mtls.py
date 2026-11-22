@@ -9,7 +9,9 @@ import yaml
 
 from tests.commander.grpc_harness import IDENTITIES, Pki
 
-_SHIPPED = Path(__file__).resolve().parents[2] / "configs" / "services" / "service_commander_v1.4.0.yaml"
+_SHIPPED = (
+    Path(__file__).resolve().parents[2] / "configs" / "services" / "service_commander_v1.4.0.yaml"
+)
 
 
 def write_commander_service(
@@ -69,12 +71,8 @@ def write_commander_service(
                 "schema_version": 1,
                 "file_version": "1.0.0",
                 "deployment_id": "commander-system",
-                "services": {
-                    "commander": {"config_id": "commander", "file_version": "1.4.0"}
-                },
-                "instances": {
-                    "device": {"system": {"file_version": "1.0.0"}}
-                },
+                "services": {"commander": {"config_id": "commander", "file_version": "1.4.0"}},
+                "instances": {"device": {"system": {"file_version": "1.0.0"}}},
             },
             sort_keys=False,
         ),

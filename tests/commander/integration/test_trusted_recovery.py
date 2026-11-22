@@ -430,13 +430,14 @@ async def test_invalid_or_untrusted_authority_response_never_unblocks(
     authority_factory: Callable[..., FencingAuthorityProcess],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    del case_id
     authority = authority_factory(scenario)
     async with _recovery_context(
         tmp_path, pki, modbus_server, _settings(pki, authority)
     ) as context:
         with pytest.raises(grpc.aio.AioRpcError):
             await _recover(context, pki)
+        if case_id != "redirect":
+            assert len(authority.state()["requests"]) == 1
         assert context.service.executor.blocked_devices() == frozenset({"WT01"})
         assert context.service.health().state is ServiceState.DEGRADED
         await _assert_unknown(context)
