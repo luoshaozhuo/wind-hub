@@ -373,10 +373,10 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         dg_root = tmp_path / "dg-config"
         _real_tree(dg_root)
         _dump(
-            dg_root / "instances" / "devices.yaml",
+            dg_root / "instances" / "device_farm-a_v1.4.0.yaml",
             {
                 "schema_version": 1,
-                "file_version": "1.0.0",
+                "file_version": "1.4.0",
                 "devices": {
                     "D01": {
                         "enabled": True,
@@ -388,12 +388,12 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             },
         )
         point_table_path = (
-            dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.0.0.yaml"
+            dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.1.0.yaml"
         )
         point_table_doc = yaml.safe_load(point_table_path.read_text(encoding="utf-8"))
         point_table_doc["points"]["generator_speed"]["data_type"] = "float32"
         _dump(point_table_path, point_table_doc)
-        business_path = dg_root / "templates" / "business_points_standard.yaml"
+        business_path = dg_root / "templates" / "business_points_standard_v1.4.0.yaml"
         business_doc = yaml.safe_load(business_path.read_text(encoding="utf-8"))
         business_doc["business_points"]["tz2mw_generator_speed_raw"]["data_type"] = "float32"
         _dump(business_path, business_doc)
