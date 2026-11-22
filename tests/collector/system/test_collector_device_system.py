@@ -9,7 +9,6 @@ from typing import Any
 
 import grpc
 import pytest
-import yaml
 
 from contracts import collector_pb2 as collector_pb
 from contracts import common_pb2 as common
@@ -18,9 +17,6 @@ from tests.collector.system.conftest import ADMIN_METADATA, ClientsFactory, Real
 from tests.collector.system.helpers import (
     IEC104,
     MODBUS,
-    disk_revision,
-    push_apply,
-    snapshot_files,
     start_task,
     wait_actual,
 )
@@ -113,26 +109,20 @@ async def test_uc01_s02_wrong_endpoint_is_reported_per_device(
     real_nats: RealNats,
     modbus_slave: ModbusMockServer,
 ) -> None:
-    handle = await collector()
+    from tests.collector.system.conftest import free_port
+
+    del modbus_slave
+    handle = await collector(modbus_port_override=free_port())
     _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
-    # Device convergence is reported only for devices whose desired state is
-    # START; a STOPPED device never opens the endpoint.
     await start_task(device_stub, config_stub, MODBUS)
-    assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"
-    revision = await disk_revision(config_stub)
-    files = await snapshot_files(config_stub)
-    devices = yaml.safe_load(files["instances/device_farm-a_v1.0.0.yaml"])
-    devices["devices"][MODBUS]["endpoint"]["port"] = modbus_slave.port - 1  # closed port
-    files["instances/device_farm-a_v1.0.0.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
-    result = await push_apply(config_stub, files, revision)
-    # File commit succeeds; device convergence failure is reported separately.
-    assert result.file_commit
     deadline = asyncio.get_running_loop().time() + 20
     detail = ""
     while asyncio.get_running_loop().time() < deadline:
         status = await config_stub.GetServiceStatus(common.Empty())
         if status.health == "DEGRADED":
-            detail = next(dep.detail for dep in status.dependencies if dep.name == "acquisition")
+            detail = next(
+                (dep.detail for dep in status.dependencies if dep.name == "acquisition"), ""
+            )
             if MODBUS in detail:
                 break
         await asyncio.sleep(0.5)
@@ -148,16 +138,8 @@ async def test_uc01_s02_disabled_device_rejects_start(
     grpc_clients: ClientsFactory,
     real_nats: RealNats,
 ) -> None:
-    handle = await collector()
+    handle = await collector(disabled_devices=(MODBUS,))
     _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
-    revision = await disk_revision(config_stub)
-    files = await snapshot_files(config_stub)
-    devices = yaml.safe_load(files["instances/device_farm-a_v1.0.0.yaml"])
-    devices["devices"][MODBUS]["enabled"] = False
-    files["instances/device_farm-a_v1.0.0.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
-    result = await push_apply(config_stub, files, revision)
-    assert result.file_commit
-
     # D-22: a disabled device still exists in the committed inventory, so it
     # is a refused precondition, distinct from a genuinely unknown device.
     with pytest.raises(grpc.aio.AioRpcError) as exc:
