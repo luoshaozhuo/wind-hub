@@ -172,12 +172,12 @@ def _verify_cached_files(destination: Path, expected: dict[str, bytes]) -> None:
     for node in configs.rglob("*"):
         if node.is_symlink():
             raise ValueError("configuration cache contains a symlink")
-        relative = node.relative_to(configs).as_posix()
+        actual_path: str = node.relative_to(configs).as_posix()
         if node.is_dir():
-            actual_dirs.add(relative)
+            actual_dirs.add(actual_path)
         elif node.is_file():
             if node.parent != configs / "deployments":
-                actual_files.add(relative)
+                actual_files.add(actual_path)
         else:
             raise ValueError("cache contains unsupported file type")
     if actual_dirs != expected_dirs or actual_files != expected_files:
