@@ -73,9 +73,9 @@ async def test_uc02_s03_manual_stop_never_revived_by_watchdog_or_reload(
     # A snapshot re-load while the field link returns: STOP stays authoritative.
     revision = await disk_revision(config_stub)
     files = await snapshot_files(config_stub)
-    site = yaml.safe_load(files["instances/site.yaml"])
+    site = yaml.safe_load(files["instances/site_site_alpha_v1.0.0.yaml"])
     site["name"] = "Acceptance Site Renamed"
-    files["instances/site.yaml"] = yaml.safe_dump(site, sort_keys=False).encode()
+    files["instances/site_site_alpha_v1.0.0.yaml"] = yaml.safe_dump(site, sort_keys=False).encode()
     result = await push_apply(config_stub, files, revision)
     statuses = {item.status for item in result.apply_results}
     assert statuses <= {"APPLIED"}
