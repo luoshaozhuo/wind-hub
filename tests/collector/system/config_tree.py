@@ -29,6 +29,7 @@ def write_config_tree(
     delivery: str = "realtime",
     desired_state: str = "STOP",
     devices: tuple[str, ...] = ("modbus-1", "iec104-1"),
+    disabled_devices: tuple[str, ...] = (),
     watchdog_interval: float = 0.3,
     max_staleness_ms: int = 5000,
     task_interval: float = 0.2,
@@ -78,7 +79,7 @@ def write_config_tree(
     }
     (services / f"service_{service_id}_v1.0.0.yaml").write_bytes(_dump(service))
 
-    site = {**_HEADER, "site_id": "site_alpha", "name": "Acceptance Site"}
+    site = {**_HEADER, "site_id": site_ref, "name": "Acceptance Site"}
     site_path = instances / f"site_{site_ref}_v1.0.0.yaml"
     site_path.parent.mkdir(parents=True, exist_ok=True)
     site_path.write_bytes(_dump(site))
@@ -88,6 +89,7 @@ def write_config_tree(
         device_doc["devices"]["modbus-1"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": modbus_port},
+            "enabled": "modbus-1" not in disabled_devices,
             "group": "turbine",
             "overrides": {"task": {"desired_state": desired_state}},
         }
@@ -95,6 +97,8 @@ def write_config_tree(
         device_doc["devices"]["iec104-1"] = {
             "model": {"id": "iec104_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": iec104_port},
+            "enabled": "iec104-1" not in disabled_devices,
+            "group": "turbine",
             "overrides": {"task": {"desired_state": desired_state}},
         }
     if blackhole_port is not None:
