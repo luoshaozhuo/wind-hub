@@ -245,7 +245,7 @@ async def test_cli_rejects_changed_listener_inode_across_healthy_rpc(tmp_path: P
             "cli.native_process.managed_endpoint_owned",
             side_effect=[frozenset({"123"}), frozenset({"456"})],
         ),
-        pytest.raises(RuntimeError, match="stable managed listener"),
+        pytest.raises(RuntimeError, match="stable listener"),
     ):
         await main._manage_service("configuration", "start")
 
