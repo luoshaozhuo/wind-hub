@@ -313,7 +313,9 @@ def make_batch(*, device: str = DEVICE, point: str = "active_power") -> SampleBa
         wind_farm_id=FARM,
         collector_id=COLLECTOR,
         task_id="task-qa",
+        device_type="wind_turbine",
         device_id=device,
+        point_table_id="point_table_modbus_wtg_v1.0.0",
         publish_time=now,
         samples=(
             SampleItem(
