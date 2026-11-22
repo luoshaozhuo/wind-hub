@@ -1,4 +1,4 @@
-"""频繁 Apply（churn）期间的数据面连续性与租约清理。
+"""权威配置应用层频繁热更新（churn）的数据面连续性与租约清理。
 
 交替 Apply gw1 desired_state STOP/START（真实监听器反复释放/重绑），同时：
 - gw2 从未变更，并发读/写全程不受影响；
@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from pathlib import Path
 
 import grpc
@@ -30,15 +29,6 @@ from tests.support.gateway import (
 pytestmark = [pytest.mark.system, pytest.mark.real_service]
 
 
-def _snapshot_file(relative_path: str, content: bytes) -> common.SnapshotFile:
-    return common.SnapshotFile(
-        relative_path=relative_path,
-        content=content,
-        size_bytes=len(content),
-        sha256=hashlib.sha256(content).hexdigest(),
-    )
-
-
 async def _disk(stub) -> tuple[str, bytes, str]:
     reply = await stub.GetConfigSnapshot(
         common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
@@ -55,23 +45,21 @@ def _set_gw1_state(content: bytes, state: str) -> bytes:
 
 
 async def _apply_state(harness, state: str) -> str:
-    stub = harness.common_stub()
-    revision, content, relative_path = await _disk(stub)
-    candidate = await stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[_snapshot_file(relative_path, _set_gw1_state(content, state))],
-            expected_revision=revision,
-        )
+    from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+    _revision, content, _relative = await _disk(harness.common_stub())
+    candidate = load_gateway(
+        harness.service_path,
+        project_root=harness.root,
+        candidate_document=yaml.safe_load(_set_gw1_state(content, state)),
     )
-    assert candidate.valid, candidate.validation
-    applied = await stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
-    )
-    assert not applied.restart_required
-    return applied.effective_revision
+    results, restart = await harness.runtime.reconfigure(candidate)
+    assert not restart
+    assert {item.object_id: item.status for item in results} == {
+        "gw1": "APPLIED",
+        "gw2": "UNCHANGED",
+    }
+    return harness.runtime.config.revision
 
 
 async def test_repeated_apply_churn_preserves_sibling_and_clears_claims(
