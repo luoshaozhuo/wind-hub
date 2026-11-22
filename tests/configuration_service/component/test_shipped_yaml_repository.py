@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.service import (
     ConfigurationApplication,
     DocumentInput,
@@ -26,7 +27,11 @@ from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FIL
 
 pytestmark = pytest.mark.component
 BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml"
-REPOSITORY_YAMLS = YAML_FILES
+REPOSITORY_YAMLS = tuple(
+    path
+    for path in YAML_FILES
+    if not _is_local_bootstrap(path.relative_to(ROOT / "configs").as_posix())
+)
 
 
 def original_file_version(path: Path) -> str:
