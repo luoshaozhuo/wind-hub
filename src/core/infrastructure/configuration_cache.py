@@ -190,7 +190,7 @@ def load_active_bundle(
     repository_revision = payload["repository_revision"]
     if (
         not isinstance(version, str)
-        or not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version)
+        or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
         or not isinstance(revision, str)
         or not re.fullmatch(r"[a-f0-9]{64}", revision)
         or type(repository_revision) is not int
