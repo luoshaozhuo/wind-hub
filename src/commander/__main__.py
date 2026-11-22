@@ -59,9 +59,17 @@ def main() -> None:
         )
         try:
             bundle = asyncio.run(observer.fetch())
-        except (grpc.RpcError, OSError, TimeoutError):
-            # Offline startup is permitted only from the last fully activated,
-            # locally digest-verified Repository closure.
+        except grpc.aio.AioRpcError as exc:
+            if exc.code() not in (
+                grpc.StatusCode.UNAVAILABLE,
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+            ):
+                raise
+            # Only connectivity outages permit verified local recovery.
+            selected_config, bundle = load_active_bundle(
+                cache_root, observer.deployment_id, observer.service_id
+            )
+        except (OSError, TimeoutError):
             selected_config, bundle = load_active_bundle(
                 cache_root, observer.deployment_id, observer.service_id
             )
