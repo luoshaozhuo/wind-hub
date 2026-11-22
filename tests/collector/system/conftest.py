@@ -246,7 +246,7 @@ async def collector(
             "-m",
             "collector.main",
             "--config",
-            str(services / "collector.yaml"),
+            str(services / f"service_collector-{tree_kwargs.get('delivery', 'realtime')}_v1.0.0.yaml"),
             "--state-directory",
             str(state_dir),
             "--grpc-port",
