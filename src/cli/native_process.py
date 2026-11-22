@@ -124,6 +124,60 @@ def _foreign_loopback_listener(endpoint: str | None) -> bool:
         return probe.connect_ex(address) == 0
 
 
+def managed_endpoint_owned(target: ServiceTarget) -> bool:
+    """Prove a loopback TCP listener belongs to the exact managed process group.
+
+    A healthy response from a foreign process at the configured port is never
+    sufficient evidence that this CLI's subprocess started successfully.
+    """
+    spec = target.process
+    endpoint = target.grpc_endpoint
+    if spec is None or endpoint is None:
+        return False
+    host, separator, port_text = endpoint.rpartition(":")
+    if not separator or host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return False
+    if not port_text.isdecimal() or not 1 <= int(port_text) <= 65535:
+        return False
+    state = _load_state(spec.state_dir / f"{target.service_id}.json")
+    if not _running(state) or state is None:
+        return False
+    pgid = state["pid"]
+    port_hex = f"{int(port_text):04X}"
+    listeners: set[str] = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) > 9 and fields[3] == "0A":
+                address = fields[1].rsplit(":", 1)
+                if len(address) == 2 and address[1].upper() == port_hex:
+                    listeners.add(fields[9])
+    if not listeners:
+        return False
+    for process in Path("/proc").iterdir():
+        if not process.name.isdecimal():
+            continue
+        pid = int(process.name)
+        try:
+            if os.getpgid(pid) != pgid or _identity(pid) is None:
+                continue
+            for fd in (process / "fd").iterdir():
+                try:
+                    link = os.readlink(fd)
+                except OSError:
+                    continue
+                if link.startswith("socket:[") and link[8:-1] in listeners:
+                    # The leader must still be the same process, not a reused PID.
+                    return _running(state)
+        except (OSError, ProcessLookupError):
+            continue
+    return False
+
+
 def _save_state(path: Path, state: dict[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
