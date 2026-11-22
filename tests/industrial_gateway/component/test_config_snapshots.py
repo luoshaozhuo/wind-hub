@@ -1,6 +1,6 @@
-"""CommonService 配置快照三态/CAS/原子应用/热重载/端口交换契约（真实 gRPC）。
+"""Gateway 配置读取、唯一发布者守卫及内部重配置契约（真实 gRPC）。
 
-仅 Gateway 自有 Service 文件可被 Push/Apply；共享实例与模板文件永不被替换。
+Gateway Push/Apply 已禁用，发布由 Repository 完成；内部重配置仍需保证原子性。
 """
 
 from __future__ import annotations
@@ -84,91 +84,45 @@ async def test_disk_and_runtime_scopes_agree_initially(harness) -> None:
     assert disk.files[0].size_bytes <= 2 * 1024 * 1024
 
 
+async def _apply_authorized_closure(harness, content: bytes):
+    """Exercise application-level reconfigure after Repository validation.
+
+    Repository publication/Deployment CAS is tested in Configuration Service;
+    the legacy Gateway Push/Apply RPC is never used as a publisher here.
+    """
+    from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+    selected = load_gateway(
+        harness.service_path,
+        project_root=harness.root,
+        candidate_document=yaml.safe_load(content),
+    )
+    return await harness.runtime.reconfigure(selected)
+
+
 async def test_push_validates_cas_file_set_integrity_and_config(harness) -> None:
     stub = harness.common_stub()
     revision, content, relative_path = await _disk_revision(stub)
-
-    # CAS：基线 revision 不符。
-    good = _server_content(content, lambda s: s)
-    conflict = await _push(stub, good, relative_path, "stale-revision")
-    assert not conflict.valid
-    assert {issue.code for issue in conflict.validation} == {"REVISION_CONFLICT"}
-
-    # 文件集：两个文件 / 路径不属于本 Service。
-    reply = await stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[
-                _snapshot_file(relative_path, good),
-                _snapshot_file(relative_path, good),
-            ],
-            expected_revision=revision,
-        )
-    )
-    assert {issue.code for issue in reply.validation} == {"FILE_SET"}
-    reply = await _push(stub, good, "instances/devices.yaml", revision)
-    assert {issue.code for issue in reply.validation} == {"FILE_SET"}
-
-    # 完整性：sha256 不符、空内容、超 2 MiB。
-    bad_digest = common.PushConfigSnapshotRequest(
-        files=[
-            common.SnapshotFile(
-                relative_path=relative_path,
-                content=good,
-                size_bytes=len(good),
-                sha256="0" * 64,
-            )
-        ],
-        expected_revision=revision,
-    )
-    reply = await stub.PushConfigSnapshot(bad_digest)
-    assert {issue.code for issue in reply.validation} == {"CONTENT_INTEGRITY"}
-    # size_bytes 与实际内容不符：CONTENT_INTEGRITY。
-    lying_size = common.SnapshotFile(
-        relative_path=relative_path,
-        content=good,
-        size_bytes=len(good) + 1,
-        sha256=hashlib.sha256(good).hexdigest(),
-    )
-    reply = await stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(files=[lying_size], expected_revision=revision)
-    )
-    assert {issue.code for issue in reply.validation} == {"CONTENT_INTEGRITY"}
-    # 超过 2 MiB 的消息在传输层即被 request_max_bytes 拒绝（服务边界硬限）。
-    oversized = _snapshot_file(relative_path, b"a" * (2 * 1024 * 1024 + 1))
-    with pytest.raises(grpc.aio.AioRpcError) as exc:
-        await stub.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(files=[oversized], expected_revision=revision)
-        )
-    assert exc.value.code() is grpc.StatusCode.RESOURCE_EXHAUSTED
-
-    # 配置语义：删掉所有 servers。
-    invalid = _mutate(good, servers=[])
-    reply = await _push(stub, invalid, relative_path, revision)
-    assert not reply.valid and reply.validation[0].code == "INVALID_CONFIG"
-
-    # Push 不落盘：磁盘 revision 不变。
+    for changed in (
+        _server_content(content, lambda server: server),
+        _mutate(content, servers=[]),
+    ):
+        with pytest.raises(grpc.aio.AioRpcError) as exc:
+            await _push(stub, changed, relative_path, revision)
+        assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
     assert (await _disk_revision(stub))[0] == revision
 
 
 async def test_candidate_scope_roundtrip_and_unknown_candidate(harness) -> None:
     stub = harness.common_stub()
     revision, content, relative_path = await _disk_revision(stub)
-    candidate_content = _server_content(
-        content,
-        lambda s: (s.update(desired_state="STOP") if s["server_id"] == "gw2" else s) or s,
-    )
-    pushed = await _push(stub, candidate_content, relative_path, revision)
-    assert pushed.valid and pushed.candidate_id
-    fetched = await stub.GetConfigSnapshot(
-        common.GetConfigSnapshotRequest(
-            scope=common.SNAPSHOT_SCOPE_CANDIDATE, candidate_id=pushed.candidate_id
-        )
-    )
-    assert fetched.files[0].sha256 == hashlib.sha256(candidate_content).hexdigest()
+    with pytest.raises(grpc.aio.AioRpcError) as exc:
+        await _push(stub, content, relative_path, revision)
+    assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await stub.GetConfigSnapshot(
             common.GetConfigSnapshotRequest(
-                scope=common.SNAPSHOT_SCOPE_CANDIDATE, candidate_id="ghost"
+                scope=common.SNAPSHOT_SCOPE_CANDIDATE, candidate_id="not-published"
             )
         )
     assert exc.value.code() is grpc.StatusCode.NOT_FOUND
@@ -176,127 +130,71 @@ async def test_candidate_scope_roundtrip_and_unknown_candidate(harness) -> None:
 
 async def test_apply_hot_reconfigures_desired_state(harness) -> None:
     stub = harness.common_stub()
-    revision, content, relative_path = await _disk_revision(stub)
+    _revision, content, _path = await _disk_revision(stub)
 
     def stop_gw2(server):
         if server["server_id"] == "gw2":
             server["desired_state"] = "STOP"
         return server
 
-    candidate = await _push(stub, _server_content(content, stop_gw2), relative_path, revision)
-    applied = await stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
+    results, restart = await _apply_authorized_closure(
+        harness, _server_content(content, stop_gw2)
     )
-    assert not applied.restart_required
-    statuses = {result.object_id: result.status for result in applied.apply_results}
-    assert statuses["gw1"] == "UNCHANGED"
-    assert statuses["gw2"] == "APPLIED"
+    assert not restart
+    assert {result.object_id: result.status for result in results} == {
+        "gw1": "UNCHANGED",
+        "gw2": "APPLIED",
+    }
     gw2 = await harness.gateway_stub().GetGateway(common.ObjectId(id="gw2"))
     assert gw2.gateway.actual_state == "STOPPED"
-    # 磁盘已提交且运行时三态一致。
-    new_disk = await stub.GetConfigSnapshot(
-        common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
-    )
-    new_runtime = await stub.GetConfigSnapshot(
-        common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_RUNTIME)
-    )
-    assert new_disk.revision == applied.effective_revision
-    assert new_runtime.revision == applied.effective_revision
-    # 候选在 Apply 后清空。
-    with pytest.raises(grpc.aio.AioRpcError) as exc:
-        await stub.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(
-                scope=common.SNAPSHOT_SCOPE_CANDIDATE,
-                candidate_id=candidate.candidate_id,
-            )
-        )
-    assert exc.value.code() is grpc.StatusCode.NOT_FOUND
 
 
-async def test_apply_stale_revision_aborted_and_unknown_candidate_not_found(
-    harness,
-) -> None:
+async def test_apply_stale_revision_aborted_and_unknown_candidate_not_found(harness) -> None:
     stub = harness.common_stub()
-    revision, content, relative_path = await _disk_revision(stub)
-    candidate = await _push(stub, _server_content(content, lambda s: s), relative_path, revision)
-    with pytest.raises(grpc.aio.AioRpcError) as exc:
-        await stub.ApplyConfigSnapshot(
-            common.ApplyConfigSnapshotRequest(
-                candidate_id=candidate.candidate_id,
-                expected_revision="stale",
+    revision, _content, _path = await _disk_revision(stub)
+    for candidate_id, expected in (
+        ("not-published", revision),
+        ("stale", "0" * 64),
+    ):
+        with pytest.raises(grpc.aio.AioRpcError) as exc:
+            await stub.ApplyConfigSnapshot(
+                common.ApplyConfigSnapshotRequest(
+                    candidate_id=candidate_id, expected_revision=expected
+                )
             )
-        )
-    assert exc.value.code() is grpc.StatusCode.ABORTED
-    with pytest.raises(grpc.aio.AioRpcError) as exc:
-        await stub.ApplyConfigSnapshot(
-            common.ApplyConfigSnapshotRequest(
-                candidate_id="ghost",
-                expected_revision=revision,
-            )
-        )
-    assert exc.value.code() is grpc.StatusCode.NOT_FOUND
+        assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+    assert (await _disk_revision(stub))[0] == revision
 
 
 async def test_apply_service_grpc_change_requires_restart(harness) -> None:
     stub = harness.common_stub()
-    revision, content, _relative_path = await _disk_revision(stub)
-    new_grpc_port = reserve_port()
-    candidate_content = _mutate(content)
-    document = yaml.safe_load(candidate_content)
-    document["grpc"]["listen_port"] = new_grpc_port
-    candidate_content = yaml.safe_dump(document).encode()
-    candidate = await stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[_snapshot_file(_relative_path, candidate_content)],
-            expected_revision=revision,
-        )
+    _revision, content, _path = await _disk_revision(stub)
+    document = yaml.safe_load(content)
+    document["grpc"]["listen_port"] = reserve_port()
+    results, restart = await _apply_authorized_closure(
+        harness, yaml.safe_dump(document).encode()
     )
-    assert candidate.valid
-    applied = await stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
-    )
-    assert applied.restart_required
-    service_results = [result for result in applied.apply_results if result.object_id == "service"]
-    assert service_results and service_results[0].status == "RESTART_REQUIRED"
-    # 当前 gRPC 通道仍可用（旧监听器未被热切换）。
-    info = await stub.GetServiceInfo(common.Empty())
-    assert info.service_id == "industrial_gateway"
+    assert restart
+    assert {item.status for item in results} == {"UNCHANGED"}
+    # The bound transport cannot move until the supervised process restarts.
+    assert (await stub.GetServiceInfo(common.Empty())).service_id
 
 
 async def test_apply_port_swap_hot_rebinds_listeners(harness) -> None:
-    """gw1/gw2 交换监听端口：先停全部变更监听器再启替换者，热重载成功。"""
+    """Application reconfiguration swaps both listeners without a partial bind."""
     import asyncio
     import struct
 
-    stub = harness.common_stub()
-    revision, content, relative_path = await _disk_revision(stub)
+    _revision, content, _path = await _disk_revision(harness.common_stub())
     document = yaml.safe_load(content)
     ports = {server["server_id"]: server["listen_port"] for server in document["servers"]}
-
-    def swap(server):
-        other = "gw2" if server["server_id"] == "gw1" else "gw1"
-        server["listen_port"] = ports[other]
-        return server
-
-    candidate = await _push(
-        stub,
-        _server_content(content, swap),
-        relative_path,
-        revision,
+    for server in document["servers"]:
+        server["listen_port"] = ports["gw2" if server["server_id"] == "gw1" else "gw1"]
+    results, restart = await _apply_authorized_closure(
+        harness, yaml.safe_dump(document).encode()
     )
-    applied = await stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
-    )
-    assert not applied.restart_required
+    assert not restart
+    assert {item.status for item in results} == {"APPLIED"}
 
     async def fc03(port: int, unit: int) -> bytes:
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -308,61 +206,35 @@ async def test_apply_port_swap_hot_rebinds_listeners(harness) -> None:
             return await reader.readexactly(length - 1)
         finally:
             writer.close()
+            await writer.wait_closed()
 
-    # gw1（unit 1）现在监听原 gw2 端口，反之亦然。
-    body_gw1 = await fc03(ports["gw2"], 1)
-    body_gw2 = await fc03(ports["gw1"], 2)
-    assert body_gw1[0] == 0x03 and body_gw2[0] == 0x03
+    assert (await fc03(ports["gw2"], 1))[0] == 0x03
+    assert (await fc03(ports["gw1"], 2))[0] == 0x03
 
 
-async def test_apply_bind_failure_is_partial_and_does_not_fake_runtime_revision(
-    harness,
-) -> None:
-    """A failed replacement is reported; committed disk and effective runtime differ."""
+async def test_apply_bind_failure_is_partial_and_does_not_fake_runtime_revision(harness) -> None:
+    """A rejected listener replacement must never change active runtime revision."""
     import socket
 
     blocker = socket.socket()
     blocker.bind(("127.0.0.1", 0))
     blocker.listen()
-    occupied_port = blocker.getsockname()[1]
+    occupied = blocker.getsockname()[1]
     try:
-        stub = harness.common_stub()
-        revision, content, relative_path = await _disk_revision(stub)
-
-        def occupy_gw1(server):
+        previous = harness.runtime.config.revision
+        _revision, content, _path = await _disk_revision(harness.common_stub())
+        document = yaml.safe_load(content)
+        for server in document["servers"]:
             if server["server_id"] == "gw1":
-                server["listen_port"] = occupied_port
-            return server
-
-        candidate = await _push(
-            stub,
-            _server_content(content, occupy_gw1),
-            relative_path,
-            revision,
+                server["listen_port"] = occupied
+        results, _restart = await _apply_authorized_closure(
+            harness, yaml.safe_dump(document).encode()
         )
-        applied = await stub.ApplyConfigSnapshot(
-            common.ApplyConfigSnapshotRequest(
-                candidate_id=candidate.candidate_id,
-                expected_revision=revision,
-            )
-        )
-        statuses = {result.object_id: result.status for result in applied.apply_results}
-        assert statuses["gw1"] == "FAILED"
-        assert statuses["gw2"] == "UNCHANGED"
-        assert statuses["service"] == "RESTART_REQUIRED"
-        assert applied.restart_required
-        assert applied.effective_revision == revision
-
-        disk = await stub.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
-        )
-        runtime = await stub.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_RUNTIME)
-        )
-        assert disk.revision != revision
-        assert runtime.revision == revision
-        gateway = await harness.gateway_stub().GetGateway(common.ObjectId(id="gw1"))
-        assert gateway.gateway.actual_state == "FAILED"
+        assert {item.object_id: item.status for item in results} == {
+            "gw1": "FAILED",
+            "gw2": "UNCHANGED",
+        }
+        assert harness.runtime.config.revision == previous
     finally:
         blocker.close()
 
