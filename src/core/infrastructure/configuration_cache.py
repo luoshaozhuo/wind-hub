@@ -184,6 +184,10 @@ def mark_active_bundle(
         "revision": bundle.target_revision,
         "repository_revision": bundle.repository_revision,
         "deployment_version": version,
+        "file_sha256": {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in sorted(bundle.files.items())
+        },
     }
     fd, temporary = tempfile.mkstemp(prefix=".active-", dir=cache_root)
     try:
@@ -216,6 +220,7 @@ def load_active_bundle(
     version = payload["deployment_version"]
     revision = payload["revision"]
     repository_revision = payload["repository_revision"]
+    expected_hashes = payload.get("file_sha256")
     if (
         not isinstance(version, str)
         or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
@@ -223,6 +228,14 @@ def load_active_bundle(
         or not re.fullmatch(r"[a-f0-9]{64}", revision)
         or type(repository_revision) is not int
         or repository_revision < 1
+        or not isinstance(expected_hashes, dict)
+        or not expected_hashes
+        or any(
+            not isinstance(name, str)
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", digest)
+            for name, digest in expected_hashes.items()
+        )
     ):
         raise ValueError("invalid cached active selection")
     generation = cache_root / version / revision
@@ -260,6 +273,14 @@ def load_active_bundle(
             )
         )
         files[relative] = content
+    if (
+        set(files) != set(expected_hashes)
+        or any(
+            hashlib.sha256(content).hexdigest() != expected_hashes[name]
+            for name, content in files.items()
+        )
+    ):
+        raise ValueError("cached active configuration file hash mismatch")
     if not files or closure_sha256(deployment_id, service_id, identities) != revision:
         raise ValueError("cached active configuration digest mismatch")
     service_files = [
