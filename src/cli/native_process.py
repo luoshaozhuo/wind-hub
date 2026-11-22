@@ -7,6 +7,7 @@ import fcntl
 import json
 import os
 import signal
+import socket
 import stat
 import subprocess
 import time
@@ -105,6 +106,24 @@ def _locked(path: Path) -> Iterator[None]:
         os.close(fd)
 
 
+def _foreign_loopback_listener(endpoint: str | None) -> bool:
+    """Reject an occupied local endpoint before claiming a new process start."""
+    if endpoint is None:
+        return False
+    host, separator, raw_port = endpoint.rpartition(":")
+    if not separator or host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return False
+    if not raw_port.isdecimal() or not 1 <= int(raw_port) <= 65535:
+        return False
+    with socket.socket(
+        socket.AF_INET6 if host == "[::1]" else socket.AF_INET,
+        socket.SOCK_STREAM,
+    ) as probe:
+        probe.settimeout(0.15)
+        address = ("::1", int(raw_port)) if host == "[::1]" else ("127.0.0.1", int(raw_port))
+        return probe.connect_ex(address) == 0
+
+
 def _save_state(path: Path, state: dict[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -155,6 +174,8 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
         existing = current_state()
         if existing["running"]:
             return {**existing, "confirmed": True, "already_running": True}
+        if _foreign_loopback_listener(target.grpc_endpoint):
+            raise RuntimeError("configured local service endpoint is already occupied")
         spec.log_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         log_fd = os.open(
             spec.log_file,
@@ -190,8 +211,15 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
         except OSError:
             _terminate_untracked_group(child.pid, deadline)
             raise
+        # A subprocess can fork successfully and fail immediately (for
+        # example on corrupt SQLite). Verify its PID identity after the
+        # bounded startup observation window, never trust another listener.
+        if target.grpc_endpoint is not None:
+            remaining = max(0.0, deadline - time.monotonic())
+            time.sleep(min(0.4, remaining))
         state = current_state()
         if not state["running"]:
+            state_file.unlink(missing_ok=True)
             raise RuntimeError("process exited during start confirmation")
         return {
             **state,
