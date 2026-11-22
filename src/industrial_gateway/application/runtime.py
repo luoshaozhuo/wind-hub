@@ -221,6 +221,7 @@ class GatewayApplicationRuntime:
                     await self.stop_server(server_id)
                     self.variable_leases.invalidate(server_id)
                 except Exception as exc:
+                    self._failed_reconfigurations.add(server_id)
                     logger.exception("Gateway old listener could not stop: %s", server_id)
                     errors[server_id] = exc
 
