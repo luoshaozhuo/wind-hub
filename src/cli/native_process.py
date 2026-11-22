@@ -125,10 +125,10 @@ def _foreign_loopback_listener(endpoint: str | None) -> bool:
 
 
 def managed_endpoint_owned(target: ServiceTarget) -> bool:
-    """Prove a loopback TCP listener belongs to the exact managed process group.
+    """Verify every usable local address family against the managed process group.
 
-    A healthy response from a foreign process at the configured port is never
-    sufficient evidence that this CLI's subprocess started successfully.
+    In particular, one owned IPv4 listener must not validate a foreign IPv6
+    health response for a localhost endpoint.
     """
     spec = target.process
     endpoint = target.grpc_endpoint
@@ -142,14 +142,16 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
     state = _load_state(spec.state_dir / f"{target.service_id}.json")
     if not _running(state) or state is None:
         return False
-    pgid = state["pid"]
-    port_hex = f"{int(port_text):04X}"
+
+    port = int(port_text)
+    port_hex = f"{port:04X}"
     listeners: set[str] = set()
+    wildcard_ipv6: set[str] = set()
     for table in ("/proc/net/tcp", "/proc/net/tcp6"):
         try:
             lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
         except OSError:
-            continue
+            return False
         for line in lines:
             fields = line.split()
             if len(fields) <= 9 or fields[3] != "0A":
@@ -159,7 +161,6 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
                 continue
             ip_hex = address[0].upper()
             is_ipv4_table = table.endswith("/tcp")
-            # gRPC can use an IPv6 socket for an exact IPv4 loopback bind.
             ipv4 = (
                 ip_hex in {"0100007F", "00000000"}
                 if is_ipv4_table
@@ -169,14 +170,28 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
                 "00000000000000000000000001000000",
                 "00000000000000000000000000000000",
             }
+            if not is_ipv4_table and ip_hex == "00000000000000000000000000000000":
+                wildcard_ipv6.add(fields[9])
             if (
                 (host == "127.0.0.1" and ipv4)
                 or (host == "[::1]" and ipv6)
                 or (host == "localhost" and (ipv4 or ipv6))
             ):
                 listeners.add(fields[9])
+
+    # IPv6 wildcard sockets may also accept IPv4. /proc does not expose
+    # IPV6_V6ONLY; require an actual successful IPv4 connect before accepting
+    # this possibility. Any distinct IPv4 listener must also be owned.
+    if host == "127.0.0.1" and wildcard_ipv6:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.15)
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                listeners.update(wildcard_ipv6)
+
     if not listeners:
         return False
+    pgid = state["pid"]
+    owned: set[str] = set()
     for process in Path("/proc").iterdir():
         if not process.name.isdecimal():
             continue
@@ -190,11 +205,12 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
                 except OSError:
                     continue
                 if link.startswith("socket:[") and link[8:-1] in listeners:
-                    # The leader must still be the same process, not a reused PID.
-                    return _running(state)
+                    owned.add(link[8:-1])
         except (OSError, ProcessLookupError):
             continue
-    return False
+    # Do not accept one owned listener while another address family at the
+    # same configured endpoint is served by a foreign process.
+    return bool(owned) and listeners <= owned and _running(state)
 
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
