@@ -117,7 +117,6 @@ def _model_yaml(*, port: int | None, word_order: str = "big_endian", version: st
         "device_type_id: turbine\n"
         "protocol:\n  id: modbus_tcp\n  version: 1.1.0\n"
         "point_table:\n  id: modbus_wtg\n  version: 1.0.0\n"
-        "task:\n  id: turbine_all\n  version: 1.0.0\n"
         "protocol_options:\n"
         "  slave_id: 1\n"
         f"  word_order: {word_order}\n"
