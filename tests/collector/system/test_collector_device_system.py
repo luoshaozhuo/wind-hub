@@ -121,9 +121,9 @@ async def test_uc01_s02_wrong_endpoint_is_reported_per_device(
     assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"
     revision = await disk_revision(config_stub)
     files = await snapshot_files(config_stub)
-    devices = yaml.safe_load(files["instances/devices.yaml"])
+    devices = yaml.safe_load(files["instances/device_farm-a_v1.0.0.yaml"])
     devices["devices"][MODBUS]["endpoint"]["port"] = modbus_slave.port - 1  # closed port
-    files["instances/devices.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
+    files["instances/device_farm-a_v1.0.0.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
     result = await push_apply(config_stub, files, revision)
     # File commit succeeds; device convergence failure is reported separately.
     assert result.file_commit
@@ -152,9 +152,9 @@ async def test_uc01_s02_disabled_device_rejects_start(
     _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
     revision = await disk_revision(config_stub)
     files = await snapshot_files(config_stub)
-    devices = yaml.safe_load(files["instances/devices.yaml"])
+    devices = yaml.safe_load(files["instances/device_farm-a_v1.0.0.yaml"])
     devices["devices"][MODBUS]["enabled"] = False
-    files["instances/devices.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
+    files["instances/device_farm-a_v1.0.0.yaml"] = yaml.safe_dump(devices, sort_keys=False).encode()
     result = await push_apply(config_stub, files, revision)
     assert result.file_commit
 
