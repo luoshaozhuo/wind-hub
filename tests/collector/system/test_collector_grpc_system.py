@@ -70,8 +70,8 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
             )
         ).files
     }
-    assert "services/collector.yaml" in paths
-    assert "instances/devices.yaml" in paths
+    assert "services/service_collector-realtime_v1.0.0.yaml" in paths
+    assert "instances/device_farm-a_v1.0.0.yaml" in paths
 
     pushed = await config_stub.PushConfigSnapshot(
         common.PushConfigSnapshotRequest(
@@ -355,7 +355,7 @@ async def test_uc07_s02_authorization_pagination_and_invalid_arguments(
         common.PushConfigSnapshotRequest(
             files=[
                 common.SnapshotFile(
-                    relative_path="services/collector.yaml",
+                    relative_path="services/service_collector-realtime_v1.0.0.yaml",
                     content=b"schema_version: 1\n",
                     size_bytes=18,
                 )
