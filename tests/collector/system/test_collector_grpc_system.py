@@ -73,45 +73,42 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     assert "services/service_collector-realtime_v1.0.0.yaml" in paths
     assert "instances/device_farm-a_v1.0.0.yaml" in paths
 
-    pushed = await config_stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[
-                common.SnapshotFile(
-                    relative_path=item.relative_path,
-                    content=item.content,
-                    size_bytes=item.size_bytes,
-                    sha256=item.sha256,
-                )
-                for item in (
-                    await config_stub.GetConfigSnapshot(
-                        common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK),
-                        metadata=ADMIN_METADATA,
+    # Both retired writer RPCs remain callable but fail closed: the
+    # Configuration Repository is the sole authorized configuration publisher.
+    disk_files = (
+        await config_stub.GetConfigSnapshot(
+            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK),
+            metadata=ADMIN_METADATA,
+        )
+    ).files
+    with pytest.raises(grpc.aio.AioRpcError) as denied:
+        await config_stub.PushConfigSnapshot(
+            common.PushConfigSnapshotRequest(
+                files=[
+                    common.SnapshotFile(
+                        relative_path=item.relative_path,
+                        content=item.content,
+                        size_bytes=item.size_bytes,
+                        sha256=item.sha256,
                     )
-                ).files
-            ],
-            expected_revision=revision0,
-        ),
-        metadata=ADMIN_METADATA,
-    )
+                    for item in disk_files
+                ],
+                expected_revision=revision0,
+            ),
+            metadata=ADMIN_METADATA,
+        )
+    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     invoked.add("PushConfigSnapshot")
-    assert pushed.valid
-    candidate = await config_stub.GetConfigSnapshot(
-        common.GetConfigSnapshotRequest(
-            scope=common.SNAPSHOT_SCOPE_CANDIDATE,
-            candidate_id=pushed.candidate_id,
-        ),
-        metadata=ADMIN_METADATA,
-    )
-    assert candidate.revision == revision0
-    applied = await config_stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=pushed.candidate_id,
-            expected_revision=revision0,
-        ),
-        metadata=ADMIN_METADATA,
-    )
+    with pytest.raises(grpc.aio.AioRpcError) as denied:
+        await config_stub.ApplyConfigSnapshot(
+            common.ApplyConfigSnapshotRequest(
+                candidate_id="not-published", expected_revision=revision0,
+            ),
+            metadata=ADMIN_METADATA,
+        )
+    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     invoked.add("ApplyConfigSnapshot")
-    assert applied.file_commit == revision0
+    assert await _disk_revision(config_stub) == revision0
 
     # --- CollectorService: inventory before acquisition -------------------
     devices = await device_stub.ListDevices(collector_pb.ListDevicesRequest())
@@ -351,21 +348,21 @@ async def test_uc07_s02_authorization_pagination_and_invalid_arguments(
     assert exc.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
     # Malformed candidate is rejected as a validation result, not committed.
-    pushed = await config_stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[
-                common.SnapshotFile(
-                    relative_path="services/service_collector-realtime_v1.0.0.yaml",
-                    content=b"schema_version: 1\n",
-                    size_bytes=18,
-                )
-            ],
-            expected_revision=await _disk_revision(config_stub),
-        ),
-        metadata=ADMIN_METADATA,
-    )
-    assert not pushed.valid
-    assert pushed.validation
+    with pytest.raises(grpc.aio.AioRpcError) as denied:
+        await config_stub.PushConfigSnapshot(
+            common.PushConfigSnapshotRequest(
+                files=[
+                    common.SnapshotFile(
+                        relative_path="services/service_collector-realtime_v1.0.0.yaml",
+                        content=b"schema_version: 1\n",
+                        size_bytes=18,
+                    )
+                ],
+                expected_revision=await _disk_revision(config_stub),
+            ),
+            metadata=ADMIN_METADATA,
+        )
+    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
 
     # Interrogation is IEC104-only.
     with pytest.raises(grpc.aio.AioRpcError) as exc:
