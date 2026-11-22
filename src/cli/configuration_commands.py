@@ -37,7 +37,6 @@ def _is_local_bootstrap(relative_path: str) -> bool:
     )
 
 
-
 def _request(method: str, request: Any, service: str) -> Any:
     """Use the configured service identity and existing CLI gRPC channel."""
 
