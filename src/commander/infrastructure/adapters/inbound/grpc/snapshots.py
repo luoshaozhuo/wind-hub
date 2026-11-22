@@ -212,7 +212,15 @@ class ConfigSnapshots:
 
         manager = self._service.config_manager
         documents = manager.documents
-        permitted: set[Path] = set()
+        permitted: set[Path] = {
+            manager.active_settings.devices_path.resolve(strict=True),
+            _sole_catalog(manager.active_settings.templates_root, "units_standard").resolve(
+                strict=True
+            ),
+            _sole_catalog(
+                manager.active_settings.templates_root, "business_points_standard"
+            ).resolve(strict=True),
+        }
         for definition in documents.devices.values():
             templates = definition.templates
             for item in (
@@ -241,7 +249,7 @@ class ConfigSnapshots:
             if generation.parent.parent != cache_root:
                 continue
             relative = target.relative_to(root)
-            if relative.parts and relative.parts[0] == "templates":
+            if relative.parts and relative.parts[0] in {"instances", "templates"}:
                 return relative.as_posix()
         raise ValueError(f"configuration path outside active snapshot root: {path}")
 
