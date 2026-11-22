@@ -169,12 +169,21 @@ async def test_managed_listener_ownership_matches_process_group(
         grpc_endpoint=f"{endpoint_host}:{port}",
     )
     try:
-        await manage_native_process(target, "start")
+        started = await manage_native_process(target, "start")
         for _ in range(30):
             if managed_endpoint_owned(target):
                 break
             await asyncio.sleep(0.1)
-        assert managed_endpoint_owned(target)
+        assert managed_endpoint_owned(
+            target,
+            expected_pid=started["pid"],
+            expected_start_tick=started["start_tick"],
+        )
+        assert not managed_endpoint_owned(
+            target,
+            expected_pid=started["pid"],
+            expected_start_tick="invalid-generation",
+        )
     finally:
         await manage_native_process(target, "stop")
     assert not managed_endpoint_owned(target)
