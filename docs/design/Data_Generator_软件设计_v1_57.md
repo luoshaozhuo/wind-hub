@@ -1362,22 +1362,19 @@ E -->|超时或未确认| H["报告结果 UNKNOWN，不盲重发"]
 | UC-03-S02 关键边界 | 错误映射、同目标重复、类型边界及跨活动实例目标所有权冲突 |
 | UC-03-S03 异常与恢复 | 单 Gateway 故障隔离、部分成功、未知结果、独立恢复与有界拥塞 |
 
-## 4.5 UC-04 获取、推送并应用配置快照
+## 4.5 UC-04 接收并激活 Repository 配置修订
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-A["选择配置快照操作"] --> B{"操作类型?"}
-B -->|Get| C["查询并返回完整配置"]
-B -->|Push| D["上传候选并校验版本与引用"]
-D --> E{"候选有效?"}
-E -->|否| X["拒绝候选且旧配置不变"]
-E -->|是| F["暂存候选，不改变正式和运行配置"]
-B -->|Apply| G["指定候选并校验预期版本"]
-G --> H{"冲突或文件提交失败?"}
-H -->|是| X
-H -->|否| I["提交配置文件并应用可热更新部分"]
-I --> J["分别报告文件、运行与重启状态"]
+    A["CLI 通过 Repository 发布完整配置"] --> B["Deployment 选定 Service/Instance 版本"]
+    B --> C["Data Generator 收到广播或主动对账"]
+    C --> D["拉取精确选定闭包"]
+    D --> E{"业务语义与运行安全校验通过?"}
+    E -->|否| F["保留旧 active_revision 与运行输出"]
+    E -->|是| G{"可以安全热更新?"}
+    G -->|是| H["原子激活并更新 active_revision"]
+    G -->|否| I["保留旧 active，记录重启需求"]
+    I --> J["重启后校验并激活新版本"]
 ```
 
 <p class="figure-caption">图 4-5 UC-04 业务活动图</p>
@@ -1387,14 +1384,14 @@ I --> J["分别报告文件、运行与重启状态"]
 | 要素 | 内容 |
 |---|---|
 | 参与者 | 授权运维人员、CLI |
-| 业务目标 | 安全更新完整配置快照，并区分文件提交和运行生效 |
-| 前置条件 | 服务 gRPC 可用，操作者具有配置权限 |
-| 主要异常 | Schema 非法；候选失效；版本冲突；文件失败；部分热更新失败 |
-| 后置条件 | Push 不改变正式配置；Apply 后可区分正式、运行及待重启状态 |
+| 业务目标 | Repository 原子发布，Data Generator 独立校验与激活，区分目标版本和生效版本 |
+| 前置条件 | Repository 已发布结构有效的 Deployment 选版；Service 具备闭包读取权限 |
+| 主要异常 | 缺失引用、模型静态循环、重复输出目标、业务类型不一致、运行安全冲突和拉取失败 |
+| 后置条件 | 发布目标版本独立于实际激活版本；非法目标不能破坏旧运行代际 |
 | 关联需求 | UR-05 |
-| UC-04-S01 主流程 | Get、Push 与 Apply 完整链路 |
-| UC-04-S02 关键边界 | 候选版本、冲突、重复请求和需要重启 |
-| UC-04-S03 异常与恢复 | 校验失败、部分生效、断连后查询实际状态 |
+| UC-04-S01 主流程 | Repository 发布、广播/对账、Service 拉取闭包、校验、激活与状态查询 |
+| UC-04-S02 关键边界 | 精确版本、不重复激活、旧 Push/Apply 统一拒绝、服务静态参数等待重启 |
+| UC-04-S03 异常与恢复 | 无效目标隔离、失败重试、目标/生效版本分离和重启恢复 |
 
 ## 4.6 UC-05 诊断来源到 Gateway 的数据通路
 
@@ -1589,7 +1586,7 @@ flowchart TB
 | `HistoryReader` | 按稳定顺序读取、验证历史记录 | 外部数据归历史源所有，Reader 不持有持久存储 |
 | `OutputCoordinator` | 一对多映射展开、按 Gateway 分组、独立发送和交付裁决 | 按 Gateway/变量维护在途与确认状态；不承担下游消费 |
 | `GatewayClient` | 调用 Gateway 的 Proto 客户端 | gRPC Channel、超时与明确响应 |
-| `ConfigManager` | Get/Push/Apply 和应用状态 | 候选、正式文件与内存生效快照分离 |
+| `ConfigManager` | 读取 Repository 选定闭包、业务校验、代际激活和状态查询 | target_revision、active_revision、重启要求及最后失败原因分离 |
 | `DiagnoseService` | 主动分阶段诊断 | 检查项结果，不能修改生产业务状态 |
 | `MetricsService` | 采集、聚合、只读查询 | 有界时间窗口及重启纪元 |
 | `DataGeneratorGrpcServer` | 完整实现外置 Proto Server | 请求适配，不持有业务权威数据 |
@@ -1723,13 +1720,13 @@ flowchart TB
 | Output Task | RuntimeCoordinator | 有界输出队列、gRPC Channel、在途写入 | 不再受理并处理/明确终结在途 |
 | Diagnose Tasks | DiagnoseService | 临时读取与测试连接 | 截止时间或全部检查结束且资源安全 |
 | Metrics Sampler | MetricsService | 定时 Task、固定窗口缓存 | 服务停止 |
-| Config Apply | ConfigManager | 候选数据、文件提交权、受影响源 | 提交成功或回滚/部分应用报告 |
+| Config Activation | ConfigManager | 目标闭包、已激活代际与受影响源 | 校验失败保留旧代际，安全热更新或重启后收敛 |
 
 首版采用**一个活动生成实例，对应一个活动数据源**（模拟或重放），使输出点所有权唯一。若未来要支持多来源并行，必须先定义设备/点位的冲突裁决与统一时间顺序，本版不凭空承诺其并发写入能力。
 
 ## 6.2 运行生命周期
 
-服务启动通过指定的服务配置绝对路径定位 `configs/`，逐一校验三个直接引用的实例文件、模板根目录及 `configuration` 解析的间接模板，再进入就绪状态；`Apply` 只热更新实例/模板相关生效内容，服务级配置变更须重启（详见 §11.1、§11.5）。
+服务启动以版本化 Service 文件及 Deployment 清单精确选择 site、device、scenarios 三类 Instance，沿模型引用解析已选 Template；加载与校验通过后才能进入 READY。Repository 发布不触发业务服务本地 Apply RPC；可安全热更新的目标由调和流程激活，不可热更新的 Service 设置等待重启（详见 §11.1、§11.5）。
 
 
 `DataGeneratorService.StartGeneration` 与 `StopGeneration` 是当前 Proto 已有的业务运行控制入口；`GetGeneration` 返回权威生成实例状态。它们不同于外部进程管理器启动/停止服务进程。按 `scenario_id` 选择已配置场景、绑定 `scenario_version` 后产生服务端 `generation_id`；合法停止必须保护未安全收敛的底层 I/O。场景编辑/删除不属于当前接口范围。
@@ -1779,7 +1776,7 @@ $$
 | 历史读取批量 | `replay.read_batch_size` 上限 | 分批流式读取 |
 | 诊断并发 | `diagnose.max_concurrent` | 明确拒绝超量请求 |
 | 指标窗口与标签 | `metrics.window_seconds`、`max_series` | 限制新标签，记录溢出统计 |
-| 配置候选快照 | 同时一份候选 + 版本令牌 | 冲突返回，不覆盖他人候选 |
+| 配置修订状态 | Repository 目标修订与 Service 已激活修订各自记录 | 无效候选不推进 active_revision，失败可恢复调和 |
 
 ## 6.4 异常及恢复
 
@@ -2004,9 +2001,9 @@ flowchart LR
 
 **租约权威判失**：Gateway 对 RENEW 明确返回 `accepted=false` 时视为当前租约失效；必须停止对该目标的后续注入，并在下一次输出周期以 `LEASE_LOST` 将 Generation 转为 FAILED。网络超时/确认丢失仅标为不安全及 UNKNOWN，不得凭超时臆断租约失效，也不得重发未确认批次。\n\n**租约与终止**：多 Gateway 租约获取按确定顺序逐个完成，只有全部成功才允许开始生成；失败释放已确认获得的令牌，未知申请结果等待其 TTL 到期而非伪造释放。StopGeneration 停止新批次，并等待在途 I/O 安全收敛后释放本实例目标；租约过期则禁止继续写入，重新获取前不得重放可能成功的批次。不存在跨 Gateway 分布式原子事务。
 
-**共享配置**：`configs/services/data-generator-service.yaml` 仅声明 instances.site/devices/scenarios 的逻辑身份，所选版本由 Deployment 确定，其中 site/devices 的共享引用由 core.configuration 共享子包按总体设计 v1_15 第 5 章装配，scenarios 为本服务专属 Instance，Scenario 的校验及候选 Apply 由本服务负责；Service 的文件提交不替代共享文件唯一写入方，也不在 Loader 内实现多文件写事务。必须区分 DISK、CANDIDATE、RUNTIME 与 source_manifest 原始字节身份，发现 SOURCE_CHANGED 需拒绝继续应用。
+**共享配置**：`configs/services/service_data-generator-sim_v1.0.3.yaml` 仅声明 site/devices/scenarios Instance 逻辑身份，版本统一由 Deployment 精确选择；Scenario 业务语义校验与激活由本服务负责，配置发布与文件事务仅由 Configuration Repository 负责。业务服务仅保留只读快照和 target/active 状态，旧 Push/Apply 一律拒绝；发现 SOURCE_CHANGED 不得继续应用。
 
-**独立测试**：通过 UR→UC→ST→Marker→断言验证简单物理、随机与 CSV 回放生成、同一目标重复映射拒绝、一个来源多目标、一 Generation 多设备、租约占用/抢占/过期、部分 Gateway 失败、停止后在途 I/O 收敛、Push/Apply 和 SOURCE_CHANGED。真实 Gateway/网络缺失时标 NOT_RUN，不能以 Fake 注入测试替代实链路验收。
+**独立测试**：通过 UR→UC→ST→Marker→断言验证简单物理、随机与 CSV 回放生成、同一目标重复映射拒绝、一个来源多目标、一 Generation 多设备、租约占用/抢占/过期、部分 Gateway 失败、停止后在途 I/O 收敛、Repository 发布与 Service 激活分离、退役 Push/Apply 拒绝和 SOURCE_CHANGED。真实 Gateway/网络缺失时标 NOT_RUN，不能以 Fake 注入测试替代实链路验收。
 
 # 10. 数据生成与历史重放专题
 
@@ -2073,7 +2070,7 @@ flowchart TB
 | 状态管理 | PRNG 状态、规则配置及必要的采样状态 | 气象随机状态、设备连续状态及离散状态机 |
 | 运行时修改 | 已声明可修改的分布参数/控制规则 | 已声明的外部输入、指令；不能直接改写计算状态 |
 
-仿真设备实例为 `configs/instances/devices_sim.yaml`，真实设备实例为 `configs/instances/devices.yaml`，使用相同 Schema，但两者引用不同的型号文件与 Point Table。设备型号、点表与业务点统一从 `configs/templates/` 精确版本装配；**仿真型号的额定值、结构参数和固定控制器参数只保存在该型号的 `simulation.parameters` 中**，Scenario 和协议点表均不得重复声明。业务值定位键为 `device_id + point_id`。
+仿真设备实例可为 `configs/instances/device_sim_v1.0.0.yaml`，真实设备实例可为 `configs/instances/device_farm-a_v1.4.0.yaml`，使用相同 Schema，但两者引用不同的型号文件与 Point Table。设备型号、点表与业务点统一从 `configs/templates/` 精确版本装配；**仿真型号的额定值、结构参数和固定控制器参数只保存在该型号的 `simulation.parameters` 中**，Scenario 和协议点表均不得重复声明。业务值定位键为 `device_id + point_id`。
 
 | 模型 | 设备示例 | 型号模板 | 点表模板 |
 |---|---|---|---|
@@ -2982,47 +2979,39 @@ Data Generator Service 只引用 devices、模型运行场景等 Instance 逻辑
 
 ```text
 configs/
-├── instances/
-│   ├── site.yaml                 # 场站实例
-│   ├── devices.yaml              # 真实设备实例
-│   ├── devices_sim.yaml          # 仿真设备实例
-│   └── sinks.yaml                # Sink 业务实例
+├── deployments/
+│   └── deployment_<info>_v1.0.0.yaml     # 精确选定 Service/Instance
 ├── services/
-│   ├── data-generator-service.yaml
-│   ├── data-generator-sim.example.yaml
-│   └── industrial_gateway-sim.example.yaml
+│   └── service_data-generator-sim_v1.0.3.yaml
+├── instances/
+│   ├── site_<info>_v1.0.0.yaml
+│   ├── device_<info>_v1.0.0.yaml
+│   └── scenarios_<info>_v1.0.0.yaml
 └── templates/
-    ├── device_models/           # 设备型号与物理参数
-    ├── point_tables/            # 测点语义与协议地址
-    ├── protocols/               # 协议公共模板
-    ├── business_points.yaml
-    └── units.yaml
+    ├── device_models/
+    ├── point_tables/
+    ├── protocols/
+    ├── business_points_standard_v1.4.0.yaml
+    └── units_standard_v1.2.0.yaml
 ```
 
 设备实例只声明设备身份、型号精确版本和端点；实际与仿真型号分别具有自己的 Point Table。仿真设备型号的 `simulation.kind: physical`、`simulation.device_kind` 和 `simulation.parameters` 是额定值、结构及固定控制参数的唯一来源。场景不得复制这些参数，`point_tables/` 不保存模型额定值。
 
-Data Generator 的 Scenario 作为版本化运行对象直接保存在本模块服务 YAML 的 `scenarios` 下；不设置 `instances.scenarios` 配置源，也不另建 Scenario 文件。随机数据生成规则及初值、风场工况、运行节拍、控制关系、CSV 重放及 Gateway 的设备级路由属于运行方案。Configuration 继续拥有共享文档装配和快照，Data Generator 拥有本服务私有配置的候选验证与应用。
+Data Generator 的 Scenario 保存在独立的版本化 `scenarios_<info>_v<version>.yaml` Instance 中，Service 仅引用其逻辑 ID；Deployment 统一选定精确版本。随机生成、气象工况、调度、CSV 重放及 Gateway 路由属于 Scenario。Repository 负责原子发布和目录引用闭包，Data Generator 负责业务模型验证及运行激活。
 
 ## 11.2 配置引用及装配
 
 ```mermaid
 flowchart TD
-    S["services/data-generator-sim.example.yaml"]
-    D["instances/devices_sim.yaml"]
-    M["templates/device_models/*_sim_physical_1.0.0.yaml"]
-    P["templates/point_tables/"]
-    R["templates/protocols/"]
-    B["templates/business_points.yaml"]
-    G["Generation"]
-
-    S -->|"config_sources.instances.devices"| D
-    D -->|"model.id + model.version"| M
-    M -->|"point_table"| P
-    M -->|"protocol"| R
-    P --> B
-    S -->|"scenarios + weather"| G
-    M -->|"simulation.parameters"| G
-    D -->|"device_id"| G
+    DP["Deployment 精确选版"] --> S["版本化 Service"]
+    DP --> I["Site / Device / Scenarios Instance"]
+    S -->|"逻辑身份"| I
+    I -->|"型号精确引用"| M["DeviceModel Template"]
+    M --> P["PointTable Template"]
+    M --> R["Protocol Template"]
+    P --> B["BusinessPoint / Units"]
+    I --> G["Generation 固定快照"]
+    M --> G
 ```
 
 服务配置的 `config_sources` 仅包含所需 Instance 的逻辑身份（site、devices、scenarios），由 Deployment 统一选择具体版本。所有间接引用由共享 Configuration Loader 按版本精确解析；禁止路径穿越、隐式版本回退和重复声明设备元数据。
@@ -3030,14 +3019,15 @@ flowchart TD
 ## 11.3 服务 YAML 与 Scenario 契约
 
 ```yaml
+# configs/services/service_data-generator-sim_v1.0.3.yaml
 schema_version: 1
-file_version: "1.0.0"
+file_version: "1.0.3"
+service_id: data-generator-sim
 config_sources:
   instances:
-    site: configs/instances/site.yaml
-    devices: configs/instances/devices_sim.yaml
-  templates:
-    root: configs/templates
+    site: example_site
+    devices: sim
+    scenarios: sim
 service:
   grpc_bind: "127.0.0.1:50061"
 output:
@@ -3049,18 +3039,17 @@ buffer:
 recording:
   enabled: false
   directory: artifacts/data-generator
+
+# configs/instances/scenarios_sim_v1.0.0.yaml
+# 此段为另一份独立文件，Deployment 精确选择其版本。
+schema_version: 1
+file_version: "1.0.0"
 scenarios:
   - scenario_id: wind-plant-physical
     version: "1.0.0"
     source:
       kind: simulation
       interval_seconds: 0.05
-    weather:
-      site-a:
-        wind:
-          wind_speed_mean: 10.0
-          turbulence_intensity: 0.12
-          wind_seed: 42
     devices:
       - device_id: WTG_SIM01
         weather_ref: site-a
@@ -3069,9 +3058,6 @@ scenarios:
       - gateway_id: gw-wtg-sim01
         endpoint: "127.0.0.1:50073"
         device_id: WTG_SIM01
-        # 可选：仅目标变量名不同于 WTG_SIM01.<point_id> 时声明
-        # variable_mapping:
-        #   active_power: [WTG_SIM01.active_power]
 ```
 
 以上只展示配置结构，正式运行需采用完整气象参数及部署地址，其他服务运行限额参见出厂 YAML。
