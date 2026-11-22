@@ -210,12 +210,8 @@ def write_service_config(
         "schema_version": 1,
         "file_version": "1.0.0",
         "deployment_id": "commander-system",
-        "services": {
-            "commander": {"config_id": "commander", "file_version": "1.0.0"}
-        },
-        "instances": {
-            "device": {"farm-a": {"file_version": "1.4.0"}}
-        },
+        "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
+        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
     }
     (deployments / "deployment_commander-system_v1.0.0.yaml").write_text(
         yaml.safe_dump(manifest, sort_keys=False),

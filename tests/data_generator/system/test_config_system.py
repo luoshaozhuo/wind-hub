@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+
 import grpc
 import pytest
 import yaml
 
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
+
 from ..conftest import dg_stubs, ship_scenarios_document
 
 pytestmark = [pytest.mark.system, pytest.mark.reliability]
@@ -37,7 +39,8 @@ async def test_get_push_apply(start_real_gateway, configs_root, dg_subprocess) -
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=ONE_FLOAT)
     service_path = configs_root(
         scenarios=ship_scenarios_document(
-            {"gw-a": gateway.data_bind}, interval=3600.0,
+            {"gw-a": gateway.data_bind},
+            interval=3600.0,
             mappings=[("gw-a", "GW01.pitch_angle")],
         )
     )
@@ -87,7 +90,8 @@ async def test_invalid_candidate_and_conflict(
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=ONE_FLOAT)
     service_path = configs_root(
         scenarios=ship_scenarios_document(
-            {"gw-a": gateway.data_bind}, interval=0.3,
+            {"gw-a": gateway.data_bind},
+            interval=0.3,
             mappings=[("gw-a", "GW01.pitch_angle")],
         )
     )
@@ -111,9 +115,7 @@ async def test_invalid_candidate_and_conflict(
         assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
         with pytest.raises(grpc.aio.AioRpcError) as exc:
             await common_stub.GetConfigSnapshot(
-                common.GetConfigSnapshotRequest(
-                    scope=CANDIDATE, candidate_id="does-not-exist"
-                )
+                common.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id="does-not-exist")
             )
         assert exc.value.code() is grpc.StatusCode.NOT_FOUND
         assert await _revision(common_stub) == revision
@@ -128,7 +130,8 @@ async def test_restart_required(start_real_gateway, configs_root, dg_subprocess)
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=ONE_FLOAT)
     service_path = configs_root(
         scenarios=ship_scenarios_document(
-            {"gw-a": gateway.data_bind}, interval=3600.0,
+            {"gw-a": gateway.data_bind},
+            interval=3600.0,
             mappings=[("gw-a", "GW01.pitch_angle")],
         )
     )
@@ -155,9 +158,7 @@ async def test_restart_required(start_real_gateway, configs_root, dg_subprocess)
     bind_next, _next = await dg_subprocess(target)
     next_channel, _next_dg, next_common = await dg_stubs(bind_next)
     try:
-        updated = await next_common.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=DISK)
-        )
+        updated = await next_common.GetConfigSnapshot(common.GetConfigSnapshotRequest(scope=DISK))
         assert updated.revision != revision
         assert any(
             item.relative_path.endswith("service_data-generator_v1.0.1.yaml")
@@ -168,13 +169,12 @@ async def test_restart_required(start_real_gateway, configs_root, dg_subprocess)
 
 
 @pytest.mark.fault_injection
-async def test_apply_failure_recovery(
-    start_real_gateway, configs_root, dg_subprocess
-) -> None:  # noqa: ANN001
+async def test_apply_failure_recovery(start_real_gateway, configs_root, dg_subprocess) -> None:  # noqa: ANN001
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=ONE_FLOAT)
     service_path = configs_root(
         scenarios=ship_scenarios_document(
-            {"gw-a": gateway.data_bind}, interval=3600.0,
+            {"gw-a": gateway.data_bind},
+            interval=3600.0,
             mappings=[("gw-a", "GW01.pitch_angle")],
         )
     )

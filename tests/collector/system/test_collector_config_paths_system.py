@@ -53,21 +53,11 @@ async def test_cfg_path_01_custom_source_paths(
     [
         {"instances": {"site": "site_alpha", "devices": "farm-a"}},
         {
-            "instances": {
-                "site": "site_alpha", "devices": "farm-a", "tasks": "farm-a"
-            },
+            "instances": {"site": "site_alpha", "devices": "farm-a", "tasks": "farm-a"},
             "templates": {"root": "templates"},
         },
-        {
-            "instances": {
-                "site": "../escape", "devices": "farm-a", "tasks": "farm-a"
-            }
-        },
-        {
-            "instances": {
-                "site": "missing", "devices": "farm-a", "tasks": "farm-a"
-            }
-        },
+        {"instances": {"site": "../escape", "devices": "farm-a", "tasks": "farm-a"}},
+        {"instances": {"site": "missing", "devices": "farm-a", "tasks": "farm-a"}},
         {"instances": {"site": "site_alpha", "tasks": "farm-a"}},
     ],
 )
@@ -101,8 +91,8 @@ async def test_cfg_path_05_service_references_switch_only_after_restart(
     (handle.instances / "site_another_site_v1.0.0.yaml").write_text(
         yaml.safe_dump(next_site), encoding="utf-8"
     )
-    manifest = handle.process.config_root / "deployments" / (
-        "deployment_collector-acceptance_v1.0.0.yaml"
+    manifest = (
+        handle.process.config_root / "deployments" / ("deployment_collector-acceptance_v1.0.0.yaml")
     )
     deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     deployment["services"]["collector-realtime"]["file_version"] = "1.0.1"
@@ -147,9 +137,7 @@ async def test_cfg_path_04_push_apply_custom_named_source_snapshot(
             pb.PushConfigSnapshotRequest(
                 expected_revision=revision,
                 files=[
-                    pb.SnapshotFile(
-                        relative_path=name, content=data, size_bytes=len(data)
-                    )
+                    pb.SnapshotFile(relative_path=name, content=data, size_bytes=len(data))
                     for name, data in sorted(files.items())
                 ],
             ),
@@ -160,7 +148,7 @@ async def test_cfg_path_04_push_apply_custom_named_source_snapshot(
 
 
 async def test_cfg_path_07_two_template_roots_never_fall_back(
-    collector: Callable[..., Any]
+    collector: Callable[..., Any],
 ) -> None:
     handle = await collector()
     root = handle.process.config_root

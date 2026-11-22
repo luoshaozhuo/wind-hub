@@ -10,11 +10,10 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from shutil import copytree
-
-import yaml
 from uuid import uuid4
 
 import pytest
+import yaml
 
 from commander.application.config_manager import CommanderConfigManager
 from commander.application.service_lifecycle import CommanderService
@@ -86,12 +85,8 @@ def _build_tree(
         "schema_version": 1,
         "file_version": "1.0.0",
         "deployment_id": "b1-test",
-        "services": {
-            "commander": {"config_id": "commander", "file_version": "1.0.0"}
-        },
-        "instances": {
-            "device": {"b1-test": {"file_version": "1.0.0"}}
-        },
+        "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
+        "instances": {"device": {"b1-test": {"file_version": "1.0.0"}}},
     }
     manifest = root / "deployments" / "deployment_b1-test_v1.0.0.yaml"
     manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -325,8 +320,7 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             # Publish a fresh immutable Model + Device Instance version;
             # Deployment selects the new closure, never overwrite v1.0.0.
             model_file = (
-                config_root / "templates/device_models"
-                / "device_model_modbus_wtg_v1.0.1.yaml"
+                config_root / "templates/device_models" / "device_model_modbus_wtg_v1.0.1.yaml"
             )
             model_file.write_text(
                 _model_yaml(port=port_b, word_order="big_endian", version="1.0.1"),

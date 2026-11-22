@@ -75,9 +75,7 @@ async def test_disk_runtime_candidate_scopes_are_distinct(pki, grpc_stack) -> No
 async def test_get_unknown_scope_and_candidate_rejected(pki, grpc_stack) -> None:
     common, _ = grpc_stack.stubs(pki, client="deployer")
     await _aborts(
-        common.GetConfigSnapshot(
-            common_pb2.GetConfigSnapshotRequest(scope=0), timeout=5
-        ),
+        common.GetConfigSnapshot(common_pb2.GetConfigSnapshotRequest(scope=0), timeout=5),
         grpc.StatusCode.INVALID_ARGUMENT,
     )
     await _aborts(
@@ -106,9 +104,7 @@ async def test_get_unknown_scope_and_candidate_rejected(pki, grpc_stack) -> None
         "services/service_commander_v1.0.0.yaml",
     ),
 )
-async def test_retired_push_refuses_all_paths_without_mutation(
-    pki, grpc_stack, path: str
-) -> None:
+async def test_retired_push_refuses_all_paths_without_mutation(pki, grpc_stack, path: str) -> None:
     common, _ = grpc_stack.stubs(pki, client="deployer")
     original = await _snapshot(common)
     error = await _aborts(
@@ -150,9 +146,7 @@ async def test_retired_push_refuses_tampering_and_stale_revisions(
         revision = "0" * 64
     await _aborts(
         common.PushConfigSnapshot(
-            common_pb2.PushConfigSnapshotRequest(
-                expected_revision=revision, files=files
-            ),
+            common_pb2.PushConfigSnapshotRequest(expected_revision=revision, files=files),
             timeout=10,
         ),
         grpc.StatusCode.FAILED_PRECONDITION,

@@ -264,9 +264,7 @@ def write_config_tree(
             {
                 **_HEADER,
                 "deployment_id": "collector-acceptance",
-                "services": {
-                    service_id: {"config_id": service_id, "file_version": "1.0.0"}
-                },
+                "services": {service_id: {"config_id": service_id, "file_version": "1.0.0"}},
                 "instances": {
                     "site": {site_ref: {"file_version": "1.0.0"}},
                     "device": {devices_ref: {"file_version": "1.0.0"}},

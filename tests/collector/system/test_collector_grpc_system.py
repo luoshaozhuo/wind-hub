@@ -102,7 +102,8 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     with pytest.raises(grpc.aio.AioRpcError) as denied:
         await config_stub.ApplyConfigSnapshot(
             common.ApplyConfigSnapshotRequest(
-                candidate_id="not-published", expected_revision=revision0,
+                candidate_id="not-published",
+                expected_revision=revision0,
             ),
             metadata=ADMIN_METADATA,
         )

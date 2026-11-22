@@ -21,16 +21,12 @@ from tests.collector.system.helpers import disk_revision, snapshot_files
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker]
 
 
-async def _reject_push(
-    stub: CommonServiceStub, files: dict[str, bytes], revision: str
-) -> None:
+async def _reject_push(stub: CommonServiceStub, files: dict[str, bytes], revision: str) -> None:
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await stub.PushConfigSnapshot(
             common.PushConfigSnapshotRequest(
                 files=[
-                    common.SnapshotFile(
-                        relative_path=name, content=data, size_bytes=len(data)
-                    )
+                    common.SnapshotFile(relative_path=name, content=data, size_bytes=len(data))
                     for name, data in sorted(files.items())
                 ],
                 expected_revision=revision,
@@ -97,9 +93,7 @@ async def test_uc04_s03_service_document_change_requires_restart(
         metadata=ADMIN_METADATA,
     )
     assert runtime.revision == disk.revision
-    await _reject_push(
-        stub, await snapshot_files(stub), disk.revision
-    )
+    await _reject_push(stub, await snapshot_files(stub), disk.revision)
     again = await stub.GetConfigSnapshot(
         common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_RUNTIME),
         metadata=ADMIN_METADATA,

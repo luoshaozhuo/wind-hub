@@ -74,12 +74,8 @@ shutdown:
         "schema_version": 1,
         "file_version": "1.0.0",
         "deployment_id": "commander-invalid",
-        "services": {
-            "commander": {"config_id": "commander", "file_version": "1.0.0"}
-        },
-        "instances": {
-            "device": {"farm-a": {"file_version": "1.4.0"}}
-        },
+        "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
+        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
     }
     manifest = root / "deployments" / "deployment_commander-invalid_v1.0.0.yaml"
     manifest.parent.mkdir(parents=True)
@@ -193,9 +189,7 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
         assert await service.stop() == frozenset()
 
         # 模拟外部配置变更：TZ05 端口改写（仅磁盘，不触碰运行时）。
-        original_device = (
-            stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
-        )
+        original_device = stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
         new_device = original_device.with_name("device_farm-a_v1.4.1.yaml")
         device_document = yaml.safe_load(original_device.read_text(encoding="utf-8"))
         device_document["file_version"] = "1.4.1"
@@ -205,9 +199,7 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
             encoding="utf-8",
         )
         manifest = (
-            stack.yaml_path.parent.parent
-            / "deployments"
-            / "deployment_commander-test_v1.0.0.yaml"
+            stack.yaml_path.parent.parent / "deployments" / "deployment_commander-test_v1.0.0.yaml"
         )
         deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
         deployment["instances"]["device"]["farm-a"]["file_version"] = "1.4.1"
@@ -227,7 +219,8 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
             after = yaml.safe_load(
                 bytes(
                     next(
-                        f for f in runtime_after.files
+                        f
+                        for f in runtime_after.files
                         if f.relative_path.endswith("instances/device_farm-a_v1.4.1.yaml")
                     ).content
                 )

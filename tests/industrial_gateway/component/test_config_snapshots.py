@@ -137,9 +137,7 @@ async def test_apply_hot_reconfigures_desired_state(harness) -> None:
             server["desired_state"] = "STOP"
         return server
 
-    results, restart = await _apply_authorized_closure(
-        harness, _server_content(content, stop_gw2)
-    )
+    results, restart = await _apply_authorized_closure(harness, _server_content(content, stop_gw2))
     assert not restart
     assert {result.object_id: result.status for result in results} == {
         "gw1": "UNCHANGED",
@@ -196,9 +194,7 @@ async def test_apply_port_swap_hot_rebinds_listeners(harness) -> None:
     ports = {server["server_id"]: server["listen_port"] for server in document["servers"]}
     for server in document["servers"]:
         server["listen_port"] = ports["gw2" if server["server_id"] == "gw1" else "gw1"]
-    results, restart = await _apply_authorized_closure(
-        harness, yaml.safe_dump(document).encode()
-    )
+    results, restart = await _apply_authorized_closure(harness, yaml.safe_dump(document).encode())
     assert not restart
     assert {item.status for item in results} == {"APPLIED"}
 

@@ -52,7 +52,9 @@ async def _apply_gw1_stop(harness) -> None:
     from industrial_gateway.infrastructure.config.resolution import load_gateway
 
     _revision, content, _relative_path = await _disk(harness.common_stub())
-    document = yaml.safe_load(_content_with_gw1_stopped(content))
+    document = yaml.safe_load(content)
+    gw1 = next(server for server in document["servers"] if server["server_id"] == "gw1")
+    gw1["desired_state"] = "STOP"
     selected = load_gateway(
         harness.service_path,
         project_root=harness.root,

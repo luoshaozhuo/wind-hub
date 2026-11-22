@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-
 import grpc
 import pytest
 
@@ -74,9 +73,7 @@ async def test_config_snapshot_apply(sys_pki, grpc_stack) -> None:
     disk = await _disk(common)
     await _aborts(
         common.PushConfigSnapshot(
-            common_pb2.PushConfigSnapshotRequest(
-                files=disk.files, expected_revision=disk.revision
-            ),
+            common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
             timeout=10,
         ),
         grpc.StatusCode.FAILED_PRECONDITION,
@@ -100,9 +97,7 @@ async def test_config_revision_conflict(sys_pki, grpc_stack) -> None:
     disk = await _disk(common)
     await _aborts(
         common.PushConfigSnapshot(
-            common_pb2.PushConfigSnapshotRequest(
-                files=disk.files, expected_revision="0" * 64
-            ),
+            common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision="0" * 64),
             timeout=10,
         ),
         grpc.StatusCode.FAILED_PRECONDITION,
@@ -123,9 +118,7 @@ async def test_config_snapshot_scopes(sys_pki, grpc_stack) -> None:
     assert disk.revision != runtime.revision
     await _aborts(
         common.GetConfigSnapshot(
-            common_pb2.GetConfigSnapshotRequest(
-                scope=CANDIDATE, candidate_id="unpublished"
-            ),
+            common_pb2.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id="unpublished"),
             timeout=5,
         ),
         grpc.StatusCode.NOT_FOUND,
