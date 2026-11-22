@@ -1,4 +1,4 @@
-"""ClaimTargets 租约在配置热重载下的失效边界，以及真实 grpc.aio deadline/取消传播。
+"""ClaimTargets 租约在权威配置激活下的失效边界，以及真实 grpc.aio deadline/取消传播。
 
 ClaimTargets/lease_token 为 v1_9 设计书之外的生产扩展，行为独立钉住：
 - Apply 变更某 server（监听器重建）→ 该 server 租约全部失效，旧 token 零修改；
@@ -10,7 +10,6 @@ ClaimTargets/lease_token 为 v1_9 设计书之外的生产扩展，行为独立�
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from pathlib import Path
 
 import grpc
@@ -49,43 +48,22 @@ async def _disk(stub) -> tuple[str, bytes, str]:
     return reply.revision, reply.files[0].content, reply.files[0].relative_path
 
 
-def _snapshot_file(relative_path: str, content: bytes) -> common.SnapshotFile:
-    return common.SnapshotFile(
-        relative_path=relative_path,
-        content=content,
-        size_bytes=len(content),
-        sha256=hashlib.sha256(content).hexdigest(),
-    )
-
-
-def _content_with_gw1_stopped(content: bytes) -> bytes:
-    document = yaml.safe_load(content)
-    for server in document["servers"]:
-        if server["server_id"] == "gw1":
-            server["desired_state"] = "STOP"
-    return yaml.safe_dump(document, allow_unicode=True, sort_keys=False).encode()
-
-
 async def _apply_gw1_stop(harness) -> None:
-    common_stub = harness.common_stub()
-    revision, content, relative_path = await _disk(common_stub)
-    candidate = await common_stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[_snapshot_file(relative_path, _content_with_gw1_stopped(content))],
-            expected_revision=revision,
-        )
+    from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+    _revision, content, _relative_path = await _disk(harness.common_stub())
+    document = yaml.safe_load(_content_with_gw1_stopped(content))
+    selected = load_gateway(
+        harness.service_path,
+        project_root=harness.root,
+        candidate_document=document,
     )
-    assert candidate.valid
-    applied = await common_stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
-    )
-    assert not applied.restart_required
-    statuses = {result.object_id: result.status for result in applied.apply_results}
-    assert statuses["gw1"] == "APPLIED"
-    assert statuses["gw2"] == "UNCHANGED"
+    results, restart = await harness.runtime.reconfigure(selected)
+    assert not restart
+    assert {item.object_id: item.status for item in results} == {
+        "gw1": "APPLIED",
+        "gw2": "UNCHANGED",
+    }
 
 
 async def test_apply_rebuild_invalidates_changed_server_claims_only(harness) -> None:
@@ -164,20 +142,17 @@ async def test_apply_identical_content_keeps_claims(harness) -> None:
             lease_ms=60000,
         )
     )
-    revision, content, relative_path = await _disk(common_stub)
-    candidate = await common_stub.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(
-            files=[_snapshot_file(relative_path, content)],
-            expected_revision=revision,
-        )
+    from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+    _revision, content, _relative = await _disk(common_stub)
+    selected = load_gateway(
+        harness.service_path,
+        project_root=harness.root,
+        candidate_document=yaml.safe_load(content),
     )
-    applied = await common_stub.ApplyConfigSnapshot(
-        common.ApplyConfigSnapshotRequest(
-            candidate_id=candidate.candidate_id,
-            expected_revision=revision,
-        )
-    )
-    assert {result.status for result in applied.apply_results} == {"UNCHANGED"}
+    results, restart = await harness.runtime.reconfigure(selected)
+    assert not restart
+    assert {item.status for item in results} == {"UNCHANGED"}
     renewed = await stub.ClaimTargets(
         pb.ClaimTargetsRequest(
             gateway_id="gw1",
