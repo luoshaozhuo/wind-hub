@@ -166,7 +166,7 @@ def start_collector(
     """以 subprocess 启动真实 ``wind-hub-collector``（v1 快照契约 CLI）。
 
     Args:
-        config_tree: 配置树根，须含 ``services/collector.yaml``、
+        config_tree: 配置树根，须含 ``services/service_collector-realtime_v1.1.0.yaml``、
             ``instances/``、``templates/``（见 tests.support.collector_config_tree）；
             v1 CLI 只接收服务文件，其余根目录按相对布局推导。
         grpc_port: gRPC 端口；None 时自动分配空闲端口。
@@ -181,10 +181,10 @@ def start_collector(
     Returns:
         CollectorProcess（调用方负责后续 wait_grpc_ready 与 terminate）。
     """
-    service_file = config_tree / "services" / "collector.yaml"
+    service_file = config_tree / "services" / "service_collector-realtime_v1.1.0.yaml"
     if not service_file.is_file():
         raise FileNotFoundError(
-            f"{config_tree} is not a valid config tree: missing services/collector.yaml"
+            f"{config_tree} is not a valid config tree: missing services/service_collector-realtime_v1.1.0.yaml"
         )
     env = dict(env_extra or {})
     if admin_token is not None:
