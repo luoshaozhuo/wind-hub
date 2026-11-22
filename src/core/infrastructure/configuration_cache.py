@@ -135,6 +135,11 @@ def _verify_cached_manifest(
     path = destination / "configs" / "deployments" / f"deployment_{deployment_id}_v{version}.yaml"
     if not path.is_file() or path.is_symlink():
         raise ValueError("cached Deployment selector is missing or unsafe")
+    selector_dir = path.parent
+    if selector_dir.is_symlink() or not selector_dir.is_dir():
+        raise ValueError("cached Deployment directory is unsafe")
+    if set(selector_dir.iterdir()) != {path}:
+        raise ValueError("cached Deployment directory contains unselected files")
     document = yaml.safe_load(path.read_bytes())
     if document != expected:
         raise ValueError("cached Deployment selector has been modified")
@@ -172,7 +177,6 @@ def mark_active_bundle(
     """Atomically record only an activated, locally verifiable generation."""
     cache_root = cache_root.absolute()
     version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0")
-    generation = cache_root / version / bundle.target_revision
     stage_selected_bundle(bundle, cache_root, deployment_id, service_id)
     pointer = _active_pointer(cache_root, deployment_id, service_id)
     payload = {
