@@ -1070,7 +1070,11 @@ def metric_map(metrics_response: Any) -> dict[str, float]:
 async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
     """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
     channel = grpc.aio.insecure_channel(bind)
-    await channel.channel_ready()
+    try:
+        await asyncio.wait_for(channel.channel_ready(), timeout=15.0)
+    except TimeoutError as exc:
+        await channel.close()
+        raise TimeoutError(f"Data Generator gRPC channel did not become ready at {bind}") from exc
     return channel, dg_rpc.DataGeneratorServiceStub(channel), common_rpc.CommonServiceStub(channel)
 
 
