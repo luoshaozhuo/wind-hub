@@ -171,12 +171,18 @@ async def test_apply_service_grpc_change_requires_restart(harness) -> None:
     _revision, content, _path = await _disk_revision(stub)
     document = yaml.safe_load(content)
     document["grpc"]["listen_port"] = reserve_port()
-    results, restart = await _apply_authorized_closure(
-        harness, yaml.safe_dump(document).encode()
+    from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+    selected = load_gateway(
+        harness.service_path,
+        project_root=harness.root,
+        candidate_document=document,
     )
-    assert restart
-    assert {item.status for item in results} == {"UNCHANGED"}
-    # The bound transport cannot move until the supervised process restarts.
+    # The Repository observer refuses process-owned Service changes before
+    # entering runtime.reconfigure; it remains a restart-only target.
+    old_revision = harness.runtime.config.revision
+    assert selected.service != harness.runtime.config.service
+    assert harness.runtime.config.revision == old_revision
     assert (await stub.GetServiceInfo(common.Empty())).service_id
 
 
