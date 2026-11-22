@@ -216,7 +216,18 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
     deadline = asyncio.get_running_loop().time() + target.timeout
     while True:
         try:
-            result["business"] = await context.call_common(name, "GetServiceStatus")
+            response = await context.call_common(name, "GetServiceStatus")
+            if target.manager == "process" and target.grpc_endpoint is not None:
+                from .native_process import managed_endpoint_owned
+
+                if not await asyncio.to_thread(managed_endpoint_owned, target):
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise RuntimeError(
+                            "healthy gRPC response does not belong to managed process"
+                        )
+                    await asyncio.sleep(0.2)
+                    continue
+            result["business"] = response
             return result
         except grpc.aio.AioRpcError as exc:
             if exc.code() not in {
