@@ -98,9 +98,7 @@ def stage_selected_bundle(
         raise ValueError("cached Service generation cannot be a symlink")
     if destination.exists():
         _verify_cached_files(destination, bundle.files)
-        _verify_cached_manifest(
-            destination, deployment_id, manifest_version, manifest
-        )
+        _verify_cached_manifest(destination, deployment_id, manifest_version, manifest)
         return expected_path
     stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=cache_root))
     try:
@@ -134,10 +132,7 @@ def _verify_cached_manifest(
     version: str,
     expected: dict[str, object],
 ) -> None:
-    path = (
-        destination / "configs" / "deployments"
-        / f"deployment_{deployment_id}_v{version}.yaml"
-    )
+    path = destination / "configs" / "deployments" / f"deployment_{deployment_id}_v{version}.yaml"
     if not path.is_file() or path.is_symlink():
         raise ValueError("cached Deployment selector is missing or unsafe")
     document = yaml.safe_load(path.read_bytes())
@@ -273,22 +268,18 @@ def load_active_bundle(
             )
         )
         files[relative] = content
-    if (
-        set(files) != set(expected_hashes)
-        or any(
-            hashlib.sha256(content).hexdigest() != expected_hashes[name]
-            for name, content in files.items()
-        )
+    if set(files) != set(expected_hashes) or any(
+        hashlib.sha256(content).hexdigest() != expected_hashes[name]
+        for name, content in files.items()
     ):
         raise ValueError("cached active configuration file hash mismatch")
     if not files or closure_sha256(deployment_id, service_id, identities) != revision:
         raise ValueError("cached active configuration digest mismatch")
     service_files = [
-        name for name in files
+        name
+        for name in files
         if name.startswith("services/")
-        and resolve_publication_identity(
-            name, _published_yaml(files[name])
-        ).config_id == service_id
+        and resolve_publication_identity(name, _published_yaml(files[name])).config_id == service_id
     ]
     if len(service_files) != 1:
         raise ValueError("cached active configuration has no unique Service")

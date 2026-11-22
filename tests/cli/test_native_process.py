@@ -186,7 +186,7 @@ async def test_cli_rejects_healthy_foreign_endpoint_after_process_start(
     from cli import main
 
     target = replace(
-        _target(tmp_path, "import time", "time.sleep(120)", timeout=0.05),
+        _target(tmp_path, "import time", "time.sleep(120)", timeout=0.0),
         grpc_endpoint="127.0.0.1:45321",
     )
 
@@ -203,10 +203,11 @@ async def test_cli_rejects_healthy_foreign_endpoint_after_process_start(
     with (
         patch("cli.main.runtime", return_value=FakeRuntime()),
         patch("cli.main.manage_service_process", side_effect=fake_start),
-        patch("cli.native_process.managed_endpoint_owned", return_value=False),
+        patch("cli.native_process.managed_endpoint_owned", side_effect=[True, False]) as ownership,
         pytest.raises(RuntimeError, match="does not belong to managed process"),
     ):
         await main._manage_service("configuration", "start")
+    assert ownership.call_count == 2
 
 
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:

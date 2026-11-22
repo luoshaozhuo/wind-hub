@@ -132,9 +132,7 @@ def main() -> None:
 
     def persist_started_generation() -> None:
         if observer is not None and cache_root is not None:
-            mark_active_bundle(
-                cache_root, observer.deployment_id, observer.service_id, bundle
-            )
+            mark_active_bundle(cache_root, observer.deployment_id, observer.service_id, bundle)
 
     asyncio.run(
         run_grpc(
