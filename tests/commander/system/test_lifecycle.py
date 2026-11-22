@@ -197,13 +197,11 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
             stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
         )
         new_device = original_device.with_name("device_farm-a_v1.4.1.yaml")
-        text = original_device.read_text(encoding="utf-8")
-        marker = "  TZ05:"
-        head, tail = text.split(marker, 1)
-        tail = tail.replace(f"port: {old_port}", f"port: {new_port}", 1)
+        device_document = yaml.safe_load(original_device.read_text(encoding="utf-8"))
+        device_document["file_version"] = "1.4.1"
+        device_document["devices"]["TZ05"]["endpoint"]["port"] = new_port
         new_device.write_text(
-            head.replace('file_version: "1.4.0"', 'file_version: "1.4.1"')
-            + marker + tail,
+            yaml.safe_dump(device_document, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
         manifest = (
