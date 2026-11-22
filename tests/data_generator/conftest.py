@@ -96,7 +96,7 @@ def write_service_yaml(
 ) -> Path:
     """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。
 
-    Scenario 归属服务 YAML；instances 只允许 site/devices 业务实例文件。
+    Scenario 归属版本化 Scenario Instance；Service 仅引用逻辑 Instance ID。
     """
     service = {
         "schema_version": 1,
