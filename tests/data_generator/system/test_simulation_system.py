@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
