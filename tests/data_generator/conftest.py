@@ -663,6 +663,7 @@ def _gateway_tree(
     config_root = root / "configs"
     grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
     devices_document: dict[str, Any] = {}
+    business_points: dict[str, dict[str, Any]] = {}
     servers: list[dict[str, Any]] = []
     single = len(devices) == 1
     for device_id, points in sorted(devices.items()):
@@ -680,7 +681,14 @@ def _gateway_tree(
             else:
                 address = {"register_type": "holding", "address": holding_cursor}
                 holding_cursor += 2 if data_type == "float32" else 1
-            point_table[variable_id] = {"data_type": data_type, "address": address}
+            business_points[variable_id] = {"data_type": data_type, "unit": "1"}
+            point_table[variable_id] = {
+                "business_point_id": variable_id,
+                "point_groups": ["all"],
+                "data_type": data_type,
+                "unit": "1",
+                "address": address,
+            }
         _dump(
             config_root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
             {
@@ -749,7 +757,7 @@ def _gateway_tree(
     )
     _dump(
         config_root / "templates" / "business_points_standard_v1.0.0.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
+        {"schema_version": 1, "file_version": "1.0.0", "business_points": business_points},
     )
     _dump(
         config_root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
