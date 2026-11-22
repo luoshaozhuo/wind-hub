@@ -660,6 +660,7 @@ def _gateway_tree(
     mtls_enabled: bool = False,
 ) -> Path:
     """写出自洽的 v1 配置树，返回 Service 文件路径。"""
+    config_root = root / "configs"
     grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
     devices_document: dict[str, Any] = {}
     servers: list[dict[str, Any]] = []
@@ -681,7 +682,7 @@ def _gateway_tree(
                 holding_cursor += 2 if data_type == "float32" else 1
             point_table[variable_id] = {"data_type": data_type, "address": address}
         _dump(
-            root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
+            config_root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": table_id,
@@ -691,7 +692,7 @@ def _gateway_tree(
             },
         )
         _dump(
-            root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
+            config_root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": model_id,
@@ -725,11 +726,11 @@ def _gateway_tree(
         )
 
     _dump(
-        root / "instances" / "devices.yaml",
+        config_root / "instances" / "device_dg-test_v1.0.0.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "devices": devices_document},
     )
     _dump(
-        root / "instances" / "site.yaml",
+        config_root / "instances" / "site_dg-test_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -738,7 +739,7 @@ def _gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "units_standard.yaml",
+        config_root / "templates" / "units_standard_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -747,11 +748,11 @@ def _gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points_standard.yaml",
+        config_root / "templates" / "business_points_standard_v1.0.0.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(
-        root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
+        config_root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "dg_modbus",
@@ -769,10 +770,8 @@ def _gateway_tree(
     service: dict[str, Any] = {
         "schema_version": 1,
         "file_version": "1.0.0",
-        "config_sources": {
-            "instances": {"devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
+        "service_id": "gateway-dg-test",
+        "config_sources": {"instances": {"devices": "dg-test"}},
         "grpc": {
             "listen_host": grpc_host,
             "listen_port": int(grpc_port_text),
@@ -797,7 +796,25 @@ def _gateway_tree(
         "servers": servers,
         "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
     }
-    service_path = root / "service.yaml"
+    _dump(
+        config_root / "deployments" / "deployment_dg-test_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "dg-test",
+            "services": {
+                "gateway-dg-test": {
+                    "config_id": "gateway-dg-test",
+                    "file_version": "1.0.0",
+                }
+            },
+            "instances": {
+                "device": {"dg-test": {"file_version": "1.0.0"}},
+                "site": {"dg-test": {"file_version": "1.0.0"}},
+            },
+        },
+    )
+    service_path = config_root / "services" / "service_gateway-dg-test_v1.0.0.yaml"
     _dump(service_path, service)
     return service_path
 
