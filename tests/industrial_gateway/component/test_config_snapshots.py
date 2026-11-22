@@ -241,6 +241,39 @@ async def test_apply_bind_failure_is_partial_and_does_not_fake_runtime_revision(
         blocker.close()
 
 
+async def test_failed_bind_is_retried_and_never_activates_until_success(harness) -> None:
+    """A failed replacement is not UNCHANGED on a second identical attempt."""
+    import socket
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    occupied = blocker.getsockname()[1]
+    previous = harness.runtime.config.revision
+    _revision, content, _path = await _disk_revision(harness.common_stub())
+    document = yaml.safe_load(content)
+    for server in document["servers"]:
+        if server["server_id"] == "gw1":
+            server["listen_port"] = occupied
+    candidate = yaml.safe_dump(document).encode()
+    try:
+        for _ in range(2):
+            results, _restart = await _apply_authorized_closure(harness, candidate)
+            assert {item.object_id: item.status for item in results} == {
+                "gw1": "FAILED",
+                "gw2": "UNCHANGED",
+            }
+            assert harness.runtime.config.revision == previous
+    finally:
+        blocker.close()
+    results, _restart = await _apply_authorized_closure(harness, candidate)
+    assert {item.object_id: item.status for item in results} == {
+        "gw1": "APPLIED",
+        "gw2": "UNCHANGED",
+    }
+    assert harness.runtime.config.revision != previous
+
+
 async def test_listener_state_visible_in_gateway_status(harness) -> None:
     stub = harness.common_stub()
     status = await stub.GetServiceStatus(common.Empty())
