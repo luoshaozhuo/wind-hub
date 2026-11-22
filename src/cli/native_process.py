@@ -124,7 +124,9 @@ def _foreign_loopback_listener(endpoint: str | None) -> bool:
         return probe.connect_ex(address) == 0
 
 
-def managed_endpoint_owned(target: ServiceTarget) -> bool:
+def managed_endpoint_owned(
+    target: ServiceTarget, *, expected_pid: int, expected_start_tick: str
+) -> bool:
     """Verify every usable local address family against the managed process group.
 
     In particular, one owned IPv4 listener must not validate a foreign IPv6
@@ -140,7 +142,12 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
     if not port_text.isdecimal() or not 1 <= int(port_text) <= 65535:
         return False
     state = _load_state(spec.state_dir / f"{target.service_id}.json")
-    if not _running(state) or state is None:
+    if (
+        not _running(state)
+        or state is None
+        or state["pid"] != expected_pid
+        or state["start_tick"] != expected_start_tick
+    ):
         return False
 
     port = int(port_text)
@@ -182,7 +189,7 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
     # IPv6 wildcard sockets may also accept IPv4. /proc does not expose
     # IPV6_V6ONLY; require an actual successful IPv4 connect before accepting
     # this possibility. Any distinct IPv4 listener must also be owned.
-    if host == "127.0.0.1" and wildcard_ipv6:
+    if host == "127.0.0.1" and wildcard_ipv6 and not listeners:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(0.15)
             if probe.connect_ex(("127.0.0.1", port)) == 0:
@@ -210,7 +217,13 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
             continue
     # Do not accept one owned listener while another address family at the
     # same configured endpoint is served by a foreign process.
-    return bool(owned) and listeners <= owned and _running(state)
+    return (
+        bool(owned)
+        and listeners <= owned
+        and _running(state)
+        and state["pid"] == expected_pid
+        and state["start_tick"] == expected_start_tick
+    )
 
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
@@ -254,6 +267,7 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             "manager": "process",
             "target": target.service_id,
             "pid": saved["pid"] if alive and saved is not None else None,
+            "start_tick": saved["start_tick"] if alive and saved is not None else None,
             "running": alive,
             "state": "RUNNING" if alive else "STOPPED",
             "status": "ACTIVE" if alive else "INACTIVE",
