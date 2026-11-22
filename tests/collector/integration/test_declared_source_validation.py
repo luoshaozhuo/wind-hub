@@ -23,32 +23,35 @@ def _tree(root: Path) -> Path:
             modbus_port=1502,
             iec104_port=2404,
             nats_servers=["nats://127.0.0.1:4222"],
-            site_ref="custom/site-A.yaml",
-            devices_ref="custom/devices-A.yaml",
+            site_ref="site-A",
+            devices_ref="devices-A",
         )
-        / "collector.yaml"
+        / "service_collector-realtime_v1.0.0.yaml"
     )
 
 
 def test_nondefault_source_files_are_used_by_full_validation(tmp_path: Path) -> None:
     service = _tree(tmp_path)
     paths = resolve_source_paths(service)
-    assert paths.site == tmp_path / "custom/site-A.yaml"
-    assert paths.devices == tmp_path / "custom/devices-A.yaml"
+    assert paths.site == tmp_path / "instances/site_site-A_v1.0.0.yaml"
+    assert paths.devices == tmp_path / "instances/device_devices-A_v1.0.0.yaml"
     validate_collector_snapshot(paths)
 
 
-@pytest.mark.parametrize("document", ["site-A.yaml", "devices-A.yaml"])
+@pytest.mark.parametrize(
+    "document",
+    ["site_site-A_v1.0.0.yaml", "device_devices-A_v1.0.0.yaml"],
+)
 def test_no_fallback_to_valid_default_when_declared_file_invalid(
     tmp_path: Path, document: str
 ) -> None:
     service = _tree(tmp_path)
-    custom = tmp_path / "custom"
-    default = tmp_path / "instances"
-    default.mkdir(exist_ok=True)
-    (default / "site.yaml").write_bytes((custom / "site-A.yaml").read_bytes())
-    (default / "devices.yaml").write_bytes((custom / "devices-A.yaml").read_bytes())
-    (custom / document).write_text("broken: [\n", encoding="utf-8")
-    paths = resolve_source_paths(service)
+    instances = tmp_path / "instances"
+    for source, target in (
+        ("site_site-A_v1.0.0.yaml", "site_example_site_v1.0.0.yaml"),
+        ("device_devices-A_v1.0.0.yaml", "device_farm-a_v1.0.0.yaml"),
+    ):
+        (instances / target).write_bytes((instances / source).read_bytes())
+    (instances / document).write_text("broken: [\n", encoding="utf-8")
     with pytest.raises(ConfigError):
-        validate_collector_snapshot(paths)
+        validate_collector_snapshot(resolve_source_paths(service))
