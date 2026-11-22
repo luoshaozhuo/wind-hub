@@ -125,7 +125,10 @@ def _foreign_loopback_listener(endpoint: str | None) -> bool:
 
 
 def managed_endpoint_owned(
-    target: ServiceTarget, *, expected_pid: int, expected_start_tick: str
+    target: ServiceTarget,
+    *,
+    expected_pid: int | None = None,
+    expected_start_tick: str | None = None,
 ) -> bool:
     """Verify every usable local address family against the managed process group.
 
@@ -145,8 +148,8 @@ def managed_endpoint_owned(
     if (
         not _running(state)
         or state is None
-        or state["pid"] != expected_pid
-        or state["start_tick"] != expected_start_tick
+        or (expected_pid is not None and state["pid"] != expected_pid)
+        or (expected_start_tick is not None and state["start_tick"] != expected_start_tick)
     ):
         return False
 
@@ -221,8 +224,8 @@ def managed_endpoint_owned(
         bool(owned)
         and listeners <= owned
         and _running(state)
-        and state["pid"] == expected_pid
-        and state["start_tick"] == expected_start_tick
+        and (expected_pid is None or state["pid"] == expected_pid)
+        and (expected_start_tick is None or state["start_tick"] == expected_start_tick)
     )
 
 
