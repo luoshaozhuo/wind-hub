@@ -107,12 +107,12 @@ def _build_tree(
     return root, service_yaml
 
 
-def _model_yaml(*, port: int | None, word_order: str = "big_endian") -> str:
+def _model_yaml(*, port: int | None, word_order: str = "big_endian", version: str = "1.0.0") -> str:
     defaults = f"\nendpoint_defaults:\n  port: {port}" if port is not None else ""
     return (
         "schema_version: 1\n"
         "template_id: modbus_wtg\n"
-        "file_version: 1.0.0\n"
+        f"file_version: {version}\n"
         "name: B1 turbine\n"
         "device_type_id: turbine\n"
         "protocol:\n  id: modbus_tcp\n  version: 1.1.0\n"
@@ -323,12 +323,27 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             first = await service.executor.wait(accepted[0].command_id)
             assert first is not None and first.state.value == "SUCCEEDED"
 
-            # 修改型号模板：默认端口 A → B。
-            model_file = config_root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
+            # Publish a fresh immutable Model + Device Instance version;
+            # Deployment selects the new closure, never overwrite v1.0.0.
+            model_file = (
+                config_root / "templates/device_models"
+                / "device_model_modbus_wtg_v1.0.1.yaml"
+            )
             model_file.write_text(
-                _model_yaml(port=port_b, word_order="big_endian"),
+                _model_yaml(port=port_b, word_order="big_endian", version="1.0.1"),
                 encoding="utf-8",
             )
+            device_v1 = config_root / "instances/device_b1-test_v1.0.0.yaml"
+            device_v2 = config_root / "instances/device_b1-test_v1.0.1.yaml"
+            device_doc = yaml.safe_load(device_v1.read_text(encoding="utf-8"))
+            device_doc["file_version"] = "1.0.1"
+            device_doc["devices"]["WT-B1"]["model"]["version"] = "1.0.1"
+            device_v2.write_text(yaml.safe_dump(device_doc), encoding="utf-8")
+            manifest = config_root / "deployments/deployment_b1-test_v1.0.0.yaml"
+            deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+            deployment["instances"]["device"]["b1-test"]["file_version"] = "1.0.1"
+            manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
+            assert device_v1.is_file()
             report = await service.reload()
             assert "WT-B1" in report.changed
             new_reference = _config(service).device_revision("WT-B1")
