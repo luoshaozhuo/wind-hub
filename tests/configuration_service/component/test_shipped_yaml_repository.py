@@ -26,7 +26,9 @@ from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FIL
 
 pytestmark = pytest.mark.component
 BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml"
-REPOSITORY_YAMLS = YAML_FILES
+# Local process bootstraps are never repository documents.
+STORAGE_BOOTSTRAP = ROOT / "configs/services/storage_bootstrap_v1.0.0.yaml"
+REPOSITORY_YAMLS = tuple(path for path in YAML_FILES if path not in {BOOTSTRAP, STORAGE_BOOTSTRAP})
 
 
 def original_file_version(path: Path) -> str:
@@ -116,6 +118,25 @@ def test_own_bootstrap_cannot_be_admitted_to_repository(
         app.create_candidate(
             actor_id="publisher",
             request_id="own-bootstrap",
+            expected_revision=0,
+            documents=(item,),
+            validate_only=True,
+        )
+
+
+def test_storage_bootstrap_cannot_be_admitted_to_repository(
+    app: ConfigurationApplication,
+) -> None:
+    item = DocumentInput(
+        identity=ConfigIdentity("service", "storage-main"),
+        file_name=STORAGE_BOOTSTRAP.name,
+        yaml_bytes=STORAGE_BOOTSTRAP.read_bytes(),
+        relative_path="services/storage_bootstrap_v1.0.0.yaml",
+    )
+    with pytest.raises(ValueError):
+        app.create_candidate(
+            actor_id="publisher",
+            request_id="storage-bootstrap",
             expected_revision=0,
             documents=(item,),
             validate_only=True,

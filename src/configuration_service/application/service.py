@@ -28,6 +28,12 @@ from configuration_service.domain.models import (
     RepositoryConflictError,
     RepositoryNotFoundError,
 )
+from core.configuration.deployment import (
+    INSTANCE_ROLE_TYPES,
+    closure_sha256,
+    parse_deployment,
+    service_instance_refs,
+)
 from core.configuration.publication_identity import resolve_publication_identity
 
 
@@ -332,6 +338,48 @@ class ConfigurationApplication:
             versions=self._compile_versions(documents, expected_revision),
         )
 
+    @staticmethod
+    def _validate_deployments(documents: Sequence[PreparedDocument]) -> None:
+        """Validate all selected versions against the complete staged directory."""
+        by_key = {
+            (doc.identity.config_type, doc.identity.config_id, doc.file_version): doc
+            for doc in documents
+        }
+        deployments = [doc for doc in documents if doc.identity.config_type == "deployment"]
+        visited: set[str] = set()
+        for document in deployments:
+            deployment = parse_deployment(document.canonical_payload)
+            if deployment.deployment_id in visited:
+                raise RepositoryConflictError(
+                    "multiple Deployment versions for one identity in active directory"
+                )
+            visited.add(deployment.deployment_id)
+            if deployment.deployment_id != document.identity.config_id:
+                raise ValueError("Deployment identity does not match file identity")
+            for selection in (
+                *deployment.services.values(),
+                *deployment.instances.values(),
+            ):
+                key = (
+                    selection.config_type,
+                    selection.config_id,
+                    selection.file_version,
+                )
+                if key not in by_key:
+                    raise RepositoryConflictError(
+                        f"Deployment references absent staged version: {key}"
+                    )
+            for service_id, service_ref in deployment.services.items():
+                service = by_key[("service", service_id, service_ref.file_version)]
+                source = service.canonical_payload
+                if source.get("service_id", service_id) != service_id:
+                    raise RepositoryConflictError("Deployment Service identity mismatch")
+                for config_type, config_id in service_instance_refs(source, INSTANCE_ROLE_TYPES):
+                    if (config_type, config_id) not in deployment.instances:
+                        raise RepositoryConflictError(
+                            "Deployment has no version for required Service Instance"
+                        )
+
     def _compile_versions(
         self, documents: Sequence[PreparedDocument], expected_revision: int
     ) -> tuple[PreparedVersion, ...]:
@@ -339,6 +387,7 @@ class ConfigurationApplication:
         # Resolve all explicit version references before the publication transaction.
         # Existing target versions are immutable; the repository rechecks FK and
         # deprecation status atomically at commit.
+        self._validate_deployments(documents)
         versions: list[PreparedVersion] = []
         new_ids: dict[tuple[str, str, str], str] = {}
         for doc in documents:
@@ -364,9 +413,36 @@ class ConfigurationApplication:
                     ) or self.repository.resolve_version(identity, file_version)
                     references.append((target_id, "config_sources"))
             elif isinstance(sources, dict):
-                references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
+                # Deployment-era Services declare identity-only instances;
+                # legacy Services keep the mainline path-based source resolver.
+                instances = sources.get("instances")
+                identity_style = (
+                    document.identity.config_type == "service"
+                    and set(sources) == {"instances"}
+                    and isinstance(instances, dict)
+                    and all(
+                        isinstance(value, str) and "/" not in value for value in instances.values()
+                    )
+                )
+                if identity_style:
+                    # The exact versions come from the Deployment selection.
+                    service_instance_refs(document.canonical_payload, INSTANCE_ROLE_TYPES)
+                else:
+                    references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
             else:
                 raise ValueError("config_sources must be a mapping or list")
+            if document.identity.config_type == "deployment":
+                deployment = parse_deployment(document.canonical_payload)
+                for selection in (
+                    *deployment.services.values(),
+                    *deployment.instances.values(),
+                ):
+                    key = (
+                        selection.config_type,
+                        selection.config_id,
+                        selection.file_version,
+                    )
+                    references.append((new_ids[key], "deployment.selection"))
             # Stable published interpretation of every PointTable is pinned
             # to exactly the standard catalog files in this complete directory.
             if document.identity.config_type in {"business_points", "point_table"}:
@@ -441,6 +517,31 @@ class ConfigurationApplication:
                     if resolved_id is None:
                         resolved_id = self.repository.resolve_version(identity, file_version)
                     references.append((resolved_id, f"template.{field_name}"))
+            # Sink and Delivery instances pin the Templates used by each item.
+            # Service versions remain independent of the selected Instance versions.
+            if document.identity.config_type in {"sink", "delivery"}:
+                category = "sinks" if document.identity.config_type == "sink" else "deliveries"
+                records = document.canonical_payload.get(category)
+                if records is not None:
+                    if not isinstance(records, dict):
+                        raise ValueError(f"{category} must be a mapping")
+                    for instance_id, instance in records.items():
+                        if not isinstance(instance, dict):
+                            raise ValueError(f"{category}.{instance_id} must be a mapping")
+                        template_id = instance.get("template_id")
+                        template_version = instance.get("template_version")
+                        if not isinstance(template_id, str) or not template_id:
+                            raise ValueError("Instance template_id is required")
+                        if not isinstance(template_version, str) or not template_version:
+                            raise ValueError("Instance template_version is required")
+                        identity = ConfigIdentity(document.identity.config_type, template_id)
+                        key = (identity.config_type, identity.config_id, template_version)
+                        resolved_id = new_ids.get(key)
+                        if resolved_id is None:
+                            resolved_id = self.repository.resolve_version(
+                                identity, template_version
+                            )
+                        references.append((resolved_id, "instance.template"))
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
@@ -805,6 +906,69 @@ class ConfigurationApplication:
         if sum(len(item.yaml_bytes) for item in output) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration bundle exceeds response limit")
         return output
+
+    def get_service_config_bundle(
+        self,
+        deployment_id: str,
+        service_id: str,
+        revision_id: int | None = None,
+    ) -> tuple[int, str, tuple[DocumentOutput, ...]]:
+        """Resolve only one Service's selected immutable version closure."""
+        revision = self.repository.current_revision() if revision_id is None else revision_id
+        if revision < 1:
+            raise RepositoryNotFoundError("no published Deployment")
+        deployment_doc = self.get_config(
+            ConfigIdentity("deployment", deployment_id), revision_id=revision
+        )
+        deployment = parse_deployment(
+            self.codec.parse_yaml(
+                deployment_doc.yaml_bytes, max_bytes=self.limits.max_request_bytes
+            )
+        )
+        selection = deployment.services.get(service_id)
+        if selection is None:
+            raise RepositoryNotFoundError("Service not selected by Deployment")
+        service_identity = ConfigIdentity("service", service_id)
+        service_vid = self.repository.resolve_version(service_identity, selection.file_version)
+        service_record = self.repository.get_version(service_identity, version_id=service_vid)
+        service_doc = self._restore(service_record, revision_id=0)
+        service_raw = self.codec.parse_yaml(
+            service_doc.yaml_bytes, max_bytes=self.limits.max_request_bytes
+        )
+        if service_raw.get("service_id", service_id) != service_id:
+            raise RepositoryConflictError("selected Service identity mismatch")
+        root_ids = [service_vid]
+        for config_type, config_id in service_instance_refs(service_raw, INSTANCE_ROLE_TYPES):
+            ref = deployment.instances.get((config_type, config_id))
+            if ref is None:
+                raise RepositoryConflictError("Deployment lacks required Instance selection")
+            root_ids.append(
+                self.repository.resolve_version(
+                    ConfigIdentity(config_type, config_id), ref.file_version
+                )
+            )
+        records = self.repository.get_version_closure(
+            root_ids, max_versions=self.limits.max_dependencies
+        )
+        result = self._unique_export_paths(
+            tuple(self._restore(row, revision_id=0) for row in records)
+        )
+        if sum(len(doc.yaml_bytes) for doc in result) > self.limits.max_bundle_bytes:
+            raise RepositoryCapacityExceededError("Service configuration bundle too large")
+        fingerprint = closure_sha256(
+            deployment_id,
+            service_id,
+            (
+                (
+                    doc.identity.config_type,
+                    doc.identity.config_id,
+                    doc.file_version,
+                    doc.content_sha256,
+                )
+                for doc in result
+            ),
+        )
+        return revision, fingerprint, result
 
     def get_point_table_bundle(
         self,

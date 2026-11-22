@@ -64,6 +64,11 @@ class ConfigurationRepositoryServiceStub:
                 request_serializer=contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.SerializeToString,
                 response_deserializer=contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.FromString,
                 _registered_method=True)
+        self.GetServiceConfigBundle = channel.unary_unary(
+                '/windhub.configuration.v1.ConfigurationRepositoryService/GetServiceConfigBundle',
+                request_serializer=contracts_dot_configuration__repository__pb2.GetServiceConfigBundleRequest.SerializeToString,
+                response_deserializer=contracts_dot_configuration__repository__pb2.GetServiceConfigBundleResponse.FromString,
+                _registered_method=True)
         self.GetPointTableBundle = channel.unary_unary(
                 '/windhub.configuration.v1.ConfigurationRepositoryService/GetPointTableBundle',
                 request_serializer=contracts_dot_configuration__repository__pb2.GetPointTableBundleRequest.SerializeToString,
@@ -140,6 +145,12 @@ class ConfigurationRepositoryServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetConfigBundle(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetServiceConfigBundle(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -225,6 +236,11 @@ def add_ConfigurationRepositoryServiceServicer_to_server(servicer, server):
                     servicer.GetConfigBundle,
                     request_deserializer=contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.FromString,
                     response_serializer=contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.SerializeToString,
+            ),
+            'GetServiceConfigBundle': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetServiceConfigBundle,
+                    request_deserializer=contracts_dot_configuration__repository__pb2.GetServiceConfigBundleRequest.FromString,
+                    response_serializer=contracts_dot_configuration__repository__pb2.GetServiceConfigBundleResponse.SerializeToString,
             ),
             'GetPointTableBundle': grpc.unary_unary_rpc_method_handler(
                     servicer.GetPointTableBundle,
@@ -429,6 +445,33 @@ class ConfigurationRepositoryService:
             '/windhub.configuration.v1.ConfigurationRepositoryService/GetConfigBundle',
             contracts_dot_configuration__repository__pb2.GetConfigBundleRequest.SerializeToString,
             contracts_dot_configuration__repository__pb2.GetConfigBundleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetServiceConfigBundle(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.configuration.v1.ConfigurationRepositoryService/GetServiceConfigBundle',
+            contracts_dot_configuration__repository__pb2.GetServiceConfigBundleRequest.SerializeToString,
+            contracts_dot_configuration__repository__pb2.GetServiceConfigBundleResponse.FromString,
             options,
             channel_credentials,
             insecure,

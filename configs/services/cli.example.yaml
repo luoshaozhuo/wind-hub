@@ -1,4 +1,5 @@
 # Configuration CLI requires WIND_HUB_CONFIG_CLI_ADMIN_TOKEN (32+ chars)
+# Storage CLI requires WIND_HUB_STORAGE_OPERATOR_TOKEN (32+ chars).
 # Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
 # in the CLI process environment. Never put the token value in this YAML.
 schema_version: 1
@@ -63,6 +64,16 @@ services:
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/cli-processes"
       log_file: "/var/log/wind-hub/data-generator.log"
+  storage:
+    # Internal plaintext gRPC with bearer authorization; no TLS profile.
+    grpc_endpoint: "127.0.0.1:51110"
+    manager: process
+    target: storage
+    process:
+      argv: ["/usr/bin/python3", "-m", "storage_service.main", "--bootstrap", "/etc/wind-hub/configs/services/storage_bootstrap_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/storage.log"
 tls_profiles:
   local:
     ca_cert: "/etc/wind-hub/certs/ca.crt"

@@ -37,6 +37,7 @@ class ConfigurationRepositoryServiceStub:
     ListConfigVersions: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListConfigVersionsRequest, _configuration_repository_pb2.ListConfigVersionsResponse]
     GetConfig: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigRequest, _configuration_repository_pb2.GetConfigResponse]
     GetConfigBundle: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigBundleRequest, _configuration_repository_pb2.GetConfigBundleResponse]
+    GetServiceConfigBundle: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetServiceConfigBundleRequest, _configuration_repository_pb2.GetServiceConfigBundleResponse]
     GetPointTableBundle: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetPointTableBundleRequest, _configuration_repository_pb2.GetPointTableBundleResponse]
     GetCurrentRevision: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetCurrentRevisionRequest, _configuration_repository_pb2.GetCurrentRevisionResponse]
     ListReferences: _grpc.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListReferencesRequest, _configuration_repository_pb2.ListReferencesResponse]
@@ -55,6 +56,7 @@ class ConfigurationRepositoryServiceAsyncStub(ConfigurationRepositoryServiceStub
     ListConfigVersions: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListConfigVersionsRequest, _configuration_repository_pb2.ListConfigVersionsResponse]  # type: ignore[assignment]
     GetConfig: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigRequest, _configuration_repository_pb2.GetConfigResponse]  # type: ignore[assignment]
     GetConfigBundle: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetConfigBundleRequest, _configuration_repository_pb2.GetConfigBundleResponse]  # type: ignore[assignment]
+    GetServiceConfigBundle: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetServiceConfigBundleRequest, _configuration_repository_pb2.GetServiceConfigBundleResponse]  # type: ignore[assignment]
     GetPointTableBundle: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetPointTableBundleRequest, _configuration_repository_pb2.GetPointTableBundleResponse]  # type: ignore[assignment]
     GetCurrentRevision: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.GetCurrentRevisionRequest, _configuration_repository_pb2.GetCurrentRevisionResponse]  # type: ignore[assignment]
     ListReferences: _aio.UnaryUnaryMultiCallable[_configuration_repository_pb2.ListReferencesRequest, _configuration_repository_pb2.ListReferencesResponse]  # type: ignore[assignment]
@@ -106,6 +108,13 @@ class ConfigurationRepositoryServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _configuration_repository_pb2.GetConfigBundleRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_configuration_repository_pb2.GetConfigBundleResponse, _abc.Awaitable[_configuration_repository_pb2.GetConfigBundleResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetServiceConfigBundle(
+        self,
+        request: _configuration_repository_pb2.GetServiceConfigBundleRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_configuration_repository_pb2.GetServiceConfigBundleResponse, _abc.Awaitable[_configuration_repository_pb2.GetServiceConfigBundleResponse]]: ...
 
     @_abc_1.abstractmethod
     def GetPointTableBundle(

@@ -41,6 +41,9 @@ _ALLOWED_PB2_PREFIXES = (
     "sink_service/infrastructure/adapters/outbound/historical_bundle_codec.py",
     "configuration_service/main.py",
     "configuration_service/infrastructure/adapters/inbound/grpc/",
+    # Storage Service gRPC server and its Configuration Repository client.
+    "storage_service/infrastructure/adapters/inbound/grpc_server.py",
+    "storage_service/infrastructure/adapters/outbound/configuration_grpc.py",
 )
 
 # application/domain 一律不感知 wire 形态。
@@ -55,6 +58,8 @@ _NO_PB2_PREFIXES = (
     "data_generator/domain/",
     "sink_service/application/",
     "sink_service/domain/",
+    "storage_service/application/",
+    "storage_service/domain/",
 )
 
 _LEGACY_USECASE_NAMES = (

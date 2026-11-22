@@ -23,6 +23,10 @@ PR_TARGETS: dict[str, tuple[str, ...]] = {
     "integration-gateway": ("tests/industrial_gateway/integration", "tests/src/integration"),
     "integration-rpc": ("tests/system/rpc",),
     "integration-sinks": ("tests/sink_service",),
+    "integration-storage": (
+        "tests/storage_service/integration",
+        "tests/configuration_service/integration/test_storage_deployment_flow.py",
+    ),
     "system-acquisition": ("tests/system/acquisition",),
     "system-command": ("tests/system/command",),
     "system-e2e": ("tests/system/e2e",),
@@ -38,6 +42,7 @@ BACKEND_PREFIXES = (
     "src/industrial_gateway/",
     "src/data_generator/",
     "src/sink_service/",
+    "src/storage_service/",
 )
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 FRONTEND_E2E_FILES = {

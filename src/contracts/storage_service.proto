@@ -1,0 +1,179 @@
+syntax = "proto3";
+package windhub.storage.v1;
+import "google/protobuf/timestamp.proto";
+
+enum StorageDataLevel {
+  STORAGE_DATA_LEVEL_UNSPECIFIED = 0;
+  STORAGE_DATA_LEVEL_RAW = 1;
+  STORAGE_DATA_LEVEL_PROTOCOL = 2;
+  STORAGE_DATA_LEVEL_BUSINESS = 3;
+}
+enum StorageValueKind {
+  STORAGE_VALUE_KIND_UNSPECIFIED = 0;
+  STORAGE_VALUE_KIND_MISSING = 1;
+  STORAGE_VALUE_KIND_INT64 = 2;
+  STORAGE_VALUE_KIND_UINT64 = 3;
+  STORAGE_VALUE_KIND_DOUBLE = 4;
+  STORAGE_VALUE_KIND_BOOL = 5;
+  STORAGE_VALUE_KIND_TEXT = 6;
+  STORAGE_VALUE_KIND_BYTES = 7;
+}
+enum StorageTaskState {
+  STORAGE_TASK_STATE_UNSPECIFIED = 0;
+  STORAGE_TASK_STATE_QUEUED = 1;
+  STORAGE_TASK_STATE_RUNNING = 2;
+  STORAGE_TASK_STATE_SUCCEEDED = 3;
+  STORAGE_TASK_STATE_FAILED = 4;
+  STORAGE_TASK_STATE_INTERRUPTED = 5;
+}
+message StorageSample {
+  string wind_farm_id = 1;
+  string device_type = 2;
+  string device_id = 3;
+  string point_table_id = 4;
+  string point_id = 5;
+  string business_point_id = 6;
+  string sample_id = 7;
+  StorageDataLevel data_level = 8;
+  StorageValueKind value_kind = 9;
+  oneof value {
+    sint64 value_i64 = 10;
+    uint64 value_u64 = 11;
+    double value_f64 = 12;
+    bool value_bool = 13;
+    string value_text = 14;
+    bytes payload_bytes = 15;
+  }
+  string quality = 16;
+  google.protobuf.Timestamp sample_time = 17;
+  google.protobuf.Timestamp publish_time = 18;
+  google.protobuf.Timestamp receive_time = 19;
+  string unit = 20;
+  string logical_key = 21;
+  string content_sha256 = 22;
+}
+message StorageFilter {
+  string wind_farm_id = 1;
+  string device_type = 2;
+  string device_id = 3;
+  string point_table_id = 4;
+  StorageDataLevel data_level = 5;
+  string point_id = 6;
+  string business_point_id = 7;
+  google.protobuf.Timestamp start_time = 8;
+  google.protobuf.Timestamp end_time = 9;
+  repeated string qualities = 10;
+}
+message QuerySamplesRequest {
+  StorageFilter filter = 1;
+  uint32 page_size = 2;
+  string page_token = 3;
+}
+message QuerySamplesResponse {
+  repeated StorageSample items = 1;
+  string next_page_token = 2;
+  bool complete = 3;
+}
+enum StorageAggregation {
+  STORAGE_AGGREGATION_UNSPECIFIED = 0;
+  STORAGE_AGGREGATION_COUNT = 1;
+  STORAGE_AGGREGATION_MIN = 2;
+  STORAGE_AGGREGATION_MAX = 3;
+  STORAGE_AGGREGATION_AVG = 4;
+}
+message QueryAggregatesRequest {
+  StorageFilter filter = 1;
+  StorageAggregation aggregation = 2;
+  uint64 window_ms = 3;
+  uint32 page_size = 4;
+  string page_token = 5;
+}
+message StorageAggregate {
+  google.protobuf.Timestamp window_start = 1;
+  google.protobuf.Timestamp window_end = 2;
+  string point_id = 3;
+  string business_point_id = 4;
+  string point_table_id = 5;
+  StorageDataLevel data_level = 6;
+  string unit = 7;
+  uint64 good_count = 8;
+  uint64 missing_count = 9;
+  optional double result = 10;
+}
+message QueryAggregatesResponse {
+  repeated StorageAggregate items = 1;
+  string next_page_token = 2;
+}
+message CreateExportRequest {
+  string request_id = 1;
+  StorageFilter filter = 2;
+  string export_format = 3;
+}
+message CreateBackupRequest {
+  string request_id = 1;
+  string wind_farm_id = 2;
+}
+message StorageTask {
+  string task_id = 1;
+  StorageTaskState state = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp finished_at = 4;
+  string artifact_id = 5;
+  uint64 size_bytes = 6;
+  string sha256 = 7;
+  string error_code = 8;
+  string message = 9;
+}
+message GetStorageTaskRequest {
+  string task_id = 1;
+}
+message GetStorageStatsRequest {
+  string wind_farm_id = 1;
+}
+message PartitionProgress {
+  string topic = 1;
+  int32 partition = 2;
+  int64 committed_next_offset = 3;
+  int64 last_confirmed_offset = 4;
+  uint64 lag = 5;
+  string block_reason = 6;
+}
+message GetStorageStatsResponse {
+  repeated PartitionProgress partitions = 1;
+  uint64 persisted_points_total = 2;
+  uint64 write_unknown_total = 3;
+  uint64 schema_conflicts_total = 4;
+  uint32 active_queries = 5;
+  uint32 active_exports = 6;
+  uint32 active_backups = 7;
+  string service_state = 8;
+}
+message ListBlockedPartitionsRequest {
+  uint32 page_size = 1;
+  string page_token = 2;
+}
+message ListBlockedPartitionsResponse {
+  repeated PartitionProgress items = 1;
+  string next_page_token = 2;
+}
+message RetryBlockedPartitionRequest {
+  string request_id = 1;
+  string topic = 2;
+  int32 partition = 3;
+  int64 expected_blocked_offset = 4;
+}
+message RetryBlockedPartitionResponse {
+  bool accepted = 1;
+  string result = 2;
+}
+service StorageService {
+  rpc QuerySamples(QuerySamplesRequest) returns (QuerySamplesResponse);
+  rpc QueryAggregates(QueryAggregatesRequest) returns (QueryAggregatesResponse);
+  rpc CreateExport(CreateExportRequest) returns (StorageTask);
+  rpc GetExportTask(GetStorageTaskRequest) returns (StorageTask);
+  rpc CreateBackup(CreateBackupRequest) returns (StorageTask);
+  rpc GetBackupTask(GetStorageTaskRequest) returns (StorageTask);
+  rpc GetStorageStats(GetStorageStatsRequest) returns (GetStorageStatsResponse);
+  rpc ListBlockedPartitions(ListBlockedPartitionsRequest) returns (ListBlockedPartitionsResponse);
+  rpc RetryBlockedPartition(RetryBlockedPartitionRequest) returns (RetryBlockedPartitionResponse);
+}

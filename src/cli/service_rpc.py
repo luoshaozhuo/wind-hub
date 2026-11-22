@@ -19,6 +19,7 @@ SERVICE_MODULES = {
     "sink": ("sink_service", "SinkService"),
     "gateway": ("industrial_gateway", "IndustrialGatewayService"),
     "data-generator": ("data_generator", "DataGeneratorService"),
+    "storage": ("storage_service", "StorageService"),
 }
 
 

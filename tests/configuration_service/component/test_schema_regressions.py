@@ -10,11 +10,12 @@ from configuration_service.application.service import ConfigurationApplication, 
 from configuration_service.domain.models import RepositoryConflictError
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import emit_yaml, parse_yaml
 from tests.configuration_service.component.test_shipped_yaml_repository import (
+    REPOSITORY_YAMLS,
     input_for,
     original_file_version,
 )
 from tests.configuration_service.conftest import document_input, publish_documents
-from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FILES
+from tests.configuration_service.unit.test_yaml_acceptance import ROOT
 
 pytestmark = pytest.mark.component
 
@@ -24,7 +25,7 @@ def test_existing_commander_caller_array_is_admitted_and_reconstructed(
 ) -> None:
     # Full-directory publication admits the shipped root as one complete
     # closure; the nested caller array survives as frozen, parseable YAML.
-    documents = tuple(input_for(path) for path in YAML_FILES)
+    documents = tuple(input_for(path) for path in REPOSITORY_YAMLS)
     revision, _ = publish_documents(app, documents, request_id="caller-array")
     item = input_for(ROOT / "configs/services/commander.yaml")
     version_id = app.repository.resolve_version(

@@ -131,6 +131,12 @@ _FIELDS: dict[str, dict[str, str]] = {
         "tracing": "object",
     },
     "scenario": {"scenarios": "array"},
+    "collector_tasks": {"tasks": "object"},
+    "deployment": {
+        "deployment_id": "string",
+        "services": "object",
+        "instances": "object",
+    },
 }
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "units": ("quantities", "units"),
@@ -140,6 +146,8 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     "device_model": ("template_id",),
     "site": ("site_id",),
     "protocol": ("template_id",),
+    "collector_tasks": ("tasks",),
+    "deployment": ("deployment_id", "services", "instances"),
 }
 
 

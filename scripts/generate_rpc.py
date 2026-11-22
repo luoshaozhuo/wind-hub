@@ -21,6 +21,7 @@ PROTO_FILES = (
     "contracts/industrial_gateway.proto",
     "contracts/data_generator.proto",
     "contracts/configuration_repository.proto",
+    "contracts/storage_service.proto",
 )
 
 RETIRED_PROTO_NAMES = ("collector_v2", "sink", "gateway")

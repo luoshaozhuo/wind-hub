@@ -15,6 +15,8 @@ BACKEND_PREFIXES = (
     "src/web_server/",
     "src/industrial_gateway/",
     "src/data_generator/",
+    "src/storage_service/",
+    "src/sink_service/",
 )
 
 TOOLING_PREFIXES = (
@@ -38,6 +40,7 @@ PR_TARGET_ORDER = (
     "integration-gateway",
     "integration-rpc",
     "integration-sinks",
+    "integration-storage",
     "system-acquisition",
     "system-command",
     "system-e2e",
@@ -97,6 +100,20 @@ def _backend_pr_targets(path: str) -> set[str]:
         "tests/collector/integration/",
     ):
         targets.add("integration-sinks")
+
+    if _starts(
+        path,
+        "src/storage_service/",
+        "tests/storage_service/integration/",
+        "src/contracts/storage_service",
+        "configs/services/service_storage-",
+        "configs/services/storage_bootstrap_",
+    ) or path in {
+        "src/contracts/configuration_repository.proto",
+        "src/core/configuration/deployment.py",
+        "tests/configuration_service/integration/test_storage_deployment_flow.py",
+    }:
+        targets.add("integration-storage")
 
     if _starts(
         path,

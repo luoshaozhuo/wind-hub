@@ -278,6 +278,20 @@ message GetCurrentRevisionResponse {
   google.protobuf.Timestamp committed_at = 3;
 }
 
+// Query one Deployment-selected Service and its immutable dependency closure.
+message GetServiceConfigBundleRequest {
+  string deployment_id = 1;
+  string service_id = 2;
+  uint64 revision_id = 3; // 0 means current published revision
+}
+message GetServiceConfigBundleResponse {
+  uint64 repository_revision_id = 1;
+  string target_revision = 2;
+  repeated ConfigYamlDocument files = 3;
+  string manifest_sha256 = 4;
+  uint64 total_bytes = 5;
+}
+
 service ConfigurationRepositoryService {
   rpc CreateCandidate(CreateCandidateRequest) returns (CreateCandidateResponse);
   rpc PublishCandidate(PublishCandidateRequest) returns (PublishCandidateResponse);
@@ -285,6 +299,8 @@ service ConfigurationRepositoryService {
   rpc ListConfigVersions(ListConfigVersionsRequest) returns (ListConfigVersionsResponse);
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
   rpc GetConfigBundle(GetConfigBundleRequest) returns (GetConfigBundleResponse);
+  rpc GetServiceConfigBundle(GetServiceConfigBundleRequest)
+      returns (GetServiceConfigBundleResponse);
   rpc GetPointTableBundle(GetPointTableBundleRequest) returns (GetPointTableBundleResponse);
   rpc GetCurrentRevision(GetCurrentRevisionRequest) returns (GetCurrentRevisionResponse);
   rpc ListReferences(ListReferencesRequest) returns (ListReferencesResponse);

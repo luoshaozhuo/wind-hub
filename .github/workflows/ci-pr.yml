@@ -19,3 +19,4 @@ jobs:
           python -m py_compile scripts/ci_scope.py scripts/ci_gate.py ai_shared/agent_config/skills/merge-branch/scripts/merge.py
           python scripts/ci_scope.py src/core/infrastructure/protocol/ads/driver.py | grep -q 'backend_pr_targets=integration-protocol'
           python scripts/ci_scope.py src/core/infrastructure/sink/redis.py | grep -q 'backend_pr_targets=integration-sinks'
+          python scripts/ci_scope.py src/storage_service/main.py | grep -q 'backend_pr_targets=integration-storage'

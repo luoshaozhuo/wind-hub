@@ -9,6 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "contracts", from = "src" },
     { include = "configuration_service", from = "src" },
+    { include = "storage_service", from = "src" },
     { include = "collector", from = "src" },
     { include = "sink_service", from = "src" },
     { include = "commander", from = "src" },
@@ -36,6 +37,7 @@ hat-drivers = "^0.10.10"
 pyads = "^3.4"
 nats-py = "^2.10"
 aiokafka = { version = "^0.14", optional = true }
+taos-ws-py = { version = "^0.7.0", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
 aiofiles = "^25.1.0"
@@ -45,10 +47,12 @@ opentelemetry-exporter-otlp-proto-grpc = { version = "^1.30", optional = true }
 
 [tool.poetry.extras]
 kafka = ["aiokafka"]
+storage = ["aiokafka", "taos-ws-py"]
 db = ["asyncpg", "influxdb-client"]
 tracing = ["opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-grpc"]
 all = [
     "aiokafka",
+    "taos-ws-py",
     "asyncpg",
     "influxdb-client",
 ]
@@ -82,6 +86,7 @@ wind-hub-server = "web_server.main:main"
 wind-hub-gateway = "industrial_gateway.main:main"
 wind-hub-data-generator = "data_generator.main:main"
 wind-hub-configuration-service = "configuration_service.main:main"
+wind-hub-storage-service = "storage_service.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -116,6 +121,7 @@ extend-immutable-calls = [
 "src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py" = ["N802"]
 "src/configuration_service/infrastructure/adapters/inbound/grpc/repository_server.py" = ["N802"]
 "src/configuration_service/infrastructure/adapters/inbound/grpc/common_server.py" = ["N802"]
+"src/storage_service/infrastructure/adapters/inbound/grpc_server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -146,6 +152,12 @@ module = ["hat", "hat.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 
+# aiokafka 未附带 py.typed；Kafka 适配器通过真实客户端契约测试覆盖。
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 # mypy-protobuf 生成的 .pyi stub 自带 generator 兼容的 ignore/overload
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
@@ -164,6 +176,8 @@ module = [
     "contracts.data_generator_pb2_grpc",
     "contracts.configuration_repository_pb2",
     "contracts.configuration_repository_pb2_grpc",
+    "contracts.storage_service_pb2",
+    "contracts.storage_service_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -216,6 +230,7 @@ markers = [
     "ads: ADS 协议相关",
     "iec104: IEC104 协议相关",
     "redis: 需要真实 Redis",
+    "kafka: 需要真实 Kafka",
     "influxdb: 需要真实 InfluxDB",
     "file: 文件 sink 相关",
     # 服务真实性与环境 marker
@@ -248,8 +263,41 @@ root_packages = [
     "contracts",
     "sink_service",
     "configuration_service",
+    "storage_service",
 ]
 
+
+[[tool.importlinter.contracts]]
+name = "storage-service 三层依赖方向"
+type = "layers"
+layers = [
+    "storage_service.infrastructure",
+    "storage_service.application",
+    "storage_service.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "storage-service 不得依赖其他业务进程包"
+type = "forbidden"
+source_modules = ["storage_service"]
+forbidden_modules = [
+    "collector", "commander", "cli", "sink_service", "data_generator",
+    "industrial_gateway", "web_server", "configuration_service",
+]
+
+[[tool.importlinter.contracts]]
+name = "Storage application/domain 不得依赖生成 Protobuf"
+type = "forbidden"
+source_modules = [
+    "storage_service.application",
+    "storage_service.domain",
+]
+forbidden_modules = [
+    "contracts.storage_service_pb2",
+    "contracts.storage_service_pb2_grpc",
+    "contracts.configuration_repository_pb2",
+    "contracts.configuration_repository_pb2_grpc",
+]
 
 [[tool.importlinter.contracts]]
 name = "configuration-service 三层依赖方向"

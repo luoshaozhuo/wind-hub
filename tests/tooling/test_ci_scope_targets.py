@@ -93,3 +93,20 @@ def test_gateway_changes_trigger_own_integration() -> None:
 
 def test_sink_changes_trigger_sink_integration() -> None:
     assert "integration-sinks" in _pr_targets("src/sink_service/application/reliable_engine.py")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/storage_service/main.py",
+        "tests/storage_service/integration/test_kafka_real.py",
+        "src/contracts/storage_service.proto",
+        "src/contracts/configuration_repository.proto",
+        "src/core/configuration/deployment.py",
+        "configs/services/service_storage-main_v1.1.0.yaml",
+        "configs/services/storage_bootstrap_v1.0.0.yaml",
+        "tests/configuration_service/integration/test_storage_deployment_flow.py",
+    ],
+)
+def test_storage_changes_trigger_storage_integration(path: str) -> None:
+    assert "integration-storage" in _pr_targets(path)

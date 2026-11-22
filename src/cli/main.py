@@ -32,6 +32,7 @@ from .network_probe import industrial_probe, ping_probe, scan_cidr, tcp_probe
 from .plant_commands import data_generator, gateway, sink
 from .process_manager import manage_service_process
 from .runtime import Runtime
+from .storage_commands import storage
 
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 service_app = typer.Typer(help="Configured service targets and public gRPC status.")
@@ -48,6 +49,7 @@ app.add_typer(sink, name="sink")
 app.add_typer(gateway, name="gateway")
 app.add_typer(data_generator, name="data-generator")
 app.add_typer(diagnose, name="diagnose")
+app.add_typer(storage, name="storage")
 
 _config: Path | None = None
 _format: str | None = None
