@@ -198,7 +198,7 @@ async def test_cli_rejects_healthy_foreign_endpoint_after_process_start(
             return {"health": "HEALTHY"}
 
     async def fake_start(_target: ServiceTarget, _action: str) -> dict[str, object]:
-        return {"confirmed": True, "running": True, "pid": 12345}
+        return {"confirmed": True, "running": True, "pid": 12345, "start_tick": "42"}
 
     with (
         patch("cli.main.runtime", return_value=FakeRuntime()),
