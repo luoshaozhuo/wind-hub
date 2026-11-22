@@ -240,7 +240,7 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     )
     invoked.add("GetEvents")
     # Event generation is workload-dependent: an empty successful page is valid.
-    assert events.next_page_token == "" or isinstance(events.next_page_token, str)
+    assert len(events.events) <= 10
 
     # --- STOP leaves the device at STOP for clean process shutdown --------
     await stop_task(device_stub, config_stub, DEVICE_MODBUS)
