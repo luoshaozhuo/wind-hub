@@ -12,7 +12,11 @@ from pathlib import Path
 
 import yaml
 
-from core.configuration.deployment import INSTANCE_ROLE_TYPES, closure_sha256, service_instance_refs
+from core.configuration.deployment import (
+    INSTANCE_ROLE_TYPES,
+    closure_sha256,
+    service_instance_refs,
+)
 from core.configuration.publication_identity import resolve_publication_identity
 from core.infrastructure.config.generic_yaml import parse_yaml
 from core.infrastructure.configuration_repository import SelectedBundle, _published_yaml
@@ -94,9 +98,10 @@ def stage_selected_bundle(
         raise ValueError("cached Service generation cannot be a symlink")
     if destination.exists():
         _verify_cached_files(destination, bundle.files)
+        _verify_cached_manifest(
+            destination, deployment_id, manifest_version, manifest
+        )
         return expected_path
-    if destination.exists():
-        raise ValueError("incomplete configuration cache generation already exists")
     stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=cache_root))
     try:
         configs = stage / "configs"
@@ -121,6 +126,24 @@ def stage_selected_bundle(
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+
+
+def _verify_cached_manifest(
+    destination: Path,
+    deployment_id: str,
+    version: str,
+    expected: dict[str, object],
+) -> None:
+    path = (
+        destination / "configs" / "deployments"
+        / f"deployment_{deployment_id}_v{version}.yaml"
+    )
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("cached Deployment selector is missing or unsafe")
+    document = yaml.safe_load(path.read_bytes())
+    if document != expected:
+        raise ValueError("cached Deployment selector has been modified")
+
 
 def _verify_cached_files(destination: Path, expected: dict[str, bytes]) -> None:
     """Never trust an existing generation based on its Service file alone."""
@@ -155,7 +178,7 @@ def mark_active_bundle(
     cache_root = cache_root.absolute()
     version = os.environ.get("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0")
     generation = cache_root / version / bundle.target_revision
-    _verify_cached_files(generation, bundle.files)
+    stage_selected_bundle(bundle, cache_root, deployment_id, service_id)
     pointer = _active_pointer(cache_root, deployment_id, service_id)
     payload = {
         "revision": bundle.target_revision,
@@ -169,6 +192,11 @@ def mark_active_bundle(
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, pointer)
+        directory_fd = os.open(cache_root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -217,12 +245,19 @@ def load_active_bundle(
         document = _published_yaml(content)
         identity = resolve_publication_identity(relative, document)
         canonical = json.dumps(
-            document, sort_keys=True, separators=(",", ":"),
-            ensure_ascii=False, allow_nan=False,
+            document,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
         ).encode("utf-8")
         identities.append(
-            (identity.config_type, identity.config_id, identity.file_version,
-             hashlib.sha256(canonical).hexdigest())
+            (
+                identity.config_type,
+                identity.config_id,
+                identity.file_version,
+                hashlib.sha256(canonical).hexdigest(),
+            )
         )
         files[relative] = content
     if not files or closure_sha256(deployment_id, service_id, identities) != revision:
@@ -230,10 +265,14 @@ def load_active_bundle(
     service_files = [
         name for name in files
         if name.startswith("services/")
-        and resolve_publication_identity(name, _published_yaml(files[name])).config_id == service_id
+        and resolve_publication_identity(
+            name, _published_yaml(files[name])
+        ).config_id == service_id
     ]
     if len(service_files) != 1:
         raise ValueError("cached active configuration has no unique Service")
     selected = SelectedBundle(revision, repository_revision, files)
-    _verify_cached_files(generation, files)
+    if os.environ.get("WIND_HUB_DEPLOYMENT_VERSION", "1.0.0") != version:
+        raise ValueError("cached Deployment version differs from bootstrap selection")
+    stage_selected_bundle(selected, cache_root, deployment_id, service_id)
     return configs / service_files[0], selected
