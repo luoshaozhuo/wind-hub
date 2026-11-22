@@ -96,7 +96,11 @@ async def test_cfg_path_05_service_references_switch_only_after_restart(
     target = handle.services / "service_collector-realtime_v1.0.1.yaml"
     target.write_text(yaml.safe_dump(document), encoding="utf-8")
     source_site = handle.instances / "site_site_alpha_v1.0.0.yaml"
-    (handle.instances / "site_another_site_v1.0.0.yaml").write_bytes(source_site.read_bytes())
+    next_site = yaml.safe_load(source_site.read_text(encoding="utf-8"))
+    next_site["site_id"] = "another_site"
+    (handle.instances / "site_another_site_v1.0.0.yaml").write_text(
+        yaml.safe_dump(next_site), encoding="utf-8"
+    )
     manifest = handle.process.config_root / "deployments" / (
         "deployment_collector-acceptance_v1.0.0.yaml"
     )
