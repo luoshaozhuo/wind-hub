@@ -169,6 +169,35 @@ async def test_managed_listener_ownership_matches_process_group(
     assert not managed_endpoint_owned(target)
 
 
+async def test_cli_rejects_healthy_foreign_endpoint_after_process_start(
+    tmp_path: Path,
+) -> None:
+    from cli import main
+
+    target = replace(
+        _target(tmp_path, "import time", "time.sleep(120)", timeout=0.05),
+        grpc_endpoint="127.0.0.1:45321",
+    )
+
+    class FakeRuntime:
+        def target(self, _name: str) -> ServiceTarget:
+            return target
+
+        async def call_common(self, _name: str, _method: str) -> dict[str, str]:
+            return {"health": "HEALTHY"}
+
+    async def fake_start(_target: ServiceTarget, _action: str) -> dict[str, object]:
+        return {"confirmed": True, "running": True, "pid": 12345}
+
+    with (
+        patch("cli.main.runtime", return_value=FakeRuntime()),
+        patch("cli.main.manage_service_process", side_effect=fake_start),
+        patch("cli.native_process.managed_endpoint_owned", return_value=False),
+        pytest.raises(RuntimeError, match="does not belong to managed process"),
+    ):
+        await main._manage_service("configuration", "start")
+
+
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:
     target = _target(tmp_path, "import time", "time.sleep(0.3)")
     try:
