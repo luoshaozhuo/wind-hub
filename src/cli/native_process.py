@@ -152,10 +152,23 @@ def managed_endpoint_owned(target: ServiceTarget) -> bool:
             continue
         for line in lines:
             fields = line.split()
-            if len(fields) > 9 and fields[3] == "0A":
-                address = fields[1].rsplit(":", 1)
-                if len(address) == 2 and address[1].upper() == port_hex:
-                    listeners.add(fields[9])
+            if len(fields) <= 9 or fields[3] != "0A":
+                continue
+            address = fields[1].rsplit(":", 1)
+            if len(address) != 2 or address[1].upper() != port_hex:
+                continue
+            ip_hex = address[0].upper()
+            ipv4 = ip_hex in {"0100007F", "00000000"}
+            ipv6 = ip_hex in {
+                "00000000000000000000000001000000",
+                "00000000000000000000000000000000",
+            }
+            if (
+                (host == "127.0.0.1" and table.endswith("/tcp") and ipv4)
+                or (host == "[::1]" and table.endswith("/tcp6") and ipv6)
+                or (host == "localhost" and (ipv4 or ipv6))
+            ):
+                listeners.add(fields[9])
     if not listeners:
         return False
     for process in Path("/proc").iterdir():
