@@ -23,7 +23,6 @@ TEMPLATE_FILE_PREFIXES: Mapping[str, str] = MappingProxyType(
         "protocols": "protocol_",
         "device_models": "device_model_",
         "point_tables": "point_table_",
-        "tasks": "task_",
     }
 )
 _CATEGORIES = frozenset(TEMPLATE_FILE_PREFIXES)
