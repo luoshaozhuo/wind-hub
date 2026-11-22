@@ -241,9 +241,7 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
             response = await context.call_common(name, "GetServiceStatus")
             if managed and not await owned():
                 if asyncio.get_running_loop().time() >= deadline:
-                    raise RuntimeError(
-                        "healthy gRPC response does not belong to managed process"
-                    )
+                    raise RuntimeError("healthy gRPC response does not belong to managed process")
                 await asyncio.sleep(0.2)
                 continue
             result["business"] = response
