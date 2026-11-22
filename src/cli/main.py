@@ -214,25 +214,38 @@ async def _manage_service(name: str, operation: str) -> dict[str, Any]:
         result["business"] = {"health": "UNKNOWN", "reason": "no gRPC endpoint"}
         return result
     deadline = asyncio.get_running_loop().time() + target.timeout
+    managed = target.manager == "process"
+    if managed:
+        from .native_process import managed_endpoint_owned
+
+        initial_pid = process.get("pid")
+        initial_tick = process.get("start_tick")
+        if type(initial_pid) is not int or not isinstance(initial_tick, str):
+            raise RuntimeError("managed process has no confirmed startup identity")
+
+        async def owned() -> bool:
+            return await asyncio.to_thread(
+                managed_endpoint_owned,
+                target,
+                expected_pid=initial_pid,
+                expected_start_tick=initial_tick,
+            )
+
     while True:
         try:
-            if target.manager == "process" and target.grpc_endpoint is not None:
-                from .native_process import managed_endpoint_owned
-
-                if not await asyncio.to_thread(managed_endpoint_owned, target):
-                    if asyncio.get_running_loop().time() >= deadline:
-                        raise RuntimeError("managed service does not own its gRPC listener")
-                    await asyncio.sleep(0.2)
-                    continue
+            if managed and not await owned():
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise RuntimeError("managed service does not own its gRPC listener")
+                await asyncio.sleep(0.2)
+                continue
             response = await context.call_common(name, "GetServiceStatus")
-            if target.manager == "process" and target.grpc_endpoint is not None:
-                if not await asyncio.to_thread(managed_endpoint_owned, target):
-                    if asyncio.get_running_loop().time() >= deadline:
-                        raise RuntimeError(
-                            "healthy gRPC response does not belong to managed process"
-                        )
-                    await asyncio.sleep(0.2)
-                    continue
+            if managed and not await owned():
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise RuntimeError(
+                        "healthy gRPC response does not belong to managed process"
+                    )
+                await asyncio.sleep(0.2)
+                continue
             result["business"] = response
             return result
         except grpc.aio.AioRpcError as exc:
