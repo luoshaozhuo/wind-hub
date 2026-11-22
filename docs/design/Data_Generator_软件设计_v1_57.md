@@ -990,7 +990,7 @@ flowchart TD
  B -->|是| C{"方法类别"}
  C -->|查询| D["读取设备、场景、生成实例或服务快照"]
  C -->|生成控制| E["按版本校验执行 StartGeneration/StopGeneration"]
- C -->|配置管理| F["执行快照 Get/Push/Apply"]
+ C -->|配置管理| F["查询快照与目标/生效版本；旧写入口拒绝"]
  C -->|诊断与观测| G["执行 Diagnose 或读取 Metrics/Events"]
  D --> H["编码实际结果并响应"]
  E --> H
@@ -1220,7 +1220,7 @@ $n=0$ 时 P99 不可用，不返回数值零；超时但底层执行未结束的
 | FR-01 | 随机/简单物理模型生成、输入依赖及错误处理；Gateway 输出 | UR-01、UR-03 |
 | FR-02 | CSV 历史范围读取、顺序、倍率、结束及停止 | UR-02 |
 | FR-03 | 实现目标 8 个专属与 9 个公共 Server RPC，并报告真实状态 | UR-04 |
-| FR-04 | 快照 Get/Push/Apply、场景版本查询、生成启停 | UR-04、UR-05 |
+| FR-04 | 快照只读查询、Repository 选版调和、场景版本查询、生成启停；旧 Push/Apply 拒绝 | UR-04、UR-05 |
 | FR-05 | Diagnose 分阶段证据与局限、Metrics 及 Events 查询 | UR-06、UR-07 |
 | PR-01 | 生成非重入、历史倍率时序和统计偏差，§6.3 | UR-01、UR-02 |
 | PR-02 | 队列、在途 RPC、诊断和指标有界；超限背压，§6.3 | UR-03、UR-06、UR-07 |
@@ -1790,7 +1790,7 @@ $$
 | Gateway RPC 超时/连接中断 | 本批 UNKNOWN | 不默认再次发送；控制未收敛在途 I/O |
 | Metrics 不可用 | 指标 UNKNOWN/STALE | 记录采集错误，不停止有效业务源 |
 | Diagnose 失败 | 该诊断失败 | 不修改正常生成源 |
-| 配置 Apply 文件写入失败 | 未成功提交 | 继续保留原正式配置 |
+| Repository 发布失败或 Service 激活失败 | 不推进相应的目标修订或活动修订 | 保留最后一个有效运行快照，明确报告错误 |
 | 运行进程崩溃 | 不确定批次不保证交付 | 重启从配置开始，明确非断点恢复 |
 
 # 7. 开发视图
@@ -1972,7 +1972,7 @@ flowchart LR
 
 源数据 `(device_id,point_id)` 先依配置展开为零个或多个目标 `(gateway_id,variable_id)`；**配置要求每个被启用的输出点至少一个目标**。一批源数据按 `gateway_id` 分组；每个 Gateway 接收其自身的 `UpdateVariables` 调用，多个 Gateway 的成功/失败相互独立，不存在跨 Gateway 原子提交。单 Gateway 的部分失败以逐项结果裁决，响应缺失或未包含预期结果时不得补造成功。全批成功必须所有映射目标逐项确认；只要存在某个明确成功且另有失败则记 `PARTIAL`；存在未知目标要保留 UNKNOWN 明细而不能折算成功。数据推送只更新虚拟协议 Server 内部变量，不构成工业客户端写入、Commander 控制或下游已消费证明。
 
-对于超时/取消导致的未知执行结果，该 Gateway 的 I/O 所有者继续跟踪底层调用，禁止盲重试旧批次；其他 Gateway 可以继续接收后续数据。目标变量所有权键为 `(gateway_id,variable_id)`，配置 Apply 与启动均须检查跨活动实例冲突。按 Gateway 限制并发、批量、超时和资源，并在 Metrics 中按 Gateway 分别统计。
+对于超时/取消导致的未知执行结果，该 Gateway 的 I/O 所有者继续跟踪底层调用，禁止盲重试旧批次；其他 Gateway 可以继续接收后续数据。目标变量所有权键为 `(gateway_id,variable_id)`，配置激活与 Generation 启动均须检查跨活动实例冲突。按 Gateway 限制并发、批量、超时和资源，并在 Metrics 中按 Gateway 分别统计。
 
 ### 9.3.2 跨实例目标所有权与租约契约
 
@@ -1988,9 +1988,9 @@ flowchart LR
 
 1. Server 目标需实现 **17 个 Unary RPC**（`DataGeneratorService` 8 + `CommonService` 9；现行 Proto 已为 8 + 9，编码应按 Descriptor 核对），逐方法比对编译后的 Descriptor；不能把 Gateway 的接口算作本模块 Server 方法。
 2. 对 ID/类型/版本/分页/权限/期限错误给出与 Proto 字段兼容的反馈；不通过新增自定义 Request/Response 消息绕开公共契约。
-3. 生成启停和 Apply 属于有副作用操作：`expected_revision` 校验、状态所有权与并发冲突裁决在应用层完成；接受请求与实际启动/停止状态分开。
+3. 生成启停和配置激活属于有副作用操作：运行所有权、租约与并发冲突裁决在应用层完成；Repository 的发布 CAS 与 Service 的运行激活各自独立。
 4. gRPC 取消/超时不证明底层历史读取或 Gateway I/O 已结束；进程视图 §6.4 负责资源所有权与安全关闭。
-5. 配置 `file_commit` 与 `apply_results` 分别表示正式文件提交与运行生效情况；Apply 返回成功不能隐瞒部分运行对象未生效。
+5. Repository 发布修订与 Service 的 target_revision/active_revision 分开报告；即使 Repository 已提交，也不得隐瞒业务校验失败、等待重启或部分对象未生效。
 6. 本章方法清单对应 §3.5、§4.8、§5、§6、§7、§11、§12、§13、§14，任何 Proto 变更须同步重新生成 Descriptor 覆盖矩阵和 System 追溯。
 
 ## 9.5 冻结基础与批量注入协作（规范性）
@@ -2685,7 +2685,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 `ListVariables(generation_id,device_id)` 的变量集合是该设备的**有效模型变量目录**：包括已登记的 PointTable 控制/测量点，也包括绑定气象场景的两个独立输入。后者由模型 Schema 定义元数据并使用 `source=WEATHER_INPUT`；响应层的 `point_table_version` 仍表示当前设备关联的共享点表版本，不是气象输入所属版本；`UpdateVariables` 的 `point_id` 据此解析，不强行要求气象输入存在于 Modbus PointTable。整批更新与幂等语义仍以 §9 为准。
 
-运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Push/Apply 生效见 §11；Modbus PointTable、设备型号物理参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
+运行时变量发现、批量输入更新、幂等和权限见 §9；配置文件路径、目标 Schema 与 Repository 发布/Service 激活见 §11；Modbus PointTable、设备型号物理参数清单及业务控制权限见 §10.6。此处不重复定义 RPC、配置字段或点位元数据。
 
 ### 10.5.12 物理模型编码不变量
 
@@ -2717,7 +2717,7 @@ FFR 必须按当前设备正/负可用功率及储能 SOC 分配；风、光无�
 
 **配置归属**：以下固定物理参数仅声明于 `configs/templates/device_models/<template_id>_<version>.yaml` 的 `simulation.parameters`，由共享设备实例的 `model.id + model.version` 精确引用。Data Generator 的 `services/*.yaml` 场景仅选择设备、运行模型、气象工况及外部控制关系，不得重复额定参数。Point Table 只登记工业协议点位及业务语义。物理参数应由共享配置权威写入方修改并经过精确版本装配；Data Generator 私有 Push/Apply 不直接修改共享设备型号。
 
-本表中 **必填** 表示启用相应固定物理模型时必须给定有效值；**可选** 表示算法明确启用该功能时才要求配置。所有数值为可配置参数，不把示例设备的容量固定为 2 MW、1 MW 等型号。运行中不得通过 `UpdateVariables` 修改；变更必须提交新场景版本并经 Push/Apply 或重启生效。
+本表中 **必填** 表示启用相应固定物理模型时必须给定有效值；**可选** 表示算法明确启用该功能时才要求配置。所有数值为可配置参数，不把示例设备的容量固定为 2 MW、1 MW 等型号。运行中不得通过 `UpdateVariables` 修改；变更必须发布新的不可变 DeviceModel/Instance 版本，经 Deployment 精确选版，由 Service 校验后安全激活或重启生效。
 
 #### 风机物理参数
 
@@ -3159,7 +3159,7 @@ Data Generator 通过运行环境变量或受控密钥文件取得 Gateway 的�
 | `test_batch_contract.py` | unit | reliability | invalid_data | UR-03：类型、时间、单来源冲突 |
 | `test_source_runtime.py` | component | reliability | lifecycle | UC-01/02：源停止、超期、回收 |
 | `test_output_backpressure.py` | component | performance | overload | UC-03：容量、顺序、未知投递 |
-| `test_config_manager.py` | component | reliability | conflict | UC-04：Push/Apply、版本冲突及失败保护 |
+| `test_config_manager.py` | component | reliability | conflict | UC-04：唯一发布者拒绝、版本选择及失败保护 |
 | `test_diagnose.py` | component | reliability | no_targets | UC-05：诊断阶段、无目标和非侵入 |
 | `test_metrics.py` | component | performance | no_samples | UC-06：窗口、P99、缺样本、标签限额 |
 | `test_proto_descriptor.py` | integration | reliability | contract | `DataGeneratorService` 目标八方法 + `CommonService` 九方法逐项 Descriptor、类型及存在性断言 |
@@ -3233,7 +3233,7 @@ pytest tests/src/data_generator/system -m 'system and reliability'
 | UR-03 | UC-03-S03 单 Gateway 失败隔离及部分成功 | 6、9、12 | `test_lifecycle_system.py::test_gateway_fanout_partial_failure` | system/reliability/network_failure | A 超时/拒绝不回滚 B 已确认更新；逐点与逐目标指标准确 | 真实双 Gateway+故障注入 |
 | UR-03 | UC-03-S03 多目标背压独立性 | 6、9 | `test_lifecycle_system.py::test_fanout_bounded_backpressure` | system/performance/overload | 故障目标资源有界，健康目标继续输出；全局资源耗尽时暂停来源 | 真实双 Gateway |
 | UR-05 | UC-04-S01 Get/Push/Apply 正常  | 11 | `test_config_system.py::test_get_push_apply` | system/reliability/reload | Push 无生效；Apply 完整报告 | 独立服务 |
-| UR-05 | UC-04-S02 版本冲突/非法候选  | 11 | `test_config_system.py::test_invalid_candidate_and_conflict` | system/reliability/conflict | 旧正式/运行配置保持有效 | 独立服务 |
+| UR-05 | UC-04-S02 无效目标与版本隔离 | 11 | `test_config_system.py::test_invalid_candidate_and_conflict`；Repository→Observer 专项 | system/reliability/conflict | 旧 Push/Apply 拒绝，非法目标可发布但不会激活，旧运行配置保持有效 | 真实 Repository/Data Generator |
 | UR-05 | UC-04-S03 服务配置变更/重启  | 6、11 | `test_config_system.py::test_restart_required` | system/reliability/restart | 文件提交与热生效区分 | 独立服务 |
 | UR-05 | UC-04-S03 文件应用异常  | 11 | `test_config_system.py::test_apply_failure_recovery` | system/reliability/fault_injection | 部分失败准确报告且无破坏 | 独立服务 |
 | UR-06 | UC-05-S01 模拟/重放分阶段诊断  | 12 | `test_diagnose_system.py::test_simulate_replay_stages` | system/reliability/end_to_end | 逐项检查及覆盖范围真实 | 历史源/Gateway |
