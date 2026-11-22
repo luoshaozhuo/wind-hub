@@ -46,20 +46,18 @@ async def test_start_ready(sys_pki, grpc_stack) -> None:
 @pytest.mark.exception
 async def test_start_invalid_config(tmp_path) -> None:
     """UC-01-S02：引用失效的配置启动必须失败，不得进入 READY。"""
-    root = tmp_path / "bad" / "config"
+    root = tmp_path / "bad" / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
-    (tmp_path / "bad" / "state").mkdir(parents=True)
-    service_yaml = tmp_path / "bad" / "commander.yaml"
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True)
     service_yaml.write_text(
-        f"""
-schema_version: 1
+        f"""schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: farm-a
 repository:
   sqlite_path: {tmp_path / 'bad' / 'state' / 'cmd.db'}
 audit:
@@ -71,10 +69,21 @@ shutdown:
 """,
         encoding="utf-8",
     )
-    # pathname 本身存在（绕过 build 期 fail-fast），但引用闭包断裂：
-    # 删除被 devices.yaml 实际引用的版本化设备模型（当前引用 1.1.0），
-    # start 期共享配置加载必须拒绝 READY。
-    referenced = root / "templates" / "device_models" / "device_model_wtg_tz2mw_v1.1.0.yaml"
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "commander-invalid",
+        "services": {
+            "commander": {"config_id": "commander", "file_version": "1.0.0"}
+        },
+        "instances": {
+            "device": {"farm-a": {"file_version": "1.4.0"}}
+        },
+    }
+    manifest = root / "deployments" / "deployment_commander-invalid_v1.0.0.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
+    referenced = root / "templates/device_models/device_model_wtg_tz2mw_v1.3.0.yaml"
     assert referenced.exists()
     referenced.unlink()
     registry = ProtocolRegistry()
@@ -96,7 +105,7 @@ async def test_graceful_shutdown(sys_pki, grpc_stack) -> None:
 
 def _blackhole_with_short_grace(service_dir: Path) -> None:
     """把 TZ01 指向不可路由地址，并把停止宽限压到 1s。"""
-    devices = service_dir / "config" / "instances" / "devices.yaml"
+    devices = service_dir / "configs" / "instances" / "device_farm-a_v1.4.0.yaml"
     text = devices.read_text(encoding="utf-8")
     # 精确改写 TZ01 块（其前可能存在 GW 系列设备，不能替换首个 host）。
     prefix, rest = text.split("  TZ01:", 1)
@@ -104,7 +113,7 @@ def _blackhole_with_short_grace(service_dir: Path) -> None:
     assert "host: 127.0.0.1" in block and "port: 1502" in block
     block = block.replace("host: 127.0.0.1", f"host: {_BLACKHOLE_HOST}", 1)
     devices.write_text(prefix + "  TZ01:" + block + "  TZ02:" + suffix, encoding="utf-8")
-    yaml_path = service_dir / "commander.yaml"
+    yaml_path = service_dir / "configs" / "services" / "service_commander_v1.0.0.yaml"
     yaml_path.write_text(
         yaml_path.read_text(encoding="utf-8").replace("grace_seconds: 10", "grace_seconds: 1"),
         encoding="utf-8",
@@ -172,7 +181,7 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
         devices_name = next(
             f.relative_path
             for f in runtime_before.files
-            if f.relative_path.endswith("instances/devices.yaml")
+            if f.relative_path.endswith("instances/device_farm-a_v1.4.0.yaml")
         )
         before = yaml.safe_load(
             bytes(next(f for f in runtime_before.files if f.relative_path == devices_name).content)
@@ -183,12 +192,27 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
         assert await service.stop() == frozenset()
 
         # 模拟外部配置变更：TZ05 端口改写（仅磁盘，不触碰运行时）。
-        devices = stack.yaml_path.parent / "config" / "instances" / "devices.yaml"
-        text = devices.read_text(encoding="utf-8")
+        original_device = (
+            stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
+        )
+        new_device = original_device.with_name("device_farm-a_v1.4.1.yaml")
+        text = original_device.read_text(encoding="utf-8")
         marker = "  TZ05:"
         head, tail = text.split(marker, 1)
         tail = tail.replace(f"port: {old_port}", f"port: {new_port}", 1)
-        devices.write_text(head + marker + tail, encoding="utf-8")
+        new_device.write_text(
+            head.replace('file_version: "1.4.0"', 'file_version: "1.4.1"')
+            + marker + tail,
+            encoding="utf-8",
+        )
+        manifest = (
+            stack.yaml_path.parent.parent
+            / "deployments"
+            / "deployment_commander-test_v1.0.0.yaml"
+        )
+        deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        deployment["instances"]["device"]["farm-a"]["file_version"] = "1.4.1"
+        manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
 
         registry = ProtocolRegistry()
         registry.register("modbus", ModbusDriver)
@@ -203,7 +227,10 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
             )
             after = yaml.safe_load(
                 bytes(
-                    next(f for f in runtime_after.files if f.relative_path == devices_name).content
+                    next(
+                        f for f in runtime_after.files
+                        if f.relative_path.endswith("instances/device_farm-a_v1.4.1.yaml")
+                    ).content
                 )
             )
             assert after["devices"]["TZ05"]["endpoint"]["port"] == new_port
