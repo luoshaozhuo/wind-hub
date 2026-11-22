@@ -146,18 +146,42 @@ def _verify_cached_manifest(
 
 
 def _verify_cached_files(destination: Path, expected: dict[str, bytes]) -> None:
-    """Never trust an existing generation based on its Service file alone."""
+    """Reject every unselected file and directory in a cached generation."""
     configs = destination / "configs"
     if destination.is_symlink() or configs.is_symlink():
         raise ValueError("configuration cache contains a symlink")
-    actual: set[str] = set()
+    if not destination.is_dir() or set(destination.iterdir()) != {configs}:
+        raise ValueError("cached generation has unexpected root entries")
+    expected_files = set(expected)
+    expected_dirs: set[str] = {"deployments"}
+    for name in expected_files:
+        relative = Path(name)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in (".", "..") for part in relative.parts)
+            or relative.as_posix() != name
+            or relative.parts[0] not in {"services", "instances", "templates"}
+        ):
+            raise ValueError("unsafe cached configuration member")
+        for parent in relative.parents:
+            if parent != Path("."):
+                expected_dirs.add(parent.as_posix())
+    actual_files: set[str] = set()
+    actual_dirs: set[str] = set()
     for node in configs.rglob("*"):
         if node.is_symlink():
             raise ValueError("configuration cache contains a symlink")
-        if node.is_file() and not node.is_relative_to(configs / "deployments"):
-            actual.add(node.relative_to(configs).as_posix())
-    if actual != set(expected):
-        raise ValueError("cached configuration closure differs from Repository selection")
+        relative = node.relative_to(configs).as_posix()
+        if node.is_dir():
+            actual_dirs.add(relative)
+        elif node.is_file():
+            if node.parent != configs / "deployments":
+                actual_files.add(relative)
+        else:
+            raise ValueError("cache contains unsupported file type")
+    if actual_dirs != expected_dirs or actual_files != expected_files:
+        raise ValueError("cached configuration generation contains unselected members")
     for name, content in expected.items():
         file = configs / name
         if not file.is_file() or file.is_symlink() or file.read_bytes() != content:
