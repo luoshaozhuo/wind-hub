@@ -105,7 +105,7 @@ def write_config_tree(
         device_doc["devices"]["modbus-hold"] = {
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": blackhole_port},
-            "group": "turbine",
+            "group": "hold",
             "overrides": {"task": {"desired_state": hold_desired_state}},
         }
     devices_path = instances / f"device_{devices_ref}_v1.0.0.yaml"
@@ -252,7 +252,19 @@ def write_config_tree(
                         "point_group": "all",
                         "interval_ms": max(1, round(task_interval * 1000)),
                         "desired_state": "STOP",
-                    }
+                    },
+                    **(
+                        {
+                            "hold_task": {
+                                "group": "hold",
+                                "point_group": "all",
+                                "interval_ms": max(1, round(task_interval * 1000)),
+                                "desired_state": hold_desired_state,
+                            }
+                        }
+                        if blackhole_port is not None
+                        else {}
+                    ),
                 },
             }
         )
