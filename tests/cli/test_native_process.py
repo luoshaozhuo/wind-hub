@@ -98,6 +98,21 @@ async def test_early_child_failure_is_not_confirmed_as_service_start(
     assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
 
 
+async def test_restart_waits_for_previous_listener_to_disappear(tmp_path: Path) -> None:
+    target = replace(
+        _target(tmp_path, "import time", "time.sleep(120)"),
+        grpc_endpoint="127.0.0.1:1",
+    )
+    started = await manage_native_process(target, "start")
+    try:
+        with patch.object(native_process, "_foreign_loopback_listener", side_effect=[True, False]):
+            restarted = await manage_native_process(target, "restart")
+        assert restarted["confirmed"] and restarted["pid"] != started["pid"]
+        assert [stage["operation"] for stage in restarted["stages"]] == ["stop", "start"]
+    finally:
+        await manage_native_process(target, "stop")
+
+
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:
     target = _target(tmp_path, "import time", "time.sleep(0.3)")
     try:

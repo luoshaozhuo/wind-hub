@@ -170,12 +170,19 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             "status": "ACTIVE" if alive else "INACTIVE",
         }
 
-    def start() -> dict[str, Any]:
+    def start(*, wait_for_release: bool = False) -> dict[str, Any]:
         existing = current_state()
         if existing["running"]:
             return {**existing, "confirmed": True, "already_running": True}
-        if _foreign_loopback_listener(target.grpc_endpoint):
-            raise RuntimeError("configured local service endpoint is already occupied")
+        # After stopping our own process, a transient TCP response can outlive
+        # the process group. Wait briefly for release, still rejecting a listener
+        # that remains reachable or was already present on a fresh start.
+        release_deadline = min(deadline, time.monotonic() + 0.5)
+        while _foreign_loopback_listener(target.grpc_endpoint):
+            remaining = release_deadline - time.monotonic()
+            if not wait_for_release or remaining <= 0:
+                raise RuntimeError("configured local service endpoint is already occupied")
+            time.sleep(min(0.05, remaining))
         spec.log_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         log_fd = os.open(
             spec.log_file,
@@ -266,7 +273,7 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             return stop()
         if action == "restart":
             stopped = stop()
-            started = start()
+            started = start(wait_for_release=not stopped.get("already_stopped", False))
             return {
                 **started,
                 "stages": [*stopped.get("stages", []), *started.get("stages", [])],
