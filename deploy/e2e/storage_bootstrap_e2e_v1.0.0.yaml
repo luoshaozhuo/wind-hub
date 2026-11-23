@@ -1,0 +1,13 @@
+# 本地 bootstrap，不在 configs/ 根目录内，绝不能通过 Configuration 发布。
+# 由测试框架为隔离实例生成绝对可写 cache 目录；端点与令牌从环境提供。
+schema_version: 1
+file_version: "1.0.0"
+service_id: storage-e2e
+deployment_id: e2e-final
+configuration:
+  endpoint: 127.0.0.1:51060
+  token_env: WIND_HUB_CONFIGURATION_TOKEN
+nats:
+  servers: [nats://127.0.0.1:4222]
+cache:
+  directory: /var/lib/wind-hub/e2e-final/storage
