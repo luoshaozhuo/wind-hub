@@ -1906,11 +1906,11 @@ flowchart LR
 
 # 9. 接口与通信契约（现行九项业务 RPC）
 
-本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_27 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_42 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
 ## 9.1 DataGeneratorService：九项现行 gRPC Server RPC
 
-现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_27 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
+现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_42 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
