@@ -940,7 +940,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 **配置选择器**：`GetConfig` 采用 `oneof selector { version_id; revision_id; }`，不能在同一请求同时传入两套选择依据；`revision_id` 选择该修订下绑定的配置版本。发布操作以 CAS 和版本内容冲突为准，不隐含替换历史版本。
 
-## 10.3 ConfigurationRepositoryService：专用 RPC 定义（目标）
+## 10.3 ConfigurationRepositoryService：现行 RPC 定义
 
 ### 10.3.1 `CreateCandidate` — 完整目录候选（复用既有 RPC）
 
@@ -1040,7 +1040,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ### 10.3.13 `GetPointTableBundle` — 按不可变数据语义 ID 查询（目标）
 
-**用途**：Sink/Storage 根据数据包的 `point_table_id` 获取原始 PointTable 与精确固定的 BusinessPoint/Units 依赖版本闭包，不需要知道全局 `revision_id`。由 Configuration Repository 实现，是目标新增 RPC；当前生产 Proto 尚未包含，不得与现有 `GetConfigBundle(revision_id)` 混为一谈。
+**用途**：Sink/Storage 根据数据包的 `point_table_id` 获取原始 PointTable 与精确固定的 BusinessPoint/Units 依赖版本闭包，不需要知道全局 `revision_id`。由 Configuration Repository 实现，为现行 RPC；当前生产 Proto 已包含，不得与现有 `GetConfigBundle(revision_id)` 混为一谈。
 
 **请求**：`point_table_id:string`（非空、全局唯一语义标识），可选 `expected_manifest_sha256:string`（客户端已知闭包哈希时可用于一致性复核），调用方查询权限在服务端判断。
 
