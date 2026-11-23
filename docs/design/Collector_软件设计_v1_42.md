@@ -3113,7 +3113,7 @@ I/O
 
 Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不在发布前应用 PointTable 比例/偏移、BusinessPoint 映射或标准单位换算。**Collector 对 NATS 的唯一正式源数据格式是 Contracts §11.6 定义的 SampleBatch v3；此处不重复定义字段或编码。**
 
-Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
+Collector Task Instance 用 `group` 选择 Device Instance 中属于该组的设备集合；再逐台依据固定 DeviceModel/PointTable 解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
 
 当前 `src/contracts/sample_batch.py` 与 Collector BatchBuilder 发送严格 v3，并包含 `device_type` / `point_table_id`；重试及分批仍须维持样本身份和不可变历史解释规则。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
@@ -3363,6 +3363,8 @@ Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其�
 一致，不能无验证直接作为已运行配置宣称。
 
 ## 11.7 全量发布与 Collector 运行应用的一致性
+
+Task 的 group 在选定 Device Instance 内形成确定设备集；人工 Start/Stop 的运行意图键绑定 Task ID 与当前 Task Instance file_version，不得修改不可变 YAML，切换新的 Task Instance 版本时旧覆盖失效。
 
 完整配置目录的唯一原子发布权威是 Configuration Repository 的 CreateCandidate/PublishCandidate。Collector 不写入业务共享配置文件，不管理第二套候选 manifest，也不执行本地 Push/Apply 业务配置提交。收到 wh.config.changed 广播或到达周期对账时，调用 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 取得所选 Service、Instance、Template 和历史单位/业务目录精确闭包。
 

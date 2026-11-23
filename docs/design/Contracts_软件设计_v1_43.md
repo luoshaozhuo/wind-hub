@@ -918,6 +918,8 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ## 10.1 状态与权威来源
 
+`CommonService.GetServiceStatusResponse` 中 `target_revision` 的字段号为 4、`active_revision` 为 5，二者均为完整有效闭包摘要；不能与全局 Repository 数值修订混用。Commander 及其他模块从真实状态映射这些字段，尚未实现时必须登记代码专题缺口。
+
 **冻结精确 RPC 字段**：`src/contracts/configuration_repository.proto` 定义 `GetServiceConfigBundleRequest {string deployment_id=1; string service_id=2; uint64 revision_id=3;}`，其中该 RPC 的 `revision_id=0` 明确请求当前已发布修订。响应 `GetServiceConfigBundleResponse {uint64 repository_revision_id=1; string target_revision=2; repeated ConfigYamlDocument files=3; string manifest_sha256=4; uint64 total_bytes=5;}`。此方法属于 Repository 现有 RPC 集合，禁止重定义同名 RPC、补造 `optional` 语义或将其他查询的 presence 规则套用于该消息。精确部署闭包不得由 `GetConfigBundle` 的任意 roots 取代。
 
 

@@ -1834,6 +1834,8 @@ sequenceDiagram
 
 ## 5.1 逻辑组件、职责与依赖
 
+统一状态接口 `GetServiceStatusResponse.target_revision=4`、`active_revision=5` 取自 Commander 服务有效闭包目标与活动摘要；并不是旧本地磁盘 CAS revision，未运行时按实际错误/空值表述，不伪造生效。
+
 Commander 的业务配置完全由 Configuration Repository 发布，不允许 `CommanderConfigApply` 或 Common Push/Apply 对已发布 Service、Device Instance 和 PointTable 原地写入。Application 持有受控运行配置快照和命令执行状态；Adapter 只负责配置闭包的安全读取、哈希校验与原子激活，不提供独立的业务版本写入权威。收到变更通知后通过 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 获取固定闭包，确认 Device、PointTable、安全策略及正在执行的命令语义后再安全切换；不能热更的参数等待重启。候选提交、CAS 和同版本字节不可变性由 Repository 负责，Commander 只报告目标与活动闭包及错误，不伪造回滚。
 
 <p class="figure-caption">图 5-1 内存优先的 Commander 逻辑分层</p>
