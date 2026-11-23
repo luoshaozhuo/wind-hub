@@ -1919,9 +1919,9 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_29 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_42 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
-| `data-generator variables list` | generation_id、device_id，分页参数 | 目标 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；尚未实现不能假报支持 |
+| `data-generator variables list` | generation_id、device_id，分页参数 | 现行 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；是否可用仍须真实 RPC 验证 |
 | `data-generator variables update` | generation_id、device_id、point_id/value 或 values-file、request_id | 目标 DataGeneratorService `UpdateVariables` | 仅可控模型 INPUT；整批原子、幂等、有效步反馈，不是 Gateway 数据注入 |
 | `diagnose collector/commander/sink/gateway/data-generator` | 目标对象及可选范围 | 对应 Service 诊断 RPC | 统一显示阶段证据 |
 | `diagnose pipeline` | DEVICE、必填 `--sink-id DELIVERY_ID` | CLI 调用 Collector + Sink | 跨服务证据汇总 |
@@ -2357,7 +2357,7 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 **接口实施门槛**：正式 Proto 与生成绑定必须一致，Data Generator Server 和 CLI 均须实现可调用的变量发现与更新；仅声明接口或返回 `UNIMPLEMENTED` 不构成功能完成。
 
-基于 Data Generator v1_40 与 Contracts v1_29，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
+基于 Data Generator v1_59 与 Contracts v1_42，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|
