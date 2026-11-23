@@ -2566,11 +2566,11 @@ Commander 的正式配置由 Deployment 选择版本化 `configs/services/servic
 
 设备实例 `model: {id, version}` 指向设备型号；型号引用 `protocol` 和 `point_table` 等版本化模板。Commander 只消费控制所需的协议、点表和设备信息，不执行采集任务；间接加载的文件必须属于已选不可变模板依赖闭包，不得搜索隐式默认目录或回退为“最新版”。
 
-**直接配置入口封闭原则：**当前 Commander 对设备控制需要 `devices` 和模板根目录；未实际使用的 `site.yaml` 不列入。新增直接依赖必须先修改服务配置契约和实现，再增加对应测试。相对 pathname 均以部署工作根 `config_root`（包含 `configs/` 子目录）解析，必须以 `configs/` 开头；绝对配置源及任何 `..` 段一律拒绝；不依赖进程工作目录，禁止越过声明的模板根目录解析版本化模板。服务启动命令必须显式给定服务配置 pathname，不隐式读取 `configs/services/commander.yaml`。
+**直接配置入口封闭原则：**Commander Service 仅引用 Device Instance 逻辑身份；Deployment 选择 Service/Device Instance 精确版本，DeviceModel 再固定引用 PointTable、Protocol。不得以模板根、相对 pathname 或扫描目录决定业务依赖。仅独立本机引导允许受控文件路径，不能替代 Repository 管理业务配置。
 
 服务配置必须同时包含 `schema_version` 与 `file_version`，缺失、非法类型或非 `MAJOR.MINOR.PATCH` 格式均拒绝启动；文件版本不等于快照并发 `revision`。
 
-控制请求级参数追加在 `dispatcher` 下的 `max_request_id_bytes`、`repository` 下的 `accept_commit_timeout_ms`，具体示例以 `configs/services/commander.yaml` 为准，不复制一套过期默认值。\n\n## 11.2 完整配置示例
+控制请求级参数追加在 `dispatcher` 下的 `max_request_id_bytes`、`repository` 下的 `accept_commit_timeout_ms`，具体示例以 `configs/services/service_commander_v1.4.0.yaml` 为准，不复制一套过期默认值。\n\n## 11.2 完整配置示例
 
 以下是拟实施的 Commander 服务配置结构。`config_sources` 指明直接依赖；间接依赖从共享配置中的版本引用解析，不另行列出。示例相对路径以部署工作根 `config_root` 为基准，不包含 `..`。
 
@@ -2872,7 +2872,7 @@ tests/
 | `test_commander_service.py` | `integration` | `security` | `normal`、`exception` | CommanderService 8 个 RPC、ScalarValue 六类型、版本/时限、结果状态映射 |
 | `test_grpc_end_to_end.py` | `system` | `reliability` | `normal`、`exception`、`recovery` | 14 RPC 完整注册；配置 Get/Push/Apply，设备/点表，单点控制、结果查询、指标/事件/诊断 |
 
-补充配置源测试要求：直接源缺失、空 pathname、`../` 相对路径解析、工作目录改变、模板根目录逃逸、间接引用缺失及版本不匹配、未引用模板不加载、变更直接 pathname 必须重启、热更新只影响引用设备。上述场景应归入现有配置测试文件和相应 `system`/`integration` 测试项，不单设新目录。
+补充配置源测试要求：Deployment/Service/Instance 身份缺失、版本冲突、引用环、间接模板缺失及版本不匹配、未选模板不加载、静态参数待重启、热更新只影响引用设备。上述场景应归入现有配置测试文件和相应 `system`/`integration` 测试项，不单设新目录。
 
 ## 14.4 System Test 用例及场景追溯矩阵
 
@@ -2893,7 +2893,7 @@ tests/
 | UR-06 | UC-02-S04 查询/保留/不存在 | §9.3～§9.4、§10 | `test_control_flow.py::test_result_query` | `system`、`normal`、`exception` | 按 command_id 与 request_id 查询；逐项返回完整命令、状态、io_settled；过期 NOT_FOUND | 真实 gRPC、SQLite；真实系统验证 NOT_RUN |
 | UR-07、UR-08 | UC-04-S01 查询服务信息与状态 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_service_info_status` | `system`、`normal`、`exception` | 返回实际服务身份、依赖健康；不能把存活等同业务就绪 | 真实 内部 gRPC；NOT_RUN |
 | UR-09、UR-10 | UC-03-S01 设备、详情及点表 | §9.3、§11 | `test_query.py::test_devices_and_points` | `system`、`normal`、`exception` | 设备分页、详情与点表元数据正确；查询不连接现场；非法 ID 明确失败 | 真实 gRPC、共享配置；NOT_RUN |
-| UR-11 | UC-05-S01 推送、校验和应用配置 | §6.4.5、§9.2、§11 | `test_grpc_end_to_end.py::test_config_snapshot_apply` | `system`、`normal`、`concurrency` | Push 校验候选；Apply 安全切换且明确 restart_required；在途 I/O 不受错误替换 | 真实 gRPC、配置目录、协议链路；NOT_RUN |
+| UR-11 | UC-05-S01 Repository 配置选版与安全生效 | §6.4.5、§9.2、§11 | `test_grpc_end_to_end.py::test_config_snapshot_apply` | `system`、`normal`、`concurrency` | Repository 原子发布，Commander 只读精确闭包并安全切换，明确 restart_required；在途 I/O 不受错误替换 | 真实 gRPC、配置目录、协议链路；NOT_RUN |
 | UR-11 | UC-05-S02 版本冲突与失败保留 | §9.2、§11 | `test_grpc_end_to_end.py::test_config_revision_conflict` | `system`、`exception` | expected_revision 冲突不覆盖有效快照；失败设备保留旧版本或阻塞 | 真实 gRPC、配置目录；NOT_RUN |
 | UR-12 | UC-04-S02 配置状态和候选差异 | §9.2、§11 | `test_grpc_end_to_end.py::test_config_snapshot_scopes` | `system`、`normal`、`exception` | DISK/RUNTIME/CANDIDATE 可区分，不将候选视为已生效 | 真实 gRPC、配置目录；NOT_RUN |
 | UR-13 | UC-02-S05 存储故障及容量保护 | §10.1～§10.4 | `test_capacity.py::test_persistence_and_admission` | `system`、`reliability`、`storage` | SQLite 故障时已接受控制可终结；内存队列满拒新；异常崩溃只恢复已落盘事件 | 独立进程、真实 SQLite/故障注入；NOT_RUN |

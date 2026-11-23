@@ -890,7 +890,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 编号 | 可核验要求 | 来源 |
 |---|---|---|
 | RR-01 | CLI 启动不依赖 Service 在线或其配置目录；单个 Service 故障不得阻断独立命令 | UR-01、UR-03、UR-10 |
-| RR-02 | Push 校验失败不暂存部分快照；Apply 分别报告文件提交和运行生效，部分失败不得谎报全成功 | UR-04 |
+| RR-02 | Configuration Candidate 校验失败不得发布部分目录；Publish 成功仅代表 Repository 事务提交，各模块实际应用独立报告 | UR-04 |
 | RR-03 | 本地目录比较只读，遇文件读取错误明确报告；不生成伪完整比较结论 | UR-05 |
 | RR-04 | gRPC 客户端取消、超时或断开不代表远程操作结束；对已提交副作用操作不得盲重试 | UR-02、UR-04、UR-06、UR-08、UR-09 |
 | RR-05 | Collector 与 Gateway 值监视区分无值、过期、逐点失败、轮询失败与断连；业务状态查询区分未提供与运行异常；停止本地轮询不改变任何 Service 业务运行状态 | UR-07 |
@@ -2749,7 +2749,7 @@ lint-imports
 
 | 检查项 | 通过条件 |
 |---|---|
-| 6 份 Proto 的现行 51 个唯一 Unary RPC（含 Gateway 2 项、Commander RecoverDeviceControl） | 全部在 Contracts 中明确归属；CLI 对所需能力具有对应命令或说明不适用 |
+| 全部现行 Proto Descriptor 动态枚举的 Unary RPC（包括 Configuration 和 Storage） | 全部在 Contracts 中明确归属；CLI 对所需能力具有对应命令或说明不适用 |
 | Gateway `UpdateVariables` | 请求携带有效 `lease_token`，遵守 `ClaimTargets` ACQUIRE/RENEW/RELEASE |
 | 本地 TCP/ICMP/端口探测 | 复用 Core 公共探测原语，不重复实现网络 I/O |
 | 配置比较 | 清楚区分文件树字节 Diff 与 Core 共享配置语义 Diff，不混淆状态 |

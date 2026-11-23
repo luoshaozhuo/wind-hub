@@ -1252,7 +1252,7 @@ flowchart TD
 
 ### 3.7.3 业务规则
 
-**R06-01 版本提交。** Push 返回仅可供 Apply 使用的候选 ID；Apply 只有在 revision 匹配时才提交完整正式文件集；磁盘提交成功与运行对象热生效成功是两个独立结果。
+**R06-01 版本提交。** Configuration Repository 完整目录 Candidate/Publish 原子提交；Sink Main 不执行本地 Push/Apply 业务配置提交，按 Deployment 精确闭包自行对账、热更或报告待重启。
 
 **R06-02 配置分类。** Service 配置修改需重启；Template 版本不可变；Instance 通过版本化引用热更新；服务文件、模板文件及实例文件不能混为一类。
 
@@ -1652,9 +1652,9 @@ flowchart TD
 | 主要异常 | 数据子进程不可达、应用超时、版本冲突、连接未收敛 |
 | 后置条件 | 提交版本与每对象 active 版本可对账，不伪报全局成功 |
 | 关联需求 | UR-06、UR-08 |
-| UC-07-S01 主流程 | 完整配置 Get、Push、Apply 与局部热生效 |
+| UC-07-S01 主流程 | Repository 已选闭包读取、验证与局部热生效 |
 | UC-07-S02 关键边界 | 候选校验、版本冲突、Service 重启要求 |
-| UC-07-S03 异常与恢复 | 文件提交后应用失败、数据子进程不可达与收敛查询 |
+| UC-07-S03 异常与恢复 | Repository 发布后应用失败、数据子进程不可达与收敛查询 |
 
 ## 4.9 UC-08 正常停止服务
 
