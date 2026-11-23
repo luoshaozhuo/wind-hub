@@ -5,7 +5,7 @@
 - 主分支：`origin/main@f91068748838103f547f1140d24b4eb93cbf7372`（本轮 GitHub 复核）。
 - 设计分支：`docs/design-consolidation-20261123`。
 - 总体架构：`wind-hub_总体逻辑架构设计_v1_27.md`，冻结且本轮未修改。
-- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_40.md`。
+- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_41.md`。
 - 纳入 Contracts、Core、Configuration、CLI、Commander、Collector、Data Generator、Industrial Gateway、Sink、Storage 及全部跨模块接口；暂排除 Web Server/Admin。
 - 本次为远程文件级源码/设计/测试的**静态准入审查**，未执行 ruff/mypy/pytest、真实 Broker/TDengine、CLI 进程 E2E 或容量实验。所有未执行项为 NOT_RUN，不将现有测试源码等同已执行且通过。
 
@@ -187,3 +187,20 @@ Core v1_42 §业务语义明确要求同一继承展开后的 PointTable 内，`
 
 仍开放：OEM 实际 PLC 符号语义及运行时唯一性验证、RAW 的真实线协议载荷支持、BUSINESS 的真实不可变 manifest、prod-a 的 Storage 选择以及全链 CLI/TDengine 和容量实测。本轮验证状态：**静态结构审阅；Ruff、mypy、pytest、发布、E2E 均 NOT_RUN**。
 
+
+## 12. 设计/配置阶段收口与 Claude 独立复核交接（2026-11-23）
+
+**本次阶段目标**：将设计与配置资产交给 Claude 进行只读专项复核。软件代码审查、模块测试、联测、生产运行时闭包改造与最终生产冻结另立专题。上文历史发现和旧基线描述保留为审计证据，不代表本次已实测通过。
+
+- GitHub 设计分支：`docs/design-consolidation-20261123`；继续使用该分支，不创建 PR、不合并 main。
+- 当前权威跨模块测试设计：`docs/design/wind-hub_跨模块测试设计_v0_41.md`，其中 §15.1 为本轮唯一复测范围。冻结总体设计 `wind-hub_总体逻辑架构设计_v1_27.md` 未修改。
+- 已补充 `configs/instances/deliveries_prod-a_v1.4.0.yaml`，使 `deployment_prod-a_v1.4.0.yaml` 所选择的 Delivery 精确版本在仓库内存在。该配置行为沿用 v1.3.0 的 Delivery 条目，仅新候选版本号、修订身份及说明发生变化；不意味生产激活。
+- 对仓库 `configs/deployments/` 四份 Deployment 的 Service/Instance 文件目标进行了 GitHub 目录级静态检查：补充缺失版本前仅识别上述一个缺口；补充后仍需 Claude 在真实仓库独立复核 YAML 解析、逻辑闭包、Schema 规则和所有模板引用。
+- BusinessPoint 新目录 1.5.0、GW2MW PointTable 1.2.0、DeviceModel 1.5.0、Device Instance 1.5.0、prod-a Deployment 1.4.0 均是**未批准的候选**。必须保留 111 条 `PENDING_OEM_SEMANTICS`，不能把映射单射性视为物理语义批准。
+- 历史 PointTable 旧版本未普遍明确绑定原 BusinessPoint 目录，和候选新标准目录的多版本共存仍须作为专项复核的重要发现。不能通过默认选最新或修改历史 YAML 绕过。
+- 当前生产 `prod-a` 未提供完整 Storage Service 选择，只有隔离 `e2e-final` 涵盖 Storage。生产级完整链路仍 BLOCKED。
+- 已存在的 Core/Configuration 生产源码修改不在本次 Claude 复测范围；不得推断它们已经通过静态/组件/系统验证。
+
+**本次执行状态**：GitHub 文件读取、提交、目录与四份 Deployment 文件路径检查已完成；Claude 独立复核 `NOT_RUN`；全部 Python Schema/Loader、Ruff/mypy/pytest、业务进程、Broker、TDengine、容量与真实数据链路均 `NOT_RUN`。
+
+**交付裁决**：`READY_FOR_CLAUDE_DESIGN_CONFIG_REVIEW`，而非 `READY_TO_FREEZE` 或 `READY_FOR_PRODUCTION`。若 Claude 发现设计/配置 P1/P2，先回交 ChatGPT 处理文件级缺陷；与生产代码有关的 P1/P2 进入独立代码审查台账，不在本次擅改源码。
