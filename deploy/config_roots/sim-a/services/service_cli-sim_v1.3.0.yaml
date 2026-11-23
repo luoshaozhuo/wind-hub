@@ -1,0 +1,69 @@
+# sim-a 隔离管理 CLI，不绑定生产 Sink/Storage；现场进程目标需要复核。
+# Configuration CLI requires WIND_HUB_CONFIG_CLI_ADMIN_TOKEN (32+ chars)
+# Storage CLI requires WIND_HUB_STORAGE_OPERATOR_TOKEN (32+ chars).
+# Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
+# in the CLI process environment. Never put the token value in this YAML.
+schema_version: 1
+file_version: "1.3.0"
+service_id: cli-sim
+cli:
+  prompt: "wind-hub> "
+  output_format: table
+  timeout_seconds: 5
+  history: true
+  max_display_rows: 1000
+  poll_interval_ms: 1000
+  poll_reconnect_attempts: 3
+  snapshot_max_bytes: 67108864
+  diff_max_file_bytes: 1048576
+  diff_max_output_lines: 10000
+services:
+  configuration:
+    grpc_endpoint: "127.0.0.1:51060"
+    manager: process
+    target: configuration
+    process:
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/etc/wind-hub/deploy/configuration/service_configuration_v1.1.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/configuration.log"
+  collector:
+    grpc_endpoint: "127.0.0.1:50051"
+    tls_profile: local
+    manager: containerd
+    target: collector
+    namespace: default
+    manager_socket: "/run/containerd/containerd.sock"
+  commander:
+    grpc_endpoint: "127.0.0.1:50052"
+    tls_profile: local
+    manager: isulad
+    isula_binary: "/usr/bin/isula"
+    target: commander
+  gateway:
+    grpc_endpoint: "127.0.0.1:50073"
+    tls_profile: local
+    manager: containerd
+    target: gateway
+    namespace: default
+    manager_socket: "/run/containerd/containerd.sock"
+  data-generator:
+    grpc_endpoint: "127.0.0.1:50061"
+    tls_profile: local
+    manager: process
+    target: data-generator
+    process:
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/etc/wind-hub/configs/services/service_data-generator-sim_v1.0.3.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/cli-processes"
+      log_file: "/var/log/wind-hub/data-generator.log"
+tls_profiles:
+  local:
+    ca_cert: "/etc/wind-hub/certs/ca.crt"
+    client_cert: "/etc/wind-hub/certs/cli.crt"
+    client_key: "/etc/wind-hub/certs/cli.key"
+network_probe:
+  max_hosts: 1024
+  max_concurrency: 64
+  timeout_seconds: 1
+  industrial_tcp_ports: [102, 502, 2404, 4840, 44818, 48898]

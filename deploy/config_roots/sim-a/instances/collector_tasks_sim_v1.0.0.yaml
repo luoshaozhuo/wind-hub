@@ -1,0 +1,14 @@
+# Collector 专属 Task Instance，与 Device Model/Template 无关。
+# schema_version：结构版本 1；file_version：不可变内容版本 X.Y.Z。
+# tasks.<ID>.group：仅匹配 Device Instance 的同名 group。
+# tasks.<ID>.point_group：点表测点组，此处 all 代表全部测点。
+# tasks.<ID>.interval_ms：采集间隔，正整数毫秒（1000 = 1 Hz）。
+# tasks.<ID>.desired_state：START | STOP，默认保持原采集任务 STOP。
+schema_version: 1
+file_version: "1.0.0"
+tasks:
+  simulation_all:
+    group: simulation
+    point_group: all
+    interval_ms: 1000
+    desired_state: STOP

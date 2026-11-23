@@ -1,0 +1,1351 @@
+# GW2MW 风机 ADS 点表：基于用户提供的 PLC Symbol 清单筛选。
+# 范围：变桨、变流、发电机、轮毂、气象、偏航；包含测量反馈、设定值、限值和阈值。
+# Symbol 名称为源文件原文，PLC 标量类型在下方依照业务点约束映射。
+# 特别注意：单位、缩放、控制信号读写方向、限值与阈值解释仍需逐项现场核实。
+# 数值型别可能与某些源 PLC 类型不符；不能在未核对源文件 typeName 前投入使用。
+# index_group/index_offset 由 Core 连接时按 Symbol 解析，不在点表内固化。
+# Core 当前将 ADS 点暴露为可读写；本文件并不构成真实 PLC 写权限授权。
+schema_version: 1
+template_id: ads_wtg_gw2mw
+file_version: "1.2.0"
+config_sources:
+  - config_type: units
+    config_id: standard
+    file_version: "1.2.0"
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.5.0"
+protocol: ads
+points:
+  a02_dm_pitchangle1:
+    business_point_id: pitch_angle_dm_blade_1
+    point_groups: [all, pitch]
+    address:
+      symbol: ".A02_DM_PITCHANGLE1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_angle_dm_blade_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  a03_dm_pitchratedemand1:
+    business_point_id: pitch_rate_command_dm_blade_1
+    point_groups: [all, pitch]
+    address:
+      symbol: ".A03_DM_PITCHRATEDEMAND1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_command_dm_blade_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitch_position_blade_1:
+    business_point_id: blade_1_pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_1_pitch_angle；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitch_position_blade_2:
+    business_point_id: blade_2_pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_2_pitch_angle；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitch_position_blade_3:
+    business_point_id: blade_3_pitch_angle
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCH_POSITION_BLADE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_3_pitch_angle；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitchratedemand1:
+    business_point_id: blade_1_pitch_rate_demand
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_1_pitch_rate_demand；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitchratedemand2:
+    business_point_id: blade_2_pitch_rate_demand
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_2_pitch_rate_demand；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pitchratedemand3:
+    business_point_id: blade_3_pitch_rate_demand
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PITCHRATEDEMAND3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_3_pitch_rate_demand；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  s_expectedpitchangle1:
+    business_point_id: blade_1_pitch_angle_expected
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_1_pitch_angle_expected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  s_expectedpitchangle2:
+    business_point_id: blade_2_pitch_angle_expected
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_2_pitch_angle_expected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  s_expectedpitchangle3:
+    business_point_id: blade_3_pitch_angle_expected
+    point_groups: [all, pitch]
+    address:
+      symbol: ".S_EXPECTEDPITCHANGLE3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_3_pitch_angle_expected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pa_rpitchratelowerlimit_degps:
+    business_point_id: pitch_rate_lower_limit
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PA_RPITCHRATELOWERLIMIT_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_lower_limit；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  pa_rpitchrateupperlimit_degps:
+    business_point_id: pitch_rate_upper_limit
+    point_groups: [all, pitch]
+    address:
+      symbol: ".PA_RPITCHRATEUPPERLIMIT_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_upper_limit；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_maximumpitchratelimit:
+    business_point_id: pitch_rate_limit_max_configured
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_MAXIMUMPITCHRATELIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_limit_max_configured；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_minimumpitchratelimit:
+    business_point_id: pitch_rate_limit_min_configured
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_MINIMUMPITCHRATELIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_limit_min_configured；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_pitchangletolerance:
+    business_point_id: pitch_angle_tolerance
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_PITCHANGLETOLERANCE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_angle_tolerance；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_dualpitchspeedgainsspeedthreshold:
+    business_point_id: pitch_speed_gain_speed_threshold
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_DUALPITCHSPEEDGAINSSPEEDTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_speed_gain_speed_threshold；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_fastshutdownpitchrate:
+    business_point_id: pitch_rate_fast_shutdown
+    point_groups: [all, pitch]
+    address:
+      symbol: ".P_FASTSHUTDOWNPITCHRATE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：pitch_rate_fast_shutdown；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_converter_active_power_1s:
+    business_point_id: converter_active_power_mean_1s
+    point_groups: [all, converter]
+    address:
+      symbol: ".AVERAGE_CONVERTER_ACTIVE_POWER_1S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_active_power_mean_1s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_converter_reactive_power_1s:
+    business_point_id: converter_reactive_power_mean_1s
+    point_groups: [all, converter]
+    address:
+      symbol: ".AVERAGE_CONVERTER_REACTIVE_POWER_1S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_reactive_power_mean_1s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  converter_in_torque:
+    business_point_id: converter_input_torque
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_IN_TORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_input_torque；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  converter_reactive_power_control_enable:
+    business_point_id: converter_reactive_power_control_enabled
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_REACTIVE_POWER_CONTROL_ENABLE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_reactive_power_control_enabled；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  converter_reactive_power_setpoint:
+    business_point_id: converter_reactive_power_setpoint
+    point_groups: [all, converter]
+    address:
+      symbol: ".CONVERTER_REACTIVE_POWER_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_reactive_power_setpoint；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  from_converter_temperature:
+    business_point_id: converter_inlet_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".FROM_CONVERTER_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_inlet_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  to_converter_temperature:
+    business_point_id: converter_outlet_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".TO_CONVERTER_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_outlet_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  gh_control_converter_dc_current_setpoint:
+    business_point_id: converter_dc_current_setpoint
+    point_groups: [all, converter]
+    address:
+      symbol: ".GH_CONTROL_CONVERTER_DC_CURRENT_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: ampere
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_dc_current_setpoint；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  gh_control_converter_torque_setpoint:
+    business_point_id: converter_torque_setpoint_control
+    point_groups: [all, converter]
+    address:
+      symbol: ".GH_CONTROL_CONVERTER_TORQUE_SETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_torque_setpoint_control；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_converter_active_power:
+    business_point_id: converter_active_power_display
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_ACTIVE_POWER"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_active_power_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_converter_reactive_power:
+    business_point_id: converter_reactive_power_display
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_REACTIVE_POWER"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_reactive_power_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_converter_in_torque:
+    business_point_id: converter_input_torque_display
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_IN_TORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_input_torque_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_converter_torque_reference:
+    business_point_id: converter_torque_reference_display
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_CONVERTER_TORQUE_REFERENCE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_torque_reference_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_pitch_converter_temperature_1:
+    business_point_id: blade_1_pitch_converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_1_pitch_converter_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_pitch_converter_temperature_2:
+    business_point_id: blade_2_pitch_converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_2_pitch_converter_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_pitch_converter_temperature_3:
+    business_point_id: blade_3_pitch_converter_temperature
+    point_groups: [all, converter]
+    address:
+      symbol: ".VISU_PITCH_CONVERTER_TEMPERATURE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：blade_3_pitch_converter_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  mean_converter_active_power_max:
+    business_point_id: converter_active_power_max_statistic
+    point_groups: [all, converter]
+    address:
+      symbol: ".MEAN_CONVERTER_ACTIVE_POWER_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_active_power_max_statistic；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  mean_converter_reactive_power_max:
+    business_point_id: converter_reactive_power_max_statistic
+    point_groups: [all, converter]
+    address:
+      symbol: ".MEAN_CONVERTER_REACTIVE_POWER_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilovar
+    scale: 1.0
+    offset: 0.0
+    description: "候选：converter_reactive_power_max_statistic；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  a01_dm_generatorspeed:
+    business_point_id: generator_speed_dm_a01
+    point_groups: [all, generator]
+    address:
+      symbol: ".A01_DM_GENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_dm_a01；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_speed_momentary:
+    business_point_id: generator_speed_instantaneous
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_SPEED_MOMENTARY"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_instantaneous；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_generator_speed_10m:
+    business_point_id: generator_speed_mean_10m
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_mean_10m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_generator_speed_10s:
+    business_point_id: generator_speed_mean_10s
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_10S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_mean_10s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_generator_speed_1m:
+    business_point_id: generator_speed_mean_1m
+    point_groups: [all, generator]
+    address:
+      symbol: ".AVERAGE_GENERATOR_SPEED_1M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_mean_1m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  d_generatorspeedsetpoint:
+    business_point_id: generator_speed_setpoint_device
+    point_groups: [all, generator]
+    address:
+      symbol: ".D_GENERATORSPEEDSETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_setpoint_device；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  d_generatortorquesetpoint:
+    business_point_id: generator_torque_setpoint_device
+    point_groups: [all, generator]
+    address:
+      symbol: ".D_GENERATORTORQUESETPOINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_torque_setpoint_device；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_temperature_1:
+    business_point_id: generator_temperature_sensor_1
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_temperature_sensor_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_temperature_2:
+    business_point_id: generator_temperature_sensor_2
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_temperature_sensor_2；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_temperature_3:
+    business_point_id: generator_temperature_sensor_3
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_3"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_temperature_sensor_3；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_temperature_4:
+    business_point_id: generator_temperature_sensor_4
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_4"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_temperature_sensor_4；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  generator_temperature_momentary_max:
+    business_point_id: generator_temperature_instantaneous_max
+    point_groups: [all, generator]
+    address:
+      symbol: ".GENERATOR_TEMPERATURE_MOMENTARY_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_temperature_instantaneous_max；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  hmi_control_generator_speed_set_point:
+    business_point_id: generator_speed_setpoint_hmi
+    point_groups: [all, generator]
+    address:
+      symbol: ".HMI_CONTROL_GENERATOR_SPEED_SET_POINT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_setpoint_hmi；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_maxgeneratorspeedforswtrip:
+    business_point_id: generator_speed_trip_limit_max
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_MAXGENERATORSPEEDFORSWTRIP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_trip_limit_max；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_maximumgeneratortorque:
+    business_point_id: generator_torque_limit_max
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_MAXIMUMGENERATORTORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_torque_limit_max；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_ratedgeneratorspeed:
+    business_point_id: generator_speed_rated_parameter
+    point_groups: [all, generator]
+    address:
+      symbol: ".P_RATEDGENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_rated_parameter；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  ratedgeneratorspeed:
+    business_point_id: generator_speed_rated_value
+    point_groups: [all, generator]
+    address:
+      symbol: ".RATEDGENERATORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_speed_rated_value；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  lp_ratedgeneratortorque:
+    business_point_id: generator_torque_rated_parameter
+    point_groups: [all, generator]
+    address:
+      symbol: ".LP_RATEDGENERATORTORQUE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: kilonewton_meter_torque
+    scale: 1.0
+    offset: 0.0
+    description: "候选：generator_torque_rated_parameter；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  hubtemp:
+    business_point_id: hub_temperature
+    point_groups: [all, hub]
+    address:
+      symbol: ".HUBTEMP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  hub_temperature_avg_2m:
+    business_point_id: hub_temperature_mean_2m
+    point_groups: [all, hub]
+    address:
+      symbol: ".HUB_TEMPERATURE_AVG_2M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_temperature_mean_2m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_hubtemp:
+    business_point_id: hub_temperature_display
+    point_groups: [all, hub]
+    address:
+      symbol: ".VISU_HUBTEMP"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_temperature_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  opcrotorspeed:
+    business_point_id: rotor_speed_opc
+    point_groups: [all, hub]
+    address:
+      symbol: ".OPCROTORSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_speed_opc；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  rao_rotorspeedrtds:
+    business_point_id: rotor_speed_rao_rtds
+    point_groups: [all, hub]
+    address:
+      symbol: ".RAO_ROTORSPEEDRTDS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_speed_rao_rtds；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  hmi_control_rotor_speed_max:
+    business_point_id: rotor_speed_limit_max_hmi
+    point_groups: [all, hub]
+    address:
+      symbol: ".HMI_CONTROL_ROTOR_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_speed_limit_max_hmi；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  prot_hmi_control_rotor_speed_max:
+    business_point_id: rotor_speed_limit_max_protected
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_HMI_CONTROL_ROTOR_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_speed_limit_max_protected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  rotor_lock_activated:
+    business_point_id: rotor_lock_activated
+    point_groups: [all, hub]
+    address:
+      symbol: ".ROTOR_LOCK_ACTIVATED"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_lock_activated；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  profi_in_rotor_locked:
+    business_point_id: rotor_lock_feedback_profinet_1
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROFI_IN_ROTOR_LOCKED"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_lock_feedback_profinet_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  profi_in_rotor_locked2:
+    business_point_id: rotor_lock_feedback_profinet_2
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROFI_IN_ROTOR_LOCKED2"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_lock_feedback_profinet_2；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  prot_bhubfanonstatus:
+    business_point_id: hub_fan_running_protected
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_BHUBFANONSTATUS"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_fan_running_protected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  prot_bhubfanstart:
+    business_point_id: hub_fan_start_command_protected
+    point_groups: [all, hub]
+    address:
+      symbol: ".PROT_BHUBFANSTART"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_fan_start_command_protected；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  hmi_control_start_hubfan:
+    business_point_id: hub_fan_start_command_hmi
+    point_groups: [all, hub]
+    address:
+      symbol: ".HMI_CONTROL_START_HUBFAN"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_fan_start_command_hmi；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  err_hubfanfault:
+    business_point_id: hub_fan_fault_active
+    point_groups: [all, hub]
+    address:
+      symbol: ".ERR_HUBFANFAULT"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_fan_fault_active；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  err_hubtemphi:
+    business_point_id: hub_temperature_high_fault
+    point_groups: [all, hub]
+    address:
+      symbol: ".ERR_HUBTEMPHI"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_temperature_high_fault；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  warn_hubtemphi:
+    business_point_id: hub_temperature_high_warning
+    point_groups: [all, hub]
+    address:
+      symbol: ".WARN_HUBTEMPHI"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：hub_temperature_high_warning；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  gh_limitpower_local_rotor_speed_calculation_result:
+    business_point_id: rotor_speed_power_limit_calculated
+    point_groups: [all, hub]
+    address:
+      symbol: ".GH_LIMITPOWER.LOCAL_ROTOR_SPEED_CALCULATION_RESULT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "候选：rotor_speed_power_limit_calculated；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  a07_dm_windspeed:
+    business_point_id: wind_speed_dm_a07
+    point_groups: [all, weather]
+    address:
+      symbol: ".A07_DM_WINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_dm_a07；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  ambient_temperature:
+    business_point_id: air_temperature
+    point_groups: [all, weather]
+    address:
+      symbol: ".AMBIENT_TEMPERATURE"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：air_temperature；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  ambient_temperature_avg_2m:
+    business_point_id: air_temperature_mean_2m
+    point_groups: [all, weather]
+    address:
+      symbol: ".AMBIENT_TEMPERATURE_AVG_2M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：air_temperature_mean_2m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  averagewindspeed_10m:
+    business_point_id: wind_speed_mean_10m_controller
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGEWINDSPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_10m_controller；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_speed_3s:
+    business_point_id: wind_speed_mean_3s
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_3S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_3s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_speed_10s:
+    business_point_id: wind_speed_mean_10s
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_10S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_10s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_speed_10m:
+    business_point_id: wind_speed_mean_10m
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_10m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_speed1_10m:
+    business_point_id: wind_speed_sensor_1_mean_10m
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED1_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_sensor_1_mean_10m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_speed2_10m:
+    business_point_id: wind_speed_sensor_2_mean_10m
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_SPEED2_10M"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_sensor_2_mean_10m；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_vane_wind_direction_25s:
+    business_point_id: wind_direction_mean_25s
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_direction_mean_25s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_vane_wind_direction1_25s:
+    business_point_id: wind_direction_sensor_1_mean_25s
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION1_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_direction_sensor_1_mean_25s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  average_wind_vane_wind_direction2_25s:
+    business_point_id: wind_direction_sensor_2_mean_25s
+    point_groups: [all, weather]
+    address:
+      symbol: ".AVERAGE_WIND_VANE_WIND_DIRECTION2_25S"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_direction_sensor_2_mean_25s；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  measuredwindspeed:
+    business_point_id: wind_speed_measured
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEASUREDWINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_measured；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  opcwindspeed:
+    business_point_id: wind_speed_opc
+    point_groups: [all, weather]
+    address:
+      symbol: ".OPCWINDSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_opc；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  mean_wind_speed_max:
+    business_point_id: wind_speed_mean_max_statistic
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_WIND_SPEED_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_max_statistic；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  mean_wind_speed_min:
+    business_point_id: wind_speed_mean_min_statistic
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_WIND_SPEED_MIN"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_mean_min_statistic；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_cutoutwindspeed1:
+    business_point_id: wind_speed_cutout_threshold_1
+    point_groups: [all, weather]
+    address:
+      symbol: ".P_CUTOUTWINDSPEED1"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_cutout_threshold_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_cutoutwindspeed2:
+    business_point_id: wind_speed_cutout_threshold_2
+    point_groups: [all, weather]
+    address:
+      symbol: ".P_CUTOUTWINDSPEED2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：wind_speed_cutout_threshold_2；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  mean_ambient_temperature_max:
+    business_point_id: air_temperature_mean_max_statistic
+    point_groups: [all, weather]
+    address:
+      symbol: ".MEAN_AMBIENT_TEMPERATURE_MAX"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: celsius
+    scale: 1.0
+    offset: 0.0
+    description: "候选：air_temperature_mean_max_statistic；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  d_highyawerrorthreshold:
+    business_point_id: yaw_error_high_threshold
+    point_groups: [all, yaw]
+    address:
+      symbol: ".D_HIGHYAWERRORTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_high_threshold；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  d_highyawerroraverageyawerror:
+    business_point_id: yaw_error_high_mean
+    point_groups: [all, yaw]
+    address:
+      symbol: ".D_HIGHYAWERRORAVERAGEYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_high_mean；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  in_ryawpositioncurrentvalue1_inst_deg:
+    business_point_id: yaw_position_sensor_1_instantaneous
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWPOSITIONCURRENTVALUE1_INST_DEG"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_sensor_1_instantaneous；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  in_ryawpositioncurrentvalue2_inst_deg:
+    business_point_id: yaw_position_sensor_2_instantaneous
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWPOSITIONCURRENTVALUE2_INST_DEG"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_sensor_2_instantaneous；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  in_ryawspeedcurrentvalue1_inst_degps:
+    business_point_id: yaw_rate_sensor_1_instantaneous
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWSPEEDCURRENTVALUE1_INST_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_sensor_1_instantaneous；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  in_ryawspeedcurrentvalue2_inst_degps:
+    business_point_id: yaw_rate_sensor_2_instantaneous
+    point_groups: [all, yaw]
+    address:
+      symbol: ".IN_RYAWSPEEDCURRENTVALUE2_INST_DEGPS"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_sensor_2_instantaneous；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  measuredyawerror:
+    business_point_id: yaw_error_measured
+    point_groups: [all, yaw]
+    address:
+      symbol: ".MEASUREDYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_measured；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  prot_mainyawposition:
+    business_point_id: yaw_position_protected_main
+    point_groups: [all, yaw]
+    address:
+      symbol: ".PROT_MAINYAWPOSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_protected_main；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  prot_mainyawspeed:
+    business_point_id: yaw_rate_protected_main
+    point_groups: [all, yaw]
+    address:
+      symbol: ".PROT_MAINYAWSPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_protected_main；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_aboveratedyawerrorlimit:
+    business_point_id: yaw_error_limit_above_rated
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_ABOVERATEDYAWERRORLIMIT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_limit_above_rated；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_yawpitchkickyawerrorthreshold:
+    business_point_id: yaw_error_pitch_kick_threshold
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWPITCHKICKYAWERRORTHRESHOLD"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_pitch_kick_threshold；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_highyawerroryawavt:
+    business_point_id: yaw_error_high_average_threshold
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_HIGHYAWERRORYAWAVT"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_high_average_threshold；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_nacelleaccmaxyawerror:
+    business_point_id: yaw_error_limit_nacelle_acceleration
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_NACELLEACCMAXYAWERROR"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_limit_nacelle_acceleration；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  storage_yaw_position:
+    business_point_id: yaw_position_stored_1
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_POSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_stored_1；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  storage_yaw_position_2:
+    business_point_id: yaw_position_stored_2
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_POSITION_2"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_stored_2；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  storage_yaw_speed:
+    business_point_id: yaw_rate_stored
+    point_groups: [all, yaw]
+    address:
+      symbol: ".STORAGE_YAW_SPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_stored；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_yaw_position:
+    business_point_id: yaw_position_display
+    point_groups: [all, yaw]
+    address:
+      symbol: ".VISU_YAW_POSITION"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_position_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  visu_yaw_speed:
+    business_point_id: yaw_rate_display
+    point_groups: [all, yaw]
+    address:
+      symbol: ".VISU_YAW_SPEED"
+      data_type: REAL
+      size: 4
+    data_type: REAL
+    unit: degree_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_display；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  err_yawspeedoutofrange:
+    business_point_id: yaw_rate_out_of_range_fault
+    point_groups: [all, yaw]
+    address:
+      symbol: ".ERR_YAWSPEEDOUTOFRANGE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_rate_out_of_range_fault；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_yawerrorderatingenable:
+    business_point_id: yaw_error_derating_enabled
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWERRORDERATINGENABLE"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_derating_enabled；OEM 原始符号保留，语义/标度/读写权限待现场核实"
+  p_yawerrorflag:
+    business_point_id: yaw_error_flag_configured
+    point_groups: [all, yaw]
+    address:
+      symbol: ".P_YAWERRORFLAG"
+      data_type: BOOL
+      size: 1
+    data_type: BOOL
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "候选：yaw_error_flag_configured；OEM 原始符号保留，语义/标度/读写权限待现场核实"

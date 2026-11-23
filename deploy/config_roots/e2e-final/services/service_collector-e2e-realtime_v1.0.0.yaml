@@ -1,0 +1,37 @@
+# E2E realtime Collector，严格独立生产身份；需由 CLI 的双 Collector 进程分别启动。
+# 独立仿真部署的 Service 配置；仅引用仿真 Instance，版本由 sim-a Deployment 选择。
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+schema_version: 1
+config_sources:
+  instances:
+    site: e2e-final
+    devices: e2e-final
+    tasks: e2e-final
+file_version: "1.0.0"
+service_id: collector-e2e-realtime
+runtime:
+  shutdown_timeout: 30
+  connect_timeout: 10
+  read_timeout: 5
+  thread_pool:
+    max_workers: 32
+watchdog:
+  interval: 5
+  health_timeout: 1
+messaging:
+  servers:
+    - nats://127.0.0.1:4222
+  delivery: realtime
+  max_staleness_ms: 500
+  max_samples_per_batch: 100
+  max_batch_bytes: 1048576
+  queue_capacity: 2048
+  enqueue_timeout_s: 2.0
+metrics:
+  enabled: true
+  windows: [60, 300, 3600]
+  publish_interval: 60
+  max_staleness: 300
+  event_capacity: 1000
+  pending_capacity: 120

@@ -1,0 +1,75 @@
+# 新候选精确引用；历史 Device Instance 原样保留。
+# 仅供最终跨模块联测；独立 deployment=e2e-final；禁止生产服务引用。
+# 仿真设备专用清单；与真实设备 Instance 使用同一设备 Schema，不包含额定参数。
+# endpoint 仅用于隔离 E2E 仿真，不允许在生产 Deployment 中选择本 Instance。
+# WTG_SINK01 独立于采集 group，供 Sink Gateway 输出镜像验证；不得采集回环。
+schema_version: 1
+file_version: "1.0.1"
+devices:
+  WTG_SIM01:
+    name: "风机仿真实例"
+    enabled: true
+    group: e2e-source
+    model:
+      id: wtg_sim_physical
+      version: 1.2.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15221
+    overrides: {}
+  PV_SIM01:
+    name: "光伏仿真实例"
+    enabled: true
+    group: e2e-source
+    model:
+      id: pv_sim_physical
+      version: 1.2.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15222
+    overrides: {}
+  BESS_SIM01:
+    name: "储能仿真实例"
+    enabled: true
+    group: e2e-source
+    model:
+      id: bess_sim_physical
+      version: 1.2.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15223
+    overrides: {}
+  GRID_SIM01:
+    name: "电网仿真实例"
+    enabled: true
+    group: e2e-source
+    model:
+      id: grid_sim_physical
+      version: 1.2.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15224
+    overrides: {}
+  PPC_SIM01:
+    name: "电厂控制器仿真实例"
+    enabled: true
+    group: e2e-source
+    model:
+      id: plant_controller_sim_physical
+      version: 1.2.0
+    endpoint:
+      host: 127.0.0.1
+      port: 15225
+    overrides: {}
+
+  WTG_SINK01:
+    name: "E2E Sink 输出目标风机"
+    enabled: true
+    group: e2e-target
+    model:
+      id: wtg_sim_physical
+      version: "1.2.0"
+    endpoint:
+      host: 127.0.0.1
+      port: 15121
+    overrides: {}

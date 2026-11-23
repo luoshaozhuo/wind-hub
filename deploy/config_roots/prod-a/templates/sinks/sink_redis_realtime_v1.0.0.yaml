@@ -1,0 +1,15 @@
+schema_version: 1
+file_version: "1.0.0"
+template_id: "redis_realtime"       # 模板稳定 ID
+kind: redis                       # redis | kafka | modbus_tcp
+capabilities:
+  realtime: true                 # 是否允许实时派发
+  reliable: false               # 首版 Redis 模板仅实时；若需 Reliable 必须独立定义支持可靠确认和重复策略的模板
+  idempotent: false             # 对业务 sample_id 的幂等保证
+  supports_concurrent_write: true # Adapter 声明的写入并发安全能力
+  max_safe_inflight: 8           # 1..8；且不超过运行时额度
+connection:
+  port: 6379                     # 正整数，实例可覆盖
+output:
+  namespace: "windhub"          # Redis Key 命名空间
+  write_timeout_ms: 2000        # 正整数；超时仍需追踪 I/O
