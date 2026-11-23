@@ -143,3 +143,11 @@ python -m scripts.audit_business_points --root configs --output /tmp/wind-hub-co
 最后一条按当前 GW2MW 的已知重复业务点问题**预期非零退出**；必须保存完整 CSV 和实际统计，不能通过取消 `--strict` 将 P1 假报关闭。如果此前静态审查判断有误，以实际严格 Loader、Schema 和逐 Point 结果重新定级。
 
 **延续阻断**：GW2MW 物理语义 22 组重复、RAW 正式数据来源、BUSINESS 历史 manifest 与 E2E Storage 真实入库、prod-a Storage Deployment 选择。配置代码检查通过也不意味着可直接冻结。
+
+## 9. GW2MW PointTable 规则与实际 Core 源码核查
+
+Core v1_42 §业务语义明确要求同一继承展开后的 PointTable 内，`business_point_id` 不得重复；不同物理位置、叶片编号、统计窗口与设定/反馈含义必须属于不同的精确业务身份。现行 GW2MW ADS 点表中，111 个 Point 仅有 24 个不同 BusinessPoint ID，22 个重复组涉及 109 个 Point（统计仅作物理语义审定候选，必须查验地址和 OEM 定义再修订）。
+
+`main@f9106874` 的 `src/core/configuration/shared_point_tables.py` 已要求每 Point 显式 `business_point_id`，不存在默认使用 `point_id` 的旧回退；但 `src/core/configuration/validation.py` 在逐点校验单位与业务引用时没有同一 PointTable 的 BusinessPoint 唯一性断言。后续必须与 PointTable 语义整改同步补上运行时检查及对应正/反例；不能仅依赖离线审查脚本来保护正式配置发布。由于旧生产点表仍违反新契约，本轮暂不做会立即拒绝现有生产配置的无配套代码变更。
+
+本轮 `scripts/audit_business_points.py` 的静态审查实现已经修正并提交；是否与当前 Core/Configuration 真正的加载、发布及 Schema 全部一致，仍需独立在目标环境执行，并记录实际命令、退出码与完整发现 CSV。
