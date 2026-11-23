@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_41 · 20261123 · 集成后设计归并· 20261118 · 公共能力与共享配置设计</p>
+<p class="subtitle">v1_41 · 20261123 · main 集成后设计归并</p>
 
 <style>
 body {
