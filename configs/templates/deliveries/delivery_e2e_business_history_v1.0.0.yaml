@@ -1,0 +1,13 @@
+# 最终联测专用模板，不供生产 Deployment 选择；仅创建一个不可变版本。
+schema_version: 1
+file_version: "1.0.0"
+template_id: "e2e_business_history"
+delivery_mode: reliable
+source_filter: {} # 历史输出不按质量静默过滤
+output:
+  data_level: business # 仅历史 PointTable/Units 完整可信、经独立真值验证后启用
+reliable:
+  max_deliver: -1               # 与服务级一致；有效值和消费者行为须经所部署 JetStream 版本验证
+  retry_base_ms: 1000           # >0
+  retry_max_ms: 60000           # >= retry_base_ms
+  dead_letter_subject: "wh.dlq" # 死信 Subject
