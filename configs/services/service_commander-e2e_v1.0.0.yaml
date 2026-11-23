@@ -16,18 +16,18 @@ grpc:
   max_active_rpcs: 256
 
 security:
-  ca_cert: "/etc/wind-hub/certs/ca.pem"
-  server_cert: "/etc/wind-hub/certs/commander.pem"
-  server_key: "/etc/wind-hub/certs/commander.key"
+  ca_cert: "/var/lib/wind-hub/e2e-final/certs/ca.pem"
+  server_cert: "/var/lib/wind-hub/e2e-final/certs/commander.pem"
+  server_key: "/var/lib/wind-hub/e2e-final/certs/commander.key"
   # Recovery authority MUST independently enforce exclusive device control and
   # irreversible fencing of previous native I/O before replying. Transport
   # mTLS alone does not prove field isolation. Absent configuration means deny.
   # recovery:
   #   url: "https://control-fencing.example.invalid:8443/verify-and-fence"
   #   instance_id: "commander-site-a-instance-1"
-  #   ca_cert: "/etc/wind-hub/certs/fencing-authority-ca.pem"
-  #   client_cert: "/etc/wind-hub/certs/commander.pem"
-  #   client_key: "/etc/wind-hub/certs/commander.key"
+  #   ca_cert: "/var/lib/wind-hub/e2e-final/certs/fencing-authority-ca.pem"
+  #   client_cert: "/var/lib/wind-hub/e2e-final/certs/commander.pem"
+  #   client_key: "/var/lib/wind-hub/e2e-final/certs/commander.key"
   #   timeout_seconds: 5.0
   callers:
     - caller_id: ems
@@ -45,9 +45,9 @@ security:
 #   WTG_SIM01:
 #     gateway_id: gw-wtg-sim01
 #     endpoint: "127.0.0.1:52073"
-#     ca_cert: "/etc/wind-hub/certs/ca.pem"
-#     client_cert: "/etc/wind-hub/certs/commander.pem"
-#     client_key: "/etc/wind-hub/certs/commander.key"
+#     ca_cert: "/var/lib/wind-hub/e2e-final/certs/ca.pem"
+#     client_cert: "/var/lib/wind-hub/e2e-final/certs/commander.pem"
+#     client_key: "/var/lib/wind-hub/e2e-final/certs/commander.key"
 
 # 仅 Commander 经可信仿真执行 RPC 控制 Generator INPUT；不允许 Gateway 测量更新旁路。
 simulation_targets:
