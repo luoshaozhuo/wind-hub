@@ -190,12 +190,12 @@ $$
 
 | 领域 | main 归并后唯一设计文件 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_43.md` | DFD 归属、共享配置归 Core |
-| Contracts / Configuration | `Contracts_软件设计_v1_42.md`、`Configuration_Service_软件设计_v1_20.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
-| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_60.md`、`industrial_gateway_软件设计_v1_50.md` | 仿真、变量身份、目标写入与端口权限 |
-| Collector / Commander | `Collector_软件设计_v1_41.md`、`Commander_软件设计_v1_57.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_73.md`、`Storage_Service_软件设计_v1_7.md` | Kafka JSON v2、数据等级、持久入库及查询 |
-| CLI | `CLI_软件设计_v1_53.md` | CLI 命令树、进程启动和全量发布 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_44.md` | DFD 归属、共享配置归 Core |
+| Contracts / Configuration | `Contracts_软件设计_v1_43.md`、`Configuration_Service_软件设计_v1_21.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
+| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_61.md`、`industrial_gateway_软件设计_v1_51.md` | 仿真、变量身份、目标写入与端口权限 |
+| Collector / Commander | `Collector_软件设计_v1_42.md`、`Commander_软件设计_v1_58.md` | SampleBatch v3、控制安全、运行状态 |
+| Sink / Storage | `Sink_Service_软件设计_v1_74.md`、`Storage_Service_软件设计_v1_8.md` | Kafka JSON v2、数据等级、持久入库及查询 |
+| CLI | `CLI_软件设计_v1_54.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
@@ -660,7 +660,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 |---|---|---|
 | GW2MW 111 个源 Point | 源 ID/ADS Symbol/单位/类型/地址及读写属性保持；111 个业务身份互异 | 已形成候选配置，未做现场验证 |
 | BusinessPoint 标准目录 | 293 个旧定义内容不变，追加 107 个候选定义；类型/标准单位与来源保持兼容 | 文件已生成；未作正式发布验证 |
-| 精确版本链 | BP 1.5.0 + Units 1.2.0 → PointTable 1.2.0 → DeviceModel 1.5.0 → Device Instance 1.5.0 → Deployment prod-a 1.4.0 | 候选，不可激活 |
+| 精确版本链 | BP 1.5.0 + Units 1.2.0 → GW PointTable 1.2.0 → GW Model 1.5.0 → Device Instance 1.6.0 → Deployment prod-a 1.5.0 | 候选，不可激活 |
 | 历史语义 | PointTable v1.1.0 仍按原 BusinessPoint 标准闭包解释；无法获准时不得静默用 v1.2.0 替代 | 待运行时验收 |
 | 不明 OEM 字段 | 每个候选业务身份需查实际 PLC 工艺语义，不以自动生成的唯一名称视为已批准 | PENDING_OEM_SEMANTICS |
 

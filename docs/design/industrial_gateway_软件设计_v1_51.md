@@ -1707,7 +1707,7 @@ Commander 入站业务拒绝的 Forwarder 终态须按第 10.3 节分类：只�
 
 ## 9.6 RPC 生成对象的唯一持有边界（规范性）
 
-所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_42 负责双向字段映射。
+所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_43 负责双向字段映射。
 
 - `ClaimTargets`：Gateway Runtime 使用 `ClaimRequest/ClaimResult`，Grpc Service 将其转换为冻结的 Request/Response；每个字段含义及拒绝码保持不变。
 - `UpdateVariables`：仍先在 Gateway 租约层整批验证 token，再逐变量返回结果，不绕过授权和保护。
@@ -1878,7 +1878,7 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 
 Gateway 对工业写事件只出站调用 Commander `SubmitCommand`。来自 Commander 的 `ExecuteSimulationCommand` 属于**独立入站控制执行 Adapter**，并与对 Generator 的 `UpdateVariables` 出站 Client 分离。禁止用 Gateway 的数据注入 `UpdateVariables` 代替执行接口。
 
-- Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_42 §3.3，不在 Gateway 重复定义同名线契约。
+- Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_43 §3.3，不在 Gateway 重复定义同名线契约。
 - Gateway 实例的 Service 配置声明每台仿真设备的 Scenario 绑定、目标变量映射和允许的模型输入；不得将运行态 `generation_id` 写死在静态配置。活动 Generation 必须通过 Generator 正式 RPC 解析且版本一致。
 - 接受执行 RPC 前验证 Commander 认证主体、request_id、expires_at、revision、目标属性及唯一 Generation。拒绝失败不改变变量或模型；同 request_id 同内容保持同一结果，不创建二次执行。
 - Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；Gateway 通过 `GetInputExecution` 查询同一 Generation、经令牌核验的调用主体与 request_id 的实际计算步完成结果，只有 `APPLIED` 才可返回 Commander 成功。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。
@@ -1898,13 +1898,13 @@ flowchart LR
 
 ## 11.8 仿真设备统一模板与 Data Generator 设备级路由
 
-Industrial Gateway 和 Data Generator 共享 `configs/instances/devices_sim.yaml` 及其精确引用的独立 `*_sim_physical_1.0.0.yaml` 型号、仿真 Point Table。前者拥有工业协议 Server 的点位、地址、读写行为及控制转发映射；后者只生成 `device_id + point_id` 的原始值。Data Generator 的 Scenario 仅按设备选择 Gateway 实例，不维护逐点 `feedback_mapping`；Gateway `ListVariables` 中的变量 ID 与共享 Point Table 的点 ID 相同，`UpdateVariables` 仍须完成租约、类型及变量所有权校验。Gateway 自有的控制转发 `control.mappings` 不受此规则影响。
+Industrial Gateway 和 Data Generator 共享由 Deployment 选定的 `configs/instances/device_sim_v1.3.0.yaml` 及其精确引用的独立 `device_model_*_sim_physical_v1.2.0.yaml` 型号、仿真 Point Table。前者拥有工业协议 Server 的点位、地址、读写行为及控制转发映射；后者只生成 `device_id + point_id` 的原始值。Data Generator 的 Scenario 仅按设备选择 Gateway 实例，不维护逐点 `feedback_mapping`；Gateway `ListVariables` 中的变量 ID 与共享 Point Table 的点 ID 相同，`UpdateVariables` 仍须完成租约、类型及变量所有权校验。Gateway 自有的控制转发 `control.mappings` 不受此规则影响。
 
 ## 11.9 GW2MW 设备配置候选版与 Gateway 数据身份（v1_51）
 
 正式变量身份在每个 Gateway 设备作用域内等于已选 PointTable 的 `point_id`；跨设备业务键使用 `(device_id, point_id)` 组合，不把 `<device_id>.<point_id>` 当作 Gateway 单设备变量 ID。内部仿真 RPC 由受控令牌和隔离网络授权，禁用 TLS/mTLS 的目标设计不等于允许匿名访问。
 
-Gateway 仍按真实协议设备 Instance 和 DeviceModel 的固定版本装配，只负责工业协议 Server 与可信变量身份映射，不对采样数据执行 BusinessPoint 标准化。GW2MW 新候选 Device Instance `device_farm-a_v1.5.0.yaml` 固定模型 `wtg_gw2mw@1.5.0`，模型固定 ADS PointTable `ads_wtg_gw2mw@1.2.0`；111 个源 Point ID、ADS Symbol 和地址未变，BusinessPoint 映射一对一。真实服务器在切换过程中禁止将不同版本的完整 PointTable 混用，且不得把未经 OEM 审定的业务候选用于控制授权。仍使用原正式 `prod-a@1.3.0`；新 `prod-a@1.4.0` 仅用于设计候选审查。
+Gateway 仍按真实协议设备 Instance 和 DeviceModel 的固定版本装配，只负责工业协议 Server 与可信变量身份映射，不对采样数据执行 BusinessPoint 标准化。GW2MW 新候选 Device Instance `device_farm-a_v1.6.0.yaml` 固定模型 `wtg_gw2mw@1.5.0`，模型固定 ADS PointTable `ads_wtg_gw2mw@1.2.0`；111 个源 Point ID、ADS Symbol 和地址未变，BusinessPoint 映射一对一。真实服务器在切换过程中禁止将不同版本的完整 PointTable 混用，且不得把未经 OEM 审定的业务候选用于控制授权。仍使用原正式 `prod-a@1.3.0`；新 `prod-a@1.5.0` 仅用于设计候选审查。
 
 # 12. 外部适配与集成契约
 
@@ -2058,7 +2058,7 @@ tests/
 | UR-01 / UC-01-S03 | UpdateVariables 混合合法与非法条目 | `test_gateway_partial_update_results` | 逐项响应，合法项生效、非法项不修改；不回滚全部 |
 | UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
 | UR-01 / UC-01-S03 | 多寄存器变量更新与同时读取 | `test_gateway_no_torn_variable_read` | 单变量读值无新旧寄存器撕裂；不同变量不要求原子快照 |
-| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_42 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
+| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_43 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
 | UR-01 / UC-01-S02 | token 伪造、过期或未覆盖请求全部目标 | `test_gateway_requires_matching_lease_for_full_batch` | 全批拒绝，零变量改变；已合法占用的无关目标不受影响 |
 
 上述标识为设计追溯标识，实际执行测试函数与测试文件可按当前代码实现组织，必须由验收报告映射；不能把示例标识当作已存在文件，也不能以设计矩阵代替执行证据。

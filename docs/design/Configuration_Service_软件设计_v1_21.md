@@ -1573,9 +1573,9 @@ schema_version: 1
 file_version: 1.0.0
 config_sources:
   - config_type: units
-    config_id: units_standard
-    file_version: 1.1.0
-semantic_points:
+    config_id: standard
+    file_version: "1.2.0"
+business_points:
   temperature:
     data_type: float32
     unit: celsius

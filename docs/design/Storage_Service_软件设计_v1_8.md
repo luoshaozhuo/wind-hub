@@ -629,7 +629,7 @@ System Test 必须遵守以下规定：
 
 Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。当前 main 已集成 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_40 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
 
-基准为已集成的主分支总体架构 v1_27、Contracts v1_42、Configuration v1_19，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。配置查询 RPC 已集成，须按真实 `src/contracts/configuration_repository.proto` 与运行测试验证，不以假接口替代。
+基准为已集成的主分支总体架构 v1_27、Contracts v1_43、Configuration v1_21，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。配置查询 RPC 已集成，须按真实 `src/contracts/configuration_repository.proto` 与运行测试验证，不以假接口替代。
 
 ## 3.2 需求清单
 
@@ -1163,7 +1163,7 @@ flowchart TD
 
 ## 8.1 配置身份、来源和唯一选择
 
-依照冻结总体架构 v1_27 §5.7、Contracts v1_42 §10、Configuration v1_19，配置仅使用 **Service → Instances → Templates**，由 Deployment 明确选择 Service/Instance 的不可变文件版本：
+依照冻结总体架构 v1_27 §5.7、Contracts v1_43 §10、Configuration v1_21，配置仅使用 **Service → Instances → Templates**，由 Deployment 明确选择 Service/Instance 的不可变文件版本：
 
 - `deployment_id` 和 `service_id` 来源于 Storage 本地最小引导；业务 Service 只声明 `config_sources.instances.site`、`config_sources.instances.devices` 两个**Instance 逻辑 ID**。Site/Device 由 Deployment 选择精确文件版本；Device Instance 的 model 引用固定 DeviceModel ID/版本，DeviceModel 固定引用 PointTable ID/版本。其他依赖（业务点、单位）由精确不可变 Template 引用构成，无最新推荐版本兜底。
 - 一个 Deployment 的 `services.storage-main` 必须选到同名 Service；`instances.site.<id>`、`instances.device.<id>` 必须分别选择且能完整闭合。Deployment 是版本选择清单而非独立运行服务；Configuration 通过完整目录候选和一次 `PublishCandidate` 原子提交，不存在第二次 Activate RPC。
@@ -1636,7 +1636,7 @@ Kafka Topic/Group、TDengine 地址/认证、DDL 并发、消费背压、查询/
 
 ### 12.2.1 Storage Service 集中业务配置完整示例
 
-以下原样展示本开发分支 `configs/services/service_storage-main_v1.1.0.yaml` 的正式 Storage 目标结构。Configuration 的 Service Schema v2 顶层仅包含通用字段（`schema_version`、`file_version`、`service_id`、`config_sources`、`service`），所有 Storage 运行参数严格置于 `service` 对象下；服务端 `load_storage_config` 只接受此布局。Deployment 必须选择该文件版本。尚未完成跨分支真实联调。
+以下原样展示本开发分支 `configs/services/service_storage-main_v1.2.0.yaml` 的待批准 Storage 候选结构。Configuration 的 Service Schema v2 顶层仅包含通用字段（`schema_version`、`file_version`、`service_id`、`config_sources`、`service`），所有 Storage 运行参数严格置于 `service` 对象下；服务端 `load_storage_config` 只接受此布局。Deployment 必须选择该文件版本。尚未完成跨分支真实联调。
 
 ```yaml
 # Storage Service v2: Deployment-selected instances; operational parameters under service.
