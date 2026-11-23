@@ -1,0 +1,66 @@
+# E2E Delivery Instance: PROTOCOL source is explicitly selected; BUSINESS gated.
+# RAW must not be faked: Sink rejects RAW without undecoded source payload.
+# All four Delivery IDs are isolated and are started explicitly via CLI.
+schema_version: 1
+file_version: "1.0.0"
+revision: "e2e-deliveries-r1"
+deliveries:
+  e2e_redis_power:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: e2e_redis
+    desired_state: STOP
+    source:
+      wind_farm_id: e2e-final
+      collector_id: collector-e2e-realtime
+      devices: [WTG_SIM01]
+      points: [active_power]
+    overrides: {}
+  e2e_modbus_power:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: e2e_modbus
+    desired_state: STOP
+    source:
+      wind_farm_id: e2e-final
+      collector_id: collector-e2e-realtime
+      devices: [WTG_SIM01]
+      points: [active_power]
+    overrides: {}
+  e2e_gateway_power:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: e2e_gateway
+    desired_state: STOP
+    source:
+      wind_farm_id: e2e-final
+      collector_id: collector-e2e-realtime
+      devices: [WTG_SIM01]
+      points: [active_power]
+    target_mappings:
+      - source_device_id: WTG_SIM01
+        source_point_id: active_power
+        variable_id: active_power
+    overrides: {}
+  e2e_kafka_protocol:
+    template_id: reliable_history
+    template_version: "1.1.0"
+    sink_id: e2e_kafka
+    desired_state: STOP
+    source:
+      wind_farm_id: e2e-final
+      collector_id: collector-e2e-reliable
+      devices: [WTG_SIM01]
+      points: [active_power]
+    overrides: {}
+  e2e_kafka_business:
+    template_id: e2e_business_history
+    template_version: "1.0.0"
+    sink_id: e2e_kafka
+    desired_state: STOP
+    source:
+      wind_farm_id: e2e-final
+      collector_id: collector-e2e-reliable
+      devices: [WTG_SIM01]
+      points: [active_power]
+    overrides: {}
