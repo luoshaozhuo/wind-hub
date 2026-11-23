@@ -6,8 +6,8 @@
 # Industrial client control always enters Commander. Only Commander can call the
 # dedicated Gateway simulation execution RPC; Gateway then updates Generator inputs.
 # 仅在隔离 sim-a 环境使用受控内网令牌。证书式旧配置已在此后继版本移除。
-schema_version: 1
-file_version: "1.1.4"
+schema_version: 2
+file_version: "1.2.0"
 service_id: gateway-sim
 config_sources:
   instances:
@@ -17,14 +17,22 @@ grpc:
   listen_port: 53073
   max_active_rpcs: 64
   request_max_bytes: 2097152
-  token_sources:
-    commander: env:WIND_HUB_SIM_GATEWAY_COMMANDER_TOKEN
-    generator: env:WIND_HUB_SIM_GATEWAY_GENERATOR_TOKEN
-    operator: env:WIND_HUB_SIM_GATEWAY_OPERATOR_TOKEN
   permissions:
     commander: [simulation_execute, read]
     generator: [inject, read]
     operator: [read, lifecycle, diagnose]
+security:
+  callers:
+    - caller_id: commander
+      token_env: WIND_HUB_SIM_GATEWAY_COMMANDER_TOKEN
+      permissions: [simulation_execute, read]
+    - caller_id: generator
+      token_env: WIND_HUB_SIM_GATEWAY_GENERATOR_TOKEN
+      permissions: [inject, read]
+    - caller_id: operator
+      token_env: WIND_HUB_SIM_GATEWAY_OPERATOR_TOKEN
+      permissions: [read, lifecycle, diagnose]
+
 servers:
   - server_id: gw-wtg-sim01
     device_id: WTG_SIM01

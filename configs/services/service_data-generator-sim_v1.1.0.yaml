@@ -2,8 +2,8 @@
 # Instance 固定引用 Template，Service 不声明 templates.root。
 # Scenario 配置由 Instance 提供；此 Service 只声明场景 Instance 身份。
 # 设备型号参数来自 templates/device_models，管理端点属于各 Gateway 路由。
-schema_version: 1
-file_version: "1.0.4"
+schema_version: 2
+file_version: "1.1.0"
 service_id: data-generator-sim
 config_sources:
   instances:
@@ -42,9 +42,13 @@ metrics:
 
 # sim-a 目标使用隔离网络及服务端令牌鉴权；不采用 mTLS。
 security:
-  token_sources:
-    cli: env:WIND_HUB_SIM_GENERATOR_CLI_TOKEN
-    gateway: env:WIND_HUB_SIM_GENERATOR_GATEWAY_TOKEN
+  callers:
+    - caller_id: cli
+      token_env: WIND_HUB_SIM_GENERATOR_CLI_TOKEN
+      permissions: [variables_read, variables_update]
+    - caller_id: gateway
+      token_env: WIND_HUB_SIM_GENERATOR_GATEWAY_TOKEN
+      permissions: [variables_read, variables_update]
   permissions:
     cli: [variables_read, variables_update]
     gateway: [variables_read, variables_update]

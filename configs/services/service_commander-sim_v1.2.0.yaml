@@ -2,8 +2,8 @@
 # Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
 # Instance 固定引用 Template，Service 不声明 templates.root。
 # Commander 专属服务配置；共享依赖仅声明直接配置入口
-schema_version: 1
-file_version: "1.1.0"
+schema_version: 2
+file_version: "1.2.0"
 service_id: commander-sim
 config_sources:
   instances:
