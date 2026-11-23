@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/luo/wind-hub/scripts/audit_business_points.py", line 430, in <module>
+    main()
+    ~~~~^^
+  File "/home/luo/wind-hub/scripts/audit_business_points.py", line 424, in main
+    findings = audit(args.root, args.output)
+  File "/home/luo/wind-hub/scripts/audit_business_points.py", line 345, in audit
+    raise ValueError("audit requires one explicitly selected version of each standard catalog")
+ValueError: audit requires one explicitly selected version of each standard catalog

@@ -1,0 +1,204 @@
+{
+  "current_yaml_files": 78,
+  "paths_with_modification_commits": 19,
+  "paths_with_semantic_modifications": 11,
+  "semantic_modification_events": 14,
+  "paths_with_comment_only_modifications": 8,
+  "comment_only_modification_events": 10,
+  "semantic": [
+    {
+      "path": "configs/deployments/deployment_e2e-final_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "65cfaeca61b5c932f334cd4f430b199d6bb29288",
+          "path": "configs/deployments/deployment_e2e-final_v1.0.0.yaml"
+        },
+        {
+          "commit": "ce0e5a064a06a44c5f3f9c5b78a9a9ba3a6f7c48",
+          "path": "configs/deployments/deployment_e2e-final_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/instances/device_e2e-final_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "57e56b05fe112daf8dd4aa937c96f9162120d579",
+          "path": "configs/instances/device_e2e-final_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_cli-e2e_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "41fc6aa8f89d16c8832ffb5c7ed2ee14c72de89c",
+          "path": "configs/services/service_cli-e2e_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_cli_v1.2.0.yaml",
+      "events": [
+        {
+          "commit": "abc25f2ea3a6163ec2e820f36b8a40949c42d9ea",
+          "path": "configs/services/service_cli_v1.2.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_commander-e2e_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "6f3ba1fd4277396beefbb72f756cc765887e9421",
+          "path": "configs/services/service_commander-e2e_v1.0.0.yaml"
+        },
+        {
+          "commit": "4eaa06f2b6d0143ccf6ff90b2ad433c267148458",
+          "path": "configs/services/service_commander-e2e_v1.0.0.yaml"
+        },
+        {
+          "commit": "805dd7150a789b7569b4e9c21a6d4bf8bb26b93d",
+          "path": "configs/services/service_commander-e2e_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_data-generator-e2e_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "888f0c4e122085a554d57c530613dccc9aa1f06f",
+          "path": "configs/services/service_data-generator-e2e_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_gateway-e2e-source_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "604c5239dce7dbda701dda8ebabba8e378ca3ddd",
+          "path": "configs/services/service_gateway-e2e-source_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_gateway-e2e-target_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "ac5414cf4d78ba86e03e769063e480be730065ec",
+          "path": "configs/services/service_gateway-e2e-target_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_sink-e2e_v1.0.0.yaml",
+      "events": [
+        {
+          "commit": "6abc58918a59eccc8a68195121eb1f25f6e7b28a",
+          "path": "configs/services/service_sink-e2e_v1.0.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/business_points_standard_v1.5.0.yaml",
+      "events": [
+        {
+          "commit": "c715af18be7f284e89e97e43f8a8d34086797f9d",
+          "path": "configs/templates/business_points_standard_v1.5.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/point_tables/point_table_ads_wtg_gw2mw_v1.2.0.yaml",
+      "events": [
+        {
+          "commit": "724e35d30744aec07d0b309551fea3c78b21dad6",
+          "path": "configs/templates/point_tables/point_table_ads_wtg_gw2mw_v1.2.0.yaml"
+        }
+      ]
+    }
+  ],
+  "comment_only": [
+    {
+      "path": "configs/services/service_data-generator-sim_v1.0.3.yaml",
+      "events": [
+        {
+          "commit": "abc25f2ea3a6163ec2e820f36b8a40949c42d9ea",
+          "path": "configs/services/service_data-generator-sim_v1.0.3.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/services/service_gateway-sim_v1.1.3.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/services/service_gateway-sim_v1.1.3.yaml"
+        },
+        {
+          "commit": "abc25f2ea3a6163ec2e820f36b8a40949c42d9ea",
+          "path": "configs/services/service_gateway-sim_v1.1.3.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/device_models/device_model_bess_sim_physical_v1.1.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/device_models/device_model_bess_sim_physical_v1.1.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/device_models/device_model_grid_sim_physical_v1.1.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/device_models/device_model_grid_sim_physical_v1.1.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/device_models/device_model_plant_controller_sim_physical_v1.1.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/device_models/device_model_plant_controller_sim_physical_v1.1.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/device_models/device_model_pv_sim_physical_v1.1.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/device_models/device_model_pv_sim_physical_v1.1.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/device_models/device_model_wtg_sim_physical_v1.1.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/device_models/device_model_wtg_sim_physical_v1.1.0.yaml"
+        }
+      ]
+    },
+    {
+      "path": "configs/templates/protocols/protocol_ads_v1.2.0.yaml",
+      "events": [
+        {
+          "commit": "e17886fd7f05a21a29c9e0c6dc8b6bbeaede7941",
+          "path": "configs/templates/protocols/protocol_ads_v1.2.0.yaml"
+        },
+        {
+          "commit": "abc25f2ea3a6163ec2e820f36b8a40949c42d9ea",
+          "path": "configs/templates/protocols/protocol_ads_v1.2.0.yaml"
+        }
+      ]
+    }
+  ],
+  "interpretation": "Git history alone does not establish whether a modified same-version file had already been released. Candidate drafts and released immutable versions require a publication ledger."
+}

@@ -1,0 +1,43 @@
+{
+  "prod_a_without_deployment_version": {
+    "status": "REJECTED",
+    "exception_type": "ValueError",
+    "message": "exactly one Deployment must select this Service version"
+  },
+  "prod_a_with_deployment_version_1_4_0": {
+    "status": "PASS",
+    "detail": {
+      "deployment_path": "configs/deployments/deployment_prod-a_v1.4.0.yaml",
+      "instances": {
+        "site": "configs/instances/site_example_site_v1.1.0.yaml",
+        "devices": "configs/instances/device_farm-a_v1.5.0.yaml",
+        "tasks": "configs/instances/collector_tasks_farm-a_v1.0.0.yaml"
+      }
+    }
+  },
+  "farm_a_v1_5_0_all_devices": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "mixed pinned and unpinned PointTable catalog interpretations"
+  },
+  "farm_a_v1_5_0_gw2mw_only_with_domain_snapshot": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "invalid shared domain configuration: 'site_id'"
+  },
+  "farm_a_v1_4_0_historical": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  },
+  "e2e_final_v1_0_0": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  },
+  "sim_v1_2_0": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  }
+}

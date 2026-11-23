@@ -1,0 +1,57 @@
+{
+  "prod_a_without_deployment_version": {
+    "status": "REJECTED",
+    "exception_type": "ValueError",
+    "message": "exactly one Deployment must select this Service version"
+  },
+  "prod_a_with_deployment_version_1_4_0": {
+    "status": "PASS",
+    "detail": {
+      "deployment_path": "configs/deployments/deployment_prod-a_v1.4.0.yaml",
+      "instances": {
+        "site": "configs/instances/site_example_site_v1.1.0.yaml",
+        "devices": "configs/instances/device_farm-a_v1.5.0.yaml",
+        "tasks": "configs/instances/collector_tasks_farm-a_v1.0.0.yaml"
+      }
+    }
+  },
+  "farm_a_v1_5_0_all_devices": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "mixed pinned and unpinned PointTable catalog interpretations"
+  },
+  "farm_a_v1_5_0_gw2mw_only_with_domain_snapshot": {
+    "status": "PASS",
+    "detail": {
+      "devices_file_version": "1.5.0",
+      "device_ids": [
+        "GW01",
+        "GW02",
+        "GW03",
+        "GW04",
+        "GW05"
+      ],
+      "business_point_catalog_version": "1.5.0",
+      "business_point_count": 400,
+      "point_table_point_counts": {
+        "point_table_ads_wtg_gw2mw_v1.2.0": 111
+      },
+      "source_manifest_count": 6
+    }
+  },
+  "farm_a_v1_4_0_historical": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  },
+  "e2e_final_v1_0_0": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  },
+  "sim_v1_2_0": {
+    "status": "REJECTED",
+    "exception_type": "ConfigError",
+    "message": "business_points_standard: exactly one pinned catalog is required"
+  }
+}
