@@ -19,9 +19,9 @@ output:
   # 与 service_gateway-sim_v1.1.3.yaml 的 mTLS 信任根匹配。
   # 证书由部署/测试设施生成；以下绝对路径不是仓库自带资产。
   gateway_tls:
-    ca_file: /etc/wind-hub/certs/ca.pem
-    cert_file: /etc/wind-hub/certs/generator.pem
-    key_file: /etc/wind-hub/certs/generator.key
+    ca_file: /var/lib/wind-hub/e2e-final/certs/ca.pem
+    cert_file: /var/lib/wind-hub/e2e-final/certs/generator.pem
+    key_file: /var/lib/wind-hub/e2e-final/certs/generator.key
 buffer:
   max_batches: 128
   max_points_per_batch: 1000
@@ -45,9 +45,9 @@ metrics:
 # 模型变量写入 RPC 必须通过身份和权限验证，不允许明文访问。
 security:
   tls:
-    cert_file: /etc/wind-hub/certs/data-generator.pem
-    key_file: /etc/wind-hub/certs/data-generator.key
-    ca_file: /etc/wind-hub/certs/ca.pem
+    cert_file: /var/lib/wind-hub/e2e-final/certs/data-generator.pem
+    key_file: /var/lib/wind-hub/e2e-final/certs/data-generator.key
+    ca_file: /var/lib/wind-hub/e2e-final/certs/ca.pem
   permissions:
     cli: [variables_read, variables_update]
     gateway: [variables_read, variables_update]
