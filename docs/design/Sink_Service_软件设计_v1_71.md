@@ -2542,7 +2542,7 @@ sequenceDiagram
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-    C["Collector：采样并发布 Schema 2 源批"]
+    C["Collector：采样并发布 Schema 3 源批"]
     NC[("NATS Core")]
     JS[("JetStream")]
     subgraph S["Sink Service：三进程"]
@@ -2590,7 +2590,7 @@ R12 已验证 Kafka 编码 CPU 可降低约 33.1%，短时饱和吞吐增加 18.
 
 ## 10.3 批量消息接收与校验
 
-当前生产源消息使用 `contracts.sample_batch.SampleBatch(schema_version=2)`；目标源消息依照 Contracts §11.6 的 v3，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
+现行生产源消息使用 `contracts.sample_batch.SampleBatch(schema_version=3)`，遵循 Contracts §11.6，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
 
 | 通道 | Subject | 校验不通过 |
 |---|---|---|
@@ -3890,7 +3890,7 @@ lint-imports
 
 单实例容量和多容器规模化是两个独立验收项目。**Gate-5 为单容器三进程双通道容量标定**：30 台风机、Realtime 30000 值/s + Reliable 150000 值/s 为参考负载；优先采用连续 ≥600 s 稳态窗口寻找可持续目标确认上限。低于参考吞吐不单独导致 FAIL；必须有可复算的稳定容量、输入及确认口径、积压斜率、CPU/RSS、延迟及故障记录。实测稳定能力之外的持续输入会造成积压时，必须明确供数限制、容量裕度或后续分片方案，不能声称该输入可长期稳定。多容器成绩不能替代单实例报告。ACK 提前、未解释丢失、资源失控和满载控制面不可用仍为阻断缺陷；Contracts/Collector 联调覆盖不足须明确标记限制，不可冒充已通过。
 
-系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。正式 Proto 与 Contracts Schema 2 以验收时记录的 GitHub main HEAD 为准；v1_36 记录的 `14e3be661cfd1d30417144d3f4cfa928d313eaa5` 属于历史检查点，不能代替最新提交核验。代码实现和联调仍需实际验证。
+系统验收要求：全部 UR、UC 及规定场景形成可定位的真实测试映射；必需的测试在符合要求的环境执行且 PASS；无未裁定 P0/P1 缺陷；真实依赖未具备的测试标记 NOT_RUN 并阻止宣称完整验收通过。指标结果须同时提供原始测量口径，不得用设计期望充当实测证据。正式 Proto 与 Contracts SampleBatch Schema 3 以本次 main 集成基线为准；v1_36 记录的 `14e3be661cfd1d30417144d3f4cfa928d313eaa5` 属于历史检查点，不能代替最新提交核验。代码实现和联调仍需实际验证。
 
 ### 14.7.1 文档编码准入静态检查
 
@@ -3901,7 +3901,7 @@ lint-imports
 | 设计范围 | 第一、二章编制原则保留；第三章定义单实例性能目标，§10.3 统一 main 输入契约，§10.7/§12.1.4/§13.3.2 保持 Kafka 性能与观测边界 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | 当前生产的 `SampleBatch(schema_version=2)` / `SampleItem` 仍在运行；目标唯一输入线协议为 Contracts §11.6 的 v3；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
+| 消息契约 | 现行 `SampleBatch(schema_version=3)` / `SampleItem` 统一遵循 Contracts §11.6；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
 | 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为批内测点条目，`source batch` 为采集来源事件，`output batch` 为 Adapter 输出组 |
@@ -3914,7 +3914,7 @@ lint-imports
 | 事项 | 当前实现及验收事实 | 依据 |
 |---|---|---|
 | 部署 | 单容器 Main、Realtime、Reliable 三进程，两个 Worker 独立事件循环 | Sink 当前代码、R11/R12 |
-| 源数据 | main `SampleBatch` Schema 2 与 `SampleItem`；精确设备 Subject 使用 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`；Sink 私有 `DeliveryPoint` 只承担输出上下文 | main `src/contracts/sample_batch.py`、Sink `application/delivery_point.py` |
+| 源数据 | main `SampleBatch` Schema 3 与 `SampleItem`；精确设备 Subject 使用 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`；Sink 私有 `DeliveryPoint` 只承担输出上下文 | main `src/contracts/sample_batch.py`、Sink `application/delivery_point.py` |
 | 高吞吐实现 | Reliable Kafka 每输出子批最多 500 点；`encode_kafka_points` 复用公共字段并逐点拼接差异字段；一测点一 Kafka Record；Builder、Future 与 ACK 规则见 §10.7 | `kafka_wire.py`、`reliable_runtime.py`、`realtime_adapters.py` |
 | B3 正确性 | 历史 234 项 parity、新增 307 项逐字节测试；Sink 525、Contracts 91、R10/R11 系统回归 5 项 PASS | `docs/sink-service-r12-final-optimization-acceptance.md` |
 | R12 饱和吞吐 | Reliable-only 三轮 120s A/B 中位数 B2 **72281** → B3 **85937** 确认值/s（+18.89%），JSON 编码 CPU −33.1%；不等于 600s 稳定容量 | R12 §3 |
