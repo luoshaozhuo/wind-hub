@@ -5,7 +5,7 @@
 - 主分支：`origin/main@f91068748838103f547f1140d24b4eb93cbf7372`（本轮 GitHub 复核）。
 - 设计分支：`docs/design-consolidation-20261123`。
 - 总体架构：`wind-hub_总体逻辑架构设计_v1_27.md`，冻结且本轮未修改。
-- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_39.md`。
+- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_40.md`。
 - 纳入 Contracts、Core、Configuration、CLI、Commander、Collector、Data Generator、Industrial Gateway、Sink、Storage 及全部跨模块接口；暂排除 Web Server/Admin。
 - 本次为远程文件级源码/设计/测试的**静态准入审查**，未执行 ruff/mypy/pytest、真实 Broker/TDengine、CLI 进程 E2E 或容量实验。所有未执行项为 NOT_RUN，不将现有测试源码等同已执行且通过。
 
@@ -164,3 +164,26 @@ Core v1_42 §业务语义明确要求同一继承展开后的 PointTable 内，`
 进一步将 `service_commander-e2e_v1.0.0.yaml` 的 gRPC 监听从继承的 `0.0.0.0` 收窄为 `127.0.0.1`，避免本机最终联测的管理口被无意暴露。当前只有静态配置证据，仍需在真实 CLI/Socket 中检查所有 E2E 监听端口无生产冲突、凭证身份正确及服务 READY。
 
 以上为 GitHub 文件级脚本化静态核验，**没有执行远程 Python、真实 Schema Loader 或服务启动**，结果不作为准入 PASS 的替代。
+
+## 11. BusinessPoint 设计及 configs 候选整改（2026-11-23）
+
+本轮按用户明确的 **PointTable 内 Point 与 BusinessPoint 一对一** 完成设计与候选配置文件修订：不修改生产模块代码，不执行 Ruff、pytest、Repository 发布或联测；未发布候选不得作为生产活动版。涉及的 10 份设计文档已相应换版，旧设计文件已清理；冻结总体逻辑架构文件保持原样。
+
+**文件链**：
+
+| 类型 | 旧版本 | 新候选版本 |
+|---|---|---|
+| BusinessPoint Standard | `business_points_standard_v1.4.0.yaml` | `business_points_standard_v1.5.0.yaml` |
+| GW2MW ADS PointTable | `point_table_ads_wtg_gw2mw_v1.1.0.yaml` | `point_table_ads_wtg_gw2mw_v1.2.0.yaml` |
+| GW2MW DeviceModel | `device_model_wtg_gw2mw_v1.4.0.yaml` | `device_model_wtg_gw2mw_v1.5.0.yaml` |
+| farm-a Device Instance | `device_farm-a_v1.4.0.yaml` | `device_farm-a_v1.5.0.yaml` |
+| prod-a Deployment | `deployment_prod-a_v1.3.0.yaml` | `deployment_prod-a_v1.4.0.yaml`（未激活） |
+
+**静态文件级校核**：原 293 个 BusinessPoint 的 ID、数据类型和标准单位未改变；新增 107 个新候选定义，共 400 个。原 111 个 ADS Point 的 Point ID、非业务映射字段（包括地址/符号、类型、单位）未改变，候选中的 111 个 `business_point_id` 两两不同；全部目标 ID 均在候选目录中存在，数据类型和标准单位相较原映射未变化。原 22 组重复业务身份的**结构性冲突已在新候选消除**，但物理解释并未获 OEM 核定。映射台账：`docs/audit/gw2mw_businesspoint_semantic_mapping_candidate_20261123.csv`，全部 111 条为 `PENDING_OEM_SEMANTICS`，不得宣称 BUSINESS 生产准入已通过。
+
+新 PointTable 使用 `config_sources` 精确固定 BusinessPoint 标准目录 1.5.0 与 Units 1.2.0，新标准目录固定 Units 1.2.0。新 DeviceModel/Instance/Deployment 依此逐级精确引用。新 `device_farm-a_v1.5.0.yaml` 的旧文件头错误已修正。
+
+**遗留硬约束**：原 v1.4.0 标准目录仍被 `src/data_generator/infrastructure/config/service_settings.py`、`src/collector/infrastructure/config/snapshot_repository.py` 及现有测试显式引用；历史版本及相关生产配置尚不能简单删除，否则违反同步调用方和历史闭包约束。Git `configs/` 中暂保留新旧标准文件，因此**当前全目录不能直接作为无歧义的正式 Configuration 发布根**：旧 PointTable 未显式固定标准目录，存在多版本歧义。后续编码阶段必须统一变更固定路径加载方和审查脚本，给旧历史闭包准确归档，构造受控的无歧义完整发布根后才能正式发布。该项不能用“设计文件已更新”代替程序准入。生产旧 Deployment 1.3.0 不变。
+
+仍开放：OEM 实际 PLC 符号语义及运行时唯一性验证、RAW 的真实线协议载荷支持、BUSINESS 的真实不可变 manifest、prod-a 的 Storage 选择以及全链 CLI/TDengine 和容量实测。本轮验证状态：**静态结构审阅；Ruff、mypy、pytest、发布、E2E 均 NOT_RUN**。
+
