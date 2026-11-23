@@ -173,10 +173,15 @@ class SharedDocumentLoader:
         selected_device_ids: frozenset[str] | None = None,
     ) -> SharedDocuments:
         device_doc = read_stable_document(devices_path)
-        units = read_stable_document(self._paths.templates / "units_standard.yaml")
-        business_points = read_stable_document(
-            self._paths.templates / "business_points_standard.yaml"
-        )
+
+        def sole_catalog(prefix: str) -> Path:
+            matches = tuple(self._paths.templates.glob(f"{prefix}_v*.yaml"))
+            if len(matches) != 1 or matches[0].is_symlink():
+                raise ConfigError(f"{prefix}: exactly one pinned catalog is required")
+            return matches[0]
+
+        units = read_stable_document(sole_catalog("units_standard"))
+        business_points = read_stable_document(sole_catalog("business_points_standard"))
         if site:
             _keys(
                 site,
@@ -219,7 +224,7 @@ class SharedDocumentLoader:
             raw = _mapping(value, f"device {device_id}")
             _keys(
                 raw,
-                frozenset({"model", "endpoint", "overrides", "enabled", "name"}),
+                frozenset({"model", "endpoint", "overrides", "enabled", "name", "group"}),
                 f"device {device_id}",
             )
             model = self._repository.resolve(_reference(raw.get("model"), device_id))

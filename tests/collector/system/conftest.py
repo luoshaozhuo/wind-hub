@@ -241,12 +241,13 @@ async def collector(
             "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
         }
         log_stream = log_path.open("w", encoding="utf-8")
+        delivery = tree_kwargs.get("delivery", "realtime")
         cmd = [
             sys.executable,
             "-m",
             "collector.main",
             "--config",
-            str(services / "collector.yaml"),
+            str(services / f"service_collector-{delivery}_v1.0.0.yaml"),
             "--state-directory",
             str(state_dir),
             "--grpc-port",

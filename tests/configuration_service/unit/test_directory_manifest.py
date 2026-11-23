@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     build_directory_manifest,
@@ -85,10 +86,16 @@ def test_rejects_limits_and_non_utf8_content() -> None:
             "device_model",
             "wtg_sim",
         ),
-        ("instances/devices_sim.yaml", "1.0.0", None, "device", "devices_sim"),
-        ("templates/business_points_standard.yaml", "1.3.0", None, "business_points", "standard"),
-        ("templates/units_standard.yaml", "1.1.0", None, "units", "standard"),
-        ("services/sink_service.yaml", "1.0.1", None, "service", "sink_service"),
+        ("instances/device_sim_v1.2.0.yaml", "1.2.0", None, "device", "sim"),
+        (
+            "templates/business_points_standard_v1.4.0.yaml",
+            "1.4.0",
+            None,
+            "business_points",
+            "standard",
+        ),
+        ("templates/units_standard_v1.2.0.yaml", "1.2.0", None, "units", "standard"),
+        ("services/service_sink-west_v1.2.0.yaml", "1.2.0", None, "service", "sink-west"),
     ],
 )
 def test_publication_identity_is_derived_from_exact_path(
@@ -101,6 +108,8 @@ def test_publication_identity_is_derived_from_exact_path(
     source: dict[str, object] = {"file_version": version}
     if template_id:
         source["template_id"] = template_id
+    if expected_type == "service":
+        source["service_id"] = expected_id
     identity = resolve_publication_identity(path, source)
     assert (identity.config_type, identity.config_id, identity.file_version) == (
         expected_type,
@@ -136,6 +145,8 @@ def test_repository_directory_paths_have_unambiguous_identities() -> None:
     seen: set[tuple[str, str, str]] = set()
     for path in sorted(root.rglob("*.yaml")):
         relative_path = path.relative_to(root).as_posix()
+        if _is_local_bootstrap(relative_path):
+            continue
         document = parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
         if relative_path.startswith("services/service_configuration_v"):
             with pytest.raises(ValueError, match="bootstrap"):

@@ -17,7 +17,7 @@ from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import decode_scalar
 from core.domain import DeviceId
-from data_generator.application.configuration import ConfigFile as FileContent
+from core.infrastructure.configuration_repository import DeploymentObserver
 from data_generator.application.configuration import ConfigurationCoordinator
 from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inputs
 from data_generator.application.runtime import GenerationState, Runtime
@@ -399,8 +399,9 @@ class DataGeneratorService(dg_rpc.DataGeneratorServiceServicer):
 
 
 class CommonService(common_rpc.CommonServiceServicer):
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: Runtime, observer: DeploymentObserver | None = None) -> None:
         self.runtime = runtime
+        self.observer = observer
         self.snapshots = SnapshotManager(runtime.settings)
         self._configuration = ConfigurationCoordinator(runtime, self.snapshots)
         self.diagnostics = Diagnostics(runtime.settings)
@@ -435,7 +436,18 @@ class CommonService(common_rpc.CommonServiceServicer):
             for gateway_id in scenario.gateways
         }
         return common.GetServiceStatusResponse(
-            health="DEGRADED" if failed or unsafe else "HEALTHY",
+            health=(
+                "DEGRADED"
+                if failed
+                or unsafe
+                or (
+                    self.observer is not None
+                    and self.observer.target_revision != self.observer.active_revision
+                )
+                else "HEALTHY"
+            ),
+            target_revision=self.observer.target_revision if self.observer else "",
+            active_revision=self.observer.active_revision if self.observer else "",
             dependencies=[
                 common.DependencyHealth(
                     name=f"gateway:{gateway_id}",
@@ -504,86 +516,22 @@ class CommonService(common_rpc.CommonServiceServicer):
         request: common.PushConfigSnapshotRequest,
         context: Any,
     ) -> common.PushConfigSnapshotResponse:
-        # The transaction owns the lock after client cancellation.
-        return await asyncio.shield(asyncio.create_task(self._push_snapshot(request)))
-
-    async def _push_snapshot(
-        self,
-        request: common.PushConfigSnapshotRequest,
-    ) -> common.PushConfigSnapshotResponse:
-        try:
-            files = tuple(FileContent(f.relative_path, bytes(f.content)) for f in request.files)
-            for original, item in zip(request.files, files, strict=False):
-                if original.size_bytes != len(item.data):
-                    raise GeneratorError("snapshot size mismatch")
-                if original.sha256 and original.sha256 != file_sha256(item.data):
-                    raise GeneratorError("snapshot SHA-256 mismatch")
-            candidate = await self._configuration.push(files, request.expected_revision)
-        except (GeneratorError, OSError, ValueError) as exc:
-            return common.PushConfigSnapshotResponse(
-                valid=False,
-                validation=[
-                    common.ValidationIssue(
-                        path="snapshot",
-                        code=config_error_code(exc),
-                        message=str(exc),
-                    )
-                ],
-                base_revision=self._configuration.disk_revision,
-            )
-        return common.PushConfigSnapshotResponse(
-            candidate_id=candidate,
-            valid=True,
-            base_revision=self._configuration.disk_revision,
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(
         self,
         request: common.ApplyConfigSnapshotRequest,
         context: Any,
     ) -> common.ApplyConfigSnapshotResponse:
-        # Cancellation of the caller cannot release a live file-commit lock.
-        return await asyncio.shield(asyncio.create_task(self._apply_snapshot(request)))
-
-    async def _apply_snapshot(
-        self,
-        request: common.ApplyConfigSnapshotRequest,
-    ) -> common.ApplyConfigSnapshotResponse:
-        try:
-            applied = await self._configuration.apply(
-                request.candidate_id, request.expected_revision
-            )
-        except (GeneratorError, OSError, ValueError) as exc:
-            return common.ApplyConfigSnapshotResponse(
-                file_commit="FAILED",
-                apply_results=[
-                    common.ApplicationResult(
-                        object_id="config",
-                        status="FAILED",
-                        error_code=config_error_code(exc),
-                        message=str(exc),
-                    )
-                ],
-                effective_revision=self._configuration.disk_revision,
-            )
-        self.diagnostics = Diagnostics(self.runtime.settings)
-        return common.ApplyConfigSnapshotResponse(
-            file_commit="COMMITTED",
-            effective_revision=applied.effective_revision,
-            restart_required=applied.restart_required,
-            application_id=request.candidate_id,
-            apply_results=[
-                common.ApplicationResult(
-                    object_id=scenario_id,
-                    message=(
-                        f"disk_revision={applied.disk_revision}; "
-                        f"effective_revision={applied.effective_revision}"
-                    ),
-                    status=status,
-                )
-                for scenario_id, status in applied.scenarios
-            ],
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(
         self,
@@ -701,7 +649,9 @@ def validate_rpc_contracts() -> None:
                 )
 
 
-def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
+def make_server(
+    runtime: Runtime, bind: str, observer: DeploymentObserver | None = None
+) -> grpc.aio.Server:
     validate_rpc_contracts()
     security = runtime.settings.service.get("security")
     if security is not None and (
@@ -732,7 +682,7 @@ def make_server(runtime: Runtime, bind: str) -> grpc.aio.Server:
         raise GeneratorError("insecure gRPC listener restricted to loopback")
     server = grpc.aio.server()
     dg_rpc.add_DataGeneratorServiceServicer_to_server(DataGeneratorService(runtime), server)
-    common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime), server)
+    common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime, observer), server)
     if tls:
         files = {}
         for key in ("cert_file", "key_file", "ca_file"):

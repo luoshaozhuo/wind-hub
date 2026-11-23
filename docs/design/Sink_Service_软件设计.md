@@ -2,7 +2,9 @@
 
 <p class="subtitle">软件设计 · 持续维护</p>
 
-> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。目标通知 RPC 尚待 Contracts/Proto 和代码实现。
+> **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
+
+> **Deployment 版本激活与故障恢复**：Main 在首次启动读取显式选中的 Service；存在持久化 CURRENT Generation 时重启读取其唯一版本化 Service 文件。目标 Service/Instance/Template 闭包完整验证后提交 CURRENT；Service 级变更等待 Main 重启。存活 Main 的 Worker 重新拉起时必须绑定 Main 实际 active Generation，不得使用尚未激活的 CURRENT 目标；仅正常 Apply 指令读取 CURRENT。target_revision 与 active_revision 仅在完整收敛后相等，部分失败保留旧激活身份。
 
 
 <style>
@@ -2849,6 +2851,26 @@ DLQ 持久记录 `dead_letter_id`、来源 Stream/Consumer/sequence、`batch_id/
 **可靠性边界：** JetStream ACK、Kafka Broker ACK、DLQ PubAck、Modbus 寄存器镜像更新是不同确认层次；至少一次传递可能重复，不保证恢复 Broker 已过期/删除的数据。
 # 11. 配置管理与生效
 
+### 配置身份、发布及活动版本（最终契约）
+- **不可变配置身份**：`config_type + config_id + file_version`；`schema_version` 为结构版本，`file_version` 为内容版本；同身份同版本的字节及依赖不可改写。Deployment 文件本身也应有唯一不可变身份、`file_version`、`schema_version`。
+- **Service 的实例引用**：`config_sources.instances.<role>: <config_id>`；角色只用于服务业务解析，不形成 Template 直接引用。Deployment 的 `instances` 选择应按 `config_type/config_id` 作为复合键，不因文件路径和目录扫描选择版本。多个 Service 可以依赖同一实例；相同逻辑身份在一个部署修订内仅对应一个版本。
+- **Deployment**：包含 `deployment_id`、`services` 的 Service ID/版本映射和 `instances` 的类型/ID/版本映射；由 CLI 一次完整目录发布，Repository 校验后在同一原子提交中将该部署的活动选择指针改为所发布清单。不存在单独二次激活操作和逐模块通知调用；只发布未被清单引用的 Template/Instance 文件不会使运行实例变更。多个部署域互不干扰。
+- **有效闭包**：以 `deployment_id + service_id` 查询 Deployment 选定的 Service、其直接 Instance、Instance 的固定 Template 依赖以及任何被固定引用的单位/业务点。统一按确定性路径顺序计算闭包摘要；全局仓库修订只作为查询/事件游标，不得与服务有效闭包的状态字段混淆。
+- **target_revision / active_revision**：两者类型与算法相同，均为服务有效闭包的确定性摘要（推荐 SHA-256 十六进制），而不是 repository 的 `revision_id` 或单独 YAML 的 `file_version`。成功热更新或重启并完整应用目标后两者相等；部分应用保持旧的 active_revision，同时报告可用的逐资源诊断信息。服务停机不宣称处于活动状态。
+- **更新策略**：配置快照先完整获取、校验、持久缓存；Service 判断热更与静态字段。一个不允许混用的依赖单元应原子替换或整体延期，不能把新的 PointTable 与旧控制映射拼接。广播丢失由启动/重连/周期查询补偿；重复、乱序通知不得回退到旧目标。
+- **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
+
+Sink Service 引用 `sinks-main`、`deliveries-main` 等 Instance 逻辑身份，由 Deployment 选取版本。Delivery/Sink Instance 分别引用自己的固定版本 Template；Main 解析闭包并协调两个 Worker，维持单 Delivery 的可靠 ACK、目标所有权与变更隔离。
+
+
+### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
+CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
+
+Sink Service 仅通过 Instance 逻辑身份引用 sinks、deliveries；由 Deployment 选择两个 Instance 的版本。Sinks/Deliveries Instance 中仍固定引用各自 Sink/Delivery Template 的 ID 与版本，禁止 Service 通过模板根目录选择模板。Main 解析完整版本闭包后发给 Realtime/Reliable Worker；仅在全部受影响 Worker 完成一致性校验与必要协调时标记 active_revision，静态 Service 参数改变则要求重启。切换 Reliable Delivery 不得破坏未 ACK 消息的处理和重投语义，Realtime 不得丢失安全切换所需的目标 lease 隔离。
+
+
+
 本章给出**有效配置文件、字段归属、校验条件和生效状态**。Gateway 类型是本轮新增的目标 Schema，须随代码实施后方可称为运行时有效。所有 YAML 为本章所规定的结构示例；实际部署必须使用已发布的精确模板版本与有效实例引用。
 
 ## 11.1 如何组织独立配置域
@@ -2856,10 +2878,10 @@ DLQ 持久记录 `dead_letter_id`、来源 Stream/Consumer/sequence、`batch_id/
 | 配置对象 | 位置 | 权威与规则 |
 |---|---|---|
 | Service | `configs/services/sink_service.yaml` | 每容器一份；Main 唯一读写入口 |
-| Sink 实例 | `configs/instances/sinks.yaml` | 通过 `config_sources.instances.sinks` 显式指定 |
-| Delivery 实例 | `configs/instances/deliveries.yaml` | 通过 `config_sources.instances.deliveries` 显式指定 |
-| 版本化模板 | `configs/templates/{sinks,deliveries}/` | 根路径显式指定、按精确 ID/版本引用、不扫描目录 |
-| 已提交修订 | 独立 `config_root` 的 `CURRENT`/revision | 容器间不共享修订号、无跨容器原子 Apply |
+| Sink 实例 | `configs/instances/` | Service 引用逻辑身份，由 Deployment 选版本 |
+| Delivery 实例 | `configs/instances/` | Service 引用逻辑身份，由 Deployment 选版本 |
+| 版本化模板 | `configs/templates/{sinks,deliveries}/` | 由 Sink / Delivery Instance 固定版本引用，不由 Service 定位 |
+| 已提交修订 | Configuration Repository / 本地快照缓存 | Repository 发布修订是通知游标；Service 报告有效闭包的目标与活动摘要 |
 
 Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）；Configuration 只装配共享来源，Sink 负责本模块 Sink/Delivery 私有模板 Schema、候选 CAS 和 Apply。模板不可原地修改已提交版本，实例通过 `template_version` 引用新版本。两个 Worker 仅接收 Main 经 IPC 下发的有效配置，不直接写正式文件。
 
@@ -2911,7 +2933,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 # config_sources.instances.sinks — Sink 实例文件；configs/instances/*.yaml。
 # config_sources.instances.deliveries — Delivery 实例文件；configs/instances/*.yaml；
 #   必须与 sinks 文件路径不同。
-# config_sources.templates.root — 模板根目录；configs/templates 或其子目录。
+# 模板按 Instance 中固定 ID/版本引用，由 Deployment 所选闭包解析。
 #   路径均相对 config_root；不得包含 ../、符号链接或越界路径。
 #   模板按准确 ID/版本引用，不扫描目录或使用隐式默认来源。
 #
@@ -3015,10 +3037,8 @@ deployment_id: prod-a
 config_root: /etc/wind-hub
 config_sources:
   instances:
-    sinks: configs/instances/sinks.yaml
-    deliveries: configs/instances/deliveries.yaml
-  templates:
-    root: configs/templates
+    sinks: sinks-main
+    deliveries: deliveries-main
 
 grpc:
   listen_host: 127.0.0.1
@@ -3652,7 +3672,7 @@ tests/src/
 | `test_delivery_runtime.py` | component | reliability | concurrency | Sink 共享、独立 Consumer、停止收敛 |
 | `test_realtime_cache.py` | component | performance | load | 有界合并、丢弃、最新值与重启清空 |
 | `test_config_snapshot.py` | component | contract | normal、exception | Get/Push/Apply 校验、候选、冲突及版本 |
-| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | 单 Service 显式 Instance pathname；Template 根目录与扁平文件名；缺失/越界/旧版目录/默认路径回退拒绝；切换配置来源需重启 |
+| `test_config_sources.py` | integration | contract、security | normal、exception、recovery | Service 逻辑 Instance 身份、Deployment 版本选择、Template 固定闭包；拒绝缺失/歧义/旧 pathname 字段；静态变更需重启 |
 | `test_worker_ipc.py` | component | reliability | recovery、timeout | Main/子进程版本确认、超时与部分收敛 |
 | `test_metrics.py` | component | contract | exception | 初始化、时间窗口、周期计算、跳周期、延迟分位数及快照不可用 |
 | `test_diagnose.py` | component | security | exception、timeout | 诊断分阶段证据、无副作用、限流 |
@@ -3946,7 +3966,7 @@ lint-imports
 | Modbus TCP Server | 1 个 float32+质量寄存器、500 点、地址冲突、Reliable 模式 | 值与质量同时可读；正确连续映射；冲突及 Reliable 拒绝 |
 | 并发能力 | 单写入 Adapter 配 `max_safe_inflight=2` | Push 拒绝；已在途 I/O 超时不提前回收额度 |
 | 双数据进程优先级 | 实时和补发共用目标、分别具有/没有物理隔离或目标侧配额 | 有保障时实测实时优先；无保障不允许声称优先级成立 |
-| 配置来源 | 同配置域两 Service 指向同一路径、不同 pathname、缺失实例、目录扫描诱饵、旧式分层模板、Template 未引用 | 仅匹配显式文件和精确引用闭包；不同来源/缺失/旧路径拒绝；未引用模板不被读取或删除；变更来源提示重启 |
+| 配置来源 | 同部署域不同 Service 复用 Instance 逻辑身份、版本缺失、旧路径字段、未引用模板 | 每个逻辑身份选定唯一版本，拒绝旧路径/不完整闭包；未引用模板不触发重启 |
 | 完整快照 | Template 缺失、版本原地覆盖、Main 配置写入冲突、CAS 冲突 | 完整候选原子拒绝；正式文件和 active_revision 均不被错误改变 |
 | 容量性能 | 单实例两通道同时运行；30 台、10 Hz、实时 100 点/台、可靠 500 点/台为参考负载；优先连续 600 s 稳态；独立实测 Publisher | 分别提交输入、接收、目标确认、积压增长、CPU/RSS、P99、错误与背压；报告最高可持续稳定值/s及参考达成率；未达到参考值不单独判 FAIL，证据不足不得标容量测量 PASS |
 

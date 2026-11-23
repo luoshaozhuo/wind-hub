@@ -23,6 +23,7 @@ class SnapshotPaths:
     templates: Path
     site: Path | None = None
     devices: Path | None = None
+    tasks: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)

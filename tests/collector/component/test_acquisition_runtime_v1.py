@@ -39,8 +39,8 @@ def _device() -> tuple[Device, PointTable, str, str]:
         SharedConfigPaths(
             CONFIG / "instances",
             CONFIG / "templates",
-            site_file=CONFIG / "instances" / "site.yaml",
-            devices_file=CONFIG / "instances" / "devices.yaml",
+            site_file=CONFIG / "instances" / "site_example_site_v1.1.0.yaml",
+            devices_file=CONFIG / "instances" / "device_farm-a_v1.4.0.yaml",
         )
     ).load()
     snapshot = build_shared_snapshot(shared)

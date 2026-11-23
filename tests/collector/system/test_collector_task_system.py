@@ -5,15 +5,11 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-import yaml
 
 from contracts import common_pb2 as common
 from tests.collector.system.helpers import (
     MODBUS,
-    disk_revision,
     publishing,
-    push_apply,
-    snapshot_files,
     start_task,
     stop_task,
     wait_actual,
@@ -70,17 +66,14 @@ async def test_uc02_s03_manual_stop_never_revived_by_watchdog_or_reload(
     await stop_task(device_stub, config_stub, MODBUS)
     assert await wait_actual(device_stub, MODBUS, {"STOPPED"}) == "STOPPED"
 
-    # A snapshot re-load while the field link returns: STOP stays authoritative.
-    revision = await disk_revision(config_stub)
-    files = await snapshot_files(config_stub)
-    site = yaml.safe_load(files["instances/site.yaml"])
-    site["name"] = "Acceptance Site Renamed"
-    files["instances/site.yaml"] = yaml.safe_dump(site, sort_keys=False).encode()
-    result = await push_apply(config_stub, files, revision)
-    statuses = {item.status for item in result.apply_results}
-    assert statuses <= {"APPLIED"}
+    # Restart from the same persistent state; a newly selected configuration
+    # must not resurrect an explicitly stopped task.
+    handle.process.stop()
+    restarted = await collector(state_dir_override=str(handle.state_dir))
+    _channel, config_stub, device_stub = grpc_clients(restarted.process.grpc_port)
     await modbus_slave.start()
     await asyncio.sleep(3.0)
+
     task = await device_stub.GetTask(common.ObjectId(id=MODBUS))
     assert task.task.desired_state == "STOP"
     assert task.task.actual_state == "STOPPED"

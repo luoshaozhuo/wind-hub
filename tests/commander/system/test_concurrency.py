@@ -30,7 +30,7 @@ _CONSERVATIVE_OUTCOMES = {"UNKNOWN", "NOT_SENT"}
 
 
 def _tz01_to_blackhole(service_dir: Path) -> None:
-    devices = service_dir / "config" / "instances" / "devices.yaml"
+    devices = service_dir / "configs" / "instances" / "device_farm-a_v1.4.0.yaml"
     text = devices.read_text(encoding="utf-8")
     prefix, rest = text.split("  TZ01:", 1)
     block, suffix = rest.split("  TZ02:", 1)

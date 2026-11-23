@@ -11,21 +11,22 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from render_cli import _collector_environment, _service_files, _validate_bindings
+from render_cli import (
+    DEFAULT_DEPLOYMENT_PATH,
+    SERVICE_NAMES,
+    _collector_environment,
+    _document,
+    _relative,
+    _selected_service_names,
+    _service_files,
+    _validate_bindings,
+)
 
-SERVICE_FILES = {
-    "gateway": "industrial_gateway-sim.example.yaml",
-    "data-generator": "data-generator-sim.example.yaml",
-    "collector_realtime": "collector-realtime.yaml",
-    "collector_reliable": "collector-reliable.yaml",
-    "sink": "sink_service.yaml",
-    "commander": "commander.yaml",
-}
 PORTS = {"collector_realtime": 50051, "collector_reliable": 50054}
 
 
-def _commands(name: str) -> list[str]:
-    service = f"/etc/wind-hub/configs/services/{SERVICE_FILES[name]}"
+def _commands(name: str, service_files: dict[str, str]) -> list[str]:
+    service = f"/etc/wind-hub/configs/services/{service_files[name]}"
     if name == "gateway":
         return [
             "industrial_gateway.main",
@@ -51,7 +52,10 @@ def _commands(name: str) -> list[str]:
             str(PORTS[name]),
         ]
     if name == "sink":
-        return ["sink_service.main", "--config-root", "/etc/wind-hub"]
+        return [
+            "sink_service.main", "--config-root", "/etc/wind-hub",
+            "--service-file", f"configs/services/{service_files[name]}",
+        ]
     return ["commander", "--config", service]
 
 
@@ -70,16 +74,23 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
         raise ValueError("containerd requires an absolute socket and namespace")
     if args.runtime == "isulad" and not args.isula.is_absolute():
         raise ValueError("isulad executable path must be absolute")
-    files = _service_files(root, SERVICE_FILES)
-    _validate_bindings(root, files, "container")
+    deployment_path = _relative(root, args.deployment)
+    service_files = _selected_service_names(root, deployment_path)
+    deployment = _document(deployment_path)
+    selected_env = (
+        f"WIND_HUB_DEPLOYMENT_ID={deployment['deployment_id']}",
+        f"WIND_HUB_DEPLOYMENT_VERSION={deployment['file_version']}",
+    )
+    files = _service_files(root, service_files)
+    _validate_bindings(root, files, "container", deployment_path)
     env_flags = _private_env(
         args.collector_env_file,
         required=args.apply and args.service in {"all", "collector_realtime", "collector_reliable"},
     )
     result: list[list[str]] = []
-    names = SERVICE_FILES if args.service == "all" else (args.service,)
+    names = SERVICE_NAMES if args.service == "all" else (args.service,)
     for name in names:
-        path = root / "configs" / "services" / SERVICE_FILES[name]
+        path = root / "configs" / "services" / service_files[name]
         if not path.is_file():
             raise ValueError(f"missing service file: {path}")
         ident = f"wind-hub-{name.replace('_', '-')}"
@@ -104,11 +115,12 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
                     "--mount",
                     f"type=bind,src={root},dst=/etc/wind-hub,options=rbind:rw",
                     *role_env,
+                    *[value for item in selected_env for value in ("--env", item)],
                     args.image,
                     ident,
                     "python",
                     "-m",
-                    *_commands(name),
+                    *_commands(name, service_files),
                 ]
             )
             # ctr creates/starts the initial task; subsequent restart and
@@ -128,8 +140,9 @@ def _build(args: argparse.Namespace) -> list[list[str]]:
                     "-v",
                     f"{root}:/etc/wind-hub:rw",
                     *role_env,
+                    *[value for item in selected_env for value in ("-e", item)],
                     args.image,
-                    *_commands(name),
+                    *_commands(name, service_files),
                 ]
             )
             # iSulad initial create leaves the container stopped: use
@@ -247,8 +260,9 @@ def _apply(args: argparse.Namespace, commands: list[list[str]]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", choices=("containerd", "isulad"), required=True)
-    parser.add_argument("--service", choices=("all", *SERVICE_FILES), default="all")
+    parser.add_argument("--service", choices=("all", *SERVICE_NAMES), default="all")
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--deployment", default=DEFAULT_DEPLOYMENT_PATH)
     parser.add_argument("--image", default="wind-hub:local")
     parser.add_argument("--uid", type=int, required=True)
     parser.add_argument("--gid", type=int, required=True)

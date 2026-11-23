@@ -17,17 +17,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
+from data_generator.domain.model import GeneratorError
+from data_generator.infrastructure.config.service_settings import load_settings
 
 from ..conftest import (
     SRC_PATH,
     dg_stubs,
     metric_map,
     read_gateway_variable,
-    replace_snapshot_files,
     ship_scenarios_document,
     simulation_document,
 )
@@ -81,28 +81,6 @@ async def _wait_changing_value(
                     return seen
         await asyncio.sleep(0.1)
     raise AssertionError(f"only observed {seen} changes for {gateway_id}:{variable}")
-
-
-def _scenario_path(snapshot: Any) -> str:  # noqa: ANN401
-    return str(
-        next(
-            item.relative_path
-            for item in snapshot.files
-            if item.relative_path.endswith("services/data-generator.yaml")
-        )
-    )
-
-
-def _scenario_snapshot_file(
-    snapshot: common.GetConfigSnapshotResponse, document: dict[str, Any]
-) -> bytes:
-    """Replace only embedded scenarios, retaining the service and config_sources."""
-    path = _scenario_path(snapshot)
-    service = yaml.safe_load(
-        next(item.content for item in snapshot.files if item.relative_path == path)
-    )
-    service["scenarios"] = document["scenarios"]
-    return yaml.safe_dump(service, sort_keys=False).encode()
 
 
 @pytest.mark.reliability
@@ -262,7 +240,7 @@ async def test_invalid_model_and_runtime_failure(
     assert check.returncode != 0
     assert b"cyclic static dependency" in stdout
 
-    # 2) 合法服务运行中，Push 含坏模型的候选必须拒绝，已生效配置与输出不变。
+    # 2) 合法服务运行中，未发布的无效 Scenario 直接校验失败，旧运行任务保持。
     bind, _process = await dg_subprocess(service_path)
     channel, dg_stub, common_stub = await dg_stubs(bind)
     try:
@@ -270,9 +248,8 @@ async def test_invalid_model_and_runtime_failure(
         generation_id = await _start(dg_stub, revision)
         await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
 
-        disk = await common_stub.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
-        )
+        # Validate a separate, unpublished Scenario Instance closure. A
+        # rejected candidate must never replace the running Generation.
         bad_document = simulation_document(
             {"gw-a": gateway.data_bind},
             [
@@ -301,18 +278,9 @@ async def test_invalid_model_and_runtime_failure(
             ],
             version="1.0.1",
         )
-        files = replace_snapshot_files(
-            disk,
-            {_scenario_path(disk): _scenario_snapshot_file(disk, bad_document)},
-        )
-        pushed = await common_stub.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(expected_revision=revision, files=files)
-        )
-        assert pushed.valid is False
-        assert pushed.validation[0].code in {
-            "CONFIG_VALIDATION_FAILED",
-            "OWNERSHIP_DENIED",
-        }
+        rejected_service = configs_root(scenarios=bad_document)
+        with pytest.raises(GeneratorError, match="cyclic static dependency"):
+            load_settings(rejected_service)
         await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
         state = await dg_stub.GetGeneration(common.ObjectId(id=generation_id))
         assert state.generation.actual_state == "RUNNING"
@@ -577,7 +545,7 @@ async def test_duplicate_target_mapping_rejected(
     configs_root,
     dg_subprocess,  # noqa: ANN001
 ) -> None:
-    """UC-03-S02：单场景两个源点映射同一目标，Push 拒绝，已生效配置不变。"""
+    """UC-03-S02：未发布的重复目标 Scenario 拒绝，运行任务不受影响。"""
     gateway = await start_real_gateway(endpoint_id="gw-a", devices=TWO_FLOAT_DEVICE)
     doc = ship_scenarios_document(
         {"gw-a": gateway.data_bind},
@@ -592,9 +560,6 @@ async def test_duplicate_target_mapping_rejected(
         generation_id = await _start(dg_stub, revision)
         await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
 
-        disk = await common_stub.GetConfigSnapshot(
-            common.GetConfigSnapshotRequest(scope=common.SNAPSHOT_SCOPE_DISK)
-        )
         duplicate = simulation_document(
             {"gw-a": gateway.data_bind},
             [
@@ -603,16 +568,10 @@ async def test_duplicate_target_mapping_rejected(
             ],
             version="1.0.1",
         )
-        files = replace_snapshot_files(
-            disk,
-            {_scenario_path(disk): _scenario_snapshot_file(disk, duplicate)},
-        )
-        pushed = await common_stub.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(expected_revision=revision, files=files)
-        )
-        assert pushed.valid is False
-        assert pushed.validation[0].code == "CONFIG_VALIDATION_FAILED"
-        assert "duplicate output target" in pushed.validation[0].message
+        rejected_service = configs_root(scenarios=duplicate)
+        with pytest.raises(GeneratorError, match="duplicate output target"):
+            load_settings(rejected_service)
+        await _wait_changing_value(gateway.data_bind, "gw-a", "GW01.pitch_angle", samples=2)
         state = await dg_stub.GetGeneration(common.ObjectId(id=generation_id))
         assert state.generation.actual_state == "RUNNING"
         assert await _runtime_revision(common_stub) == revision

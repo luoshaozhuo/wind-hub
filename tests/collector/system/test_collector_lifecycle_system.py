@@ -32,7 +32,7 @@ def _run_check(handle: CollectorHandle) -> subprocess.CompletedProcess[str]:
             "collector.main",
             "--check",
             "--config",
-            str(handle.services / "collector.yaml"),
+            str(handle.services / "service_collector-realtime_v1.0.0.yaml"),
         ],
         cwd=REPO_ROOT,
         env=env,
@@ -103,6 +103,10 @@ async def test_uc08_s03_partial_device_failure_keeps_healthy_device_running(
         _channel, config_stub, device_stub = grpc_clients(handle.process.grpc_port)
         await start_task(device_stub, config_stub, MODBUS)
         assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"
+
+        await wait_actual(device_stub, "modbus-hold", {"FAULTED", "ISOLATED"})
+        hold = (await device_stub.GetTask(common.ObjectId(id="modbus-hold"))).task
+        assert hold.desired_state == "START"
 
         deadline = asyncio.get_running_loop().time() + 15
         status = await config_stub.GetServiceStatus(common.Empty())

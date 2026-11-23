@@ -19,16 +19,16 @@ SUBJECT = "wh.config.changed"
 
 
 def _root(live: LiveConfiguration) -> Path:
+    # Task Templates were retired; publish a versioned collector_tasks Instance.
     directory = live.root / "nats-root"
-    tasks = directory / "templates/tasks"
-    tasks.mkdir(parents=True, exist_ok=True)
-    (tasks / "task_nats_v1.0.0.yaml").write_text(
+    instances = directory / "instances"
+    instances.mkdir(parents=True, exist_ok=True)
+    (instances / "collector_tasks_nats_v1.0.0.yaml").write_text(
         yaml.safe_dump(
             {
                 "schema_version": 1,
                 "file_version": "1.0.0",
-                "template_id": "nats",
-                "point_group": "nats",
+                "tasks": {},
             },
             sort_keys=False,
         ),
@@ -43,7 +43,7 @@ async def test_committed_revision_is_broadcast_over_real_nats(
 ) -> None:
     try:
         client = await nats.connect(
-            "nats://127.0.0.1:4222", connect_timeout=2, max_reconnect_attempts=0
+            "nats://127.0.0.1:4222", connect_timeout=2, max_reconnect_attempts=1
         )
     except Exception as exc:  # pragma: no cover - environment dependent
         pytest.skip(f"real NATS not reachable for revision broadcast: {exc}")

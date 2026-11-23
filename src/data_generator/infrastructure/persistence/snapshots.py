@@ -15,7 +15,6 @@ import yaml
 from core.configuration.shared_documents import SharedConfigPaths, SharedDocumentLoader
 from data_generator.application.config_policy import (
     requires_service_restart,
-    validate_scenario_versions,
 )
 from data_generator.application.configuration import ConfigFile as FileContent
 from data_generator.domain.model import GeneratorError
@@ -150,6 +149,8 @@ class SnapshotManager:
             settings.units_file,
             settings.business_points_file,
         }
+        if settings.scenarios_file is not None:
+            paths.add(settings.scenarios_file)
         documents = SharedDocumentLoader(
             SharedConfigPaths(
                 instances=settings.site_file.parent,
@@ -235,9 +236,6 @@ class SnapshotManager:
                     target = _safe_target(stage, file.path)
                     _durable_write(target, file.data)
             staged = load_settings(stage / _relative(root, self.settings.service_file))
-            candidate_document = yaml.safe_load(staged.service_file.read_text(encoding="utf-8"))
-        old_document = yaml.safe_load(self.settings.service_file.read_text(encoding="utf-8"))
-        validate_scenario_versions(old_document, candidate_document)
         candidate_id = str(uuid.uuid4())
         self._candidate = (candidate_id, files, self.settings.revision, staged)
         return candidate_id

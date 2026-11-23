@@ -1,4 +1,4 @@
-"""Resolve shared device templates independently of service-specific task templates."""
+"""Resolve service-independent device protocol and point-table templates."""
 
 from __future__ import annotations
 
@@ -20,15 +20,6 @@ class DeviceTemplates:
     inherited_tables: tuple[ResolvedTemplate, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ModelTemplates:
-    model: ResolvedTemplate
-    protocol: ResolvedTemplate
-    point_table: ResolvedTemplate
-    task: ResolvedTemplate
-    inherited_tables: tuple[ResolvedTemplate, ...]
-
-
 def _reference(raw: object, category: str) -> TemplateRef:
     if not isinstance(raw, Mapping) or set(raw) != {"id", "version"}:
         raise ConfigError("template reference must be a mapping")
@@ -46,17 +37,6 @@ def resolve_device_templates(
         raise ConfigError("device protocol and point table protocol mismatch")
     inherited = validate_point_table_chain(repository, point_table)
     return DeviceTemplates(model, protocol, point_table, inherited)
-
-
-def resolve_model_templates(
-    repository: VersionedTemplateRepository,
-    model: ResolvedTemplate,
-) -> ModelTemplates:
-    device = resolve_device_templates(repository, model)
-    task = repository.resolve(_reference(model.document.get("task"), "tasks"))
-    return ModelTemplates(
-        device.model, device.protocol, device.point_table, task, device.inherited_tables
-    )
 
 
 def validate_point_table_chain(

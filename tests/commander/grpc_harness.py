@@ -22,7 +22,7 @@ import grpc
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from commander.application.service_lifecycle import CommanderService
 from commander.assembly import build_commander
@@ -55,11 +55,10 @@ def _service_yaml(
     return f"""\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: farm-a
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -143,9 +142,6 @@ protocol:
 point_table:
   id: modbus_wtg
   version: 1.0.0
-task:
-  id: turbine_all
-  version: 1.0.0
 """
 
 
@@ -179,6 +175,37 @@ def build_pki(tmp_path: Path) -> Pki:
             serialization.NoEncryption(),
         )
 
+    def key_usage(*, ca: bool) -> x509.KeyUsage:
+        return x509.KeyUsage(
+            digital_signature=not ca,
+            content_commitment=False,
+            key_encipherment=False,
+            data_encipherment=False,
+            key_agreement=False,
+            key_cert_sign=ca,
+            crl_sign=ca,
+            encipher_only=False,
+            decipher_only=False,
+        )
+
+    def issue_ca(
+        private: ec.EllipticCurvePrivateKey, common_name: str, serial: int
+    ) -> x509.Certificate:
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+        return (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(private.public_key())
+            .serial_number(serial)
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(private.public_key()), False)
+            .add_extension(key_usage(ca=True), critical=True)
+            .sign(private, hashes.SHA256())
+        )
+
     def issue(
         issuer_cert: x509.Certificate,
         issuer_key: ec.EllipticCurvePrivateKey,
@@ -187,6 +214,7 @@ def build_pki(tmp_path: Path) -> Pki:
         emails: list[str],
         *,
         server: bool = False,
+        loopback_san: bool = True,
         serial: int,
     ) -> x509.Certificate:
         builder = (
@@ -201,9 +229,22 @@ def build_pki(tmp_path: Path) -> Pki:
                 x509.BasicConstraints(ca=False, path_length=None),
                 critical=True,
             )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(subject_private.public_key()), False
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_key.public_key()), False
+            )
+            .add_extension(key_usage(ca=False), critical=True)
+            .add_extension(
+                x509.ExtendedKeyUsage(
+                    [ExtendedKeyUsageOID.SERVER_AUTH if server else ExtendedKeyUsageOID.CLIENT_AUTH]
+                ),
+                critical=False,
+            )
         )
         names: list[x509.GeneralName] = [x509.RFC822Name(email) for email in emails]
-        if server:
+        if server and loopback_san:
             names += [
                 x509.DNSName("localhost"),
                 x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
@@ -212,18 +253,7 @@ def build_pki(tmp_path: Path) -> Pki:
         return builder.sign(issuer_key, hashes.SHA256())
 
     ca_private = key()
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "WindHub Test CA")])
-    ca_cert = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_private.public_key())
-        .serial_number(1)
-        .not_valid_before(not_before)
-        .not_valid_after(not_after)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(ca_private, hashes.SHA256())
-    )
+    ca_cert = issue_ca(ca_private, "WindHub Test CA", 1)
 
     server_private = key()
     server_cert = issue(
@@ -240,6 +270,8 @@ def build_pki(tmp_path: Path) -> Pki:
         wrong_host_private,
         "wrong-authority-host",
         ["authority@windhub.test"],
+        server=True,
+        loopback_san=False,
         serial=4,
     )
 
@@ -261,18 +293,7 @@ def build_pki(tmp_path: Path) -> Pki:
         serial += 1
 
     rogue_ca_private = key()
-    rogue_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Rogue CA")])
-    rogue_ca = (
-        x509.CertificateBuilder()
-        .subject_name(rogue_name)
-        .issuer_name(rogue_name)
-        .public_key(rogue_ca_private.public_key())
-        .serial_number(900)
-        .not_valid_before(not_before)
-        .not_valid_after(not_after)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(rogue_ca_private, hashes.SHA256())
-    )
+    rogue_ca = issue_ca(rogue_ca_private, "Rogue CA", 900)
     rogue_private = key()
     rogue_cert = issue(
         rogue_ca,
@@ -381,14 +402,26 @@ async def build_stack(
     ``service/config/instances/devices.yaml``。
     """
     service_dir = tmp_path / "service"
-    root = service_dir / "config"
+    root = service_dir / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
     db_path = service_dir / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     stream = audit_stream or f"{stream_prefix}_{uuid.uuid4().hex[:12]}"
     subject = audit_subject or f"commander.{label}.{uuid.uuid4().hex[:8]}"
-    yaml_path = service_dir / "commander.yaml"
+    yaml_path = root / "services" / "service_commander_v1.0.0.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    deployment_path = root / "deployments" / "deployment_commander-test_v1.0.0.yaml"
+    deployment_path.parent.mkdir(parents=True, exist_ok=True)
+    deployment_path.write_text(
+        "schema_version: 1\nfile_version: '1.0.0'\n"
+        "deployment_id: commander-test\n"
+        "services:\n  commander:\n    config_id: commander\n"
+        "    file_version: '1.0.0'\n"
+        "instances:\n  device:\n    farm-a:\n"
+        "      file_version: '1.4.0'\n",
+        encoding="utf-8",
+    )
     yaml_text = _service_yaml(db_path, nats_url, stream=stream, subject=subject)
     if recovery is not None:
         yaml_text += (
@@ -408,31 +441,33 @@ async def build_stack(
             + "".join(f"    {key}: {json.dumps(value)}\n" for key, value in recovery.items())
         )
     yaml_path.write_text(yaml_text, encoding="utf-8")
-    if modbus_port is not None:
-        devices_yaml = root / "instances" / "devices.yaml"
-        devices_yaml.write_text(
-            devices_yaml.read_text(encoding="utf-8")
-            + "".join(
-                _device_block(
-                    device_id,
-                    (device_ports or {}).get(device_id, modbus_port),
-                    label,
-                )
-                for device_id in device_ids
-            ),
+    # All integration scenarios require the same WT01 identity and binding;
+    # tests without a live Modbus endpoint use an unbound reserved port.
+    selected_port = modbus_port if modbus_port is not None else free_port()
+    devices_yaml = root / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices_yaml.write_text(
+        devices_yaml.read_text(encoding="utf-8")
+        + "".join(
+            _device_block(
+                device_id,
+                (device_ports or {}).get(device_id, selected_port),
+                label,
+            )
+            for device_id in device_ids
+        ),
+        encoding="utf-8",
+    )
+    table = root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml"
+    table.write_text(_SETPOINT_TABLE, encoding="utf-8")
+    model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
+    model.write_text(_MODELS_TABLE, encoding="utf-8")
+    business = root / "templates" / "business_points_standard_v1.4.0.yaml"
+    text = business.read_text(encoding="utf-8")
+    if "  setpoint_power:" not in text:
+        business.write_text(
+            text + _BUSINESS_POINTS.split("business_points:\n", 1)[1],
             encoding="utf-8",
         )
-        table = root / "templates" / "point_tables" / "point_table_modbus_wtg_v1.0.0.yaml"
-        table.write_text(_SETPOINT_TABLE, encoding="utf-8")
-        model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
-        model.write_text(_MODELS_TABLE, encoding="utf-8")
-        business = root / "templates" / "business_points_standard.yaml"
-        text = business.read_text(encoding="utf-8")
-        if "  setpoint_power:" not in text:
-            business.write_text(
-                text + _BUSINESS_POINTS.split("business_points:\n", 1)[1],
-                encoding="utf-8",
-            )
     if prepare is not None:
         prepare(service_dir)
 

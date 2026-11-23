@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from core.application.errors import ConfigError
-from core.configuration.template_graph import resolve_model_templates
+from core.configuration.template_graph import resolve_device_templates
 from core.configuration.versioned_templates import TemplateRef, VersionedTemplateRepository
 from core.domain import ConnectionEndpoint
 from core.infrastructure.config import read_yaml
@@ -75,13 +75,17 @@ def test_released_protocol_rejects_unknown_parameter(template_id: str) -> None:
 
 
 def test_published_device_instances_resolve_all_template_dependencies() -> None:
-    """部署中的型号、协议、点表和任务引用均精确指向已发布版本。"""
-    devices = read_yaml(_CONFIGS / "instances" / "devices.yaml")["devices"]
+    """部署中的型号、协议、点表引用均精确指向已发布版本。"""
     repository = VersionedTemplateRepository(_CONFIGS / "templates")
-    assert devices
-    for device_id, device in devices.items():
-        model = device["model"]
-        reference = TemplateRef("device_models", model["id"], model["version"])
-        resolved = resolve_model_templates(repository, repository.resolve(reference))
-        assert resolved.model.reference == reference, device_id
-        assert resolved.protocol.document["protocol"] == resolved.point_table.document["protocol"]
+    device_files = sorted((_CONFIGS / "instances").glob("device_*_v*.yaml"))
+    assert device_files
+    for device_file in device_files:
+        devices = read_yaml(device_file)["devices"]
+        for device_id, device in devices.items():
+            model = device["model"]
+            reference = TemplateRef("device_models", model["id"], model["version"])
+            resolved = resolve_device_templates(repository, repository.resolve(reference))
+            assert resolved.model.reference == reference, device_id
+            assert (
+                resolved.protocol.document["protocol"] == resolved.point_table.document["protocol"]
+            )

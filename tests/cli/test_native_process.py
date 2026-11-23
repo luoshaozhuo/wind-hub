@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -66,6 +67,187 @@ async def test_stale_pid_identity_never_signals_unowned_pid(tmp_path: Path) -> N
     outcome = await manage_native_process(target, "stop")
     assert outcome["already_stopped"]
     assert not (state_dir / "native-demo.json").exists()
+
+
+async def test_occupied_loopback_endpoint_cannot_confirm_foreign_service(
+    tmp_path: Path,
+) -> None:
+    """A live unrelated listener must not make a failed spawn look ready."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        endpoint = f"127.0.0.1:{listener.getsockname()[1]}"
+        target = replace(
+            _target(tmp_path, "import time", "time.sleep(120)"),
+            grpc_endpoint=endpoint,
+        )
+        with pytest.raises(RuntimeError, match="already occupied"):
+            await manage_native_process(target, "start")
+        assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
+
+
+async def test_early_child_failure_is_not_confirmed_as_service_start(
+    tmp_path: Path,
+) -> None:
+    target = replace(
+        _target(tmp_path, "import sys", "sys.exit(19)"),
+        grpc_endpoint="127.0.0.1:1",
+    )
+    with pytest.raises(RuntimeError, match="exited during start confirmation"):
+        await manage_native_process(target, "start")
+    assert (await manage_native_process(target, "status"))["state"] == "STOPPED"
+
+
+async def test_restart_waits_for_previous_listener_to_disappear(tmp_path: Path) -> None:
+    target = replace(
+        _target(tmp_path, "import time", "time.sleep(120)"),
+        grpc_endpoint="127.0.0.1:1",
+    )
+    started = await manage_native_process(target, "start")
+    try:
+        with patch.object(native_process, "_foreign_loopback_listener", side_effect=[True, False]):
+            restarted = await manage_native_process(target, "restart")
+        assert restarted["confirmed"] and restarted["pid"] != started["pid"]
+        assert [stage["operation"] for stage in restarted["stages"]] == ["stop", "start"]
+    finally:
+        await manage_native_process(target, "stop")
+
+
+async def test_foreign_health_endpoint_not_owned_by_managed_process(
+    tmp_path: Path,
+) -> None:
+    from cli.native_process import managed_endpoint_owned
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        target = replace(
+            _target(tmp_path, "import time", "time.sleep(120)"),
+            grpc_endpoint=f"127.0.0.1:{port}",
+        )
+        # The manager's process may exist, but it cannot own a socket opened
+        # by the foreign test process.
+        with patch("cli.native_process._foreign_loopback_listener", return_value=False):
+            await manage_native_process(target, "start")
+        try:
+            assert not managed_endpoint_owned(target)
+        finally:
+            await manage_native_process(target, "stop")
+
+
+@pytest.mark.parametrize(
+    ("family", "listener_host", "endpoint_host"),
+    [
+        (socket.AF_INET, "127.0.0.1", "127.0.0.1"),
+        (socket.AF_INET6, "::1", "[::1]"),
+        (socket.AF_INET6, "::ffff:127.0.0.1", "127.0.0.1"),
+    ],
+)
+async def test_managed_listener_ownership_matches_process_group(
+    tmp_path: Path,
+    family: socket.AddressFamily,
+    listener_host: str,
+    endpoint_host: str,
+) -> None:
+    import asyncio
+
+    from cli.native_process import managed_endpoint_owned
+
+    with socket.socket(family, socket.SOCK_STREAM) as reservation:
+        reservation.bind((listener_host, 0))
+        port = reservation.getsockname()[1]
+    target = replace(
+        _target(
+            tmp_path,
+            "import socket, time",
+            f"listener = socket.socket(socket.{family.name})",
+            f"listener.bind(({listener_host!r}, {port}))",
+            "listener.listen()",
+            "time.sleep(120)",
+        ),
+        grpc_endpoint=f"{endpoint_host}:{port}",
+    )
+    try:
+        started = await manage_native_process(target, "start")
+        for _ in range(30):
+            if managed_endpoint_owned(target):
+                break
+            await asyncio.sleep(0.1)
+        assert managed_endpoint_owned(
+            target,
+            expected_pid=started["pid"],
+            expected_start_tick=started["start_tick"],
+        )
+        assert not managed_endpoint_owned(
+            target,
+            expected_pid=started["pid"],
+            expected_start_tick="invalid-generation",
+        )
+    finally:
+        await manage_native_process(target, "stop")
+    assert not managed_endpoint_owned(target)
+
+
+async def test_cli_rejects_healthy_foreign_endpoint_after_process_start(
+    tmp_path: Path,
+) -> None:
+    from cli import main
+
+    target = replace(
+        _target(tmp_path, "import time", "time.sleep(120)", timeout=0.0),
+        grpc_endpoint="127.0.0.1:45321",
+    )
+
+    class FakeRuntime:
+        def target(self, _name: str) -> ServiceTarget:
+            return target
+
+        async def call_common(self, _name: str, _method: str) -> dict[str, str]:
+            return {"health": "HEALTHY"}
+
+    async def fake_start(_target: ServiceTarget, _action: str) -> dict[str, object]:
+        return {"confirmed": True, "running": True, "pid": 12345, "start_tick": "42"}
+
+    with (
+        patch("cli.main.runtime", return_value=FakeRuntime()),
+        patch("cli.main.manage_service_process", side_effect=fake_start),
+        patch("cli.native_process.managed_endpoint_owned", side_effect=[True, False]) as ownership,
+        pytest.raises(RuntimeError, match="does not belong to managed process"),
+    ):
+        await main._manage_service("configuration", "start")
+    assert ownership.call_count == 2
+
+
+async def test_cli_rejects_changed_listener_inode_across_healthy_rpc(tmp_path: Path) -> None:
+    """A worker replacement in the same process group invalidates the RPC."""
+    from cli import main
+
+    target = replace(
+        _target(tmp_path, "import time", "time.sleep(120)", timeout=0.0),
+        grpc_endpoint="127.0.0.1:45322",
+    )
+
+    class FakeRuntime:
+        def target(self, _name: str) -> ServiceTarget:
+            return target
+
+        async def call_common(self, _name: str, _method: str) -> dict[str, str]:
+            return {"health": "HEALTHY", "observed_at": "foreign"}
+
+    async def fake_start(_target: ServiceTarget, _action: str) -> dict[str, object]:
+        return {"confirmed": True, "running": True, "pid": 12345, "start_tick": "42"}
+
+    with (
+        patch("cli.main.runtime", return_value=FakeRuntime()),
+        patch("cli.main.manage_service_process", side_effect=fake_start),
+        patch(
+            "cli.native_process.managed_endpoint_owned",
+            side_effect=[frozenset({"123"}), frozenset({"456"})],
+        ),
+        pytest.raises(RuntimeError, match="stable listener"),
+    ):
+        await main._manage_service("configuration", "start")
 
 
 async def test_native_process_exit_is_not_reported_running(tmp_path: Path) -> None:

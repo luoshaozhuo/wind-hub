@@ -13,6 +13,7 @@ from shutil import copytree
 from uuid import uuid4
 
 import pytest
+import yaml
 
 from commander.application.config_manager import CommanderConfigManager
 from commander.application.service_lifecycle import CommanderService
@@ -39,11 +40,10 @@ pytestmark = [
 _SERVICE_YAML = """\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: b1-test
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -67,21 +67,32 @@ def _build_tree(
     stream: str = "S",
     subject: str = "s",
 ) -> tuple[Path, Path]:
-    root = tmp_root / "config"
+    root = tmp_root / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
-    (root / "instances" / "devices.yaml").write_text(devices_yaml, encoding="utf-8")
+    (root / "instances" / "device_b1-test_v1.0.0.yaml").write_text(devices_yaml, encoding="utf-8")
     model_file = root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
     model_file.write_text(model_yaml, encoding="utf-8")
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(
+    (root / "templates/business_points_standard_v1.4.0.yaml").write_text(
         _BUSINESS_POINTS, encoding="utf-8"
     )
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    service_yaml = tmp_root / "commander.yaml"
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "b1-test",
+        "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
+        "instances": {"device": {"b1-test": {"file_version": "1.0.0"}}},
+    }
+    manifest = root / "deployments" / "deployment_b1-test_v1.0.0.yaml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(yaml.safe_dump(deployment, sort_keys=False), encoding="utf-8")
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
         _SERVICE_YAML.format(
             sqlite_path=str(db_path), nats_url=nats_url, stream=stream, subject=subject
@@ -91,17 +102,16 @@ def _build_tree(
     return root, service_yaml
 
 
-def _model_yaml(*, port: int | None, word_order: str = "big_endian") -> str:
+def _model_yaml(*, port: int | None, word_order: str = "big_endian", version: str = "1.0.0") -> str:
     defaults = f"\nendpoint_defaults:\n  port: {port}" if port is not None else ""
     return (
         "schema_version: 1\n"
         "template_id: modbus_wtg\n"
-        "file_version: 1.0.0\n"
+        f"file_version: {version}\n"
         "name: B1 turbine\n"
         "device_type_id: turbine\n"
         "protocol:\n  id: modbus_tcp\n  version: 1.1.0\n"
         "point_table:\n  id: modbus_wtg\n  version: 1.0.0\n"
-        "task:\n  id: turbine_all\n  version: 1.0.0\n"
         "protocol_options:\n"
         "  slave_id: 1\n"
         f"  word_order: {word_order}\n"
@@ -307,12 +317,26 @@ async def test_model_option_change_rotates_fingerprint_and_reload_routes_new_ses
             first = await service.executor.wait(accepted[0].command_id)
             assert first is not None and first.state.value == "SUCCEEDED"
 
-            # 修改型号模板：默认端口 A → B。
-            model_file = config_root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml"
+            # Publish a fresh immutable Model + Device Instance version;
+            # Deployment selects the new closure, never overwrite v1.0.0.
+            model_file = (
+                config_root / "templates/device_models" / "device_model_modbus_wtg_v1.0.1.yaml"
+            )
             model_file.write_text(
-                _model_yaml(port=port_b, word_order="big_endian"),
+                _model_yaml(port=port_b, word_order="big_endian", version="1.0.1"),
                 encoding="utf-8",
             )
+            device_v1 = config_root / "instances/device_b1-test_v1.0.0.yaml"
+            device_v2 = config_root / "instances/device_b1-test_v1.0.1.yaml"
+            device_doc = yaml.safe_load(device_v1.read_text(encoding="utf-8"))
+            device_doc["file_version"] = "1.0.1"
+            device_doc["devices"]["WT-B1"]["model"]["version"] = "1.0.1"
+            device_v2.write_text(yaml.safe_dump(device_doc), encoding="utf-8")
+            manifest = config_root / "deployments/deployment_b1-test_v1.0.0.yaml"
+            deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+            deployment["instances"]["device"]["b1-test"]["file_version"] = "1.0.1"
+            manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
+            assert device_v1.is_file()
             report = await service.reload()
             assert "WT-B1" in report.changed
             new_reference = _config(service).device_revision("WT-B1")

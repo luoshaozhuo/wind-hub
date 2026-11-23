@@ -23,7 +23,6 @@ def scripts(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.syspath_prepend(str(REPO / "deploy"))
     return SimpleNamespace(
         render=importlib.import_module("render_cli"),
-        collectors=importlib.import_module("prepare_collectors"),
         provision=importlib.import_module("provision"),
         ready=importlib.import_module("check_ready"),
     )
@@ -32,14 +31,19 @@ def scripts(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
     services = root / "configs" / "services"
     services.mkdir(parents=True)
-    (root / "configs" / "instances").mkdir()
-    (root / "configs" / "instances" / "site.yaml").write_text(
-        "schema_version: 1\n", encoding="utf-8"
+    instances = root / "configs" / "instances"
+    instances.mkdir()
+    (instances / "site_example_site_v1.0.0.yaml").write_text(
+        "schema_version: 1\nfile_version: '1.0.0'\n", encoding="utf-8"
     )
     (root / "configs" / "templates").mkdir()
-    sources = {
-        "instances": {"site": "configs/instances/site.yaml"},
-        "templates": {"root": "configs/templates"},
+    selected = {
+        "gateway": "gateway",
+        "data-generator": "data-generator",
+        "collector_realtime": "collector-realtime",
+        "collector_reliable": "collector-reliable",
+        "sink": "sink-west",
+        "commander": "commander",
     }
     documents = {
         "gateway": {"grpc": {"listen_port": 50073}},
@@ -53,14 +57,32 @@ def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
         "commander": {"grpc": {"listen_port": 50052}},
     }
     for name, body in documents.items():
+        identity = selected[name]
         document = {
             "schema_version": 1,
-            "config_sources": sources,
+            "file_version": "1.0.0",
+            "service_id": identity,
+            "config_sources": {"instances": {"site": "example_site"}},
             **body,
         }
-        (services / scripts.render.DEFAULT_FILES[name]).write_text(
+        (services / f"service_{identity}_v1.0.0.yaml").write_text(
             yaml.safe_dump(document), encoding="utf-8"
         )
+    deployments = root / "configs" / "deployments"
+    deployments.mkdir()
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.3.0",
+        "deployment_id": "prod-a",
+        "services": {
+            identity: {"config_id": identity, "file_version": "1.0.0"}
+            for identity in selected.values()
+        },
+        "instances": {"site": {"example_site": {"file_version": "1.0.0"}}},
+    }
+    (deployments / "deployment_prod-a_v1.3.0.yaml").write_text(
+        yaml.safe_dump(deployment), encoding="utf-8"
+    )
 
 
 def _credentials(root: Path) -> tuple[Path, Path, Path]:
@@ -97,9 +119,8 @@ def _render_args(root: Path, scripts: SimpleNamespace, mode: str) -> argparse.Na
         "collector_env_file": collector_env if mode == "process" else None,
         "runtime_prefix": Path("/etc/wind-hub") if mode == "rpc" else None,
     }
-    values.update(
-        {name.replace("-", "_"): value for name, value in scripts.render.DEFAULT_FILES.items()}
-    )
+    values["deployment"] = scripts.render.DEFAULT_DEPLOYMENT_PATH
+    values.update({name.replace("-", "_"): None for name in scripts.render.SERVICE_NAMES})
     return argparse.Namespace(**values)
 
 
@@ -117,9 +138,14 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert gateway["process"]["argv"][:2] == [str(Path(sys.executable).resolve()), "-m"]
         assert gateway["process"]["log_file"] == str(tmp_path / "logs" / "gateway.log")
         assert payload["services"]["collector_reliable"]["process"]["argv"][-1] == "50054"
-        assert set(payload["services"]["collector_realtime"]["process"]["env"]) == set(
-            scripts.render.COLLECTOR_ENV_KEYS
-        ) - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+        assert set(payload["services"]["collector_realtime"]["process"]["env"]) == (
+            set(scripts.render.COLLECTOR_ENV_KEYS) - {"WIND_HUB_COLLECTOR_ADMIN_TOKEN"}
+            | {"WIND_HUB_DEPLOYMENT_ID", "WIND_HUB_DEPLOYMENT_VERSION"}
+        )
+        assert payload["services"]["gateway"]["process"]["env"] == {
+            "WIND_HUB_DEPLOYMENT_ID": "prod-a",
+            "WIND_HUB_DEPLOYMENT_VERSION": "1.3.0",
+        }
         assert "test-placeholder" not in yaml.safe_dump(payload)
         assert "WIND_HUB_COLLECTOR_ADMIN_TOKEN" not in yaml.safe_dump(payload)
     elif mode == "containerd":
@@ -135,11 +161,16 @@ def test_render_modes_keep_paths_and_managers_distinct(
         assert "manager" not in gateway
         assert payload["tls_profiles"]["local"]["client_key"] == "/etc/wind-hub/certs/cli.key"
     assert "manager" not in payload["services"]["collector"]
+    if mode == "process":
+        assert payload["services"]["sink"]["process"]["argv"][-2:] == [
+            "--service-file",
+            "configs/services/service_sink-west_v1.0.0.yaml",
+        ]
 
 
 def test_render_rejects_malformed_nested_config(tmp_path: Path, scripts: SimpleNamespace) -> None:
     _configs(tmp_path, scripts, process=True)
-    path = tmp_path / "configs" / "services" / "data-generator-sim.example.yaml"
+    path = tmp_path / "configs" / "services" / "service_data-generator_v1.0.0.yaml"
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     document["service"] = ["not-a-mapping"]
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
@@ -149,11 +180,11 @@ def test_render_rejects_malformed_nested_config(tmp_path: Path, scripts: SimpleN
 
 def test_render_rejects_missing_config_sources(tmp_path: Path, scripts: SimpleNamespace) -> None:
     _configs(tmp_path, scripts, process=True)
-    path = tmp_path / "configs" / "services" / "commander.yaml"
+    path = tmp_path / "configs" / "services" / "service_commander_v1.0.0.yaml"
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    document["config_sources"]["templates"] = {}
+    document["config_sources"]["instances"] = None
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
-    with pytest.raises(ValueError, match="templates must be a non-empty mapping"):
+    with pytest.raises(ValueError, match="instances must be a mapping"):
         scripts.render._render(_render_args(tmp_path, scripts, "process"))
 
 
@@ -178,7 +209,10 @@ def test_compose_collector_identity_and_tls_match_native_contract(
         assert command[command.index("--collector-id") + 1] == expected
         assert command[command.index("--state-directory") + 1].endswith(expected)
         environment = row["environment"]
-        assert set(environment) == scripts.render.COLLECTOR_ENV_KEYS
+        assert set(environment) == scripts.render.COLLECTOR_ENV_KEYS | {
+            "WIND_HUB_DEPLOYMENT_ID",
+            "WIND_HUB_DEPLOYMENT_VERSION",
+        }
 
 
 def test_render_rejects_group_readable_private_key(
@@ -189,56 +223,6 @@ def test_render_rejects_group_readable_private_key(
     args.client_key.chmod(0o640)
     with pytest.raises(ValueError, match="client key"):
         scripts.render._render(args)
-
-
-def test_collector_pair_rolls_back_only_new_files(
-    tmp_path: Path, scripts: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    services = tmp_path / "configs" / "services"
-    services.mkdir(parents=True)
-    (services / "collector.yaml").write_text(
-        yaml.safe_dump({"schema_version": 1, "messaging": {"servers": ["nats:4222"]}}),
-        encoding="utf-8",
-    )
-    unrelated = services / "collector-realtime.yaml.unrelated"
-    unrelated.write_text("keep", encoding="utf-8")
-    original = scripts.collectors._create
-    calls = 0
-
-    def fail_second(path: Path, document: dict[str, Any], created: list[Path]) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise OSError("injected interruption")
-        original(path, document, created)
-
-    monkeypatch.setattr(scripts.collectors, "_create", fail_second)
-    with pytest.raises(SystemExit) as raised:
-        scripts.collectors.main(["--root", str(tmp_path)])
-    assert raised.value.code == 2
-    assert not (services / "collector-realtime.yaml").exists()
-    assert not (services / "collector-reliable.yaml").exists()
-    assert unrelated.read_text(encoding="utf-8") == "keep"
-
-
-def test_collector_pair_removes_partially_written_file(
-    tmp_path: Path, scripts: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    services = tmp_path / "configs" / "services"
-    services.mkdir(parents=True)
-    (services / "collector.yaml").write_text(
-        yaml.safe_dump({"schema_version": 1, "messaging": {"servers": ["nats:4222"]}}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        scripts.collectors.yaml,
-        "safe_dump",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("injected write failure")),
-    )
-    with pytest.raises(SystemExit):
-        scripts.collectors.main(["--root", str(tmp_path)])
-    assert not (services / "collector-realtime.yaml").exists()
-    assert not (services / "collector-reliable.yaml").exists()
 
 
 @pytest.mark.parametrize(
@@ -289,6 +273,7 @@ def _provision_args(root: Path, scripts: SimpleNamespace, runtime: str) -> argpa
     env_file.chmod(0o600)
     return argparse.Namespace(
         root=root,
+        deployment=scripts.render.DEFAULT_DEPLOYMENT_PATH,
         image="wind-hub:test",
         uid=1000,
         gid=1000,

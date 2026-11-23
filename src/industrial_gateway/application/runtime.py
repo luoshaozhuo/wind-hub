@@ -82,6 +82,8 @@ class GatewayApplicationRuntime:
         self._build_forwarder = build_forwarder
         self._process_service = config.service
         self.instances: dict[str, GatewayInstance] = {}
+        # A failed replacement must be retried even if its desired config matches.
+        self._failed_reconfigurations: set[str] = set()
         self.observability = observability
         self.forwarders: dict[str, ForwarderPort] = {}
         for server_id, resolved in config.servers.items():
@@ -206,6 +208,7 @@ class GatewayApplicationRuntime:
                 server_id
                 for server_id in all_ids
                 if server_id not in self.instances
+                or server_id in self._failed_reconfigurations
                 or new_config.servers.get(server_id) != self.instances[server_id].config
             ]
             errors: dict[str, Exception] = {}
@@ -218,6 +221,7 @@ class GatewayApplicationRuntime:
                     await self.stop_server(server_id)
                     self.variable_leases.invalidate(server_id)
                 except Exception as exc:
+                    self._failed_reconfigurations.add(server_id)
                     logger.exception("Gateway old listener could not stop: %s", server_id)
                     errors[server_id] = exc
 
@@ -244,6 +248,7 @@ class GatewayApplicationRuntime:
                         self.forwarders.pop(server_id, None)
                     if updated is None:
                         self.instances.pop(server_id, None)
+                        self._failed_reconfigurations.discard(server_id)
                         results.append(ApplicationResult(object_id=server_id, status="REMOVED"))
                         continue
                     replacement = self._make_instance(
@@ -267,8 +272,10 @@ class GatewayApplicationRuntime:
                     self.instances[server_id] = replacement
                     if replacement.lifecycle.status.desired is DesiredState.START:
                         await self.start_server(server_id)
+                    self._failed_reconfigurations.discard(server_id)
                     results.append(ApplicationResult(object_id=server_id, status="APPLIED"))
                 except Exception as exc:
+                    self._failed_reconfigurations.add(server_id)
                     logger.exception("Gateway new listener failed to apply: %s", server_id)
                     results.append(
                         ApplicationResult(

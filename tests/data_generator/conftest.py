@@ -96,17 +96,18 @@ def write_service_yaml(
 ) -> Path:
     """生成服务配置（直接路径契约：相对 configs 根，禁止绝对路径与 ..）。
 
-    Scenario 归属服务 YAML；instances 只允许 site/devices 业务实例文件。
+    Scenario 归属版本化 Scenario Instance；Service 仅引用逻辑 Instance ID。
     """
     service = {
         "schema_version": 1,
         "file_version": "1.0.0",
+        "service_id": "data-generator",
         "config_sources": {
             "instances": {
-                "site": "instances/site.yaml",
-                "devices": "instances/devices.yaml",
+                "site": "example_site",
+                "devices": "farm-a",
+                "scenarios": "test",
             },
-            "templates": {"root": "templates"},
         },
         "service": {"grpc_bind": bind},
         "output": {"max_inflight": max_inflight, "grpc_timeout_seconds": output_timeout},
@@ -126,9 +127,39 @@ def write_service_yaml(
     }
     if recording is not None:
         service["recording"] = recording
-    if scenarios is not None:
-        service["scenarios"] = scenarios
-    path = root / "services" / "data-generator.yaml"
+    scenario_file = root / "instances" / "scenarios_test_v1.0.0.yaml"
+    if scenarios is None:
+        # Default source is an actual published scenario Instance, not an
+        # obsolete embedded Service scenario.
+        source = REPO_CONFIGS / "instances" / "scenarios_prod-a_v1.0.0.yaml"
+        scenario_file.write_bytes(source.read_bytes())
+    else:
+        _dump(
+            scenario_file,
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "scenarios": scenarios,
+            },
+        )
+    deployment = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "dg-test",
+        "services": {
+            "data-generator": {
+                "config_id": "data-generator",
+                "file_version": "1.0.0",
+            }
+        },
+        "instances": {
+            "site": {"example_site": {"file_version": "1.1.0"}},
+            "device": {"farm-a": {"file_version": "1.4.0"}},
+            "scenario": {"test": {"file_version": "1.0.0"}},
+        },
+    }
+    _dump(root / "deployments" / "deployment_dg-test_v1.0.0.yaml", deployment)
+    path = root / "services" / "service_data-generator_v1.0.0.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(service, sort_keys=False), encoding="utf-8")
     return path
@@ -629,12 +660,19 @@ def _gateway_tree(
     mtls_enabled: bool = False,
 ) -> Path:
     """写出自洽的 v1 配置树，返回 Service 文件路径。"""
+    config_root = root / "configs"
     grpc_host, grpc_port_text = data_bind.rsplit(":", 1)
+    grpc_port = int(grpc_port_text)
+    used_ports = {grpc_port}
     devices_document: dict[str, Any] = {}
+    business_points: dict[str, dict[str, Any]] = {}
     servers: list[dict[str, Any]] = []
     single = len(devices) == 1
     for device_id, points in sorted(devices.items()):
         modbus_port = reserve_port()
+        while modbus_port in used_ports:
+            modbus_port = reserve_port()
+        used_ports.add(modbus_port)
         model_id = f"dg_model_{device_id.lower()}"
         table_id = f"dg_points_{device_id.lower()}"
         point_table: dict[str, dict[str, Any]] = {}
@@ -648,9 +686,16 @@ def _gateway_tree(
             else:
                 address = {"register_type": "holding", "address": holding_cursor}
                 holding_cursor += 2 if data_type == "float32" else 1
-            point_table[variable_id] = {"data_type": data_type, "address": address}
+            business_points[variable_id] = {"data_type": data_type, "unit": "1"}
+            point_table[variable_id] = {
+                "business_point_id": variable_id,
+                "point_groups": ["all"],
+                "data_type": data_type,
+                "unit": "1",
+                "address": address,
+            }
         _dump(
-            root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
+            config_root / "templates" / "point_tables" / f"point_table_{table_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": table_id,
@@ -660,7 +705,7 @@ def _gateway_tree(
             },
         )
         _dump(
-            root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
+            config_root / "templates" / "device_models" / f"device_model_{model_id}_v1.0.0.yaml",
             {
                 "schema_version": 1,
                 "template_id": model_id,
@@ -694,11 +739,11 @@ def _gateway_tree(
         )
 
     _dump(
-        root / "instances" / "devices.yaml",
+        config_root / "instances" / "device_dg-test_v1.0.0.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "devices": devices_document},
     )
     _dump(
-        root / "instances" / "site.yaml",
+        config_root / "instances" / "site_dg-test_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -707,7 +752,7 @@ def _gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "units_standard.yaml",
+        config_root / "templates" / "units_standard_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -716,11 +761,11 @@ def _gateway_tree(
         },
     )
     _dump(
-        root / "templates" / "business_points_standard.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
+        config_root / "templates" / "business_points_standard_v1.0.0.yaml",
+        {"schema_version": 1, "file_version": "1.0.0", "business_points": business_points},
     )
     _dump(
-        root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
+        config_root / "templates" / "protocols" / "protocol_dg_modbus_v1.0.0.yaml",
         {
             "schema_version": 1,
             "template_id": "dg_modbus",
@@ -738,13 +783,11 @@ def _gateway_tree(
     service: dict[str, Any] = {
         "schema_version": 1,
         "file_version": "1.0.0",
-        "config_sources": {
-            "instances": {"devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
+        "service_id": "gateway-dg-test",
+        "config_sources": {"instances": {"devices": "dg-test"}},
         "grpc": {
             "listen_host": grpc_host,
-            "listen_port": int(grpc_port_text),
+            "listen_port": grpc_port,
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
             "tls": (
@@ -766,7 +809,25 @@ def _gateway_tree(
         "servers": servers,
         "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
     }
-    service_path = root / "service.yaml"
+    _dump(
+        config_root / "deployments" / "deployment_dg-test_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": "1.0.0",
+            "deployment_id": "dg-test",
+            "services": {
+                "gateway-dg-test": {
+                    "config_id": "gateway-dg-test",
+                    "file_version": "1.0.0",
+                }
+            },
+            "instances": {
+                "device": {"dg-test": {"file_version": "1.0.0"}},
+                "site": {"dg-test": {"file_version": "1.0.0"}},
+            },
+        },
+    )
+    service_path = config_root / "services" / "service_gateway-dg-test_v1.0.0.yaml"
     _dump(service_path, service)
     return service_path
 
@@ -1014,7 +1075,11 @@ def metric_map(metrics_response: Any) -> dict[str, float]:
 async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
     """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
     channel = grpc.aio.insecure_channel(bind)
-    await channel.channel_ready()
+    try:
+        await asyncio.wait_for(channel.channel_ready(), timeout=15.0)
+    except TimeoutError as exc:
+        await channel.close()
+        raise TimeoutError(f"Data Generator gRPC channel did not become ready at {bind}") from exc
     return channel, dg_rpc.DataGeneratorServiceStub(channel), common_rpc.CommonServiceStub(channel)
 
 

@@ -22,7 +22,7 @@ async def test_same_file_version_with_different_content_is_failed_precondition(
             pb.CreateCandidateRequest(
                 request_id="version-first",
                 expected_revision_id=0,
-                documents=[document("versioned", "1.0.0", name="first")],
+                documents=[document("versioned", "1.0.0", tasks={"sample": {"group": "first"}})],
             ),
             timeout=10,
         )
@@ -41,7 +41,9 @@ async def test_same_file_version_with_different_content_is_failed_precondition(
                 pb.CreateCandidateRequest(
                     request_id="version-conflict",
                     expected_revision_id=1,
-                    documents=[document("versioned", "1.0.0", name="different")],
+                    documents=[
+                        document("versioned", "1.0.0", tasks={"sample": {"group": "different"}})
+                    ],
                 ),
                 timeout=10,
             )

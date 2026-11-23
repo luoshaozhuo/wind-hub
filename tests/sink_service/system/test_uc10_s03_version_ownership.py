@@ -19,7 +19,7 @@ import nats
 import pytest
 import yaml
 
-from tests.sink_service._stage1_fixtures import SERVICE_FILE
+from tests.sink_service._stage1_fixtures import SERVICE_FILE, rewrite_deployment_identity
 from tests.sink_service.system.conftest import RELIABLE_DELIVERY, SinkSystemHarness
 from tests.support.process import start_sink_service_from_root
 
@@ -132,6 +132,9 @@ class TestUC10S03:
         # 否则 CURRENT 指向的旧快照仍带 A 的 config_root/deployment。
         shutil.rmtree(root_b / ".generations")
         (root_b / "CURRENT").unlink()
+        # Service 的 deployment_id 已换，Deployment 清单必须同步重写，
+        # 否则选版 fail-closed，第二实例无法启动到 Durable 接管验证。
+        rewrite_deployment_identity(root_b, doc["deployment_id"])
 
         # 第二套 harness 视图复用同一栈与流，但配置根/进程独立。
         harness_b = SinkSystemHarness(

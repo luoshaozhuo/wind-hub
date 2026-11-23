@@ -1,4 +1,4 @@
-"""CFG-PATH-01..08: real-process v1_9 service source path contract."""
+"""Real-process acceptance of exact Deployment selection and sole publisher guard."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import grpc
 import pytest
 import yaml
 
@@ -17,6 +18,9 @@ from tests.collector.system.conftest import ADMIN_METADATA, REPO_ROOT, ClientsFa
 from tests.collector.system.helpers import disk_revision, snapshot_files
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker]
+
+SERVICE_NAME = "service_collector-realtime_v1.0.0.yaml"
+SITE_NAME = "instances/site_site_alpha_v1.0.0.yaml"
 
 
 def _check(service: Path) -> subprocess.CompletedProcess[str]:
@@ -27,58 +31,45 @@ def _check(service: Path) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
 
 
 async def test_cfg_path_01_custom_source_paths(
     collector: Callable[..., Any], grpc_clients: ClientsFactory
 ) -> None:
-    handle = await collector(
-        site_ref="alternative/alpha.yaml",
-        devices_ref="alternative/turbines.yaml",
-        templates_ref="releases",
-    )
-    assert _check(handle.services / "collector.yaml").returncode == 0
-    root = handle.process.config_root
-    assert not (root / "instances" / "site.yaml").exists()
-    assert not (root / "instances" / "devices.yaml").exists()
-    assert not (root / "templates").exists()
+    handle = await collector(site_ref="alternate_site", devices_ref="alternate_devices")
+    service = handle.services / SERVICE_NAME
+    assert _check(service).returncode == 0
     _, client, _ = grpc_clients(handle.process.grpc_port)
     files = await snapshot_files(client)
-    assert "instances/site.yaml" in files
-    assert "instances/devices.yaml" in files
-    assert "templates/units_standard.yaml" in files
+    assert "instances/site_alternate_site_v1.0.0.yaml" in files
+    assert "instances/device_alternate_devices_v1.0.0.yaml" in files
+    assert "templates/units_standard_v1.2.0.yaml" in files
 
 
 @pytest.mark.parametrize(
     "bad_reference",
     [
-        {"instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"}},
+        {"instances": {"site": "site_alpha", "devices": "farm-a"}},
         {
-            "instances": {"site": "instances/site.yaml", "devices": "instances/devices.yaml"},
-            "templates": {"pathname": "templates"},
-        },
-        {
-            "instances": {"site": "../outside.yaml", "devices": "instances/devices.yaml"},
+            "instances": {"site": "site_alpha", "devices": "farm-a", "tasks": "farm-a"},
             "templates": {"root": "templates"},
         },
-        {
-            "instances": {"site": "missing/site.yaml", "devices": "instances/devices.yaml"},
-            "templates": {"root": "templates"},
-        },
-        {"instances": {"site": "instances/site.yaml"}, "templates": {"root": "templates"}},
+        {"instances": {"site": "../escape", "devices": "farm-a", "tasks": "farm-a"}},
+        {"instances": {"site": "missing", "devices": "farm-a", "tasks": "farm-a"}},
+        {"instances": {"site": "site_alpha", "tasks": "farm-a"}},
     ],
 )
 async def test_cfg_path_02_03_08_reject_invalid_sources(
     collector: Callable[..., Any], bad_reference: dict[str, object]
 ) -> None:
     handle = await collector()
-    service = handle.services / "collector.yaml"
+    service = handle.services / SERVICE_NAME
     document = yaml.safe_load(service.read_text(encoding="utf-8"))
     document["config_sources"] = bad_reference
     service.write_text(yaml.safe_dump(document), encoding="utf-8")
-    result = _check(service)
-    assert result.returncode != 0
+    assert _check(service).returncode != 0
 
 
 async def test_cfg_path_05_service_references_switch_only_after_restart(
@@ -86,110 +77,81 @@ async def test_cfg_path_05_service_references_switch_only_after_restart(
 ) -> None:
     handle = await collector()
     _, client, _ = grpc_clients(handle.process.grpc_port)
-    old_revision = await disk_revision(client)
-    files = await snapshot_files(client)
-    new_files = dict(files)
-    service = yaml.safe_load(new_files["services/collector.yaml"])
-    service["config_sources"]["instances"]["site"] = "other/site.yaml"
-    new_files["services/collector.yaml"] = yaml.safe_dump(service).encode("utf-8")
-    push = await client.PushConfigSnapshot(
-        pb.PushConfigSnapshotRequest(
-            expected_revision=old_revision,
-            files=[
-                pb.SnapshotFile(relative_path=name, content=value, size_bytes=len(value))
-                for name, value in sorted(new_files.items())
-            ],
-        ),
-        metadata=ADMIN_METADATA,
+    initial = await disk_revision(client)
+    original = await snapshot_files(client)
+    service = handle.services / SERVICE_NAME
+    document = yaml.safe_load(service.read_text(encoding="utf-8"))
+    document["file_version"] = "1.0.1"
+    document["config_sources"]["instances"]["site"] = "another_site"
+    target = handle.services / "service_collector-realtime_v1.0.1.yaml"
+    target.write_text(yaml.safe_dump(document), encoding="utf-8")
+    source_site = handle.instances / "site_site_alpha_v1.0.0.yaml"
+    next_site = yaml.safe_load(source_site.read_text(encoding="utf-8"))
+    next_site["site_id"] = "another_site"
+    (handle.instances / "site_another_site_v1.0.0.yaml").write_text(
+        yaml.safe_dump(next_site), encoding="utf-8"
     )
-    assert push.valid
-    result = await client.ApplyConfigSnapshot(
-        pb.ApplyConfigSnapshotRequest(
-            candidate_id=push.candidate_id, expected_revision=old_revision
-        ),
-        metadata=ADMIN_METADATA,
+    manifest = (
+        handle.process.config_root / "deployments" / ("deployment_collector-acceptance_v1.0.0.yaml")
     )
-    assert result.restart_required
-    assert result.file_commit != old_revision
-    assert result.effective_revision == old_revision
+    deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    deployment["services"]["collector-realtime"]["file_version"] = "1.0.1"
+    deployment["instances"]["site"]["another_site"] = {"file_version": "1.0.0"}
+    manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
+    assert _check(target).returncode == 0
+    assert _check(service).returncode != 0
     runtime = await client.GetConfigSnapshot(
         pb.GetConfigSnapshotRequest(scope=pb.SNAPSHOT_SCOPE_RUNTIME),
         metadata=ADMIN_METADATA,
     )
-    runtime_service = next(
-        item.content for item in runtime.files if item.relative_path == "services/collector.yaml"
-    )
-    assert yaml.safe_load(runtime_service)["config_sources"]["instances"]["site"] == (
-        "instances/site.yaml"
-    )
+    assert runtime.revision == initial
+    assert SITE_NAME in original
 
 
 async def test_cfg_path_06_restart_uses_committed_generation(
     collector: Callable[..., Any], grpc_clients: ClientsFactory
 ) -> None:
-    handle = await collector()
-    _, first_client, _ = grpc_clients(handle.process.grpc_port)
-    first_revision = await disk_revision(first_client)
-    handle.process.process.kill()
-    assert handle.process.process.wait(timeout=10) != 0
-    restarted = await collector(
-        state_dir_override=str(handle.state_dir),
-        site_ref="replacement/site.yaml",
-        devices_ref="replacement/devices.yaml",
-        templates_ref="replacement_templates",
-    )
-    _, second_client, _ = grpc_clients(restarted.process.grpc_port)
-    assert await disk_revision(second_client) == first_revision
-    files = await snapshot_files(second_client)
-    assert "instances/site.yaml" in files
-    assert "templates/units_standard.yaml" in files
+    first = await collector()
+    _, client, _ = grpc_clients(first.process.grpc_port)
+    initial_revision = await disk_revision(client)
+    first.process.process.kill()
+    assert first.process.process.wait(timeout=10) != 0
+    restarted = await collector(state_dir_override=str(first.state_dir))
+    _, current, _ = grpc_clients(restarted.process.grpc_port)
+    assert await disk_revision(current) == initial_revision
 
 
 async def test_cfg_path_04_push_apply_custom_named_source_snapshot(
     collector: Callable[..., Any], grpc_clients: ClientsFactory
 ) -> None:
-    handle = await collector(
-        site_ref="custom/site-A.yaml",
-        devices_ref="custom/devices-A.yaml",
-        templates_ref="custom_templates",
-    )
+    handle = await collector(site_ref="alternate_site", devices_ref="alternate_devices")
     _, client, _ = grpc_clients(handle.process.grpc_port)
     revision = await disk_revision(client)
     files = await snapshot_files(client)
-    site = yaml.safe_load(files["instances/site.yaml"])
-    site["name"] = "changed in candidate"
-    files["instances/site.yaml"] = yaml.safe_dump(site).encode("utf-8")
-    push = await client.PushConfigSnapshot(
-        pb.PushConfigSnapshotRequest(
-            expected_revision=revision,
-            files=[
-                pb.SnapshotFile(relative_path=name, content=data, size_bytes=len(data))
-                for name, data in sorted(files.items())
-            ],
-        ),
-        metadata=ADMIN_METADATA,
-    )
-    assert push.valid and push.candidate_id
+    site_path = "instances/site_alternate_site_v1.0.0.yaml"
+    site = yaml.safe_load(files[site_path])
+    site["name"] = "Unauthorized write"
+    files[site_path] = yaml.safe_dump(site).encode("utf-8")
+    with pytest.raises(grpc.aio.AioRpcError) as exc:
+        await client.PushConfigSnapshot(
+            pb.PushConfigSnapshotRequest(
+                expected_revision=revision,
+                files=[
+                    pb.SnapshotFile(relative_path=name, content=data, size_bytes=len(data))
+                    for name, data in sorted(files.items())
+                ],
+            ),
+            metadata=ADMIN_METADATA,
+        )
+    assert exc.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     assert await disk_revision(client) == revision
-    applied = await client.ApplyConfigSnapshot(
-        pb.ApplyConfigSnapshotRequest(candidate_id=push.candidate_id, expected_revision=revision),
-        metadata=ADMIN_METADATA,
-    )
-    assert applied.file_commit != revision
-    active = await snapshot_files(client)
-    assert yaml.safe_load(active["instances/site.yaml"])["name"] == "changed in candidate"
 
 
 async def test_cfg_path_07_two_template_roots_never_fall_back(
     collector: Callable[..., Any],
 ) -> None:
-    handle = await collector(templates_ref="releases/approved")
+    handle = await collector()
     root = handle.process.config_root
-    alternate = root / "releases" / "approved"
-    assert (alternate / "units_standard.yaml").is_file()
-    default = root / "templates"
-    default.mkdir()
-    # A broken default repository must not affect the explicitly selected one.
-    (default / "units_standard.yaml").write_bytes(b"invalid: [\n")
-    result = _check(handle.services / "collector.yaml")
-    assert result.returncode == 0, result.stdout + result.stderr
+    (root / "releases").mkdir()
+    (root / "releases" / "units_standard_v1.2.0.yaml").write_bytes(b"invalid: [\n")
+    assert _check(handle.services / SERVICE_NAME).returncode == 0

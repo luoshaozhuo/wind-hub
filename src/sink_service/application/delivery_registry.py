@@ -94,7 +94,7 @@ class DeliveryRegistry:
             if item.channel == self._role
         }
         signatures: dict[str, str] = {}
-        _, template_root = config_sources(snapshot.service)
+        _, template_root = config_sources(snapshot.service, snapshot.documents)
         for identifier, item in definitions.items():
             delivery = snapshot.deliveries[identifier]
             sink = snapshot.sinks[item.sink_id]

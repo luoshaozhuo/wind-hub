@@ -16,7 +16,7 @@ class StrictModel(BaseModel):
 
 
 class InstanceSources(StrictModel):
-    devices: Path
+    devices: str
 
     @field_validator("devices", mode="before")
     @classmethod
@@ -26,20 +26,8 @@ class InstanceSources(StrictModel):
         return value
 
 
-class TemplateSources(StrictModel):
-    root: Path
-
-    @field_validator("root", mode="before")
-    @classmethod
-    def require_pathname(cls, value: object) -> object:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("config_sources.templates.root requires a pathname")
-        return value
-
-
 class ConfigSources(StrictModel):
     instances: InstanceSources
-    templates: TemplateSources
 
 
 class TlsConfig(StrictModel):
@@ -208,6 +196,7 @@ class MetricsConfig(StrictModel):
 
 
 class GatewayServiceConfig(StrictModel):
+    service_id: str = Field(min_length=1)
     schema_version: Literal[1]
 
     @field_validator("schema_version", mode="before")

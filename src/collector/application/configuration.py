@@ -66,6 +66,13 @@ class CollectorConfigurationManager:
         self._errors: dict[str, str] = {}
         self._committed: OrderedDict[str, tuple[str, ConfigurationStatus]] = OrderedDict()
 
+    @staticmethod
+    def _service_key(files: dict[str, bytes]) -> str:
+        matches = [name for name in files if name.startswith("services/service_")]
+        if len(matches) != 1:
+            raise SnapshotConflictError("Collector generation must contain one Service")
+        return matches[0]
+
     def active_paths(self) -> SnapshotPaths:
         return self._repository.active_paths()
 
@@ -118,11 +125,18 @@ class CollectorConfigurationManager:
                 validate=self._validate,
             )
             files = await asyncio.to_thread(self._repository.read_generation, result.revision)
-            current_service = self._runtime_files.get("services/collector.yaml")
-            next_service = files["services/collector.yaml"]
+            current_service_key = (
+                self._service_key(self._runtime_files) if self._runtime_files else ""
+            )
+            next_service_key = self._service_key(files)
+            current_service = self._runtime_files.get(current_service_key)
+            next_service = files[next_service_key]
             self._restart_pending = bool(
                 current_service is not None
-                and self._restart_required(current_service, next_service)
+                and (
+                    current_service_key != next_service_key
+                    or self._restart_required(current_service, next_service)
+                )
             )
             # Service-owned source references are startup-only. A new
             # Instance/Template tree must never leak into the live runtime
@@ -139,7 +153,10 @@ class CollectorConfigurationManager:
                     self._committed.popitem(last=False)
                 return outcome
             if self._restart_pending and current_service is not None:
-                files["services/collector.yaml"] = current_service
+                # Model the actually retained Service under its original identity.
+                # Never assign old YAML bytes to a new immutable version filename.
+                files.pop(next_service_key)
+                files[current_service_key] = current_service
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision
             effective_paths = SnapshotPaths(
@@ -152,6 +169,7 @@ class CollectorConfigurationManager:
                 templates=result.paths.templates,
                 site=result.paths.site,
                 devices=result.paths.devices,
+                tasks=result.paths.tasks,
             )
             try:
                 self._errors = await self._runtime.converge(effective_paths, target_revision)
@@ -188,7 +206,10 @@ class CollectorConfigurationManager:
                 return self.status()
             files, active_paths = await asyncio.to_thread(self._read_retry_material, revision)
             if self._restart_pending and self._runtime_service_path is not None:
-                files["services/collector.yaml"] = self._runtime_files["services/collector.yaml"]
+                selected_key = self._service_key(files)
+                retained_key = self._service_key(self._runtime_files)
+                files.pop(selected_key)
+                files[retained_key] = self._runtime_files[retained_key]
             effective = SnapshotPaths(
                 service=(
                     self._runtime_service_path
@@ -199,6 +220,7 @@ class CollectorConfigurationManager:
                 templates=active_paths.templates,
                 site=active_paths.site,
                 devices=active_paths.devices,
+                tasks=active_paths.tasks,
             )
             target_revision = snapshot_digest(files)
             self._target_revision = target_revision

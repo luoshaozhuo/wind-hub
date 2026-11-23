@@ -16,6 +16,7 @@ import yaml
 from core.application.errors import ConfigError
 from core.configuration.versioned_templates import config_hash
 from core.infrastructure.config import parse_yaml
+from core.infrastructure.configuration_repository import DeploymentObserver
 from industrial_gateway.application.runtime import ApplicationResult
 from industrial_gateway.infrastructure.config.resolution import (
     ResolvedGateway,
@@ -93,6 +94,7 @@ class ConfigSnapshots:
         self.lock = asyncio.Lock()
         self.runtime_content = self.path.read_bytes()
         self.runtime_revision = runtime.config.revision
+        self.observer: DeploymentObserver | None = None
         self._process_service = runtime.config.service
         self.last_error = ""
         self.last_application = ""

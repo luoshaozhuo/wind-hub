@@ -4,14 +4,14 @@ wind-hub Sink Service v2 batch deployment
 Process model
 -------------
 One container starts exactly three OS processes: Main, Realtime, Reliable.
-Only Main exposes a gRPC/mTLS endpoint. Both workers have independent
+Only Main exposes a gRPC management endpoint with configured access control. Both workers have independent
 asyncio loops and connect directly to NATS or JetStream for samples.
 IPC conveys commands, status and metrics, never sample data.
 
 Prepare a writable persistent configuration root containing:
-  configs/services/sink_service.yaml
-  configs/instances/sinks.yaml
-  configs/instances/deliveries.yaml
+  configs/services/service_sink-west_v1.2.0.yaml
+  configs/instances/sinks_prod-a_v1.2.0.yaml
+  configs/instances/deliveries_prod-a_v1.3.0.yaml
   configs/templates/sinks/<name>_<version>.yaml
   configs/templates/deliveries/<name>_<version>.yaml
   tls/ca.crt, tls/sink.crt, tls/sink.key (or adjusted security paths)
@@ -19,7 +19,8 @@ Prepare a writable persistent configuration root containing:
 Ensure service.config_root and the paths in security match the mounted
 runtime filesystem. The volume must be writable by UID 65532; Main
 durably stores configuration revisions in .generations/ and CURRENT.
-Service file must explicitly specify instance paths and template root.
+Service references only Sink/Delivery Instance logical IDs (`prod-a`);
+Deployment `prod-a` fixes their versions and Instance files pin Templates.
 
 NATS prerequisites
 ------------------
@@ -35,7 +36,7 @@ Realtime uses NATS Core subject
   wh.rt.batch.>
 and never writes the source to JetStream.
 
-Set NATS URLs in configs/services/sink_service.yaml to reachable broker
+Set NATS URLs in configs/services/service_sink-west_v1.2.0.yaml to reachable broker
 addresses (127.0.0.1 from within Docker means the container itself).
 Provide TLS certificates as configured and authorize external gRPC clients.
 
@@ -44,14 +45,15 @@ Run
 export WIND_HUB_SINK_CONFIG_ROOT=/srv/wind-hub/sink
 docker compose -f deploy/sink-service/compose.yaml up --build
 
-Web/CLI gRPC target: 127.0.0.1:50061 by default, using mTLS.
+Web/CLI gRPC target: 127.0.0.1:50061 by default, using the configured bearer-token authorization.
 One container has one gRPC endpoint; do not run separate realtime/reliable
 containers or a second instance against the same Durable and Sink ownership.
 
 Configuration changes
 ---------------------
-Main is the only configuration Writer. Service-level changes require
-restart. Instance/Template changes can be applied incrementally where safe.
+Configuration Repository is the only published configuration Writer.
+Service changes require restart when unsafe; Instance/Template changes
+may be applied by Main under the published Deployment selection.
 Reliable Durable source selector changes are rejected without separately
 audited migration. STOP persists and is not automatically undone.
 A worker restart restores only desired START Deliveries.

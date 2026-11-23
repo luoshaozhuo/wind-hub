@@ -32,7 +32,7 @@ from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client i
     GeneratorRpcClient,
 )
 from industrial_gateway.infrastructure.config.schema import service_path
-from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots, SnapshotFile
+from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _PAGE_LIMIT = 500
@@ -590,31 +590,11 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.PushConfigSnapshotResponse:
         await _authorize(context, self._runtime, "config_write")
-        result = await self._snapshots.push(
-            [
-                SnapshotFile(
-                    relative_path=item.relative_path,
-                    content=bytes(item.content),
-                    size_bytes=item.size_bytes,
-                    sha256=item.sha256,
-                )
-                for item in request.files
-            ],
-            request.expected_revision,
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
-        return common.PushConfigSnapshotResponse(
-            candidate_id=result.candidate_id,
-            valid=result.valid,
-            base_revision=result.base_revision,
-            validation=[
-                common.ValidationIssue(
-                    path=item.path,
-                    code=item.code,
-                    message=item.message,
-                )
-                for item in result.validation
-            ],
-        )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(
         self,
@@ -622,33 +602,11 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.ApplyConfigSnapshotResponse:
         await _authorize(context, self._runtime, "config_write")
-        try:
-            result = await self._snapshots.apply(
-                request.candidate_id,
-                request.expected_revision,
-                operator=_trusted_identity(context, self._runtime),
-            )
-            return common.ApplyConfigSnapshotResponse(
-                file_commit=result.file_commit,
-                apply_results=[
-                    common.ApplicationResult(
-                        object_id=item.object_id,
-                        status=item.status,
-                        error_code=item.error_code,
-                        message=item.message,
-                    )
-                    for item in result.apply_results
-                ],
-                effective_revision=result.effective_revision,
-                restart_required=result.restart_required,
-                application_id=result.application_id,
-            )
-        except KeyError:
-            await context.abort(grpc.StatusCode.NOT_FOUND, "candidate not found")
-            raise RuntimeError("abort unexpectedly returned") from None
-        except (ConfigError, ValueError) as exc:
-            await context.abort(grpc.StatusCode.ABORTED, str(exc))
-            raise RuntimeError("abort unexpectedly returned") from exc
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetServiceInfo(
         self,
@@ -702,8 +660,12 @@ class GatewayCommonService(common_rpc.CommonServiceServicer):
                 detail="periodic snapshot ready" if ready else "first sample pending",
             )
         )
+        observer = self._snapshots.observer
+        pending = observer is not None and observer.target_revision != observer.active_revision
         status = common.GetServiceStatusResponse(
-            health="DEGRADED" if unhealthy else "HEALTHY",
+            health="DEGRADED" if unhealthy or pending else "HEALTHY",
+            target_revision=observer.target_revision if observer is not None else "",
+            active_revision=observer.active_revision if observer is not None else "",
             dependencies=dependencies,
         )
         status.observed_at.FromDatetime(datetime.now(UTC))

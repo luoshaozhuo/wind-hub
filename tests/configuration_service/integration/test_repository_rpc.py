@@ -21,7 +21,7 @@ def document(
     version: str,
     *,
     name: str | None = None,
-    config_type: str = "task",
+    config_type: str = "collector_tasks",
     config_sources: list[dict[str, str]] | None = None,
     **fields: object,
 ) -> pb.ConfigDocumentInput:
@@ -29,13 +29,12 @@ def document(
     payload: dict[str, object] = {
         "schema_version": 1,
         "file_version": version,
-        "template_id": config_id,
-        "point_group": name or config_id,
+        "tasks": {},
         **fields,
     }
     if config_sources is not None:
         payload["config_sources"] = config_sources
-    relative_path = f"templates/tasks/task_{config_id}_v{version}.yaml"
+    relative_path = f"instances/collector_tasks_{config_id}_v{version}.yaml"
     return pb.ConfigDocumentInput(
         config_id=pb.ConfigId(config_type=config_type, config_id=config_id),
         file_name=relative_path.rsplit("/", 1)[-1],
@@ -107,18 +106,20 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         assert published_v1.revision_id == 1
         assert published_v1.committed_at.seconds > 0
         version1 = published_v1.published[0].version_id
-        listed = await repository.ListConfigs(pb.ListConfigsRequest(config_type="task"), timeout=10)
+        listed = await repository.ListConfigs(
+            pb.ListConfigsRequest(config_type="collector_tasks"), timeout=10
+        )
         assert listed.items[0].recommended_version_id == version1
         versions = await repository.ListConfigVersions(
             pb.ListConfigVersionsRequest(
-                config_id=pb.ConfigId(config_type="task", config_id="rpc-task")
+                config_id=pb.ConfigId(config_type="collector_tasks", config_id="rpc-task")
             ),
             timeout=10,
         )
         assert [item.version_id for item in versions.versions] == [version1]
         fetched = await repository.GetConfig(
             pb.GetConfigRequest(
-                config_id=pb.ConfigId(config_type="task", config_id="rpc-task"),
+                config_id=pb.ConfigId(config_type="collector_tasks", config_id="rpc-task"),
                 version_id=version1,
             ),
             timeout=10,
@@ -126,10 +127,10 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         assert (
             hashlib.sha256(fetched.document.yaml_bytes).hexdigest() == fetched.document.yaml_sha256
         )
-        assert yaml.safe_load(fetched.document.yaml_bytes)["point_group"] == "rpc-task"
+        assert yaml.safe_load(fetched.document.yaml_bytes)["file_version"] == "1.0.0"
         bundle_v1 = await repository.GetConfigBundle(
             pb.GetConfigBundleRequest(
-                roots=[pb.ConfigId(config_type="task", config_id="rpc-task")],
+                roots=[pb.ConfigId(config_type="collector_tasks", config_id="rpc-task")],
                 revision_id=1,
             ),
             timeout=10,
@@ -144,20 +145,10 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         )
         assert not empty_references.edges
 
-        # Revision 2 keeps the immutable v1 in the complete root and adds v2,
-        # which pins v1 as its exact dependency.
-        doc_v2 = document(
-            "rpc-task",
-            "2.0.0",
-            name="rpc-task-v2",
-            config_sources=[
-                {
-                    "config_type": "task",
-                    "config_id": "rpc-task",
-                    "file_version": "1.0.0",
-                }
-            ],
-        )
+        # Revision 2 retains both immutable versions; an Instance cannot
+        # depend on another Instance version. Template dependency edges are
+        # exercised independently in the typed-reference contract tests.
+        doc_v2 = document("rpc-task", "2.0.0", name="rpc-task-v2")
         published_v2 = await _publish(repository, "rpc-v2", 1, [doc_v1, doc_v2])
         assert published_v2.revision_id == 2
         version2 = next(
@@ -165,13 +156,13 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         )
         bundle = await repository.GetConfigBundle(
             pb.GetConfigBundleRequest(
-                roots=[pb.ConfigId(config_type="task", config_id="rpc-task")],
+                roots=[pb.ConfigId(config_type="collector_tasks", config_id="rpc-task")],
                 revision_id=2,
                 include_dependencies=True,
             ),
             timeout=10,
         )
-        assert {item.version_id for item in bundle.files} == {version1, version2}
+        assert {item.version_id for item in bundle.files} == {version2}
         outbound = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version2,
@@ -179,7 +170,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert outbound.edges[0].target_version_id == version1
+        assert not outbound.edges
         inbound = await repository.ListReferences(
             pb.ListReferencesRequest(
                 version_id=version1,
@@ -187,11 +178,11 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert inbound.edges[0].source_version_id == version2
+        assert not inbound.edges
         recommended = await repository.SetRecommendedVersion(
             pb.SetRecommendedVersionRequest(
                 request_id="rpc-recommend-v1",
-                config_id=pb.ConfigId(config_type="task", config_id="rpc-task"),
+                config_id=pb.ConfigId(config_type="collector_tasks", config_id="rpc-task"),
                 version_id=version1,
                 expected_revision_id=2,
             ),
@@ -202,7 +193,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
         await repository.SetRecommendedVersion(
             pb.SetRecommendedVersionRequest(
                 request_id="rpc-recommend-v2",
-                config_id=pb.ConfigId(config_type="task", config_id="rpc-task"),
+                config_id=pb.ConfigId(config_type="collector_tasks", config_id="rpc-task"),
                 version_id=version2,
                 expected_revision_id=3,
             ),
@@ -223,7 +214,7 @@ async def test_repository_rpc_success_matrix(live: LiveConfiguration) -> None:
             ),
             timeout=10,
         )
-        assert deprecated.deprecated and deprecated.referencing_versions_count == 1
+        assert deprecated.deprecated and deprecated.referencing_versions_count == 0
         stats = await repository.GetRepositoryStats(
             pb.GetRepositoryStatsRequest(
                 scope=pb.REPOSITORY_STATS_SCOPE_ALL,
@@ -283,7 +274,7 @@ async def test_repository_rpc_failures_and_presence(live: LiveConfiguration) -> 
         with pytest.raises(grpc.aio.AioRpcError) as missing_selector:
             await repository.GetConfig(
                 pb.GetConfigRequest(
-                    config_id=pb.ConfigId(config_type="task", config_id="rpc-task")
+                    config_id=pb.ConfigId(config_type="collector_tasks", config_id="rpc-task")
                 ),
                 timeout=10,
             )
@@ -297,10 +288,10 @@ async def test_repository_rpc_failures_and_presence(live: LiveConfiguration) -> 
                 expected_revision_id=0,
                 documents=[
                     pb.ConfigDocumentInput(
-                        config_id=pb.ConfigId(config_type="task", config_id="invalid"),
-                        file_name="task_invalid_v1.0.0.yaml",
+                        config_id=pb.ConfigId(config_type="collector_tasks", config_id="invalid"),
+                        file_name="collector_tasks_invalid_v1.0.0.yaml",
                         yaml_bytes=b"a: [",
-                        relative_path="templates/tasks/task_invalid_v1.0.0.yaml",
+                        relative_path="instances/collector_tasks_invalid_v1.0.0.yaml",
                     )
                 ],
                 validate_only=True,

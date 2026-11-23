@@ -29,12 +29,12 @@ def _table(version: str, *, with_dependencies: bool) -> DocumentInput:
             {
                 "config_type": "units",
                 "config_id": "standard",
-                "file_version": "1.1.0",
+                "file_version": "1.2.0",
             },
             {
                 "config_type": "business_points",
                 "config_id": "standard",
-                "file_version": "1.3.0",
+                "file_version": "1.4.0",
             },
         ]
     return document_input("point_table", "wtg", version, **fields)
@@ -44,15 +44,17 @@ def _standards() -> tuple[DocumentInput, ...]:
     return (
         DocumentInput(
             identity=ConfigIdentity("units", "standard"),
-            file_name="units_standard.yaml",
-            yaml_bytes=(ROOT / "configs/templates/units_standard.yaml").read_bytes(),
-            relative_path="templates/units_standard.yaml",
+            file_name="units_standard_v1.2.0.yaml",
+            yaml_bytes=(ROOT / "configs/templates/units_standard_v1.2.0.yaml").read_bytes(),
+            relative_path="templates/units_standard_v1.2.0.yaml",
         ),
         DocumentInput(
             identity=ConfigIdentity("business_points", "standard"),
-            file_name="business_points_standard.yaml",
-            yaml_bytes=(ROOT / "configs/templates/business_points_standard.yaml").read_bytes(),
-            relative_path="templates/business_points_standard.yaml",
+            file_name="business_points_standard_v1.4.0.yaml",
+            yaml_bytes=(
+                ROOT / "configs/templates/business_points_standard_v1.4.0.yaml"
+            ).read_bytes(),
+            relative_path="templates/business_points_standard_v1.4.0.yaml",
         ),
     )
 

@@ -7,6 +7,7 @@ import fcntl
 import json
 import os
 import signal
+import socket
 import stat
 import subprocess
 import time
@@ -105,6 +106,131 @@ def _locked(path: Path) -> Iterator[None]:
         os.close(fd)
 
 
+def _foreign_loopback_listener(endpoint: str | None) -> bool:
+    """Reject an occupied local endpoint before claiming a new process start."""
+    if endpoint is None:
+        return False
+    host, separator, raw_port = endpoint.rpartition(":")
+    if not separator or host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return False
+    if not raw_port.isdecimal() or not 1 <= int(raw_port) <= 65535:
+        return False
+    with socket.socket(
+        socket.AF_INET6 if host == "[::1]" else socket.AF_INET,
+        socket.SOCK_STREAM,
+    ) as probe:
+        probe.settimeout(0.15)
+        address = ("::1", int(raw_port)) if host == "[::1]" else ("127.0.0.1", int(raw_port))
+        return probe.connect_ex(address) == 0
+
+
+def managed_endpoint_owned(
+    target: ServiceTarget,
+    *,
+    expected_pid: int | None = None,
+    expected_start_tick: str | None = None,
+    return_inodes: bool = False,
+) -> bool | frozenset[str]:
+    """Verify listener ownership, optionally returning the exact socket identity.
+
+    In particular, one owned IPv4 listener must not validate a foreign IPv6
+    health response for a localhost endpoint.
+    """
+    spec = target.process
+    endpoint = target.grpc_endpoint
+    if spec is None or endpoint is None:
+        return False
+    host, separator, port_text = endpoint.rpartition(":")
+    if not separator or host not in {"127.0.0.1", "localhost", "[::1]"}:
+        return False
+    if not port_text.isdecimal() or not 1 <= int(port_text) <= 65535:
+        return False
+    state = _load_state(spec.state_dir / f"{target.service_id}.json")
+    if (
+        not _running(state)
+        or state is None
+        or (expected_pid is not None and state["pid"] != expected_pid)
+        or (expected_start_tick is not None and state["start_tick"] != expected_start_tick)
+    ):
+        return False
+
+    port = int(port_text)
+    port_hex = f"{port:04X}"
+    listeners: set[str] = set()
+    wildcard_ipv6: set[str] = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(table).read_text(encoding="ascii").splitlines()[1:]
+        except OSError:
+            return False
+        for line in lines:
+            fields = line.split()
+            if len(fields) <= 9 or fields[3] != "0A":
+                continue
+            address = fields[1].rsplit(":", 1)
+            if len(address) != 2 or address[1].upper() != port_hex:
+                continue
+            ip_hex = address[0].upper()
+            is_ipv4_table = table.endswith("/tcp")
+            ipv4 = (
+                ip_hex in {"0100007F", "00000000"}
+                if is_ipv4_table
+                else ip_hex == "0000000000000000FFFF00000100007F"
+            )
+            ipv6 = not is_ipv4_table and ip_hex in {
+                "00000000000000000000000001000000",
+                "00000000000000000000000000000000",
+            }
+            if not is_ipv4_table and ip_hex == "00000000000000000000000000000000":
+                wildcard_ipv6.add(fields[9])
+            if (
+                (host == "127.0.0.1" and ipv4)
+                or (host == "[::1]" and ipv6)
+                or (host == "localhost" and (ipv4 or ipv6))
+            ):
+                listeners.add(fields[9])
+
+    # IPv6 wildcard sockets may also accept IPv4. /proc does not expose
+    # IPV6_V6ONLY; require an actual successful IPv4 connect before accepting
+    # this possibility. Any distinct IPv4 listener must also be owned.
+    if host == "127.0.0.1" and wildcard_ipv6 and not listeners:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.15)
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                listeners.update(wildcard_ipv6)
+
+    if not listeners:
+        return False
+    pgid = state["pid"]
+    owned: set[str] = set()
+    for process in Path("/proc").iterdir():
+        if not process.name.isdecimal():
+            continue
+        pid = int(process.name)
+        try:
+            if os.getpgid(pid) != pgid or _identity(pid) is None:
+                continue
+            for fd in (process / "fd").iterdir():
+                try:
+                    link = os.readlink(fd)
+                except OSError:
+                    continue
+                if link.startswith("socket:[") and link[8:-1] in listeners:
+                    owned.add(link[8:-1])
+        except (OSError, ProcessLookupError):
+            continue
+    # Do not accept one owned listener while another address family at the
+    # same configured endpoint is served by a foreign process.
+    valid = (
+        bool(owned)
+        and listeners <= owned
+        and _running(state)
+        and (expected_pid is None or state["pid"] == expected_pid)
+        and (expected_start_tick is None or state["start_tick"] == expected_start_tick)
+    )
+    return frozenset(owned) if valid and return_inodes else valid
+
+
 def _save_state(path: Path, state: dict[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -146,15 +272,25 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             "manager": "process",
             "target": target.service_id,
             "pid": saved["pid"] if alive and saved is not None else None,
+            "start_tick": saved["start_tick"] if alive and saved is not None else None,
             "running": alive,
             "state": "RUNNING" if alive else "STOPPED",
             "status": "ACTIVE" if alive else "INACTIVE",
         }
 
-    def start() -> dict[str, Any]:
+    def start(*, wait_for_release: bool = False) -> dict[str, Any]:
         existing = current_state()
         if existing["running"]:
             return {**existing, "confirmed": True, "already_running": True}
+        # After stopping our own process, a transient TCP response can outlive
+        # the process group. Wait briefly for release, still rejecting a listener
+        # that remains reachable or was already present on a fresh start.
+        release_deadline = min(deadline, time.monotonic() + 0.5)
+        while _foreign_loopback_listener(target.grpc_endpoint):
+            remaining = release_deadline - time.monotonic()
+            if not wait_for_release or remaining <= 0:
+                raise RuntimeError("configured local service endpoint is already occupied")
+            time.sleep(min(0.05, remaining))
         spec.log_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         log_fd = os.open(
             spec.log_file,
@@ -190,8 +326,15 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
         except OSError:
             _terminate_untracked_group(child.pid, deadline)
             raise
+        # A subprocess can fork successfully and fail immediately (for
+        # example on corrupt SQLite). Verify its PID identity after the
+        # bounded startup observation window, never trust another listener.
+        if target.grpc_endpoint is not None:
+            remaining = max(0.0, deadline - time.monotonic())
+            time.sleep(min(0.4, remaining))
         state = current_state()
         if not state["running"]:
+            state_file.unlink(missing_ok=True)
             raise RuntimeError("process exited during start confirmation")
         return {
             **state,
@@ -238,7 +381,7 @@ def _manage(target: ServiceTarget, action: str) -> dict[str, Any]:
             return stop()
         if action == "restart":
             stopped = stop()
-            started = start()
+            started = start(wait_for_release=not stopped.get("already_stopped", False))
             return {
                 **started,
                 "stages": [*stopped.get("stages", []), *started.get("stages", [])],

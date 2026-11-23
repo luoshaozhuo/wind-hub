@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from commander.application.settings import ServiceSettings
@@ -259,8 +259,16 @@ class CommanderConfigManager:
             if self._documents is None or self._settings is None:
                 raise RuntimeError("config manager not started")
             service_candidate = self._settings_loader()
-            candidate = self._load(self._settings)
-            restart_required = service_candidate != self._settings
+            candidate = self._load(service_candidate)
+            # Instance version changes can hot-reload while the static Service
+            # settings and authority remain bound to the running process.
+            compatible = replace(
+                service_candidate,
+                devices_path=self._settings.devices_path,
+                templates_root=self._settings.templates_root,
+                coordination_root=self._settings.coordination_root,
+            )
+            restart_required = compatible != self._settings
             new_fp = {name: _device_fingerprint(value) for name, value in candidate.devices.items()}
             # Compare source documents at the same representation and grain.
             shared_changed = (
@@ -338,6 +346,8 @@ class CommanderConfigManager:
             self._snapshot = effective_snapshot
             self._fingerprints = current_fp
             self._disabled = set(blocked)
+            if not blocked and not restart_required:
+                self._settings = service_candidate
             return ReloadReport(
                 revision=self.revision,
                 changed=tuple(sorted(applied_devices)),

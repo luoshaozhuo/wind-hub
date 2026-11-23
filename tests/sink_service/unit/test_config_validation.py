@@ -1,7 +1,7 @@
 """Stage-one configuration contract validation (v1_20 sections 11.2.9, 11.3).
 
 The v1_20 snapshot is a single-Main-Service closure: exactly one
-``configs/services/sink_service.yaml`` plus the Instance files and exact-version
+``configs/services/service_sink-west_v1.0.0.yaml`` plus the Instance files and exact-version
 templates it references. Legacy dual-process fields (``process_role``,
 ``config_writer``, ``config_sync.writer_endpoint``) are rejected by production.
 """

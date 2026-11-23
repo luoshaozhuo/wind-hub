@@ -5,9 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 from pathlib import Path
 
+from core.configuration.local_selection import select_local_service
+from core.infrastructure.configuration_cache import stage_selected_bundle
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
+from data_generator.application.config_policy import requires_service_restart
 from data_generator.application.runtime import Runtime
 from data_generator.infrastructure.adapters.inbound.server import make_server
 from data_generator.infrastructure.adapters.outbound.csv_history import CsvHistoryReader
@@ -35,8 +40,51 @@ async def run(config_path: Path) -> None:
     runtime = Runtime(
         settings, writer, recorder=JsonlRecordWriter(), history_reader=CsvHistoryReader()
     )
+    observer: DeploymentObserver | None = None
+    background: asyncio.Task[None] | None = None
+    observer_stop = asyncio.Event()
+    endpoint = os.environ.get("WIND_HUB_CONFIGURATION_ENDPOINT", "")
+    if endpoint:
+        selection = select_local_service(config_path)
+        observer = DeploymentObserver(
+            deployment_id=selection.deployment_id,
+            service_id=selection.service_id,
+            endpoint=endpoint,
+            token_env="WIND_HUB_CONFIGURATION_TOKEN",
+            nats_servers=list(
+                filter(None, os.environ.get("WIND_HUB_CONFIGURATION_NATS_SERVERS", "").split(","))
+            ),
+        )
+        selected_observer = observer
+        cache_root = Path(
+            os.environ.get(
+                "WIND_HUB_CONFIGURATION_CACHE",
+                str(settings.root.parent / "state" / "data-generator-configuration-cache"),
+            )
+        )
+
+        async def apply_selected(bundle: SelectedBundle) -> bool:
+            cached = await asyncio.to_thread(
+                stage_selected_bundle,
+                bundle,
+                cache_root,
+                selected_observer.deployment_id,
+                selected_observer.service_id,
+            )
+            candidate = await asyncio.to_thread(load_settings, cached)
+            if requires_service_restart(runtime.settings.service, candidate.service):
+                return False
+            await runtime.commit_configuration(lambda: (candidate, False))
+            # A running generation remains bound to its original Scenario.
+            active_states = {"STARTING", "RUNNING", "STOPPING"}
+            return all(
+                state.actual_state not in active_states
+                or state.scenario == candidate.scenarios.get(state.scenario.scenario_id)
+                for state in runtime.generations.values()
+            )
+
     bind = settings.service.get("service", {}).get("grpc_bind", "127.0.0.1:50061")
-    server = make_server(runtime, bind)
+    server = make_server(runtime, bind, observer)
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -46,8 +94,13 @@ async def run(config_path: Path) -> None:
             logger.warning("signal handler unavailable: %s", signum)
     try:
         await server.start()
+        if observer is not None:
+            background = asyncio.create_task(observer.run(observer_stop, apply_selected))
         await shutdown.wait()
     finally:
+        observer_stop.set()
+        if background is not None:
+            await background
         await server.stop(grace=3.0)
         await runtime.shutdown()
 

@@ -19,7 +19,7 @@ class DeliveryDefinition:
 
 def delivery_definitions(snapshot: ValidatedSnapshot) -> tuple[DeliveryDefinition, ...]:
     """Resolve stable channel identities without importing an Adapter."""
-    _, template_root = config_sources(snapshot.service)
+    _, template_root = config_sources(snapshot.service, snapshot.documents)
     templates = snapshot.documents
 
     definitions: list[DeliveryDefinition] = []

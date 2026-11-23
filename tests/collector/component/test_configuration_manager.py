@@ -24,11 +24,12 @@ def _read_service(paths: SnapshotPaths) -> None:
 
 def _files() -> dict[str, bytes]:
     return {
-        "services/collector.yaml": b"schema_version: 1\n",
-        "instances/site.yaml": b"schema_version: 1\n",
-        "instances/devices.yaml": b"schema_version: 1\n",
-        "templates/units_standard.yaml": b"schema_version: 1\n",
-        "templates/business_points_standard.yaml": b"schema_version: 1\n",
+        "services/service_collector-realtime_v1.0.0.yaml": b"schema_version: 1\n",
+        "instances/site_example_site_v1.0.0.yaml": b"schema_version: 1\n",
+        "instances/device_farm-a_v1.0.0.yaml": b"schema_version: 1\n",
+        "templates/units_standard_v1.2.0.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard_v1.4.0.yaml": b"schema_version: 1\n",
+        "instances/collector_tasks_farm-a_v1.0.0.yaml": b"schema_version: 1\n",
     }
 
 
@@ -97,18 +98,21 @@ async def test_restart_required_does_not_claim_runtime_activation(tmp_path: Path
     identifier, _ = manager.push(_files(), expected_revision="")
     first = await manager.apply(identifier, expected_revision="")
     modified = _files()
-    modified["services/collector.yaml"] = b"schema_version: 2\n"
+    modified["services/service_collector-realtime_v1.0.0.yaml"] = b"schema_version: 2\n"
     identifier, _ = manager.push(modified, expected_revision=first.disk_revision)
     second = await manager.apply(identifier, expected_revision=first.disk_revision)
     assert second.restart_required
     assert second.runtime_revision == first.disk_revision
     assert len(runtime.calls) == 2
     assert runtime.seen_service == [
-        _files()["services/collector.yaml"],
-        _files()["services/collector.yaml"],
+        _files()["services/service_collector-realtime_v1.0.0.yaml"],
+        _files()["services/service_collector-realtime_v1.0.0.yaml"],
     ]
     assert runtime.calls[-1] == second.runtime_revision
-    assert manager.get_runtime()["services/collector.yaml"] == _files()["services/collector.yaml"]
+    assert (
+        manager.get_runtime()["services/service_collector-realtime_v1.0.0.yaml"]
+        == _files()["services/service_collector-realtime_v1.0.0.yaml"]
+    )
     assert not second.converged
 
 
@@ -183,23 +187,22 @@ async def test_service_source_change_waits_for_restart(tmp_path: Path) -> None:
         source_changed=sources_changed,
     )
     original = _files()
-    original["services/collector.yaml"] = (
+    original["services/service_collector-realtime_v1.0.0.yaml"] = (
         b"config_sources:\n"
         b"  instances:\n"
-        b"    site: instances/site.yaml\n"
-        b"    devices: instances/devices.yaml\n"
-        b"  templates:\n"
-        b"    root: templates\n"
+        b"    site: example_site\n"
+        b"    devices: farm-a\n"
+        b"    tasks: farm-a\n"
     )
     candidate, _ = manager.push(original, expected_revision="")
     first = await manager.apply(candidate, expected_revision="")
     assert len(runtime.calls) == 1
 
     altered = dict(original)
-    altered["services/collector.yaml"] = original["services/collector.yaml"].replace(
-        b"instances/site.yaml", b"custom/site.yaml"
-    )
-    altered["instances/site.yaml"] = b"site_id: new_site\n"
+    altered["services/service_collector-realtime_v1.0.0.yaml"] = original[
+        "services/service_collector-realtime_v1.0.0.yaml"
+    ].replace(b"site: example_site", b"site: another_site")
+    altered["instances/site_example_site_v1.0.0.yaml"] = b"site_id: new_site\n"
     candidate, _ = manager.push(altered, expected_revision=first.disk_revision)
     result = await manager.apply(candidate, expected_revision=first.disk_revision)
     assert result.restart_required

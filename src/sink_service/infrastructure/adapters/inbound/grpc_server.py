@@ -139,7 +139,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         )
         workers = getattr(self._registry, "worker_health", {})
         worker_unavailable = any(value != "RUNNING" for value in workers.values())
-        configuration_pending = self._config.disk.revision != self._config.runtime.revision
+        configuration_pending = self._config.disk.revision != self._config.runtime.revision or (
+            bool(self._config.target_revision)
+            and self._config.target_revision != self._config.active_revision
+        )
         health = (
             "DEGRADED"
             if degraded or worker_unavailable or self._config.last_error or configuration_pending
@@ -147,6 +150,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         )
         return common_pb2.GetServiceStatusResponse(
             health=health,
+            target_revision=self._config.target_revision,
+            active_revision=self._config.active_revision,
             dependencies=[
                 common_pb2.DependencyHealth(
                     name="configuration",
@@ -249,95 +254,22 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
         request: common_pb2.PushConfigSnapshotRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common_pb2.PushConfigSnapshotResponse:
-        try:
-            candidate_id, _snapshot = await self._config.push(
-                [
-                    (item.relative_path, bytes(item.content), item.size_bytes, item.sha256)
-                    for item in request.files
-                ],
-                request.expected_revision,
-            )
-        except InvalidConfigurationError as exc:
-            self._observability.event(
-                "ERROR",
-                "configuration",
-                "CONFIG_PUSH_REJECTED",
-                f"caller={_peer_identity(context)} reason={exc}",
-            )
-            reason = str(exc)
-            path, separator, message = reason.partition(":")
-            return common_pb2.PushConfigSnapshotResponse(
-                candidate_id="",
-                valid=False,
-                base_revision=self._config.disk.revision,
-                validation=[
-                    common_pb2.ValidationIssue(
-                        path=path if separator else "",
-                        code="INVALID_CONFIGURATION",
-                        message=message.strip() if separator else reason,
-                    )
-                ],
-            )
-        except ConfigurationError as exc:
-            self._observability.event(
-                "ERROR",
-                "configuration",
-                "CONFIG_PUSH_REJECTED",
-                f"caller={_peer_identity(context)} reason={exc}",
-            )
-            await _abort(context, _status_for(exc), str(exc))
-            raise AssertionError("gRPC abort returned") from exc
-        self._observability.event(
-            "INFO",
-            "configuration",
-            "CONFIG_PUSH",
-            f"caller={_peer_identity(context)} candidate={candidate_id} "
-            f"base_revision={self._config.disk.revision}",
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
-        return common_pb2.PushConfigSnapshotResponse(
-            candidate_id=candidate_id,
-            valid=True,
-            base_revision=self._config.disk.revision,
-        )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(
         self,
         request: common_pb2.ApplyConfigSnapshotRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common_pb2.ApplyConfigSnapshotResponse:
-        try:
-            applied = await self._config.apply(request.candidate_id, request.expected_revision)
-        except ConfigurationError as exc:
-            await _abort(context, _status_for(exc), str(exc))
-            raise AssertionError("gRPC abort returned") from exc
-        self._observability.event(
-            "INFO" if not applied.error else "ERROR",
-            "configuration",
-            "CONFIG_APPLY",
-            f"caller={_peer_identity(context)} application={applied.application_id} "
-            f"file_commit={applied.file_commit} restart_required={applied.restart_required} "
-            f"error={applied.error}",
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
         )
-        return common_pb2.ApplyConfigSnapshotResponse(
-            file_commit=applied.file_commit,
-            effective_revision=applied.effective_revision,
-            restart_required=applied.restart_required,
-            application_id=applied.application_id,
-            apply_results=(
-                [
-                    common_pb2.ApplicationResult(object_id=name, status="APPLIED")
-                    for name in applied.applied
-                ]
-                + [
-                    common_pb2.ApplicationResult(
-                        object_id=name,
-                        status="FAILED" if applied.error else "PENDING",
-                        message=applied.error,
-                    )
-                    for name in applied.pending
-                ]
-            ),
-        )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(
         self, request: common_pb2.GetMetricsRequest, context: grpc.aio.ServicerContext[Any, Any]

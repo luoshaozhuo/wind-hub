@@ -1,4 +1,4 @@
-"""系统测试夹具：自管 JetStream 容器 + 真实共享配置树 + commander.yaml。"""
+"""系统测试夹具：自管 JetStream 容器 + Deployment 选版的 Commander 配置树。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from shutil import copytree
 
 import pytest
+import yaml
 
 from tests.commander.grpc_harness import (
     GrpcStack,
@@ -26,11 +27,10 @@ _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 _COMMANDER_YAML = """\
 schema_version: 1
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: farm-a
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -76,7 +76,7 @@ points:
 
 _BUSINESS_POINTS = """\
 schema_version: 1
-file_version: 1.0.0
+file_version: 1.4.0
 business_points:
   setpoint_power:
     data_type: float32
@@ -95,9 +95,6 @@ protocol:
   version: 1.1.0
 point_table:
   id: modbus_wtg
-  version: 1.0.0
-task:
-  id: turbine_all
   version: 1.0.0
 """
 
@@ -170,7 +167,7 @@ def write_service_config(
     共享配置树包含 GW/TZ 系列真实设备；e2e 额外注入一台仅用于验收的
     WT01（modbus_wtg 1.0.0），指向本用例自管的真实 Modbus 对端。
     """
-    devices = root / "instances" / "devices.yaml"
+    devices = root / "instances" / "device_farm-a_v1.4.0.yaml"
     devices_text = devices.read_text(encoding="utf-8")
     # 重启用例会在同一配置树上二次调用本函数，注入必须幂等。
     if "\n  WT01:" not in devices_text:
@@ -197,7 +194,7 @@ def write_service_config(
     model.write_text(_MODELS_TABLE, encoding="utf-8")
     # 保留真实业务点目录（其余 GW/TZ 设备的有效配置解析依赖它），
     # 仅补入验收点表引用的 setpoint_power。
-    business = root / "templates" / "business_points_standard.yaml"
+    business = root / "templates" / "business_points_standard_v1.4.0.yaml"
     business_text = business.read_text(encoding="utf-8")
     if "  setpoint_power:" not in business_text:
         business_text = business_text.replace(
@@ -207,7 +204,21 @@ def write_service_config(
         )
     business.write_text(business_text, encoding="utf-8")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    service_yaml = root.parent / "commander.yaml"
+    deployments = root / "deployments"
+    deployments.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": 1,
+        "file_version": "1.0.0",
+        "deployment_id": "commander-system",
+        "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
+        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
+    }
+    (deployments / "deployment_commander-system_v1.0.0.yaml").write_text(
+        yaml.safe_dump(manifest, sort_keys=False),
+        encoding="utf-8",
+    )
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
         _COMMANDER_YAML.format(
             sqlite_path=str(db_path),

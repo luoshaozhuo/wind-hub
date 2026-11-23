@@ -36,7 +36,7 @@ def template_document(
     snapshot: ValidatedSnapshot, family: str, name: str, version: str
 ) -> dict[str, Any]:
     """Return one prevalidated template without reopening YAML in Application."""
-    _, template_root = config_sources(snapshot.service)
+    _, template_root = config_sources(snapshot.service, snapshot.documents)
     path = template_path(template_root, family, name, version)
     document = snapshot.documents.get(path)
     if document is None:
@@ -502,11 +502,14 @@ def validate_snapshot(
     if set(docs) != set(by_path):
         raise ConfigurationError("parsed snapshot document closure mismatch")
     service_files = [path for path in docs if path.startswith("configs/services/")]
-    if service_files != ["configs/services/sink_service.yaml"]:
-        raise ConfigurationError("expected one sink_service.yaml")
+    if len(service_files) != 1 or not re.fullmatch(
+        r"configs/services/service_[A-Za-z0-9_.-]+_v\d+\.\d+\.\d+\.yaml",
+        service_files[0] if service_files else "",
+    ):
+        raise ConfigurationError("expected one versioned Sink Service configuration")
     service = docs[service_files[0]]
     validate_service(service)
-    source_paths, template_root = config_sources(service)
+    source_paths, template_root = config_sources(service, docs)
     sink_instances = _instances(docs, "sinks", source_paths["sinks"])
     delivery_instances = _instances(docs, "deliveries", source_paths["deliveries"])
     required = set(service_files) | set(source_paths.values())

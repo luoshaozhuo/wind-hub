@@ -26,7 +26,7 @@ from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PHYSICAL_SERVICE = REPO_ROOT / "configs" / "services" / "data-generator-sim.example.yaml"
+PHYSICAL_SCENARIOS = REPO_ROOT / "configs" / "instances" / "scenarios_sim_v1.0.3.yaml"
 SCENARIO_ID = "wind-plant-physical"
 DEVICE_ID = "WTG_SIM01"
 POINT_ID = "power_limit_setpoint"
@@ -81,7 +81,7 @@ def _physical_service_path(configs_root: Any) -> Path:
     场景间隔放大到 1s：循环在步边界之间睡眠，预留步在该窗口内确定性保持
     PENDING，避免对同步 PhysicalEngine.advance 做任何侵入式打桩。
     """
-    with PHYSICAL_SERVICE.open(encoding="utf-8") as handle:
+    with PHYSICAL_SCENARIOS.open(encoding="utf-8") as handle:
         physical_doc = yaml.safe_load(handle)
     scenario = physical_doc["scenarios"][0]
     assert scenario["scenario_id"] == SCENARIO_ID
@@ -90,9 +90,15 @@ def _physical_service_path(configs_root: Any) -> Path:
         scenarios={"scenarios": physical_doc["scenarios"]},
         bind="127.0.0.1:0",
     )
+    # Update the logical Service reference and the exact Deployment selection
+    # together; changing only the Service would leave an unresolved Instance.
     document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
-    document["config_sources"]["instances"]["devices"] = "instances/devices_sim.yaml"
+    document["config_sources"]["instances"]["devices"] = "sim"
     service_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    manifest = service_path.parent.parent / "deployments" / "deployment_dg-test_v1.0.0.yaml"
+    deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    deployment["instances"]["device"] = {"sim": {"file_version": "1.2.0"}}
+    manifest.write_text(yaml.safe_dump(deployment, sort_keys=False), encoding="utf-8")
     return service_path
 
 

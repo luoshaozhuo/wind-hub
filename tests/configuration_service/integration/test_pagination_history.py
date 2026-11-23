@@ -33,7 +33,11 @@ async def _stage_and_publish(repository, request_id: str, revision: int, documen
 def _with_source(item, dependency: str) -> pb.ConfigDocumentInput:
     payload = yaml.safe_load(item.yaml_bytes)
     payload["config_sources"] = [
-        {"config_type": "task", "config_id": "history", "file_version": dependency}
+        {
+            "config_type": "collector_tasks",
+            "config_id": "history",
+            "file_version": dependency,
+        }
     ]
     item.yaml_bytes = yaml.safe_dump(payload).encode()
     return item
@@ -45,7 +49,7 @@ async def test_versions_and_references_last_page_and_version_watermark(
 ) -> None:
     repository, _common, channel = live.stubs("deployer")
     try:
-        identity = pb.ConfigId(config_type="task", config_id="history")
+        identity = pb.ConfigId(config_type="collector_tasks", config_id="history")
         v1 = document("history", "1.0.0")
         published_v1 = await _stage_and_publish(repository, "history-v1", 0, [v1])
         revision = published_v1.revision_id

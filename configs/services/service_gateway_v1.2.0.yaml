@@ -1,0 +1,55 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+# Industrial Gateway Service v1.1.0 — per-Server control routing.
+#   or devices_sim.yaml for simulation; never merge these inventories implicitly.
+# grpc: Gateway management listener, separate from industrial protocol Server ports.
+# grpc.sink_listener_port: optional local Sink injection listener (1..65535).
+#   Only available when the management port uses mTLS; always binds 127.0.0.1.
+#   Set WIND_HUB_GATEWAY_SINK_TOKEN (>=32 characters) in Gateway and Sink processes.
+#   Sink endpoint must target 127.0.0.1:<sink_listener_port>; no remote plaintext ingress.
+#   Allowed operations: ClaimTargets and UpdateVariables (inject authorization only).
+# servers[]: one device per protocol listener; IDs and ports must be unique.
+# servers[].control.enabled: false by default in this safe example.
+# servers[].control.target.kind: none | commander.
+#   none has no outbound command execution; disable control and leave mappings empty.
+#   commander: specify endpoint, optional loopback plaintext TLS configuration,
+#     request_timeout_ms (1..60000), queue_capacity (1..65536), max_inflight (1..256).
+# servers[].control.simulation: optional dedicated Generator INPUT binding; usable
+#   only through Commander-authorized ExecuteSimulationCommand with mTLS.
+#   Direct protocol-write forwarding to Generator is prohibited.
+# servers[].control.mappings: variable_id is a writable industrial protocol point;
+#   target_point_id must be authorized by Commander; IDs unique.
+#   Normal Gateway gRPC variable injection never invokes protocol-write callbacks.
+# A successful industrial protocol ACK does not mean outbound command accepted.
+# Forwarding is best-effort, bounded and non-persistent; no retry on unknown result.
+# All target credentials and trust roots must be provisioned by deployment.
+schema_version: 1
+file_version: "1.2.0"
+service_id: gateway
+config_sources:
+  instances:
+    devices: farm-a
+
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50073
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+  tls:
+    enabled: false
+
+servers:
+  - server_id: gateway-tz01
+    device_id: TZ01
+    listen_host: "127.0.0.1"
+    listen_port: 15020
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+
+metrics:
+  window_seconds: 60
+  collect_interval_ms: 1000

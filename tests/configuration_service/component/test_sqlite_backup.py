@@ -72,7 +72,7 @@ def test_composite_foreign_keys_and_immutable_history_are_enforced(
     repository: SQLiteRepository, app: ConfigurationApplication
 ) -> None:
     _, (version_id,) = publish_documents(
-        app, (document_input("task", "alpha", "1.0.0"),), request_id="constraints"
+        app, (document_input("collector_tasks", "alpha", "1.0.0"),), request_id="constraints"
     )
     with repository.write() as connection:
         with pytest.raises(sqlite3.IntegrityError):
@@ -119,7 +119,7 @@ def test_backup_is_independent_verified_snapshot_with_stable_metadata(
     backups: SQLiteBackupManager,
 ) -> None:
     _, (version_id,) = publish_documents(
-        app, (document_input("task", "alpha", "1.0.0"),), request_id="backup-source"
+        app, (document_input("collector_tasks", "alpha", "1.0.0"),), request_id="backup-source"
     )
     task_id = app.create_backup("admin", "backup-request", "acceptance")
     assert app.create_backup("admin", "backup-request", "acceptance") == task_id
@@ -145,7 +145,7 @@ def test_backup_is_independent_verified_snapshot_with_stable_metadata(
     restored = SQLiteRepository(backup_path, application_version="test")
     restored.initialize()
     try:
-        identity = document_input("task", "alpha", "1.0.0").identity
+        identity = document_input("collector_tasks", "alpha", "1.0.0").identity
         assert restored.get_version(identity, version_id=version_id)["version_id"] == version_id
         assert restored.current_revision() == 1
         assert len(restored.list_audit_events()) >= 3

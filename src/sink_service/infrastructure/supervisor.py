@@ -11,6 +11,7 @@ import os
 import socket
 import struct
 import tempfile
+from collections.abc import Callable
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 
@@ -29,9 +30,10 @@ ROLES = ("realtime", "reliable")
 class WorkerSupervisor:
     """Own worker PIDs, IPC connections and configuration generation."""
 
-    def __init__(self, root: Path, service_file: str) -> None:
+    def __init__(self, root: Path, service_file: str, active_revision: Callable[[], str]) -> None:
         self._root = root
         self._service_file = service_file
+        self._active_revision = active_revision
         self._folder: tempfile.TemporaryDirectory[str] | None = None
         self._server: asyncio.AbstractServer | None = None
         self._processes: dict[str, BaseProcess] = {}
@@ -85,7 +87,13 @@ class WorkerSupervisor:
                 logger.warning("old worker IPC failed to close cleanly: %s", role)
         process: BaseProcess = multiprocessing.get_context("spawn").Process(
             target=worker_main,
-            args=(role, str(self._root), self._service_file, self._socket_path),
+            args=(
+                role,
+                str(self._root),
+                self._service_file,
+                self._socket_path,
+                self._active_revision(),
+            ),
             daemon=False,
             name=f"windhub-sink-{role}",
         )

@@ -82,16 +82,16 @@ class RepositoryPort(Protocol):
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]: ...
 
-    def get_point_table_versions(
+    def get_version_closure(
         self,
-        point_table_id: str,
+        version_ids: Sequence[str],
         *,
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]: ...
 
-    def get_version_closure(
+    def get_point_table_versions(
         self,
-        version_ids: Sequence[str],
+        point_table_id: str,
         *,
         max_versions: int,
     ) -> tuple[dict[str, Any], ...]: ...

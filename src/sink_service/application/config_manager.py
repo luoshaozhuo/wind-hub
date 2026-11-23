@@ -76,6 +76,8 @@ class ConfigManager:
         self._store = store
         self._disk = initial
         self._runtime = initial
+        self._selected_target_revision = ""
+        self._selected_active_revision = ""
         self._writer = writer
         self._candidate_ttl = timedelta(seconds=candidate_ttl_seconds)
         self._max_candidates = max_candidates
@@ -85,6 +87,22 @@ class ConfigManager:
         self._latest_application: dict[str, Application] = {}
         self._reconcile = reconcile
         self._last_error = ""
+
+    @property
+    def target_revision(self) -> str:
+        """Latest fully verified Deployment-selected closure."""
+        return self._selected_target_revision
+
+    @property
+    def active_revision(self) -> str:
+        """Last completely applied selected closure, not a partial Worker result."""
+        return self._selected_active_revision
+
+    def report_selected(self, target_revision: str, *, active: bool) -> None:
+        """Publish verified revision identities without implying partial success."""
+        self._selected_target_revision = target_revision
+        if active:
+            self._selected_active_revision = target_revision
 
     @property
     def last_error(self) -> str:
@@ -274,7 +292,9 @@ class ConfigManager:
                     "before further Delivery operations"
                 )
             updated: list[SnapshotFile] = []
-            source_paths, _ = config_sources(self._disk.service)
+            source_paths, _ = config_sources(
+                self._disk.service, {item.path for item in self._disk.files}
+            )
             found = False
             for item in self._disk.files:
                 if item.path != source_paths["deliveries"]:

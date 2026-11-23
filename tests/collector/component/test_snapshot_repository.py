@@ -20,18 +20,19 @@ pytestmark = pytest.mark.component
 
 def _files() -> dict[str, bytes]:
     return {
-        "services/collector.yaml": b"schema_version: 1\n",
-        "instances/site.yaml": b"schema_version: 1\n",
-        "instances/devices.yaml": b"schema_version: 1\n",
-        "templates/units_standard.yaml": b"schema_version: 1\n",
-        "templates/business_points_standard.yaml": b"schema_version: 1\n",
+        "services/service_collector-realtime_v1.0.0.yaml": b"schema_version: 1\n",
+        "instances/site_example_site_v1.0.0.yaml": b"schema_version: 1\n",
+        "instances/device_farm-a_v1.0.0.yaml": b"schema_version: 1\n",
+        "templates/units_standard_v1.2.0.yaml": b"schema_version: 1\n",
+        "templates/business_points_standard_v1.4.0.yaml": b"schema_version: 1\n",
+        "instances/collector_tasks_farm-a_v1.0.0.yaml": b"schema_version: 1\n",
     }
 
 
 def _validate(paths: SnapshotPaths) -> None:
     assert paths.service.is_file()
-    assert (paths.instances / "devices.yaml").is_file()
-    assert (paths.templates / "units_standard.yaml").is_file()
+    assert (paths.instances / "device_farm-a_v1.0.0.yaml").is_file()
+    assert (paths.templates / "units_standard_v1.2.0.yaml").is_file()
 
 
 @pytest.mark.asyncio
@@ -52,13 +53,19 @@ async def test_old_generation_remains_readable_after_switch(tmp_path: Path) -> N
     first = repository.stage(_files(), expected_revision="", validate=_validate)
     old = await repository.commit(first.candidate_id, expected_revision="", validate=_validate)
     modified = _files()
-    modified["instances/devices.yaml"] = b"schema_version: 2\n"
+    modified["instances/device_farm-a_v1.0.0.yaml"] = b"schema_version: 2\n"
     second = repository.stage(modified, expected_revision=old.revision, validate=_validate)
     current = await repository.commit(
         second.candidate_id, expected_revision=old.revision, validate=_validate
     )
-    assert old.paths.instances.joinpath("devices.yaml").read_bytes() == b"schema_version: 1\n"
-    assert current.paths.instances.joinpath("devices.yaml").read_bytes() == b"schema_version: 2\n"
+    assert (
+        old.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes()
+        == b"schema_version: 1\n"
+    )
+    assert (
+        current.paths.instances.joinpath("device_farm-a_v1.0.0.yaml").read_bytes()
+        == b"schema_version: 2\n"
+    )
 
 
 @pytest.mark.asyncio
@@ -78,7 +85,7 @@ async def test_stale_candidate_does_not_overwrite_active(tmp_path: Path) -> None
     "invalid",
     [
         "/absolute.yaml",
-        "../services/collector.yaml",
+        "../services/service_collector-realtime_v1.0.0.yaml",
         "services/commander.yaml",
         "instances/deliveries.yaml",
         "templates/deliveries/a/1.0.0.yaml",
@@ -117,7 +124,7 @@ async def test_published_template_version_cannot_change(tmp_path: Path) -> None:
     repository = CollectorSnapshotRepository(tmp_path / "config")
     original = _files()
     # 当前扁平模板布局：templates/<category>/<prefix>_<id>_v<version>.yaml。
-    template = "templates/tasks/task_demo_v1.0.0.yaml"
+    template = "templates/point_tables/point_table_demo_v1.0.0.yaml"
     original[template] = b"interval: 1\n"
     first = repository.stage(original, expected_revision="", validate=_validate)
     committed = await repository.commit(
@@ -232,7 +239,7 @@ async def test_stage_reclaims_orphan_generations_from_crash_window(tmp_path: Pat
     orphan.mkdir()
     (orphan / "leftover.yaml").write_text("leftover", encoding="utf-8")
     files = dict(_files())
-    files["services/collector.yaml"] = b"schema_version: 2\n"
+    files["services/service_collector-realtime_v1.0.0.yaml"] = b"schema_version: 2\n"
     next_candidate = repository.stage(
         files, expected_revision=committed.revision, validate=_validate
     )

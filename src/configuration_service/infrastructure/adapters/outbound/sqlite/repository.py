@@ -978,6 +978,20 @@ class SQLiteRepository:
             raise RepositoryConflictError("cyclic configuration version references")
         return tuple(ordered)
 
+    def get_version_closure(
+        self,
+        version_ids: Sequence[str],
+        *,
+        max_versions: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Load specifically selected immutable roots and their fixed dependencies."""
+        if not version_ids or max_versions < 1:
+            raise ValueError("version roots and max_versions are required")
+        with self.read() as connection:
+            return self._load_version_closure(
+                connection, sorted(set(version_ids)), max_versions=max_versions
+            )
+
     def get_point_table_versions(
         self,
         point_table_id: str,
@@ -1006,20 +1020,6 @@ class SQLiteRepository:
                 raise RepositoryNotFoundError("immutable PointTable not found")
             return self._load_version_closure(
                 connection, [str(root["version_id"])], max_versions=max_versions
-            )
-
-    def get_version_closure(
-        self,
-        version_ids: Sequence[str],
-        *,
-        max_versions: int,
-    ) -> tuple[dict[str, Any], ...]:
-        """Load specifically selected immutable roots and their fixed dependencies."""
-        if not version_ids or max_versions < 1:
-            raise ValueError("version roots and max_versions are required")
-        with self.read() as connection:
-            return self._load_version_closure(
-                connection, sorted(set(version_ids)), max_versions=max_versions
             )
 
     def get_bundle_versions(

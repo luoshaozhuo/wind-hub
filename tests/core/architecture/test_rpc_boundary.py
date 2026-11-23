@@ -39,6 +39,8 @@ _ALLOWED_PB2_PREFIXES = (
     "sink_service/infrastructure/config_subscription.py",
     "sink_service/infrastructure/adapters/outbound/historical_point_table.py",
     "sink_service/infrastructure/adapters/outbound/historical_bundle_codec.py",
+    # Shared outbound Repository gRPC/NATS client used by every business service.
+    "core/infrastructure/configuration_repository.py",
     "configuration_service/main.py",
     "configuration_service/infrastructure/adapters/inbound/grpc/",
     # Storage Service gRPC server and its Configuration Repository client.

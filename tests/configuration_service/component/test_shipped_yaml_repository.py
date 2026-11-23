@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.service import (
     ConfigurationApplication,
     DocumentInput,
@@ -26,9 +27,11 @@ from tests.configuration_service.unit.test_yaml_acceptance import ROOT, YAML_FIL
 
 pytestmark = pytest.mark.component
 BOOTSTRAP = ROOT / "deploy/configuration/service_configuration_v1.1.0.yaml"
-# Local process bootstraps are never repository documents.
-STORAGE_BOOTSTRAP = ROOT / "configs/services/storage_bootstrap_v1.0.0.yaml"
-REPOSITORY_YAMLS = tuple(path for path in YAML_FILES if path not in {BOOTSTRAP, STORAGE_BOOTSTRAP})
+REPOSITORY_YAMLS = tuple(
+    path
+    for path in YAML_FILES
+    if not _is_local_bootstrap(path.relative_to(ROOT / "configs").as_posix())
+)
 
 
 def original_file_version(path: Path) -> str:
@@ -108,35 +111,24 @@ def test_own_bootstrap_cannot_be_admitted_to_repository(
     app: ConfigurationApplication,
 ) -> None:
     path = BOOTSTRAP
+    # Rebase the real shipped bootstrap document onto the test application's
+    # own service id so publication identity resolution succeeds and the
+    # admission guard itself is exercised (local bootstrap stays outside the
+    # repository, regardless of its service id).
+    source_bytes = path.read_bytes().replace(
+        b"service_id: configuration-main",
+        b"service_id: configuration-test",
+    )
     item = DocumentInput(
         identity=ConfigIdentity("service", "configuration-test"),
-        file_name=path.name,
-        yaml_bytes=path.read_bytes(),
-        relative_path="services/service_configuration_v1.0.0.yaml",
+        file_name="service_configuration-test_v1.1.0.yaml",
+        yaml_bytes=source_bytes,
+        relative_path="services/service_configuration-test_v1.1.0.yaml",
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.create_candidate(
             actor_id="publisher",
             request_id="own-bootstrap",
-            expected_revision=0,
-            documents=(item,),
-            validate_only=True,
-        )
-
-
-def test_storage_bootstrap_cannot_be_admitted_to_repository(
-    app: ConfigurationApplication,
-) -> None:
-    item = DocumentInput(
-        identity=ConfigIdentity("service", "storage-main"),
-        file_name=STORAGE_BOOTSTRAP.name,
-        yaml_bytes=STORAGE_BOOTSTRAP.read_bytes(),
-        relative_path="services/storage_bootstrap_v1.0.0.yaml",
-    )
-    with pytest.raises(ValueError):
-        app.create_candidate(
-            actor_id="publisher",
-            request_id="storage-bootstrap",
             expected_revision=0,
             documents=(item,),
             validate_only=True,

@@ -19,7 +19,6 @@ from sink_service.domain.config import (
 )
 from sink_service.infrastructure.config_io import (
     mutate_delivery,
-    read_snapshot,
     snapshot_from_wire,
     validate_snapshot,
 )
@@ -52,6 +51,50 @@ class GenerationStore:
             raise ConfigurationError("invalid generation identifier")
         return self._generations / identifier
 
+    @staticmethod
+    def _read_generation(directory: Path, service_path: str) -> ValidatedSnapshot:
+        """Validate a committed snapshot without reselecting local Deployment.
+
+        The generation contains the already selected Service/Instance/Template
+        closure; Deployment selection is performed only at initial bootstrap.
+        """
+        files: list[SnapshotFile] = []
+        for path in sorted(directory.rglob("*.yaml")):
+            if path.is_symlink() or not path.is_file():
+                raise ConfigurationError("unsafe committed generation file")
+            relative = path.relative_to(directory).as_posix()
+            if not relative.startswith(
+                ("configs/services/", "configs/instances/", "configs/templates/")
+            ):
+                raise ConfigurationError("unexpected committed generation path")
+            files.append(SnapshotFile(relative, path.read_bytes()))
+        services = [item.path for item in files if item.path.startswith("configs/services/")]
+        if services != [service_path]:
+            raise ConfigurationError("committed generation Service selection mismatch")
+        return validate_snapshot(tuple(files))
+
+    def selected_service_path(self) -> str:
+        """Return the sole Service selected by the persisted CURRENT generation.
+
+        The caller's bootstrap filename is not authoritative after a published
+        Deployment switches to another immutable Service file version.
+        """
+        identifier = self._current.read_text(encoding="ascii").strip()
+        directory = self._generation(identifier)
+        if directory.is_symlink() or not directory.is_dir():
+            raise ConfigurationError("missing or unsafe committed generation")
+        service_root = directory / "configs" / "services"
+        if service_root.is_symlink() or not service_root.is_dir():
+            raise ConfigurationError("missing or unsafe committed Service directory")
+        names = [
+            path.name
+            for path in service_root.iterdir()
+            if path.is_file() and not path.is_symlink() and path.name.endswith(".yaml")
+        ]
+        if len(names) != 1 or not names[0].startswith("service_"):
+            raise ConfigurationError("committed generation has no unique versioned Service")
+        return "configs/services/" + names[0]
+
     def load(self, service_path: str) -> ValidatedSnapshot:
         """Read a complete committed generation through a single pointer."""
         if (
@@ -62,9 +105,25 @@ class GenerationStore:
             raise ConfigurationError("invalid Service relative path")
         identifier = self._current.read_text(encoding="ascii").strip()
         directory = self._generation(identifier)
-        snapshot = read_snapshot(directory, directory / service_path)
+        snapshot = self._read_generation(directory, service_path)
         if snapshot.revision != identifier:
             raise ConfigurationError("committed generation content hash mismatch")
+        return snapshot
+
+    def load_generation(self, revision: str, service_path: str) -> ValidatedSnapshot:
+        """Load an exact immutable generation for a running Worker process."""
+        if (
+            not service_path.startswith("configs/services/service_")
+            or not service_path.endswith(".yaml")
+            or any(part in ("", ".", "..") for part in service_path.split("/"))
+        ):
+            raise ConfigurationError("invalid Service path")
+        directory = self._generation(revision)
+        if directory.is_symlink() or not directory.is_dir():
+            raise ConfigurationError("missing or unsafe requested generation")
+        snapshot = self._read_generation(directory, service_path)
+        if snapshot.revision != revision:
+            raise ConfigurationError("requested generation digest mismatch")
         return snapshot
 
     @staticmethod
@@ -153,9 +212,13 @@ class GenerationStore:
         service_paths = sorted(
             file.path for file in checked.files if file.path.startswith("configs/services/")
         )
-        if service_paths != ["configs/services/sink_service.yaml"]:
-            raise ConfigurationError("validated snapshot requires one canonical Service")
-        committed = read_snapshot(target, target / service_paths[0])
+        if (
+            len(service_paths) != 1
+            or not service_paths[0].startswith("configs/services/service_")
+            or not service_paths[0].endswith(".yaml")
+        ):
+            raise ConfigurationError("validated snapshot requires one versioned Service")
+        committed = self._read_generation(target, service_paths[0])
         if committed.revision != checked.revision:
             raise ConfigurationError("existing committed generation differs from candidate")
         temporary = self._root / f".CURRENT-{secrets.token_hex(12)}"

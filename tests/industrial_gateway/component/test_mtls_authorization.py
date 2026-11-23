@@ -153,11 +153,12 @@ async def test_operator_lifecycle_but_no_config_write(harness) -> None:
                 common.PushConfigSnapshotRequest(expected_revision=revision)
             )
         assert exc.value.code() is grpc.StatusCode.PERMISSION_DENIED
-        # admin 通过鉴权后由业务层返回校验失败（非 PERMISSION_DENIED）。
-        reply = await common_rpc.CommonServiceStub(admin).PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(expected_revision=revision)
-        )
-        assert not reply.valid
+        # admin 通过鉴权后由业务层拒绝：Configuration Repository 是唯一发布者。
+        with pytest.raises(grpc.aio.AioRpcError) as admin_exc:
+            await common_rpc.CommonServiceStub(admin).PushConfigSnapshot(
+                common.PushConfigSnapshotRequest(expected_revision=revision)
+            )
+        assert admin_exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
     finally:
         await operator.close()
         await admin.close()

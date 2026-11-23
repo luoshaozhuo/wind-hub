@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sink_service.application.config_sources import config_sources
+from sink_service.application.config_sources import validate_logical_sources
 from sink_service.domain.config import (
     ConfigurationError,
     expect_mapping,
@@ -19,7 +19,7 @@ def validate_service(service: dict[str, Any]) -> None:
         raise ConfigurationError("Sink Service requires the token-security service schema")
     for field in ("service_id", "wind_farm_id", "deployment_id"):
         expect_nonempty_str(service.get(field), f"service.{field}")
-    config_sources(service)
+    validate_logical_sources(service)
     if "process_role" in service or "config_writer" in service:
         raise ConfigurationError("Main owns both data processes and configuration")
     runtime = expect_mapping(service.get("runtime"), "service.runtime")

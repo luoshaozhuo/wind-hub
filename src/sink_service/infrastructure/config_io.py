@@ -16,7 +16,6 @@ from sink_service.application.config import (
 from sink_service.application.config import (
     validate_snapshot as validate_semantics,
 )
-from sink_service.application.config_sources import config_sources
 from sink_service.application.service_policy import validate_service
 from sink_service.domain.config import (
     ConfigurationError,
@@ -37,7 +36,7 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
     except (UnicodeError, ConfigOperationError) as exc:
         raise ConfigurationError(f"{item.path}: invalid YAML") from exc
     doc = expect_mapping(raw, item.path)
-    if item.path == "configs/services/sink_service.yaml":
+    if item.path.startswith("configs/services/service_"):
         if type(doc.get("schema_version")) is not int or doc["schema_version"] != 2:
             raise ConfigurationError("Sink Service requires token-security schema")
     else:
@@ -78,9 +77,10 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
 
 def validate_snapshot(files: tuple[SnapshotFile, ...]) -> ValidatedSnapshot:
     docs = {item.path: _yaml_doc(item) for item in files}
-    service = docs.get("configs/services/sink_service.yaml")
-    if service is None:
-        raise ConfigurationError("missing canonical Sink Service configuration")
+    service_files = [name for name in docs if name.startswith("configs/services/")]
+    if len(service_files) != 1:
+        raise ConfigurationError("expected one versioned Sink Service document")
+    service = docs[service_files[0]]
     validate_service_technology(service)
     return validate_semantics(files, docs)
 
@@ -97,8 +97,9 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
         if not relative.startswith("configs/services/") or not relative.endswith(".yaml"):
             raise ConfigurationError("Service must be an explicit Service pathname")
         selected.append(relative)
-    if selected != ["configs/services/sink_service.yaml"]:
-        raise ConfigurationError("canonical Service pathname required")
+    from core.configuration.local_selection import select_local_service
+
+    selection = select_local_service(root / selected[0], deployment_id=None)
 
     def safe_file(pathname: str) -> SnapshotFile:
         target = root / pathname
@@ -115,7 +116,11 @@ def read_snapshot(root: Path, service_path: Path) -> ValidatedSnapshot:
     files = [safe_file(path) for path in service_paths]
     service = _yaml_doc(files[0])
     validate_service(service)
-    instance_paths, template_root = config_sources(service)
+    if service["deployment_id"] != selection.deployment_id:
+        raise ConfigurationError("Sink Service deployment_id differs from selected Deployment")
+    instances = selection.instances
+    instance_paths = {role: f"configs/instances/{file.name}" for role, file in instances.items()}
+    template_root = "configs/templates"
     files.extend(safe_file(path) for path in instance_paths.values())
     docs = {item.path: _yaml_doc(item) for item in files}
     required: set[str] = set()

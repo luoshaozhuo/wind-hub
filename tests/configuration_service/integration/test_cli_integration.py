@@ -23,16 +23,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 def _task_root(live: LiveConfiguration, versions: tuple[str, ...]) -> Path:
     directory = live.root / f"root-{'-'.join(versions)}"
-    tasks = directory / "templates/tasks"
+    tasks = directory / "instances"
     tasks.mkdir(parents=True, exist_ok=True)
     for version in versions:
-        (tasks / f"task_cli_v{version}.yaml").write_text(
+        (tasks / f"collector_tasks_cli_v{version}.yaml").write_text(
             yaml.safe_dump(
                 {
                     "schema_version": 1,
                     "file_version": version,
-                    "template_id": "cli",
-                    "point_group": f"group-{version}",
+                    "tasks": {},
                 },
                 sort_keys=False,
             ),
@@ -44,7 +43,7 @@ def _task_root(live: LiveConfiguration, versions: tuple[str, ...]) -> Path:
 def _point_table_root(live: LiveConfiguration) -> Path:
     directory = live.root / "point-table-root"
     (directory / "templates/point_tables").mkdir(parents=True)
-    for filename in ("units_standard.yaml", "business_points_standard.yaml"):
+    for filename in ("units_standard_v1.2.0.yaml", "business_points_standard_v1.4.0.yaml"):
         shutil.copyfile(
             PROJECT_ROOT / "configs/templates" / filename,
             directory / "templates" / filename,
@@ -74,16 +73,16 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     assert int(revision["data"]["revision_id"]) == 1
     assert len(revision["data"]["manifest_sha256"]) == 64
 
-    listed = live.cli("config", "list", "--config-type", "task")
+    listed = live.cli("config", "list", "--config-type", "collector_tasks")
     version1 = listed["data"]["items"][0]["recommended_version_id"]
-    versions = live.cli("config", "versions", "task", "cli")
+    versions = live.cli("config", "versions", "collector_tasks", "cli")
     assert versions["data"]["versions"][0]["version_id"] == version1
 
     output = live.root / "downloaded.yaml"
     downloaded = live.cli(
         "config",
         "get",
-        "task",
+        "collector_tasks",
         "--config-id",
         "cli",
         "--output",
@@ -93,13 +92,13 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     )
     assert downloaded["data"]["version_id"] == version1
     assert output.stat().st_mode & 0o777 == 0o600
-    assert yaml.safe_load(output.read_bytes())["template_id"] == "cli"
+    assert yaml.safe_load(output.read_bytes())["file_version"] == "1.0.0"
 
     bundle = live.root / "bundle"
-    bundled = live.cli("config", "bundle", "task", "cli", "1", str(bundle))
+    bundled = live.cli("config", "bundle", "collector_tasks", "cli", "1", str(bundle))
     assert bundled["data"]["files"] == 1
     assert bundle.stat().st_mode & 0o777 == 0o700
-    assert yaml.safe_load(next(bundle.rglob("*.yaml")).read_bytes())["template_id"] == "cli"
+    assert yaml.safe_load(next(bundle.rglob("*.yaml")).read_bytes())["file_version"] == "1.0.0"
 
     references = live.cli("config", "references", version1)
     assert references["data"].get("edges", []) == []
@@ -107,7 +106,9 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     # A second revision keeps the immutable v1 next to the new v2 in the root.
     root_v2 = _task_root(live, ("1.0.0", "2.0.0"))
     live.cli("config", "publish", "--root", str(root_v2))
-    versions_after = live.cli("config", "versions", "task", "cli", "--include-deprecated")
+    versions_after = live.cli(
+        "config", "versions", "collector_tasks", "cli", "--include-deprecated"
+    )
     version_ids = [item["version_id"] for item in versions_after["data"]["versions"]]
     assert len(version_ids) == 2
     version2 = next(
@@ -118,7 +119,7 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     recommended = live.cli(
         "config",
         "recommend",
-        "task",
+        "collector_tasks",
         "cli",
         version1,
         "2",
@@ -129,7 +130,7 @@ def test_configuration_cli_success_matrix(live: LiveConfiguration) -> None:
     live.cli(
         "config",
         "recommend",
-        "task",
+        "collector_tasks",
         "cli",
         version2,
         "3",
@@ -187,7 +188,7 @@ def test_cli_refuses_to_overwrite_and_query_identity_cannot_publish(
     result = live.cli(
         "config",
         "get",
-        "task",
+        "collector_tasks",
         "--config-id",
         "missing",
         "--output",
@@ -211,13 +212,13 @@ def test_publish_rejects_unsafe_trees_without_side_effects(
 ) -> None:
     revision_before = int(live.cli("config", "revision")["data"]["revision_id"])
     root = _task_root(live, ("9.9.9",))
-    linked = root / "templates/tasks/linked.yaml"
-    linked.symlink_to(next((root / "templates/tasks").glob("*.yaml")))
+    linked = root / "instances/linked.yaml"
+    linked.symlink_to(next((root / "instances").glob("*.yaml")))
     rejected_link = live.cli("config", "publish", "--root", str(root), check=False)
     assert rejected_link["exit_code"] != 0
     linked.unlink()
 
-    noncanonical = root / "templates/tasks/legacy.yml"
+    noncanonical = root / "instances/legacy.yml"
     noncanonical.write_text("schema_version: 1\n", encoding="utf-8")
     rejected_suffix = live.cli("config", "publish", "--root", str(root), check=False)
     assert rejected_suffix["exit_code"] != 0

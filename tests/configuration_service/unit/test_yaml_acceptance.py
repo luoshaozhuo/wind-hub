@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.schema_catalog import iter_schemas
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
     emit_yaml,
@@ -14,45 +15,24 @@ from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
     semantic_hash,
 )
 from configuration_service.settings import load_settings
+from core.configuration.publication_identity import resolve_publication_identity
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[3]
-YAML_FILES = tuple(sorted((ROOT / "configs").rglob("*.yaml")))
+YAML_FILES = tuple(
+    path
+    for path in sorted((ROOT / "configs").rglob("*.yaml"))
+    if not _is_local_bootstrap(path.relative_to(ROOT / "configs").as_posix())
+)
 SCHEMAS = {item.config_type: item for item in iter_schemas()}
 
 
 def identity_for(path: Path) -> tuple[str, str]:
-    relative = path.relative_to(ROOT / "configs")
+    """Use the production publication identity rules for every shipped YAML."""
+    relative = path.relative_to(ROOT / "configs").as_posix()
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if relative.parts[0] == "instances":
-        instance_kind = {
-            "devices": "device",
-            "devices_sim": "device",
-            "sinks": "sink",
-            "deliveries": "delivery",
-            "site": "site",
-        }[path.stem]
-        return instance_kind, path.stem
-    if relative.parts[0] == "services":
-        return "service", str(raw.get("service_id", path.stem))
-    group = relative.parts[1]
-    file_kind = {
-        "business_points_standard.yaml": "business_points",
-        "units_standard.yaml": "units",
-        "observability_v1.0.0.yaml": "observability",
-    }.get(path.name)
-    kind = file_kind
-    if kind is None:
-        kind = {
-            "device_models": "device_model",
-            "point_tables": "point_table",
-            "protocols": "protocol",
-            "deliveries": "delivery",
-            "sinks": "sink",
-            "tasks": "task",
-        }[group]
-    config_id = str(raw.get("template_id", path.stem))
-    return kind, config_id
+    identity = resolve_publication_identity(relative, raw)
+    return identity.config_type, identity.config_id
 
 
 @pytest.mark.parametrize("path", YAML_FILES, ids=lambda path: str(path.relative_to(ROOT)))

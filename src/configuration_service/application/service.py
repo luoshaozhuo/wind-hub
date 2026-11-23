@@ -339,7 +339,9 @@ class ConfigurationApplication:
         )
 
     @staticmethod
-    def _validate_deployments(documents: Sequence[PreparedDocument]) -> None:
+    def _validate_deployments(
+        documents: Sequence[PreparedDocument],
+    ) -> None:
         """Validate all selected versions against the complete staged directory."""
         by_key = {
             (doc.identity.config_type, doc.identity.config_id, doc.file_version): doc
@@ -356,15 +358,8 @@ class ConfigurationApplication:
             visited.add(deployment.deployment_id)
             if deployment.deployment_id != document.identity.config_id:
                 raise ValueError("Deployment identity does not match file identity")
-            for selection in (
-                *deployment.services.values(),
-                *deployment.instances.values(),
-            ):
-                key = (
-                    selection.config_type,
-                    selection.config_id,
-                    selection.file_version,
-                )
+            for selection in (*deployment.services.values(), *deployment.instances.values()):
+                key = (selection.config_type, selection.config_id, selection.file_version)
                 if key not in by_key:
                     raise RepositoryConflictError(
                         f"Deployment references absent staged version: {key}"
@@ -387,8 +382,8 @@ class ConfigurationApplication:
         # Resolve all explicit version references before the publication transaction.
         # Existing target versions are immutable; the repository rechecks FK and
         # deprecation status atomically at commit.
-        self._validate_deployments(documents)
         versions: list[PreparedVersion] = []
+        self._validate_deployments(documents)
         new_ids: dict[tuple[str, str, str], str] = {}
         for doc in documents:
             key = (doc.identity.config_type, doc.identity.config_id, doc.file_version)
@@ -413,35 +408,22 @@ class ConfigurationApplication:
                     ) or self.repository.resolve_version(identity, file_version)
                     references.append((target_id, "config_sources"))
             elif isinstance(sources, dict):
-                # Deployment-era Services declare identity-only instances;
-                # legacy Services keep the mainline path-based source resolver.
-                instances = sources.get("instances")
-                identity_style = (
-                    document.identity.config_type == "service"
-                    and set(sources) == {"instances"}
-                    and isinstance(instances, dict)
-                    and all(
-                        isinstance(value, str) and "/" not in value for value in instances.values()
+                if document.identity.config_type == "service":
+                    # A Service declares Instance identities, never their versions.
+                    service_instance_refs(
+                        document.canonical_payload,
+                        INSTANCE_ROLE_TYPES,
                     )
-                )
-                if identity_style:
-                    # The exact versions come from the Deployment selection.
-                    service_instance_refs(document.canonical_payload, INSTANCE_ROLE_TYPES)
-                else:
-                    references.extend(self._resolve_legacy_sources(sources, documents, new_ids))
+                elif sources:
+                    raise ValueError(
+                        "non-Service configurations require fixed-version source lists"
+                    )
             else:
                 raise ValueError("config_sources must be a mapping or list")
             if document.identity.config_type == "deployment":
                 deployment = parse_deployment(document.canonical_payload)
-                for selection in (
-                    *deployment.services.values(),
-                    *deployment.instances.values(),
-                ):
-                    key = (
-                        selection.config_type,
-                        selection.config_id,
-                        selection.file_version,
-                    )
+                for selection in (*deployment.services.values(), *deployment.instances.values()):
+                    key = (selection.config_type, selection.config_id, selection.file_version)
                     references.append((new_ids[key], "deployment.selection"))
             # Stable published interpretation of every PointTable is pinned
             # to exactly the standard catalog files in this complete directory.
@@ -495,12 +477,11 @@ class ConfigurationApplication:
                     )
             if document.identity.config_type in {"point_table", "device_model"}:
                 reference_fields: tuple[tuple[str, str], ...] = (("parent", "point_table"),)
-                # DeviceModel also pins its driver protocol and optional Task.
+                # DeviceModel pins only its protocol and PointTable Templates.
                 if document.identity.config_type == "device_model":
                     reference_fields = (
                         ("point_table", "point_table"),
                         ("protocol", "protocol"),
-                        ("task", "task"),
                     )
                 for field_name, config_type in reference_fields:
                     ref = document.canonical_payload.get(field_name)
@@ -536,12 +517,11 @@ class ConfigurationApplication:
                             raise ValueError("Instance template_version is required")
                         identity = ConfigIdentity(document.identity.config_type, template_id)
                         key = (identity.config_type, identity.config_id, template_version)
-                        resolved_id = new_ids.get(key)
-                        if resolved_id is None:
-                            resolved_id = self.repository.resolve_version(
-                                identity, template_version
-                            )
-                        references.append((resolved_id, "instance.template"))
+                        target_id = new_ids.get(key) or self.repository.resolve_version(
+                            identity, template_version
+                        )
+                        references.append((target_id, "instance.template"))
+
             device_bindings: dict[str, tuple[str, str, str, str]] = {}
             # Device instances reference exact model and point-table templates.
             # Resolve only identities present in the staged bundle or repository.
@@ -715,100 +695,6 @@ class ConfigurationApplication:
                 )
             remaining.difference_update(ready)
         return tuple(versions)
-
-    def _resolve_legacy_sources(
-        self,
-        sources: dict[str, Any],
-        documents: Sequence[PreparedDocument],
-        new_ids: dict[tuple[str, str, str], str],
-    ) -> list[tuple[str, str]]:
-        """Resolve path-based loader sources to pinned versions at publication time."""
-        from pathlib import PurePosixPath
-
-        # A complete replacement never silently resolves to an omitted older file.
-        selected: dict[ConfigIdentity, PreparedDocument] = {}
-        for doc in documents:
-            older = selected.get(doc.identity)
-            if older is None or tuple(int(v) for v in doc.file_version.split(".")) > tuple(
-                int(v) for v in older.file_version.split(".")
-            ):
-                selected[doc.identity] = doc
-        staged = {
-            identity: new_ids[(identity.config_type, identity.config_id, doc.file_version)]
-            for identity, doc in selected.items()
-        }
-        resolved: list[tuple[str, str]] = []
-        instances = sources.get("instances", {})
-        if not isinstance(instances, dict):
-            raise ValueError("config_sources.instances must be a mapping")
-        name_types = {
-            "site": "site",
-            "devices": "device",
-            "sinks": "sink",
-            "deliveries": "delivery",
-            "tasks": "task",
-        }
-        for name, raw_path in instances.items():
-            if name not in name_types or not isinstance(raw_path, str):
-                raise ValueError("unsupported config_sources instance reference")
-            # The key describes the role; simulation may select devices_sim.
-            # Only published instance names are accepted, never arbitrary paths.
-            allowed_names = {"devices": {"devices", "devices_sim"}}.get(name, {name})
-            path = PurePosixPath(raw_path)
-            if (
-                path.parent.as_posix() != "configs/instances"
-                or path.suffix != ".yaml"
-                or path.stem not in allowed_names
-                or path.as_posix() != raw_path
-            ):
-                raise ValueError(f"invalid config_sources.instances.{name} path: {raw_path}")
-            identity = ConfigIdentity(name_types[name], path.stem)
-            version_id = staged.get(identity)
-            if version_id is None:
-                raise RepositoryConflictError(f"missing pinned configuration reference: {raw_path}")
-            resolved.append((version_id, "config_sources.instances"))
-        templates = sources.get("templates", {})
-        if not isinstance(templates, dict):
-            raise ValueError("config_sources.templates must be a mapping")
-        if templates:
-            if set(templates) != {"root"} or not isinstance(templates["root"], str):
-                raise ValueError("unsupported config_sources.templates mapping")
-            root = PurePosixPath(templates["root"])
-            if root.is_absolute() or ".." in root.parts:
-                raise ValueError("config_sources.templates.root must be a safe relative path")
-            template_roots = {
-                "configs/templates": frozenset(
-                    {
-                        "units",
-                        "business_points",
-                        "point_table",
-                        "device_model",
-                        "protocol",
-                        "task",
-                        "delivery",
-                        "sink",
-                        "observability",
-                    }
-                )
-            }
-            template_types = template_roots.get(root.as_posix())
-            if template_types is None:
-                raise RepositoryConflictError(
-                    "unrecognized templates.root; explicit pinned references required"
-                )
-            template_versions = [
-                version_id
-                for identity, version_id in staged.items()
-                if identity.config_type in template_types
-            ]
-            if not template_versions:
-                raise RepositoryConflictError("template root has no registered pinned templates")
-            resolved.extend(
-                (version_id, "config_sources.templates") for version_id in sorted(template_versions)
-            )
-        if set(sources) - {"instances", "templates"}:
-            raise ValueError("unknown config_sources groups")
-        return sorted(set(resolved))
 
     def _restore(self, row: dict[str, Any], *, revision_id: int) -> DocumentOutput:
         """Return the exact uploaded YAML with verified semantic content and path."""

@@ -41,7 +41,6 @@ _PUBLISHED_TEMPLATE_PREFIXES = (
     "templates/protocols/",
     "templates/device_models/",
     "templates/point_tables/",
-    "templates/tasks/",
 )
 
 
@@ -93,20 +92,23 @@ class CollectorSnapshotRepository:
             raise SnapshotError("unsafe snapshot path")
         path = PurePosixPath(relative_path)
         parts = path.parts
-        if parts == ("services", "collector.yaml"):
-            return relative_path
-        if parts in {("instances", "site.yaml"), ("instances", "devices.yaml")}:
+        if (
+            len(parts) == 2
+            and parts[0] in {"services", "instances"}
+            and parts[1].endswith(".yaml")
+            and "_v" in parts[1]
+        ):
             return relative_path
         if parts in {
-            ("templates", "units_standard.yaml"),
-            ("templates", "business_points_standard.yaml"),
+            ("templates", "units_standard_v1.2.0.yaml"),
+            ("templates", "business_points_standard_v1.4.0.yaml"),
         }:
             return relative_path
         # Only the current flat Template structure is supported.
         if (
             len(parts) == 3
             and parts[0] == "templates"
-            and parts[1] in {"protocols", "device_models", "point_tables", "tasks"}
+            and parts[1] in {"protocols", "device_models", "point_tables"}
             and parts[2].endswith(".yaml")
             and parts[2] != ".yaml"
         ):
@@ -129,18 +131,31 @@ class CollectorSnapshotRepository:
             if total > max_bytes:
                 raise SnapshotError("snapshot byte limit exceeded")
             result.append((path, value))
-        required_instances = {
-            "services/collector.yaml",
-            "instances/site.yaml",
-            "instances/devices.yaml",
-        }
-        if not required_instances.issubset(files):
-            raise SnapshotError("snapshot missing required configuration files")
-        if not {
-            "templates/units_standard.yaml",
-            "templates/business_points_standard.yaml",
-        }.issubset(files):
-            raise SnapshotError("snapshot missing shared catalogs")
+
+        def exactly_one(folder: str, prefix: str) -> None:
+            matches = [
+                name
+                for name in files
+                if name.startswith(f"{folder}/{prefix}") and name.endswith(".yaml") and "_v" in name
+            ]
+            if len(matches) != 1:
+                raise SnapshotError(f"snapshot requires exactly one {prefix} document")
+
+        for folder, prefix in (
+            ("services", "service_"),
+            ("instances", "site_"),
+            ("instances", "device_"),
+            ("instances", "collector_tasks_"),
+        ):
+            exactly_one(folder, prefix)
+        for catalog in ("units_standard", "business_points_standard"):
+            matches = [
+                name
+                for name in files
+                if name.startswith(f"templates/{catalog}_v") and name.endswith(".yaml")
+            ]
+            if len(matches) != 1:
+                raise SnapshotError(f"snapshot requires exactly one selected {catalog} version")
         return tuple(result), snapshot_digest(dict(result))
 
     def _candidate_path(self, candidate_id: str) -> Path:
@@ -284,12 +299,19 @@ class CollectorSnapshotRepository:
 
     @staticmethod
     def _paths(root: Path) -> SnapshotPaths:
+        def only(folder: str, prefix: str) -> Path:
+            files = tuple((root / folder).glob(f"{prefix}*_v*.yaml"))
+            if len(files) != 1:
+                raise SnapshotError(f"snapshot must contain one {prefix} configuration")
+            return files[0]
+
         return SnapshotPaths(
-            service=root / "services" / "collector.yaml",
+            service=only("services", "service_"),
             instances=root / "instances",
             templates=root / "templates",
-            site=root / "instances" / "site.yaml",
-            devices=root / "instances" / "devices.yaml",
+            site=only("instances", "site_"),
+            devices=only("instances", "device_"),
+            tasks=only("instances", "collector_tasks_"),
         )
 
     def stage(
@@ -553,15 +575,20 @@ class CollectorSnapshotRepository:
 
     def collect_source(self, paths: SnapshotPaths) -> dict[str, bytes]:
         """Collect only Collector-owned files from existing config roots."""
-        roots = {
-            "services/collector.yaml": paths.service,
-            "instances/site.yaml": paths.site,
-            "instances/devices.yaml": paths.devices,
-            "templates/units_standard.yaml": paths.templates / "units_standard.yaml",
-            "templates/business_points_standard.yaml": paths.templates
-            / "business_points_standard.yaml",
-        }
-        for category in ("protocols", "device_models", "point_tables", "tasks"):
+        inputs = (paths.service, paths.site, paths.devices, paths.tasks)
+        roots: dict[str, Path] = {}
+        for source in inputs:
+            if source is None:
+                raise SnapshotError("incomplete Collector configuration selection")
+            folder = "services" if source == paths.service else "instances"
+            roots[f"{folder}/{source.name}"] = source
+        for prefix in ("units_standard", "business_points_standard"):
+            matches = tuple(paths.templates.glob(f"{prefix}_v*.yaml"))
+            if len(matches) != 1:
+                raise SnapshotError(f"expected one selected {prefix} version")
+            selected = matches[0]
+            roots[f"templates/{selected.name}"] = selected
+        for category in ("protocols", "device_models", "point_tables"):
             directory = paths.templates / category
             if directory.is_dir():
                 for template_file in directory.glob("*.yaml"):

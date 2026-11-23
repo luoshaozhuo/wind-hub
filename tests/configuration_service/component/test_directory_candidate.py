@@ -13,7 +13,7 @@ def test_prepares_sorted_directory_with_pinned_file_versions(
     app: ConfigurationApplication,
 ) -> None:
     site = DirectoryFile(
-        "instances/site.yaml",
+        "instances/site_site_v1.0.0.yaml",
         b"schema_version: 1\nfile_version: 1.0.0\nsite_id: site-a\n",
     )
     table = DirectoryFile(
@@ -23,7 +23,7 @@ def test_prepares_sorted_directory_with_pinned_file_versions(
     )
     manifest, prepared = app.prepare_directory((table, site))
     assert tuple(item.relative_path for item in manifest.files) == (
-        "instances/site.yaml",
+        "instances/site_site_v1.0.0.yaml",
         "templates/point_tables/point_table_wtg_v1.0.0.yaml",
     )
     assert [(item.identity.config_type, item.identity.config_id) for item in prepared] == [
@@ -37,7 +37,7 @@ def test_rejects_duplicate_logical_file_version(
     app: ConfigurationApplication,
 ) -> None:
     instance = DirectoryFile(
-        "instances/sinks.yaml",
+        "instances/sinks_sinks_v1.0.0.yaml",
         b"schema_version: 1\nfile_version: 1.0.0\nsinks: {}\n",
     )
     template = DirectoryFile(
@@ -51,9 +51,11 @@ def test_rejects_duplicate_logical_file_version(
 def test_rejects_configuration_service_bootstrap_in_full_root(
     app: ConfigurationApplication,
 ) -> None:
+    # The filename identity must agree with service_id before preparation can
+    # reach the bootstrap guard; the test app owns the "configuration-test" id.
     bootstrap = DirectoryFile(
-        "services/service_configuration_v1.0.0.yaml",
-        b"schema_version: 1\nfile_version: 1.0.0\n" b"service_id: configuration-main\n",
+        "services/service_configuration-test_v1.0.0.yaml",
+        b"schema_version: 1\nfile_version: 1.0.0\n" b"service_id: configuration-test\n",
     )
     with pytest.raises(ValueError, match="bootstrap"):
         app.prepare_directory((bootstrap,))
@@ -74,9 +76,9 @@ def test_republishing_a_version_with_mutated_yaml_is_rejected(
             documents=(
                 DocumentInput(
                     identity=identity,
-                    file_name="site.yaml",
+                    file_name="site_site_v1.0.0.yaml",
                     yaml_bytes=content,
-                    relative_path="instances/site.yaml",
+                    relative_path="instances/site_site_v1.0.0.yaml",
                 ),
             ),
             validate_only=False,
@@ -112,9 +114,9 @@ def test_republishing_a_version_with_mutated_yaml_is_rejected(
             documents=(
                 DocumentInput(
                     identity=identity,
-                    file_name="site.yaml",
+                    file_name="site_site_v1.0.0.yaml",
                     yaml_bytes=mutated,
-                    relative_path="instances/site.yaml",
+                    relative_path="instances/site_site_v1.0.0.yaml",
                 ),
             ),
             validate_only=True,

@@ -400,7 +400,14 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
         await self._boundary.require(context, "query")
         health = self._boundary.service.health()
         return common_pb2.GetServiceStatusResponse(
-            health="HEALTHY" if health.ready else health.state.value,
+            health=(
+                "DEGRADED"
+                if (
+                    self._boundary.service.target_revision != self._boundary.service.active_revision
+                    and self._boundary.service.target_revision
+                )
+                else ("HEALTHY" if health.ready else health.state.value)
+            ),
             dependencies=[
                 common_pb2.DependencyHealth(name=name, health="HEALTHY" if healthy else "DEGRADED")
                 for name, healthy in (
@@ -411,6 +418,8 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
                 )
             ],
             observed_at=_timestamp(datetime.now(UTC)),
+            target_revision=self._boundary.service.target_revision,
+            active_revision=self._boundary.service.active_revision,
         )
 
     async def GetCapabilities(self, request: Any, context: Any) -> Any:
@@ -448,17 +457,19 @@ class CommonRpc(common_pb2_grpc.CommonServiceServicer):
 
     async def PushConfigSnapshot(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "reload")
-        try:
-            return await self._snapshots.push(request)
-        except Exception as exc:
-            await self._boundary.invalid(context, exc)
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def ApplyConfigSnapshot(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "reload")
-        try:
-            return await self._snapshots.apply(request)
-        except Exception as exc:
-            await self._boundary.invalid(context, exc)
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Configuration Repository is the sole configuration publisher; use Deployment",
+        )
+        raise RuntimeError("gRPC abort returned")
 
     async def GetMetrics(self, request: Any, context: Any) -> Any:
         await self._boundary.require(context, "query")

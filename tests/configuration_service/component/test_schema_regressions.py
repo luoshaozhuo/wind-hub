@@ -27,12 +27,13 @@ def test_existing_commander_caller_array_is_admitted_and_reconstructed(
     # closure; the nested caller array survives as frozen, parseable YAML.
     documents = tuple(input_for(path) for path in REPOSITORY_YAMLS)
     revision, _ = publish_documents(app, documents, request_id="caller-array")
-    item = input_for(ROOT / "configs/services/commander.yaml")
+    item = input_for(ROOT / "configs/services/service_commander_v1.4.0.yaml")
     version_id = app.repository.resolve_version(
-        item.identity, original_file_version(ROOT / "configs/services/commander.yaml")
+        item.identity,
+        original_file_version(ROOT / "configs/services/service_commander_v1.4.0.yaml"),
     )
     restored = app.get_config(item.identity, version_id=version_id)
-    source = (ROOT / "configs/services/commander.yaml").read_bytes()
+    source = (ROOT / "configs/services/service_commander_v1.4.0.yaml").read_bytes()
     assert isinstance(restored.yaml_bytes, bytes)
     assert restored.yaml_bytes == source
     reparsed = parse_yaml(restored.yaml_bytes, max_bytes=64 * 1024 * 1024)
@@ -51,7 +52,9 @@ def test_invalid_legacy_template_root_is_rejected(app: ConfigurationApplication,
         "1.0.0",
         config_sources={"templates": {"root": root}},
     )
-    with pytest.raises((ValueError, RepositoryConflictError), match="root|templates"):
+    with pytest.raises(
+        (ValueError, RepositoryConflictError), match="root|templates|instances only"
+    ):
         app.create_candidate(
             actor_id="publisher",
             request_id=f"unsafe-root-{root}",
@@ -73,6 +76,7 @@ def register_nested_schema(app: ConfigurationApplication) -> None:
             "properties": {
                 "schema_version": {"type": "integer"},
                 "file_version": {"type": "string"},
+                "service_id": {"type": "string"},
                 "security": {
                     "type": "object",
                     "required": ["callers"],
@@ -160,6 +164,7 @@ def test_array_schema_without_items_fails_closed(app: ConfigurationApplication) 
             "properties": {
                 "schema_version": {"type": "integer"},
                 "file_version": {"type": "string"},
+                "service_id": {"type": "string"},
                 "servers": {"type": "array"},
             },
             "required": ["schema_version", "file_version", "servers"],
@@ -189,7 +194,7 @@ def test_array_schema_without_items_fails_closed(app: ConfigurationApplication) 
 def test_caller_header_declares_complete_required_item_fields() -> None:
     schema = next(item for item in iter_schemas() if item.config_type == "service")
     document = parse_yaml(
-        (ROOT / "configs/services/commander.yaml").read_bytes(),
+        (ROOT / "configs/services/service_commander_v1.4.0.yaml").read_bytes(),
         max_bytes=64 * 1024 * 1024,
     )
     exported = emit_yaml(document, schema.header).decode()

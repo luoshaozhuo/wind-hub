@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import hashlib
-
 import grpc
 import pytest
 
@@ -70,105 +68,62 @@ async def test_service_info_status(sys_pki, grpc_stack) -> None:
 @pytest.mark.normal
 @pytest.mark.concurrency
 async def test_config_snapshot_apply(sys_pki, grpc_stack) -> None:
-    """UR-11 UC-05-S01：Push 校验候选 → Apply 原子切换，对象级结果真实返回。"""
-    common, _commander = grpc_stack.stubs(sys_pki, client="deployer")
+    """The Repository is the only publisher; legacy writes remain fail-closed."""
+    common, _ = grpc_stack.stubs(sys_pki, client="deployer")
     disk = await _disk(common)
-    files = {f.relative_path: bytes(f.content) for f in disk.files}
-    devices_name = next(name for name in files if name.endswith("instances/devices.yaml"))
-    # 注释级变更：内容变化但语义等价；提交后文件修订必然变化、无需重启。
-    files[devices_name] = files[devices_name] + b"# system e2e apply marker\n"
-    pushed = await common.PushConfigSnapshot(
-        common_pb2.PushConfigSnapshotRequest(
-            files=[
-                common_pb2.SnapshotFile(
-                    relative_path=name,
-                    content=content,
-                    size_bytes=len(content),
-                    sha256=hashlib.sha256(content).hexdigest(),
-                )
-                for name, content in files.items()
-            ],
-            expected_revision=disk.revision,
+    await _aborts(
+        common.PushConfigSnapshot(
+            common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
+            timeout=10,
         ),
-        timeout=30,
+        grpc.StatusCode.FAILED_PRECONDITION,
     )
-    assert pushed.valid is True and pushed.candidate_id
-    applied = await common.ApplyConfigSnapshot(
-        common_pb2.ApplyConfigSnapshotRequest(
-            candidate_id=pushed.candidate_id, expected_revision=disk.revision
+    await _aborts(
+        common.ApplyConfigSnapshot(
+            common_pb2.ApplyConfigSnapshotRequest(
+                candidate_id="unpublished", expected_revision=disk.revision
+            ),
+            timeout=10,
         ),
-        timeout=30,
+        grpc.StatusCode.FAILED_PRECONDITION,
     )
-    assert applied.restart_required is False
-    assert applied.file_commit and applied.file_commit != disk.revision
-    # 纯注释变更不改变任何设备对象：对象级结果为空是真实的逐对象语义，
-    # 而文件级修订仍因内容变化而更新（文件替换 ≠ 设备重应用）。
-    assert applied.apply_results == []
-    new_disk = await _disk(common)
-    assert new_disk.revision != disk.revision
-    # 变更真实落盘（磁盘文件含标记注释）。
-    new_files = {f.relative_path: bytes(f.content) for f in new_disk.files}
-    assert new_files[devices_name].endswith(b"# system e2e apply marker\n")
+    assert (await _disk(common)).revision == disk.revision
 
 
 @pytest.mark.exception
 async def test_config_revision_conflict(sys_pki, grpc_stack) -> None:
-    """UR-11 UC-05-S02：expected_revision 冲突不覆盖有效快照，磁盘修订不变。"""
-    common, _commander = grpc_stack.stubs(sys_pki, client="deployer")
+    """Even an invented revision cannot bypass sole Repository publication."""
+    common, _ = grpc_stack.stubs(sys_pki, client="deployer")
     disk = await _disk(common)
-    pushed = await common.PushConfigSnapshot(
-        common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
-        timeout=30,
-    )
-    assert pushed.valid is True
     await _aborts(
-        common.ApplyConfigSnapshot(
-            common_pb2.ApplyConfigSnapshotRequest(
-                candidate_id=pushed.candidate_id,
-                expected_revision="0" * 64,
-            ),
-            timeout=30,
+        common.PushConfigSnapshot(
+            common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision="0" * 64),
+            timeout=10,
         ),
-        grpc.StatusCode.ABORTED,
+        grpc.StatusCode.FAILED_PRECONDITION,
     )
-    # 冲突后磁盘与运行时均未被替换。
-    unchanged = await _disk(common)
-    assert unchanged.revision == disk.revision
+    assert (await _disk(common)).revision == disk.revision
 
 
 @pytest.mark.normal
 @pytest.mark.exception
 async def test_config_snapshot_scopes(sys_pki, grpc_stack) -> None:
-    """UR-12 UC-04-S02：DISK/RUNTIME/CANDIDATE 三分；候选不视为已生效。"""
-    common, _commander = grpc_stack.stubs(sys_pki, client="deployer")
+    """DISK/RUNTIME are readable; a candidate cannot be created locally."""
+    common, _ = grpc_stack.stubs(sys_pki, client="deployer")
     disk = await _disk(common)
     runtime = await common.GetConfigSnapshot(
         common_pb2.GetConfigSnapshotRequest(scope=RUNTIME), timeout=10
     )
+    assert disk.files and runtime.files
     assert disk.revision != runtime.revision
-    pushed = await common.PushConfigSnapshot(
-        common_pb2.PushConfigSnapshotRequest(files=disk.files, expected_revision=disk.revision),
-        timeout=30,
-    )
-    candidate = await common.GetConfigSnapshot(
-        common_pb2.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id=pushed.candidate_id),
-        timeout=10,
-    )
-    assert candidate.revision == disk.revision
-    # 仅 Push 不 Apply：磁盘/运行时修订保持原值，候选绝不是生效配置。
-    disk_after = await _disk(common)
-    runtime_after = await common.GetConfigSnapshot(
-        common_pb2.GetConfigSnapshotRequest(scope=RUNTIME), timeout=10
-    )
-    assert disk_after.revision == disk.revision
-    assert runtime_after.revision == runtime.revision
     await _aborts(
         common.GetConfigSnapshot(
-            common_pb2.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id="missing"),
+            common_pb2.GetConfigSnapshotRequest(scope=CANDIDATE, candidate_id="unpublished"),
             timeout=5,
         ),
         grpc.StatusCode.NOT_FOUND,
     )
+    assert (await _disk(common)).revision == disk.revision
 
 
 @pytest.mark.normal

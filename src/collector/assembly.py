@@ -21,8 +21,10 @@ from collector.infrastructure.adapters.outbound.metrics_emitter import Collector
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolPort, ProtocolRegistry
 from core.application.settings import ADSLocalConfig
+from core.configuration.local_selection import select_local_service
 from core.domain import Device, PointTable
 from core.infrastructure.config import read_yaml
+from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 from core.infrastructure.executor import configure_default_thread_pool
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -35,7 +37,7 @@ from .infrastructure.config.service_identity import sources_changed
 from .infrastructure.config.snapshot_repository import (
     CollectorSnapshotRepository,
 )
-from .infrastructure.config.task_control import mutate_device_intent
+from .infrastructure.config.task_intents import SqliteTaskIntentStore
 from .infrastructure.config.validation import (
     parse_collector_runtime,
     resolve_source_paths,
@@ -59,6 +61,9 @@ class CollectorApp:
     resource_sampler: CollectorResourceSampler | None = None
     _started: bool = False
     _retry_task: asyncio.Task[None] | None = field(default=None, init=False)
+    observer: DeploymentObserver | None = None
+    _observer_task: asyncio.Task[None] | None = field(default=None, init=False)
+    _observer_stop: asyncio.Event = field(default_factory=asyncio.Event, init=False)
 
     async def start(self) -> None:
         if self._started:
@@ -111,6 +116,28 @@ class CollectorApp:
         self._retry_task = asyncio.create_task(
             self._retry_failed_config(), name="collector-config-convergence"
         )
+        if self.observer is not None:
+            self._observer_stop.clear()
+            self._observer_task = asyncio.create_task(
+                self.observer.run(self._observer_stop, self._apply_selected_bundle),
+                name="collector-deployment-reconcile",
+            )
+
+    async def _apply_selected_bundle(self, bundle: SelectedBundle) -> bool:
+        """Commit an authenticated selected closure, then converge safe devices."""
+        allowed = {
+            name: content
+            for name, content in bundle.files.items()
+            if name.startswith(("services/", "instances/", "templates/"))
+        }
+        current_revision, current = await asyncio.to_thread(self.configuration.get_disk)
+        if allowed == current:
+            return self.configuration.status().converged
+        candidate_id, _ = await asyncio.to_thread(
+            self.configuration.push, allowed, expected_revision=current_revision
+        )
+        result = await self.configuration.apply(candidate_id, expected_revision=current_revision)
+        return result.converged
 
     async def _retry_failed_config(self) -> None:
         while True:
@@ -127,6 +154,11 @@ class CollectorApp:
         if not self._started:
             return
         self._started = False
+        self._observer_stop.set()
+        observer_task = self._observer_task
+        self._observer_task = None
+        if observer_task is not None:
+            await observer_task
         task = self._retry_task
         self._retry_task = None
         if task is not None:
@@ -238,7 +270,11 @@ async def assemble_collector(
         telemetry=telemetry,
         metrics_subject=metrics_emitter,
     )
-    lifecycle = CollectorLifecycle(parse_collector_runtime, acquisition)
+    intents = SqliteTaskIntentStore(Path(state_directory) / "task_intents.sqlite3")
+    lifecycle = CollectorLifecycle(
+        partial(parse_collector_runtime, task_intents=intents),
+        acquisition,
+    )
 
     def requires_restart(old: bytes, new: bytes) -> bool:
         return bool(yaml.safe_load(old) != yaml.safe_load(new))
@@ -268,10 +304,23 @@ async def assemble_collector(
         ),
         maximum_concurrent_rpcs=32,
     )
-    task_control = CollectorTaskControl(configuration, mutate_device_intent)
+    observer: DeploymentObserver | None = None
+    repository_endpoint = os.environ.get("WIND_HUB_CONFIGURATION_ENDPOINT", "")
+    if repository_endpoint:
+        selection = select_local_service(config_path)
+        observer = DeploymentObserver(
+            deployment_id=selection.deployment_id,
+            service_id=selection.service_id,
+            endpoint=repository_endpoint,
+            token_env="WIND_HUB_CONFIGURATION_TOKEN",
+            nats_servers=list(messaging["servers"]),
+        )
+    task_control = CollectorTaskControl(configuration, lifecycle, intents, read_yaml)
     register_collector_rpc(
         server,
-        common=CollectorConfigRpc(configuration, lifecycle, acquisition, telemetry, publisher),
+        common=CollectorConfigRpc(
+            configuration, lifecycle, acquisition, telemetry, publisher, observer
+        ),
         collector=CollectorDeviceRpc(acquisition, configuration, task_control, publisher),
     )
     endpoint = f"[{grpc_host}]:{grpc_port}" if ":" in grpc_host else f"{grpc_host}:{grpc_port}"
@@ -302,4 +351,5 @@ async def assemble_collector(
         workers,
         metrics_emitter,
         CollectorResourceSampler(telemetry) if metrics_emitter is not None else None,
+        observer=observer,
     )

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -18,7 +17,8 @@ import nats
 
 from contracts import configuration_repository_pb2 as pb
 from contracts import configuration_repository_pb2_grpc as rpc
-from core.infrastructure.config.generic_yaml import ConfigOperationError, parse_yaml
+from core.infrastructure.config.generic_yaml import parse_yaml
+from core.infrastructure.configuration_repository import verify_selected_bundle
 from sink_service.application.config import template_path
 from sink_service.application.config_manager import ConfigManager
 from sink_service.application.config_sources import config_sources
@@ -28,74 +28,32 @@ from sink_service.infrastructure.secrets import resolve_secret
 
 _LOG = logging.getLogger(__name__)
 _SUBJECT = "wh.config.changed"
-_ROOT = pb.ConfigId(config_type="service", config_id="sink_service")
 _MAX_BUNDLE_BYTES = 16 * 1024 * 1024
 _MAX_DOCUMENTS = 1000
 
 
-def _payloads(bundle: pb.GetConfigBundleResponse) -> dict[str, bytes]:
-    """Authenticate all source files before selecting a local Sink closure."""
-    if not 0 < len(bundle.files) <= _MAX_DOCUMENTS:
-        raise ConfigurationError("invalid Configuration bundle file count")
-    digest = hashlib.sha256()
-    files: dict[str, bytes] = {}
-    total = 0
-    for item in bundle.files:
-        relative = item.relative_path
-        if (
-            not relative
-            or relative.startswith("/")
-            or "\\" in relative
-            or "\x00" in relative
-            or any(part in ("", ".", "..") for part in relative.split("/"))
-            or not relative.endswith(".yaml")
-        ):
-            raise ConfigurationError("invalid Configuration bundle relative path")
-        for value in (relative, item.version_id, item.yaml_sha256):
-            data = value.encode("utf-8")
-            digest.update(len(data).to_bytes(4, "big"))
-            digest.update(data)
-        path = relative if relative.startswith("configs/") else "configs/" + relative
-        if path in files or not item.version_id:
-            raise ConfigurationError("duplicate or incomplete Configuration bundle file")
-        data = bytes(item.yaml_bytes)
-        total += len(data)
-        if total > _MAX_BUNDLE_BYTES:
-            raise ConfigurationError("Configuration bundle exceeds local capacity")
-        if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
-            raise ConfigurationError("Configuration source YAML hash mismatch")
-        try:
-            document = parse_yaml(data.decode("utf-8", errors="strict"))
-        except (ConfigOperationError, UnicodeError) as exc:
-            raise ConfigurationError("invalid Configuration source YAML") from exc
-        if (
-            document.get("file_version") != item.file_version
-            or document.get("schema_version") != item.schema_version
-        ):
-            raise ConfigurationError("Configuration bundle version/header mismatch")
-        semantic = json.dumps(
-            document,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        if hashlib.sha256(semantic).hexdigest() != item.content_sha256:
-            raise ConfigurationError("Configuration bundle semantic hash mismatch")
-        files[path] = data
-    if digest.hexdigest() != bundle.manifest_sha256 or total != bundle.total_bytes:
-        raise ConfigurationError("Configuration bundle manifest mismatch")
-    return files
+def _payloads(
+    bundle: pb.GetServiceConfigBundleResponse,
+    deployment_id: str,
+    service_id: str,
+) -> dict[str, bytes]:
+    """Verify the published complete immutable closure before any application."""
+    selected = verify_selected_bundle(bundle, deployment_id, service_id)
+    if not 0 < len(selected.files) <= _MAX_DOCUMENTS:
+        raise ConfigurationError("Sink selected bundle exceeds document limit")
+    if sum(map(len, selected.files.values())) > _MAX_BUNDLE_BYTES:
+        raise ConfigurationError("Sink selected bundle exceeds byte limit")
+    return {"configs/" + name: value for name, value in selected.files.items()}
 
 
 def _local_snapshot(files: Mapping[str, bytes]) -> tuple[SnapshotFile, ...]:
     """Extract a strict Sink closure from the verified repository response."""
-    service_path = "configs/services/sink_service.yaml"
-    data = files.get(service_path)
-    if data is None:
-        raise ConfigurationError("Configuration bundle omits Sink Service")
-    service = parse_yaml(data.decode("utf-8"))
-    sources, template_root = config_sources(service)
+    candidates = [path for path in files if path.startswith("configs/services/")]
+    if len(candidates) != 1:
+        raise ConfigurationError("selected Service bundle requires exactly one Service")
+    service_path = candidates[0]
+    service = parse_yaml(files[service_path].decode("utf-8"))
+    sources, template_root = config_sources(service, files)
     required: set[str] = {service_path, *sources.values()}
     for family, pathname in sources.items():
         content = files.get(pathname)
@@ -124,11 +82,17 @@ class ConfigurationSubscriber:
     def __init__(self, manager: ConfigManager, service: dict[str, Any]) -> None:
         sync = service["config_sync"]
         self._endpoint: str = sync["repository_endpoint"]
+        host = self._endpoint.rsplit(":", 1)[0].strip("[]")
+        if host not in {"127.0.0.1", "::1", "localhost"}:
+            raise ConfigurationError("Bearer Repository endpoint must be loopback")
         self._token_ref: str = sync["repository_token_ref"]
         self._servers: list[str] = list(service["nats"]["servers"])
         self._interval: int = sync.get("poll_interval_seconds", 30)
         self._manager = manager
         self._revision = 0
+        self._target_revision = ""
+        self._deployment_id = service["deployment_id"]
+        self._service_id = service["service_id"]
 
     async def _reconcile(self) -> None:
         token = resolve_secret(self._token_ref)
@@ -140,28 +104,38 @@ class ConfigurationSubscriber:
             options=[("grpc.max_receive_message_length", _MAX_BUNDLE_BYTES + 1048576)],
         ) as channel:
             stub = rpc.ConfigurationRepositoryServiceStub(channel)
-            current = await stub.GetCurrentRevision(
-                pb.GetCurrentRevisionRequest(), timeout=10, metadata=metadata
-            )
-            if current.revision_id < 1:
-                raise ConfigurationError("Configuration has no committed revision")
-            if current.revision_id == self._revision:
-                return
-            bundle = await stub.GetConfigBundle(
-                pb.GetConfigBundleRequest(
-                    roots=[_ROOT],
-                    revision_id=current.revision_id,
-                    include_dependencies=True,
+            bundle = await stub.GetServiceConfigBundle(
+                pb.GetServiceConfigBundleRequest(
+                    deployment_id=self._deployment_id,
+                    service_id=self._service_id,
+                    revision_id=0,
                 ),
                 timeout=20,
                 metadata=metadata,
             )
-        if bundle.revision_id != current.revision_id:
-            raise ConfigurationError("Configuration bundle revision mismatch")
-        local = _local_snapshot(_payloads(bundle))
+        if bundle.repository_revision_id < 1 or len(bundle.target_revision) != 64:
+            raise ConfigurationError("Configuration Service bundle has invalid revision")
+        if (
+            self._target_revision == bundle.target_revision
+            and self._manager.active_revision == bundle.target_revision
+        ):
+            self._revision = bundle.repository_revision_id
+            return
+        payloads = _payloads(bundle, self._deployment_id, self._service_id)
+        # A verified target remains observable even when local validation or
+        # activation fails; only complete convergence advances active_revision.
+        self._manager.report_selected(bundle.target_revision, active=False)
+        self._target_revision = bundle.target_revision
+        local = _local_snapshot(payloads)
         verified = validate_snapshot(local)
         if verified.revision == self._manager.disk.revision:
-            self._revision = current.revision_id
+            converged = (
+                self._manager.disk.revision == self._manager.runtime.revision
+                or await self._manager.reconcile_committed()
+            )
+            self._manager.report_selected(bundle.target_revision, active=converged)
+            self._revision = bundle.repository_revision_id
+            self._target_revision = bundle.target_revision
             return
         wire = [
             (
@@ -174,7 +148,17 @@ class ConfigurationSubscriber:
         ]
         candidate_id, _ = await self._manager.push(wire, self._manager.disk.revision)
         result = await self._manager.apply(candidate_id, self._manager.disk.revision)
-        self._revision = current.revision_id
+        self._revision = bundle.repository_revision_id
+        self._target_revision = bundle.target_revision
+        self._manager.report_selected(
+            bundle.target_revision,
+            active=(
+                not result.restart_required
+                and not result.pending
+                and not result.error
+                and self._manager.disk.revision == self._manager.runtime.revision
+            ),
+        )
         if result.restart_required or result.pending or result.error:
             _LOG.warning(
                 "Sink configuration committed but application is pending restart/convergence"

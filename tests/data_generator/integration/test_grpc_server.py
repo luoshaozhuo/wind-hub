@@ -122,7 +122,7 @@ async def test_start_revision_conflict_rejected_in_body(
     assert response.error_code == "REVISION_CONFLICT"
 
 
-async def test_cancelled_push_releases_config_lock(
+async def test_cancelled_retired_push_does_not_block_other_rpcs(
     start_real_gateway,
     configs_root,
     dg_server,  # noqa: ANN001
@@ -154,11 +154,12 @@ async def test_cancelled_push_releases_config_lock(
     first.cancel()
     with contextlib.suppress(asyncio.CancelledError, grpc.RpcError):
         await first
-    # shield 保证服务端事务继续完成；无论客户端如何取消，配置锁不得泄漏。
-    second = await harness.common.PushConfigSnapshot(
-        common.PushConfigSnapshotRequest(expected_revision=disk.revision, files=files)
-    )
-    assert second.valid, second.validation
-    # 服务仍可正常服务其他 RPC。
+    # The retired writer must fail closed and must not block subsequent RPCs.
+    with pytest.raises(grpc.RpcError) as denied:
+        await harness.common.PushConfigSnapshot(
+            common.PushConfigSnapshotRequest(expected_revision=disk.revision, files=files)
+        )
+    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+    # A cancelled retired write cannot seize the configuration lock.
     info = await harness.common.GetServiceInfo(common.Empty())
     assert info.service_id == "data_generator"

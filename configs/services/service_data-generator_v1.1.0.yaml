@@ -1,0 +1,35 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+# Data Generator 服务配置；Scenario 变更按运行互斥规则应用，服务运行参数变更需要重启。
+schema_version: 1
+file_version: "1.1.0"
+service_id: data-generator
+config_sources:
+  instances:
+    site: example_site
+    devices: farm-a
+    scenarios: prod-a
+service:
+  grpc_bind: "127.0.0.1:50061"
+output:
+  max_inflight: 1
+  grpc_timeout_seconds: 3.0
+buffer:
+  max_batches: 128
+  max_points_per_batch: 1000
+replay:
+  read_batch_size: 1000
+diagnose:
+  max_concurrent: 2
+  timeout_seconds: 10.0
+  permit_wait_seconds: 0.5
+recording:
+  enabled: false
+  directory: artifacts/data-generator
+metrics:
+  enabled: true
+  sample_seconds: 1.0
+  window_seconds: 60
+  retain_seconds: 3600
+  max_series: 2000
+
