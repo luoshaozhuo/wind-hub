@@ -275,3 +275,9 @@ RAW 真实协议字节、BUSINESS 历史 Manifest 与 OEM 的 111 个点审核�
 **不可提前关闭**：总体 v1_27 RAW/旧 ENGINEERING/通用 Bundle 正文冲突的勘误尚待有权批准（D-01/D-04/D-06）；C-08 Gateway 注入授权未验收，C-10 软件硬编码规则待代码专题，C-11 E2E 物理基础设施共享仍需隔离运行，C-12 历史注释保留并备案，C-13 111 点 OEM 未批准，C-14 RAW 真值和 BUSINESS 获批 Manifest 未具备，历史原始发布证据仍缺。实际生产激活依旧 BLOCKED。
 
 **本轮交付裁决**：`READY_FOR_ROUND3_DESIGN_CONFIG_RETEST`；不能宣布 `DESIGN_CONFIG_REVIEW=PASS`、`DESIGN_FREEZE_APPROVED` 或 `PRODUCTION_ACTIVATION=READY`。
+
+### 15.4 sim-a Schema v2 后继勘误及台账刷新
+
+发现 sim-a 第一代后继 Service 中使用了未纳入当前 Configuration Schema 的 `token_sources`，因此未将其覆盖为同版本修订，而是创建 Gateway-sim@1.2.0、Commander-sim@1.2.0、Data Generator-sim@1.1.0（`schema_version:2`，通过 `security.callers[].token_env` 声明身份），以及 CLI-sim@1.5.0、sim-a Deployment@1.4.0。旧候选保留在源 `configs/`，独立活动根只选择最新版。后续代码专题必须核验各模块运行时解析器是否接受该 Schema，实际受控令牌权限是否执行，未经验证不能宣称可投产。
+
+`config_version_release_ledger_20261123.csv` 随新候选重新生成，其 Git Blob 是客观字节证据；历史是否曾发布仍保持 UNKNOWN，不把该台账等同生产批准记录。

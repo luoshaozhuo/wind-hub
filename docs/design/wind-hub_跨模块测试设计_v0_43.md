@@ -839,13 +839,13 @@ Git Blob 原文保持一致；根内文件的相对路径仍为 `deployments/`�
 
 ## 15.4 第三轮静态复核重点（2026-11-23）
 
-新候选根保持不变的文件数：prod-a 29、sim-a 23、e2e-final 35。唯一候选 Deployment 当前为 prod-a@1.6.0、sim-a@1.3.0、e2e-final@1.0.1。此前 §15.2/15.3 中的旧候选版本表述均按本节最新候选生效，不能引用已经退出活动根的 prod-a@1.5.0 或 sim-a@1.2.0。
+新候选根保持不变的文件数：prod-a 29、sim-a 23、e2e-final 35。唯一候选 Deployment 当前为 prod-a@1.6.0、sim-a@1.4.0、e2e-final@1.0.1。此前 §15.2/15.3 中的旧候选版本表述均按本节最新候选生效，不能引用已经退出活动根的 prod-a@1.5.0 或 sim-a@1.4.0。
 
 N-01：`sink_kafka_history@1.1.0` 必须与原始 Git Blob `460fb5d96235b4a6713c85af6102efbde9f85f78` 全等；`kafka_history@1.2.0` 承担新的 `windhub-history` Topic 与串行 1 在途能力。prod-a 通过 Sink Instance@1.4.0 精确引用新模板，再由 Deployment@1.6.0 选择。
 
 N-02：CLI 的唯一规范叶子名称是 `commander batch` 和 `commander recover-device`；不额外列出 `submit-commands` 或 `recover` 别名。
 
-N-03/C-06：sim-a CLI@1.4.0 没有 TLS profile，全部受管目标使用独立 530xx 端口、`sim-a` 状态/日志目录及独立进程；Gateway@1.1.4、Commander@1.1.0、Generator@1.0.4、Device@1.4.0、Scenario@1.0.4、Configuration 本地 bootstrap 均须与目标身份互相一致。新的 token_sources 字段属于设计候选，严格运行时 Schema 是否接受必须单列风险，不可视作已通过软件测试。
+N-03/C-06：sim-a CLI@1.5.0 没有 TLS profile，全部受管目标使用独立 530xx 端口、`sim-a` 状态/日志目录及独立进程；Gateway@1.2.0、Commander@1.2.0、Generator@1.1.0、Device@1.4.0、Scenario@1.0.4、Configuration 本地 bootstrap 均须与目标身份互相一致。新的 token_sources 字段属于设计候选，严格运行时 Schema 是否接受必须单列风险，不可视作已通过软件测试。
 
 C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前已存在的文件实际生产发布状态均未凭 Git 推定为已批准；缺实物 Manifest 仍须明示。C-08 Gateway Sink STOP、安全 Listener 未配置、C-11 E2E 物理基础设施隔离、C-13 OEM、C-14 RAW/BUSINESS 外部证据，不应归入结构性文档缺陷关闭。软件测试始终保持 NOT_RUN。
 
@@ -853,6 +853,9 @@ C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前�
 
 以 Claude 第二轮报告 D-01～D-28/C-01～C-14 的 42 项及 N-01～N-03 三项为固定分母；逐条对原冲突行、接口表、例图、旧版本引用和配置版本选择作严格复测。只能依据已运行的只读静态 YAML/Loader 和文件哈希证据关闭相关项目，不能仅因新文档版本存在就 PASS。
 
-特别执行以下反例：历史 Kafka 模板 v1.1.0 Blob 完全相同、唯一新模板 v1.2.0 被 Sink@1.4.0 选中；同根只有唯一 prod-a@1.6.0 / sim-a@1.3.0 / e2e-final@1.0.1；sim-a CLI@1.4.0 没有 TLS profile，管理目标与生产无重复端口/manager target/state_dir，关联服务的 gRPC 监听与 Scenario 路由一致；Collector 及 Sink 流程图没有本地业务 Push/Apply 第二写入口；Contract Descriptor 的 GetServiceConfigBundle 字段号与请求中 revision_id=0 语义一致；现行 CLI 叶子名称仅定义一次。
+特别执行以下反例：历史 Kafka 模板 v1.1.0 Blob 完全相同、唯一新模板 v1.2.0 被 Sink@1.4.0 选中；同根只有唯一 prod-a@1.6.0 / sim-a@1.4.0 / e2e-final@1.0.1；sim-a CLI@1.5.0 没有 TLS profile，管理目标与生产无重复端口/manager target/state_dir，关联服务的 gRPC 监听与 Scenario 路由一致；Collector 及 Sink 流程图没有本地业务 Push/Apply 第二写入口；Contract Descriptor 的 GetServiceConfigBundle 字段号与请求中 revision_id=0 语义一致；现行 CLI 叶子名称仅定义一次。
 
 `DESIGN_CONFIG_REVIEW` 只评价设计和候选静态结构；`DESIGN_FREEZE_APPROVAL` 单列冻结总体勘误的批准状态；`PRODUCTION_ACTIVATION` 继续独立标记 OEM、RAW/BUSINESS/历史发布证据和实际基础设施门禁；`SOFTWARE_TESTS=NOT_RUN`。新 sim-a token_sources/服务认证字段及现行服务端 Schema 的契约差异须登记为 `DEFERRED_TO_CODE_REVIEW`，不得以静态设计结果替代实现检查。
+
+
+**sim-a Schema 补充**：sim-a@1.4.0 选定 `gateway-sim@1.2.0`、`commander-sim@1.2.0`、`data-generator-sim@1.1.0` 与 `cli-sim@1.5.0`。三个新 Service 使用 Schema v2 的 `security.callers[].token_env`。纯文件复测须按 `src/configuration_service/application/schema_catalog.py` 的现行 service v2 规则校验，严禁使用没有 Schema 定义的 `security.token_sources` 或 `grpc.token_sources`。
