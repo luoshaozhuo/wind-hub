@@ -190,12 +190,12 @@ $$
 
 | 领域 | main 归并后唯一设计文件 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_41.md` | DFD 归属、共享配置归 Core |
-| Contracts / Configuration | `Contracts_软件设计_v1_41.md`、`Configuration_Service_软件设计_v1_18.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
-| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_58.md`、`industrial_gateway_软件设计_v1_48.md` | 仿真、变量身份、目标写入与端口权限 |
-| Collector / Commander | `Collector_软件设计_v1_39.md`、`Commander_软件设计_v1_55.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_71.md`、`Storage_Service_软件设计_v1_5.md` | Kafka JSON v2、数据等级、持久入库及查询 |
-| CLI | `CLI_软件设计_v1_51.md` | CLI 命令树、进程启动和全量发布 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_42.md` | DFD 归属、共享配置归 Core |
+| Contracts / Configuration | `Contracts_软件设计_v1_42.md`、`Configuration_Service_软件设计_v1_19.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
+| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_59.md`、`industrial_gateway_软件设计_v1_49.md` | 仿真、变量身份、目标写入与端口权限 |
+| Collector / Commander | `Collector_软件设计_v1_40.md`、`Commander_软件设计_v1_56.md` | SampleBatch v3、控制安全、运行状态 |
+| Sink / Storage | `Sink_Service_软件设计_v1_72.md`、`Storage_Service_软件设计_v1_6.md` | Kafka JSON v2、数据等级、持久入库及查询 |
+| CLI | `CLI_软件设计_v1_52.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
