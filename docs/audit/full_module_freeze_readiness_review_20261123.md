@@ -151,3 +151,16 @@ Core v1_42 §业务语义明确要求同一继承展开后的 PointTable 内，`
 `main@f9106874` 的 `src/core/configuration/shared_point_tables.py` 已要求每 Point 显式 `business_point_id`，不存在默认使用 `point_id` 的旧回退；但 `src/core/configuration/validation.py` 在逐点校验单位与业务引用时没有同一 PointTable 的 BusinessPoint 唯一性断言。后续必须与 PointTable 语义整改同步补上运行时检查及对应正/反例；不能仅依赖离线审查脚本来保护正式配置发布。由于旧生产点表仍违反新契约，本轮暂不做会立即拒绝现有生产配置的无配套代码变更。
 
 本轮 `scripts/audit_business_points.py` 的静态审查实现已经修正并提交；是否与当前 Core/Configuration 真正的加载、发布及 Schema 全部一致，仍需独立在目标环境执行，并记录实际命令、退出码与完整发现 CSV。
+
+## 10. 240 点静态单位维度交叉核验与配置隔离补充
+
+按 `business_points_standard_v1.4.0.yaml` 与 `units_standard_v1.2.0.yaml` 的 `unit → quantity` 显式定义，对 `configs/templates/point_tables/` 中现存 9 个模板、240 个 Point 的 `business_point_id`、源单位以及标准单位进行静态关联：
+
+- **240/240 Point 的业务 ID、源单位和业务标准单位均能找到有效目录定义**。
+- **源单位 quantity 与标准业务单位 quantity 的不一致数量为 0**。
+- 对标准业务数据类型为布尔/文本的点，静态检查非恒等 scale/offset 的异常为 **0**。
+- 上述仅证明引用存在及基础量纲，不证明 OEM 点的物理名称准确、每个点的标度正确、不同统计窗口语义、地址字节序、类型量化与 22 组业务身份重复已解决。GW2MW P1 原裁决不变。
+
+进一步将 `service_commander-e2e_v1.0.0.yaml` 的 gRPC 监听从继承的 `0.0.0.0` 收窄为 `127.0.0.1`，避免本机最终联测的管理口被无意暴露。当前只有静态配置证据，仍需在真实 CLI/Socket 中检查所有 E2E 监听端口无生产冲突、凭证身份正确及服务 READY。
+
+以上为 GitHub 文件级脚本化静态核验，**没有执行远程 Python、真实 Schema Loader 或服务启动**，结果不作为准入 PASS 的替代。
