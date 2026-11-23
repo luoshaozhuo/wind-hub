@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_41 · 20261123 · 设计与配置专项冻结复测范围</p>
+<p class="subtitle">v0_42 · 20261123 · 设计冲突裁决与新部署配置候选闭包</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -654,7 +654,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 输出可审计的全量矩阵 `device_type/device_model/point_table_id/point_id/business_point_id/source_unit/standard_unit/data_type/semantic_decision`，针对未核实 PLC 符号单列现场待核验项，不得将猜测值视为已通过 BUSINESS 级业务验收。验证不存在多余的 `sim_` 仅因仿真来源产生的业务别名，真正仿真内部状态允许单独身份；同时检查所有配置引用、默认缺失回退、同身份不同历史内容冲突。缺覆盖映射或业务定义冲突时标记 FAIL 或 NOT_VERIFIED，不得裁定全链路 BUSINESS PASS。
 
-### 10.3.1 GW2MW 一对一候选配置的验收分母（v0_41）
+### 10.3.1 GW2MW 一对一候选配置的验收分母（v0_42）
 
 | 验收对象 | 必须检查 | 设计阶段状态 |
 |---|---|---|
@@ -793,3 +793,32 @@ reason: "template only; not executed"
 - **SOFTWARE_TESTS**：全部 `NOT_RUN`，不允许把文档/配置纯静态核对冒充生产代码测试或全链 E2E。
 
 当前分支已经对 Core/Configuration 有先前提交的生产代码变更，但**不属于这次 Claude 复测范围**。不得基于这些未执行测试的修改声明运行时发布准入通过。
+
+
+## 15.2 P0/P1/P2 第二轮文档与配置专项复测（2026-11-23）
+
+**范围控制**：仅审核最新 `docs/design` 正文、`docs/audit/full_module_freeze_readiness_review_20261123.md` §13 受控勘误及候选 `configs` YAML；不扩大为源码审查、全仓测试、进程启动、生产发布或 OEM 认证。
+
+### 15.2.1 规范一致性门禁
+
+- 根据上一轮 `design_config_freeze_retest_20261123.md` 的 D-01～D-28 逐项确认具体正文冲突是否删除或由经授权的冻结勘误正式替代；不能仅靠前置“旧条款失效”文字让历史错误自动 PASS。
+- 优先验证 RAW=解码前真实帧/字节、PROTOCOL=协议类型解码但未缩放标量、BUSINESS=不可变点表和业务单位转换；Collector 禁止工程换算，Sink 仅换算一次；对 `engineering`、默认等级及伪 RAW 必须报错。
+- 使用当前 `src/contracts/*.proto` 的静态 RPC 名称与字段号作为对照（只读）；Configuration `GetServiceConfigBundleRequest` 的 `revision_id=0` 按自身 Proto 表示当前 published revision。不要用其它 RPC 的默认值语义误判。
+- 检查 CLI 仅 `config publish --root` 为配置发布权威；Common Push/Apply 历史描述不得赋予业务配置双写权；Device/Gateway 变量身份、SampleBatch v3、Sink Delivery 意图和 Storage 单实例/幂等身份在正文一致。
+- 检查最新模块设计内部版本引用和章节链接，不允许规范性引用指向已删除旧版本文档。历史审计中的旧链接须显式说明其非现行基线。
+
+### 15.2.2 候选版本闭包矩阵
+
+| Deployment | 候选版本 | 设备 Instance | 确定性检查 |
+|---|---|---|---|
+| prod-a | 1.5.0 | farm-a@1.6.0 | GW 型号 1.5.0→PointTable 1.2.0；TZ 型号 1.4.0→PointTable 1.2.0；所有点表→BP1.5/Units1.2；Sink-prod-a1.3 + Delivery-prod-a1.5；Storage-main1.2 |
+| sim-a | 1.2.0 | sim@1.3.0 | 五个仿真型号 1.2.0→PointTable 1.2.0→BP1.5/Units1.2；CLI-sim1.3.0 不调用生产目标 |
+| e2e-final | 1.0.1 | e2e-final@1.0.1 | 五个仿真型号 1.2.0→PointTable 1.2.0→BP1.5/Units1.2；Sink/Storage Kafka Topic 相同；E2E 设备完整 |
+
+以各部署独立所选闭包为分母，不要把旧 Deployment 和候选同 ID 的多个版本混成一个有效根；测试必须证明根目录全集无法直接发布时存在清晰拒绝，并能构建没有版本歧义的候选完整目录。原有历史版本的无依赖声明不代表其可以重新解释新业务目录。
+
+检查新 PointTable 全部 Point/BusinessPoint 身份单射、数据类型和标准单位兼容，原 111 个 GW ADS Symbol/地址及 293 个原 BP 定义完全不变，107 候选仍为 OEM PENDING。检查 Storage-main、Sink Kafka 的 Broker/Topic 配置及 Collector 来源身份是否确定；无法据静态文件证明的运行时行为保持 `DEFERRED_TO_CODE_REVIEW`。
+
+### 15.2.3 裁决
+
+输出每个原 D/C 编号对应 `CLOSED/OPEN/NEEDS_OEM/DEFERRED_TO_CODE_REVIEW`、版本和文件行号、实际 YAML/只读 Loader 命令及退出码。分别给出 `DESIGN_CONFIG_REVIEW`、`PRODUCTION_ACTIVATION`、`SOFTWARE_TESTS` 结论。总体冻结勘误若未经用户正式批准，必须作为 `DESIGN_FREEZE_APPROVAL_PENDING` 报告，不能自行视为整体冻结通过。软件测试在本轮保持 `NOT_RUN`。
