@@ -14,7 +14,7 @@ devices:
       version: 1.1.0
     endpoint:
       host: 127.0.0.1
-      port: 15021
+      port: 15221
     overrides: {}
   PV_SIM01:
     name: "光伏仿真实例"
@@ -25,7 +25,7 @@ devices:
       version: 1.1.0
     endpoint:
       host: 127.0.0.1
-      port: 15022
+      port: 15222
     overrides: {}
   BESS_SIM01:
     name: "储能仿真实例"
@@ -36,7 +36,7 @@ devices:
       version: 1.1.0
     endpoint:
       host: 127.0.0.1
-      port: 15023
+      port: 15223
     overrides: {}
   GRID_SIM01:
     name: "电网仿真实例"
@@ -47,7 +47,7 @@ devices:
       version: 1.1.0
     endpoint:
       host: 127.0.0.1
-      port: 15024
+      port: 15224
     overrides: {}
   PPC_SIM01:
     name: "电厂控制器仿真实例"
@@ -58,7 +58,7 @@ devices:
       version: 1.1.0
     endpoint:
       host: 127.0.0.1
-      port: 15025
+      port: 15225
     overrides: {}
 
   WTG_SINK01:
