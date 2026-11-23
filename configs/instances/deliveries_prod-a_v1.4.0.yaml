@@ -1,0 +1,55 @@
+# prod-a 候选 Deployment v1.4.0 所需 Delivery Instance 精确版本。
+# 以 v1.3.0 的 Delivery 行为配置为基线；仅更新不可变文件版本及修订身份。
+# GW2MW 候选 BusinessPoint 未经 OEM 语义审批，不得据此激活生产。
+schema_version: 1
+file_version: "1.4.0"
+revision: "deliveries-r4"
+deliveries:
+  ems_power:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: ems_redis             # 仅一个 Sink；必须存在
+    desired_state: START          # START | STOP；人工启停修改本字段
+    source:
+      wind_farm_id: farm-a             # 必须匹配可信来源身份
+      collector_id: collector_realtime
+      devices: [TZ01]     # 可为空表示该任务下全部设备；按校验契约
+      points: [measured_power]      # 可为空表示该来源全部点
+    overrides: {}
+  power_history:
+    template_id: reliable_history
+    template_version: "1.1.0"
+    sink_id: history_kafka
+    desired_state: START
+    source:
+      wind_farm_id: farm-a
+      collector_id: collector_reliable
+      devices: [TZ01]
+      points: [measured_power]
+    overrides: {}
+  ems_modbus_view:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: modbus_view
+    desired_state: START
+    source:
+      wind_farm_id: farm-a
+      collector_id: collector_realtime
+      devices: [TZ01]
+      points: [measured_power]
+    overrides: {}
+  gateway_meter_view:
+    template_id: realtime_power
+    template_version: "1.1.0"
+    sink_id: gateway_view
+    desired_state: STOP # 需完成 Gateway 租约、点表变量身份与授权验证后才允许启动
+    source:
+      wind_farm_id: farm-a
+      collector_id: collector_realtime
+      devices: [TZ01]
+      points: [measured_power]
+    target_mappings:
+      - source_device_id: TZ01
+        source_point_id: measured_power
+        variable_id: measured_power
+    overrides: {}
