@@ -257,7 +257,7 @@ Sink 的 Gateway 出站 Adapter **已实现**于 `src/sink_service/infrastructur
 Service → Instances → Templates 是唯一允许的配置引用顺序：Service 仅引用 Instance 逻辑身份，不直接引用 Template ID/版本或目录。Deployment 统一选择 Service/Instance 的不可变版本，Instance 固定引用 Template 的版本。全量发布不直接使所有服务切换；Configuration 广播后，各模块主动解析目标配置闭包并决定热更新或等待重启。
 Service 状态以 target_revision 和 active_revision 表示本服务完整有效配置闭包的目标与完全生效值。不能热更新的字段保持原活动值等待重启；部分更新不能虚报完整生效。Deployment 回退引用历史版本即可，丢失通知由定期权威对账补偿。旧直接模板来源及版本路径引用必须在实施中统一清理。
 
-新增 Configuration/Deployment 跨模块验收矩阵（设计目标，代码尚未实现）：
+Configuration/Deployment 已集成后的跨模块验收矩阵：
 1. 全量发布只新增不可变版本；未修改 Deployment 的 Service/Instance 目标保持原值。
 2. 同 Service 版本仅升级 Device Instance，验证采集 Device 数及配置修订变化，其他模块无关配置不触发重启。
 3. Collector Task 定义归 collector_tasks Instance；更改采样周期 100→200 ms，稳定运行时验证采样节拍；Device group fast→slow，验证无重复调度。
@@ -551,7 +551,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 ## 9.5 Contracts 数据包与 Sink 三级交付的真实链路验收
 
-测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。目标输入为 `SampleBatch(schema_version=3)`，目标 Kafka/Redis JSON 为 `schema_version=2`（当前生产分别是 v2 和 v1，未完成迁移前必须判为未实施）。
+测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。现行输入为 `SampleBatch(schema_version=3)`，Kafka/Redis JSON 为 `schema_version=2`（主分支别是 v2 和 v1，未完成迁移前必须判为未实施）。
 
 | 验收项 | 激励及配置 | 独立观察与断言 |
 |---|---|---|
