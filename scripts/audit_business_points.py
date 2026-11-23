@@ -88,6 +88,128 @@ def _validate_references(root: Path, documents: dict[Path, dict[str, Any]]) -> N
                     raise ValueError(f"missing model target {target} from {path}:{device_id}")
 
 
+_INSTANCE_PREFIXES = {
+    "site": "site",
+    "device": "device",
+    "collector_tasks": "collector_tasks",
+    "scenario": "scenarios",
+    "sink": "sinks",
+    "delivery": "deliveries",
+}
+_INSTANCE_ROLES = {
+    "site": "site",
+    "devices": "device",
+    "tasks": "collector_tasks",
+    "scenarios": "scenario",
+    "sinks": "sink",
+    "deliveries": "delivery",
+}
+
+
+def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> None:
+    """Fail closed on exact Deployment → Service → Instance → Template bindings."""
+    for deployment_path, deployment in documents.items():
+        if deployment_path.parent != root / "deployments":
+            continue
+        deployment_id = deployment.get("deployment_id")
+        version = deployment["file_version"]
+        if (
+            not isinstance(deployment_id, str)
+            or deployment_path.name != f"deployment_{deployment_id}_v{version}.yaml"
+        ):
+            raise ValueError(f"Deployment filename/identity mismatch: {deployment_path}")
+        services = deployment.get("services")
+        instances = deployment.get("instances")
+        if not isinstance(services, dict) or not services or not isinstance(instances, dict):
+            raise ValueError(f"invalid Deployment selections: {deployment_path}")
+        selected_instances: dict[tuple[str, str], dict[str, Any]] = {}
+        for kind, entries in instances.items():
+            if kind not in _INSTANCE_PREFIXES or not isinstance(entries, dict):
+                raise ValueError(f"unsupported Deployment instance type: {kind}")
+            for instance_id, selection in entries.items():
+                if not isinstance(selection, dict) or set(selection) != {"file_version"}:
+                    raise ValueError(f"invalid Deployment instance selection: {kind}/{instance_id}")
+                selected_version = selection["file_version"]
+                if not isinstance(selected_version, str) or not _VERSION.fullmatch(selected_version):
+                    raise ValueError(f"invalid Deployment instance version: {kind}/{instance_id}")
+                prefix = _INSTANCE_PREFIXES[kind]
+                instance_path = root / "instances" / f"{prefix}_{instance_id}_v{selected_version}.yaml"
+                if instance_path not in documents:
+                    raise ValueError(f"missing selected Instance: {instance_path}")
+                selected_instances[kind, instance_id] = documents[instance_path]
+        for service_id, selection in services.items():
+            if (
+                not isinstance(selection, dict)
+                or set(selection) != {"config_id", "file_version"}
+                or selection["config_id"] != service_id
+            ):
+                raise ValueError(f"invalid Deployment Service selection: {service_id}")
+            service_version = selection["file_version"]
+            if not isinstance(service_version, str) or not _VERSION.fullmatch(service_version):
+                raise ValueError(f"invalid Deployment Service version: {service_id}")
+            service_path = root / "services" / f"service_{service_id}_v{service_version}.yaml"
+            service = documents.get(service_path)
+            if service is None or service.get("service_id") != service_id:
+                raise ValueError(f"missing or mismatched selected Service: {service_path}")
+            sources = service.get("config_sources")
+            if sources is None:
+                continue
+            if not isinstance(sources, dict) or set(sources) != {"instances"}:
+                raise ValueError(f"Service must reference Instances only: {service_path}")
+            refs = sources["instances"]
+            if not isinstance(refs, dict):
+                raise ValueError(f"invalid Service Instance references: {service_path}")
+            for role, instance_id in refs.items():
+                kind = _INSTANCE_ROLES.get(role)
+                if kind is None or (kind, instance_id) not in selected_instances:
+                    raise ValueError(f"unselected Service Instance: {service_id}/{role}/{instance_id}")
+        for (kind, _instance_id), instance in selected_instances.items():
+            if kind not in {"sink", "delivery"}:
+                continue
+            collection = instance.get("sinks" if kind == "sink" else "deliveries")
+            if not isinstance(collection, dict):
+                raise ValueError(f"missing {kind} Instance members")
+            template_dir = "sinks" if kind == "sink" else "deliveries"
+            for member_id, member in collection.items():
+                if not isinstance(member, dict):
+                    raise ValueError(f"invalid {kind} member: {member_id}")
+                template_id = member.get("template_id")
+                template_version = member.get("template_version")
+                if (
+                    not isinstance(template_id, str)
+                    or not isinstance(template_version, str)
+                    or not _VERSION.fullmatch(template_version)
+                ):
+                    raise ValueError(f"invalid template binding: {kind}/{member_id}")
+                template_path = (
+                    root / "templates" / template_dir
+                    / f"{kind}_{template_id}_v{template_version}.yaml"
+                )
+                template = documents.get(template_path)
+                if template is None or template.get("template_id") != template_id:
+                    raise ValueError(f"missing selected Template: {template_path}")
+                if kind == "delivery":
+                    sink_ids = {
+                        sink_id
+                        for (instance_type, _), sink_instance in selected_instances.items()
+                        if instance_type == "sink"
+                        for sink_id in sink_instance.get("sinks", {})
+                    }
+                    if member.get("sink_id") not in sink_ids:
+                        raise ValueError(f"Delivery references unselected Sink: {member_id}")
+                    source = member.get("source")
+                    if not isinstance(source, dict):
+                        raise ValueError(f"invalid Delivery source: {member_id}")
+                    allowed_devices = {
+                        device_id
+                        for (instance_type, _), devices in selected_instances.items()
+                        if instance_type == "device"
+                        for device_id in devices.get("devices", {})
+                    }
+                    if not set(source.get("devices", [])) <= allowed_devices:
+                        raise ValueError(f"Delivery references unknown Device: {member_id}")
+
+
 def _resolve_points(
     path: Path,
     documents: dict[Path, dict[str, Any]],
@@ -162,6 +284,7 @@ def audit(root: Path, output: Path) -> int:
     documents = sorted(root.rglob("*.yaml"))
     loaded = {path: _load(path, root) for path in documents}
     _validate_references(root, loaded)
+    _validate_deployments(root, loaded)
     tables = sorted((root / "templates/point_tables").glob("*.yaml"))
     rows: list[dict[str, str]] = []
     cache: dict[Path, dict[str, dict[str, Any]]] = {}
