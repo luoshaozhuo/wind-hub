@@ -13,6 +13,7 @@ services:
   data-generator-e2e: {config_id: data-generator-e2e, file_version: "1.0.0"}
   sink-e2e: {config_id: sink-e2e, file_version: "1.0.0"}
   storage-e2e: {config_id: storage-e2e, file_version: "1.0.0"}
+  cli-e2e: {config_id: cli-e2e, file_version: "1.0.0"}
 instances:
   site:
     e2e-final: {file_version: "1.0.0"}
