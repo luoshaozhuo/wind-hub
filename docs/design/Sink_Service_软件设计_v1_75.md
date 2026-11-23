@@ -2851,7 +2851,7 @@ Sink Service 仅通过 Instance 逻辑身份引用 sinks、deliveries；由 Depl
 | 版本化模板 | `configs/templates/{sinks,deliveries}/` | 由 Sink / Delivery Instance 固定版本引用，不由 Service 定位 |
 | 已提交修订 | Configuration Repository / 本地快照缓存 | Repository 发布修订是通知游标；Service 报告有效闭包的目标与活动摘要 |
 
-Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）；Configuration 只装配共享来源，Sink 负责本模块 Sink/Delivery 私有模板 Schema、候选 CAS 和 Apply。模板不可原地修改已提交版本，实例通过 `template_version` 引用新版本。两个 Worker 仅接收 Main 经 IPC 下发的有效配置，不直接写正式文件。
+Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）；Configuration 作为全量目录及版本唯一发布权威，Sink 仅负责 Sink/Delivery 私有模板的本模块语义校验、完整闭包下载和安全应用；不得另建业务候选 CAS/Apply 写入。模板不可原地修改已提交版本，实例通过 `template_version` 引用新版本。两个 Worker 仅接收 Main 经 IPC 下发的有效配置，不直接写正式文件。
 
 ### 11.1.1 批量和执行预算的边界
 
