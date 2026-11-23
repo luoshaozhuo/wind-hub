@@ -1,4 +1,3 @@
-# Git bytes provenance only; actual production publication and approval are not established.
 path,git_blob_sha,baseline_blob_sha,source_change,release_status,semantic_approval,notes
 "configs/deployments/deployment_e2e-final_v1.0.0.yaml","c1c7fb55ba4167c3e987adaf2816c5f9025e5b07","c1c7fb55ba4167c3e987adaf2816c5f9025e5b07","UNCHANGED_HISTORY","HISTORICAL_PUBLICATION_STATUS_UNVERIFIED","UNVERIFIED","No real publication evidence"
 "configs/deployments/deployment_e2e-final_v1.0.1.yaml","78fc9ebe6ff88f109e4fb473dc675e233fb68f19","","NEW_CANDIDATE","UNPUBLISHED_CANDIDATE","UNVERIFIED","No real publication evidence"
