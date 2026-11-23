@@ -2940,7 +2940,7 @@ RPC**，均需按接口实现，不把诊断或配置拆为私有服务。Proto
 
   `GetConfigSnapshot(GetConfigSnapshotRequest) → GetConfigSnapshotResponse`         根据 DISK/RUNTIME/CANDIDATE 返回 `snapshot_id`、`revision`、文件、验证及各对象应用结果         UR-06 / UC-04     §11；System
 
-  `PushConfigSnapshot(PushConfigSnapshotRequest) → PushConfigSnapshotResponse`      校验 `files[]` 和 `expected_revision`，返回                                                    UR-06 / UC-04     §11；System
+  `PushConfigSnapshot(PushConfigSnapshotRequest) → PushConfigSnapshotResponse`      历史 Common RPC；业务配置修改必须拒绝，旧说明：校验 `files[]` 和 `expected_revision`，返回                                                    UR-06 / UC-04     §11；System
                                                                                     `candidate_id`、`valid`、问题、基线版本；不改变正式文件/运行时                                                   
 
   `ApplyConfigSnapshot(ApplyConfigSnapshotRequest) → ApplyConfigSnapshotResponse`   按 `candidate_id`、`expected_revision` 提交；分别报告                                          UR-06 / UC-04     §11；System
@@ -3038,7 +3038,7 @@ START/STOP，必须与同设备连接生命周期及后台采集协调。`Interr
   `GetConfigSnapshot`     DISK/RUNTIME/CANDIDATE 分别读取正式文件、实际生效配置、已暂存候选；CANDIDATE 必须带  `revision` 对应所选 scope；`apply_results`
                           `candidate_id`                                                                       是对象生效证据，不能用文件提交代替运行时生效
 
-  `PushConfigSnapshot`    `expected_revision` 为当前 DISK 基准；`files`                                        `valid=true` 只表示候选通过校验；`candidate_id` 非空才可 Apply；Push
+  `PushConfigSnapshot`    旧接口，仅历史审计；不得接受业务配置写入；Push
                           是本服务管理范围完整集合，按路径白名单、容量、模板版本和完整引用校验                 不修改正式文件或当前运行配置
 
   `ApplyConfigSnapshot`   `candidate_id` 必须存在且仍有效；`expected_revision` 必须与当前 DISK                 `file_commit` 是文件提交证据；`application_id`

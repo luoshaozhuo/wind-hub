@@ -1672,8 +1672,8 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 | GetServiceStatus | `Empty` → `GetServiceStatusResponse` | 进程及 Server 健康状态 |
 | GetCapabilities | `Empty` → `GetCapabilitiesResponse` | 仅报告真实已验收协议和功能 |
 | GetConfigSnapshot | `GetConfigSnapshotRequest` → `GetConfigSnapshotResponse` | 候选/磁盘/运行快照 |
-| PushConfigSnapshot | `PushConfigSnapshotRequest` → `PushConfigSnapshotResponse` | 验证与暂存 Service 候选 |
-| ApplyConfigSnapshot | `ApplyConfigSnapshotRequest` → `ApplyConfigSnapshotResponse` | Service 文件提交与运行结果 |
+| PushConfigSnapshot | 历史 Common RPC | 不允许修改 Repository 管理的业务配置；不创建本地第二套权威 |
+| ApplyConfigSnapshot | 历史 Common RPC | 不允许提交业务配置；服务仅应用已选 Deployment 闭包 |
 | GetMetrics | `GetMetricsRequest` → `GetMetricsResponse` | 已定义指标快照 |
 | GetEvents | `GetEventsRequest` → `GetEventsResponse` | 运行事件查询 |
 | Diagnose | `DiagnoseRequest` → `DiagnoseResponse` | 安全只读诊断 |
@@ -2099,7 +2099,7 @@ sequenceDiagram
     M->>N: 独立订阅 wh.config.changed
     M->>C: GetCurrentRevision
     C-->>M: 最新 revision_id
-    M->>C: GetConfigBundle(roots,revision_id)
+    M->>C: GetServiceConfigBundle(deployment_id,service_id,revision_id=0)
     C-->>M: 完整 YAML 闭包/manifest_sha256
     M->>M: 校验、持久化、安全生效
     C->>N: 广播 wh.config.changed

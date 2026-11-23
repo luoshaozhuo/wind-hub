@@ -3292,7 +3292,7 @@ deliveries:
     template_id: realtime_power
     template_version: "1.0.0"
     sink_id: ems_redis             # 仅一个 Sink；必须存在
-    desired_state: START          # START | STOP；人工启停修改本字段
+    desired_state: START          # START | STOP；如需修改已发布配置，发布新版本；运行启停不改原文件
     source:
       wind_farm_id: farm-a             # 必须匹配可信来源身份
       collector_id: collector-1

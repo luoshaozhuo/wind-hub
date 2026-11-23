@@ -1906,11 +1906,11 @@ flowchart LR
 
 # 9. 接口与通信契约（现行九项业务 RPC）
 
-本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_42 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_43 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
 ## 9.1 DataGeneratorService：九项现行 gRPC Server RPC
 
-现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_42 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
+现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_43 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
@@ -1999,7 +1999,7 @@ flowchart LR
 
 ## 9.5 冻结基础与批量注入协作（规范性）
 
-现行接口以 Contracts v1_42 和 `src/contracts/data_generator.proto` 为准：DataGeneratorService 9 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
+现行接口以 Contracts v1_43 和 `src/contracts/data_generator.proto` 为准：DataGeneratorService 9 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
 **映射与执行**：一个 Generation 可管理多个 Device，源 `(device_id,point_id)` 可映射多个输出，但一个目标不得由同一运行集合内两个来源重复占用。按 Gateway 分组为 `UpdateVariablesRequest {gateway_id,values[],lease_token}`，不得额外增加质量、时间戳、批次 ID 或请求级幂等字段。无令牌请求即使当前目标未被其他 Generation 认领，也必须被 Gateway 拒绝。一个 Gateway 的成功不构成其他 Gateway 的成功，逐项失败和响应缺失必须分别记录；UNKNOWN 不得虚报为投递成功。
 

@@ -2638,7 +2638,7 @@ shutdown:
 1. 启动入口显式接收 `commander.yaml` pathname，读取并校验服务配置及全部直接配置源路径；对空值、不可读文件、路径逃逸或引用缺失返回带路径的明确错误。
 2. `core.configuration` 根据 `devices.yaml` 中的型号版本引用，在**声明的模板根目录内**递归解析需要的型号、协议、点表及其有效引用闭包。间接加载不是对目录的全量扫描；不加载无引用的共享文件。
 3. 校验类型、点地址、权限、引用版本及覆盖项；引用解析失败不得回退至其他目录、默认模板或最新版本。
-4. `GetConfigSnapshot` 区分 `DISK`、`RUNTIME`、`CANDIDATE`；`PushConfigSnapshot` 校验候选及其引用闭包；`ApplyConfigSnapshot` 检查 `expected_revision` 并提交文件，再对受影响设备安全生效。
+4. `GetConfigSnapshot` 为只读诊断；业务配置由 Configuration Repository 按 Deployment 精确发布并自主生效，旧 `PushConfigSnapshot/ApplyConfigSnapshot` 不能提交业务文件。
 5. `expected_revision` 和 `revision` 是正式 CommonService 的快照并发语义；使用稳定修订值保证提交条件，不能以“遵循 CommonService 快照 revision 契约”为由省略。磁盘已提交版本、候选与运行版本可能不同，响应必须准确报告。
 
 ## 11.4 生效范围与异常处理
@@ -2647,7 +2647,7 @@ shutdown:
 
 | 变更或异常 | 生效方式 | 失败或边界处理 |
 |---|---|---|
-| `grpc/security/dispatcher/repository/audit/timeouts/shutdown/config_sources` | 服务重启 | `ApplyConfigSnapshot.restart_required=true`；不热替换直接源路径 |
+| `grpc/security/dispatcher/repository/audit/timeouts/shutdown/config_sources` | 服务重启 | 按 GetServiceStatus 状态报告目标/活动版本不一致与重启要求；不热替换静态监听路径 |
 | `devices.yaml` 设备条目、实例覆盖项 | 受影响设备热更新 | 旧命令按已绑定修订处理；未收敛 I/O 不解除阻塞 |
 | 版本化型号/协议/点表 | 通过设备实例引用版本切换间接生效 | 未引用的模板文件改变不触发无关设备 Reload |
 | 路径不存在、文件不可读、版本引用缺失、越界引用 | 不生效 | 返回具体配置源或引用路径；不使用默认路径代替 |
