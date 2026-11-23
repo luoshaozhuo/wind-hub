@@ -814,7 +814,7 @@ System Test 必须遵守以下规定：
 |---|---|
 | 请求方（Requester） | NATS Core 消息生产者（Collector）；周期定时器非外部请求方 |
 | 触发方式（Trigger） | 消息：实时样本到达；周期：按 Delivery 输出/保底周期；状态：目标恢复后重试未过期最新值 |
-| 输入（Input） | 批量实时样本（当前生产 v2，目标见 Contracts §11.6 的 SampleBatch v3）、来源规则、逐测点有效期、Delivery 输出策略 |
+| 输入（Input） | 批量实时样本（现行 Contracts §11.6 SampleBatch v3）、来源规则、逐测点有效期、Delivery 输出策略 |
 | 反馈（Response） | 不逐条应答 Core 消息；通过状态、指标与事件查询派发结果 |
 | 目标方（Destination） | 已绑定的 Redis、Modbus TCP Server 或 Industrial Gateway（Realtime）；Kafka 不属于本实时用例 |
 | 业务输出（Output） | 未过期的最新值及原始质量、时间、测点身份 |
@@ -984,7 +984,7 @@ flowchart TD
 
 **R03-02 共享资源所有权。** 共享 Sink 以稳定身份键管理引用；最后一个 Delivery 引用释放且 I/O 已安全收敛后才可关闭目标连接；正在进行的操作不能因上层取消失去所有权。
 
-`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。当前 Kafka 13 字段编码与 Redis Value 由各自 Outbound Adapter 实现；目标统一迁移到 Contracts §11.9 规定的 v2 结构并通过 Golden Data 验收，不要求新格式字节等同旧格式；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
+`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。当前 Kafka JSON v2 与 Redis Value 由各自 Outbound Adapter 实现，遵循 Contracts §11.9 与 Golden Data 验收，不要求新格式字节等同旧格式；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
 
 **物理目标隔离竞态。** 物理目标隔离状态必须在等待全局/目标额度后、开始原生写入之前重新核对；目标在等待期间变为 unsafe 时不得提交原生 I/O。关闭 Adapter 为异步过程，关闭期间或关闭完成前若发生未决 I/O 取消，必须保留物理隔离与引用占有，不能删除池条目或重建目标绕过 fencing。
 
@@ -2860,7 +2860,7 @@ Core 的 `parse_yaml` 负责严格 YAML 基本解析（包括重复键拒绝）�
 
 | 参数类别 | 所属契约 |
 |---|---|
-| 当前 v2 / 目标 v3、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
+| 现行 v3、Subject、严格字段和质量/TTL 语义 | Contracts 的 `SampleBatch` |
 | `nats.max_samples_per_batch`、`max_batch_bytes` | Sink 入口容量；默认 500 点 / 1 MiB，部署值不得小于 Collector 发布值且不得超过 NATS 服务器限制 |
 | `runtime.max_inflight_global`、`max_inflight_per_sink`、`max_pending_points` | 本容器每数据 Worker 的安全执行预算 |
 | `reliable.max_inflight_per_delivery`、`replay_max_inflight`、`replay_max_rate_per_second` | Reliable Delivery 消费及补发限制 |
