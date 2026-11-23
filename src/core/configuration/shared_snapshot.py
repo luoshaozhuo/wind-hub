@@ -91,8 +91,11 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
     """Resolve entities and validate references; never access the network."""
     units = parse_unit_catalog(_content(documents.units))
     business_points = parse_business_points(
-        {key: value for key, value in _content(documents.business_points).items()
-         if key != "config_sources"},
+        {
+            key: value
+            for key, value in _content(documents.business_points).items()
+            if key != "config_sources"
+        },
         units,
     )
     definitions: dict[str, dict[str, Any]] = {}
