@@ -1,0 +1,15 @@
+# 仅供最终跨模块联测；独立 deployment=e2e-final；禁止生产服务引用。
+# Collector 专属 Task Instance，与 Device Model/Template 无关。
+# schema_version：结构版本 1；file_version：不可变内容版本 X.Y.Z。
+# tasks.<ID>.group：仅匹配 Device Instance 的同名 group。
+# tasks.<ID>.point_group：点表测点组，此处 all 代表全部测点。
+# tasks.<ID>.interval_ms：采集间隔，正整数毫秒（1000 = 1 Hz）。
+# tasks.<ID>.desired_state：START | STOP，默认保持原采集任务 STOP。
+schema_version: 1
+file_version: "1.0.0"
+tasks:
+  e2e_source_all:
+    group: e2e-source
+    point_group: all
+    interval_ms: 100
+    desired_state: STOP
