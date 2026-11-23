@@ -2420,22 +2420,18 @@ flowchart LR
 ## 9.4 接口协作时序
 
 ```mermaid
-%%{init: {"sequence": {"useMaxWidth": true}}}%%
 sequenceDiagram
-  participant C as 控制客户端
-  participant R as Commander RPC
-  participant A as 命令应用服务
-  participant P as 工业协议适配器
-  C->>R: SubmitCommand
-  R->>A: 校验、容量预留并受理
-  A-->>R: command_id 与受理状态
-  R-->>C: SubmitCommandResponse
-  A->>P: 在满足调度条件后写入
-  P-->>A: 确定结果或 I/O 未收敛
-  C->>R: GetCommandResult(command_id)
-  R->>A: 查询命令最新状态
-  A-->>R: state/outcome/io_settled
-  R-->>C: GetCommandResultResponse
+  participant CLI as CLI
+  participant R as Configuration Repository
+  participant C as Commander
+  CLI->>R: CreateCandidate(完整目录,expected_revision)
+  R-->>CLI: candidate_id/validation
+  CLI->>R: PublishCandidate(candidate_id)
+  R-->>CLI: published_revision
+  R-->>C: wh.config.changed 提示
+  C->>R: GetServiceConfigBundle(deployment_id,service_id,0)
+  R-->>C: 固定闭包/manifest/target_revision
+  C->>C: 校验并安全应用或等待重启
 ```
 
 <p class="figure-caption">图 9-1 单点受理、现场写入与结果查询时序</p>
@@ -2457,7 +2453,7 @@ sequenceDiagram
   M-->>C: apply_results/restart_required（经 RPC）
 ```
 
-<p class="figure-caption">图 9-2 配置快照读取、推送与应用时序</p>
+<p class="figure-caption">图 9-2 Configuration 发布与 Commander 独立生效时序</p>
 
 
 ## 9.5 请求级持久受理、批量执行与结果查询
