@@ -1495,7 +1495,7 @@ flowchart TB
 | 多文件配置提交、候选快照 CAS 和热更新 | `core.configuration` 共享协调机制及具体业务 Service | Core 通用 `save_yaml` 仅确保单文件原子写入，不承诺全局事务 |
 | 端到端设备—NATS—Sink 诊断 | CLI、Web Server 与各业务服务的编排层 | Core 只提供网络、工业协议的局部诊断证据；Web Admin 经 Web Server 展示 |
 
-**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以 `wind-hub_总体逻辑架构设计_v1_15.md` 为上位依据。
+**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以冻结的 `wind-hub_总体逻辑架构设计_v1_27.md` 为上位依据。
 
 
 # 6. 通用配置数据处理设计

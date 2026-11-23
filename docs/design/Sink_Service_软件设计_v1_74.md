@@ -2492,11 +2492,11 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 | RPC 组 | 实现责任组件 | 权限及资源约束 | 主要测试归属 |
 |---|---|---|---|
 | 身份、健康、能力（三项） | Main Service Runtime / Health | 受控内网通信；聚合子进程实际状态，不能凭配置猜测 | `test_grpc_contract.py`、`test_grpc_api.py` |
-| 配置快照（三项） | Main Config Manager | Get 按角色授权；Push/Apply 仅 Main 写正式快照；CAS、候选及 IPC 版本收敛 | `test_config_snapshot.py`、`test_config_apply.py` |
+| 配置快照（三项） | Main Config Manager | Get 按角色授权；Get 为只读；Push/Apply 禁止业务写入；Main 仅调和 Repository 所选闭包与 Worker 的真实生效状态 | `test_config_snapshot.py`、`test_config_apply.py` |
 | Metrics、Events（两项） | Main Metrics / Event Query | 汇总有时间戳的子进程指标，超时标记不可用 | `test_metrics.py`、`test_metrics_query.py` |
 | Diagnose（一项） | Main Diagnose | 经 IPC 有界获取数据面证据，失败返回 UNKNOWN | `test_diagnose.py`、`test_diagnose_pipeline.py` |
 | Delivery 查询（两项） | Main Delivery Manager | 按通道查询真实子进程状态，分页有界 | `test_grpc_contract.py`、`test_grpc_api.py` |
-| Delivery 启停（两项） | Main Delivery Manager | 先原子持久化 desired_state，后经 IPC 执行，超时不虚报已停止/运行 | `test_delivery_state.py`、`test_delivery_flow.py` |
+| Delivery 启停（两项） | Main Delivery Manager | 先在隔离运行控制存储中持久化当前 Delivery 运行意图（不改已发布 YAML），再经 IPC 执行，超时不虚报已停止/运行 | `test_delivery_state.py`、`test_delivery_flow.py` |
 
 单容器对外仅 Main 注册全部 13 个 Unary RPC；两个数据子进程不运行 gRPC、不对外接收配置。CLI/Web UI 分别调用每个容器的 Main，跨域汇总、静态分配和人工迁移均在外部执行，不引入新的 Proto。Main 以已提交配置为期望状态，以经过版本和时间验证的 IPC 汇报为实际状态；若子进程失联，不得构造其 `actual_state=STOPPED`。具体参数及返回类型以已冻结 Proto 为准。
 
@@ -2509,11 +2509,11 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 | `expected_revision` 与权威提交版本不符 | 不写入配置、不改变期望状态 | `ABORTED`，返回冲突信息 |
 | 未授权用户调用配置变更或 Delivery 启停 | Main 拒绝请求 | `PERMISSION_DENIED`，不得产生副作用 |
 | 手动 STOP 已持久化、底层 I/O 未收敛 | 操作已受理，但 actual 不得伪造 STOPPED | `accepted=true`；返回真实 `actual_state` 与说明，继续可查询 |
-| Apply 已提交磁盘、局部运行失败 | 不谎称整体成功、不静默回滚正式文件 | `file_commit` 与逐对象 `apply_results` 独立反映，记录 `application_id` |
+| Repository 已发布、局部 Worker 生效失败 | 保留旧活动闭包并继续独立调和 | 目标/活动闭包摘要不同，分别报告未收敛对象与 restart_required |
 | 客户端 deadline / 断连 | 不直接取消已提交的业务事实 | 调用方按修订号、`operation_id` 或 `application_id` 核查；缺失查询接口时通过现有快照/状态查询核查，不自行增加 RPC |
 | 认证或授权失败 | 不执行业务副作用 | `UNAUTHENTICATED` / `PERMISSION_DENIED` |
 
-`OperationResult` 中的 `accepted` 表示本次状态变更已受理，而非数据实际写出成功。操作响应中的 `revision` 为权威配置修订号；`desired_state` 和 `actual_state` 不得混用。对外错误码遵守正式 gRPC 契约，不以新增私有枚举代替标准 gRPC Status。所有配置路径与内容受长度/总量上限保护。
+`OperationResult` 中的 `accepted` 表示本次状态变更已受理，而非数据实际写出成功。操作响应中的 `revision` 为 Delivery 运行控制的修订号，不得冒充 Repository 的目标闭包版本；`desired_state` 和 `actual_state` 不得混用。对外错误码遵守正式 gRPC 契约，不以新增私有枚举代替标准 gRPC Status。所有配置路径与内容受长度/总量上限保护。
 
 ## 9.4 服务端协作视图
 
@@ -3354,10 +3354,10 @@ Main 唯一提供 gRPC 服务、配置写入和指标聚合。Realtime、Reliabl
 
 | 对象 | 读取与写入方 | 运行应用方 |
 |---|---|---|
-| Service 文件与完整候选快照 | Main | Main（Service 参数重启） |
+| Repository 已选 Service 闭包（只读） | Configuration 发布、Main 下载校验 | Main（静态参数等待重启） |
 | Sink/Delivery 实例及模板闭包 | Main（Configuration/Core 公共原语） | 对应 Realtime/Reliable Worker |
 | `desired_state` | Configuration 新不可变 Instance 版本通过 Deployment 选择；Main 只持有运行意图/生效状态 | 对应 Delivery Task |
-| `stored_revision` | Main 的持久配置清单 | Main 持有 |
+| `stored_revision` | Repository 的目标闭包身份及受控运行状态（两者不可混淆） | Main 只读核对 |
 | `active_revision` | Worker IPC 实际确认 | Main 聚合 |
 
 ## 11.3 目标 Deployment 闭包读取与生效

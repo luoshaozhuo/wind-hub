@@ -3099,8 +3099,7 @@ Collector 的 Server 实现责任。实现中如发现 `common.proto`
 
 ## 10.2 设备恢复与任务意图
 
-`desired_state` 是持久化权威；START/STOP
-操作先修改设备实例配置再尝试收敛。Watchdog
+`desired_state` 是选定 Collector Task Instance 的版本化默认意图；手动 START/STOP 只更新按 task_id 和当前 Task Instance 版本隔离的本地持久运行覆盖，不修改设备实例配置或历史 YAML。Watchdog
 负责断线发现与连接恢复，按最新配置仅恢复 START，STOP 不复活；当同步阻塞
 I/O
 发生超时，继续跟踪安全结束，不在旧句柄未安全释放时重建冲突资源。连接恢复不等于采集恢复，成功恢复以第一条有效样本及采集状态为准。
@@ -3283,6 +3282,8 @@ config_sources:
   instances:
     site: farm-a
     devices: farm-a
+    tasks: farm-a
+service_id: collector-realtime
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10
@@ -3313,47 +3314,25 @@ Metrics
 Subject；固定窗口快照须携带 `collector_id`、`boot_id`、窗口
 ID、起止时间及 schema 版本，供下游幂等归档。
 
-## 11.5 Get / Push / Apply 与一致性
+## 11.5 Repository 配置读取与生效一致性
 
-Get
-返回明确标注的正式文件快照、实际生效版本及可安全展示的脱敏字段；不以候选代替已生效配置。Push
-对一份完整候选快照执行 Schema、引用、业务点/类型/单位及 Collector
-采集专属校验，校验通过只在有界暂存区保存，不替换正式配置，不影响在途任务。CLI
-的 diff 在客户端完成。
+唯一业务配置发布入口为 CLI→Configuration Repository 的 CreateCandidate/PublishCandidate 完整目录事务。Collector 的 GetConfigSnapshot 仅作受控只读诊断；Common PushConfigSnapshot/ApplyConfigSnapshot 必须拒绝 Repository 管理的业务配置写入，不允许修改 Device、Task、Service 或 Template 的已发布字节。
 
-Apply
-Configuration 通过全量目录发布事务更新 Deployment 版本选择；Collector 仅查询自身有效闭包、校验并自主应用，不再通过模块本地候选事务发布公共文件。`collector.yaml`
-仅保存并报告需重启。**持久化成功但设备应用失败**时按设备记录目标版本、实际版本及错误，不回滚已成功设备，不虚称整体成功；可从正式状态查询继续收敛。候选期限、容量、并发配置写入及安全路径校验必须受控。Proto
-没有 Apply 请求幂等键；对同一 `candidate_id + expected_revision` 的重复
-Apply
-应返回可恢复的已提交状态（以服务端提交记录识别），不能再产生第二次不同的提交；不同
-candidate
-但相同请求内容不得假定幂等。多个文件不能假称天然构成一次跨文件原子事务。
+Collector 启动、重启、收到修订广播或周期对账时调用 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 获取已选择的 Service/Instance/Template 完整闭包，验证哈希与 PointTable 身份后在安全采集边界应用；设备采集计划和在途消息固定原 PointTable，不能混用新旧解释。不能安全热更的字段只报告待重启，失败保留原活动配置。target_revision/active_revision 分别来自所选完整闭包与真实活动闭包，不使用本地 Push/Apply candidate_id 代替。
 
-``` mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+```mermaid
 flowchart TD
- A["Push 私有候选并校验共享依赖"] --> B["Core + Collector 无副作用校验"]
- B --> C{"有效?"}
- C -->|否| X["拒绝且正式文件不变"]
- C -->|是| D["暂存带版本候选"]
- D --> E["Apply 复核版本与引用"]
- E --> F{"可以提交?"}
- F -->|否| X
- F -->|是| G["原子替换 Collector 私有配置实体；共享文件只读"]
- G --> H{"Service 配置?"}
- H -->|是| I["标记 RESTART_REQUIRED"]
- H -->|否| J["逐设备最小影响热更新"]
- J --> K["报告 APPLIED / APPLY_FAILED 及明细"]
+  A["Configuration 发布并广播修订"] --> B["Collector 查询精确 Service 闭包"]
+  B --> C{"版本与哈希全部通过?"}
+  C -->|否| D["保留旧活动闭包并报告失败"]
+  C -->|是| E{"允许安全热更新?"}
+  E -->|否| F["标记 RESTART_REQUIRED"]
+  E -->|是| G["按设备安全切换采集计划"]
+  G --> H["报告目标/活动版本及对象结果"]
 ```
 
-```{=html}
-<p class="figure-caption">
-```
-图 11-3 配置候选与正式应用流程
-```{=html}
-</p>
-```
+<p class="figure-caption">图 11-3 Collector 目标配置独立生效流程</p>
+
 ## 11.6 配置示例与版本契约
 
 Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其所需 Instance 的逻辑身份；所选版本由 Deployment 确定，任何模板已发布版本不能原地重写。`configs/instances/device_farm-a_v1.4.0.yaml`
