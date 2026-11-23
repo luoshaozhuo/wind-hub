@@ -181,7 +181,6 @@ class SharedDocumentLoader:
             return matches[0]
 
         units = read_stable_document(sole_catalog("units_standard"))
-        business_points = read_stable_document(sole_catalog("business_points_standard"))
         if site:
             _keys(
                 site,
@@ -201,14 +200,6 @@ class SharedDocumentLoader:
                 for key, value in units.items()
                 if key not in {"schema_version", "file_version"}
             }
-        )
-        parse_business_points(
-            {
-                key: value
-                for key, value in business_points.items()
-                if key not in {"schema_version", "file_version"}
-            },
-            unit_catalog,
         )
         devices: dict[str, SharedDeviceDefinition] = {}
         all_devices = _mapping(device_doc.get("devices"), "devices")
@@ -275,6 +266,50 @@ class SharedDocumentLoader:
                 protocol_options=options,
                 enabled=enabled,
             )
+        # Select the standard catalog from the effective PointTable references.
+        # Never infer the newest catalog from the directory listing: multiple
+        # immutable versions are expected to coexist.
+        catalog_versions: set[str] = set()
+        for definition in devices.values():
+            for table in (
+                definition.templates.point_table,
+                *definition.templates.inherited_tables,
+            ):
+                sources = table.document.get("config_sources", [])
+                if not isinstance(sources, (list, tuple)):
+                    raise ConfigError("PointTable config_sources must be a list")
+                pins = [
+                    source
+                    for source in sources
+                    if isinstance(source, Mapping)
+                    and source.get("config_type") == "business_points"
+                    and source.get("config_id") == "standard"
+                ]
+                if len(pins) > 1:
+                    raise ConfigError("PointTable has duplicate BusinessPoint catalog bindings")
+                if pins:
+                    version = pins[0].get("file_version")
+                    if not isinstance(version, str) or not version:
+                        raise ConfigError("PointTable BusinessPoint catalog version is invalid")
+                    catalog_versions.add(version)
+        if len(catalog_versions) > 1:
+            raise ConfigError("selected PointTables require different BusinessPoint catalog versions")
+        if catalog_versions:
+            version = next(iter(catalog_versions))
+            business_path = self._paths.templates / f"business_points_standard_v{version}.yaml"
+            if not business_path.is_file() or business_path.is_symlink():
+                raise ConfigError(f"BusinessPoint catalog version {version} is unavailable")
+        else:
+            business_path = sole_catalog("business_points_standard")
+        business_points = read_stable_document(business_path)
+        parse_business_points(
+            {
+                key: value
+                for key, value in business_points.items()
+                if key not in {"schema_version", "file_version"}
+            },
+            unit_catalog,
+        )
         return SharedDocuments(
             site=site,
             devices_file_version=str(device_doc["file_version"]),
