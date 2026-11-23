@@ -292,7 +292,7 @@ class SharedDocumentLoader:
                 if pins:
                     version = pins[0].get("file_version")
                     if not isinstance(version, str) or re.fullmatch(
-                        r"(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)",
+                        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
                         version,
                     ) is None:
                         raise ConfigError("PointTable BusinessPoint catalog version is invalid")
