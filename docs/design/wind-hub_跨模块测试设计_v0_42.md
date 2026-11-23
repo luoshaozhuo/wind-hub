@@ -697,11 +697,11 @@ tests/.runs/<run_id>/            # 非版本化运行证据
 
 ~~~yaml
 case_id: E2E-11-ST-E2E-02-BUSINESS
-branch: design/architecture-dfd-alignment-20261113
+branch: docs/design-consolidation-20261123
 commit: "<verified_head>"
 config_files:
-  - configs/instances/devices_sim.yaml
-  - configs/templates/deliveries/reliable_history_v1.0.0.yaml
+  - deploy/config_roots/e2e-final/instances/device_e2e-final_v1.0.1.yaml
+  - deploy/config_roots/e2e-final/templates/deliveries/delivery_reliable_history_v1.1.0.yaml
 config_hashes: "<actual_hashes>"
 processes_started_by_cli: [configuration, gateway, data-generator, collector, sink, storage]
 infrastructure: [nats, jetstream, kafka, tdengine]

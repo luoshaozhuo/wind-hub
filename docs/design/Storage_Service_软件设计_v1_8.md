@@ -627,7 +627,7 @@ System Test 必须遵守以下规定：
 
 ## 3.1 系统边界与基线
 
-Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。当前 main 已集成 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_40 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
+Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。当前 main 已集成 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_43 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
 
 基准为已集成的主分支总体架构 v1_27、Contracts v1_43、Configuration v1_21，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。配置查询 RPC 已集成，须按真实 `src/contracts/configuration_repository.proto` 与运行测试验证，不以假接口替代。
 
@@ -2231,7 +2231,7 @@ Repository `revision_id` 仅做游标；目标和活动闭包摘要使用 §8.2 
 **严格修改白名单**：`src/storage_service/**`、`tests/storage_service/**`、Storage 专属 `configs/services/service_storage-*` 和 `configs/services/storage_bootstrap_*`、本 Storage 设计文档；不得改共享 Contracts/Core、Configuration、CLI、Collector、Sink、Gateway 的代码及通用配置。必要的 Storage 专属集成 Fixture 仅在测试目录中修改；跨模块测试由 Claude 依独立验收计划负责。
 
 **外部前置登记**：
-- E-01：Configuration 开发分支正式 Proto/服务端缺少 `GetServiceConfigBundle/GetPointTableBundle/GetCurrentRevision`。未经合流，不可调用、不补私有实现，S2 可完成自身类型与校验逻辑，但跨服务集成为 BLOCKED_EXTERNAL。
+- E-01（历史已关闭）：主分支正式 Proto 已包含 `GetServiceConfigBundle/GetPointTableBundle/GetCurrentRevision`，不再按旧分支缺口阻断设计审查，S2 可完成自身类型与校验逻辑，但跨服务集成为 BLOCKED_EXTERNAL。
 - E-02：服务通用状态若无 `target_revision/active_revision` 独立字段，不自行修改 `common.proto`，按外部契约依赖登记；不能以全局整数修订伪装两个 SHA-256。
 - E-03：旧 `engineering` 记录无可信转换证据时仍须拒绝；当前主分支三级数据等级不允许兼容别名。
 - E-04：PV/BESS GatewayOutput 非 Storage 缺陷不纳入本轮代码；如阻断系统链路，独立记录 P1 与复现证据。
