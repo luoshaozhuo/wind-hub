@@ -1636,7 +1636,7 @@ Kafka Topic/Group、TDengine 地址/认证、DDL 并发、消费背压、查询/
 
 ### 12.2.1 Storage Service 集中业务配置完整示例
 
-以下原样展示本开发分支 `configs/services/service_storage-main_v1.2.0.yaml` 的待批准 Storage 候选结构。Configuration 的 Service Schema v2 顶层仅包含通用字段（`schema_version`、`file_version`、`service_id`、`config_sources`、`service`），所有 Storage 运行参数严格置于 `service` 对象下；服务端 `load_storage_config` 只接受此布局。Deployment 必须选择该文件版本。尚未完成跨分支真实联调。
+以下示例从历史 Storage Service@1.1.0 的基础结构引出；现行未发布候选为 `configs/services/service_storage-main_v1.2.0.yaml`，其正式内容必须以仓库候选 YAML 为准，示例不构成可直接发布字节。Configuration 的 Service Schema v2 顶层仅包含通用字段（`schema_version`、`file_version`、`service_id`、`config_sources`、`service`），所有 Storage 运行参数严格置于 `service` 对象下；服务端 `load_storage_config` 只接受此布局。Deployment 必须选择该文件版本。尚未完成跨分支真实联调。
 
 ```yaml
 # Storage Service v2: Deployment-selected instances; operational parameters under service.

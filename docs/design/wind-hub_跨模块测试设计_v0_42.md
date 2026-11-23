@@ -822,3 +822,17 @@ reason: "template only; not executed"
 ### 15.2.3 裁决
 
 输出每个原 D/C 编号对应 `CLOSED/OPEN/NEEDS_OEM/DEFERRED_TO_CODE_REVIEW`、版本和文件行号、实际 YAML/只读 Loader 命令及退出码。分别给出 `DESIGN_CONFIG_REVIEW`、`PRODUCTION_ACTIVATION`、`SOFTWARE_TESTS` 结论。总体冻结勘误若未经用户正式批准，必须作为 `DESIGN_FREEZE_APPROVAL_PENDING` 报告，不能自行视为整体冻结通过。软件测试在本轮保持 `NOT_RUN`。
+
+## 15.3 实际交付的隔离候选发布根目录
+
+Git Blob 原文保持一致；根内文件的相对路径仍为 `deployments/`、`services/`、`instances/`、`templates/`：
+
+| 独立根目录 | YAML 文件数 | 唯一候选 Deployment | 发布状态 |
+|---|---:|---|---|
+| `deploy/config_roots/prod-a/` | 29 | prod-a@1.5.0 | 未发布，OEM/Manifest/真实 Broker 门禁 |
+| `deploy/config_roots/sim-a/` | 23 | sim-a@1.2.0 | 未发布，真实服务和独立管理面待核验 |
+| `deploy/config_roots/e2e-final/` | 35 | e2e-final@1.0.1 | 未发布，真实 E2E 尚未执行 |
+
+在 Claude 独立复测中，严格解析每个根的所有 YAML 并检查文件闭包，使用可读 Core Loader/Domain Snapshot 和 Configuration validate_only 纯校验能力时必须保持无业务服务、数据库和消息中间件启动。不把仓库总 `configs/` 目录视为可直接发布根，也不以文件复制冒充已经通过 Repository 发布。三根按不同部署域相互隔离，不允许用 prod-a 候选服务替代 e2e/sim 的业务进程。
+
+验证候选完整时，同时核对：Sink/Storage Topic=`windhub-history`、Broker=`192.168.1.20:9092`（生产示例），E2E 独立 Topic；prod-a 当前审批限制；111 条 GW2MW PENDING_OEM_SEMANTICS；旧历史 PointTable 尚未具备原始发布 Manifest 的事实。配置文件语法和引用 PASS 不替代这些外部运行及语义证据。

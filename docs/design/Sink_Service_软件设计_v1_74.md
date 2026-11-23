@@ -2465,11 +2465,11 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 | RPC | 关键输入 | 关键输出和必须满足的业务规则 |
 |---|---|---|
 | `GetServiceInfo` | `Empty` | `service_id`、`process_role`、`software_version`、`contract_version`、`started_at`；仅由 Main 提供，`process_role=main`；Delivery 的 `process_role` 按其实际 realtime/reliable 业务角色返回 |
-| `GetServiceStatus` | `Empty` | `health`、`dependencies[]`（name/health/detail）、`observed_at`；gRPC 可达不等于派发就绪 |
+| `GetServiceStatus` | `Empty` | `health`、`dependencies[]`、`observed_at`、`target_revision`(field 4)、`active_revision`(field 5)；gRPC 可达不等于已生效 |
 | `GetCapabilities` | `Empty` | `rpc_names[]`、`protocols[]`、`features[]`；必须与实装能力一致 |
 | `GetConfigSnapshot` | `scope` (`SNAPSHOT_SCOPE_DISK/RUNTIME/CANDIDATE`)、候选查询时 `candidate_id` | `snapshot_id`、`revision`、`files[]`、`validation[]`、`application_id`、`apply_results[]`、`last_error`；不同范围不得混报 |
-| `PushConfigSnapshot` | `files[]`（relative_path/content/size_bytes/sha256）、`expected_revision` | `candidate_id`、`valid`、`validation[]`、`base_revision`；只暂存，不修改正式磁盘或运行态 |
-| `ApplyConfigSnapshot` | `candidate_id`、`expected_revision` | `file_commit`、`apply_results[]`、`effective_revision`、`restart_required`、`application_id`；文件提交和运行收敛独立裁定 |
+| `PushConfigSnapshot` | 历史 Common 参数 | 不允许用它发布或暂存 Sink 业务配置；服务应拒绝非 Repository 路径的写入 |
+| `ApplyConfigSnapshot` | 历史 Common 参数 | 不允许将本地候选提交为业务配置；生效只响应 Repository 选定闭包 |
 | `GetMetrics` | `scope`、`window_ms` | `metrics[]`（name/value/unit/window_ms/sampled_at）；无数据不伪造零值。当前 Proto 没有快照就绪、缺失原因及覆盖时间专用字段；需通过约定的现有指标/健康/事件表达，并在系统测试验证其可观察性 |
 | `GetEvents` | `from_time`、`to_time`、`filter`、`page_size`、`page_token` | `events[]`（event_id/timestamp/severity/source/error_code/message）、`next_page_token`；分页有上限 |
 | `Diagnose` | `target_id`、`stages[]`、`timeout_ms`、`correlation_id` | `overall_status`、`stages[]`（阶段/状态/耗时/错误/证据/时间/来源）、`limitations[]`；证据不足不报成功 |

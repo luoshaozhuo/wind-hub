@@ -239,3 +239,15 @@ prod-a 候选中 Kafka Sink 模板 `kafka_history@1.1.0` 与 Storage-main@1.2.0 
 生产代码未作进一步整改：Core/Configuration 历史闭包多版本读取实现、hard-coded BP@1.5.0 严格规则、全部 Service/CLI 的实际载入路径、TLS 旧配置、真实 Kafka/Storage 对接与 Storage 幂等实现均属于单独的软件审查专题。新候选设计与 YAML 必须由 Claude 只读审查确认引用闭包，文档/配置通过不代表这些代码已通过。
 
 RAW 真实协议字节、BUSINESS 历史 Manifest 与 OEM 的 111 个点审核均未满足生产运行门禁。文档/配置阶段可以申请结构冻结，**生产激活仍为 BLOCKED**。
+
+## 14. 独立可验证的候选配置发布根（2026-11-23）
+
+为了不更改历史已提交 `configs/`，且避免同一 deployment_id 多个版本出现在单次全量 Repository 发布，新增以下静态隔离根：
+
+- `deploy/config_roots/prod-a/`：29 份版本化 YAML，唯一 prod-a@1.5.0。
+- `deploy/config_roots/sim-a/`：23 份版本化 YAML，唯一 sim-a@1.2.0。
+- `deploy/config_roots/e2e-final/`：35 份版本化 YAML，唯一 e2e-final@1.0.1。
+
+三根使用同一源 YAML Git Blob（内容 SHA 未改变）构造；根中不包含旧未固定 PointTable、第二版同身份 Deployment 或不属于该闭包的历史文件。以各根为 `config publish --root` 目标时仅代表**准备了候选输入**，不代表已执行 Candidate、实际 Repository 发布或业务进程启动。
+
+仍需独立验证 Source file_version/配置身份、完整图引用、重复键、单位、类型和 Core 真实 Loader；本次 GitHub 上完成的是文件选择与复制，不是 Python YAML/Schema 执行。所有生产启用项仍受 OEM、BUSINESS Manifest、RAW 真实来源和现场端点鉴权限制。
