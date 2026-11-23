@@ -754,7 +754,7 @@ System Test 必须遵守以下规定：
 - **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；新增模块修订通知 RPC 的消息及方法仍需在 `common.proto` 定义并生成代码。
 - **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，总计 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9）。
 - **已发布契约**：`src/contracts/configuration_repository.proto` 已定义 Repository RPC，所有接口以 main 中的 Proto Descriptor 与生成绑定为准。
-- `src/contracts/sample_batch.py::SampleBatch(schema_version=2)` 属 Collector/Sink NATS 批量采样线协议，不计入上述 gRPC RPC 数；Sink→Kafka 输出另有 `schema_version=1` JSON 格式，也不是配置或点表版本号。
+- `src/contracts/sample_batch.py::SampleBatch(schema_version=3)` 属 Collector/Sink NATS 批量采样线协议；Sink→Kafka 输出为 JSON `schema_version=2`，二者独立于配置文件版本。
 
 ## 3.2 契约边界
 
@@ -1168,7 +1168,7 @@ SQLite 的 `db_meta.schema_version` 描述数据库结构迁移，独立于 YAML
 
 ### 10.7.2 查询返回大小与边界
 
-`GetConfigBundle` 为 Unary RPC，服务 YAML 必须配置 `max_bundle_bytes` 并满足 gRPC 传输上限；超限返回 `RESOURCE_EXHAUSTED`，不得返回部分文件。客户端可以按固定版本逐一调用 `GetConfig`，但同样须明确单文件上限；大文件流式传输不属于当前 12 RPC 范围。`include_dependencies` 未提供时默认为 true，显式 false 才只返回根；列表游标必须绑定历史修订或固定索引快照。历史数据不可变，不等于动态列表自然具备稳定分页：无修订选择的 `ListConfigVersions` 必须在首屏固定可复用的查询快照标识，否则后续页不能保证一致。
+`GetConfigBundle` 为 Unary RPC，服务 YAML 必须配置 `max_bundle_bytes` 并满足 gRPC 传输上限；超限返回 `RESOURCE_EXHAUSTED`，不得返回部分文件。客户端可以按固定版本逐一调用 `GetConfig`，但同样须明确单文件上限；大文件流式传输不属于现行 Repository RPC 范围。`include_dependencies` 未提供时默认为 true，显式 false 才只返回根；列表游标必须绑定历史修订或固定索引快照。历史数据不可变，不等于动态列表自然具备稳定分页：无修订选择的 `ListConfigVersions` 必须在首屏固定可复用的查询快照标识，否则后续页不能保证一致。
 
 ### 10.7.3 面向既有模块的 YAML 兼容条件
 
