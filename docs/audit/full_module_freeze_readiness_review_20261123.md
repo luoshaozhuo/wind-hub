@@ -94,3 +94,28 @@
 4. 完成集中测试与代码整改、独立复测后，再申请最终冻结裁决。
 
 **本报告是准入审查，不是验收报告。** 本轮没有通过运行性检查、不能宣称全部设计和测试充分。
+
+## 7. 配置全集静态审查与 E2E 隔离整改（2026-11-23）
+
+**实测边界**：已读取远程 `configs/` Git Tree 及相应 YAML 正文，现有树共 **72 份 YAML、1 份 CSV**；其中 19 份属于新建 E2E 专用配置。检查了文件名与 file_version、Service/Template ID、三个 Deployment 的选择、E2E Service→Instance 引用、全部 PointTable 的 BusinessPoint/Units 存在性与显式身份。检查仅为源码静态分析；未运行完整 PyYAML 严格 Loader、Configuration Candidate/Publish 或真实 CLI 启动。
+
+**已实施：** 创建 `deployment_e2e-final_v1.0.0.yaml`，选择 9 个 E2E Service、6 类 Instance；独立的双 Collector (100 ms)、Generator (TI=0 + Recording)、Commander、源/目标 Gateway、Sink、Storage、CLI；所有新服务以 `service_<info>_v1.0.0.yaml` 命名，Instance 保持 `<type>_<info>_v<semver>.yaml`。源仿真 Modbus 端口固定隔离到 15221～15225、Sink Gateway 目标 15121，独立证书目录、SQLite/TDengine 元数据、Kafka Topic `windhub.e2e.history`、Redis namespace 和 CLI 进程目录。Configuration 与 Storage 引导文件留在 `deploy/e2e/`，不作为业务 YAML 发布。E2E 的正常基线 Delivery 版本 `v1.0.1`，未选用的草稿 `v1.0.0` 已删除；业务/RAW 不以伪造数据冒充已支持。当前生产 Deployment 文件未被修改。
+
+**逐项结果：**
+
+| 检查项 | 状态 | 证据/限制 |
+|---|---|---|
+| 72 份文件的文件名、顶层 file_version 与模板/服务身份 | 静态检查基本通过 | 采用 GitHub 文件正文抽查/批量规则核对；非完整 Schema 执行 |
+| E2E 9 Service→6 Instance 精确目标 | 静态匹配 | 9 个 Service ID 与文件名对应，Service 引用的 Instance 均指向 e2e-final |
+| 9 个 PointTable 的业务 ID 与单位存在性 | 静态检查通过 | BusinessPoint 与 Units 标准目录存在；但存在严重重复语义 |
+| GW2MW ADS 的 BusinessPoint 唯一性 | **P1 FAIL** | 111 Point 中 109 Point 涉及 22 组重复 BusinessPoint；见 `point_table_ads_wtg_gw2mw_duplicate_business_points_20261123.csv` |
+| prod-a 完整采集→Storage 部署目标 | **P1 FAIL** | `deployment_prod-a_v1.3.0.yaml` 未选择 `storage-main`；E2E 独立配置不替代生产升级 |
+| Sink BUSINESS 生产闭包 | **P1 BLOCKED** | 必须取得 Repository 的真实历史 manifest_SHA256 后生成下一版候选，严禁伪造；实验 Template 已提供但未默认激活 |
+| Sink RAW 生产闭包 | **P1 BLOCKED** | 当前 Kafka 编码器明确拒绝无原始未解码载荷 RAW；不能以 Storage 接受合成 RAW 推定全链通过 |
+| 内部安全与证书/令牌 | 需真实联测 | 新 E2E 使用隔离证书路径；现行 Gateway/Commander/Generator 部分运行配置仍要求 mTLS，与冻结总体无 mTLS 原则须明确例外或代码修订 |
+| 生产文件头版本号 | **P2** | `device_farm-a_v1.4.0.yaml` 注释仍写 `v1.3.0`；不能直接修改已发布版本的内容哈希 |
+| kafka_history v1.0.0 / v1.1.0 | 保留两版 | 两版本均有现存 Sink 单元/组件测试引用，不能误判为无用版本；后续清理由调用方/实际发布闭包共同决定 |
+| 配置审查脚本 | **P2** | `scripts/audit_business_points.py` 仍使用不带版本的 standard 目录路径和旧 `devices*` 文件名判定，无法按当前 `device_*` 目录完成权威全集验收；须修订脚本及其测试 |
+| 真实 Repository 全量校验/发布、进程、E2E | **NOT_RUN** | 本轮没有可执行目标仓库/依赖环境，不能宣称最终配置冻结通过 |
+
+**冻结门禁**：E2E 执行前先以已选版本构造临时独立 `configs/` 根目录，按官方 CLI 发布，并检验所有依赖闭包、统一状态和 SQL 终点。生产冻结前必须解决 GW2MW PointTable 的物理语义冲突，另行升级 `prod-a` 的 Storage 版本选择并验证，关闭 RAW 范围裁决以及业务点真实 manifest；即使 E2E 基线 PROTOCOL 成功，也不得将整体状态标 READY_TO_FREEZE。
