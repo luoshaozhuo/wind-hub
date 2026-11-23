@@ -960,7 +960,7 @@ SQL 对象名称按第 10 章所规定的版本化、全域唯一、可回查的
 | L2 协议 | `protocol` | `2` | 已按协议编码规则解释类型、字序等形成有类型的值，但尚未做 BusinessPoint 标准化 | 来源 `point_id`、协议解码数据类型及时间 |
 | L3 业务 | `business` | `3` | 基于不可变 PointTable、BusinessPoint 和 Units 完成工程转换、业务映射及标准单位变换 | 源 `point_id`、`business_point_id`、标准单位及时间 |
 
-**与既有契约的差异**：最新 main Contracts v1_38 §11.9 采用 `raw/engineering/business`；其中既有 RAW 是已由工业驱动解码的标量而不是原始协议帧。`protocol` **不是将既有 `engineering` 简单重命名**：后者已有比例/偏移及工程单位处理。Collector 当前是否真正保留原始协议载荷，尚未验证；因此 Storage **不合成、不猜测** RAW 载荷，缺失上游正式契约时不得假装能保存未解码数据。待用户后续调整 Sink 时，必须明确 RAW 的实际值类型、编码与粒度（逐点/逐帧）、PROTOCOL 的边界和业务转换顺序；Storage 只按最终正式消息契约消费。
+**已集成的数据等级契约**：Sink 与 Storage 采用 `raw/protocol/business` 三等级及 Kafka JSON v2。旧 `engineering` 属历史数据语义，不得转换为 `protocol` 别名。RAW 仅允许有真实协议解码前载荷的来源；缺失时 fail-closed，Storage 不自行合成。
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
@@ -1172,7 +1172,7 @@ Storage 查询部署目标使用正式 Contracts 的 `GetServiceConfigBundle(dep
 
 `GetCurrentRevision` 仅用于查询仓库发布游标；`wh.config.changed` 是非权威提示。历史固定版本优先使用 `GetPointTableBundle(point_table_id,expected_manifest_sha256)` 与既有可信归档，**但该接口当前设计返回的 `point_table_id/device_type/documents/manifest` 不能天然证明某一历史 `wind_farm_id + device_id` 的设备实例归属**。因此独立的 Device Instance→DeviceModel→PointTable 历史绑定证据也必须有可核验的文件与摘要，缺失时拒绝将 Kafka 自报 `device_type` 当成建表准入证据。
 
-**经代码核实的外部前置条件**：当前 Storage 开发分支 `src/contracts/configuration_repository.proto` 尚无 `GetServiceConfigBundle` / `GetCurrentRevision` / `GetPointTableBundle`，而参考设计分支已经定义。S2 可先实现 Storage Config/状态/缓存及纯逻辑适配，联调阶段必须等共享 Contracts 与 Configuration 的正式能力进入当前代码基线；**禁止仅在 Storage 复制 Proto、调用不存在的 RPC，或回退到 `ListConfigs.recommended_version_id`**。本轮不修改其他模块或共享 Contracts。
+**主分支依赖闭包**：`GetServiceConfigBundle`、`GetCurrentRevision`、`GetPointTableBundle` 已由 `src/contracts/configuration_repository.proto` 定义，Storage 通过正式生成的 Stub 调用；不得复制 Proto 或退回推荐版本猜测历史依赖。
 
 ## 8.3 target_revision / active_revision / 发布游标
 
@@ -1929,7 +1929,7 @@ $$
 | T-41 | 同时间戳/同来源样本三等级并存 | 三条记录不互相覆盖，各自重复消费保持幂等 |
 | T-42 | 非法等级、缺失等级、等级与 Payload 不匹配 | 拒绝入库、不静默转换、不误提交 Offset |
 | T-43 | RAW 字节载荷与 PROTOCOL/ BUSINESS 类型保真 | 无损存取字节/有符号及无符号整数/布尔/文本；对未实施的 Producer 格式标 NOT_RUN |
-| T-44 | 现行 `engineering` 与目标 `protocol` 语义冲突 | 不误映射为 PROTOCOL；上线前明确 Sink/Contracts 迁移前置 |
+| T-44 | 旧 `engineering` 数据拒绝及三级契约 | 不误映射为 PROTOCOL；现行 Sink/Storage 按严格等级校验 |
 | T-45 | 查询、统计、导出跨等级筛选 | 默认不混合等级；等级字段与表族 TAG、映射一致 |
 
 | T-46 | 理想业务数据单等级 30 台×10 Hz×500 测点持续写入 | System；实际 ≥150,000 点/s，连续 10 分钟；Lag 无持续增长，逐点对账一致 |
@@ -2030,7 +2030,7 @@ $$
 
 ## 15.2 本版边界
 
-本版仅冻结 Storage 可自主实施的配置消费、缓存、分级鉴权、历史入库与故障恢复目标。未修改共享 Contracts、Configuration、Collector、Sink、Gateway 的代码或配置。新配置 RPC 在参考设计分支定义但当前 Storage 开发分支不可调用，属于外部联调前置条件；S2 允许先写独立 Storage 纯逻辑，不能以旧 API 伪造 Deployment 语义。PV/BESS GatewayOutput 的非 Storage 缺陷不纳入本轮生产代码变更。不创建 PR、不合并 main。
+Storage 的配置消费、历史入库、查询与故障恢复已集成到 main；本次文档归并不修改生产模块，不等同于重新运行 E2E 或性能测试。
 
 ---
 
@@ -2038,7 +2038,7 @@ $$
 
 ## 16.1 权威与可执行边界
 
-本章规定现行主分支的实现与验收边界；若本章与第 8/13 章发生冲突，以新配置闭包及分级安全策略为准。Storage 专用 RPC 由本开发分支现有 `src/contracts/storage_service.proto` 唯一定义，Storage 只实现服务端。当前集成链路采用 Kafka JSON v2 和 `raw/protocol/business`；旧 `engineering` 不可自动兼容，历史/配置查询接口缺失也不允许降级绕过。
+本章规定现行主分支的实现与验收边界；Storage 专用 RPC 由 `src/contracts/storage_service.proto` 定义。可靠数据按 Kafka JSON v2 的 `raw/protocol/business` 等级存储，旧 `engineering` 不自动转换。
 
 ## 16.2 冻结 TDengine 物理模型
 
@@ -2218,7 +2218,7 @@ Repository `revision_id` 仅做游标；目标和活动闭包摘要使用 §8.2 
 **外部前置登记**：
 - E-01：Configuration 开发分支正式 Proto/服务端缺少 `GetServiceConfigBundle/GetPointTableBundle/GetCurrentRevision`。未经合流，不可调用、不补私有实现，S2 可完成自身类型与校验逻辑，但跨服务集成为 BLOCKED_EXTERNAL。
 - E-02：服务通用状态若无 `target_revision/active_revision` 独立字段，不自行修改 `common.proto`，按外部契约依赖登记；不能以全局整数修订伪装两个 SHA-256。
-- E-03：参考设计分支 Contracts 的 `engineering` 与 Storage 生产 `protocol` 存在语义差异；Storage 不做无证据别名兼容，跨模块语义冻结交相关模块。
+- E-03：旧 `engineering` 记录无可信转换证据时仍须拒绝；当前主分支三级数据等级不允许兼容别名。
 - E-04：PV/BESS GatewayOutput 非 Storage 缺陷不纳入本轮代码；如阻断系统链路，独立记录 P1 与复现证据。
 
 **S2 出口**：Storage 自有静态检查及定向测试有实际证据，完成代码自审并形成外部阻断清单；尚未就绪的共享 RPC 不得造成虚假的全绿结论。Claude 只进行独立测试、测试代码/Fixture 与小修复，较大生产缺陷仍由 ChatGPT 负责。
