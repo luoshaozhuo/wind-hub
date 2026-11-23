@@ -18,12 +18,12 @@ def _write(path: Path, content: str) -> None:
 def _root(tmp_path: Path) -> Path:
     root = tmp_path / "configs"
     _write(
-        root / "templates/business_points_standard.yaml",
+        root / "templates/business_points_standard_v1.0.0.yaml",
         "schema_version: 1\nfile_version: 1.0.0\nbusiness_points:\n"
         "  active_power:\n    data_type: float32\n    unit: kilowatt\n",
     )
     _write(
-        root / "templates/units_standard.yaml",
+        root / "templates/units_standard_v1.0.0.yaml",
         "schema_version: 1\nfile_version: 1.0.0\nunits:\n  kilowatt:\n"
         "    quantity: active_power\n",
     )
@@ -85,7 +85,7 @@ def test_audit_rejects_missing_model_point_table(tmp_path: Path) -> None:
 def test_audit_rejects_missing_device_model(tmp_path: Path) -> None:
     root = _root(tmp_path)
     _write(
-        root / "instances/devices.yaml",
+        root / "instances/device_test_v1.0.0.yaml",
         "schema_version: 1\nfile_version: 1.0.0\n"
         "devices:\n  WT01:\n    model:\n      id: missing\n      version: 1.0.0\n",
     )
