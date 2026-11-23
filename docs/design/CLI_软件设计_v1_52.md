@@ -1764,7 +1764,7 @@ Collector 的管理类 RPC（StartTask、StopTask、ReadPoints、InterrogateDevi
 | 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
 | 公共 CommonService（各服务） | `GetServiceInfo`, `GetServiceStatus`, `GetCapabilities` | `service info/status/capabilities` |
-| 公共 CommonService（各服务） | `GetConfigSnapshot`, `PushConfigSnapshot`, `ApplyConfigSnapshot` | `config get/push/apply` |
+| 公共 CommonService（各服务） | `GetConfigSnapshot`, `PushConfigSnapshot`, `ApplyConfigSnapshot` | 仅本地快照 `config get --scope`、`config push/apply`；不承担 Repository 发布 |
 | 公共 CommonService（各服务） | `GetMetrics`, `GetEvents`, `Diagnose` | `metrics/events`、`diagnose` 系列 |
 | CollectorService | `ListDevices`, `GetDevice`, `ListPoints`, `GetPoint` | `collector devices/device/points/point` |
 | CollectorService | `ReadPoints` | `collector latest/watch`；watch 为客户端周期调用，不是 Streaming RPC |
@@ -1897,9 +1897,9 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `service info/capabilities` | SERVICE | Service GetServiceInfo/GetCapabilities | 服务身份、支持能力 |
 | `service status` | 可选 SERVICE | 运行时管理器 + 服务 gRPC | 进程状态与业务健康分别显示 |
 | `service start/stop/restart` | SERVICE | containerd/iSulad/process | 操作真实进程或容器 |
-| `config get` | SERVICE、`--output PATH` | Service GetConfigSnapshot | 获取完整快照并安全导出 |
-| `config push` | SERVICE、PATH | Service PushConfigSnapshot | 校验并暂存完整候选 |
-| `config apply` | SERVICE、CANDIDATE_ID | Service ApplyConfigSnapshot | 提交并逐对象报告运行生效 |
+| `config get` | TYPE、ID、版本或 revision、`--output PATH`；显式 `--scope` 才查询服务快照 | Repository GetConfig / Common GetConfigSnapshot | 读取精确不可变 Repository 版本；本地快照只作运行诊断 |
+| `config push` | SERVICE、PATH | Common PushConfigSnapshot | 现存服务本地候选暂存命令；不能发布或覆盖 Repository 业务配置，需防旁路审查 |
+| `config apply` | SERVICE、CANDIDATE_ID | Common ApplyConfigSnapshot | 现存服务本地应用命令；不能替代 Deployment 目标选择，需检查服务端写入权限与作用域 |
 | `config diff` | PATH_A PATH_B | pathlib/filecmp/difflib | 完整目录数量、容量、文本差异 |
 | `collector devices/device` | [DEVICE]/DEVICE | Collector ListDevices/GetDevice | 列表与详情 |
 | `collector points/point` | DEVICE [POINT] | Collector ListPoints/GetPoint | 测点元信息 |
@@ -1934,7 +1934,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | 接口能力 | CLI 调用入口 | 说明 |
 |---|---|---|
 | `GetServiceInfo`、`GetServiceStatus`、`GetCapabilities` | `service status SERVICE`、`service info SERVICE`、`service capabilities SERVICE` | 状态与能力分离 |
-| `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | `config get/push/apply` | 三接口模型 |
+| `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | `config get --scope` / `config push` / `config apply`（现存本地快照命令，不能作为业务发布入口） | 三接口模型 |
 | `ListDevices`、`GetDevice` | `collector devices`、`collector device DEVICE` | 列表和详情 |
 | `ListPoints`、`GetPoint` | `collector points DEVICE`、`collector point DEVICE POINT` | 单点详情明确 |
 | `ListTasks`、`GetTask` | `collector tasks`、`collector task TASK` | 单任务详情明确 |
@@ -2390,7 +2390,7 @@ CLI 对输入值的解析须使用 `ListVariables` 的逻辑类型：bool 仅接
 
 ## 11.1 配置文件范围
 
-CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、受控授权令牌引用、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。CLI 使用 `config publish --root` 完整发布业务配置目录，`config get` 读取 Repository 版本，`config diff` 只作本地诊断；旧 `config push/apply` 不作为业务配置发布入口。
+CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、受控授权令牌引用、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。CLI 当前仍提供 `config push` / `config apply`，两者调用 CommonService 的本地快照 RPC；**不能据此修改 Configuration Repository 已发布的业务 Service/Instance/Template**。业务配置的唯一正式发布入口为 `config publish --root`，Repository 查询使用 `config get`，`config diff` 只作诊断。现有命令是否可绕过 Repository 需做真实代码安全审查。
 
 ## 11.2 CLI 配置示例（目标字段）
 
