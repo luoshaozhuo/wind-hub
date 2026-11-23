@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_73 · 20261123 · BusinessPoint 一对一业务输出准入</p>
+<p class="subtitle">v1_74 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -2730,7 +2730,7 @@ sequenceDiagram
 
 | 策略 | 准入 |
 |---|---|
-| `require_dedup` | 按 `delivery_id + sample_id` 跨重启去重 |
+| `require_dedup` | 需要可验证的跨重启持久身份和下游幂等契约；当前 Kafka JSON v2 不含 delivery_id，未建立可靠跨重启去重证明前该模式不能宣称支持 |
 | `allow_at_least_once` | 下游明确接受重复写入 |
 
 目标还必须能明确确认交付。Kafka Producer 会话幂等不等于跨 Broker exactly-once；ACK 丢失或进程崩溃时允许重投。重放消息头不构成交付归属的可信证据；消息仅按已校验的配置来源筛选，不能因为消息头指定了其他 Delivery 就直接 ACK。
@@ -3356,11 +3356,13 @@ Main 唯一提供 gRPC 服务、配置写入和指标聚合。Realtime、Reliabl
 |---|---|---|
 | Service 文件与完整候选快照 | Main | Main（Service 参数重启） |
 | Sink/Delivery 实例及模板闭包 | Main（Configuration/Core 公共原语） | 对应 Realtime/Reliable Worker |
-| `desired_state` | Main CAS 写入 | 对应 Delivery Task |
+| `desired_state` | Configuration 新不可变 Instance 版本通过 Deployment 选择；Main 只持有运行意图/生效状态 | 对应 Delivery Task |
 | `stored_revision` | Main 的持久配置清单 | Main 持有 |
 | `active_revision` | Worker IPC 实际确认 | Main 聚合 |
 
-## 11.3 如何执行 Get / Push / Apply
+## 11.3 历史 Get / Push / Apply 与目标部署闭包（仅审计旧流程）
+
+**唯一写入权威**：Delivery 的已发布 YAML `desired_state` 不允许在同一 `file_version` 下就地 CAS 改写；人工期望状态如需持久化，须由 Configuration 发布新 Instance 版本并通过 Deployment 精确选择，或由正式受控运行态命令维护不篡改 YAML 的运行意图。Sink Main/Worker 的运行态不可被当作新业务配置版本。Common Push/Apply 旧流程不得绕过 Repository。
 
 | 操作 | 成功条件 | 失败处理 |
 |---|---|---|
@@ -3978,7 +3980,7 @@ Configuration Service 是唯一业务配置权威；CLI 将受控 `configs/` 根
 
 ## A.2 广播、拉取、对账和独立生效
 
-Sink Main 已实现可选的 Repository 订阅对账：首先订阅 `wh.config.changed`，然后以 `GetCurrentRevision` 的权威修订进行定时核对；需要更新时通过 `GetConfigBundle` 获取完整 YAML 依赖闭包，验证逐文件哈希、全体 Manifest 及 Semantic Hash，筛选当前 Sink Service 的精确引用并使用既有单写入方 CAS/Apply 提交。NATS 广播只负责唤醒，丢失通知或网络重连不能跳过周期对账。下游其他业务模块是否具备同样能力须独立验收；本设计不将 Sink 单模块实现夸称为全仓完成。
+Sink Main 已实现可选的 Repository 订阅对账：首先订阅 `wh.config.changed`，然后以 `GetCurrentRevision` 的权威修订进行定时核对；需要更新时通过 `GetServiceConfigBundle(deployment_id, service_id, revision_id=0)` 获取精确目标 YAML 依赖闭包，验证逐文件哈希、全体 Manifest 及 Semantic Hash，校验完整固定版本后在安全边界更新有效闭包，静态参数等待重启；不触发第二套配置写入。NATS 广播只负责唤醒，丢失通知或网络重连不能跳过周期对账。下游其他业务模块是否具备同样能力须独立验收；本设计不将 Sink 单模块实现夸称为全仓完成。
 
 `config_sync.repository_endpoint` 与 `repository_token_ref` 必须成对；`repository_token_ref` 只能引用环境变量。可配置 `poll_interval_seconds`（整数 5..3600，省略则 30 秒），`approved_point_table_manifests` 为 BUSINESS 专用的已核验映射清单。存储提交成功但 Worker 未生效时必须公开 pending/restart 状态，而不是报告一致生效。
 

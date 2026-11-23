@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_20 · 20261123 · BusinessPoint 唯一性与不可变配置迁移</p>
+<p class="subtitle">v1_21 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 <style>
 body {
@@ -1559,6 +1559,8 @@ $$
 ## 10.4 一致性、变更与故障边界
 
 一次 revision 的可见版本集和引用闭包在 SQLite 事务提交时原子成立。客户端用 `revision` 获取依赖包，并以 config/hash 检查本地快照。发布后各服务独立对账并按热更新能力应用目标闭包；单模块生效失败不回滚已发布 revision。CLI 仅查询各服务的 `target_revision`、`active_revision` 与 `restart_required`，不逐模块调用 `ApplyConfigSnapshot`。重复请求通过持久化 `request_id` 返回原结果；同 `request_id` 不同内容拒绝。SQLite 备份由官方 Online Backup API 实现；不得用正在写入的单个 `.db` 文件复制来声称一致性备份。
+
+**版本选择的请求级规则**：`GetServiceConfigBundleRequest` 的 `deployment_id=1`、`service_id=2`、`revision_id=3` 与正式 Proto 完全一致；该 RPC 的 `revision_id=0` 表示当前已发布修订，不能错误套用 CreateCandidate 的空库 CAS 约定。该 RPC 返回 `repository_revision_id`、`target_revision`、`files[]`、`manifest_sha256` 和 `total_bytes`。Service 不通过任意 GetConfigBundle roots 绕过 Deployment 的精确目标。
 
 ### 10.4.1 实现分层、固定引用和运行恢复的编码要求
 

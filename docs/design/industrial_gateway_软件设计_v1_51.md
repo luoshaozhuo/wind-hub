@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_50 · 20261123 · GW2MW BusinessPoint 单射版本引用</p>
+<p class="subtitle">v1_51 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -776,7 +776,7 @@ System Test 必须遵守以下规定：
 
 Gateway 管理实际工业协议 Server，保持协议库原生读写语义。上游通过 gRPC 更新数据；工业客户端命令写入事件才可能转发 Commander。Gateway 不直接控制真实 PLC，不验证实际控制效果。
 
-**契约版本边界：** 以当前正式 Proto 为现行契约依据：CommonService 9 项、IndustrialGatewayService 10 项，共 **19 个 Unary RPC**。Gateway 8 项包含 `UpdateVariables` 与 `ClaimTargets`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
+**契约版本边界：** 以当前正式 Proto 为现行契约依据：CommonService 9 项、IndustrialGatewayService 10 项，共 **19 个 Unary RPC**。Gateway 专属 10 项包含 `UpdateVariables`、`ClaimTargets`、`ExecuteSimulationCommand` 与 `GetSimulationExecutionResult`，前者具有 `lease_token` 字段。此次修订将已验收的扩展正式纳入设计，不将其误记为 v1_9 的原始契约。
 
 ## 3.2 UR-01 网关数据更新
 
@@ -1870,7 +1870,7 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 
 ### 11.7.2 仿真执行接口、绑定与权威结果
 
-**实际配置契约（R2）**：工业写监听的 `servers[].control.target.kind` 只能是 `commander` 或 `none`，不得再提供 `data_generator` 分支。仿真执行目标独立配置为 `servers[].control.simulation = {endpoint, token_env, scenario_id}`，其中 `tls.enabled=true` 且 CA、客户端证书与私钥必须有效；`scenario_id` 只指定模型场景，不允许硬编码运行态 Generation ID。该字段仅在 `control.enabled=true` 时允许出现。Gateway gRPC 入站 `grpc.tls.enabled=true` 且对 Commander 证书主体显式授予 `simulation_execute`，Commander 为读取目标 Gateway revision 还需 `read` 权限；本机明文模式也不得执行仿真控制。
+**实际配置契约（R2）**：工业写监听的 `servers[].control.target.kind` 只能是 `commander` 或 `none`，不得再提供 `data_generator` 分支。仿真执行目标独立配置为 `servers[].control.simulation = {endpoint, token_env, scenario_id}`，其中内部 gRPC 不启用 TLS/mTLS，调用须携带服务端校验的受控令牌并在隔离内网执行；`scenario_id` 只指定模型场景，不允许硬编码运行态 Generation ID。该字段仅在 `control.enabled=true` 时允许出现。Gateway gRPC 入站使用隔离网络加受控令牌授权，按可信主体显式授予 `simulation_execute`，Commander 为读取目标 Gateway revision 还需 `read` 权限；不得允许无授权明文或匿名调用执行仿真控制。
 
 **跨层身份约束**：工业写事件用稳定 `request_id` 向 Commander 提交；一次 Commander 批次可能包含多个子命令，因此下游 Gateway 的 `SimulationCommandRequest.request_id` 必须为对应子命令的持久 `command_id`，Generator `UpdateVariables.request_id` 使用相同值；Commander 批次 `request_id` 留在 Commander 仓储和对外查询中。Gateway 的 `GetSimulationExecutionResult` 按该子命令 ID 查询，不把批次 ID 当作单一模型写入 ID。Gateway 的 ACCEPTED/effective_step 只证明模型原子受理，未取得已生效证据不得声明 APPLIED。
 
@@ -1900,7 +1900,9 @@ flowchart LR
 
 Industrial Gateway 和 Data Generator 共享 `configs/instances/devices_sim.yaml` 及其精确引用的独立 `*_sim_physical_1.0.0.yaml` 型号、仿真 Point Table。前者拥有工业协议 Server 的点位、地址、读写行为及控制转发映射；后者只生成 `device_id + point_id` 的原始值。Data Generator 的 Scenario 仅按设备选择 Gateway 实例，不维护逐点 `feedback_mapping`；Gateway `ListVariables` 中的变量 ID 与共享 Point Table 的点 ID 相同，`UpdateVariables` 仍须完成租约、类型及变量所有权校验。Gateway 自有的控制转发 `control.mappings` 不受此规则影响。
 
-## 11.9 GW2MW 设备配置候选版与 Gateway 数据身份（v1_50）
+## 11.9 GW2MW 设备配置候选版与 Gateway 数据身份（v1_51）
+
+正式变量身份在每个 Gateway 设备作用域内等于已选 PointTable 的 `point_id`；跨设备业务键使用 `(device_id, point_id)` 组合，不把 `<device_id>.<point_id>` 当作 Gateway 单设备变量 ID。内部仿真 RPC 由受控令牌和隔离网络授权，禁用 TLS/mTLS 的目标设计不等于允许匿名访问。
 
 Gateway 仍按真实协议设备 Instance 和 DeviceModel 的固定版本装配，只负责工业协议 Server 与可信变量身份映射，不对采样数据执行 BusinessPoint 标准化。GW2MW 新候选 Device Instance `device_farm-a_v1.5.0.yaml` 固定模型 `wtg_gw2mw@1.5.0`，模型固定 ADS PointTable `ads_wtg_gw2mw@1.2.0`；111 个源 Point ID、ADS Symbol 和地址未变，BusinessPoint 映射一对一。真实服务器在切换过程中禁止将不同版本的完整 PointTable 混用，且不得把未经 OEM 审定的业务候选用于控制授权。仍使用原正式 `prod-a@1.3.0`；新 `prod-a@1.4.0` 仅用于设计候选审查。
 

@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_60 · 20261123 · BusinessPoint 标准目录与仿真独立闭包</p>
+<p class="subtitle">v1_61 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约（C7）**：Configuration Repository 是唯一配置发布者；Deployment 精确选定不可变 Service 和 Instance 文件版本，Service 只通过逻辑身份引用 Scenario 等 Instance，Instance 引用 Template。发布成功仅表示目标修订成立，不代表 Data Generator 已激活。Data Generator 在拉取目标闭包后独立进行模型拓扑、输出目标唯一性和运行安全校验；失败保留旧运行代际和 active_revision，报告 target_revision 与失败原因。旧 Push/ApplyConfigSnapshot 不再是有效发布或激活入口。
 
@@ -3068,7 +3068,7 @@ scenarios:
 
 **固定物理模型**：设备仅通过 `device_id` 绑定已生效共享实例，由实例型号模板读取 `simulation.parameters`，全部默认输出点来自设备 Point Table。气象绑定 `weather_ref`、控制归属 `controller_mode` 仅属于运行方案。可配置随机模型的分布及规则继续属于 Scenario，不将其变成设备固有参数。
 
-**Gateway 设备级路由**：每项必须指定 `gateway_id`、`endpoint`、`device_id`。默认目标变量身份为完整限定名 `<device_id>.<point_id>`；当 Gateway 的正式点表使用不同的变量名或源点需投送同一 Gateway 的多个目标时，可在该 Gateway 路由上填写可选 `variable_mapping`：键为有效源 `point_id`，值为非空目标 `variable_id` 字符串或非空字符串列表。未显式映射的源点使用默认限定名。不同源点不得复用相同 `(gateway_id,variable_id)`，不得引用未启用的源点。`feedback_mapping` 仍由 Gateway 负责，不能在此重复声明。一个设备可以投送多个不同 Gateway，各服务实例的变量必须预检数据类型和可写属性；目标 `(gateway_id, variable_id)` 唯一占用、租约和 UNKNOWN 不重放语义保持不变。Gateway 管理寄存器地址映射与控制事件转发。
+**Gateway 设备级路由**：每项必须指定 `gateway_id`、`endpoint`、`device_id`。默认目标变量身份为目标设备 PointTable 的 `point_id`；当 Gateway 的正式点表使用不同的变量名或源点需投送同一 Gateway 的多个目标时，可在该 Gateway 路由上填写可选 `variable_mapping`：键为有效源 `point_id`，值为非空目标 `variable_id` 字符串或非空字符串列表。未显式映射的源点使用原始 `point_id`。不同源点不得复用相同 `(gateway_id,variable_id)`，不得引用未启用的源点。`feedback_mapping` 仍由 Gateway 负责，不能在此重复声明。一个设备可以投送多个不同 Gateway，各服务实例的变量必须预检数据类型和可写属性；目标 `(gateway_id, variable_id)` 唯一占用、租约和 UNKNOWN 不重放语义保持不变。Gateway 管理寄存器地址映射与控制事件转发。
 
 文件真值 JSONL 的应用层职责为源批次语义、顺序与值封装；`application/ports/recording.py` 定义追加 Port，`infrastructure/adapters/outbound/recording.py` 负责安全目录解析、JSONL 编码及异步文件追加。正式启动入口注入 `JsonlRecordWriter`，没有记录 Adapter 而启用了 `recording.enabled` 时必须拒绝，不允许静默丢弃记录。
 
@@ -3084,7 +3084,9 @@ scenarios:
 
 Data Generator 的仿真变量通过 Device Instance、DeviceModel、PointTable 及变量映射表达，使用与对应真实设备相同的 BusinessPoint 标准，不得仅因 `sim`、型号或模拟协议而创建不同含义的业务标准。模型状态可以使用独立内部变量标识，只有实际对外测点才通过相同类型的 PointTable 与业务标准绑定；不同位置/统计口径必须显式区分。同一有效 PointTable 中每个 Point 的 `business_point_id` 必填、且不可与其他 Point 重复。
 
-Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator 自行从 Configuration Repository gRPC 读取对应的完整修订闭包。正在执行的物理模型和随机场景持有完整不可变配置快照，更新不得混合不同修订的模型参数、仿真变量映射及 Gateway 目标；不能安全热切换的参数返回重启要求。Data Generator 不填写 Collector 的采集修订号；当 Collector 从 Gateway/协议对端采样时，由 Collector 根据自身生效配置填写 `SampleBatch.config_revision_id`。
+Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator 自行从 Configuration Repository gRPC 读取对应的完整修订闭包。正在执行的物理模型和随机场景持有完整不可变配置快照，更新不得混合不同修订的模型参数、仿真变量映射及 Gateway 目标；不能安全热切换的参数返回重启要求。Data Generator 不填写 Collector 的采集修订号；当 Collector 从 Gateway/协议对端采样时，Collector 仅在运行态记录生效配置闭包，不向 SampleBatch v3 增加 `config_revision_id` 字段。
+
+**变量身份定案**：单设备 Gateway API 使用 PointTable 原始 `point_id`，跨设备区分使用设备 ID+Point ID 的结构化键；需要改名/扇出时仅在路由 `variable_mapping` 中显式指定。Data Generator 不创建独立第二套变量目录，不伪造采样配置修订。现行 DataGeneratorService 恰有 9 项专属 RPC，受控内部连接禁用 TLS/mTLS 并要求令牌。
 
 ## 11.5 校验和验收
 

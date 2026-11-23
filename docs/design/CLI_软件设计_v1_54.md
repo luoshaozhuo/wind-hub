@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_53 · 20261123 · BusinessPoint 版本配置候选与全量发布</p>
+<p class="subtitle">v1_54 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 <style>
 body {
@@ -1898,8 +1898,8 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `service status` | 可选 SERVICE | 运行时管理器 + 服务 gRPC | 进程状态与业务健康分别显示 |
 | `service start/stop/restart` | SERVICE | containerd/iSulad/process | 操作真实进程或容器 |
 | `config get` | TYPE、ID、版本或 revision、`--output PATH`；显式 `--scope` 才查询服务快照 | Repository GetConfig / Common GetConfigSnapshot | 读取精确不可变 Repository 版本；本地快照只作运行诊断 |
-| `config push` | SERVICE、PATH | Common PushConfigSnapshot | 现存服务本地候选暂存命令；不能发布或覆盖 Repository 业务配置，需防旁路审查 |
-| `config apply` | SERVICE、CANDIDATE_ID | Common ApplyConfigSnapshot | 现存服务本地应用命令；不能替代 Deployment 目标选择，需检查服务端写入权限与作用域 |
+| `config publish` | `--root PATH` | Repository CreateCandidate/PublishCandidate | 唯一业务配置发布入口；完整目录快照和 CAS 原子提交 |
+
 | `config diff` | PATH_A PATH_B | pathlib/filecmp/difflib | 完整目录数量、容量、文本差异 |
 | `collector devices/device` | [DEVICE]/DEVICE | Collector ListDevices/GetDevice | 列表与详情 |
 | `collector points/point` | DEVICE [POINT] | Collector ListPoints/GetPoint | 测点元信息 |
@@ -2065,6 +2065,8 @@ UNCHANGED templates/protocols/modbus/1.0.0.yaml
 CLI 只处理本地配置目录的完整扫描、候选一次性全量上传和原子发布，用户可一次执行 `wind-hub config publish --root ./configs`；不增设单文件发布或字段 PATCH 作为独立生产发布方式。`configuration apply` 下载→Push→Apply 属退役业务发布路径，不作为现行命令或兼容写入能力。`configuration diff` 继续作为本地目录文本差异诊断，不影响正式发布语义。
 
 Sink Delivery 必须显式声明 `output.data_level: raw|protocol|business`，不提供默认值；未明确等级时发布校验拒绝。CLI 不自行进行数据转换。CLI 展示的“配置发布成功”仅指 Configuration SQLite 已提交；通知/模块生效属于独立观测结果，不能伪装成同一原子事务。
+
+**命令树约束**：`config publish --root <configs>` 为规范发布命令；旧 `config push`、`config apply` 不得作为生产业务配置修改入口，可能尚存在的 CLI 注册属于后续代码清理问题。Commander 控制命令以现行 `commander.proto` 全部 RPC 和 CLI 命令实际注册树动态盘点，不凭旧的 51 RPC/73 命令定额验收。发布成功仅表示 Repository 事务提交，不逐模块调用 Apply，不承诺所有服务同时生效。
 
 ## 10.5 Collector 对象查询和实时监视输出
 

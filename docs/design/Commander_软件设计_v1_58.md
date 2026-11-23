@@ -1,6 +1,6 @@
 <h1 class="title">Commander 软件设计</h1>
 
-<p class="subtitle">v1_57 · 20261123 · GW2MW 设备版本切换与控制安全</p>
+<p class="subtitle">v1_58 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC，广播仅用于唤醒，配置闭包查询由 Repository 提供。
 
@@ -2366,8 +2366,8 @@ flowchart LR
 | `GetServiceStatus` | `Empty` → `GetServiceStatusResponse` | 返回健康状态、依赖健康列表及观测时间；存储降级、审计积压与设备阻塞应准确反映，不得混淆存活与业务就绪 |
 | `GetCapabilities` | `Empty` → `GetCapabilitiesResponse` | 报告实际实现的 RPC 名、协议和功能；未实现的能力不宣称已支持 |
 | `GetConfigSnapshot` | `GetConfigSnapshotRequest` → `GetConfigSnapshotResponse` | 按 `DISK`、`RUNTIME`、`CANDIDATE` 和 `candidate_id` 查询对应配置；返回文件及校验、应用结果；候选不可冒充生效版本 |
-| `PushConfigSnapshot` | `PushConfigSnapshotRequest` → `PushConfigSnapshotResponse` | 对提交文件及 `expected_revision` 执行完整校验和并发版本检查，生成候选快照；不在推送时改变运行配置 |
-| `ApplyConfigSnapshot` | `ApplyConfigSnapshotRequest` → `ApplyConfigSnapshotResponse` | 按 `candidate_id` 和 `expected_revision` 校验后提交文件并应用允许热更新的设备配置；准确返回 `file_commit`、逐对象结果、`effective_revision` 与 `restart_required` |
+| `PushConfigSnapshot` | 历史 Common RPC | 不再作为 Commander 业务配置的发布入口；不能覆盖 Configuration Repository 所选 Deployment 闭包 |
+| `ApplyConfigSnapshot` | 历史 Common RPC | 不得写入或激活 Commander 业务配置，目标版本以 Repository/Deployment 为唯一权威 |
 | `GetMetrics` | `GetMetricsRequest` → `GetMetricsResponse` | 根据 `scope/window_ms` 返回可测量指标；每项包含名称、数值、单位、窗口与采样时间；窗口无效时返回明确错误 |
 | `GetEvents` | `GetEventsRequest` → `GetEventsResponse` | 按时间、过滤条件及分页读取运行事件；`Event` 仅含契约规定字段；不可把业务审计 Outbox 完整记录冒充为该响应 |
 | `Diagnose` | `DiagnoseRequest` → `DiagnoseResponse` | 根据目标、阶段和超时完成只读诊断；按阶段返回状态、耗时、证据和局限；不得为诊断隐式发起控制写入 |
@@ -2543,6 +2543,8 @@ SQLite 需持久保存 request_id、可信 caller_id、规范化指纹、command
 # 11. 配置与动态生效
 
 ### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
+
+**唯一业务配置写入路径**：授权 CLI 的全目录发布→Configuration Repository 原子提交→服务通过 GetServiceConfigBundle 获取 Deployment/Service 精确闭包→服务安全生效或待重启。Commander Common 的历史 Push/Apply 不是第二套业务写入入口。控制请求 SubmitCommands/GetRequestResult 与配置版本选择无关；不允许以编辑 Service 中 templates.root 或原地改 YAML 实施配置变更。
 统一采用 Service → Instances → Templates；Service 只引用 Instance 的逻辑身份，不能再使用 config_sources.templates.root 或在 Service 里指定 Instance 的具体版本。Deployment 按部署域选择各 Service/Instance 版本；Instance 显式固定 Template 版本。现有直接模板来源配置及与本节冲突的描述必须随编码一并移除。
 CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修订；服务启动、收到广播、周期对账时自行获取验证目标有效闭包。能热更新则安全切换，不能则保持旧运行值等待重启；配置应用失败不得丢失已生效配置。报告 target_revision 与 active_revision 两个完整有效闭包标识；仅全部收敛时二者一致。
 
@@ -2600,7 +2602,7 @@ dispatcher:
   max_concurrency: 100                 # 正整数；未收敛 I/O 仍占额度
   max_pending_per_device: 10          # 正整数；单设备排队上限
   max_pending_global: 1000            # 正整数；全局排队上限
-  max_batch_size: 10                  # 内部批量编排上限；非现有 gRPC 批量接口
+  max_batch_size: 10                  # 内部批量编排上限；正式 SubmitCommands/GetRequestResult RPC 已存在，不属于拟议接口
 
 repository:
   sqlite_path: "/var/lib/wind-hub/commander/events.db"
