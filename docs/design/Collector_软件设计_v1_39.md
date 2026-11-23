@@ -3115,7 +3115,7 @@ Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包�
 
 ## 10.4 NATS 投递及可靠性边界
 
-Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现有三种采集模式发送 `SampleBatch(schema_version=2)`；目标切换后发送携带不可变 `point_table_id` 的 v3，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
+Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现行三种采集模式发送携带不可变 `point_table_id` 的 `SampleBatch(schema_version=3)`，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
 
 ## 10.5 指标时间和历史职责
 
@@ -3204,7 +3204,7 @@ Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集�
 
 
 
-**配置与数据契约：**现有代码以 `SampleBatch(schema_version=2)` 运行；目标以 Contracts v1_38、总体设计 v1_22 的 v3 版本和集中 Configuration gRPC 拉取为规范。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
+**配置与数据契约：**现行代码按 `SampleBatch(schema_version=3)` 和 Configuration 依赖闭包运行，消息字段以 Contracts 与当前实现为准。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
 
 ## 11.1 三类配置与所有权
 
