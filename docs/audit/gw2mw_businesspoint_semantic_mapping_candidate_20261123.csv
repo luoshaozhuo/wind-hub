@@ -1,112 +1,112 @@
-point_table_id,point_id,proposed_business_point_id,verification
-ads_wtg_gw2mw,a02_dm_pitchangle1,pitch_angle_dm_blade_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,a03_dm_pitchratedemand1,pitch_rate_command_dm_blade_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitch_position_blade_1,blade_1_pitch_angle,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitch_position_blade_2,blade_2_pitch_angle,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitch_position_blade_3,blade_3_pitch_angle,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitchratedemand1,blade_1_pitch_rate_demand,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitchratedemand2,blade_2_pitch_rate_demand,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pitchratedemand3,blade_3_pitch_rate_demand,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,s_expectedpitchangle1,blade_1_pitch_angle_expected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,s_expectedpitchangle2,blade_2_pitch_angle_expected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,s_expectedpitchangle3,blade_3_pitch_angle_expected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pa_rpitchratelowerlimit_degps,pitch_rate_lower_limit,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,pa_rpitchrateupperlimit_degps,pitch_rate_upper_limit,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_maximumpitchratelimit,pitch_rate_limit_max_configured,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_minimumpitchratelimit,pitch_rate_limit_min_configured,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_pitchangletolerance,pitch_angle_tolerance,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_dualpitchspeedgainsspeedthreshold,pitch_speed_gain_speed_threshold,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_fastshutdownpitchrate,pitch_rate_fast_shutdown,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_converter_active_power_1s,converter_active_power_mean_1s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_converter_reactive_power_1s,converter_reactive_power_mean_1s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,converter_in_torque,converter_input_torque,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,converter_reactive_power_control_enable,converter_reactive_power_control_enabled,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,converter_reactive_power_setpoint,converter_reactive_power_setpoint,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,from_converter_temperature,converter_inlet_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,to_converter_temperature,converter_outlet_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,gh_control_converter_dc_current_setpoint,converter_dc_current_setpoint,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,gh_control_converter_torque_setpoint,converter_torque_setpoint_control,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_converter_active_power,converter_active_power_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_converter_reactive_power,converter_reactive_power_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_converter_in_torque,converter_input_torque_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_converter_torque_reference,converter_torque_reference_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_pitch_converter_temperature_1,blade_1_pitch_converter_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_pitch_converter_temperature_2,blade_2_pitch_converter_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_pitch_converter_temperature_3,blade_3_pitch_converter_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,mean_converter_active_power_max,converter_active_power_max_statistic,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,mean_converter_reactive_power_max,converter_reactive_power_max_statistic,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,a01_dm_generatorspeed,generator_speed_dm_a01,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_speed_momentary,generator_speed_instantaneous,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_generator_speed_10m,generator_speed_mean_10m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_generator_speed_10s,generator_speed_mean_10s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_generator_speed_1m,generator_speed_mean_1m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,d_generatorspeedsetpoint,generator_speed_setpoint_device,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,d_generatortorquesetpoint,generator_torque_setpoint_device,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_temperature_1,generator_temperature_sensor_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_temperature_2,generator_temperature_sensor_2,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_temperature_3,generator_temperature_sensor_3,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_temperature_4,generator_temperature_sensor_4,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,generator_temperature_momentary_max,generator_temperature_instantaneous_max,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,hmi_control_generator_speed_set_point,generator_speed_setpoint_hmi,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_maxgeneratorspeedforswtrip,generator_speed_trip_limit_max,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_maximumgeneratortorque,generator_torque_limit_max,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_ratedgeneratorspeed,generator_speed_rated_parameter,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,ratedgeneratorspeed,generator_speed_rated_value,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,lp_ratedgeneratortorque,generator_torque_rated_parameter,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,hubtemp,hub_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,hub_temperature_avg_2m,hub_temperature_mean_2m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_hubtemp,hub_temperature_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,opcrotorspeed,rotor_speed_opc,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,rao_rotorspeedrtds,rotor_speed_rao_rtds,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,hmi_control_rotor_speed_max,rotor_speed_limit_max_hmi,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,prot_hmi_control_rotor_speed_max,rotor_speed_limit_max_protected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,rotor_lock_activated,rotor_lock_activated,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,profi_in_rotor_locked,rotor_lock_feedback_profinet_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,profi_in_rotor_locked2,rotor_lock_feedback_profinet_2,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,prot_bhubfanonstatus,hub_fan_running_protected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,prot_bhubfanstart,hub_fan_start_command_protected,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,hmi_control_start_hubfan,hub_fan_start_command_hmi,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,err_hubfanfault,hub_fan_fault_active,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,err_hubtemphi,hub_temperature_high_fault,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,warn_hubtemphi,hub_temperature_high_warning,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,gh_limitpower_local_rotor_speed_calculation_result,rotor_speed_power_limit_calculated,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,a07_dm_windspeed,wind_speed_dm_a07,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,ambient_temperature,air_temperature,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,ambient_temperature_avg_2m,air_temperature_mean_2m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,averagewindspeed_10m,wind_speed_mean_10m_controller,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_speed_3s,wind_speed_mean_3s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_speed_10s,wind_speed_mean_10s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_speed_10m,wind_speed_mean_10m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_speed1_10m,wind_speed_sensor_1_mean_10m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_speed2_10m,wind_speed_sensor_2_mean_10m,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_vane_wind_direction_25s,wind_direction_mean_25s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_vane_wind_direction1_25s,wind_direction_sensor_1_mean_25s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,average_wind_vane_wind_direction2_25s,wind_direction_sensor_2_mean_25s,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,measuredwindspeed,wind_speed_measured,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,opcwindspeed,wind_speed_opc,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,mean_wind_speed_max,wind_speed_mean_max_statistic,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,mean_wind_speed_min,wind_speed_mean_min_statistic,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_cutoutwindspeed1,wind_speed_cutout_threshold_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_cutoutwindspeed2,wind_speed_cutout_threshold_2,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,mean_ambient_temperature_max,air_temperature_mean_max_statistic,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,d_highyawerrorthreshold,yaw_error_high_threshold,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,d_highyawerroraverageyawerror,yaw_error_high_mean,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,in_ryawpositioncurrentvalue1_inst_deg,yaw_position_sensor_1_instantaneous,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,in_ryawpositioncurrentvalue2_inst_deg,yaw_position_sensor_2_instantaneous,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,in_ryawspeedcurrentvalue1_inst_degps,yaw_rate_sensor_1_instantaneous,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,in_ryawspeedcurrentvalue2_inst_degps,yaw_rate_sensor_2_instantaneous,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,measuredyawerror,yaw_error_measured,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,prot_mainyawposition,yaw_position_protected_main,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,prot_mainyawspeed,yaw_rate_protected_main,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_aboveratedyawerrorlimit,yaw_error_limit_above_rated,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_yawpitchkickyawerrorthreshold,yaw_error_pitch_kick_threshold,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_highyawerroryawavt,yaw_error_high_average_threshold,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_nacelleaccmaxyawerror,yaw_error_limit_nacelle_acceleration,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,storage_yaw_position,yaw_position_stored_1,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,storage_yaw_position_2,yaw_position_stored_2,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,storage_yaw_speed,yaw_rate_stored,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_yaw_position,yaw_position_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,visu_yaw_speed,yaw_rate_display,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,err_yawspeedoutofrange,yaw_rate_out_of_range_fault,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_yawerrorderatingenable,yaw_error_derating_enabled,PENDING_OEM_SEMANTICS
-ads_wtg_gw2mw,p_yawerrorflag,yaw_error_flag_configured,PENDING_OEM_SEMANTICS
+point_table_id,point_id,old_business_point_id,proposed_business_point_id,source_unit,source_data_type,standard_unit,standard_data_type,ads_symbol,identity_basis,verification
+"ads_wtg_gw2mw","a02_dm_pitchangle1","pitch_angle","pitch_angle_dm_blade_1","degree","REAL","degree","float32",""".A02_DM_PITCHANGLE1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","a03_dm_pitchratedemand1","pitch_rate_setpoint","pitch_rate_command_dm_blade_1","degree_per_second","REAL","degree_per_second","float32",""".A03_DM_PITCHRATEDEMAND1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitch_position_blade_1","pitch_angle","blade_1_pitch_angle","degree","REAL","degree","float32",""".PITCH_POSITION_BLADE_1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitch_position_blade_2","pitch_angle","blade_2_pitch_angle","degree","REAL","degree","float32",""".PITCH_POSITION_BLADE_2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitch_position_blade_3","pitch_angle","blade_3_pitch_angle","degree","REAL","degree","float32",""".PITCH_POSITION_BLADE_3""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitchratedemand1","pitch_rate_setpoint","blade_1_pitch_rate_demand","degree_per_second","REAL","degree_per_second","float32",""".PITCHRATEDEMAND1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitchratedemand2","pitch_rate_setpoint","blade_2_pitch_rate_demand","degree_per_second","REAL","degree_per_second","float32",""".PITCHRATEDEMAND2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pitchratedemand3","pitch_rate_setpoint","blade_3_pitch_rate_demand","degree_per_second","REAL","degree_per_second","float32",""".PITCHRATEDEMAND3""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","s_expectedpitchangle1","pitch_angle","blade_1_pitch_angle_expected","degree","REAL","degree","float32",""".S_EXPECTEDPITCHANGLE1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","s_expectedpitchangle2","pitch_angle","blade_2_pitch_angle_expected","degree","REAL","degree","float32",""".S_EXPECTEDPITCHANGLE2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","s_expectedpitchangle3","pitch_angle","blade_3_pitch_angle_expected","degree","REAL","degree","float32",""".S_EXPECTEDPITCHANGLE3""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pa_rpitchratelowerlimit_degps","pitch_rate_setpoint","pitch_rate_lower_limit","degree_per_second","REAL","degree_per_second","float32",""".PA_RPITCHRATELOWERLIMIT_DEGPS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","pa_rpitchrateupperlimit_degps","pitch_rate_setpoint","pitch_rate_upper_limit","degree_per_second","REAL","degree_per_second","float32",""".PA_RPITCHRATEUPPERLIMIT_DEGPS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_maximumpitchratelimit","pitch_rate_setpoint","pitch_rate_limit_max_configured","degree_per_second","REAL","degree_per_second","float32",""".P_MAXIMUMPITCHRATELIMIT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_minimumpitchratelimit","pitch_rate_setpoint","pitch_rate_limit_min_configured","degree_per_second","REAL","degree_per_second","float32",""".P_MINIMUMPITCHRATELIMIT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_pitchangletolerance","pitch_angle","pitch_angle_tolerance","degree","REAL","degree","float32",""".P_PITCHANGLETOLERANCE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_dualpitchspeedgainsspeedthreshold","pitch_rate_setpoint","pitch_speed_gain_speed_threshold","degree_per_second","REAL","degree_per_second","float32",""".P_DUALPITCHSPEEDGAINSSPEEDTHRESHOLD""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_fastshutdownpitchrate","pitch_rate_setpoint","pitch_rate_fast_shutdown","degree_per_second","REAL","degree_per_second","float32",""".P_FASTSHUTDOWNPITCHRATE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_converter_active_power_1s","turbine_active_power","converter_active_power_mean_1s","kilowatt","REAL","kilowatt","float32",""".AVERAGE_CONVERTER_ACTIVE_POWER_1S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_converter_reactive_power_1s","reactive_power","converter_reactive_power_mean_1s","kilovar","REAL","kilovar","float32",""".AVERAGE_CONVERTER_REACTIVE_POWER_1S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","converter_in_torque","generator_torque","converter_input_torque","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".CONVERTER_IN_TORQUE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","converter_reactive_power_control_enable","device_remote_control_enabled","converter_reactive_power_control_enabled","none","BOOL","none","bool",""".CONVERTER_REACTIVE_POWER_CONTROL_ENABLE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","converter_reactive_power_setpoint","reactive_power_setpoint","converter_reactive_power_setpoint","kilovar","REAL","kilovar","float32",""".CONVERTER_REACTIVE_POWER_SETPOINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","from_converter_temperature","converter_temperature","converter_inlet_temperature","celsius","REAL","celsius","float32",""".FROM_CONVERTER_TEMPERATURE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","to_converter_temperature","converter_temperature","converter_outlet_temperature","celsius","REAL","celsius","float32",""".TO_CONVERTER_TEMPERATURE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","gh_control_converter_dc_current_setpoint","grid_current","converter_dc_current_setpoint","ampere","REAL","ampere","float32",""".GH_CONTROL_CONVERTER_DC_CURRENT_SETPOINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","gh_control_converter_torque_setpoint","generator_torque_setpoint","converter_torque_setpoint_control","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".GH_CONTROL_CONVERTER_TORQUE_SETPOINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_converter_active_power","turbine_active_power","converter_active_power_display","kilowatt","REAL","kilowatt","float32",""".VISU_CONVERTER_ACTIVE_POWER""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_converter_reactive_power","reactive_power","converter_reactive_power_display","kilovar","REAL","kilovar","float32",""".VISU_CONVERTER_REACTIVE_POWER""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_converter_in_torque","generator_torque","converter_input_torque_display","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".VISU_CONVERTER_IN_TORQUE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_converter_torque_reference","generator_torque_setpoint","converter_torque_reference_display","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".VISU_CONVERTER_TORQUE_REFERENCE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_pitch_converter_temperature_1","converter_temperature","blade_1_pitch_converter_temperature","celsius","REAL","celsius","float32",""".VISU_PITCH_CONVERTER_TEMPERATURE_1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_pitch_converter_temperature_2","converter_temperature","blade_2_pitch_converter_temperature","celsius","REAL","celsius","float32",""".VISU_PITCH_CONVERTER_TEMPERATURE_2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_pitch_converter_temperature_3","converter_temperature","blade_3_pitch_converter_temperature","celsius","REAL","celsius","float32",""".VISU_PITCH_CONVERTER_TEMPERATURE_3""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","mean_converter_active_power_max","turbine_active_power","converter_active_power_max_statistic","kilowatt","REAL","kilowatt","float32",""".MEAN_CONVERTER_ACTIVE_POWER_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","mean_converter_reactive_power_max","reactive_power","converter_reactive_power_max_statistic","kilovar","REAL","kilovar","float32",""".MEAN_CONVERTER_REACTIVE_POWER_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","a01_dm_generatorspeed","generator_speed","generator_speed_dm_a01","revolution_per_minute","REAL","revolution_per_minute","float32",""".A01_DM_GENERATORSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_speed_momentary","generator_speed","generator_speed_instantaneous","revolution_per_minute","REAL","revolution_per_minute","float32",""".GENERATOR_SPEED_MOMENTARY""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_generator_speed_10m","generator_speed","generator_speed_mean_10m","revolution_per_minute","REAL","revolution_per_minute","float32",""".AVERAGE_GENERATOR_SPEED_10M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_generator_speed_10s","generator_speed","generator_speed_mean_10s","revolution_per_minute","REAL","revolution_per_minute","float32",""".AVERAGE_GENERATOR_SPEED_10S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_generator_speed_1m","generator_speed","generator_speed_mean_1m","revolution_per_minute","REAL","revolution_per_minute","float32",""".AVERAGE_GENERATOR_SPEED_1M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","d_generatorspeedsetpoint","generator_speed","generator_speed_setpoint_device","revolution_per_minute","REAL","revolution_per_minute","float32",""".D_GENERATORSPEEDSETPOINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","d_generatortorquesetpoint","generator_torque_setpoint","generator_torque_setpoint_device","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".D_GENERATORTORQUESETPOINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_temperature_1","generator_temperature","generator_temperature_sensor_1","celsius","REAL","celsius","float32",""".GENERATOR_TEMPERATURE_1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_temperature_2","generator_temperature","generator_temperature_sensor_2","celsius","REAL","celsius","float32",""".GENERATOR_TEMPERATURE_2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_temperature_3","generator_temperature","generator_temperature_sensor_3","celsius","REAL","celsius","float32",""".GENERATOR_TEMPERATURE_3""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_temperature_4","generator_temperature","generator_temperature_sensor_4","celsius","REAL","celsius","float32",""".GENERATOR_TEMPERATURE_4""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","generator_temperature_momentary_max","generator_temperature","generator_temperature_instantaneous_max","celsius","REAL","celsius","float32",""".GENERATOR_TEMPERATURE_MOMENTARY_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","hmi_control_generator_speed_set_point","generator_speed","generator_speed_setpoint_hmi","revolution_per_minute","REAL","revolution_per_minute","float32",""".HMI_CONTROL_GENERATOR_SPEED_SET_POINT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_maxgeneratorspeedforswtrip","generator_speed","generator_speed_trip_limit_max","revolution_per_minute","REAL","revolution_per_minute","float32",""".P_MAXGENERATORSPEEDFORSWTRIP""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_maximumgeneratortorque","generator_torque","generator_torque_limit_max","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".P_MAXIMUMGENERATORTORQUE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_ratedgeneratorspeed","generator_speed","generator_speed_rated_parameter","revolution_per_minute","REAL","revolution_per_minute","float32",""".P_RATEDGENERATORSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","ratedgeneratorspeed","generator_speed","generator_speed_rated_value","revolution_per_minute","REAL","revolution_per_minute","float32",""".RATEDGENERATORSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","lp_ratedgeneratortorque","generator_torque","generator_torque_rated_parameter","kilonewton_meter_torque","REAL","kilonewton_meter_torque","float32",""".LP_RATEDGENERATORTORQUE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","hubtemp","nacelle_temperature","hub_temperature","celsius","REAL","celsius","float32",""".HUBTEMP""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","hub_temperature_avg_2m","nacelle_temperature","hub_temperature_mean_2m","celsius","REAL","celsius","float32",""".HUB_TEMPERATURE_AVG_2M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_hubtemp","nacelle_temperature","hub_temperature_display","celsius","REAL","celsius","float32",""".VISU_HUBTEMP""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","opcrotorspeed","rotor_speed","rotor_speed_opc","revolution_per_minute","REAL","revolution_per_minute","float32",""".OPCROTORSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","rao_rotorspeedrtds","rotor_speed","rotor_speed_rao_rtds","revolution_per_minute","REAL","revolution_per_minute","float32",""".RAO_ROTORSPEEDRTDS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","hmi_control_rotor_speed_max","rotor_speed","rotor_speed_limit_max_hmi","revolution_per_minute","REAL","revolution_per_minute","float32",""".HMI_CONTROL_ROTOR_SPEED_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","prot_hmi_control_rotor_speed_max","rotor_speed","rotor_speed_limit_max_protected","revolution_per_minute","REAL","revolution_per_minute","float32",""".PROT_HMI_CONTROL_ROTOR_SPEED_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","rotor_lock_activated","device_running","rotor_lock_activated","none","BOOL","none","bool",""".ROTOR_LOCK_ACTIVATED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","profi_in_rotor_locked","device_running","rotor_lock_feedback_profinet_1","none","BOOL","none","bool",""".PROFI_IN_ROTOR_LOCKED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","profi_in_rotor_locked2","device_running","rotor_lock_feedback_profinet_2","none","BOOL","none","bool",""".PROFI_IN_ROTOR_LOCKED2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","prot_bhubfanonstatus","device_running","hub_fan_running_protected","none","BOOL","none","bool",""".PROT_BHUBFANONSTATUS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","prot_bhubfanstart","device_start_command","hub_fan_start_command_protected","none","BOOL","none","bool",""".PROT_BHUBFANSTART""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","hmi_control_start_hubfan","device_start_command","hub_fan_start_command_hmi","none","BOOL","none","bool",""".HMI_CONTROL_START_HUBFAN""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","err_hubfanfault","device_fault_active","hub_fan_fault_active","none","BOOL","none","bool",""".ERR_HUBFANFAULT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","err_hubtemphi","device_fault_active","hub_temperature_high_fault","none","BOOL","none","bool",""".ERR_HUBTEMPHI""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","warn_hubtemphi","device_warning_active","hub_temperature_high_warning","none","BOOL","none","bool",""".WARN_HUBTEMPHI""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","gh_limitpower_local_rotor_speed_calculation_result","rotor_speed","rotor_speed_power_limit_calculated","revolution_per_minute","REAL","revolution_per_minute","float32",""".GH_LIMITPOWER.LOCAL_ROTOR_SPEED_CALCULATION_RESULT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","a07_dm_windspeed","wind_speed","wind_speed_dm_a07","meter_per_second","REAL","meter_per_second","float32",""".A07_DM_WINDSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","ambient_temperature","air_temperature","air_temperature","celsius","REAL","celsius","float32",""".AMBIENT_TEMPERATURE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","ambient_temperature_avg_2m","air_temperature","air_temperature_mean_2m","celsius","REAL","celsius","float32",""".AMBIENT_TEMPERATURE_AVG_2M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","averagewindspeed_10m","wind_speed","wind_speed_mean_10m_controller","meter_per_second","REAL","meter_per_second","float32",""".AVERAGEWINDSPEED_10M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_speed_3s","wind_speed","wind_speed_mean_3s","meter_per_second","REAL","meter_per_second","float32",""".AVERAGE_WIND_SPEED_3S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_speed_10s","wind_speed","wind_speed_mean_10s","meter_per_second","REAL","meter_per_second","float32",""".AVERAGE_WIND_SPEED_10S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_speed_10m","wind_speed","wind_speed_mean_10m","meter_per_second","REAL","meter_per_second","float32",""".AVERAGE_WIND_SPEED_10M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_speed1_10m","wind_speed","wind_speed_sensor_1_mean_10m","meter_per_second","REAL","meter_per_second","float32",""".AVERAGE_WIND_SPEED1_10M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_speed2_10m","wind_speed","wind_speed_sensor_2_mean_10m","meter_per_second","REAL","meter_per_second","float32",""".AVERAGE_WIND_SPEED2_10M""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_vane_wind_direction_25s","wind_direction","wind_direction_mean_25s","degree","REAL","degree","float32",""".AVERAGE_WIND_VANE_WIND_DIRECTION_25S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_vane_wind_direction1_25s","wind_direction","wind_direction_sensor_1_mean_25s","degree","REAL","degree","float32",""".AVERAGE_WIND_VANE_WIND_DIRECTION1_25S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","average_wind_vane_wind_direction2_25s","wind_direction","wind_direction_sensor_2_mean_25s","degree","REAL","degree","float32",""".AVERAGE_WIND_VANE_WIND_DIRECTION2_25S""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","measuredwindspeed","wind_speed","wind_speed_measured","meter_per_second","REAL","meter_per_second","float32",""".MEASUREDWINDSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","opcwindspeed","wind_speed","wind_speed_opc","meter_per_second","REAL","meter_per_second","float32",""".OPCWINDSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","mean_wind_speed_max","wind_speed","wind_speed_mean_max_statistic","meter_per_second","REAL","meter_per_second","float32",""".MEAN_WIND_SPEED_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","mean_wind_speed_min","wind_speed","wind_speed_mean_min_statistic","meter_per_second","REAL","meter_per_second","float32",""".MEAN_WIND_SPEED_MIN""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_cutoutwindspeed1","wind_speed","wind_speed_cutout_threshold_1","meter_per_second","REAL","meter_per_second","float32",""".P_CUTOUTWINDSPEED1""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_cutoutwindspeed2","wind_speed","wind_speed_cutout_threshold_2","meter_per_second","REAL","meter_per_second","float32",""".P_CUTOUTWINDSPEED2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","mean_ambient_temperature_max","air_temperature","air_temperature_mean_max_statistic","celsius","REAL","celsius","float32",""".MEAN_AMBIENT_TEMPERATURE_MAX""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","d_highyawerrorthreshold","yaw_error","yaw_error_high_threshold","degree","REAL","degree","float32",""".D_HIGHYAWERRORTHRESHOLD""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","d_highyawerroraverageyawerror","yaw_error","yaw_error_high_mean","degree","REAL","degree","float32",""".D_HIGHYAWERRORAVERAGEYAWERROR""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","in_ryawpositioncurrentvalue1_inst_deg","nacelle_direction","yaw_position_sensor_1_instantaneous","degree","REAL","degree","float32",""".IN_RYAWPOSITIONCURRENTVALUE1_INST_DEG""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","in_ryawpositioncurrentvalue2_inst_deg","nacelle_direction","yaw_position_sensor_2_instantaneous","degree","REAL","degree","float32",""".IN_RYAWPOSITIONCURRENTVALUE2_INST_DEG""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","in_ryawspeedcurrentvalue1_inst_degps","yaw_rate","yaw_rate_sensor_1_instantaneous","degree_per_second","REAL","degree_per_second","float32",""".IN_RYAWSPEEDCURRENTVALUE1_INST_DEGPS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","in_ryawspeedcurrentvalue2_inst_degps","yaw_rate","yaw_rate_sensor_2_instantaneous","degree_per_second","REAL","degree_per_second","float32",""".IN_RYAWSPEEDCURRENTVALUE2_INST_DEGPS""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","measuredyawerror","yaw_error","yaw_error_measured","degree","REAL","degree","float32",""".MEASUREDYAWERROR""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","prot_mainyawposition","nacelle_direction","yaw_position_protected_main","degree","REAL","degree","float32",""".PROT_MAINYAWPOSITION""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","prot_mainyawspeed","yaw_rate","yaw_rate_protected_main","degree_per_second","REAL","degree_per_second","float32",""".PROT_MAINYAWSPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_aboveratedyawerrorlimit","yaw_error","yaw_error_limit_above_rated","degree","REAL","degree","float32",""".P_ABOVERATEDYAWERRORLIMIT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_yawpitchkickyawerrorthreshold","yaw_error","yaw_error_pitch_kick_threshold","degree","REAL","degree","float32",""".P_YAWPITCHKICKYAWERRORTHRESHOLD""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_highyawerroryawavt","yaw_error","yaw_error_high_average_threshold","degree","REAL","degree","float32",""".P_HIGHYAWERRORYAWAVT""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_nacelleaccmaxyawerror","yaw_error","yaw_error_limit_nacelle_acceleration","degree","REAL","degree","float32",""".P_NACELLEACCMAXYAWERROR""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","storage_yaw_position","nacelle_direction","yaw_position_stored_1","degree","REAL","degree","float32",""".STORAGE_YAW_POSITION""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","storage_yaw_position_2","nacelle_direction","yaw_position_stored_2","degree","REAL","degree","float32",""".STORAGE_YAW_POSITION_2""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","storage_yaw_speed","yaw_rate","yaw_rate_stored","degree_per_second","REAL","degree_per_second","float32",""".STORAGE_YAW_SPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_yaw_position","nacelle_direction","yaw_position_display","degree","REAL","degree","float32",""".VISU_YAW_POSITION""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","visu_yaw_speed","yaw_rate","yaw_rate_display","degree_per_second","REAL","degree_per_second","float32",""".VISU_YAW_SPEED""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","err_yawspeedoutofrange","device_fault_active","yaw_rate_out_of_range_fault","none","BOOL","none","bool",""".ERR_YAWSPEEDOUTOFRANGE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_yawerrorderatingenable","device_remote_control_enabled","yaw_error_derating_enabled","none","BOOL","none","bool",""".P_YAWERRORDERATINGENABLE""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
+"ads_wtg_gw2mw","p_yawerrorflag","device_warning_active","yaw_error_flag_configured","none","BOOL","none","bool",""".P_YAWERRORFLAG""","按源 Point 名区分物理位置/通道/统计窗口/设定值或状态；尚未取得 OEM 原始说明","PENDING_OEM_SEMANTICS"
