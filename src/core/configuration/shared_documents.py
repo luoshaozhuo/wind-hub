@@ -317,7 +317,7 @@ class SharedDocumentLoader:
             {
                 key: value
                 for key, value in business_points.items()
-                if key not in {"schema_version", "file_version"}
+                if key not in {"schema_version", "file_version", "config_sources"}
             },
             unit_catalog,
         )
