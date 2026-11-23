@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_36 · 20261123 · 集成后设计归并· 20261118 · 统一配置、CLI 进程管理与完整链路验收设计</p>
+<p class="subtitle">v0_36 · 20261123 · main 集成后设计归并</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
