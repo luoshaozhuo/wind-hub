@@ -204,3 +204,38 @@ Core v1_42 §业务语义明确要求同一继承展开后的 PointTable 内，`
 **本次执行状态**：GitHub 文件读取、提交、目录与四份 Deployment 文件路径检查已完成；Claude 独立复核 `NOT_RUN`；全部 Python Schema/Loader、Ruff/mypy/pytest、业务进程、Broker、TDengine、容量与真实数据链路均 `NOT_RUN`。
 
 **交付裁决**：`READY_FOR_CLAUDE_DESIGN_CONFIG_REVIEW`，而非 `READY_TO_FREEZE` 或 `READY_FOR_PRODUCTION`。若 Claude 发现设计/配置 P1/P2，先回交 ChatGPT 处理文件级缺陷；与生产代码有关的 P1/P2 进入独立代码审查台账，不在本次擅改源码。
+
+## 13. P0 裁决与候选配置闭包收口（2026-11-23）
+
+### 13.1 冻结总体设计的受控语义勘误
+
+总体设计 v1_27 继续保持原字节，不改其冻结正文。由于 §5.3.4 同时把 RAW 解释为“已解码标量”“解码前载荷”和“不是原始字节”，本节明确**废止其中不一致的旧解释**，作为本轮统一设计修订的裁决文本，供设计冻结评审批准：
+
+- RAW：仅指带来源、边界、时刻和字节编码证据的**协议解码前字节/帧**；现行 Collector 仅持有协议解码标量，不能提供 RAW 时必须报告 NOT_SUPPORTED。不能从已解码数值虚构字节、标示 RAW 或默认选择其它等级。
+- PROTOCOL：协议字序、标量类型等解码完成，尚未按 PointTable 的 scale/offset 或 Units 换算的来源标量。Collector 发布 SampleBatch v3，其源数据等级为 PROTOCOL。
+- BUSINESS：Sink 在精确且不可变的历史 PointTable、BusinessPoint、Units 闭包下，一次性执行比例/偏移、工程单位至标准单位换算及明确业务身份映射。PointTable 的已展开 Point→BusinessPoint 映射为单射；未经 OEM 审定的身份不可生产激活。
+- ENGINEERING 不是交付等级；不再默认 BUSINESS。Core 内部函数参数 `raw` 不定义对外 RAW 类型。
+- 业务配置唯一写入路径是 CLI 全量目录候选发布→Configuration Repository 原子保存→NATS 广播提示→各模块自行读取 Deployment/Service 固定闭包并安全生效；不存在业务服务的第二套 Push/Apply 发布权威。
+- RPC 字段以 `src/contracts/*.proto` 当前存在的字段号为准；`GetServiceConfigBundleRequest.revision_id=0` 明确表示当前已发布 revision，不能误用其他请求的 presence 语义。
+
+上述勘误**不修改总体原文**，评审时须明确批准其对冲突段落的替代效力；未批准前，总体设计的文字冲突仍需登记为设计冻结 P0，不得直接裁定 PASS。
+
+### 13.2 配置版本迁移和活动根边界
+
+本轮新建不覆盖的候选版本链：
+
+| 部署域 | 新候选 Deployment | Device Instance | 业务标准目录 | 额外条件 |
+|---|---|---|---|---|
+| prod-a | 1.5.0 | farm-a@1.6.0 | BP@1.5.0 / Units@1.2.0 | GW@1.2.0、TZ@1.2.0 PointTable；Storage-main@1.2.0、Sink-prod-a@1.3.0、Delivery-prod-a@1.5.0 |
+| sim-a | 1.2.0 | sim@1.3.0 | BP@1.5.0 / Units@1.2.0 | 5 个物理仿真 Model@1.2.0、对应 PointTable@1.2.0；CLI-sim@1.3.0 |
+| e2e-final | 1.0.1 | e2e-final@1.0.1 | BP@1.5.0 / Units@1.2.0 | 5 个物理仿真 Model@1.2.0、对应 PointTable@1.2.0；Storage/四出口目标保持 E2E 隔离 |
+
+保留全部旧版 YAML，以历史对象身份和原始 Git 字节追溯；旧 PointTable 未显式固定 BP/Units 的历史解释仍需证明其当时的发布闭包，不能靠新候选版本重新解释旧样本。**整个仓库 configs/ 目录不是可直接整体发布的活动根**：含多个同 deployment_id 的不同版本、未固定旧点表及不同语义候选。正式 CLI 发布必须从已选 Deployment 精确闭包构造独立、无歧义、完整的临时根目录，并经实际 Repository 校验；本阶段仅交付候选源，未发布、未运行。
+
+prod-a 候选中 Kafka Sink 模板 `kafka_history@1.1.0` 与 Storage-main@1.2.0 使用一致的 Topic `windhub-history` 和示例 Broker `192.168.1.20:9092`；该地址为未实测现场候选，不代表实际 Kafka 服务可达或认证准入。Source collector_id 采用所选 Service ID 的候选假设，须在后续代码/运行时专题核验真实消息头；Gateway STOP 目标的租约和权限未完成，不得启用。
+
+### 13.3 本轮延期事项
+
+生产代码未作进一步整改：Core/Configuration 历史闭包多版本读取实现、hard-coded BP@1.5.0 严格规则、全部 Service/CLI 的实际载入路径、TLS 旧配置、真实 Kafka/Storage 对接与 Storage 幂等实现均属于单独的软件审查专题。新候选设计与 YAML 必须由 Claude 只读审查确认引用闭包，文档/配置通过不代表这些代码已通过。
+
+RAW 真实协议字节、BUSINESS 历史 Manifest 与 OEM 的 111 个点审核均未满足生产运行门禁。文档/配置阶段可以申请结构冻结，**生产激活仍为 BLOCKED**。

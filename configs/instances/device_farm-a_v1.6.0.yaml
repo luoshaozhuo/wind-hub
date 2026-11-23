@@ -1,7 +1,7 @@
 # 新候选精确引用；历史 Device Instance 原样保留。
 # 候选新版本：引用 GW2MW BusinessPoint 一对一语义草案；未获 OEM 审定前不得激活生产。
 # =============================================================================
-# 文件：configs/instances/device_farm-a_v1.5.0.yaml
+# 文件：configs/instances/device_farm-a_v1.6.0.yaml
 # 用途：设备实例清单；两种风机型号各 5 台，全部连接本机仿真服务。
 # 字段说明（当前 Core SharedDocumentLoader 支持的全部设备配置字段）：
 #   schema_version：结构版本，当前为整数 1。
