@@ -753,8 +753,8 @@ System Test 必须遵守以下规定：
 ## 3.1 契约权威与目标状态
 
 - **代码基线**：`luoshaozhuo/wind-hub`，`fix/native-process-e2e-20261116@44d41aa90564a0efe0f86ce795b9b26bab171dbc`；该提交已通过仓库接口核对。
-- **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；新增模块修订通知 RPC 的消息及方法仍需在 `common.proto` 定义并生成代码。
-- **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，总计 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9）。
+- **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；模块修订通知仅通过 NATS Core `wh.config.changed` 广播，不新增 CommonService 通知 RPC。
+- **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，历史统计共 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9），**未计入 Configuration Repository 与 Storage 专属 RPC**，现行覆盖分母须动态枚举全部 Proto Descriptor。
 - **已发布契约**：`src/contracts/configuration_repository.proto` 已定义 Repository RPC，所有接口以 main 中的 Proto Descriptor 与生成绑定为准。
 - `src/contracts/sample_batch.py::SampleBatch(schema_version=3)` 属 Collector/Sink NATS 批量采样线协议；Sink→Kafka 输出为 JSON `schema_version=2`，二者独立于配置文件版本。
 

@@ -811,8 +811,8 @@ reason: "template only; not executed"
 
 | Deployment | 候选版本 | 设备 Instance | 确定性检查 |
 |---|---|---|---|
-| prod-a | 1.5.0 | farm-a@1.6.0 | GW 型号 1.5.0→PointTable 1.2.0；TZ 型号 1.4.0→PointTable 1.2.0；所有点表→BP1.5/Units1.2；Sink-prod-a1.3 + Delivery-prod-a1.5；Storage-main1.2 |
-| sim-a | 1.2.0 | sim@1.3.0 | 五个仿真型号 1.2.0→PointTable 1.2.0→BP1.5/Units1.2；CLI-sim1.3.0 不调用生产目标 |
+| prod-a | 1.5.0 | farm-a@1.6.0 | GW 型号 1.5.0→PointTable 1.2.0；TZ 型号 1.4.0→PointTable 1.2.0；所有点表→BP1.5/Units1.2；Sink-prod-a1.4 + Delivery-prod-a1.5；Storage-main1.2 |
+| sim-a | 1.2.0 | sim@1.4.0 | 五个仿真型号 1.2.0→PointTable 1.2.0→BP1.5/Units1.2；CLI-sim1.4.0 不调用生产目标 |
 | e2e-final | 1.0.1 | e2e-final@1.0.1 | 五个仿真型号 1.2.0→PointTable 1.2.0→BP1.5/Units1.2；Sink/Storage Kafka Topic 相同；E2E 设备完整 |
 
 以各部署独立所选闭包为分母，不要把旧 Deployment 和候选同 ID 的多个版本混成一个有效根；测试必须证明根目录全集无法直接发布时存在清晰拒绝，并能构建没有版本歧义的候选完整目录。原有历史版本的无依赖声明不代表其可以重新解释新业务目录。
@@ -829,10 +829,22 @@ Git Blob 原文保持一致；根内文件的相对路径仍为 `deployments/`�
 
 | 独立根目录 | YAML 文件数 | 唯一候选 Deployment | 发布状态 |
 |---|---:|---|---|
-| `deploy/config_roots/prod-a/` | 29 | prod-a@1.5.0 | 未发布，OEM/Manifest/真实 Broker 门禁 |
-| `deploy/config_roots/sim-a/` | 23 | sim-a@1.2.0 | 未发布，真实服务和独立管理面待核验 |
+| `deploy/config_roots/prod-a/` | 29 | prod-a@1.6.0 | 未发布，OEM/Manifest/真实 Broker 门禁 |
+| `deploy/config_roots/sim-a/` | 23 | sim-a@1.3.0 | 未发布，真实服务和独立管理面待核验 |
 | `deploy/config_roots/e2e-final/` | 35 | e2e-final@1.0.1 | 未发布，真实 E2E 尚未执行 |
 
 在 Claude 独立复测中，严格解析每个根的所有 YAML 并检查文件闭包，使用可读 Core Loader/Domain Snapshot 和 Configuration validate_only 纯校验能力时必须保持无业务服务、数据库和消息中间件启动。不把仓库总 `configs/` 目录视为可直接发布根，也不以文件复制冒充已经通过 Repository 发布。三根按不同部署域相互隔离，不允许用 prod-a 候选服务替代 e2e/sim 的业务进程。
 
 验证候选完整时，同时核对：Sink/Storage Topic=`windhub-history`、Broker=`192.168.1.20:9092`（生产示例），E2E 独立 Topic；prod-a 当前审批限制；111 条 GW2MW PENDING_OEM_SEMANTICS；旧历史 PointTable 尚未具备原始发布 Manifest 的事实。配置文件语法和引用 PASS 不替代这些外部运行及语义证据。
+
+## 15.4 第三轮静态复核重点（2026-11-23）
+
+新候选根保持不变的文件数：prod-a 29、sim-a 23、e2e-final 35。唯一候选 Deployment 当前为 prod-a@1.6.0、sim-a@1.3.0、e2e-final@1.0.1。此前 §15.2/15.3 中的旧候选版本表述均按本节最新候选生效，不能引用已经退出活动根的 prod-a@1.5.0 或 sim-a@1.2.0。
+
+N-01：`sink_kafka_history@1.1.0` 必须与原始 Git Blob `460fb5d96235b4a6713c85af6102efbde9f85f78` 全等；`kafka_history@1.2.0` 承担新的 `windhub-history` Topic 与串行 1 在途能力。prod-a 通过 Sink Instance@1.4.0 精确引用新模板，再由 Deployment@1.6.0 选择。
+
+N-02：CLI 的唯一规范叶子名称是 `commander batch` 和 `commander recover-device`；不额外列出 `submit-commands` 或 `recover` 别名。
+
+N-03/C-06：sim-a CLI@1.4.0 没有 TLS profile，全部受管目标使用独立 530xx 端口、`sim-a` 状态/日志目录及独立进程；Gateway@1.1.4、Commander@1.1.0、Generator@1.0.4、Device@1.4.0、Scenario@1.0.4、Configuration 本地 bootstrap 均须与目标身份互相一致。新的 token_sources 字段属于设计候选，严格运行时 Schema 是否接受必须单列风险，不可视作已通过软件测试。
+
+C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前已存在的文件实际生产发布状态均未凭 Git 推定为已批准；缺实物 Manifest 仍须明示。C-08 Gateway Sink STOP、安全 Listener 未配置、C-11 E2E 物理基础设施隔离、C-13 OEM、C-14 RAW/BUSINESS 外部证据，不应归入结构性文档缺陷关闭。软件测试始终保持 NOT_RUN。
