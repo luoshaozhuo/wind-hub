@@ -21,7 +21,7 @@ services:
     manager: process
     target: configuration
     process:
-      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/opt/wind-hub/src/deploy/e2e/configuration_bootstrap.yaml"]
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/opt/wind-hub/src/deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
       log_file: "/var/lib/wind-hub/e2e-final/logs/configuration.log"
