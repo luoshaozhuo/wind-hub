@@ -92,6 +92,7 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
     units = parse_unit_catalog(_content(documents.units))
     business_points = parse_business_points(_content(documents.business_points), units)
     definitions: dict[str, dict[str, Any]] = {}
+    strict_tables: set[str] = set()
     device_types: dict[DeviceTypeId, DeviceType] = {}
     models: dict[DeviceModelId, DeviceModel] = {}
     groups: dict[DeviceGroupId, DeviceGroup] = {}
@@ -105,6 +106,21 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
             raise ConfigError(f"{device_id}: unsupported protocol")
         table = definition.templates.point_table
         table_id = _point_table_identity(table.reference.template_id, table.reference.file_version)
+        for dependency in (table, *definition.templates.inherited_tables):
+            sources = dependency.document.get("config_sources", [])
+            if isinstance(sources, (list, tuple)) and any(
+                isinstance(source, Mapping)
+                and source.get("config_type") == "business_points"
+                and source.get("config_id") == "standard"
+                and source.get("file_version") == "1.5.0"
+                for source in sources
+            ):
+                strict_tables.add(
+                    _point_table_identity(
+                        dependency.reference.template_id,
+                        dependency.reference.file_version,
+                    )
+                )
         parents = tuple(reversed(definition.templates.inherited_tables))
         for index, parent in enumerate(parents):
             parent_data = _content(parent.document)
@@ -185,7 +201,10 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
             enabled=definition.enabled,
         )
 
-    point_tables = _point_tables({"point_tables": definitions}, business_points, units)
+    point_tables = _point_tables(
+        {"point_tables": definitions}, business_points, units,
+        strict_tables=frozenset(strict_tables),
+    )
     try:
         validate_core_config(
             units=units,
