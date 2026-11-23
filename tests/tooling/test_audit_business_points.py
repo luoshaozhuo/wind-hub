@@ -70,13 +70,13 @@ def test_audit_rejects_missing_model_point_table(tmp_path: Path) -> None:
     root = _root(tmp_path)
     _write(
         root / "templates/device_models/device_model_turbine_v1.0.0.yaml",
-        "schema_version: 1\nfile_version: 1.0.0\n"
+        "schema_version: 1\nfile_version: 1.0.0\ntemplate_id: turbine\n"
         "point_table:\n  id: missing\n  version: 1.0.0\n"
         "protocol:\n  id: modbus_tcp\n  version: 1.0.0\n",
     )
     _write(
         root / "templates/protocols/protocol_modbus_tcp_v1.0.0.yaml",
-        "schema_version: 1\nfile_version: 1.0.0\n",
+        "schema_version: 1\nfile_version: 1.0.0\ntemplate_id: modbus_tcp\n",
     )
     with pytest.raises(ValueError, match="missing point_table target"):
         audit(root, tmp_path / "results.csv")
@@ -172,4 +172,30 @@ def test_audit_rejects_multiple_standard_versions(tmp_path: Path) -> None:
         "schema_version: 1\nfile_version: 1.1.0\nbusiness_points: {}\n",
     )
     with pytest.raises(ValueError, match="one explicitly selected version"):
+        audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_service_filename_identity_mismatch(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    service = root / "services/service_collector-e2e_v1.0.0.yaml"
+    service.write_text(
+        service.read_text(encoding="utf-8").replace(
+            "service_id: collector-e2e", "service_id: other"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="filename/identity mismatch"):
+        audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_instance_filename_version_mismatch(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    site = root / "instances/site_e2e_v1.0.0.yaml"
+    site.write_text(
+        site.read_text(encoding="utf-8").replace(
+            "file_version: 1.0.0", "file_version: 2.0.0"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="filename/file_version mismatch"):
         audit(root, tmp_path / "results.csv")
