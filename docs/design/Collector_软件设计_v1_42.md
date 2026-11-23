@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_41 · 20261123 · BusinessPoint 版本迁移和采集语义</p>
+<p class="subtitle">v1_42 · 20261123 · 设计冲突与配置冻结整改</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC；由 Configuration 广播 revision 提示，Collector 独立对账。
 
@@ -1051,10 +1051,12 @@ flowchart TD
 
   目标方（Destination）               统一采样发布能力
 
-  业务输出（Output）                  具有设备 ID、点 ID、工程值、质量与时间的样本
+  业务输出（Output）                  具有设备 ID、点 ID、协议解码标量、质量与时间的样本
   -----------------------------------------------------------------------------------------
 
 ### 3.4.2 业务流程
+
+Collector 不执行 PointTable scale/offset、Unit 换算或 BusinessPoint 映射；本流程图与输出仅处理驱动已解码的来源标量、质量和时间。
 
 ``` mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
@@ -1068,7 +1070,7 @@ flowchart TD
  E --> F
  F --> G{"样本可确认?"}
  G -->|否| X["记录质量与错误"]
- G -->|是| H["工程换算、质量与时间标准化"]
+ G -->|是| H["协议标量保留、质量与时间校验"]
  H --> I["提交发布"]
 ```
 
@@ -1167,7 +1169,7 @@ flowchart TD
 
   目标方（Destination）               NATS / JetStream
 
-  业务输出（Output）                  按 Schema v2 编码的采样批量消息
+  业务输出（Output）                  按 Contracts SampleBatch v3 编码的采样批量消息
   -----------------------------------------------------------------------------
 
 ### 3.5.2 业务流程
@@ -3116,6 +3118,8 @@ Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包�
 当前 `src/contracts/sample_batch.py` 与 Collector BatchBuilder 发送严格 v3，并包含 `device_type` / `point_table_id`；重试及分批仍须维持样本身份和不可变历史解释规则。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
 ## 10.4 NATS 投递及可靠性边界
+
+正式来源载荷为 SampleBatch v3。历史 Schema v2 仅是迁移审计，不可据此重新构造当前消息；`config_revision_id` 不进入 SampleBatch。采集计划依据 Deployment→Service→Instance→Template 精确闭包，所有历史 PointTable 身份不可从“当前最新”推断。
 
 Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现行三种采集模式发送携带不可变 `point_table_id` 的 `SampleBatch(schema_version=3)`，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
 

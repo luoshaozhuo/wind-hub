@@ -1,6 +1,6 @@
 <h1 class="title">Storage Service 软件设计</h1>
 
-<p class="subtitle">v1_7 · 20261123 · BusinessPoint 单射的历史入库与查询语义</p>
+<p class="subtitle">v1_8 · 20261123 · 设计冲突与配置冻结整改</p>
 
 <style>
 body {font-family:"Microsoft YaHei";font-size:16px;line-height:1.75;color:#24292f}
@@ -1056,6 +1056,8 @@ flowchart TD
 
 幂等逻辑至少包含来源 `(wind_farm_id, collector_id, task_id, device_id, point_table_id, sample_id, point_id)`；具体数据库主键/冲突策略须证明同一事件重复写入无副作用、同时间戳不同来源点不会覆盖，并具有可检测的冲突处理。禁止仅以 `sample_time` 或 Kafka Offset 作为全局样本身份。
 
+**首版落库去重裁决**：Storage `logical_key` 由约定的风场/设备/来源点/点表版本/数据等级/采样时刻/样本 ID 形成，不将 Kafka delivery_id 当作业务样本身份；同 logical_key、同内容幂等，异内容冲突拒绝。Sink 的每 Delivery 去重是交付侧隔离，不能替代 Storage 侧样本幂等；Kafka JSON v2 不含 delivery_id，因此不得宣称下游可仅据该字段完成 require_dedup。
+
 ## 7.4 失败分类（处置细则见第 11 章）
 
 | 情况 | 处理 | Offset |
@@ -1115,7 +1117,7 @@ flowchart TD
 - 单飞键使用**完整逻辑身份**，而非仅表名短哈希：Database 按场站，Super Table 按设备类型/PointTable/数据等级/Schema 指纹，Sub Table 再包含设备完整身份；与第 10 章命名算法保持一致。
 - 进程内同一键只有一个创建执行者，其余等待同一结果；对不同键的 DDL 使用全局并发额度限制。创建请求的取消不能令已开始的底层 DDL 假定撤销。
 - 并发竞争采用 TDengine 支持的 `IF NOT EXISTS`，之后**每一个竞争者都校验**对象归属、TAG、列定义和哈希；不一致一律 `SCHEMA_CONFLICT`。进程内单飞只减少冗余 DDL，不替代数据库侧验证。
-- 首版限制**每个受管数据库只有一个有权限执行配置收敛的 Storage 实例**。Kafka Consumer 可多实例消费不同分区，但未授权的实例不执行库级参数 ALTER；跨进程建表仍依赖安全 DDL 和实际 Schema 验证，不引入分布式锁。多实例部署须明确唯一数据库策略所有者的运维配置，否则不满足自动收敛准入条件。
+- 首版限制**每个受管数据库只有一个有权限执行配置收敛的 Storage 实例**。首版 Kafka Consumer 和数据库元数据管理均仅允许同一个拥有独占 SQLite 锁的 Storage 实例运行；多实例消费者/共库部署属于后续独立设计，不构成本版本可用能力。
 
 ### 7.5.4 配置切换与数据库参数收敛
 
@@ -2106,7 +2108,7 @@ CREATE TABLE IF NOT EXISTS <table_name>
 
 ## 16.3 幂等键、冲突与重复写
 
-所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,business_point_id,sample_time,sample_id]，其中 business_point_id 在 RAW/PROTOCOL 为固定空字符串，在 BUSINESS 必须为精确业务点 ID（允许一来源点映射多个业务点而不误判为冲突），sample_time 统一表示为 UTC 微秒整数，其他 ID 为原始 UTF-8 字符串；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
+所有身份使用按有序数组的规范 JSON UTF-8（明确分隔、大小写、空值），SHA-256 64 位小写十六进制。logical_key 摘要输入严格为 [wind_farm_id,device_type,device_id,point_table_id,data_level,point_id,business_point_id,sample_time,sample_id]，其中 business_point_id 在 RAW/PROTOCOL 为固定空字符串，在 BUSINESS 必须为精确业务点 ID（同一已展开 PointTable 内每个来源点仅映射一个业务身份；跨不同历史版本的值必须各自使用不可变 PointTable ID），sample_time 统一表示为 UTC 微秒整数，其他 ID 为原始 UTF-8 字符串；collector_id、task_id 为传输审计而非业务去重身份。上游须证明 sample_id 在重复交付与重启后稳定，无法证明即阻断。
 
 content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,quality,business_point_id,unit]（publish_time、receive_time 属传输观测时间，不能参与逻辑内容指纹，否则同一采样事件重新投递可能被误判成异值冲突）；字节按原始字节流，浮点按确定性 IEEE-754 位型编码（负零规范化）；对参与字段不做静默省略。sample_key 摘要输入为 [logical_key,content_sha256]。将内容纳入复合主键的目的：即使 TDengine 同键 INSERT 具有覆盖语义，异值记录也不会覆盖原先内容。
 
@@ -2120,7 +2122,7 @@ content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,qu
 
 ## 16.5 历史配置与归档
 
-Storage 通过 `GetServiceConfigBundle(deployment_id,service_id,0)` 获取部署当前选中的有效闭包，Service 不得直接列出任意 Template 的固定版本。历史数据解释独立使用 `GetPointTableBundle(point_table_id,expected_manifest_sha256)` 或历史不可变归档，验证 PointTable、DeviceModel、Device Instance、Site、BusinessPoint、Units 的原始身份及完整语义哈希；若当前 Contracts 查询未返回充分的历史设备身份，必须补充正式契约并验证，不能据 Kafka 自报 device_type 建表。
+Storage 通过 `GetServiceConfigBundle(deployment_id,service_id,revision_id=0)` 获取部署当前选中的有效闭包；该 RPC 的 0 是 Proto 明确定义的当前版本选择器，并非其他 RPC 的空库 CAS 基线，Service 不得直接列出任意 Template 的固定版本。历史数据解释独立使用 `GetPointTableBundle(point_table_id,expected_manifest_sha256)` 或历史不可变归档，验证 PointTable、DeviceModel、Device Instance、Site、BusinessPoint、Units 的原始身份及完整语义哈希；若当前 Contracts 查询未返回充分的历史设备身份，必须补充正式契约并验证，不能据 Kafka 自报 device_type 建表。
 
 对历史引用过的固定版本采用内容寻址不可变文件及摘要持久化；下载后先校验、持久化并 fsync，再将代际原子加入历史索引。SQLite 元数据登记、配置缓存和运行态可见性必须按预先验证的顺序提交，拒绝重绑定不得留下已持久化的非法配置。历史版本不能因 Deployment 回退或某 Service 新版本生效而自动清除。缺失原始版本时阻断该 Partition 并保留 Offset；不向最新版本漂移。
 

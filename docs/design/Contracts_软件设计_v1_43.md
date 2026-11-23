@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_42 · 20261123 · 总体架构冻结后的第二轮符合性修订</p>
+<p class="subtitle">v1_43 · 20261123 · 设计冲突与配置冻结整改</p>
 
 <style>
 body {
@@ -918,6 +918,9 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ## 10.1 状态与权威来源
 
+**冻结精确 RPC 字段**：`src/contracts/configuration_repository.proto` 定义 `GetServiceConfigBundleRequest {string deployment_id=1; string service_id=2; uint64 revision_id=3;}`，其中该 RPC 的 `revision_id=0` 明确请求当前已发布修订。响应 `GetServiceConfigBundleResponse {uint64 repository_revision_id=1; string target_revision=2; repeated ConfigYamlDocument files=3; string manifest_sha256=4; uint64 total_bytes=5;}`。此方法属于 Repository 现有 RPC 集合，禁止重定义同名 RPC、补造 `optional` 语义或将其他查询的 presence 规则套用于该消息。精确部署闭包不得由 `GetConfigBundle` 的任意 roots 取代。
+
+
 本章的 Configuration Repository 接口已在 `src/contracts/configuration_repository.proto` 中定义并在主分支实现；服务管理由 Configuration 执行，配置变更以 NATS Core 广播修订提示，不逐模块协调生效。
 
 ## 10.2 统一命名与消息结构
@@ -928,7 +931,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 | `VersionId` | `string` | 非空，服务端产生 | 配置版本不可变内部身份 |
 | `file_version` | `string` | `MAJOR.MINOR.PATCH` | 配置业务版本；由发布方提供并验证 |
 | `schema_version` | `uint32` | 大于零 | YAML 结构版本；与 SQLite DB Schema 版本不同 |
-| `revision_id` | `uint64` | 精确历史修订，0 仅用作空库 CAS 基线，读接口必须用 presence 指定当前 | 全局已发布快照修订 |
+| `revision_id` | `uint64` | 精确历史修订，0 在 CAS 写请求中表示空库初始修订；GetServiceConfigBundleRequest.revision_id=0 则明确表示当前发布修订；其他读接口按其独立 Proto presence 语义 | 全局已发布快照修订 |
 | `expected_revision_id` | `optional uint64` | 发布或指针变更必填，允许首次库初始化特例 | compare-and-swap 并发保护 |
 | `request_id` | `string` | 写操作必填，重复同内容返回原结果 | 持久化幂等键 |
 | `content_sha256` | `string`，固定 64 位小写十六进制 | 读取/发布时必须存在 | 规范化配置对象的语义哈希 |
@@ -1259,6 +1262,8 @@ Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_s
 **迁移要求**：当前代码严格要求 v2，新的必填字段意味着 v3 输入不能在旧消费者下兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
 
 ## 11.7 数据三级语义与映射不变量
+
+**规范性裁决**：RAW=Driver 可核验的协议解码前字节或帧；PROTOCOL=协议解码后的标量（尚无点表工程换算）；BUSINESS=依据 SampleBatch 所携带完整历史 PointTable ID 及锁定标准目录依赖闭包得到的标准业务值。现有 Collector 仅产生 PROTOCOL 输入，未采集解码前载荷时不得标 RAW。不存在 ENGINEERING 等级或默认 BUSINESS；转换责任只在 Sink 的业务层。冻结总体 v1_27 §5.3.4 中将 RAW 称为“解出的标量”“不是原始字节”的历史叙述在本受控更正规则下失效，原文保持审计冻结而不再用作实现依据。
 
 Storage §6.5 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
 

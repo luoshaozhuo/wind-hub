@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_43 · 20261123 · BusinessPoint 一对一语义与候选配置版本</p>
+<p class="subtitle">v1_44 · 20261123 · 设计冲突与配置冻结整改</p>
 
 <style>
 body {
@@ -1601,6 +1601,8 @@ Core 通用 YAML 接口处理调用方传入的路径和数据，不依赖 `conf
 
 ## 6.8 BusinessPoint 标准语义体系（统一业务定义）
 
+**数据等级限定**：协议解码标量属于 PROTOCOL，RAW 仅代表有真实采集证据的解码前字节/帧；若无 RAW 源则该等级不可用。Core 中名称为 `raw` 的内部工程换算函数参数不自动定义对外 RAW 等级。Collector 不作比例/偏移和单位换算，Sink 才把来源标量转为 BUSINESS。
+
 **唯一模型**：`BusinessPoint` 表示业务测量或控制语义，字段为 `business_point_id`、`data_type`、`standard_unit`、`description`；不引入与之平行的 `SemanticPoint` 第三层。全系统同类设备（真实、仿真、不同型号及协议）若测量对象、物理位置、统计窗口、控制方向和工程含义相同，则**必须共享一个标准 BusinessPoint**。差异只存在协议地址或源单位时由 PointTable 的 Point 映射承担。源点 `point_id` 不得直接冒充标准业务身份。
 
 ### 6.8.1 标准业务身份规则
@@ -1626,7 +1628,7 @@ Core 通用 YAML 接口处理调用方传入的路径和数据，不依赖 `conf
 
 ```mermaid
 flowchart LR
-    RAW["Core Driver 协议解码标量"] --> POINT["Sink 按 PointTable scale/offset"]
+    PROTOCOL["Core Driver 协议解码标量"] --> POINT["Sink 按 PointTable scale/offset"]
     POINT --> ENG["工程单位数据"]
     ENG --> STD["Sink Units 标准单位变换"]
     STD --> BUSINESS["BusinessPoint 类型及业务标准"]
