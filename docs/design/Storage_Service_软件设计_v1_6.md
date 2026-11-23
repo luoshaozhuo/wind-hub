@@ -629,7 +629,7 @@ System Test 必须遵守以下规定：
 
 Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。当前 main 已集成 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_40 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
 
-基准为已集成的主分支总体架构 v1_27、Contracts v1_41、Configuration v1_18，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。配置查询 RPC 已集成，须按真实 `src/contracts/configuration_repository.proto` 与运行测试验证，不以假接口替代。
+基准为已集成的主分支总体架构 v1_27、Contracts v1_42、Configuration v1_19，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。配置查询 RPC 已集成，须按真实 `src/contracts/configuration_repository.proto` 与运行测试验证，不以假接口替代。
 
 ## 3.2 需求清单
 
@@ -2010,7 +2010,7 @@ $$
 | D-02 | 配置设计分支已定义 Deployment Service/Instance 目标选择、`GetServiceConfigBundle` 和闭包摘要 | **仅修改 Storage**；依赖共享 Contracts/Configuration 完成联调前置，不在本轮改动其他模块 |
 | D-03 | 当前 Storage `StorageConfig.config_sources` 为固定版本文档列表，与新 `config_sources.instances` 契约冲突 | Schema、业务 YAML、服务解析及 Configuration 客户端必须同步更新，不保留兼容双路径 |
 | D-04 | 当前 Storage `StorageBundle.revision_id` 是全局整数，Watcher 用它表示已激活配置 | 加入有效闭包 target/active SHA-256，不把全局游标误报为活动版本 |
-| D-05 | Contracts v1_40 的 `engineering` 与 Storage `protocol` 存在实质语义冲突 | Storage 坚持严格 JSON v2 当前枚举；将跨模块语义统一登记为外部依赖，不私自改动 Contracts/Sink |
+| D-05 | 历史 ENGINEERING 与现行 PROTOCOL 不等价 | Storage 严格校验 Kafka JSON v2 等级；历史语义不自动迁移，RAW 来源歧义另按冻结总体设计问题 A-02 裁决 |
 | D-06 | 当前 Storage 设备绑定通过 Service 中直接固定 Site/Device/Model 版本获得 | 改为从 Deployment 选中的 Instance 经固定模板闭包验证，历史引用不得漂移 |
 | D-07 | Claude 的 Storage 实现中存在快照持久化先于不可变绑定检查的风险 | 已在 Storage 开发分支实现验证前置修复；需独立复测异常注入 |
 | D-08 | TDengine 3.3.6.13 真机库表及操作超时已由 Claude 定向验证 | SQL 阻塞、异步线程关闭、连接池所有权继续独立验证，不把模拟测试冒充现场 |
