@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_58 · 20261123 · 集成后设计归并· 20261122</p>
+<p class="subtitle">v1_58 · 20261123 · main 集成后设计归并</p>
 
 > **集中配置契约（C7）**：Configuration Repository 是唯一配置发布者；Deployment 精确选定不可变 Service 和 Instance 文件版本，Service 只通过逻辑身份引用 Scenario 等 Instance，Instance 引用 Template。发布成功仅表示目标修订成立，不代表 Data Generator 已激活。Data Generator 在拉取目标闭包后独立进行模型拓扑、输出目标唯一性和运行安全校验；失败保留旧运行代际和 active_revision，报告 target_revision 与失败原因。旧 Push/ApplyConfigSnapshot 不再是有效发布或激活入口。
 
