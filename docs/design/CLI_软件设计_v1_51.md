@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_51 · 20261123 · 集成后设计归并· 20261118</p>
+<p class="subtitle">v1_51 · 20261123 · main 集成后设计归并</p>
 
 <style>
 body {
@@ -637,7 +637,7 @@ System Test 必须遵守以下规定：
 
 **main 集成基线（2026-11-23）**：以当前 `src/cli/` 命令树及 `src/contracts/*.proto` 为唯一运行接口基线；CLI 根目录全量发布 Deployment，业务服务独立拉取配置并热更新或等待重启。不得恢复旧的逐模块配置分发流程。 历史章节如与此基线、当前 Proto 或已集成源码冲突，以可执行契约为准，不将开发阶段的待办状态视为当前事实。
 
-**当前冻结契约基线**：现行正式 Proto。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_25》为准；旧 main SHA 及旧版 CLI 不再作为接口依据。
+**当前冻结契约基线**：现行正式 Proto。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_41》为准；旧 main SHA 及旧版 CLI 不再作为接口依据。
 
 CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务输出为发往 Service 的 gRPC 请求、发往进程管理器的操作请求以及 CLI 本地网络探测；现场操作和权威业务状态归对应 Service 所有。第 3.1 节是已确认的需求范围，第 3.2 节将其分解为可核验要求。
 
