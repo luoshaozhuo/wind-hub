@@ -450,7 +450,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 
 执行必须保留独立证据：① CLI 与 Linux 进程 PID/READY；② 两个 Collector 分别对应 Realtime、Reliable 的真实 SampleBatch 和 JetStream PubAck；③ Generator 真值 JSONL 和 Gateway/Collector 采集值；④ Industrial Gateway、Modbus TCP、Redis、Kafka 四出口及 Storage QuerySamples/TDengine SQL 的独立读回；⑤ Commander request_id/command_id 与 Data Generator effective_step 的控制完成结果；⑥ restart 后已提交配置与业务运行状态一致、消息积压收敛；⑦ stop 后无遗留业务进程、连接或活跃 Worker。
 
-安全场景必须采用正式 内网访问授权 与权限约束，验证 Collector 管理令牌、Gateway/Generator 令牌授权身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每一个 E2E ID 都必须有实际命令、日志、配置哈希、源值、目标读回和 PASS/FAIL/NOT_RUN 证据。
+安全场景必须采用正式 内网访问授权 与权限约束，验证 Collector 管理令牌、Gateway/Generator 令牌授权身份、租约目标授权和 Commander 写控制。业务进程能够启动、某一 RPC 返回 OK、NATS 发布成功、Kafka ACK 或 Golden Data 仅局部匹配，均不得代替完整链路的独立 E2E 裁决。每个 E2E ID 都须包含 CLI 命令、日志、配置哈希、源值、四出口、Storage/TDengine 最终读回以及分等级状态证据。
 
 ## 7.5 各完整场景的配置、激励、独立读回与步骤
 
@@ -467,7 +467,9 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | E2E-07 四出口 | 同一个全链批次，`gateway_output` / `modbus_output` / `ems_power` / `power_history` | CLI 启/停四 Delivery，正常运行、断连恢复各一次 | OUT-01 Gateway 变量与模拟 Modbus；OUT-02 真实 Modbus 目标寄存器；OUT-03 Redis 键/值；OUT-04 Kafka topic/分区及可靠 ACK；OUT-05 Storage/TDengine 实际入库并独立 PASS |
 | E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实访问令牌与隔离网络 | 枚举 73 个 CLI 叶子并逐项实际执行/合法拒绝；51 个 RPC 逐服务调用与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
 | E2E-09 生命周期 | CLI service manager 对六进程的合法 unit；Sink Main 管理双 Worker | start→status/READY→restart→status→stop；重复启停和服务单侧失败 | 每个 PID、READY、退出码、Worker 清退、无残留连接/僵尸进程；进程状态不代替业务就绪 |
-| E2E-10 故障恢复 | 隔离 R5 中间件、故障代理、Gateway/DG/Collector/Sink | 先建立正常基线，再逐项断 NATS/Redis/Kafka/Gateway、注入过期 generation 与重复请求、恢复服务 | Reliable 重投/DLQ、Realtime 覆盖、配置/控制幂等、租约隔离、恢复时间、FD/RSS/CPU；修复后双通道持续出数 |
+| E2E-10 故障恢复 | 隔离中间件、TDengine 与 Gateway/DG/Collector/Sink/Storage | 正常基线后逐项断 NATS/Redis/Kafka/Gateway/TDengine 并重启 | Reliable 重投、Realtime 覆盖、Storage Offset/UNKNOWN、配置与控制幂等；最终逐键落库对账 |
+| E2E-11 三级最终落地 | Storage、TDengine、三等级 Delivery 与固定点表闭包 | CLI 启完整链，三级分别派发、入库与查询 | PROTOCOL/BUSINESS 真实值准确；RAW 必须有来源证据，各等级单独裁决 |
+| E2E-12 存储持久性 | Kafka/Storage/TDengine、历史点表 v1/v2 | 同内容重放、同键异值、写确认丢失及 Storage 重启 | 不重复、不覆盖、连续 Offset、SQL 与 QuerySamples 一致，历史值不漂移 |
 
 **比较规则：** 每条数据必须带有设备 ID、点 ID、时间戳、质量与采集/生成身份。对不断变化的物理量，按已保存真值的时间窗匹配而不是将最新采集值与录制文件最后一步直接相减；对 TI=0 固定风速可以进行确定性绝对误差判定。误差阈值由点表的 scale、数据类型与协议编码精度确定并在用例中显式记录；不允许为使测试通过而临时调大阈值。
 
@@ -591,11 +593,11 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 | 格式拒绝 | 注入未知 `schema_version`、缺 `point_table_id`、重复键/测点、非法时间、NaN、Realtime 缺 TTL、Reliable 带 TTL | 严格拒绝，不能自动补全或静默降级 |
 | 历史版本 | 先按 PointTable A 采样，发布与之业务解释不同的 PointTable B，然后重放旧消息 | A 的 `point_table_id` 和输出值不改变；不查询最新 B 代替；缓存冷启动及 Configuration 断联路径可复验 |
 | 标准点表 | 真实/仿真同类设备与两种型号，共享 BusinessPoint，配置重复映射作为负例 | 逐点业务身份一致，重复/未知 BusinessPoint 被拒绝，单位换算不二次应用 |
-| Storage 输入 | 将 Kafka BUSINESS v2 Record 作为后续 Storage 消费样本 | 验证 `device_type`、`device_id`、`point_table_id` 足以标定语义版本，无 `data_version` 或 `config_revision_id` 字段 |
+| Storage 三级落地 | 将真实 Kafka RAW/PROTOCOL/BUSINESS v2 Record 交给 CLI 启动的 Storage Consumer | 三等级分别按 Storage 枚举查询及 SQL 核对；保留设备、点表、样本身份；不创建伪 `data_version` 或 `config_revision_id` 解释依据 |
 
 各场景均遵守第5章真实进程/CLI 启动方式，消息中间件及数据库由测试代码单独启动；完整 CLI 与 RPC 覆盖不因新增线格式测试而减少。非正常消息与下游失败必须保留单 Delivery ACK/重试/死信证据；高吞吐条件下分别统计输入、转换与 Adapter 发送阶段。
 
-## 9.7 三等级数据与 TDengine Golden Data 对账
+## 9.6 三等级数据与 TDengine Golden Data 对账
 
 **匹配键。** 按真实记录绑定 wind_farm_id、device_type、device_id、point_table_id、point_id、sample_id、sample_time、data_level；BUSINESS 额外绑定 business_point_id 和 unit。Storage logical_key 按 Storage 设计包含这些业务身份；content_sha256 区分相同逻辑键的不同值与质量。collector_id/task_id 用于来源审计，不替代逻辑去重身份。记录 Kafka topic/partition/offset 以复核确认边界。
 
@@ -611,7 +613,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 **PASS 标准。** 所选等级的应持久化记录全部可查且内容一致；missing/unexpected/conflict/value_mismatch/identity_mismatch/quality_time_mismatch 均为零；重复同内容只记一次逻辑样本，同键异内容不计成功且不得覆盖。TDengine 短故障、Storage 重启、历史闭包缺失时严禁跳 Offset、seek latest 或用最新配置替换旧语义。
 
-## 9.6 安全认证复用与负载边界
+## 9.7 安全认证复用与负载边界
 
 验证无效访问令牌拒绝、角色和资源级权限拒绝、Configuration 历史配置查询最小权限；重复高频采样不触发逐点令牌鉴别或复杂安全握手。分别统计 RAW、PROTOCOL、BUSINESS 三个等级的端到端吞吐（RAW 不具备可验证来源时不计为成功）、转换 CPU 和 P99，不能只通过纯编码单测宣称满足 30 台风机的既定容量目标。
 
@@ -683,10 +685,10 @@ reason: "template only; not executed"
 
 1. 各模拟 Service 配置合法且同机端口不冲突；核对现行 Sink `50053`、Generator `50061`、CLI 端点、内网访问授权 身份、Gateway/Commander 路由及测试动态端口。
 2. Collector 模拟任务、Sink 四目标实例和 Delivery 与 `devices_sim.yaml` 使用同一套正式模板/点表；不覆盖真实现场设备或另设非法 Generator Instance。
-3. Sink GatewayOutput 的租约/权限/目标映射已可测试，独立 Modbus 客户端可读 Sink Server；四出口逐项证明。
-4. Generator 现有 Recording 的源批和文件完整性可验证；缺证据必须 INCONCLUSIVE 而不是假设源值。
-5. 全部业务进程可被当前 CLI 经真实 Linux 进程管理器启停；Realtime 与 Reliable 分别使用独立 Collector 身份，Sink Main 管理其内部 Worker。业务状态及下游副作用不得以单进程集成测试冒充。
-6. Proto 生成物与当前全部 Proto（含 Storage）一致，动态枚举现行专属 RPC 声明和全部 CLI 叶子命令，结构归属符合总体/Core 设计；当前 CLI 源码有 73 处命令装饰器声明，须以真实 `--help` 枚举、注册关系及实际执行生成最终分母。
+3. Sink GatewayOutput 租约/权限/映射可测试，独立 Modbus 客户端可读 Sink Server；四出口逐项证明，另需 Kafka→Storage→TDengine 独立读回。
+4. Generator Recording 源批可验证；Storage 的 QuerySamples、QueryAggregates、GetStorageStats 和 TDengine 独立只读 SQL 可用；缺真值或最终读回不得 PASS。
+5. 包括 Configuration 和 Storage 的全部业务进程经正式 CLI 管理；Realtime/Reliable 使用独立 Collector 身份，Sink Main 自行管理 Worker。业务状态及下游副作用不得以单进程集成测试冒充。
+6. Proto 生成物与全部现行 Proto（含 Storage）一致；动态枚举每个正式 RPC 和全部 CLI 叶子命令，StorageService 9 RPC 均须覆盖。历史 51 RPC/73 命令不能作为未经重新枚举的固定分母。
 
 7. CLI 对 Collector 控制面的认证应使用正式配置/环境来源提供管理令牌，按服务契约发送 `x-windhub-admin-token` metadata；不存在明文回退、鉴权关闭或测试专用绕过。必须分别证明已授权与拒绝路径，测试证据不得泄露令牌。
 8. CLI 严格 E2E 依次验证全部业务进程 READY、Collector Task 启动、Generation 运行、四出口读回、Commander 写控制、服务重启恢复与关闭收敛；任一步失败不得将其后续步骤计为 PASS。
