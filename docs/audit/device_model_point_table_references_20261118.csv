@@ -1,8 +1,0 @@
-"device_model_file","device_type","point_table_file","reference_exists","mapping_status"
-"device_model_bess_sim_physical_v1.0.0.yaml","energy_storage","point_table_modbus_bess_sim_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
-"device_model_grid_sim_physical_v1.0.0.yaml","grid","point_table_modbus_grid_sim_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
-"device_model_plant_controller_sim_physical_v1.0.0.yaml","plant_controller","point_table_modbus_plant_controller_sim_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
-"device_model_pv_sim_physical_v1.0.0.yaml","photovoltaic","point_table_modbus_pv_sim_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
-"device_model_wtg_gw2mw_v1.2.0.yaml","turbine","point_table_ads_wtg_gw2mw_v1.0.0.yaml","YES","BLOCKED_DUPLICATE_BUSINESS_MAPPING"
-"device_model_wtg_sim_physical_v1.0.0.yaml","turbine","point_table_modbus_wtg_sim_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
-"device_model_wtg_tz2mw_v1.1.0.yaml","turbine","point_table_modbus_wtg_tz2mw_v1.0.0.yaml","YES","STRUCTURALLY_UNIQUE_SEMANTICS_UNVERIFIED"
