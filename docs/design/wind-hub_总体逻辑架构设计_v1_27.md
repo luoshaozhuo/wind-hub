@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_27 · 20261123 · 集成后设计归并· 20261118 · 系统级数据流、配置管理与模块内部架构</p>
+<p class="subtitle">v1_27 · 20261123 · main 集成后设计归并</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
