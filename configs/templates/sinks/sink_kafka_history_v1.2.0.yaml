@@ -1,6 +1,6 @@
-# 对齐 Storage 历史 Topic 的候选；生产批准前不得切换。
+# 新版本 Kafka/Storage 目标候选；前一版本保持原始 Blob。
 schema_version: 1
-file_version: "1.1.0"
+file_version: "1.2.0"
 template_id: "kafka_history"
 kind: kafka
 capabilities:

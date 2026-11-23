@@ -6,7 +6,7 @@
 # instances.<config_type>.<config_id>.file_version 为同部署域的唯一目标版本。
 # 实例依赖模板由 Instance 固定引用；Service 不允许直接引用 Template。
 schema_version: 1
-file_version: "1.5.0"
+file_version: "1.6.0"
 deployment_id: prod-a
 services:
   collector-realtime:
@@ -48,7 +48,7 @@ instances:
       file_version: "1.0.0"
   sink:
     prod-a:
-      file_version: "1.3.0"
+      file_version: "1.4.0"
   delivery:
     prod-a:
       file_version: "1.5.0"
