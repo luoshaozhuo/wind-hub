@@ -199,3 +199,45 @@ def test_audit_rejects_instance_filename_version_mismatch(tmp_path: Path) -> Non
     )
     with pytest.raises(ValueError, match="filename/file_version mismatch"):
         audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_missing_selected_sink_template(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    _write(
+        root / "instances/sinks_e2e_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\nsinks:\n"
+        "  history:\n    template_id: absent\n"
+        "    template_version: 1.0.0\n",
+    )
+    deployment = root / "deployments/deployment_e2e_v1.0.0.yaml"
+    deployment.write_text(
+        deployment.read_text(encoding="utf-8")
+        + "  sink:\n    e2e:\n      file_version: 1.0.0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="missing selected Template"):
+        audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_unknown_delivery_sink(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    _write(
+        root / "templates/deliveries/delivery_history_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\n"
+        "template_id: history\n",
+    )
+    _write(
+        root / "instances/deliveries_e2e_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\ndeliveries:\n"
+        "  history:\n    template_id: history\n"
+        "    template_version: 1.0.0\n    sink_id: missing\n"
+        "    source:\n      devices: []\n",
+    )
+    deployment = root / "deployments/deployment_e2e_v1.0.0.yaml"
+    deployment.write_text(
+        deployment.read_text(encoding="utf-8")
+        + "  delivery:\n    e2e:\n      file_version: 1.0.0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Delivery references unselected Sink"):
+        audit(root, tmp_path / "results.csv")
