@@ -339,33 +339,75 @@ class ConfigurationApplication:
         )
 
     @staticmethod
-    def _validate_new_point_table_identity(document: PreparedDocument) -> None:
-        """Reject duplicate BusinessPoint identities in a newly published flat table.
+    def _validate_new_point_table_identity(
+        document: PreparedDocument,
+        versions: dict[tuple[str, str, str], PreparedDocument],
+    ) -> None:
+        """Enforce an injective Point-to-BusinessPoint mapping after inheritance.
 
-        Historical versions remain immutable and readable. Inherited tables
-        require resolution of their complete parent closure before this rule
-        can serve as the sole publication guard.
+        Only newly admitted PointTables are checked here. Published historical
+        versions retain their original immutable interpretation.
         """
         if document.identity.config_type != "point_table":
             return
-        payload = document.canonical_payload
-        if payload.get("parent") is not None:
-            return
-        points = payload.get("points")
-        if not isinstance(points, dict):
-            raise ValueError("PointTable.points must be a mapping")
+
+        def expand(
+            current: PreparedDocument,
+            visiting: set[tuple[str, str, str]],
+        ) -> dict[str, dict[str, Any]]:
+            key = (
+                current.identity.config_type,
+                current.identity.config_id,
+                current.file_version,
+            )
+            if key in visiting:
+                raise ValueError("PointTable inheritance cycle")
+            visiting.add(key)
+            payload = current.canonical_payload
+            parent = payload.get("parent")
+            points: dict[str, dict[str, Any]] = {}
+            if parent is not None:
+                if not isinstance(parent, dict):
+                    raise ValueError("PointTable parent must be a fixed-version reference")
+                parent_key = (
+                    "point_table",
+                    str(parent.get("id", "")),
+                    str(parent.get("version", "")),
+                )
+                inherited = versions.get(parent_key)
+                if inherited is None:
+                    raise ValueError(f"PointTable parent is absent from full directory: {parent_key}")
+                points = expand(inherited, visiting)
+            removed = payload.get("remove_points", [])
+            if not isinstance(removed, list):
+                raise ValueError("PointTable.remove_points must be a list")
+            if len(removed) != len(set(removed)):
+                raise ValueError("PointTable.remove_points contains duplicates")
+            for point_id in removed:
+                if not isinstance(point_id, str) or point_id not in points:
+                    raise ValueError(f"PointTable cannot remove unknown point: {point_id}")
+                del points[point_id]
+            patches = payload.get("points", {})
+            if not isinstance(patches, dict):
+                raise ValueError("PointTable.points must be a mapping")
+            for point_id, patch in patches.items():
+                if not isinstance(point_id, str) or not isinstance(patch, dict):
+                    raise ValueError(f"invalid PointTable point: {point_id}")
+                points[point_id] = {**points.get(point_id, {}), **patch}
+            visiting.remove(key)
+            return points
+
+        points = expand(document, set())
         identities: dict[str, str] = {}
         for point_id, value in points.items():
-            if not isinstance(value, dict):
-                raise ValueError(f"invalid PointTable point: {point_id}")
             identity = value.get("business_point_id")
             if not isinstance(identity, str) or not identity.strip():
                 raise ValueError(f"missing BusinessPoint identity: {point_id}")
-            other = identities.setdefault(identity, str(point_id))
-            if other != point_id:
+            previous = identities.setdefault(identity, point_id)
+            if previous != point_id:
                 raise ValueError(
                     f"PointTable {document.identity.config_id}@{document.file_version}: "
-                    f"BusinessPoint '{identity}' is shared by '{other}' and '{point_id}'"
+                    f"BusinessPoint '{identity}' is shared by '{previous}' and '{point_id}'"
                 )
 
     @staticmethod
@@ -422,10 +464,18 @@ class ConfigurationApplication:
             try:
                 new_ids[key] = self.repository.resolve_version(doc.identity, doc.file_version)
             except RepositoryNotFoundError:
-                self._validate_new_point_table_identity(doc)
                 new_ids[key] = uuid.uuid4().hex
         included_versions = frozenset(new_ids.values())
+        by_key = {
+            (doc.identity.config_type, doc.identity.config_id, doc.file_version): doc
+            for doc in documents
+        }
         for document in documents:
+            if document.identity.config_type == "point_table":
+                try:
+                    self.repository.resolve_version(document.identity, document.file_version)
+                except RepositoryNotFoundError:
+                    self._validate_new_point_table_identity(document, by_key)
             references: list[tuple[str, str]] = []
             sources = document.canonical_payload.get("config_sources", {})
             if isinstance(sources, list):
