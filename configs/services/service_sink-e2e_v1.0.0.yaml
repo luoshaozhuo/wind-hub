@@ -133,7 +133,7 @@ file_version: "1.0.0"
 service_id: sink-e2e
 wind_farm_id: e2e-final
 deployment_id: e2e-final
-config_root: /etc/wind-hub
+config_root: /opt/wind-hub/src
 config_sources:
   instances:
     sinks: e2e-final
