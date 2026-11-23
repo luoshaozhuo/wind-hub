@@ -1,0 +1,57 @@
+{
+  "common_targets": {
+    "collector": {
+      "prod_grpc_endpoint": "127.0.0.1:50051",
+      "sim_grpc_endpoint": "127.0.0.1:50051",
+      "same_grpc_endpoint": true,
+      "prod_manager_target": "collector",
+      "sim_manager_target": "collector",
+      "same_manager_target": true,
+      "same_tls_profile": true,
+      "sim_tls_profile": "local"
+    },
+    "commander": {
+      "prod_grpc_endpoint": "127.0.0.1:50052",
+      "sim_grpc_endpoint": "127.0.0.1:50052",
+      "same_grpc_endpoint": true,
+      "prod_manager_target": "commander",
+      "sim_manager_target": "commander",
+      "same_manager_target": true,
+      "same_tls_profile": true,
+      "sim_tls_profile": "local"
+    },
+    "configuration": {
+      "prod_grpc_endpoint": "127.0.0.1:51060",
+      "sim_grpc_endpoint": "127.0.0.1:51060",
+      "same_grpc_endpoint": true,
+      "prod_manager_target": "configuration",
+      "sim_manager_target": "configuration",
+      "same_manager_target": true,
+      "same_tls_profile": true,
+      "sim_tls_profile": null
+    },
+    "data-generator": {
+      "prod_grpc_endpoint": "127.0.0.1:50061",
+      "sim_grpc_endpoint": "127.0.0.1:50061",
+      "same_grpc_endpoint": true,
+      "prod_manager_target": "data-generator",
+      "sim_manager_target": "data-generator",
+      "same_manager_target": true,
+      "same_tls_profile": true,
+      "sim_tls_profile": "local"
+    },
+    "gateway": {
+      "prod_grpc_endpoint": "127.0.0.1:50073",
+      "sim_grpc_endpoint": "127.0.0.1:50073",
+      "same_grpc_endpoint": true,
+      "prod_manager_target": "gateway",
+      "sim_manager_target": "gateway",
+      "same_manager_target": true,
+      "same_tls_profile": true,
+      "sim_tls_profile": "local"
+    }
+  },
+  "sim_has_tls_profiles": true,
+  "sim_state_dir": "/var/lib/wind-hub/cli-processes",
+  "prod_state_dir": "/var/lib/wind-hub/cli-processes"
+}

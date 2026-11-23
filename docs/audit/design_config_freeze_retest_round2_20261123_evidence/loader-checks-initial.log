@@ -1,0 +1,18 @@
+{
+  "prod-a": {
+    "status": "REJECTED",
+    "type": "AttributeError",
+    "message": "'SharedDomainSnapshot' object has no attribute 'devices'"
+  },
+  "sim-a": {
+    "status": "REJECTED",
+    "type": "AttributeError",
+    "message": "'SharedDomainSnapshot' object has no attribute 'devices'"
+  },
+  "e2e-final": {
+    "status": "REJECTED",
+    "type": "AttributeError",
+    "message": "'SharedDomainSnapshot' object has no attribute 'devices'"
+  }
+}
+FAILURES: ["prod-a: 'SharedDomainSnapshot' object has no attribute 'devices'", "sim-a: 'SharedDomainSnapshot' object has no attribute 'devices'", "e2e-final: 'SharedDomainSnapshot' object has no attribute 'devices'"]

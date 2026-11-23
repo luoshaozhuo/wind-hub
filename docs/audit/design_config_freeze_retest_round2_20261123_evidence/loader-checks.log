@@ -1,0 +1,71 @@
+{
+  "prod-a": {
+    "status": "PASS",
+    "deployment_path": "deploy/config_roots/prod-a/deployments/deployment_prod-a_v1.5.0.yaml",
+    "device_count": 10,
+    "device_ids": [
+      "GW01",
+      "GW02",
+      "GW03",
+      "GW04",
+      "GW05",
+      "TZ01",
+      "TZ02",
+      "TZ03",
+      "TZ04",
+      "TZ05"
+    ],
+    "business_point_catalog_version": "1.5.0",
+    "business_point_count": 400,
+    "point_table_point_counts": {
+      "point_table_ads_wtg_gw2mw_v1.2.0": 111,
+      "point_table_modbus_wtg_tz2mw_v1.2.0": 10
+    },
+    "source_manifest_count": 10
+  },
+  "sim-a": {
+    "status": "PASS",
+    "deployment_path": "deploy/config_roots/sim-a/deployments/deployment_sim-a_v1.2.0.yaml",
+    "device_count": 5,
+    "device_ids": [
+      "BESS_SIM01",
+      "GRID_SIM01",
+      "PPC_SIM01",
+      "PV_SIM01",
+      "WTG_SIM01"
+    ],
+    "business_point_catalog_version": "1.5.0",
+    "business_point_count": 400,
+    "point_table_point_counts": {
+      "point_table_modbus_wtg_sim_v1.2.0": 32,
+      "point_table_modbus_pv_sim_v1.2.0": 16,
+      "point_table_modbus_bess_sim_v1.2.0": 20,
+      "point_table_modbus_grid_sim_v1.2.0": 15,
+      "point_table_modbus_plant_controller_sim_v1.2.0": 20
+    },
+    "source_manifest_count": 15
+  },
+  "e2e-final": {
+    "status": "PASS",
+    "deployment_path": "deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v1.0.1.yaml",
+    "device_count": 6,
+    "device_ids": [
+      "BESS_SIM01",
+      "GRID_SIM01",
+      "PPC_SIM01",
+      "PV_SIM01",
+      "WTG_SIM01",
+      "WTG_SINK01"
+    ],
+    "business_point_catalog_version": "1.5.0",
+    "business_point_count": 400,
+    "point_table_point_counts": {
+      "point_table_modbus_wtg_sim_v1.2.0": 32,
+      "point_table_modbus_pv_sim_v1.2.0": 16,
+      "point_table_modbus_bess_sim_v1.2.0": 20,
+      "point_table_modbus_grid_sim_v1.2.0": 15,
+      "point_table_modbus_plant_controller_sim_v1.2.0": 20
+    },
+    "source_manifest_count": 15
+  }
+}
