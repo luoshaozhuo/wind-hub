@@ -1218,7 +1218,7 @@ flowchart TD
 | 字段 | 内容 |
 |---|---|
 | 请求方（Requester） | 授权 CLI/Web UI；各容器 Main 受理本域配置操作 |
-| 触发方式（Trigger） | API：GetConfigSnapshot/PushConfigSnapshot/ApplyConfigSnapshot；状态：两个数据子进程确认配置代；生命周期：重启加载 |
+| 触发方式（Trigger） | Configuration Repository 修订广播/启动/周期对账触发闭包读取；Common GetSnapshot 仅诊断；状态：两个数据子进程确认配置代；生命周期：重启加载 |
 | 输入（Input） | SnapshotScope、完整文件集、candidate_id、expected_revision |
 | 反馈（Response） | 快照及候选校验、文件提交、逐对象应用结果、effective_revision、restart_required |
 | 目标方（Destination） | 本容器正式配置目录、Realtime/Reliable 子进程 |
@@ -2441,8 +2441,8 @@ CLI/Web UI 管理各容器独立完整快照，涉及冲突资源的跨容器静
 | CommonService | `GetServiceStatus` | `Empty` → `GetServiceStatusResponse` | UR-05、08；依赖健康、更新时间 |
 | CommonService | `GetCapabilities` | `Empty` → `GetCapabilitiesResponse` | UR-08；公布实际支持能力及 RPC |
 | CommonService | `GetConfigSnapshot` | `GetConfigSnapshotRequest` → `GetConfigSnapshotResponse` | UR-06、08；正式/运行/候选快照查询 |
-| CommonService | `PushConfigSnapshot` | `PushConfigSnapshotRequest` → `PushConfigSnapshotResponse` | UR-06、08；候选完整校验与暂存 |
-| CommonService | `ApplyConfigSnapshot` | `ApplyConfigSnapshotRequest` → `ApplyConfigSnapshotResponse` | UR-06、08；文件提交与逐对象生效 |
+| CommonService | `PushConfigSnapshot` | `PushConfigSnapshotRequest` → `PushConfigSnapshotResponse` | 历史 Common RPC；业务配置写入拒绝 |
+| CommonService | `ApplyConfigSnapshot` | `ApplyConfigSnapshotRequest` → `ApplyConfigSnapshotResponse` | 历史 Common RPC；不得写入业务配置 |
 | CommonService | `GetMetrics` | `GetMetricsRequest` → `GetMetricsResponse` | UR-04、05、08；数值、窗口、时间、单位 |
 | CommonService | `GetEvents` | `GetEventsRequest` → `GetEventsResponse` | UR-05、08；事件时间过滤及分页 |
 | CommonService | `Diagnose` | `DiagnoseRequest` → `DiagnoseResponse` | UR-07、08；分阶段诊断和局限 |
@@ -3737,7 +3737,7 @@ tests/src/
 | 服务 | 必须逐项验证的方法 | 关键验证条件 |
 |---|---|---|
 | CommonService | `GetServiceInfo`、`GetServiceStatus`、`GetCapabilities` | 真实 Servicer 注册，进程角色及健康正确 |
-| CommonService | `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | 候选不生效、revision 冲突、文件提交与运行生效分开 |
+| CommonService | `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | Repository 发布后运行态可独立失败，Common Push/Apply 不得形成第二写入权威 |
 | CommonService | `GetMetrics`、`GetEvents` | 窗口与分页、统计真实、权限和无数据 |
 | CommonService | `Diagnose` | 阶段证据、超时、只读安全和 UNKNOWN |
 | SinkService | `ListDeliveries`、`GetDelivery` | 通道筛选、分页、配置和两个子进程状态 |

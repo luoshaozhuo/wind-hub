@@ -2931,7 +2931,7 @@ RPC**，均需按接口实现，不把诊断或配置拆为私有服务。Proto
   `PushConfigSnapshot(PushConfigSnapshotRequest) → PushConfigSnapshotResponse`      历史 Common RPC；业务配置修改必须拒绝，旧说明：校验 `files[]` 和 `expected_revision`，返回                                                    UR-06 / UC-04     §11；System
                                                                                     `candidate_id`、`valid`、问题、基线版本；不改变正式文件/运行时                                                   
 
-  `ApplyConfigSnapshot(ApplyConfigSnapshotRequest) → ApplyConfigSnapshotResponse`   按 `candidate_id`、`expected_revision` 提交；分别报告                                          UR-06 / UC-04     §11；System
+  `ApplyConfigSnapshot(ApplyConfigSnapshotRequest) → ApplyConfigSnapshotResponse`   历史 Common RPC，业务配置写入拒绝；原字段仍在 Proto，但不提交；旧结果说明                                          UR-06 / UC-04     §11；System
                                                                                     `file_commit`、`apply_results[]`、`effective_revision`、`restart_required`、`application_id`                     
 
   `GetMetrics(GetMetricsRequest) → GetMetricsResponse`                              按 `scope`、`window_ms` 返回有依据的 Metric 数据，窗口支持依照实现能力清单报告                 UR-08 / UC-06、07 §12；System
@@ -3029,7 +3029,7 @@ START/STOP，必须与同设备连接生命周期及后台采集协调。`Interr
   `PushConfigSnapshot`    旧接口，仅历史审计；不得接受业务配置写入；Push
                           是本服务管理范围完整集合，按路径白名单、容量、模板版本和完整引用校验                 不修改正式文件或当前运行配置
 
-  `ApplyConfigSnapshot`   `candidate_id` 必须存在且仍有效；`expected_revision` 必须与当前 DISK                 `file_commit` 是文件提交证据；`application_id`
+  `ApplyConfigSnapshot`   历史字段不是有效业务写入入口；目标闭包只能由 Repository 选定；旧 DISK                 `file_commit` 是文件提交证据；`application_id`
                           版本一致；受管文件提交一次性切换                                                     定位本次应用；`apply_results` 逐对象表达收敛；`effective_revision`
                                                                                                                只代表已确认生效的范围，不能代指全量完成
 
@@ -3379,7 +3379,7 @@ Service 配置变化（含 `config_sources.instances.*` 变化）需要重启，
 对同一设备共用串行裁决；每次准备建立新采集句柄前重新读取最新持久化
 `desired_state`，保证 STOP 不被旧候选、旧 Watchdog 或延迟恢复复活。
 
-## 11.9 GW2MW BusinessPoint 单射迁移与采集层不变量（v1_41）
+## 11.9 GW2MW BusinessPoint 单射迁移与采集层不变量（v1_42）
 
 Collector 不解释标准 BusinessPoint；源设备 ADS `point_id`、协议解码值、质量、源时间戳及固定 `point_table_id` 原样进入 SampleBatch。将 `point_table_ads_wtg_gw2mw_v1.1.0` 升级为候选 `point_table_ads_wtg_gw2mw_v1.2.0` 不得导致 Collector 将源 ID 替换为业务 ID，也不得把新 BusinessPoint 类型/单位转换提前到采集侧。
 

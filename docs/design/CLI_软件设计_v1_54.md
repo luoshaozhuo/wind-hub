@@ -946,7 +946,7 @@ CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务
 | 接口组 | RPC | UR |
 |---|---|---|
 | 服务管理（3） | `GetServiceInfo`、`GetServiceStatus`、`GetCapabilities` | UR-03 |
-| 配置管理（3） | `GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot` | UR-04 |
+| 配置管理（3） | `GetConfigSnapshot` 为只读；Common Push/Apply 不授予业务配置写入权限 | UR-04 |
 | 设备与测点（5） | `ListDevices`、`GetDevice`、`ListPoints`、`GetPoint`、`ReadPoints` | UR-06、UR-07 |
 | 采集任务（4） | `ListTasks`、`GetTask`、`StartTask`、`StopTask` | UR-06 |
 | 运行监控（3） | `GetMetrics`、`GetEvents`、`GetPublishingStatus` | UR-11 |
@@ -1764,7 +1764,7 @@ Collector 的管理类 RPC（StartTask、StopTask、ReadPoints、InterrogateDevi
 | 目标 Service | RPC | CLI 业务命令/用途 |
 |---|---|---|
 | 公共 CommonService（各服务） | `GetServiceInfo`, `GetServiceStatus`, `GetCapabilities` | `service info/status/capabilities` |
-| 公共 CommonService（各服务） | `GetConfigSnapshot`, `PushConfigSnapshot`, `ApplyConfigSnapshot` | 仅本地快照 `config get --scope`、`config push/apply`；不承担 Repository 发布 |
+| 公共 CommonService（各服务） | `GetConfigSnapshot`, `PushConfigSnapshot`, `ApplyConfigSnapshot` | 仅本地快照 `config get --scope` 只读诊断；历史 `config push/apply` 禁止修改已发布业务配置 |
 | 公共 CommonService（各服务） | `GetMetrics`, `GetEvents`, `Diagnose` | `metrics/events`、`diagnose` 系列 |
 | CollectorService | `ListDevices`, `GetDevice`, `ListPoints`, `GetPoint` | `collector devices/device/points/point` |
 | CollectorService | `ReadPoints` | `collector latest/watch`；watch 为客户端周期调用，不是 Streaming RPC |
@@ -1839,7 +1839,7 @@ CLI 以最新 Contracts 及正式 Proto 为唯一外部契约；配置库为独�
 
 Gateway CLI `update` 的租约周期 `--lease-ms` 必须在 1000～60000 ms 内，所有 `UpdateVariables` 均要先成功 `ClaimTargets` 并携带完整目标集合的 `lease_token`。无令牌请求，即使变量暂未被认领，也应被拒绝。
 
-**配置及验收**：服务 Get/Push/ApplyConfigSnapshot 的磁盘、候选和运行版本分开显示；Restart Required 不解释为热更新成功。CLI 本地比较仅对明确指定的目录和文件采用 Core 通用 Diff；不得私自实现跨服务 Apply 事务。逐个核对 RPC 命令映射和本地不提供操作的明确理由，测试必须将 UR/UC/ST/Marker/断言相互关联。真实容器、网段、协议设备和服务缺失时以 NOT_RUN 如实报告。
+**配置及验收**：GetConfigSnapshot 只读报告当前和运行修订，业务配置写入由 Repository 管理；Restart Required 不解释为热更新成功。CLI 本地比较仅对明确指定的目录和文件采用 Core 通用 Diff；不得私自实现跨服务 Apply 事务。逐个核对 RPC 命令映射和本地不提供操作的明确理由，测试必须将 UR/UC/ST/Marker/断言相互关联。真实容器、网段、协议设备和服务缺失时以 NOT_RUN 如实报告。
 
 # 10. 交互式命令与终端呈现设计
 
