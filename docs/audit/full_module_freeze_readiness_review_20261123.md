@@ -5,7 +5,7 @@
 - 主分支：`origin/main@f91068748838103f547f1140d24b4eb93cbf7372`（本轮 GitHub 复核）。
 - 设计分支：`docs/design-consolidation-20261123`。
 - 总体架构：`wind-hub_总体逻辑架构设计_v1_27.md`，冻结且本轮未修改。
-- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_38.md`。
+- 最新跨模块测试设计：`wind-hub_跨模块测试设计_v0_39.md`。
 - 纳入 Contracts、Core、Configuration、CLI、Commander、Collector、Data Generator、Industrial Gateway、Sink、Storage 及全部跨模块接口；暂排除 Web Server/Admin。
 - 本次为远程文件级源码/设计/测试的**静态准入审查**，未执行 ruff/mypy/pytest、真实 Broker/TDengine、CLI 进程 E2E 或容量实验。所有未执行项为 NOT_RUN，不将现有测试源码等同已执行且通过。
 
