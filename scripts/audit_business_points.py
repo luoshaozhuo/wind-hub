@@ -184,10 +184,15 @@ def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> 
                 if not isinstance(selection, dict) or set(selection) != {"file_version"}:
                     raise ValueError(f"invalid Deployment instance selection: {kind}/{instance_id}")
                 selected_version = selection["file_version"]
-                if not isinstance(selected_version, str) or not _VERSION.fullmatch(selected_version):
+                if (
+                    not isinstance(selected_version, str)
+                    or not _VERSION.fullmatch(selected_version)
+                ):
                     raise ValueError(f"invalid Deployment instance version: {kind}/{instance_id}")
                 prefix = _INSTANCE_PREFIXES[kind]
-                instance_path = root / "instances" / f"{prefix}_{instance_id}_v{selected_version}.yaml"
+                instance_path = (
+                    root / "instances" / f"{prefix}_{instance_id}_v{selected_version}.yaml"
+                )
                 if instance_path not in documents:
                     raise ValueError(f"missing selected Instance: {instance_path}")
                 selected_instances[kind, instance_id] = documents[instance_path]
@@ -216,7 +221,9 @@ def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> 
             for role, instance_id in refs.items():
                 kind = _INSTANCE_ROLES.get(role)
                 if kind is None or (kind, instance_id) not in selected_instances:
-                    raise ValueError(f"unselected Service Instance: {service_id}/{role}/{instance_id}")
+                    raise ValueError(
+                        f"unselected Service Instance: {service_id}/{role}/{instance_id}"
+                    )
         for (kind, _instance_id), instance in selected_instances.items():
             if kind not in {"sink", "delivery"}:
                 continue
