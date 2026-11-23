@@ -119,3 +119,27 @@
 | 真实 Repository 全量校验/发布、进程、E2E | **NOT_RUN** | 本轮没有可执行目标仓库/依赖环境，不能宣称最终配置冻结通过 |
 
 **冻结门禁**：E2E 执行前先以已选版本构造临时独立 `configs/` 根目录，按官方 CLI 发布，并检验所有依赖闭包、统一状态和 SQL 终点。生产冻结前必须解决 GW2MW PointTable 的物理语义冲突，另行升级 `prod-a` 的 Storage 版本选择并验证，关闭 RAW 范围裁决以及业务点真实 manifest；即使 E2E 基线 PROTOCOL 成功，也不得将整体状态标 READY_TO_FREEZE。
+
+## 8. 配置审查工具整改（同日后续提交）
+
+本轮生产工具修订 `scripts/audit_business_points.py`，保留所有 PointTable 物理映射，不触碰生产 YAML 及冻结总体设计：
+
+- 修复 `business_points_standard_vX.Y.Z.yaml` 和 `units_standard_vX.Y.Z.yaml` 的版本化定位；历史不带版本的固定路径不再作为现行合法入口。
+- 修复 `device_<info>_vX.Y.Z.yaml` 实例识别；检查 Device→DeviceModel→PointTable/Protocol 精确版本。
+- 遍历全部 Repository YAML，对照文件名、`file_version`、`service_id`、`template_id` 和 `deployment_id`，明确排除本地专用 `storage_bootstrap_vX.Y.Z.yaml`。
+- 校验 Deployment→Service→Instance 精确引用和 Sink/Delivery Instance→Template、Delivery→Sink、Delivery→Device 身份引用。缺失或引用错配直接 fail-closed。
+- 同步更新 `tests/tooling/test_audit_business_points.py` 为版本化 Fixture，并添加 Deployment 正常闭包、未选择 Instance、缺失 Service/Template、Delivery 错目标和文件身份/版本错误回归用例。
+- 采用每行不超过 100 字符的静态检查整理新增代码；**没有执行 Ruff、mypy、pytest 或真实配置发布**，门禁状态为 NOT_RUN，代码变更仅代表已提交待复测。
+
+独立复测的最低指令（在具备项目 Python 环境的实际仓库执行；用 CLI 或原命令行均可触发纯离线审查，不启动业务服务）：
+
+```bash
+ruff check scripts/audit_business_points.py tests/tooling/test_audit_business_points.py
+ruff format --check scripts/audit_business_points.py tests/tooling/test_audit_business_points.py
+pytest -q tests/tooling/test_audit_business_points.py
+python -m scripts.audit_business_points --root configs --output /tmp/wind-hub-config-audit.csv --strict
+```
+
+最后一条按当前 GW2MW 的已知重复业务点问题**预期非零退出**；必须保存完整 CSV 和实际统计，不能通过取消 `--strict` 将 P1 假报关闭。如果此前静态审查判断有误，以实际严格 Loader、Schema 和逐 Point 结果重新定级。
+
+**延续阻断**：GW2MW 物理语义 22 组重复、RAW 正式数据来源、BUSINESS 历史 manifest 与 E2E Storage 真实入库、prod-a Storage Deployment 选择。配置代码检查通过也不意味着可直接冻结。
