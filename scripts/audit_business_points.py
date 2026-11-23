@@ -49,18 +49,15 @@ def _load(path: Path, root: Path) -> dict[str, Any]:
 
 
 def _validate_references(root: Path, documents: dict[Path, dict[str, Any]]) -> None:
-    """Verify exact model, PointTable, protocol and task references."""
+    """Verify exact versioned DeviceModel, PointTable and protocol references."""
     template_root = root / "templates"
     for path, document in documents.items():
         if path.parent == template_root / "device_models":
             for category, prefix in (
                 ("protocol", "protocol"),
                 ("point_table", "point_table"),
-                ("task", "task"),
             ):
                 reference = document.get(category)
-                if reference is None and category == "task":
-                    continue
                 if not isinstance(reference, dict):
                     raise ValueError(f"missing {category} reference: {path}")
                 identity, version = reference.get("id"), reference.get("version")
@@ -71,7 +68,7 @@ def _validate_references(root: Path, documents: dict[Path, dict[str, Any]]) -> N
                 target = template_root / f"{category}s" / f"{prefix}_{identity}_v{version}.yaml"
                 if target not in documents:
                     raise ValueError(f"missing {category} target {target} from {path}")
-        if path.parent == root / "instances" and path.name.startswith("devices"):
+        if path.parent == root / "instances" and path.name.startswith("device_"):
             devices = document.get("devices")
             if not isinstance(devices, dict):
                 raise ValueError(f"missing device entries: {path}")
@@ -152,8 +149,12 @@ def audit(root: Path, output: Path) -> int:
     if root.is_symlink() or not root.is_dir():
         raise ValueError(f"unsafe configuration root: {root}")
     root = root.resolve(strict=True)
-    catalog = _load(root / "templates/business_points_standard.yaml", root)
-    unit_catalog = _load(root / "templates/units_standard.yaml", root)
+    catalogs = sorted((root / "templates").glob("business_points_standard_v*.yaml"))
+    unit_catalogs = sorted((root / "templates").glob("units_standard_v*.yaml"))
+    if len(catalogs) != 1 or len(unit_catalogs) != 1:
+        raise ValueError("audit requires one explicitly selected version of each standard catalog")
+    catalog = _load(catalogs[0], root)
+    unit_catalog = _load(unit_catalogs[0], root)
     businesses = catalog.get("business_points")
     units = unit_catalog.get("units")
     if not isinstance(businesses, dict) or not isinstance(units, dict):
