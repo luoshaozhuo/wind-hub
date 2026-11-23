@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_18 · 20261123 · 集成后设计归并· 20261119 · 全量目录事务与不可变配置版本</p>
+<p class="subtitle">v1_18 · 20261123 · main 集成后设计归并</p>
 
 <style>
 body {
