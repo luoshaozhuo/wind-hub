@@ -49,6 +49,15 @@ security:
 #     client_cert: "/etc/wind-hub/certs/commander.pem"
 #     client_key: "/etc/wind-hub/certs/commander.key"
 
+# 仅 Commander 经可信仿真执行 RPC 控制 Generator INPUT；不允许 Gateway 测量更新旁路。
+simulation_targets:
+  PPC_SIM01:
+    gateway_id: gw-ppc-sim01
+    endpoint: "127.0.0.1:52073"
+    ca_cert: "/var/lib/wind-hub/e2e-final/certs/ca.pem"
+    client_cert: "/var/lib/wind-hub/e2e-final/certs/commander.pem"
+    client_key: "/var/lib/wind-hub/e2e-final/certs/commander.key"
+
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
