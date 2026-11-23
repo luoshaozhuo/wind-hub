@@ -486,7 +486,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | E2E-05 随机/CSV | `history/demo.csv`、Replay Scenario、固定种子 Scenario | 两轮同 seed 运行并比对，同一 CSV 按 1x/2x 顺序重放；停止重启后再取值 | DG 真值逐点序列与 replay 顺序一致；Reliable 已提交批次顺序不逆转；不同运行 ID 不混淆 |
 | E2E-06 多速率 | DG `interval_seconds`=0.05/0.1，Collector Task `interval`=0.05/0.1/0.2/1.0 | CLI 分别应用合法版本配置并重启/生效，固定同一确定性激励 | 统计实际时间戳、容许抖动、样本数量与丢弃/覆盖语义；不得假设 Collector 每个生成步必采 |
 | E2E-07 四出口 | 同一个全链批次，`gateway_output` / `modbus_output` / `ems_power` / `power_history` | CLI 启/停四 Delivery，正常运行、断连恢复各一次 | OUT-01 Gateway 变量与模拟 Modbus；OUT-02 真实 Modbus 目标寄存器；OUT-03 Redis 键/值；OUT-04 Kafka topic/分区及可靠 ACK；OUT-05 Storage/TDengine 实际入库并独立 PASS |
-| E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实访问令牌与隔离网络 | 枚举 73 个 CLI 叶子并逐项实际执行/合法拒绝；51 个 RPC 逐服务调用与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
+| E2E-08 CLI/RPC | 当前 CLI YAML + 六 Proto、真实访问令牌与隔离网络 | 从 CLI 实际注册树动态枚举全部叶子逐项执行/合法拒绝；从 Proto Descriptor 动态枚举逐服务全部正式 RPC 与错误码检查 | 每条命令/方法绑定 EXIT/RPC 状态、关联对象及独立副作用；没有实际执行的保留在分母 |
 | E2E-09 生命周期 | CLI service manager 对六进程的合法 unit；Sink Main 管理双 Worker | start→status/READY→restart→status→stop；重复启停和服务单侧失败 | 每个 PID、READY、退出码、Worker 清退、无残留连接/僵尸进程；进程状态不代替业务就绪 |
 | E2E-10 故障恢复 | 隔离中间件、TDengine 与 Gateway/DG/Collector/Sink/Storage | 正常基线后逐项断 NATS/Redis/Kafka/Gateway/TDengine 并重启 | Reliable 重投、Realtime 覆盖、Storage Offset/UNKNOWN、配置与控制幂等；最终逐键落库对账 |
 | E2E-11 三级最终落地 | Storage、TDengine、三等级 Delivery 与固定点表闭包 | CLI 启完整链，三级分别派发、入库与查询 | PROTOCOL/BUSINESS 真实值准确；RAW 必须有来源证据，各等级单独裁决 |
@@ -517,7 +517,7 @@ Storage 是完整链路的持久化终点，不是 Sink 的第五个适配器。
 
 ## 8.1 自动枚举并生成测试矩阵
 
-六份正式 Proto 当前有 **51 个服务限定 Unary RPC 声明**：Common 9、Collector 11、Commander 8、Sink 4、Gateway 10、Generator 9。Commander 包括 `GetRequestResult`，不得漏计。Common 在多个服务实例中分别注册，唯一方法总数与逐服务注册总数不能混用。Gateway 的 `ExecuteSimulationCommand/GetSimulationExecutionResult`、Generator 的 `GetInputExecution` 必须进入 RPC 覆盖清单。除真实调用外还要验证 Descriptor 请求/响应、字段号、标量 oneof、认证与拒绝语义。
+历史统计为 **51 个服务限定 Unary RPC 声明（不含 Configuration 与 Storage）**，现行完整分母必须按全部 Proto Descriptor 动态枚举：Common 9、Collector 11、Commander 8、Sink 4、Gateway 10、Generator 9。Commander 包括 `GetRequestResult`，不得漏计。Common 在多个服务实例中分别注册，唯一方法总数与逐服务注册总数不能混用。Gateway 的 `ExecuteSimulationCommand/GetSimulationExecutionResult`、Generator 的 `GetInputExecution` 必须进入 RPC 覆盖清单。除真实调用外还要验证 Descriptor 请求/响应、字段号、标量 oneof、认证与拒绝语义。
 
 CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**并逐条真实执行，所有业务操作必须通过 CLI；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
 

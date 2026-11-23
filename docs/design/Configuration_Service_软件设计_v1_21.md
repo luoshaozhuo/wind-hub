@@ -1353,10 +1353,10 @@ flowchart TB
 | 入口类别 | 契约权威 | 本模块实现职责 | 关联需求 |
 |---|---|---|---|
 | `CommonService` 9 RPC | 现有 `common.proto` | 真实返回服务信息、状态、能力、配置自身快照、指标、事件和诊断 | UR-05 |
-| 配置上传/发布 | 待新增 Repository Proto | 候选校验、幂等、CAS、SQLite 原子提交及审计 | UR-01 |
-| 配置版本/引用查询 | 待新增 Repository Proto | 固定修订一致读、精确 FK 闭包、分页 | UR-02/04 |
-| 配置获取/批量获取 | 待新增 Repository Proto | 唯一带 Header YAML、正文往返校验、双哈希 | UR-03 |
-| 容量/备份 | 待新增 Repository Proto | SQLite 实际占用、Online Backup API、持久化任务 | UR-04 |
+| 配置上传/发布 | 现有 configuration_repository.proto | 候选校验、幂等、CAS、SQLite 原子提交及审计 | UR-01 |
+| 配置版本/引用查询 | 现有 configuration_repository.proto | 固定修订一致读、精确 FK 闭包、分页 | UR-02/04 |
+| 配置获取/批量获取 | 现有 configuration_repository.proto | 唯一带 Header YAML、正文往返校验、双哈希 | UR-03 |
+| 容量/备份 | 现有 configuration_repository.proto | SQLite 实际占用、Online Backup API、持久化任务 | UR-04 |
 
 ## 9.2 服务端输入校验与输出组装
 

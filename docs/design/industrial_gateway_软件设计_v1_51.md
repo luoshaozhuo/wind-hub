@@ -1690,6 +1690,8 @@ Gateway Server 监听端点必须来自专属 Service 配置，公共设备 Endp
 | ReadVariables | `ReadVariablesRequest` → `ReadVariablesResponse` | 当前值，Sample.value 可缺失；非 PLC 现场读 |
 | UpdateVariables | `UpdateVariablesRequest` → `UpdateVariablesResponse` | `gateway_id` + `values[]` + `lease_token`；租约预检后逐项返回结果，非法租约整批拒绝 |
 | **ClaimTargets** | `ClaimTargetsRequest` → `ClaimTargetsResponse` | `ACQUIRE`/`RENEW`/`RELEASE`，Gateway 作用域原子申领、多目标隔离、过期失效及防止旧令牌写入 |
+| ExecuteSimulationCommand | `SimulationCommandRequest` → `SimulationCommandResponse` | 经受控令牌和身份校验，稳定 request_id 的模型控制执行 |
+| GetSimulationExecutionResult | `SimulationExecutionQuery` → `SimulationCommandResponse` | 查询同一子命令是否 APPLIED，UNKNOWN 不冒充成功 |
 
 正式更新消息：`VariableUpdate { variable_id, value: ScalarValue }`，不包含 `quality`、`sample_timestamp`、`expected_revision`；更新请求增加 `lease_token`；响应 `results[]` 不包含全局 `revision` 或 `gateway_id`。重复变量 ID 整批拒绝；合法租约覆盖时逐项更新，无权限/失效令牌不允许产生写入。
 
@@ -1842,7 +1844,7 @@ Gateway 的本地 `Get/Push/ApplyConfigSnapshot` RPC 不承担集中业务配置
 
 ## 11.5 实现状态与适配边界
 
-历史验收中的 Gateway v1 采用 `SharedDocumentLoader` 显式传入 Instance pathname 和 Template 根目录；该加载方式需迁移到 Deployment 固定版本闭包，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
+正式 Gateway 仅消费 Deployment 选定的 Service→Instance→Template 精确版本闭包；旧版 `SharedDocumentLoader` pathname 方式属于历史实现缺口，不是当前规范配置路径，解析公共设备、型号、协议及点表引用；Service 快照不私自修改共享配置。Modbus TCP 请求级写回调、完整变量读写、同值重复写、数据注入与工业控制分离、端口交换、配置热更及三态快照均有独立测试证据。
 
 当前正式接口含 Gateway 19 个入站 RPC（10 个 Gateway 专属及 9 个 CommonService）；Commander→Gateway→Data Generator 仿真链必须以请求级计算步完成证据完成独立验收。IEC 104 与 ADS Server 仍属后续适配，未通过真实协议能力验证前不得宣称已支持。Data Generator、Sink Service 的跨分支完整整栈尚未完成，此范围独立列入集成验收，不改变本模块已验收结果。
 

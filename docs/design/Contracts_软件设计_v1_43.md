@@ -778,7 +778,7 @@ flowchart LR
 
 <p class="figure-caption">图 3-1 合同接口的主要调用与数据边界</p>
 
-Contracts 只规定外部可观察的消息、类型、字段、RPC、状态、版本和安全语义；各业务模块负责实现。Configuration Service 作为**全系统配置库**，存储所有共享与应用专属配置；CLI 负责配置发布后的生效协调，Configuration Service 不向各业务进程主动下发或应用配置。Configuration Service 自身使用独立 Service YAML 引导配置，避免自依赖。
+Contracts 只规定外部可观察的消息、类型、字段、RPC、状态、版本和安全语义；各业务模块负责实现。Configuration Service 作为**全系统配置库**，存储所有共享与应用专属配置；CLI 只负责完整目录发布，各模块独立查询目标闭包并决定生效，Configuration Service 不向各业务进程主动下发或应用配置。Configuration Service 自身使用独立 Service YAML 引导配置，避免自依赖。
 
 ## 3.3 版本与编译准则
 
@@ -793,11 +793,11 @@ Contracts 只规定外部可观察的消息、类型、字段、RPC、状态、�
 | RPC | 请求 → 响应 | 输入字段与关键规则 | 输出字段与含义 |
 |---|---|---|---|
 | `GetServiceInfo` | `Empty → GetServiceInfoResponse` | 无 | `service_id`, `process_role`, `software_version`, `contract_version`, `started_at` |
-| `GetServiceStatus` | `Empty → GetServiceStatusResponse` | 无 | `health`, `dependencies[] {name,health,detail}`, `observed_at` |
+| `GetServiceStatus` | `Empty → GetServiceStatusResponse` | 无 | `health`, `dependencies[] {name,health,detail}`, `observed_at`, `target_revision`(4), `active_revision`(5) |
 | `GetCapabilities` | `Empty → GetCapabilitiesResponse` | 无 | `rpc_names[]`, `protocols[]`, `features[]`；只宣布已实现能力 |
 | `GetConfigSnapshot` | `GetConfigSnapshotRequest → GetConfigSnapshotResponse` | `scope`=DISK/RUNTIME/CANDIDATE，`candidate_id` 对候选必填 | `snapshot_id`, `revision`, `files[]`, `validation[]`, `application_id`, `apply_results[]`, `last_error` |
-| `PushConfigSnapshot` | `PushConfigSnapshotRequest → PushConfigSnapshotResponse` | `files[] {relative_path,content,size_bytes,sha256}`, `expected_revision` | `candidate_id`, `valid`, `validation[]`, `base_revision` |
-| `ApplyConfigSnapshot` | `ApplyConfigSnapshotRequest → ApplyConfigSnapshotResponse` | `candidate_id`, `expected_revision` | `file_commit`, `apply_results[]`, `effective_revision`, `restart_required`, `application_id` |
+| `PushConfigSnapshot` | `PushConfigSnapshotRequest → PushConfigSnapshotResponse` | 历史 Common 字段 | 不得作为 Repository 托管业务配置第二写入入口，拒绝其业务写入 |
+| `ApplyConfigSnapshot` | `ApplyConfigSnapshotRequest → ApplyConfigSnapshotResponse` | 历史 Common 字段 | 不得提交或激活业务配置；版本由 Deployment 唯一选择 |
 | `GetMetrics` | `GetMetricsRequest → GetMetricsResponse` | `scope`, `window_ms` | `metrics[] {name,value,unit,window_ms,sampled_at}` |
 | `GetEvents` | `GetEventsRequest → GetEventsResponse` | `from_time`, `to_time`, `filter`, `page_size`, `page_token` | `events[] {event_id,timestamp,severity,source,error_code,message}`, `next_page_token` |
 | `Diagnose` | `DiagnoseRequest → DiagnoseResponse` | `target_id`, `stages[]`, `timeout_ms`, `correlation_id` | `overall_status`, `stages[]`, `limitations[]` |
@@ -1163,7 +1163,7 @@ message GetPointTableBundleResponse {
 
 ## 10.7 Schema 与版本范围
 
-SQLite 的 `db_meta.schema_version` 描述数据库结构迁移，独立于 YAML 的 `schema_version`、`file_version`，也独立于 Repository 的 `revision_id`。服务版本提升不能冒充数据库迁移成功。当前库 Schema 版本要与 `PRAGMA user_version` 一致；读到未来未知版本时 fail-closed，不得尝试降级重建表。SemanticPoint、BusinessPoint、PointTable 等关系对象被新版本引用时必须绑定不可变快照；`GetConfigBundle` 应从**一个 revision 一致的读快照**导出闭包，不能混用“各文件最新版本”。
+SQLite 的 `db_meta.schema_version` 描述数据库结构迁移，独立于 YAML 的 `schema_version`、`file_version`，也独立于 Repository 的 `revision_id`。服务版本提升不能冒充数据库迁移成功。当前库 Schema 版本要与 `PRAGMA user_version` 一致；读到未来未知版本时 fail-closed，不得尝试降级重建表。BusinessPoint、PointTable 等关系对象被新版本引用时必须绑定不可变快照；`GetConfigBundle` 应从**一个 revision 一致的读快照**导出闭包，不能混用“各文件最新版本”。
 
 
 ### 10.7.1 事务、修订与幂等不变量
@@ -1264,7 +1264,7 @@ Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_s
 
 **PointTable 不变性**：`point_table_id` 必须能在 Configuration 解析到确定且不可变的 Point 集合、比例/偏移、类型/源工程单位及**精确固定的 BusinessPoint/Units 依赖闭包**。如果任何改变影响样本解释或 BusinessPoint 输出语义，必须发布新的 `point_table_id`；不能沿用同一 ID 指向可变的最新依赖版本。若仅变更采集间隔或服务连接参数、不影响解释规则，可继续使用原 PointTable ID。不同全局配置修订可以共享同一 PointTable ID。
 
-**迁移要求**：当前代码严格要求 v2，新的必填字段意味着 v3 输入不能在旧消费者下兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
+**迁移要求**：正式 Collector/Sink 采用 SampleBatch v3 严格字段，历史 v2 消费者不能与 v3 生产者兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
 
 ## 11.7 数据三级语义与映射不变量
 

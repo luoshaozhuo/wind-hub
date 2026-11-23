@@ -1881,7 +1881,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
   service    list | info | status | capabilities | start | stop | restart
   config     publish | get | diff
   collector  devices | device | points | point | tasks | task | start | stop | latest | watch | metrics | events | publishing
-  commander  devices | device | points | write | submit-commands | result | request-result | recover | metrics | events
+  commander  devices | device | points | write | batch | result | request-result | recover-device | metrics | events
   sink       deliveries | delivery | start | stop | metrics | events
   gateway    list | status | variables | read | watch | update | start | stop | metrics
   data-generator  devices | device | scenarios | start | stop | status | variables (list|update)

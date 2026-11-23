@@ -2553,18 +2553,18 @@ Commander Service 仅依赖 devices 等 Instance 逻辑身份；Device Instance 
 
 ## 11.1 配置文件或配置源体系
 
-Commander 专属服务配置为 `configs/services/commander.yaml`。服务配置只指定**直接依赖**的实例配置文件 pathname 与模板定位 pathname，不列出由设备实例、设备型号、协议模板或点表等**间接引用**的文件。共享配置不复制到 Commander 私有目录。
+Commander 的正式配置由 Deployment 选择版本化 `configs/services/service_commander_v*.yaml`。Service 只通过 `config_sources.instances` 声明直接依赖的 Instance 逻辑身份，不使用文件 pathname 或模板根，不列出由设备实例、设备型号、协议模板或点表等**间接引用**的文件。共享配置不复制到 Commander 私有目录。
 
 <p class="table-caption">表 11-1 配置源与所有权</p>
 
 | 配置源 | 类别和用途 | 装载来源及生效 |
 |---|---|---|
-| `commander.yaml` | 服务专属：网络、安全、调度、SQLite、审计及配置入口 | 启动参数明确传入服务配置路径；服务级变更需要重启 |
+| `service_commander_v*.yaml` | 版本化服务专属：网络、安全、调度、SQLite、审计及配置入口 | 启动参数明确传入服务配置路径；服务级变更需要重启 |
 | `config_sources.instances.devices` | 设备 Instance 的逻辑身份 | Deployment 选取固定版本，设备级安全热更新 |
 | 模板间接依赖 | Instance 中固定的模板身份及版本 | 按 Deployment 有效闭包解析，不允许 Service 直接声明模板根目录 |
 | 设备型号、协议、点表、业务点和单位模板 | 通过实例和模板引用链到达的间接依赖 | 仅按引用 ID、精确版本及 Core 规则解析，不重复声明路径 |
 
-设备实例 `model: {id, version}` 指向设备型号；型号引用 `protocol` 和 `point_table` 等版本化模板。Commander 只消费控制所需的协议、点表和设备信息，不执行采集任务；间接加载的文件必须属于已声明模板根目录，不得搜索隐式默认目录或回退为“最新版”。
+设备实例 `model: {id, version}` 指向设备型号；型号引用 `protocol` 和 `point_table` 等版本化模板。Commander 只消费控制所需的协议、点表和设备信息，不执行采集任务；间接加载的文件必须属于已选不可变模板依赖闭包，不得搜索隐式默认目录或回退为“最新版”。
 
 **直接配置入口封闭原则：**当前 Commander 对设备控制需要 `devices` 和模板根目录；未实际使用的 `site.yaml` 不列入。新增直接依赖必须先修改服务配置契约和实现，再增加对应测试。相对 pathname 均以部署工作根 `config_root`（包含 `configs/` 子目录）解析，必须以 `configs/` 开头；绝对配置源及任何 `..` 段一律拒绝；不依赖进程工作目录，禁止越过声明的模板根目录解析版本化模板。服务启动命令必须显式给定服务配置 pathname，不隐式读取 `configs/services/commander.yaml`。
 

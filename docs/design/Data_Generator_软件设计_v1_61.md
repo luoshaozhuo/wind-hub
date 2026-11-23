@@ -1990,7 +1990,7 @@ flowchart LR
 
 ## 9.4 方法实现、错误、并发与契约验收
 
-1. Server 目标需实现 **17 个 Unary RPC**（`DataGeneratorService` 8 + `CommonService` 9；现行 Proto 已为 8 + 9，编码应按 Descriptor 核对），逐方法比对编译后的 Descriptor；不能把 Gateway 的接口算作本模块 Server 方法。
+1. Server 目标需实现 **18 个 Unary RPC**（`DataGeneratorService` 9 + `CommonService` 9；现行 Proto 为 9 + 9，编码应按 Descriptor 核对），逐方法比对编译后的 Descriptor；不能把 Gateway 的接口算作本模块 Server 方法。
 2. 对 ID/类型/版本/分页/权限/期限错误给出与 Proto 字段兼容的反馈；不通过新增自定义 Request/Response 消息绕开公共契约。
 3. 生成启停和配置激活属于有副作用操作：运行所有权、租约与并发冲突裁决在应用层完成；Repository 的发布 CAS 与 Service 的运行激活各自独立。
 4. gRPC 取消/超时不证明底层历史读取或 Gateway I/O 已结束；进程视图 §6.4 负责资源所有权与安全关闭。
