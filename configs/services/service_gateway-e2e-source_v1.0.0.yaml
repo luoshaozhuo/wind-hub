@@ -21,9 +21,9 @@ grpc:
   request_max_bytes: 2097152
   tls:
     enabled: true
-    ca_file: /etc/wind-hub/certs/ca.pem
-    cert_file: /etc/wind-hub/certs/gateway.pem
-    key_file: /etc/wind-hub/certs/gateway.key
+    ca_file: /var/lib/wind-hub/e2e-final/certs/ca.pem
+    cert_file: /var/lib/wind-hub/e2e-final/certs/gateway.pem
+    key_file: /var/lib/wind-hub/e2e-final/certs/gateway.key
   permissions:
     commander: [simulation_execute, read]
     generator: [inject, read]
@@ -32,7 +32,7 @@ servers:
   - server_id: gw-wtg-sim01
     device_id: WTG_SIM01
     listen_host: "127.0.0.1"
-    listen_port: 15021
+    listen_port: 15221
     desired_state: START
     control:
       enabled: false
@@ -42,7 +42,7 @@ servers:
   - server_id: gw-pv-sim01
     device_id: PV_SIM01
     listen_host: "127.0.0.1"
-    listen_port: 15022
+    listen_port: 15222
     desired_state: START
     control:
       enabled: false
@@ -52,7 +52,7 @@ servers:
   - server_id: gw-bess-sim01
     device_id: BESS_SIM01
     listen_host: "127.0.0.1"
-    listen_port: 15023
+    listen_port: 15223
     desired_state: START
     control:
       enabled: false
@@ -62,7 +62,7 @@ servers:
   - server_id: gw-grid-sim01
     device_id: GRID_SIM01
     listen_host: "127.0.0.1"
-    listen_port: 15024
+    listen_port: 15224
     desired_state: START
     control:
       enabled: false
@@ -72,7 +72,7 @@ servers:
   - server_id: gw-ppc-sim01
     device_id: PPC_SIM01
     listen_host: "127.0.0.1"
-    listen_port: 15025
+    listen_port: 15225
     desired_state: START
     control:
       enabled: true
@@ -81,9 +81,9 @@ servers:
         endpoint: "127.0.0.1:52052"
         tls:
           enabled: true
-          ca_file: /etc/wind-hub/certs/ca.pem
-          cert_file: /etc/wind-hub/certs/gateway.pem
-          key_file: /etc/wind-hub/certs/gateway.key
+          ca_file: /var/lib/wind-hub/e2e-final/certs/ca.pem
+          cert_file: /var/lib/wind-hub/e2e-final/certs/gateway.pem
+          key_file: /var/lib/wind-hub/e2e-final/certs/gateway.key
         request_timeout_ms: 2000
         queue_capacity: 1024
         max_inflight: 1
@@ -91,9 +91,9 @@ servers:
         endpoint: "127.0.0.1:52061"
         tls:
           enabled: true
-          ca_file: /etc/wind-hub/certs/ca.pem
-          cert_file: /etc/wind-hub/certs/gateway.pem
-          key_file: /etc/wind-hub/certs/gateway.key
+          ca_file: /var/lib/wind-hub/e2e-final/certs/ca.pem
+          cert_file: /var/lib/wind-hub/e2e-final/certs/gateway.pem
+          key_file: /var/lib/wind-hub/e2e-final/certs/gateway.key
         scenario_id: e2e-plant-physical
       mappings:
         - variable_id: agc_power_setpoint
