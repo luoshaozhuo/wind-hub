@@ -11,7 +11,7 @@ config_sources:
     devices: e2e-final
 
 grpc:
-  listen_host: "0.0.0.0"
+  listen_host: "127.0.0.1"
   listen_port: 52052
   max_active_rpcs: 256
 
