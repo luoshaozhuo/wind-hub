@@ -119,3 +119,57 @@ def test_audit_rejects_point_table_inheritance_cycle(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="inheritance cycle"):
         audit(root, tmp_path / "results.csv")
+
+
+def _deployment_root(tmp_path: Path) -> Path:
+    root = _root(tmp_path)
+    _write(
+        root / "instances/site_e2e_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\nsite_id: e2e\n",
+    )
+    _write(
+        root / "services/service_collector-e2e_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\nservice_id: collector-e2e\n"
+        "config_sources:\n  instances:\n    site: e2e\n",
+    )
+    _write(
+        root / "deployments/deployment_e2e_v1.0.0.yaml",
+        "schema_version: 1\nfile_version: 1.0.0\ndeployment_id: e2e\n"
+        "services:\n  collector-e2e:\n    config_id: collector-e2e\n"
+        "    file_version: 1.0.0\ninstances:\n"
+        "  site:\n    e2e:\n      file_version: 1.0.0\n",
+    )
+    return root
+
+
+def test_audit_validates_versioned_deployment_closure(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    assert audit(root, tmp_path / "results.csv") == 0
+
+
+def test_audit_rejects_unselected_service_instance(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    service = root / "services/service_collector-e2e_v1.0.0.yaml"
+    service.write_text(
+        service.read_text(encoding="utf-8").replace("site: e2e", "site: prod"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unselected Service Instance"):
+        audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_missing_selected_service(tmp_path: Path) -> None:
+    root = _deployment_root(tmp_path)
+    (root / "services/service_collector-e2e_v1.0.0.yaml").unlink()
+    with pytest.raises(ValueError, match="missing or mismatched selected Service"):
+        audit(root, tmp_path / "results.csv")
+
+
+def test_audit_rejects_multiple_standard_versions(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    _write(
+        root / "templates/business_points_standard_v1.1.0.yaml",
+        "schema_version: 1\nfile_version: 1.1.0\nbusiness_points: {}\n",
+    )
+    with pytest.raises(ValueError, match="one explicitly selected version"):
+        audit(root, tmp_path / "results.csv")
