@@ -1620,7 +1620,7 @@ sequenceDiagram
     CLI-->>Operator: 停止本地轮询，返回 Shell
 ```
 
-<p class="figure-caption">图 6-3 Collector 缓存数据周期轮询时序图（Gateway 与状态监视采用同类客户端调度）</p>
+<p class="figure-caption">图 6-3 客户端主动 ReadPoints 周期请求时序图（Gateway 变量读取另行区分）</p>
 
 ## 6.4 超时、取消与恢复
 

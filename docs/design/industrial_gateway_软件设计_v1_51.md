@@ -1878,7 +1878,7 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 
 Gateway 对工业写事件只出站调用 Commander `SubmitCommand`。来自 Commander 的 `ExecuteSimulationCommand` 属于**独立入站控制执行 Adapter**，并与对 Generator 的 `UpdateVariables` 出站 Client 分离。禁止用 Gateway 的数据注入 `UpdateVariables` 代替执行接口。
 
-- Proto 请求与响应字段号、状态、查询接口严格按 Contracts v1_43 §3.3，不在 Gateway 重复定义同名线契约。
+- Proto 请求与响应字段号、状态、查询接口严格按 正式 `src/contracts/industrial_gateway.proto` 与 `data_generator.proto` 字段定义，不在 Gateway 重复定义同名线契约。
 - Gateway 实例的 Service 配置声明每台仿真设备的 Scenario 绑定、目标变量映射和允许的模型输入；不得将运行态 `generation_id` 写死在静态配置。活动 Generation 必须通过 Generator 正式 RPC 解析且版本一致。
 - 接受执行 RPC 前验证 Commander 认证主体、request_id、expires_at、revision、目标属性及唯一 Generation。拒绝失败不改变变量或模型；同 request_id 同内容保持同一结果，不创建二次执行。
 - Generator `UpdateVariables` 的 `accepted/effective_step` 仅作为有效步准入证据；Gateway 通过 `GetInputExecution` 查询同一 Generation、经令牌核验的调用主体与 request_id 的实际计算步完成结果，只有 `APPLIED` 才可返回 Commander 成功。取消或断连后归 UNKNOWN，不能盲重试新 ID；Commander 对外提供最终查询。

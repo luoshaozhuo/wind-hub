@@ -1910,7 +1910,7 @@ flowchart LR
 
 ## 9.1 DataGeneratorService：九项现行 gRPC Server RPC
 
-现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_43 §9.5。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
+现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_43 的 RPC 接口矩阵及 `src/contracts/data_generator.proto`。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 

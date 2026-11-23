@@ -1061,7 +1061,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 `PublishCandidate` 在同一事务内完成 CAS、版本复用或插入、完整成员集合替换、精确引用校验、不可变版本保护、审计及持久幂等。输入集合与当前版本视图没有任何语义差异时，返回当前 revision 且不重复广播。普通候选不接收“仅上传有变化文件”或“单文件 patch”的另一种正式发布语义。大于单请求上限的根目录在本版明确报错，后续若确有证据需要大目录再独立设计上传协议，不提前增加三套 RPC。
 
-### 10.3.15 `GetCurrentRevision` — 启动及周期对账（目标新增）
+### 10.3.15 `GetCurrentRevision` — 启动及周期对账（已存在于现行 Proto）
 
 请求为有 `query` 权限的空消息；响应包含 `revision_id:uint64`（允许空库 0）、`manifest_sha256:string` 和已发布时间。此 RPC 是各模块启动时在订阅 NATS 后、网络重连后及周期对账时读取的唯一全局权威；不依赖 CLI 在线。现有 `GetRepositoryStats` 不能被默认为可替代的强一致性修订查询，除非正式契约提供一致的快照字段。
 
@@ -1155,7 +1155,7 @@ message GetPointTableBundleResponse {
 }
 ```
 
-增加 `GetCurrentRevision`、`GetPointTableBundle` 两个 Unary RPC；前者服务端在一致 SQLite 事务中读取最新已提交全局修订，空库允许返回 0；后者严格定位不可变历史 PointTable 与固定 BusinessPoint/Units 闭包。两者需要 `query` 权限并有数量/字节上限，不得推测当前推荐版本。不会新增 `BeginDirectoryCandidate/AppendDirectoryFiles/FinalizeDirectoryCandidate` 或 `NotifyConfigRevision`。
+现行 Proto 已提供 `GetCurrentRevision`、`GetPointTableBundle` 两个 Unary RPC；前者服务端在一致 SQLite 事务中读取最新已提交全局修订，空库允许返回 0；后者严格定位不可变历史 PointTable 与固定 BusinessPoint/Units 闭包。两者需要 `query` 权限并有数量/字节上限，不得推测当前推荐版本。不会新增 `BeginDirectoryCandidate/AppendDirectoryFiles/FinalizeDirectoryCandidate` 或 `NotifyConfigRevision`。
 
 ## 10.6 YAML 导入导出唯一语义
 
