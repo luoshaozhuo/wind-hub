@@ -3113,7 +3113,7 @@ Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不�
 
 Collector 的 Task 配置只需要明确目标 `device_id`，通过配置闭包解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
 
-当前 `src/contracts/sample_batch.py` 和 BatchBuilder 仍发送 v2、未填写 `device_type` / `point_table_id`；目标 v3 需同步修改代码和测试。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
+当前 `src/contracts/sample_batch.py` 与 Collector BatchBuilder 发送严格 v3，并包含 `device_type` / `point_table_id`；重试及分批仍须维持样本身份和不可变历史解释规则。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
 ## 10.4 NATS 投递及可靠性边界
 
