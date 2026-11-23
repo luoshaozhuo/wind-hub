@@ -1,0 +1,108 @@
+{
+  "results": {
+    "e2e-final": {
+      "yaml_count": 35,
+      "deployment": "e2e-final@1.0.1",
+      "service_count": 9,
+      "instance_count": 6,
+      "point_tables": {
+        "point_table_modbus_bess_sim_v1.2.0": 20,
+        "point_table_modbus_grid_sim_v1.2.0": 15,
+        "point_table_modbus_plant_controller_sim_v1.2.0": 20,
+        "point_table_modbus_pv_sim_v1.2.0": 16,
+        "point_table_modbus_wtg_sim_v1.2.0": 32
+      },
+      "device_count": 6,
+      "delivery_count": 4,
+      "source_device_point_pairs": 4,
+      "collector_ids": [
+        "collector-e2e-realtime",
+        "collector-e2e-reliable"
+      ],
+      "kafka_targets": {
+        "e2e_kafka": {
+          "topic": "windhub.e2e.history",
+          "bootstrap_servers": [
+            "127.0.0.1:9092"
+          ]
+        }
+      },
+      "storage_targets": {
+        "storage-e2e": {
+          "topic": "windhub.e2e.history",
+          "bootstrap_servers": "127.0.0.1:9092"
+        }
+      },
+      "all_root_files_match_source": true
+    },
+    "prod-a": {
+      "yaml_count": 29,
+      "deployment": "prod-a@1.6.0",
+      "service_count": 8,
+      "instance_count": 6,
+      "point_tables": {
+        "point_table_ads_wtg_gw2mw_v1.2.0": 111,
+        "point_table_modbus_wtg_tz2mw_v1.2.0": 10
+      },
+      "device_count": 10,
+      "delivery_count": 4,
+      "source_device_point_pairs": 4,
+      "collector_ids": [
+        "collector-realtime",
+        "collector-reliable"
+      ],
+      "kafka_targets": {
+        "history_kafka": {
+          "topic": "windhub-history",
+          "bootstrap_servers": [
+            "192.168.1.20:9092"
+          ]
+        }
+      },
+      "storage_targets": {
+        "storage-main": {
+          "topic": "windhub-history",
+          "bootstrap_servers": "192.168.1.20:9092"
+        }
+      },
+      "all_root_files_match_source": true
+    },
+    "sim-a": {
+      "yaml_count": 23,
+      "deployment": "sim-a@1.4.0",
+      "service_count": 5,
+      "instance_count": 4,
+      "point_tables": {
+        "point_table_modbus_bess_sim_v1.2.0": 20,
+        "point_table_modbus_grid_sim_v1.2.0": 15,
+        "point_table_modbus_plant_controller_sim_v1.2.0": 20,
+        "point_table_modbus_pv_sim_v1.2.0": 16,
+        "point_table_modbus_wtg_sim_v1.2.0": 32
+      },
+      "device_count": 5,
+      "delivery_count": 0,
+      "source_device_point_pairs": 0,
+      "collector_ids": [
+        "collector-sim"
+      ],
+      "kafka_targets": {},
+      "storage_targets": {},
+      "all_root_files_match_source": true,
+      "cli_forbidden_target_tokens": []
+    },
+    "source_configs": {
+      "yaml_count": 117,
+      "schema_versions": {
+        "1": 109,
+        "2": 8
+      },
+      "modified_existing_since_round_2": [
+        "M\tconfigs/templates/sinks/sink_kafka_history_v1.1.0.yaml"
+      ],
+      "added_paths": 15,
+      "kafka_v1_1_0_blob": "460fb5d96235b4a6713c85af6102efbde9f85f78"
+    }
+  },
+  "unexpected_shared_domain_documents": [],
+  "failures": []
+}

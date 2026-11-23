@@ -1,0 +1,223 @@
+{
+  "results": {
+    "point_tables": {
+      "ads_wtg_4xems": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 12,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "iec104_wtg": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 4,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_bess_sim": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 20,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_grid_sim": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 15,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_plant_controller_sim": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 20,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_pv_sim": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 16,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_wtg_sim": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 32,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      },
+      "modbus_wtg_tz2mw": {
+        "old_new_semantics_equal_except_version_and_sources": true,
+        "point_count": 10,
+        "config_sources": [
+          {
+            "config_type": "units",
+            "config_id": "standard",
+            "file_version": "1.2.0"
+          },
+          {
+            "config_type": "business_points",
+            "config_id": "standard",
+            "file_version": "1.5.0"
+          }
+        ]
+      }
+    },
+    "device_models": {
+      "bess_sim_physical": {
+        "non_table_fields_equal": true,
+        "expected_table_change": true
+      },
+      "grid_sim_physical": {
+        "non_table_fields_equal": true,
+        "expected_table_change": true
+      },
+      "plant_controller_sim_physical": {
+        "non_table_fields_equal": true,
+        "expected_table_change": true
+      },
+      "pv_sim_physical": {
+        "non_table_fields_equal": true,
+        "expected_table_change": true
+      },
+      "wtg_sim_physical": {
+        "non_table_fields_equal": true,
+        "expected_table_change": true
+      },
+      "wtg_tz2mw": {
+        "non_table_fields_equal": true,
+        "new_table": {
+          "id": "modbus_wtg_tz2mw",
+          "version": "1.2.0"
+        }
+      }
+    },
+    "device_instances": {
+      "sim": {
+        "non_device_fields_equal": true,
+        "unexpected_device_changes": []
+      },
+      "e2e-final": {
+        "non_device_fields_equal": true,
+        "unexpected_device_changes": []
+      },
+      "farm-a": {
+        "unexpected_device_changes": []
+      }
+    },
+    "other": {
+      "prod_delivery": {
+        "collector_changes": {
+          "ems_power": {
+            "old": "collector_realtime",
+            "new": "collector-realtime"
+          },
+          "power_history": {
+            "old": "collector_reliable",
+            "new": "collector-reliable"
+          },
+          "ems_modbus_view": {
+            "old": "collector_realtime",
+            "new": "collector-realtime"
+          },
+          "gateway_meter_view": {
+            "old": "collector_realtime",
+            "new": "collector-realtime"
+          }
+        },
+        "other_changes": {}
+      },
+      "storage-main": {
+        "non_kafka_fields_equal": true,
+        "old_kafka": {
+          "bootstrap_servers": "127.0.0.1:9092",
+          "topic": "windhub-history",
+          "group_id": "storage-main",
+          "max_poll_records": 500,
+          "max_partition_workers": 4,
+          "max_buffer_records": 20000,
+          "max_buffer_bytes": 67108864,
+          "commit_interval_ms": 1000
+        },
+        "new_kafka": {
+          "bootstrap_servers": "192.168.1.20:9092",
+          "topic": "windhub-history",
+          "group_id": "storage-main",
+          "max_poll_records": 500,
+          "max_partition_workers": 4,
+          "max_buffer_records": 20000,
+          "max_buffer_bytes": 67108864,
+          "commit_interval_ms": 1000
+        }
+      }
+    }
+  },
+  "failures": []
+}

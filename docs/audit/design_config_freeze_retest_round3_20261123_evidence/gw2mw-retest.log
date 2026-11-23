@@ -1,0 +1,121 @@
+{
+  "catalog": {
+    "v1_4_0_count": 293,
+    "v1_5_0_count": 400,
+    "original_count": 293,
+    "added_count": 107,
+    "removed_ids": [],
+    "changed_original": [],
+    "added_complete_count": 107,
+    "original_unchanged_count": 293
+  },
+  "points": {
+    "old_count": 111,
+    "new_count": 111,
+    "csv_count": 111,
+    "csv_duplicate_point_ids": [],
+    "unique_new_business_point_count": 111,
+    "duplicate_new_business_point_ids": [],
+    "structural_pass_count": 111,
+    "structural_fail_point_ids": [],
+    "pending_oem_count": 111,
+    "source_types": {
+      "BOOL": 13,
+      "REAL": 98
+    }
+  },
+  "explicit_sources": {
+    "point_table_v1_2_0": [
+      {
+        "config_type": "units",
+        "config_id": "standard",
+        "file_version": "1.2.0"
+      },
+      {
+        "config_type": "business_points",
+        "config_id": "standard",
+        "file_version": "1.5.0"
+      }
+    ],
+    "business_points_v1_5_0": [
+      {
+        "config_type": "units",
+        "config_id": "standard",
+        "file_version": "1.2.0"
+      }
+    ],
+    "historical_point_table_v1_1_0": null
+  },
+  "chain": {
+    "model_v1_5_0_point_table": {
+      "id": "ads_wtg_gw2mw",
+      "version": "1.2.0"
+    },
+    "model_v1_5_0_protocol": {
+      "id": "ads",
+      "version": "1.2.0"
+    },
+    "model_nonversion_fields_equal_v1_4_0": true,
+    "device_model_versions": [
+      "1.3.0",
+      "1.5.0"
+    ],
+    "device_ids": [
+      "GW01",
+      "GW02",
+      "GW03",
+      "GW04",
+      "GW05",
+      "TZ01",
+      "TZ02",
+      "TZ03",
+      "TZ04",
+      "TZ05"
+    ],
+    "device_nonmodel_change_ids": [],
+    "device_nonversion_equal_excluding_devices": true,
+    "deployment_v1_4_0_selected_device": {
+      "farm-a": {
+        "file_version": "1.5.0"
+      }
+    },
+    "deployment_v1_4_0_selected_delivery": {
+      "prod-a": {
+        "file_version": "1.4.0"
+      }
+    },
+    "deployment_v1_4_0_storage_service_selected": false,
+    "delivery_semantics_equal_v1_3_0": true,
+    "deployment_service_changes": {},
+    "deployment_instance_changes": {
+      "delivery/prod-a": {
+        "old": {
+          "file_version": "1.3.0"
+        },
+        "new": {
+          "file_version": "1.4.0"
+        }
+      },
+      "device/farm-a": {
+        "old": {
+          "file_version": "1.4.0"
+        },
+        "new": {
+          "file_version": "1.5.0"
+        }
+      }
+    }
+  },
+  "sha256": {
+    "configs/templates/business_points_standard_v1.4.0.yaml": "e0ed7e6750e156ec74e73bff5ee6ed387ff0117cca0044105bd18c32497e56ad",
+    "configs/templates/business_points_standard_v1.5.0.yaml": "0fc8e128c772493a28df4d678a6d0c1a47bbdba7e17727f2566c217b343b50e6",
+    "configs/templates/point_tables/point_table_ads_wtg_gw2mw_v1.1.0.yaml": "dbd66f50b5b076c567459e9be78505819ac9ac6977a0847c3b2c74498dec1e21",
+    "configs/templates/point_tables/point_table_ads_wtg_gw2mw_v1.2.0.yaml": "4b5840e64c37cf9e6e254c0f2a04ae015a8aefd4b784d27cca9d8d1761ef23e6",
+    "configs/templates/units_standard_v1.2.0.yaml": "1464281093a404be382302a487f4fabed65bdf0ffc2d86f07760447d80c6db6b",
+    "docs/audit/gw2mw_businesspoint_semantic_mapping_candidate_20261123.csv": "f119b60736f7a84727d6520d40f5da897a96730c8bc4836b580342b6852af9a1"
+  },
+  "outputs": [
+    "/tmp/wind-hub-design-config-retest-r3/businesspoint_catalog_diff_20261123.csv",
+    "/tmp/wind-hub-design-config-retest-r3/gw2mw_businesspoint_retest_results_20261123.csv"
+  ]
+}

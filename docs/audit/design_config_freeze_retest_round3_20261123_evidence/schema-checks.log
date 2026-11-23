@@ -1,0 +1,54 @@
+{
+  "repository_schema": {
+    "prod-a": {
+      "pass_count": 29,
+      "fail_count": 0,
+      "failures": {}
+    },
+    "sim-a": {
+      "pass_count": 23,
+      "fail_count": 0,
+      "failures": {}
+    },
+    "e2e-final": {
+      "pass_count": 33,
+      "fail_count": 2,
+      "failures": {
+        "services/service_commander-e2e_v1.0.0.yaml": "ValueError: unknown configuration fields at document: ['simulation_targets']",
+        "services/service_gateway-e2e-target_v1.0.0.yaml": "ValueError: unknown configuration fields at document.grpc: ['sink_listener_port']"
+      }
+    }
+  },
+  "sim_bootstrap": {
+    "status": "PASS",
+    "service_id": "configuration-sim",
+    "host": "127.0.0.1",
+    "port": 53060,
+    "token_identities": [
+      "wind-hub-cli-admin",
+      "wind-hub-collector",
+      "wind-hub-commander",
+      "wind-hub-gateway",
+      "wind-hub-generator",
+      "wind-hub-sink",
+      "wind-hub-storage"
+    ]
+  },
+  "sim_runtime_parsers": {
+    "commander-sim@1.2.0": {
+      "status": "REJECTED",
+      "error_type": "ValueError",
+      "message": "security.ca_cert pathname is required"
+    },
+    "gateway-sim@1.2.0": {
+      "status": "REJECTED",
+      "error_type": "ValidationError",
+      "message": "3 validation errors for GatewayServiceConfig\nschema_version\n  Value error, schema_version must be integer 1 [type=value_error, input_value=2, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error\nservers.4.control.simulation.tls\n  Field required [type=missing, input_value={'endpoint': '127.0.0.1:5...: 'wind-plant-physical'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsecurity\n  Extra inputs are not permitted [type=extra_forbidden, input_value={'callers': [{'caller_id'...fecycle', 'diagnose']}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden"
+    },
+    "data-generator-sim@1.1.0": {
+      "status": "REJECTED",
+      "error_type": "GeneratorError",
+      "message": "/home/luo/wind-hub/deploy/config_roots/sim-a/services/service_data-generator-sim_v1.1.0.yaml: unsupported document version"
+    }
+  }
+}

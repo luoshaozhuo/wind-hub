@@ -1,0 +1,54 @@
+{
+  "status": "PASS",
+  "cli_services": {
+    "configuration": {
+      "endpoint": "127.0.0.1:53060",
+      "target": "configuration-sim",
+      "manager": "process",
+      "state_dir": "/var/lib/wind-hub/sim-a/cli-processes",
+      "log_file": "/var/lib/wind-hub/sim-a/logs/configuration.log"
+    },
+    "collector": {
+      "endpoint": "127.0.0.1:53051",
+      "target": "collector-sim",
+      "manager": "process",
+      "state_dir": "/var/lib/wind-hub/sim-a/cli-processes",
+      "log_file": "/var/lib/wind-hub/sim-a/logs/collector.log"
+    },
+    "commander": {
+      "endpoint": "127.0.0.1:53052",
+      "target": "commander-sim",
+      "manager": "process",
+      "state_dir": "/var/lib/wind-hub/sim-a/cli-processes",
+      "log_file": "/var/lib/wind-hub/sim-a/logs/commander.log"
+    },
+    "gateway": {
+      "endpoint": "127.0.0.1:53073",
+      "target": "gateway-sim",
+      "manager": "process",
+      "state_dir": "/var/lib/wind-hub/sim-a/cli-processes",
+      "log_file": "/var/lib/wind-hub/sim-a/logs/gateway.log"
+    },
+    "data-generator": {
+      "endpoint": "127.0.0.1:53061",
+      "target": "data-generator-sim",
+      "manager": "process",
+      "state_dir": "/var/lib/wind-hub/sim-a/cli-processes",
+      "log_file": "/var/lib/wind-hub/sim-a/logs/data-generator.log"
+    }
+  },
+  "production_overlap": {
+    "endpoints": [],
+    "targets": [],
+    "state_dirs": []
+  },
+  "cli_tls_fields": [],
+  "service_listeners": {
+    "commander": 53052,
+    "gateway": 53073,
+    "generator": "127.0.0.1:53061"
+  },
+  "scenario_gateway_count": 5,
+  "scenario_variable_mapping_changes": [],
+  "failures": []
+}

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/tmp/wind-hub-design-config-retest-r3/schema_checks.py", line 14, in <module>
+    from configuration_service.application.service import ConfigurationService
+ImportError: cannot import name 'ConfigurationService' from 'configuration_service.application.service' (/home/luo/wind-hub/src/configuration_service/application/service.py)

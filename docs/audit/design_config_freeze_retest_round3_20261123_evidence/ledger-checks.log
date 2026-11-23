@@ -1,0 +1,35 @@
+{
+  "ledger_rows": 117,
+  "versioned_yaml_files": 117,
+  "source_change_counts": {
+    "UNCHANGED_HISTORY": 78,
+    "NEW_CANDIDATE": 39
+  },
+  "release_status_counts": {
+    "HISTORICAL_PUBLICATION_STATUS_UNVERIFIED": 78,
+    "UNPUBLISHED_CANDIDATE": 39
+  },
+  "semantic_approval_counts": {
+    "UNVERIFIED": 112,
+    "PENDING_OEM_OR_MANIFEST": 5
+  },
+  "kafka_v1_1_0": {
+    "path": "configs/templates/sinks/sink_kafka_history_v1.1.0.yaml",
+    "git_blob_sha": "460fb5d96235b4a6713c85af6102efbde9f85f78",
+    "baseline_blob_sha": "460fb5d96235b4a6713c85af6102efbde9f85f78",
+    "source_change": "UNCHANGED_HISTORY",
+    "release_status": "HISTORICAL_PUBLICATION_STATUS_UNVERIFIED",
+    "semantic_approval": "UNVERIFIED",
+    "notes": "No real publication evidence"
+  },
+  "kafka_v1_2_0": {
+    "path": "configs/templates/sinks/sink_kafka_history_v1.2.0.yaml",
+    "git_blob_sha": "c29d6b82ac55a9ea1b9b567d0df3b6d9492a9d6c",
+    "baseline_blob_sha": "",
+    "source_change": "NEW_CANDIDATE",
+    "release_status": "UNPUBLISHED_CANDIDATE",
+    "semantic_approval": "UNVERIFIED",
+    "notes": "No real publication evidence"
+  },
+  "failures": []
+}
