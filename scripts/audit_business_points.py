@@ -267,7 +267,14 @@ def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> 
                         if instance_type == "device"
                         for device_id in devices.get("devices", {})
                     }
-                    if not set(source.get("devices", [])) <= allowed_devices:
+                    devices = source.get("devices")
+                    if (
+                        not isinstance(devices, list)
+                        or any(not isinstance(item, str) for item in devices)
+                        or len(devices) != len(set(devices))
+                    ):
+                        raise ValueError(f"invalid Delivery device selector: {member_id}")
+                    if not set(devices) <= allowed_devices:
                         raise ValueError(f"Delivery references unknown Device: {member_id}")
 
 
