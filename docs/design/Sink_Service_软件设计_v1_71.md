@@ -2735,40 +2735,9 @@ sequenceDiagram
 
 ## 10.7 Kafka 高吞吐批量交付
 
-### 10.7.1 批内编码复用
+### 10.7.1 Kafka JSON v2 批内编码
 
-只对 `SampleBatch.decode()` 严格校验、来源过滤后的可信批次执行。Kafka Reliable 直接使用 `SampleItem`，每个目标子批最多 500 点；输入源批容量可配置，目标拆批上限独立于输入。不得逐点构造旧线协议对象。
-
-**现行 Kafka v1 编码算法（迁移前实现描述，非目标格式）**。`encode_kafka_points(batch, items)` 将同一源批共享的 `schema_version=1/wind_farm_id/collector_id/task_id/device_id` 按原顺序编码一次，删除公共 JSON 对象末尾的 `}` 并追加逗号，形成 UTF-8 字节前缀。源批的 `publish_time` 仅进行一次 UTC 格式规范化，但仍作为每个测点 JSON 片段的字段逐条序列化；不得把“时间规范化一次”误写成“该字段 JSON 编码一次”。每点按固定顺序编码 `point_id/sample_id/value/quality/sample_time/publish_time/receive_time/max_staleness_ms`，去掉逐点 JSON 对象开头的 `{`，再与公共字节前缀拼接。
-
-**两测点可复算示例（演示 500 点子批的相同算法）。** 输入为同一有效源批，公共身份 `farm-a / collector-1 / task-1 / WTG001`，`publish_time=2026-11-11T02:00:00Z`；两点分别为 `(P, sample-P, 1200)` 和 `(Q, sample-Q, 300)`，质量均为 `good`，`sample_time=2026-11-11T01:59:59Z`，`receive_time=null`，`max_staleness_ms=null`。
-
-| 步骤 | 优化前逐点完整编码 | 优化后公共前缀复用 |
-|---|---|---|
-| 公共身份字段 | 每条 Record 都参与一次完整 JSON 编码，共 2 次 | 按固定顺序 JSON 编码一次，形成下方公共前缀 |
-| 时间字段 | 每条 Record 各自序列化 | `publish_time` 格式规范化一次，其 JSON 字段仍逐点编码 |
-| 逐点字段 | 分别完整编码 P、Q 的 13 字段对象 | 分别编码 P、Q 的 8 字段片段 |
-| 输出 | 2 条独立 Kafka Record | 仍为相同的 2 条独立 Kafka Record，且逐字节相同 |
-
-公共字节前缀（已移除末尾 `}` 并补逗号）：
-
-```json
-{"schema_version":1,"wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_id":"WTG001",
-```
-
-P 点逐点片段（已移除开头 `{`）：
-
-```json
-"point_id":"P","sample_id":"sample-P","value":1200,"quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
-```
-
-拼接后，P 点的完整 Kafka Record（即优化前逐点编码的预期输出）：
-
-```json
-{"schema_version":1,"wind_farm_id":"farm-a","collector_id":"collector-1","task_id":"task-1","device_id":"WTG001","point_id":"P","sample_id":"sample-P","value":1200,"quality":"good","sample_time":"2026-11-11T01:59:59Z","publish_time":"2026-11-11T02:00:00Z","receive_time":null,"max_staleness_ms":null}
-```
-
-Q 点只把 P 点片段中的 `point_id/sample_id/value` 分别换为 `Q/sample-Q/300`，与**同一公共前缀**拼接，生成第二条独立 Kafka Record。迁移前原始 13 字段顺序、`ensure_ascii=False`、`allow_nan=False`、紧凑分隔符、UTF-8 字节、浮点、Unicode、UTC 时间与 `null` 必须与经独立固定夹具验证的 Sink 13 字段 Kafka 目标 Record 字节逐字节等价。源批为 500 点时，公共身份字段只编码一次，逐点片段仍编码 500 次，并输出 500 条 Record；不合并为一条 Record。单点入口 `encode_kafka_point` 使用同一规范，空子批输出空集合。不得跨源批缓存公共编码结果，亦不得使用无法证明字节等价的新 JSON 库。
+Kafka Reliable 的输出线格式以 Contracts §11.9 和现行 `src/sink_service/` 编码实现为准，逐 Record 包含明确 `data_level` 和固定 `point_table_id`。先校验 SampleBatch v3 的来源身份和历史解释闭包，再按显式等级转换与编码；不得复用已退役的 Kafka JSON v1 公共前缀拼接算法。批量分组与 Future 确认的性能优化不允许丢失 Record 级样本身份、质量、时间与数据等级。具体每批大小、在途限制和 ACK/UNKNOWN 处理仍遵循 §10.7.2。
 
 ### 10.7.2 Kafka Builder 与 Future 索引
 
