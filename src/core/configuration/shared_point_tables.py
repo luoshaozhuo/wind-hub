@@ -179,6 +179,8 @@ def _point_tables(
     raw: Mapping[str, Any],
     business_points: Mapping[BusinessPointId, Any],
     units: UnitCatalog,
+    *,
+    strict_tables: frozenset[str] = frozenset(),
 ) -> dict[PointTableId, PointTable]:
     _keys(raw, {"point_tables"}, "points.yaml")
     definitions = _map(raw.get("point_tables"), "points.point_tables")
@@ -233,6 +235,15 @@ def _point_tables(
             key: _point(key, value, protocol, business_points, units)
             for key, value in points.items()
         }
+        if name in strict_tables:
+            seen_business_ids: dict[BusinessPointId, str] = {}
+            for point_id, point in domain_points.items():
+                previous = seen_business_ids.setdefault(point.business_point_id, point_id)
+                if previous != point_id:
+                    raise ConfigError(
+                        f"point table '{name}': business point '{point.business_point_id}' "
+                        f"is assigned to both '{previous}' and '{point_id}'"
+                    )
         table = PointTable(
             point_table_id=PointTableId(name),
             protocol=Protocol(protocol),
