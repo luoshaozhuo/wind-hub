@@ -2503,7 +2503,7 @@ sequenceDiagram
 
 **原生批写准入**：以 Core v1_33 的驱动能力为准，ADS 支持 WRITE_MANY 原生 Sum Write；当前 Modbus 与 IEC104 不支持原生 WRITE_MANY。仅驱动声明支持且同设备、同顺序、满足协议分组约束时调用 write_many，否则有序 write_one；逐项记录可证明结果，不把物理批写解释为事务。连接、关闭和悬置 I/O 由 Commander 持有，RPC 取消不代表底层收敛。
 
-**故障与配置**：受理后断联不撤销已持久请求，查询 NOT_FOUND 不代表从未写入，未知命令不得换 ID 重试。恢复不得再次派发可能已到达的 I/O，io_settled 只有全部活动安全收敛时为真。core.configuration 共享子包按总体设计 v1_15 第 5 章提供共享源闭包、source_manifest 和只读版本快照；Commander 的业务配置由 Configuration Repository 的 Deployment 目标统一选择并发布，本模块仅负责校验、缓存及安全生效；不得独立提交专属或公共配置文件。区分 DISK/CANDIDATE/RUNTIME，SOURCE_CHANGED 时拒绝混合快照。
+**故障与配置**：受理后断联不撤销已持久请求，查询 NOT_FOUND 不代表从未写入，未知命令不得换 ID 重试。恢复不得再次派发可能已到达的 I/O，io_settled 只有全部活动安全收敛时为真。core.configuration 共享子包按总体设计 v1_27 第 5 章提供共享源闭包、source_manifest 和只读版本快照；Commander 的业务配置由 Configuration Repository 的 Deployment 目标统一选择并发布，本模块仅负责校验、缓存及安全生效；不得独立提交专属或公共配置文件。区分 DISK/CANDIDATE/RUNTIME，SOURCE_CHANGED 时拒绝混合快照。
 
 **独立测试**：System ST 必须覆盖真实 内网访问授权 caller 隔离、非法子项整批零 I/O、COMMIT 前后断联、重启结果查询、ADS 原生批写与其他协议拒绝/回退、部分 UNKNOWN、io_settled、存储故障和审计积压。每项 ST 关联 UC、UR、Marker 与可执行断言；缺真实环境标 NOT_RUN。
 
