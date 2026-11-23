@@ -627,7 +627,7 @@ System Test 必须遵守以下规定：
 
 Storage Service 是独立时序数据持久化与访问模块；由 Kafka Reliable Record 消费数据，按需为 TDengine 创建库、超级表和设备子表，并提供历史查询、统计、导出、备份及状态诊断。配置唯一权威为 Configuration Service；Storage 只读，不参与发布。目标职责划分为 Collector 保留采集来源数据、Sink 根据 Delivery 选择 `raw`、`protocol`、`business` 三种输出等级并编码 Kafka，Storage 按等级原样持久化，不重复执行 Sink 的协议解码或业务换算。Storage 开发分支目前已有 Collector SampleBatch v3 与 Sink Kafka JSON v2 的生产实现和定向测试证据，但不能以设计文本替代完整链路复测；设计分支 Contracts v1_40 仍有不同的 `raw/engineering/business` 描述，属于外部契约冲突，本轮不修改其他模块。Storage 仅消费经过验证的 `raw/protocol/business` Kafka JSON v2，不提供有损兼容。
 
-基准为实际读取的 `design/config-activation-selection-20261121` 分支总体架构 v1_26、Contracts v1_40、Configuration v1_17，以及当前 Storage 开发分支已有的 `src/contracts/storage_service.proto` 与生产实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。跨分支尚未引入的配置查询 RPC 按第 8 章作为独立联调阻断，不能以假接口替代。
+基准为已集成的主分支总体架构 v1_27、Contracts v1_41、Configuration v1_18，以及 `src/contracts/storage_service.proto` 和 `src/storage_service/` 的现行实现。Storage 专用接口只能按现有共享 Contracts 实现；本轮**不修改其他模块代码、共享 Proto、CLI、Core 或 Configuration**。跨分支尚未引入的配置查询 RPC 按第 8 章作为独立联调阻断，不能以假接口替代。
 
 ## 3.2 需求清单
 
@@ -815,7 +815,7 @@ $$
 
 **流程**：先订阅 NATS Core 普通 Pub/Sub，再查询当前可获得的发布修订；重复/乱序提示合并为最新目标；按模块根及修订拉取完整闭包，校验通过后持久化并原子更新；自身决定无变化/局部热更新/重启要求。
 
-**业务规则**：广播不是配置正文和强一致提交凭据；一个模块失联不阻断其他模块。`GetCurrentRevision` 是设计中的目标新 RPC、当前不允许作为本版依赖；修订获取必须依现有查询能力与可验证的返回值实现，具体对账实现见 §8.2。
+**业务规则**：广播不是配置正文和强一致提交凭据；一个模块失联不阻断其他模块。`GetCurrentRevision` 已在现行 Repository Proto 定义；修订获取以真实返回结果及 §8.2 的周期对账实现为准。
 
 **关键约束**：消息处理中不切换已经解析的单条数据的解释版本；切换中断时仍使用旧的有效快照。
 
@@ -1005,7 +1005,7 @@ Kafka 的 `data_level` 必须为小写字符串 `raw` / `protocol` / `business`�
 
 ### 6.5.4 查询与接口兼容性
 
-查询及导出必须允许按 `data_level` 精确过滤，并在每条返回样本中保留等级。默认查询等级必须由请求或 Storage 正式服务配置明确指定，**不得隐式混合不同等级后求平均、累计或覆盖**。跨等级比较属于显式分析操作，不是默认历史查询聚合行为。Kafka 旧 `engineering` 值属于现行上游契约：在后续 Sink 正式更改前，不可冒充新 `protocol`；对旧记录的接收策略和数据迁移必须单独验证，不能凭字符串替换沿用相同语义。
+查询及导出必须允许按 `data_level` 精确过滤，并在每条返回样本中保留等级。默认查询等级必须由请求或 Storage 正式服务配置明确指定，**不得隐式混合不同等级后求平均、累计或覆盖**。跨等级比较属于显式分析操作，不是默认历史查询聚合行为。Kafka 旧 `engineering` 值属于退役上游契约，不可冒充 `protocol`；对旧记录的接收策略和数据迁移必须单独验证，不能凭字符串替换沿用相同语义。
 
 ---
 
@@ -1529,7 +1529,7 @@ Kafka 记录过期、Offset 越界或 Broker 删除尚未消费数据时报告�
 
 ## 11.5 缺失配置与热更新并发
 
-收到未知 `point_table_id` 时先查本地不可变历史归档，再按当前正式可用的历史闭包查询能力取得固定版本及设备绑定证据；成功验证后只补充历史索引，不改变活动 Service 版本。**当前发布配置不等于可以替换历史点表**；历史查询 RPC 在本开发分支缺失时保持受影响 Partition/Offset 阻断，绝不退回推荐版本或猜测身份。
+收到未知 `point_table_id` 时先查本地不可变历史归档，再按当前正式可用的历史闭包查询能力取得固定版本及设备绑定证据；成功验证后只补充历史索引，不改变活动 Service 版本。**当前发布配置不等于可以替换历史点表**；历史查询 RPC 可按现行 Proto 使用；无法取得可信闭包时仍阻断受影响 Partition/Offset，绝不退回推荐版本或猜测身份。
 
 配置切换时每个批次固定引用一个已验证快照代际，不能中途换单位/类型。配置失效期间，若现有快照包含消息所需不可变闭包，可依旧代际完成当前数据写入；若需新的库策略而无法验证，禁止该库写入。拉取单飞、退避有上限；快照落盘和 CURRENT 指针切换须可断电恢复。
 
