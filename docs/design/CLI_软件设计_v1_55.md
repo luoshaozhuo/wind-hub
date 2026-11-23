@@ -2057,7 +2057,7 @@ UNCHANGED templates/protocols/modbus/1.0.0.yaml
 
 ## 10.4.1 全量配置发布及 Sink 数据等级配置
 
-CLI 只处理本地配置目录的完整扫描、候选一次性全量上传和原子发布，用户可一次执行 `wind-hub config publish --root ./configs`；不增设单文件发布或字段 PATCH 作为独立生产发布方式。`configuration apply` 下载→Push→Apply 属退役业务发布路径，不作为现行命令或兼容写入能力。`configuration diff` 继续作为本地目录文本差异诊断，不影响正式发布语义。
+CLI 只处理本地配置目录的完整扫描、候选一次性全量上传和原子发布，用户可一次执行 `wind-hub config publish --root ./deploy/config_roots/prod-a`；不增设单文件发布或字段 PATCH 作为独立生产发布方式。`configuration apply` 下载→Push→Apply 属退役业务发布路径，不作为现行命令或兼容写入能力。`configuration diff` 继续作为本地目录文本差异诊断，不影响正式发布语义。
 
 Sink Delivery 必须显式声明 `output.data_level: raw|protocol|business`，不提供默认值；未明确等级时发布校验拒绝。CLI 不自行进行数据转换。CLI 展示的“配置发布成功”仅指 Configuration SQLite 已提交；通知/模块生效属于独立观测结果，不能伪装成同一原子事务。
 

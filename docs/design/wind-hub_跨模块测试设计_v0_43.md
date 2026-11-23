@@ -660,7 +660,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 |---|---|---|
 | GW2MW 111 个源 Point | 源 ID/ADS Symbol/单位/类型/地址及读写属性保持；111 个业务身份互异 | 已形成候选配置，未做现场验证 |
 | BusinessPoint 标准目录 | 293 个旧定义内容不变，追加 107 个候选定义；类型/标准单位与来源保持兼容 | 文件已生成；未作正式发布验证 |
-| 精确版本链 | BP 1.5.0 + Units 1.2.0 → GW PointTable 1.2.0 → GW Model 1.5.0 → Device Instance 1.6.0 → Deployment prod-a 1.5.0 | 候选，不可激活 |
+| 精确版本链 | BP 1.5.0 + Units 1.2.0 → GW PointTable 1.2.0 → GW Model 1.5.0 → Device Instance 1.6.0 → Deployment prod-a 1.6.0 | 候选，不可激活 |
 | 历史语义 | PointTable v1.1.0 仍按原 BusinessPoint 标准闭包解释；无法获准时不得静默用 v1.2.0 替代 | 待运行时验收 |
 | 不明 OEM 字段 | 每个候选业务身份需查实际 PLC 工艺语义，不以自动生成的唯一名称视为已批准 | PENDING_OEM_SEMANTICS |
 
@@ -830,7 +830,7 @@ Git Blob 原文保持一致；根内文件的相对路径仍为 `deployments/`�
 | 独立根目录 | YAML 文件数 | 唯一候选 Deployment | 发布状态 |
 |---|---:|---|---|
 | `deploy/config_roots/prod-a/` | 29 | prod-a@1.6.0 | 未发布，OEM/Manifest/真实 Broker 门禁 |
-| `deploy/config_roots/sim-a/` | 23 | sim-a@1.3.0 | 未发布，真实服务和独立管理面待核验 |
+| `deploy/config_roots/sim-a/` | 23 | sim-a@1.4.0 | 未发布，真实服务和独立管理面待核验 |
 | `deploy/config_roots/e2e-final/` | 35 | e2e-final@1.0.1 | 未发布，真实 E2E 尚未执行 |
 
 在 Claude 独立复测中，严格解析每个根的所有 YAML 并检查文件闭包，使用可读 Core Loader/Domain Snapshot 和 Configuration validate_only 纯校验能力时必须保持无业务服务、数据库和消息中间件启动。不把仓库总 `configs/` 目录视为可直接发布根，也不以文件复制冒充已经通过 Repository 发布。三根按不同部署域相互隔离，不允许用 prod-a 候选服务替代 e2e/sim 的业务进程。
@@ -839,7 +839,7 @@ Git Blob 原文保持一致；根内文件的相对路径仍为 `deployments/`�
 
 ## 15.4 第三轮静态复核重点（2026-11-23）
 
-新候选根保持不变的文件数：prod-a 29、sim-a 23、e2e-final 35。唯一候选 Deployment 当前为 prod-a@1.6.0、sim-a@1.4.0、e2e-final@1.0.1。此前 §15.2/15.3 中的旧候选版本表述均按本节最新候选生效，不能引用已经退出活动根的 prod-a@1.5.0 或 sim-a@1.4.0。
+新候选根保持不变的文件数：prod-a 29、sim-a 23、e2e-final 35。唯一候选 Deployment 当前为 prod-a@1.6.0、sim-a@1.4.0、e2e-final@1.0.1。此前 §15.2/15.3 中的旧候选版本表述均按本节最新候选生效，不能引用已经退出活动根的 prod-a@1.5.0 或 sim-a@1.3.0。
 
 N-01：`sink_kafka_history@1.1.0` 必须与原始 Git Blob `460fb5d96235b4a6713c85af6102efbde9f85f78` 全等；`kafka_history@1.2.0` 承担新的 `windhub-history` Topic 与串行 1 在途能力。prod-a 通过 Sink Instance@1.4.0 精确引用新模板，再由 Deployment@1.6.0 选择。
 
