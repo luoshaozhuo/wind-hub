@@ -106,6 +106,60 @@ _INSTANCE_ROLES = {
 }
 
 
+def _validate_document_identities(
+    root: Path, documents: dict[Path, dict[str, Any]]
+) -> None:
+    """Enforce publication filenames and immutable identity/version agreement."""
+    template_prefixes = {
+        "point_tables": ("point_table_", "template_id"),
+        "device_models": ("device_model_", "template_id"),
+        "protocols": ("protocol_", "template_id"),
+        "sinks": ("sink_", "template_id"),
+        "deliveries": ("delivery_", "template_id"),
+    }
+    instance_prefixes = (
+        "collector_tasks_", "deliveries_", "scenarios_", "sinks_",
+        "device_", "site_",
+    )
+    for path, document in documents.items():
+        name = path.name
+        version = document["file_version"]
+        if path == root / "services" / f"storage_bootstrap_v{version}.yaml":
+            continue  # Local-only Storage bootstrap, excluded from Repository publication.
+        expected = f"_v{version}.yaml"
+        if not name.endswith(expected):
+            raise ValueError(f"configuration filename/file_version mismatch: {path}")
+        if path.parent == root / "services":
+            prefix, identity_key = "service_", "service_id"
+        elif path.parent == root / "deployments":
+            prefix, identity_key = "deployment_", "deployment_id"
+        elif path.parent == root / "instances":
+            prefix = next((item for item in instance_prefixes if name.startswith(item)), "")
+            identity_key = ""
+        elif path.parent == root / "templates":
+            prefix, identity_key = "", ""
+            if name not in {
+                f"business_points_standard_v{version}.yaml",
+                f"units_standard_v{version}.yaml",
+                f"observability_v{version}.yaml",
+            }:
+                raise ValueError(f"unknown standard catalog filename: {path}")
+        elif path.parent.parent == root / "templates":
+            category = template_prefixes.get(path.parent.name)
+            if category is None:
+                raise ValueError(f"unknown configuration template category: {path}")
+            prefix, identity_key = category
+        else:
+            raise ValueError(f"unsupported configuration YAML path: {path}")
+        if path.parent == root / "templates":
+            continue
+        if not prefix or not name.startswith(prefix):
+            raise ValueError(f"invalid configuration filename prefix: {path}")
+        logical_id = name[len(prefix) : -len(expected)]
+        if not logical_id or (identity_key and document.get(identity_key) != logical_id):
+            raise ValueError(f"configuration filename/identity mismatch: {path}")
+
+
 def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> None:
     """Fail closed on exact Deployment → Service → Instance → Template bindings."""
     for deployment_path, deployment in documents.items():
@@ -283,6 +337,7 @@ def audit(root: Path, output: Path) -> int:
         raise ValueError("invalid BusinessPoint or Unit catalog")
     documents = sorted(root.rglob("*.yaml"))
     loaded = {path: _load(path, root) for path in documents}
+    _validate_document_identities(root, loaded)
     _validate_references(root, loaded)
     _validate_deployments(root, loaded)
     tables = sorted((root / "templates/point_tables").glob("*.yaml"))
