@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_44 · 20261123 · 设计冲突与配置冻结整改</p>
+<p class="subtitle">v1_45 · 20261123 · 设计冲突与配置冻结整改</p>
 
 <style>
 body {

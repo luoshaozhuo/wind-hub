@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_54 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_55 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 <style>
 body {
@@ -1827,7 +1827,7 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**集中配置遵从 Contracts v1_43、冻结总体设计 v1_27 第 5 章；现场控制仍以 Commander 正式接口为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。配置发布调用独立 Configuration Repository，通知由 Configuration 经 NATS Core 广播；业务模块主动通过 gRPC 拉取，不在 CLI 实现第二套配置装配机制。
+**契约与版本声明：**集中配置遵从 Contracts v1_44、冻结总体设计 v1_27 第 5 章；现场控制仍以 Commander 正式接口为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。配置发布调用独立 Configuration Repository，通知由 Configuration 经 NATS Core 广播；业务模块主动通过 gRPC 拉取，不在 CLI 实现第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
@@ -1921,7 +1921,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_43 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_44 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `data-generator variables list` | generation_id、device_id，分页参数 | 现行 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；是否可用仍须真实 RPC 验证 |
 | `data-generator variables update` | generation_id、device_id、point_id/value 或 values-file、request_id | 目标 DataGeneratorService `UpdateVariables` | 仅可控模型 INPUT；整批原子、幂等、有效步反馈，不是 Gateway 数据注入 |
@@ -2354,7 +2354,7 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 **接口实施门槛**：正式 Proto 与生成绑定必须一致，Data Generator Server 和 CLI 均须实现可调用的变量发现与更新；仅声明接口或返回 `UNIMPLEMENTED` 不构成功能完成。
 
-基于 Data Generator v1_61 与 Contracts v1_43，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
+基于 Data Generator v1_61 与 Contracts v1_44，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|

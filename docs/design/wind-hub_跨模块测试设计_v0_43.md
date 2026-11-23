@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_42 · 20261123 · 设计冲突裁决与新部署配置候选闭包</p>
+<p class="subtitle">v0_43 · 20261123 · 设计冲突裁决与新部署配置候选闭包</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -190,12 +190,12 @@ $$
 
 | 领域 | main 归并后唯一设计文件 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_44.md` | DFD 归属、共享配置归 Core |
-| Contracts / Configuration | `Contracts_软件设计_v1_43.md`、`Configuration_Service_软件设计_v1_21.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
-| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_61.md`、`industrial_gateway_软件设计_v1_51.md` | 仿真、变量身份、目标写入与端口权限 |
-| Collector / Commander | `Collector_软件设计_v1_42.md`、`Commander_软件设计_v1_58.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_74.md`、`Storage_Service_软件设计_v1_8.md` | Kafka JSON v2、数据等级、持久入库及查询 |
-| CLI | `CLI_软件设计_v1_54.md` | CLI 命令树、进程启动和全量发布 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_45.md` | DFD 归属、共享配置归 Core |
+| Contracts / Configuration | `Contracts_软件设计_v1_44.md`、`Configuration_Service_软件设计_v1_22.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
+| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_62.md`、`industrial_gateway_软件设计_v1_52.md` | 仿真、变量身份、目标写入与端口权限 |
+| Collector / Commander | `Collector_软件设计_v1_43.md`、`Commander_软件设计_v1_59.md` | SampleBatch v3、控制安全、运行状态 |
+| Sink / Storage | `Sink_Service_软件设计_v1_75.md`、`Storage_Service_软件设计_v1_9.md` | Kafka JSON v2、数据等级、持久入库及查询 |
+| CLI | `CLI_软件设计_v1_55.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 

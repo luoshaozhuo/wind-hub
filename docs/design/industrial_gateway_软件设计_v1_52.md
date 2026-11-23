@@ -1,6 +1,6 @@
 <h1 class="title">Industrial Gateway 软件设计</h1>
 
-<p class="subtitle">v1_51 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_52 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -1709,7 +1709,7 @@ Commander 入站业务拒绝的 Forwarder 终态须按第 10.3 节分类：只�
 
 ## 9.6 RPC 生成对象的唯一持有边界（规范性）
 
-所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_43 负责双向字段映射。
+所有 generated `*_pb2`、`*_pb2_grpc` 的运行时引用只允许出现在 `infrastructure/grpc/` 及既有 Contracts 生成目录；不得由 `assembly`、`runtime`、`config/snapshots`、`variable_leases`、`observability` 或 `commander/forwarder` 直接持有。内部边界使用不可变或受控的普通 Python 对象，gRPC adapter 对照冻结 Contracts v1_44 负责双向字段映射。
 
 - `ClaimTargets`：Gateway Runtime 使用 `ClaimRequest/ClaimResult`，Grpc Service 将其转换为冻结的 Request/Response；每个字段含义及拒绝码保持不变。
 - `UpdateVariables`：仍先在 Gateway 租约层整批验证 token，再逐变量返回结果，不绕过授权和保护。
@@ -2060,7 +2060,7 @@ tests/
 | UR-01 / UC-01-S03 | UpdateVariables 混合合法与非法条目 | `test_gateway_partial_update_results` | 逐项响应，合法项生效、非法项不修改；不回滚全部 |
 | UR-05 / UC-05-S03 | Deployment 缺少所需 Instance 版本或闭包不完整 | `test_gateway_config_missing_identity` | 拒绝目标并保持旧活动版本 |
 | UR-01 / UC-01-S03 | 多寄存器变量更新与同时读取 | `test_gateway_no_torn_variable_read` | 单变量读值无新旧寄存器撕裂；不同变量不要求原子快照 |
-| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_43 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
+| UR-01 / UC-01-S02 | 无 lease_token，且目标当前无人认领 | `test_gateway_requires_lease_for_unclaimed_target` | 按 Contracts v1_44 必须拒绝，变量及审计状态不改变；不得将“无竞争”作为绕过 ClaimTargets 的条件 |
 | UR-01 / UC-01-S02 | token 伪造、过期或未覆盖请求全部目标 | `test_gateway_requires_matching_lease_for_full_batch` | 全批拒绝，零变量改变；已合法占用的无关目标不受影响 |
 
 上述标识为设计追溯标识，实际执行测试函数与测试文件可按当前代码实现组织，必须由验收报告映射；不能把示例标识当作已存在文件，也不能以设计矩阵代替执行证据。

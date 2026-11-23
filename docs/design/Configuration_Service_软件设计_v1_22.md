@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_21 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_22 · 20261123 · 设计冻结语义与配置闭包整改</p>
 
 <style>
 body {
