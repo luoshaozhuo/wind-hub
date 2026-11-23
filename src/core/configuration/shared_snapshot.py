@@ -90,7 +90,11 @@ def _point_table_identity(template_id: str, file_version: str) -> str:
 def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
     """Resolve entities and validate references; never access the network."""
     units = parse_unit_catalog(_content(documents.units))
-    business_points = parse_business_points(_content(documents.business_points), units)
+    business_points = parse_business_points(
+        {key: value for key, value in _content(documents.business_points).items()
+         if key != "config_sources"},
+        units,
+    )
     definitions: dict[str, dict[str, Any]] = {}
     strict_tables: set[str] = set()
     device_types: dict[DeviceTypeId, DeviceType] = {}
