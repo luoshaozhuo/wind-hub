@@ -1323,7 +1323,7 @@ flowchart TD
 
 ## 3.2 功能需求
 
-Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全部 9 个 RPC，以及 `src/contracts/commander.proto` 中的 `CommanderService` 全部 8 个 RPC；字段、类型和传输层语义由 Contracts 统一定义。第 9 章描述业务映射和实现要求。Contracts v1_42 正式接口已包含 SubmitCommands、GetRequestResult、RecoverDeviceControl 与单点 request_id 字段；Validate/Reload 仍由 CommonService 快照 RPC 承担。
+Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全部 9 个 RPC，以及 `src/contracts/commander.proto` 中的 `CommanderService` 全部 8 个 RPC；字段、类型和传输层语义由 Contracts 统一定义。第 9 章描述业务映射和实现要求。Contracts v1_43 正式接口已包含 SubmitCommands、GetRequestResult、RecoverDeviceControl 与单点 request_id 字段；Validate/Reload 仍由 CommonService 快照 RPC 承担。
 
 
 <p class="table-caption">表 3-17 功能需求</p>
@@ -1332,8 +1332,8 @@ Commander 必须实现 `src/contracts/common.proto` 中的 `CommonService` 全�
 |---|---|---|---|
 | FR-01 | 启动、停止与重启 | 启动时校验配置、依赖及恢复状态后才就绪；停止时拒绝新命令并处置在途操作；重启先停止再重新读取全部配置文件，不沿用旧配置快照 | UR-01、UR-02、UR-03 |
 | FR-02 | 单点控制 | 接收设备、可写点、目标值及可选时间约束；Commander 生成 command_id，返回接收或拒绝结果并调度一次写入 | UR-04 |
-| FR-03 | 批量控制（Contracts v1_42 已冻结接口） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
-| FR-04 | 命令结果查询 | Contracts v1_42 支持按 command_id 和 request_id 分别查询单条命令与完整请求；返回初始请求和最新状态，未留存则 NOT_FOUND；不访问现场设备 | UR-04、UR-05、UR-06、UR-13 |
+| FR-03 | 批量控制（Contracts v1_43 已冻结接口） | 整批校验并原子接受，逐项分配 command_id；按照设备 FIFO 执行；具备条件时优先 write_many，不支持时按序 write_one；返回逐项状态，跨设备不承诺原子执行 | UR-05 |
+| FR-04 | 命令结果查询 | Contracts v1_43 支持按 command_id 和 request_id 分别查询单条命令与完整请求；返回初始请求和最新状态，未留存则 NOT_FOUND；不访问现场设备 | UR-04、UR-05、UR-06、UR-13 |
 | FR-05 | 服务基本信息查询 | 返回服务标识、软件版本、启动信息及当前实际生效的依赖文件标识、schema_version 及适用的 file_version；不把未生效的磁盘文件标记为生效 | UR-07 |
 | FR-06 | 运行状态查询 | 返回进程与业务就绪、命令及执行资源、阻塞、存储容量、审计积压和故障状态；区分存活与可用 | UR-08 |
 | FR-07 | 设备列表查询 | 返回已配置设备、状态摘要、筛选与分页结果；不主动连接现场设备 | UR-09 |
@@ -1834,10 +1834,7 @@ sequenceDiagram
 
 ## 5.1 逻辑组件、职责与依赖
 
-配置快照写入由 Application 中的 `CommanderConfigApply` 统一编排：`PushConfigSnapshot` 持有事务锁、检查预期 DISK revision、协调候选校验及登记；`ApplyConfigSnapshot` 在同一锁内进行候选基线 CAS、候选再验证、计算差量、执行持久提交并触发运行态 reload。提交后 reload 失败必须保留已落盘修订，返回 `restart_required` 和逐对象失败结果，不得伪造回滚。取消 RPC 不释放仍在执行的提交或重载任务。跨进程 CAS 必须在持久化写入的同一排他配置锁中，对本次读取的全部配置闭包文件字节及新增文件存在性执行提交前复核；任一不一致拒绝覆盖。提交后的 `file_commit` 采用已校验候选的确定修订值，不在 reload 失败路径上再次读盘推断事务结果。
-
-`CommanderConfigApply` 持有候选快照的保存、替换、查询与提交后失效状态，并负责 revision CAS、候选重验、变更计算、持久提交和运行态 reload 裁决。Infrastructure `ConfigSnapshots` 仅进行 Proto 映射、磁盘文件读取、路径安全检查、候选 YAML 编解码及持久化操作，通过 Application 声明的 `SnapshotApplyPort` 提供 I/O；不独立持有候选生命周期或重复业务策略。Application 不依赖 YAML、gRPC 或具体文件锁实现。候选查询在与 Push/Apply 相同的事务锁下调用 Application `get_candidate()`，不越过业务状态所有者。
-
+Commander 的业务配置完全由 Configuration Repository 发布，不允许 `CommanderConfigApply` 或 Common Push/Apply 对已发布 Service、Device Instance 和 PointTable 原地写入。Application 持有受控运行配置快照和命令执行状态；Adapter 只负责配置闭包的安全读取、哈希校验与原子激活，不提供独立的业务版本写入权威。收到变更通知后通过 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 获取固定闭包，确认 Device、PointTable、安全策略及正在执行的命令语义后再安全切换；不能热更的参数等待重启。候选提交、CAS 和同版本字节不可变性由 Repository 负责，Commander 只报告目标与活动闭包及错误，不伪造回滚。
 
 <p class="figure-caption">图 5-1 内存优先的 Commander 逻辑分层</p>
 
@@ -2347,7 +2344,7 @@ flowchart LR
 本章以当前分支的 `src/contracts/common.proto` 和 `src/contracts/commander.proto` 为正式契约依据。两个文件是唯一对外契约源；Commander 负责实现 Server，不修改 Proto、不复制一套独立字段定义，也不增加兼容 RPC。
 
 - `windhub.common.v1.CommonService`：9 个 Unary RPC，提供通用服务、配置快照、指标、事件和诊断能力。
-- `windhub.commander.v1.CommanderService`：8 个 Unary RPC（Contracts v1_42），提供设备/测点查询、单点控制和结果查询。
+- `windhub.commander.v1.CommanderService`：8 个 Unary RPC（Contracts v1_43），提供设备/测点查询、单点控制和结果查询。
 - 复用 `ScalarValue`、`PointMetadata`、`SnapshotFile`、`ApplicationResult`、`DiagnosticStage` 等 Common 类型；参数校验必须保留 `oneof`、`optional`、`Timestamp` 及分页语义。
 - Infrastructure 实现 Protobuf 到 Application 的映射；Domain/Application 不依赖生成的 Protobuf 类型。gRPC 内网访问授权、权限、限流、截止时间和错误映射由边界统一执行。
 - 现有 Proto 字段不足以表达的业务信息不得伪装在 `message`、`revision`、`error_code` 等无关字段中；必须登记契约缺口并协调 Contracts 维护方。
@@ -2393,11 +2390,11 @@ flowchart LR
 
 ### 9.2.3 恢复 RPC 与现有接口
 
-新增 `RecoverDeviceControl`，其请求/响应字段及编号由 Contracts v1_42 统一规定；本服务只实现有外部可信隔离证明时的恢复逻辑，不能将客户端声称的隔离、当前进程无 Session 或 内网访问授权 认证直接解释为旧 I/O 已安全结束。正式接口共 8 个 Commander Unary RPC、9 个 Common Unary RPC。当前生产实现包括 Proto/CLI、独立证明方 HTTPS/内网访问授权 Client、SQLite 恢复裁决与审计 Outbox，以及受控 BLOCKED 解除流程。实际部署证明方的持续 fencing 和旧现场 I/O 隔离尚未完成真实生产验收，F1-GAP-02 不得据此判 PASS。
+新增 `RecoverDeviceControl`，其请求/响应字段及编号由 Contracts v1_43 统一规定；本服务只实现有外部可信隔离证明时的恢复逻辑，不能将客户端声称的隔离、当前进程无 Session 或 内网访问授权 认证直接解释为旧 I/O 已安全结束。正式接口共 8 个 Commander Unary RPC、9 个 Common Unary RPC。当前生产实现包括 Proto/CLI、独立证明方 HTTPS/内网访问授权 Client、SQLite 恢复裁决与审计 Outbox，以及受控 BLOCKED 解除流程。实际部署证明方的持续 fencing 和旧现场 I/O 隔离尚未完成真实生产验收，F1-GAP-02 不得据此判 PASS。
 
 ## 9.3 服务端映射、权限与契约差异
 
-<p class="table-caption">表 9-3 Commander 对 Contracts v1_42 的接口实现边界</p>
+<p class="table-caption">表 9-3 Commander 对 Contracts v1_43 的接口实现边界</p>
 
 | 需求 | 目标正式接口 | 业务责任 |
 |---|---|---|
@@ -2409,7 +2406,7 @@ flowchart LR
 | 审计 | Commander Outbox + GetEvents | 不把审计发布确认等同实际控制成功 |
 | UR-15 恢复阻断 | `RecoverDeviceControl` | 仅凭外部独立可信隔离和持久审计才允许设备 UNBLOCKED |
 
-以上接口已由 Contracts v1_42 及当前 `src/contracts/commander.proto` 冻结发布。Commander 代码是否符合完整语义，应由独立系统测试逐项裁决。
+以上接口已由 Contracts v1_43 及当前 `src/contracts/commander.proto` 冻结发布。Commander 代码是否符合完整语义，应由独立系统测试逐项裁决。
 
 ### 9.3.1 传输错误、认证与测试要求
 
@@ -2450,10 +2447,10 @@ sequenceDiagram
   C->>R: GetConfigSnapshot(DISK/RUNTIME)
   R->>M: 读取快照与修订
   M-->>C: 快照结果（经 RPC）
-  C->>R: PushConfigSnapshot(files, expected_revision)
+  C->>R: CreateCandidate(full_directory, expected_revision_id)
   R->>M: 校验直接源及引用闭包
   M-->>C: candidate_id/validation（经 RPC）
-  C->>R: ApplyConfigSnapshot(candidate_id, expected_revision)
+  C->>R: PublishCandidate(candidate_id, expected_revision_id)
   R->>M: 提交文件并按设备安全应用
   M-->>C: apply_results/restart_required（经 RPC）
 ```
@@ -2497,7 +2494,7 @@ sequenceDiagram
 
 ## 9.6 冻结基础契约核对（规范性）
 
-正式线协议为 Contracts v1_42 与 `src/contracts/commander.proto`。单点 `request_id` 位于请求字段 6、响应字段 7；批量接口为 `SubmitCommands` 与 `GetRequestResult`，已冻结，不是拟议接口。Commander Server 实现 8 专属 RPC 与 9 Common RPC。
+正式线协议为 Contracts v1_43 与 `src/contracts/commander.proto`。单点 `request_id` 位于请求字段 6、响应字段 7；批量接口为 `SubmitCommands` 与 `GetRequestResult`，已冻结，不是拟议接口。Commander Server 实现 8 专属 RPC 与 9 Common RPC。
 
 **批量受理与执行**：客户端提交前保存 `request_id`，幂等命名空间为可信认证身份、Commander 实例、request_id。整批先验证权限、点表、值、有效期、修订和容量，异步 SQLite 单事务登记原始指纹及有序 command_id；COMMIT 前不得返回 accepted=true。重复同键同内容不再次写入，异内容冲突拒绝。执行按设备 FIFO、设备间并行、逐项非原子；单点、批量结果以及 UNKNOWN 均通过已有查询 RPC 获取。
 
@@ -2903,7 +2900,7 @@ tests/
 | UR-04、UR-05、UR-08 | UC-02-S07 负载及资源边界 | §3.3、§6.3、§13.3 | `test_performance.py::test_nominal_load` | `system`、`performance`、`load` | 记录 100 设备、10 Hz、最多 10 点负载下的吞吐/P99/资源上限；批量 RPC 独立统计吞吐、受理时延和逐点执行 | 真实负载进程、SQLite/NATS；真实性能验收未执行则标 NOT_RUN |
 | UR-07、UR-08 | UC-04-S03 指标、事件、诊断 | §9.2、§13.3 | `test_grpc_end_to_end.py::test_metrics_events_diagnose` | `system`、`normal`、`exception` | GetMetrics/GetEvents/Diagnose 完成真实调用且不触发控制写入 | 独立进程、真实 内部 gRPC；NOT_RUN |
 
-本矩阵覆盖 UC-01～UC-08 及 UR-01～UR-15 的目标场景；UC-02 的批量提交和按 request_id 查询已由 Contracts v1_42 设计定义，正式 Proto 已冻结；真实系统行为仍须独立验收。测试实施时须将上述目标标识与真实测试函数保持同步，记录每项的环境、执行命令、结果和未验证项。
+本矩阵覆盖 UC-01～UC-08 及 UR-01～UR-15 的目标场景；UC-02 的批量提交和按 request_id 查询已由 Contracts v1_43 设计定义，正式 Proto 已冻结；真实系统行为仍须独立验收。测试实施时须将上述目标标识与真实测试函数保持同步，记录每项的环境、执行命令、结果和未验证项。
 
 
 
@@ -2929,12 +2926,12 @@ tests/
 |---|---|---|
 | UR-04 / UC-02 单点 | request_id 客户端必填、已持久受理才返回 accepted、单 command_id | SQLite COMMIT 失败时不执行/不受理；正常持久化、RPC 断联与重启后查询 |
 | UR-05 / UC-02 批量 | 整批拒绝不执行任何子项；整批受理后按索引全部 command_id | 非法项目混入、容量不足、配置版本冲突、真实 ADS WRITE_MANY / Modbus IEC104 顺序 write_one |
-| UR-06 / UC-02 请求查询 | 只读 GetRequestResult、状态使用 Contracts v1_42 第 12.2.1 节固定值域 | 未开始/执行中/全部成功/全部未发送/全失败/部分/UNKNOWN 的穷举矩阵；request_id 查询与 command_id 结果一致 |
+| UR-06 / UC-02 请求查询 | 只读 GetRequestResult、状态使用 Contracts v1_43 第 12.2.1 节固定值域 | 未开始/执行中/全部成功/全部未发送/全失败/部分/UNKNOWN 的穷举矩阵；request_id 查询与 command_id 结果一致 |
 | UR-04～06 / UC-02 幂等 | caller + Commander 实例 + request_id 为唯一键；请求指纹包含完整顺序和值 | 同键相同指纹重复提交、同键不同指纹冲突、跨重启重复、越权查询拒绝 |
 | UR-13～14 / 审计 | 持久受理身份与后续事件/审计分离；崩溃不丢已确认受理事实 | 受理后执行前断电；写入可能发生而 EXECUTING 事件未落盘，恢复 UNKNOWN、绝不自动再次写 |
 | 配置与性能 / UC-07～08 | 来源与模板由 core.configuration 共享子包装配，Commander 只拥有本服务控制运行/权限与私有 Apply | config_root + configs/... 及候选隔离、持久受理的时延 P99、队列与全局并发额定负载 |
 
-**状态约束：**请求级聚合状态和 Commander 单项控制状态不是同一个枚举。前者严格使用 Contracts v1_42 第 12.2.1 节规定的 `ACCEPTED/EXECUTING/SUCCEEDED/FAILED/NOT_SENT/PARTIAL/UNKNOWN`；后者仍按第 5 章单命令状态机和 `outcome/io_settled` 描述。尚有未终结子项时不得返回已终结的请求级状态。底层 I/O 安全收敛与业务结果确认是两种证据；`UNKNOWN` 可伴随 `io_settled=true`，但不能以它作为指令成功或安全重新执行的证据。
+**状态约束：**请求级聚合状态和 Commander 单项控制状态不是同一个枚举。前者严格使用 Contracts v1_43 第 12.2.1 节规定的 `ACCEPTED/EXECUTING/SUCCEEDED/FAILED/NOT_SENT/PARTIAL/UNKNOWN`；后者仍按第 5 章单命令状态机和 `outcome/io_settled` 描述。尚有未终结子项时不得返回已终结的请求级状态。底层 I/O 安全收敛与业务结果确认是两种证据；`UNKNOWN` 可伴随 `io_settled=true`，但不能以它作为指令成功或安全重新执行的证据。
 
 **验收可执行性：**测试文件的目标统一目录为 `tests/src/commander/`（历史测试仍存在 `tests/commander/`），遵守各层级 Marker；每项正常/异常/恢复/边界场景至少有唯一可定位的测试 ID 和明确预期。两个 RPC 已存在于真实 Proto；只有对应真实服务或系统测试未执行时标 NOT_RUN；相应 Unit/Integration/System 均不得以 Mock 替代全部真实链路。编码实现可以重构内部模块，但必须保留此处外部不变量，禁止私下引入独立的 Core 批量 Command API。
 
@@ -2955,7 +2952,7 @@ sequenceDiagram
     M->>N: 独立订阅 wh.config.changed
     M->>C: GetCurrentRevision
     C-->>M: 最新 revision_id
-    M->>C: GetConfigBundle(roots,revision_id)
+    M->>C: GetServiceConfigBundle(deployment_id,service_id,revision_id=0)
     C-->>M: 完整 YAML 闭包/manifest_sha256
     M->>M: 校验、持久化、安全生效
     C->>N: 广播 wh.config.changed

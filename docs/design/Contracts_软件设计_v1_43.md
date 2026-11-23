@@ -1114,6 +1114,9 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 | `ListConfigVersions` | 1:ConfigId config_id；2:bool include_deprecated；3:uint32 page_size；4:string page_token | 1:ConfigVersionSummary[] versions；2:string next_page_token |
 | `GetConfig` | 1:ConfigId config_id；oneof selector {2:string version_id；3:uint64 revision_id} | 1:ConfigYamlDocument document |
 | `GetConfigBundle` | 1:ConfigId[] roots；2:optional uint64 revision_id；3:optional bool include_dependencies | 1:uint64 revision_id；2:ConfigYamlDocument[] files；3:string manifest_sha256；4:uint64 total_bytes |
+| `GetServiceConfigBundle` | 1:string deployment_id；2:string service_id；3:uint64 revision_id（该 RPC 中 0=当前发布修订） | 1:uint64 repository_revision_id；2:string target_revision；3:ConfigYamlDocument[] files；4:string manifest_sha256；5:uint64 total_bytes |
+| `GetPointTableBundle` | 1:string point_table_id；2:string expected_manifest_sha256 | 1:string point_table_id；2:string device_type；3:ConfigYamlDocument[] documents；4:string manifest_sha256 |
+| `GetCurrentRevision` | 空消息 | 1:uint64 revision_id；2:string manifest_sha256；3:Timestamp committed_at |
 | `ListReferences` | 1:string version_id；2:ReferenceDirection direction；3:uint32 page_size；4:string page_token | 1:ReferenceEdge[] edges；2:string next_page_token |
 | `SetRecommendedVersion` | 1:ConfigId config_id；2:string version_id；3:optional uint64 expected_revision_id；4:string request_id | 1:uint64 revision_id；2:optional string previous_version_id；3:string recommended_version_id；4:Timestamp committed_at |
 | `DeprecateConfigVersion` | 1:string version_id；2:string reason；3:optional uint64 expected_revision_id；4:string request_id | 1:uint64 revision_id；2:string version_id；3:bool deprecated；4:uint64 referencing_versions_count；5:Timestamp committed_at |
@@ -1129,7 +1132,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 ## 10.5.2 简化后新增 RPC 的字段号规划
 
-既有 `CreateCandidate` 和 `PublishCandidate` 以及 `ConfigDocumentInput` 的消息字段号**完全不变**，仅将 `documents[]` 的发布语义收敛为完整根目录。为模块启动/对账和历史 PointTable 精确读取，正式新增**两个**只读 RPC；消息布局如下（尚未写入 Proto）：
+既有 `CreateCandidate` 和 `PublishCandidate` 以及 `ConfigDocumentInput` 的消息字段号**完全不变**，仅将 `documents[]` 的发布语义收敛为完整根目录。为模块启动/对账和历史 PointTable 精确读取，现行 Proto **已经包含**上述只读 RPC；以下布局仅为与 Proto 对照的已实现契约示例，不得按拟议新增接口处理：
 
 ```proto
 message GetCurrentRevisionRequest {}

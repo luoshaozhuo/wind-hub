@@ -3360,38 +3360,27 @@ Main 唯一提供 gRPC 服务、配置写入和指标聚合。Realtime、Reliabl
 | `stored_revision` | Main 的持久配置清单 | Main 持有 |
 | `active_revision` | Worker IPC 实际确认 | Main 聚合 |
 
-## 11.3 历史 Get / Push / Apply 与目标部署闭包（仅审计旧流程）
+## 11.3 目标 Deployment 闭包读取与生效
 
-**唯一写入权威**：Delivery 的已发布 YAML `desired_state` 不允许在同一 `file_version` 下就地 CAS 改写；人工期望状态如需持久化，须由 Configuration 发布新 Instance 版本并通过 Deployment 精确选择，或由正式受控运行态命令维护不篡改 YAML 的运行意图。Sink Main/Worker 的运行态不可被当作新业务配置版本。Common Push/Apply 旧流程不得绕过 Repository。
+Sink Main 不持有业务 YAML 第二写入权威。CLI 向 Configuration Repository 完整目录发布后，Sink 订阅 wh.config.changed 并定期对账，调用 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 获取所选 Service、Sink/Delivery Instance、Template 及标准业务点历史解释闭包。先校验文件原始哈希、完整 Manifest、固定版本依赖与权限，再据各 Worker 的实际响应分别报告 target_revision、active_revision 和 RESTART_REQUIRED。
 
-| 操作 | 成功条件 | 失败处理 |
-|---|---|---|
-| Get | 按显式引用闭包返回完整文件集与正式/运行 revision | 不返回不同代混合文件 |
-| Push | 校验 `files[]`、SHA-256、大小、路径、Schema、引用、能力；只暂存不可变候选与 `base_revision/candidate_id` | 不修改正式文件及运行态 |
-| Apply | revision CAS 成功后原子提交完整文件集，再按影响范围通过 IPC 增量应用 | CAS 冲突拒绝；部分 Worker 未收敛分别报告 PENDING/FAILED |
-| Service 参数变化 | 文件可正式提交 | 返回 `RESTART_REQUIRED`，不热替换监听端口或进程 |
+Delivery Instance 中 desired_state 为**版本化配置意图**；需要持久调整时发布新的不可变 Instance/Deployment 选择，不能在原版本中就地 CAS 写入。Start/Stop RPC 可控制当前运行意图，但不能伪装为持久修改已发布 YAML。Service 静态参数变化等待重启，单 Delivery 热更新必须保留在途 Adapter 的所有权；任何失败不改变已有效旧闭包。
 
-候选具有有界容量、数量及有效期，禁止通过目录扫描扩展文件集。`stored_revision` 表示磁盘正式提交代；`active_revision` 仅表示 Worker 确认应用代，两者可以暂时不同。Start/Stop 和 Apply 竞争同一 revision，避免丢失更新。旧 Adapter 的未终局 I/O 必须继续由原持有者收敛。
-
-## 11.4 如何保证原子提交和崩溃恢复
+## 11.4 一致性与崩溃恢复
 
 ```mermaid
 flowchart TD
-    A["Push 完整配置文件闭包"] --> B["校验路径、哈希、版本、引用、能力"]
-    B --> C{"通过？"}
-    C -->|否| X["拒绝，不变更正式配置"]
-    C -->|是| D["暂存候选与 base_revision"]
-    D --> E{"Apply CAS 匹配？"}
-    E -->|否| Y["冲突拒绝"]
-    E -->|是| F["完整目录代/清单指针原子提交并持久化"]
-    F --> G["IPC 下发受影响对象配置代"]
-    G --> H["汇总 Worker 实际版本和 Delivery 状态"]
-    H --> I["返回 stored/active revision 与重启要求"]
+  A["CLI 根目录完整发布"] --> B["Configuration 原子提交并广播"]
+  B --> C["Sink 获取 Service 精确闭包"]
+  C --> D{"哈希及版本验证成功?"}
+  D -->|否| E["保留旧活动版本并报错"]
+  D -->|是| F{"可安全热更新?"}
+  F -->|否| G["等待重启，返回 RESTART_REQUIRED"]
+  F -->|是| H["按 Worker/Delivery 安全切换"]
+  H --> I["确认活动闭包并更新状态"]
 ```
 
-<p class="figure-caption">图 11-1 配置提交与运行生效</p>
-
-多文件不可仅逐个 `os.replace` 宣称原子；使用完整快照代与 `CURRENT` 切换，必要时 `fsync` 并支持重启后恢复最后完整提交代。Worker 拒绝旧修订，IPC 超时或失联不应伪造 APPLIED。
+所有运行中 Delivery 的已接受消息及未终局 I/O 仍由原 Worker 收敛。Main 不再使用 Push/Apply 的本地候选代作为业务提交记录；崩溃恢复按 Repository 已发布的有效闭包重新对账，不能基于本地旧 manifest 重建另一套权威。
 
 ## 11.5 如何控制热更新并发与 I/O 所有权
 
@@ -3402,7 +3391,7 @@ flowchart TD
 Main 对外 gRPC 使用 内网隔离与 `query/control/config` 权限；密钥只引用 Secret，不出现在普通配置查询和日志。严格拒绝绝对路径、`..`、符号链接及未引用模板扫描。IPC 为容器内受权限控制的本地通道，有界消息和超时；两个 Worker 没有外部配置写权限。
 
 
-## 11.7 BusinessPoint 单射候选版与 BUSINESS 输出准入（v1_73）
+## 11.7 BusinessPoint 单射候选版与 BUSINESS 输出准入（v1_74）
 
 Sink 对 `protocol` 数据按来源不可变 `point_table_id` 保留源点 ID 和已解码标量；只有 `business` Delivery 明确启用且历史完整闭包通过验证，才允许执行 PointTable scale/offset、Units 和 BusinessPoint 类型变换。**不存在**按当前最新业务目录补齐历史映射的兼容路径。
 
@@ -3876,7 +3865,7 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 | 标识 | 层级 Marker | 验收要求 | 与基线比较 |
 |---|---|---|---|
 | B3-01 | unit、contract | 当前 v1 固定 13 字段目标 Record 字节夹具 + 目标 JSON v2 新字段完整 Golden Data（以 Contracts §11.9 为准）、§10.7.1 两测点示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
-| B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | main SampleBatch v2 |
+| B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | SampleBatch v3 |
 | B3-03 | system、performance | 真实 JetStream/Kafka 三进程 A/B 至少三轮，报告编码 CPU/批、Reliable CPU/批、CPU 栈、event-loop lag P99、Broker ACK、吞吐、backlog、RSS | R11 稳定容量 |
 | B3-04 | system、reliability | 30 Durable、Realtime/可靠双通道共载、断连恢复、超限 Record、无提前 ACK；全量字节、记录顺序和重复数审计 | R10/R11 |
 | B3-05 | system、performance | Reliable 独立与双通道各至少 600 秒稳定性复核；如实际环境不可达，明确 NOT_RUN，不虚称达标 | R11 |
@@ -3994,7 +3983,7 @@ sequenceDiagram
     M->>N: 独立订阅 wh.config.changed
     M->>C: GetCurrentRevision
     C-->>M: 最新 revision_id
-    M->>C: GetConfigBundle(roots,revision_id)
+    M->>C: GetServiceConfigBundle(deployment_id,service_id,revision_id=0)
     C-->>M: 完整 YAML 闭包/manifest_sha256
     M->>M: 校验、持久化、安全生效
     C->>N: 广播 wh.config.changed

@@ -3362,31 +3362,13 @@ Instance 必须以不可变模板 ID+版本精确引用；Service 只声明其�
 节。上述示例字段为设计约束，具体字段名须与项目当前配置 Schema
 一致，不能无验证直接作为已运行配置宣称。
 
-## 11.7 多文件候选与版本提交的一致性决策
+## 11.7 全量发布与 Collector 运行应用的一致性
 
-`PushConfigSnapshotRequest.files[]`
-是完整候选快照输入；校验检查路径白名单、重号、清单完整性、模板版本不可变、设备引用、数据类型/点表和所有
-Collector 实例约束。候选与 `base_revision` 绑定，Push
-不写正式文件、不改变运行配置。Apply 使用
-`candidate_id + expected_revision`
-二次检查；先在私有临时区生成**全部**可提交文件及内容摘要并完成同步，然后经单一受管版本入口**原子发布**
-manifest/当前版本指针（同文件系统原子
-rename、持久化顺序和目录同步由存储适配器保证）。进程启动/重载/正式快照读取均只按同一
-manifest 加载完整快照，不允许读到半新半旧的文件集合；提交失败时旧
-manifest 仍为权威，临时产物可清理。若当前项目采用直接覆盖多份 YAML
-的布局而不支持版本目录/manifest
-原子切换，则必须先完成文件事务机制整改，不能宣称完整快照事务已具备。
+完整配置目录的唯一原子发布权威是 Configuration Repository 的 CreateCandidate/PublishCandidate。Collector 不写入业务共享配置文件，不管理第二套候选 manifest，也不执行本地 Push/Apply 业务配置提交。收到 wh.config.changed 广播或到达周期对账时，调用 GetServiceConfigBundle(deployment_id,service_id,revision_id=0) 取得所选 Service、Instance、Template 和历史单位/业务目录精确闭包。
 
-`SnapshotFile.relative_path`
-只允许快照内部正规化后的受管逻辑键；拒绝请求携带任意主机绝对文件路径、`..`、符号链接逃逸、路径重复、大小/数量超限。Service 文档中的路径字符串属于**经过校验的配置字段**，不得与 `SnapshotFile.relative_path` 混用；候选内部引用必须指向同一快照拥有的实体，不得借由相对路径读取快照外文件。完整快照须包含本
-Collector
-所管全部必需配置，已发布不可变模板不允许内容同版本变更，禁止替换其他服务所有的配置文件。文件成功提交之后才逐设备按有效差异生效；模板引用没有变化的设备不受影响。服务配置保存但当前进程不热更新，响应
-`restart_required`；实例/模板热更新失败保留 `ApplicationResult`
-的真实对象级失败，同时保留 `file_commit` 成功事实。`effective_revision`
-只能表示确认生效范围，不得因为部分对象成功便谎称全部生效。候选数/总字节/保留期有上限；Apply
-配置版本与 Task 启停通过同一个设备配置事务序列裁决，最后读取最新
-desired_state；不得在候选快照中恢复旧的 START。对于断连后重试，以候选
-ID、版本和 application_id 查询证据，不盲目重复提交。
+服务在持有完整文件哈希、目标闭包摘要和有效采集计划后判断能否安全热更；涉及静态监听或不可安全切换的参数须报告 RESTART_REQUIRED。在途数据仍绑定原 PointTable ID；设备计划按安全切换边界原子调整，禁止将旧新点表样本混成同一批。失败保留先前活动闭包，并分别报告 target_revision、active_revision、错误和待重启状态。
+
+Common PushConfigSnapshot/ApplyConfigSnapshot 如仍存在于旧 Proto 或实现，仅作为历史兼容性问题供代码专题删除/拒绝，不能再授予业务配置写入权限。全局发布失败时其他模块当前活动配置不受影响；某一个模块加载失败不能回滚已发布 Revision。
 
 ## 11.8 配置事务、候选持久化与运行版本收敛
 
@@ -3946,7 +3928,7 @@ sequenceDiagram
     M->>N: 独立订阅 wh.config.changed
     M->>C: GetCurrentRevision
     C-->>M: 最新 revision_id
-    M->>C: GetConfigBundle(roots,revision_id)
+    M->>C: GetServiceConfigBundle(deployment_id,service_id,revision_id=0)
     C-->>M: 完整 YAML 闭包/manifest_sha256
     M->>M: 校验、持久化、安全生效
     C->>N: 广播 wh.config.changed
