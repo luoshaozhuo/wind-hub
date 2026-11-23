@@ -25,8 +25,7 @@ from core.infrastructure.config import ConfigOperationError, parse_yaml
 configuration = typer.Typer(help="Manage versioned configuration repository.")
 
 _LOCAL_STORAGE_BOOTSTRAP = re.compile(
-    r"services/storage_bootstrap_v"
-    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.yaml"
+    r"services/storage_bootstrap_v" r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.yaml"
 )
 
 
