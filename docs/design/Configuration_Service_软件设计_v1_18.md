@@ -1411,7 +1411,7 @@ sequenceDiagram
 
 <p class="figure-caption">图 9-1 全量目录发布与非阻断广播</p>
 
-发布者只负责 SQLite 原子提交及发送一次 NATS Core 广播，不逐个联系模块。某一模块离线或应用失败不影响其他模块，也不改变发布事务。广播投递失败不回滚已提交修订，模块建立订阅后、重连后和周期性对账时从 Configuration 查询最新修订。本节定义目标能力，现有服务仅实现既有 `CreateCandidate/PublishCandidate` 等 RPC，尚需新增目录候选协议、修订查询和 NATS 发布 Adapter。
+发布者只负责 SQLite 原子提交及发送一次 NATS Core 广播，不逐个联系模块。某一模块离线或应用失败不影响其他模块，也不改变发布事务。广播投递失败不回滚已提交修订，模块建立订阅后、重连后和周期性对账时从 Configuration 查询最新修订。本节描述现行全集发布能力；`CreateCandidate/PublishCandidate` 等 RPC 与目录候选协议已集成，修订查询和 NATS 发布 Adapter。
 
 # 10. SQLite 数据模型与 YAML 契约
 
@@ -1582,7 +1582,7 @@ semantic_points:
 
 **配置重建**：版本表和领域关系表均写入确定的结构化记录；不规则应用专属字段落入版本化 JSON 对象列。每个已发布文档另保留规范化对象树，用于验证外部完整 YAML 重建的哈希、类型、缺省与显式 null；这不是保留 YAML 原始文件文本。新增领域关系映射后，不允许仅依靠规范化对象树掩盖缺失的外键。
 
-**运行启动**：Configuration Service 自身 YAML 不进入配置库。CLI 通过既有受保护 Common RPC 调用协调业务模块生效，提交前取得目标模块当前完整快照，仅覆盖清单指定的文件，不得删除未指定的既有文件。备份采用独立受限线程池，重复调度同一任务时不得重复启动文件操作；服务结束前完成资源收敛。
+**运行启动**：Configuration Service 自身 YAML 不进入配置库。CLI 通过 Configuration Repository 全量目录发布 Deployment 与其配置依赖；业务模块自行对账并选择热更新或重启，CLI 不负责逐模块 Apply。备份采用独立受限线程池，重复调度同一任务时不得重复启动文件操作；服务结束前完成资源收敛。
 
 ### 10.4.2 固定版本依赖与关系投影的准入边界
 
