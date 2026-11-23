@@ -1,0 +1,36 @@
+# E2E Sink Instance: 4 distinct real output adapters; credentials from isolated test env.
+# schema_version 1; file_version X.Y.Z; all template versions are exact and immutable.
+# sink IDs are local to e2e-final; never attach to prod-a.
+schema_version: 1
+file_version: "1.0.0"
+revision: "e2e-sinks-r1"
+sinks:
+  e2e_redis:
+    template_id: e2e_redis_realtime
+    template_version: "1.0.0"
+    connection:
+      host: "127.0.0.1"
+      port: 6379
+      credential_ref: "env:WH_E2E_REDIS_PASSWORD"
+    overrides: {}
+  e2e_kafka:
+    template_id: e2e_kafka_history
+    template_version: "1.0.0"
+    connection:
+      bootstrap_servers: ["127.0.0.1:9092"]
+      credential_ref: "env:WH_E2E_KAFKA_CREDENTIAL"
+    overrides: {}
+  e2e_modbus:
+    template_id: modbus_registers
+    template_version: "1.0.0"
+    connection:
+      listen_host: "127.0.0.1"
+      port: 25112
+    overrides: {}
+  e2e_gateway:
+    template_id: gateway_realtime
+    template_version: "1.1.0"
+    connection:
+      endpoint: "127.0.0.1:52075"
+      gateway_id: gw-e2e-sink-target
+    overrides: {}
