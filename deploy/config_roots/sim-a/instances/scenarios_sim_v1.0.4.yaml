@@ -4,7 +4,7 @@
 # scenarios[].scenario_id：场景身份；scenarios[].source：源类型和周期。
 # scenarios[].devices：模型设备及变量；scenarios[].gateways：Gateway 端点及映射。
 schema_version: 1
-file_version: "1.0.3"
+file_version: "1.0.4"
 scenarios:
   - scenario_id: wind-plant-physical
     version: "1.0.0"
@@ -48,7 +48,7 @@ scenarios:
       - device_id: PPC_SIM01
     gateways:
       - gateway_id: gw-wtg-sim01
-        endpoint: "127.0.0.1:50073"
+        endpoint: "127.0.0.1:53073"
         device_id: WTG_SIM01
         variable_mapping:
           active_power: active_power
@@ -84,7 +84,7 @@ scenarios:
           yaw_angle: yaw_angle
           yaw_error: yaw_error
       - gateway_id: gw-pv-sim01
-        endpoint: "127.0.0.1:50073"
+        endpoint: "127.0.0.1:53073"
         device_id: PV_SIM01
         variable_mapping:
           ac_current: ac_current
@@ -104,7 +104,7 @@ scenarios:
           reactive_power_setpoint: reactive_power_setpoint
           sim_power_factor: sim_power_factor
       - gateway_id: gw-bess-sim01
-        endpoint: "127.0.0.1:50073"
+        endpoint: "127.0.0.1:53073"
         device_id: BESS_SIM01
         variable_mapping:
           active_power: active_power
@@ -128,7 +128,7 @@ scenarios:
           soh: soh
           stored_energy: stored_energy
       - gateway_id: gw-grid-sim01
-        endpoint: "127.0.0.1:50073"
+        endpoint: "127.0.0.1:53073"
         device_id: GRID_SIM01
         variable_mapping:
           active_power: active_power
@@ -147,7 +147,7 @@ scenarios:
           sim_power_factor: sim_power_factor
           voltage_deviation: voltage_deviation
       - gateway_id: gw-ppc-sim01
-        endpoint: "127.0.0.1:50073"
+        endpoint: "127.0.0.1:53073"
         device_id: PPC_SIM01
         variable_mapping:
           active_power_feedback: active_power_feedback

@@ -3,7 +3,7 @@
 # Scenario 配置由 Instance 提供；此 Service 只声明场景 Instance 身份。
 # 设备型号参数来自 templates/device_models，管理端点属于各 Gateway 路由。
 schema_version: 1
-file_version: "1.0.3"
+file_version: "1.0.4"
 service_id: data-generator-sim
 config_sources:
   instances:
@@ -11,7 +11,7 @@ config_sources:
     devices: sim
     scenarios: sim
 service:
-  grpc_bind: "127.0.0.1:50061"
+  grpc_bind: "127.0.0.1:53061"
 output:
   max_inflight: 1
   grpc_timeout_seconds: 3.0
@@ -40,13 +40,11 @@ metrics:
   retain_seconds: 3600
   max_series: 2000
 
-# 安全配置示例：证书需由部署环境提供，且对端证书 CN 与权限键严格匹配。
-# 模型变量写入 RPC 必须通过身份和权限验证，不允许明文访问。
+# sim-a 目标使用隔离网络及服务端令牌鉴权；不采用 mTLS。
 security:
-  tls:
-    cert_file: /etc/wind-hub/certs/data-generator.pem
-    key_file: /etc/wind-hub/certs/data-generator.key
-    ca_file: /etc/wind-hub/certs/ca.pem
+  token_sources:
+    cli: env:WIND_HUB_SIM_GENERATOR_CLI_TOKEN
+    gateway: env:WIND_HUB_SIM_GENERATOR_GATEWAY_TOKEN
   permissions:
     cli: [variables_read, variables_update]
     gateway: [variables_read, variables_update]
