@@ -8,6 +8,13 @@
 schema_version: 1
 template_id: ads_wtg_gw2mw
 file_version: "1.2.0"
+config_sources:
+  - config_type: units
+    config_id: standard
+    file_version: "1.2.0"
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.5.0"
 protocol: ads
 points:
   a02_dm_pitchangle1:
