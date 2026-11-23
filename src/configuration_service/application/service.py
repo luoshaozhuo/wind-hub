@@ -339,6 +339,36 @@ class ConfigurationApplication:
         )
 
     @staticmethod
+    def _validate_new_point_table_identity(document: PreparedDocument) -> None:
+        """Reject duplicate BusinessPoint identities in a newly published flat table.
+
+        Historical versions remain immutable and readable. Inherited tables
+        require resolution of their complete parent closure before this rule
+        can serve as the sole publication guard.
+        """
+        if document.identity.config_type != "point_table":
+            return
+        payload = document.canonical_payload
+        if payload.get("parent") is not None:
+            return
+        points = payload.get("points")
+        if not isinstance(points, dict):
+            raise ValueError("PointTable.points must be a mapping")
+        identities: dict[str, str] = {}
+        for point_id, value in points.items():
+            if not isinstance(value, dict):
+                raise ValueError(f"invalid PointTable point: {point_id}")
+            identity = value.get("business_point_id")
+            if not isinstance(identity, str) or not identity.strip():
+                raise ValueError(f"missing BusinessPoint identity: {point_id}")
+            other = identities.setdefault(identity, str(point_id))
+            if other != point_id:
+                raise ValueError(
+                    f"PointTable {document.identity.config_id}@{document.file_version}: "
+                    f"BusinessPoint '{identity}' is shared by '{other}' and '{point_id}'"
+                )
+
+    @staticmethod
     def _validate_deployments(
         documents: Sequence[PreparedDocument],
     ) -> None:
@@ -392,6 +422,7 @@ class ConfigurationApplication:
             try:
                 new_ids[key] = self.repository.resolve_version(doc.identity, doc.file_version)
             except RepositoryNotFoundError:
+                self._validate_new_point_table_identity(doc)
                 new_ids[key] = uuid.uuid4().hex
         included_versions = frozenset(new_ids.values())
         for document in documents:
