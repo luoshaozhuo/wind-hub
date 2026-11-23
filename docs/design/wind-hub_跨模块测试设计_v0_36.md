@@ -551,7 +551,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 ## 9.5 Contracts 数据包与 Sink 三级交付的真实链路验收
 
-测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。现行输入为 `SampleBatch(schema_version=3)`，Kafka/Redis JSON 为 `schema_version=2`（主分支别是 v2 和 v1，未完成迁移前必须判为未实施）。
+测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。现行输入采用 `SampleBatch(schema_version=3)`，Kafka/Redis JSON 为 `schema_version=2`；用独立真值及 Broker/Storage 观察验证而非沿用旧 v2/v1 断言。
 
 | 验收项 | 激励及配置 | 独立观察与断言 |
 |---|---|---|
