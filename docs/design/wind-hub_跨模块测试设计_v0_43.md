@@ -848,3 +848,11 @@ N-02：CLI 的唯一规范叶子名称是 `commander batch` 和 `commander recov
 N-03/C-06：sim-a CLI@1.4.0 没有 TLS profile，全部受管目标使用独立 530xx 端口、`sim-a` 状态/日志目录及独立进程；Gateway@1.1.4、Commander@1.1.0、Generator@1.0.4、Device@1.4.0、Scenario@1.0.4、Configuration 本地 bootstrap 均须与目标身份互相一致。新的 token_sources 字段属于设计候选，严格运行时 Schema 是否接受必须单列风险，不可视作已通过软件测试。
 
 C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前已存在的文件实际生产发布状态均未凭 Git 推定为已批准；缺实物 Manifest 仍须明示。C-08 Gateway Sink STOP、安全 Listener 未配置、C-11 E2E 物理基础设施隔离、C-13 OEM、C-14 RAW/BUSINESS 外部证据，不应归入结构性文档缺陷关闭。软件测试始终保持 NOT_RUN。
+
+## 15.5 第三轮独立复测交付判据
+
+以 Claude 第二轮报告 D-01～D-28/C-01～C-14 的 42 项及 N-01～N-03 三项为固定分母；逐条对原冲突行、接口表、例图、旧版本引用和配置版本选择作严格复测。只能依据已运行的只读静态 YAML/Loader 和文件哈希证据关闭相关项目，不能仅因新文档版本存在就 PASS。
+
+特别执行以下反例：历史 Kafka 模板 v1.1.0 Blob 完全相同、唯一新模板 v1.2.0 被 Sink@1.4.0 选中；同根只有唯一 prod-a@1.6.0 / sim-a@1.3.0 / e2e-final@1.0.1；sim-a CLI@1.4.0 没有 TLS profile，管理目标与生产无重复端口/manager target/state_dir，关联服务的 gRPC 监听与 Scenario 路由一致；Collector 及 Sink 流程图没有本地业务 Push/Apply 第二写入口；Contract Descriptor 的 GetServiceConfigBundle 字段号与请求中 revision_id=0 语义一致；现行 CLI 叶子名称仅定义一次。
+
+`DESIGN_CONFIG_REVIEW` 只评价设计和候选静态结构；`DESIGN_FREEZE_APPROVAL` 单列冻结总体勘误的批准状态；`PRODUCTION_ACTIVATION` 继续独立标记 OEM、RAW/BUSINESS/历史发布证据和实际基础设施门禁；`SOFTWARE_TESTS=NOT_RUN`。新 sim-a token_sources/服务认证字段及现行服务端 Schema 的契约差异须登记为 `DEFERRED_TO_CODE_REVIEW`，不得以静态设计结果替代实现检查。

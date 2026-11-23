@@ -251,3 +251,27 @@ RAW 真实协议字节、BUSINESS 历史 Manifest 与 OEM 的 111 个点审核�
 三根使用同一源 YAML Git Blob（内容 SHA 未改变）构造；根中不包含旧未固定 PointTable、第二版同身份 Deployment 或不属于该闭包的历史文件。以各根为 `config publish --root` 目标时仅代表**准备了候选输入**，不代表已执行 Candidate、实际 Repository 发布或业务进程启动。
 
 仍需独立验证 Source file_version/配置身份、完整图引用、重复键、单位、类型和 Core 真实 Loader；本次 GitHub 上完成的是文件选择与复制，不是 Python YAML/Schema 执行。所有生产启用项仍受 OEM、BUSINESS Manifest、RAW 真实来源和现场端点鉴权限制。
+
+## 15. 第二轮 FAIL 后的集中设计及候选配置整改（2026-11-23）
+
+基线：Claude 第二轮独立报告 `docs/audit/design_config_freeze_retest_round2_20261123.md`，42 项中 19 CLOSED、18 OPEN、3 等待批准、1 延期代码审查、1 NEEDS_OEM，新发现 N-01 P1/N-02 P2/N-03 P2。本节仅记录已提交的整改和 GitHub 静态核对，不将其冒充第三轮独立 PASS。
+
+### 15.1 版本化配置与不可变性
+
+- **N-01**：恢复原 `configs/templates/sinks/sink_kafka_history_v1.1.0.yaml` 的 Git Blob `460fb5d96235b4a6713c85af6102efbde9f85f78`；Topic/并发变化放到新 `kafka_history@1.2.0`。同时新建 `sinks_prod-a@1.4.0`、`deployment_prod-a@1.6.0` 并更新独立 prod-a 活动根。未更改已有发布对象字节。
+- **N-03/C-06**：新建 `cli-sim@1.4.0`，仅使用隔离 `53060/53051/53052/53073/53061` 管理端点和 `/var/lib/wind-hub/sim-a` 进程、日志目录；移除 CLI TLS profile。Gateway-sim@1.1.4、Commander-sim@1.1.0、Generator-sim@1.0.4、Device-sim@1.4.0、Scenario-sim@1.0.4 及 `deploy/sim-a/configuration_bootstrap_sim-a_v1.0.0.yaml` 同步选版。此为**新设计候选**；security.token_sources 等运行时 Schema 和服务实际支持情况须在后续代码专题核验，不能因文件存在就声明真正具备无 TLS 安全链。
+- **C-07**：建立 `docs/audit/config_version_release_ledger_20261123.csv`，记录 112 个源配置的当前 Blob、基线 Blob、候选/历史状态。基线 78 份文件的真实“是否曾生产发布”没有环境清单证据，保持 UNKNOWN；34 份新增文件标为 UNPUBLISHED_CANDIDATE。只有可证明发布登记后才能赋予不可变正式发布状态。
+
+### 15.2 设计正文集中消歧
+
+按前轮 D-05/D-08/D-09/D-11/D-14/D-16/D-20～D-25 证据位置集中更正原业务规则、接口表、流程图和测试描述：本地 Common Push/Apply 不再具有 Repository 托管业务配置写入权限；Service→Instance→Template 精确版本；Collector SampleBatch v3；CLI 统一 `commander batch`/`commander recover-device`；Gateway 10、Generator 9 个专属 RPC；状态 `target_revision`(4)、`active_revision`(5)；协议总量由完整 Descriptor 动态统计。上一轮报告指出的旧正文须再次由 Claude 逐行独立核验，不能仅以本节的修订声明关闭问题。
+
+12 份设计文档只保留各模块唯一最新版；总体架构 v1_27 的 Blob `891486c006c5f964ffa2e61e950104102004f9ab` 保持原样。当前最新版：CLI v1_55、Collector v1_43、Commander v1_59、Configuration v1_22、Contracts v1_44、Core v1_45、Data Generator v1_62、Gateway v1_52、Sink v1_75、Storage v1_9、跨模块测试 v0_43。
+
+### 15.3 候选根文件级校验与未执行项
+
+独立根：`deploy/config_roots/prod-a/`（29 YAML，唯一 prod-a@1.6.0）、`sim-a/`（23，唯一 sim-a@1.3.0）、`e2e-final/`（35，唯一 e2e-final@1.0.1）。GitHub Tree Blob 检查：87/87 与对应 `configs/` 原始字节一致，各根仅有一个 Deployment 版本；prod-a 的 Kafka 模板已升级、sim-a 管理端口互不复用生产。文件级结果不替代 YAML 严格解析、Schema/Domain Loader、Repository Candidate/Publish 及实际业务安全控制测试；这些本轮仍 **NOT_RUN**。
+
+**不可提前关闭**：总体 v1_27 RAW/旧 ENGINEERING/通用 Bundle 正文冲突的勘误尚待有权批准（D-01/D-04/D-06）；C-08 Gateway 注入授权未验收，C-10 软件硬编码规则待代码专题，C-11 E2E 物理基础设施共享仍需隔离运行，C-12 历史注释保留并备案，C-13 111 点 OEM 未批准，C-14 RAW 真值和 BUSINESS 获批 Manifest 未具备，历史原始发布证据仍缺。实际生产激活依旧 BLOCKED。
+
+**本轮交付裁决**：`READY_FOR_ROUND3_DESIGN_CONFIG_RETEST`；不能宣布 `DESIGN_CONFIG_REVIEW=PASS`、`DESIGN_FREEZE_APPROVED` 或 `PRODUCTION_ACTIVATION=READY`。
