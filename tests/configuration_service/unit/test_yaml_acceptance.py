@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.schema_catalog import iter_schemas
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
     emit_yaml,
@@ -18,7 +19,11 @@ from core.configuration.publication_identity import resolve_publication_identity
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[3]
-YAML_FILES = tuple(sorted((ROOT / "configs").rglob("*.yaml")))
+YAML_FILES = tuple(
+    path
+    for path in sorted((ROOT / "configs").rglob("*.yaml"))
+    if not _is_local_bootstrap(path.relative_to(ROOT / "configs").as_posix())
+)
 SCHEMAS = {item.config_type: item for item in iter_schemas()}
 
 

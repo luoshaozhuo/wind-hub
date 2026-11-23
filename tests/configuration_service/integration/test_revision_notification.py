@@ -43,7 +43,7 @@ async def test_committed_revision_is_broadcast_over_real_nats(
 ) -> None:
     try:
         client = await nats.connect(
-            "nats://127.0.0.1:4222", connect_timeout=2, max_reconnect_attempts=0
+            "nats://127.0.0.1:4222", connect_timeout=2, max_reconnect_attempts=1
         )
     except Exception as exc:  # pragma: no cover - environment dependent
         pytest.skip(f"real NATS not reachable for revision broadcast: {exc}")

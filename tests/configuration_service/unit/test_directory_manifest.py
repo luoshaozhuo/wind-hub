@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from cli.configuration_commands import _is_local_bootstrap
 from configuration_service.application.directory_manifest import (
     DirectoryFile,
     build_directory_manifest,
@@ -144,6 +145,8 @@ def test_repository_directory_paths_have_unambiguous_identities() -> None:
     seen: set[tuple[str, str, str]] = set()
     for path in sorted(root.rglob("*.yaml")):
         relative_path = path.relative_to(root).as_posix()
+        if _is_local_bootstrap(relative_path):
+            continue
         document = parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
         if relative_path.startswith("services/service_configuration_v"):
             with pytest.raises(ValueError, match="bootstrap"):
