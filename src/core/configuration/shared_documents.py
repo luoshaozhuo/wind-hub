@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -270,6 +271,7 @@ class SharedDocumentLoader:
         # Never infer the newest catalog from the directory listing: multiple
         # immutable versions are expected to coexist.
         catalog_versions: set[str] = set()
+        unpinned_tables = False
         for definition in devices.values():
             for table in (
                 definition.templates.point_table,
@@ -289,9 +291,16 @@ class SharedDocumentLoader:
                     raise ConfigError("PointTable has duplicate BusinessPoint catalog bindings")
                 if pins:
                     version = pins[0].get("file_version")
-                    if not isinstance(version, str) or not version:
+                    if not isinstance(version, str) or re.fullmatch(
+                        r"(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)",
+                        version,
+                    ) is None:
                         raise ConfigError("PointTable BusinessPoint catalog version is invalid")
                     catalog_versions.add(version)
+                else:
+                    unpinned_tables = True
+        if catalog_versions and unpinned_tables:
+            raise ConfigError("mixed pinned and unpinned PointTable catalog interpretations")
         if len(catalog_versions) > 1:
             raise ConfigError("selected PointTables require different BusinessPoint catalog versions")
         if catalog_versions:
@@ -302,6 +311,8 @@ class SharedDocumentLoader:
         else:
             business_path = sole_catalog("business_points_standard")
         business_points = read_stable_document(business_path)
+        if catalog_versions and business_points["file_version"] != version:
+            raise ConfigError("selected BusinessPoint catalog version mismatch")
         parse_business_points(
             {
                 key: value
