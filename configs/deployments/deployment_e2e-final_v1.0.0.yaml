@@ -25,4 +25,4 @@ instances:
   sink:
     e2e-final: {file_version: "1.0.0"}
   delivery:
-    e2e-final: {file_version: "1.0.0"}
+    e2e-final: {file_version: "1.0.1"}
