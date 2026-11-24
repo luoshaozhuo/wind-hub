@@ -111,22 +111,38 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             device_id=str(device.device_id),
             protocol=item.plan.point_table.protocol.name,
             endpoint=f"{device.endpoint.host}:{device.endpoint.port or 0}",
-            task_id=str(device.device_id),
+            task_id=item.plan.task_id,
             actual_state=item.actual_state,
             revision=item.applied_revision,
         )
 
     @staticmethod
-    def _task(item: DeviceWorker, revision: str) -> pb.Task:
-        device_id = str(item.plan.device.device_id)
+    def _task(items: tuple[DeviceWorker, ...], revision: str) -> pb.Task:
+        """Expose one configured Task, even when it owns multiple devices."""
+        if not items or len({worker.plan.task_id for worker in items}) != 1:
+            raise ValueError("Task grouping is inconsistent")
+        states = {worker.actual_state for worker in items}
+        desired = {worker.desired_state for worker in items}
         return pb.Task(
-            task_id=device_id,
-            device_id=device_id,
-            desired_state=item.desired_state,
-            actual_state=item.actual_state,
+            task_id=items[0].plan.task_id,
+            device_id=str(items[0].plan.device.device_id) if len(items) == 1 else "",
+            desired_state=next(iter(desired)) if len(desired) == 1 else "PARTIAL",
+            actual_state=next(iter(states)) if len(states) == 1 else "PARTIAL",
             revision=revision,
-            last_error=item.last_error,
+            last_error="; ".join(
+                f"{worker.plan.device.device_id}: {worker.last_error}"
+                for worker in items if worker.last_error
+            ),
         )
+
+    def _task_workers(self, task_id: str) -> tuple[DeviceWorker, ...]:
+        group = tuple(
+            worker for _, worker in sorted(self._acquisition.workers.items())
+            if worker.plan.task_id == task_id
+        )
+        if not group:
+            raise LookupError(f"Task does not exist: {task_id}")
+        return group
 
     @staticmethod
     def _point(item: DeviceWorker, point_id: str, revision: str) -> common.PointMetadata:
@@ -269,10 +285,13 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
     ) -> pb.ListTasksResponse:
         try:
             revision = self._configuration.status().disk_revision
+            task_ids = sorted(
+                {worker.plan.task_id for worker in self._acquisition.workers.values()}
+            )
             tasks = [
-                self._task(worker, revision)
-                for key, worker in sorted(self._acquisition.workers.items())
-                if not request.filter or request.filter in key
+                self._task(self._task_workers(task_id), revision)
+                for task_id in task_ids
+                if not request.filter or request.filter in task_id
             ]
             selected, token = _page(tasks, request.page_size, request.page_token)
             return pb.ListTasksResponse(tasks=selected, next_page_token=token)
@@ -288,7 +307,7 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             # StartTask/StopTask expected_revision; runtime may lag during
             # partial convergence and must not poison optimistic concurrency.
             revision = self._configuration.status().disk_revision
-            return pb.GetTaskResponse(task=self._task(self._worker(request.id), revision))
+            return pb.GetTaskResponse(task=self._task(self._task_workers(request.id), revision))
         except LookupError as exc:
             await self._error(context, exc)
             raise AssertionError("aborted") from exc
@@ -304,13 +323,18 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             status = await self._control.set_desired(
                 request.id, state, expected_revision=request.expected_revision
             )
-            current = self._acquisition.workers.get(request.id)
-            apply_error = status.apply_errors.get(request.id, "")
+            workers = self._task_workers(request.id)
+            task = self._task(workers, status.disk_revision)
+            apply_error = "; ".join(
+                f"{worker.plan.device.device_id}: {error}"
+                for worker in workers
+                if (error := status.apply_errors.get(str(worker.plan.device.device_id)))
+            )
             return common.OperationResult(
                 operation_id=uuid.uuid4().hex,
                 accepted=True,
                 desired_state=state,
-                actual_state=current.actual_state if current is not None else "STOPPED",
+                actual_state=task.actual_state,
                 revision=status.disk_revision,
                 error_code="APPLY_FAILED" if apply_error else "",
                 message=apply_error,
