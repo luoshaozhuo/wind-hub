@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -31,22 +32,30 @@ class GatewaySimulationSession:
         self._target = target
         self._channel: grpc.aio.Channel | None = None
         self._client: gateway_rpc.IndustrialGatewayServiceAsyncStub | None = None
+        self._metadata: tuple[tuple[str, str], ...] = ()
 
     async def connect(self) -> None:
         if self._client is not None:
             return
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=self._target.ca_cert.read_bytes(),
-            private_key=self._target.client_key.read_bytes(),
-            certificate_chain=self._target.client_cert.read_bytes(),
-        )
-        channel = grpc.aio.secure_channel(self._target.endpoint, credentials)
+        host, separator, port = self._target.endpoint.rpartition(":")
+        if (
+            not separator
+            or host not in {"127.0.0.1", "localhost", "::1"}
+            or not port.isdecimal()
+            or not 1 <= int(port) <= 65535
+        ):
+            raise ValueError("simulation Gateway must use a loopback endpoint")
+        token = os.environ.get(self._target.token_env, "")
+        if len(token) < 32 or not token.isascii() or any(not 33 <= ord(ch) <= 126 for ch in token):
+            raise ValueError("simulation Gateway token is missing or invalid")
+        channel = grpc.aio.insecure_channel(self._target.endpoint)
         try:
             await asyncio.wait_for(channel.channel_ready(), timeout=3.0)
         except BaseException:
             await channel.close()
             raise
         self._channel = channel
+        self._metadata = (("authorization", f"Bearer {token}"),)
         self._client = gateway_rpc.IndustrialGatewayServiceStub(channel)
 
     def is_open(self) -> bool:
@@ -74,6 +83,7 @@ class GatewaySimulationSession:
         gateway_info = await client.GetGateway(
             common_pb2.ObjectId(id=self._target.gateway_id),
             timeout=3.0,
+            metadata=self._metadata,
         )
         revision = gateway_info.gateway.revision
         if not revision:
@@ -91,6 +101,7 @@ class GatewaySimulationSession:
                 expires_at=timestamp,
             ),
             timeout=max(0.001, (expiry - datetime.now(UTC)).total_seconds()),
+            metadata=self._metadata,
         )
         if not response.accepted and response.state == "REJECTED":
             return ProtocolWriteResult(
@@ -118,6 +129,7 @@ class GatewaySimulationSession:
                     request_id=command.command_id,
                 ),
                 timeout=remaining,
+                metadata=self._metadata,
             )
         if response.accepted and response.state == "APPLIED":
             return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_SUCCESS)
@@ -132,5 +144,6 @@ class GatewaySimulationSession:
     async def close(self) -> None:
         channel, self._channel = self._channel, None
         self._client = None
+        self._metadata = ()
         if channel is not None:
             await channel.close()

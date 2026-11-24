@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import grpc
 
 from industrial_gateway.application.forwarding import (
@@ -51,13 +49,12 @@ class CommandForwarder(ApplicationCommandForwarder):
         config: ControlTarget,
         *,
         observer: RecordObserver | None = None,
-        project_root: Path,
     ) -> None:
         if config.kind != "commander":
             raise ValueError("control forwarding requires Commander")
         super().__init__(
             config,
             observer=observer,
-            client=CommanderRpcClient(config, project_root),
+            client=CommanderRpcClient(config),
             definitive_rejection=_definitive_rpc_rejection,
         )

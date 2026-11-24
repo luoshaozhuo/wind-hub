@@ -1,0 +1,49 @@
+.......................F....                                             [100%]
+=================================== FAILURES ===================================
+_________ test_every_storage_and_common_rpc_rejects_unauthorized_calls _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x76b92839a050>
+
+    async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Enumerate the live proto, not a frozen count or hand-written method list."""
+        from google.protobuf.message_factory import GetMessageClass
+    
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        config = _config()
+        server = _server(config)
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        try:
+            services = (
+                (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+                (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+            )
+            observed: set[tuple[str, str]] = set()
+            for file_descriptor, name, stub_cls in services:
+                service = file_descriptor.services_by_name[name]
+                stub = stub_cls(channel)
+                for method in service.methods:
+                    assert not method.client_streaming and not method.server_streaming
+                    request = GetMessageClass(method.input_type)()
+                    for metadata in (
+                        None,
+                        (("authorization", "Bearer invalid-credential"),),
+                    ):
+                        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                            await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+>                       assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                            name,
+                            method.name,
+                        )
+E                       AssertionError: ('StorageService', 'CreateExport')
+E                       assert <StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')> == <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')>
+E                        +  where <StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')> = code()
+E                        +    where code = <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n>.code
+E                        +      where <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n> = <ExceptionInfo <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n> tblen=2>.value
+E                        +  and   <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')> = <enum 'StatusCode'>.UNAUTHENTICATED
+E                        +    where <enum 'StatusCode'> = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:125: AssertionError
+1 failed, 27 passed in 0.24s

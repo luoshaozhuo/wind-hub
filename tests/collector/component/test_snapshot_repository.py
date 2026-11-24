@@ -29,6 +29,57 @@ def _files() -> dict[str, bytes]:
     }
 
 
+def test_catalog_version_is_selected_by_snapshot_not_hardcoded(tmp_path: Path) -> None:
+    repository = CollectorSnapshotRepository(tmp_path / "config")
+    files = _files()
+    files["templates/business_points_standard_v1.5.0.yaml"] = files.pop(
+        "templates/business_points_standard_v1.4.0.yaml"
+    )
+    candidate = repository.stage(files, expected_revision="", validate=_validate)
+    assert candidate.candidate_id
+
+
+@pytest.mark.asyncio
+async def test_catalog_version_upgrade_preserves_original_bytes(tmp_path: Path) -> None:
+    repository = CollectorSnapshotRepository(tmp_path / "config")
+    first = repository.stage(_files(), expected_revision="", validate=_validate)
+    committed = await repository.commit(
+        first.candidate_id, expected_revision="", validate=_validate
+    )
+    files = _files()
+    files["templates/business_points_standard_v1.5.0.yaml"] = files.pop(
+        "templates/business_points_standard_v1.4.0.yaml"
+    )
+    second = repository.stage(files, expected_revision=committed.revision, validate=_validate)
+    await repository.commit(
+        second.candidate_id, expected_revision=committed.revision, validate=_validate
+    )
+    assert (
+        committed.paths.templates / "business_points_standard_v1.4.0.yaml"
+    ).read_bytes() == b"schema_version: 1\n"
+    modified = dict(files)
+    modified["templates/business_points_standard_v1.5.0.yaml"] = b"schema_version: 2\n"
+    with pytest.raises(SnapshotError, match="published standard catalog"):
+        repository.stage(
+            modified,
+            expected_revision=repository.active_revision() or "",
+            validate=_validate,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "templates/business_points_standard_v1.5.yaml",
+        "templates/units_standard_v1.2.0-extra.yaml",
+        "templates/business_points_standard_v01.5.0.yaml",
+    ],
+)
+def test_reject_malformed_standard_catalog_version(invalid: str) -> None:
+    with pytest.raises(SnapshotError, match="outside Collector configuration ownership"):
+        CollectorSnapshotRepository._normalize(invalid)
+
+
 def _validate(paths: SnapshotPaths) -> None:
     assert paths.service.is_file()
     assert (paths.instances / "device_farm-a_v1.0.0.yaml").is_file()

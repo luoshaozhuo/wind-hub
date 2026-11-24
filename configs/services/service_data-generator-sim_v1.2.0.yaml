@@ -1,0 +1,50 @@
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+# Scenario 配置由 Instance 提供；此 Service 只声明场景 Instance 身份。
+# 设备型号参数来自 templates/device_models，管理端点属于各 Gateway 路由。
+schema_version: 2
+file_version: "1.2.0"
+service_id: data-generator-sim
+config_sources:
+  instances:
+    site: example_site
+    devices: sim
+    scenarios: sim
+service:
+  grpc_bind: "127.0.0.1:53061"
+output:
+  max_inflight: 1
+  grpc_timeout_seconds: 3.0
+buffer:
+  max_batches: 128
+  max_points_per_batch: 1000
+replay:
+  read_batch_size: 1000
+diagnose:
+  max_concurrent: 2
+  timeout_seconds: 10.0
+  permit_wait_seconds: 0.5
+recording:
+  enabled: false
+  directory: artifacts/data-generator
+metrics:
+  enabled: true
+  sample_seconds: 1.0
+  window_seconds: 60
+  retain_seconds: 3600
+  max_series: 2000
+
+# sim-a 目标使用隔离网络及服务端令牌鉴权；不采用 mTLS。
+security:
+  callers:
+    - caller_id: cli
+      token_env: WIND_HUB_SIM_GENERATOR_CLI_TOKEN
+      permissions: [variables_read, variables_update]
+    - caller_id: gateway
+      token_env: WIND_HUB_SIM_GENERATOR_GATEWAY_TOKEN
+      permissions: [variables_read, variables_update]
+  permissions:
+    cli: [variables_read, variables_update]
+    gateway: [variables_read, variables_update]
+
+# 版本化场景归属本服务；设备固有参数从 device_models 装配。

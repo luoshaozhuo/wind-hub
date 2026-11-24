@@ -25,11 +25,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from contracts import industrial_gateway_pb2 as pb
 from contracts import industrial_gateway_pb2_grpc as pb_rpc
 from contracts.scalar_codec import decode_scalar
-from tests.cli.e2e_util import SRC, last_json, write_cli_yaml
+from tests.cli.e2e_util import SRC, last_json
 from tests.support.gateway import (
     FEEDBACK_FLOAT,
     FEEDBACK_UINT,
@@ -75,19 +76,26 @@ async def stack(tmp_path: Path):
 
 def _cli_config(stack, tmp_path: Path, cn: str) -> Path:
     harness, _ = stack
-    pki = harness.pki
-    assert pki is not None
-    cert_path, key_path = pki["clients"][cn]  # type: ignore[index]
-    cert_files = {
-        "ca": pki["ca"],  # type: ignore[index]
-        "client_crt": cert_path,
-        "client_key": key_path,
-    }
-    return write_cli_yaml(
-        tmp_path / f"cli-{cn}.yaml",
-        cert_files,  # type: ignore[arg-type]
-        {"gateway": f"localhost:{harness.grpc_port}"},
+    env_name = "WIND_HUB_TEST_GATEWAY_" + cn.upper().replace("-", "_") + "_TOKEN"
+    assert cn in harness.caller_tokens
+    path = tmp_path / f"cli-{cn}.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "cli": {"output_format": "json", "timeout_seconds": 10},
+                "services": {
+                    "gateway": {
+                        "grpc_endpoint": f"127.0.0.1:{harness.grpc_port}",
+                        "token_env": env_name,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
     )
+    return path
 
 
 async def _run_cli(config: Path, *arguments: str) -> CliResult:

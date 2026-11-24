@@ -12,9 +12,7 @@ class SimulationGatewayTarget:
 
     gateway_id: str
     endpoint: str
-    ca_cert: Path
-    client_cert: Path
-    client_key: Path
+    token_env: str
 
 
 @dataclass(frozen=True, slots=True)

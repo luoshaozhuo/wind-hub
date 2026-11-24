@@ -12,12 +12,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import secrets
 import socket
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import grpc
 import yaml
@@ -34,6 +36,35 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import 
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
+
+
+class _BearerInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
+    """Authenticate real loopback gRPC with the production Bearer contract."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    async def intercept_unary_unary(
+        self,
+        continuation: Any,
+        client_call_details: grpc.aio.ClientCallDetails,
+        request: Any,
+    ) -> Any:
+        details = client_call_details._replace(
+            metadata=(
+                *(client_call_details.metadata or ()),
+                ("authorization", f"Bearer {self._token}"),
+            ),
+        )
+        return await continuation(details, request)
+
+
+def _token_env(caller_id: str) -> str:
+    normalized = "".join(
+        character.upper() if character.isalnum() else "_" for character in caller_id
+    )
+    return f"WIND_HUB_TEST_GATEWAY_{normalized}_TOKEN"
+
 
 # 点表：所有测试设备共享同一份版本化模板。
 FEEDBACK_FLOAT = "fb_float"
@@ -406,6 +437,8 @@ def write_config_tree(
     metrics_window_seconds: int = 60,
     permissions: dict[str, Sequence[str]] | None = None,
     mtls_enabled: bool = False,
+    sink_listener_port: int | None = None,
+    sink_token_env: str | None = None,
     point_table: dict[str, dict[str, Any]] | None = None,
     simulation: dict[str, Any] | None = None,
 ) -> Path:
@@ -426,6 +459,7 @@ def write_config_tree(
                 "target": {
                     "kind": "commander",
                     "endpoint": commander_endpoint,
+                    "token_env": "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN",
                     "queue_capacity": forward_queue_capacity,
                     "max_inflight": max_forward_inflight,
                     "request_timeout_ms": submit_deadline_ms,
@@ -521,8 +555,41 @@ def write_config_tree(
             "points": {key: dict(value) for key, value in (point_table or POINT_TABLE).items()},
         },
     )
+    callers: list[dict[str, Any]] = [
+        *(
+            [
+                {
+                    "caller_id": "sink",
+                    "token_env": sink_token_env,
+                    "permissions": ["inject"],
+                }
+            ]
+            if sink_token_env is not None
+            else []
+        ),
+        *(
+            {
+                "caller_id": caller,
+                "token_env": _token_env(caller),
+                "permissions": list(rights),
+            }
+            for caller, rights in (
+                permissions
+                or {
+                    "gw-admin": (
+                        "read",
+                        "config_read",
+                        "config_write",
+                        "inject",
+                        "lifecycle",
+                        "diagnose",
+                    )
+                }
+            ).items()
+        ),
+    ]
     service: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 3,
         "file_version": "1.0.0",
         "service_id": "gateway",
         "config_sources": {"instances": {"devices": "gateway-test"}},
@@ -531,22 +598,11 @@ def write_config_tree(
             "listen_port": grpc_port,
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
-            "tls": (
-                {
-                    "enabled": True,
-                    "cert_file": "certs/server.crt",
-                    "key_file": "certs/server.key",
-                    "ca_file": "certs/ca.crt",
-                }
-                if mtls_enabled
-                else {"enabled": False}
-            ),
             **(
-                {"permissions": {name: list(rights) for name, rights in permissions.items()}}
-                if permissions
-                else {}
+                {"sink_listener_port": sink_listener_port} if sink_listener_port is not None else {}
             ),
         },
+        "security": {"callers": callers},
         "servers": servers,
         "metrics": {
             "window_seconds": metrics_window_seconds,
@@ -584,6 +640,8 @@ class GatewayHarness:
     grpc_port: int
     commander_port: int
     _channel: grpc.aio.Channel
+    caller_tokens: dict[str, str] = field(default_factory=dict)
+    previous_tokens: dict[str, str | None] = field(default_factory=dict)
     pki: dict[str, object] | None = None
 
     def modbus_port(self, server_id: str) -> int:
@@ -607,20 +665,13 @@ class GatewayHarness:
         return common_rpc.CommonServiceStub(self._channel)
 
     def mtls_channel(self, client_name: str) -> grpc.aio.Channel:
-        """以指定 CN 的真实客户端证书打开独立 mTLS 通道（调用方负责关闭）。"""
-        if self.pki is None:
-            raise RuntimeError("PKI was not generated for this harness")
-        ca = cast(Path, self.pki["ca"]).read_bytes()
-        cert_path, key_path = cast(dict[str, tuple[Path, Path]], self.pki["clients"])[client_name]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca,
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
-        )
-        return grpc.aio.secure_channel(
+        """Legacy test call site: select an isolated Bearer principal by name."""
+        token = self.caller_tokens.get(client_name)
+        if token is None:
+            token = secrets.token_hex(32)
+        return grpc.aio.insecure_channel(
             f"127.0.0.1:{self.grpc_port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
+            interceptors=[_BearerInterceptor(token)],
         )
 
     async def stop(self) -> None:
@@ -628,6 +679,11 @@ class GatewayHarness:
         await self.runtime.stop()
         await self.gateway_server.stop(grace=0)
         await self.commander_server.stop(grace=0)
+        for name, previous in self.previous_tokens.items():
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
 
 
 async def claim_for_injection(
@@ -662,15 +718,17 @@ async def start_gateway(
     submit_deadline_ms: int = 5000,
     metrics_window_seconds: int = 60,
     mtls: dict[str, Sequence[str]] | None = None,
+    sink_listener_port: int | None = None,
+    sink_token_env: str | None = None,
     bootstrap_cn: str | None = None,
     extra_clients: Sequence[str] = (),
     point_table: dict[str, dict[str, Any]] | None = None,
     simulation: dict[str, Any] | None = None,
 ) -> GatewayHarness:
-    """启动真实 Commander 对端 + 真实 Gateway runtime/gRPC，不替换任何生产对象。
+    """启动真实 Commander 对端与真实 Gateway 运行时及 Bearer gRPC。
 
-    mtls 非空时生成真实 PKI 并按 ``{CN: 权限集}`` 配置服务端；harness 自身
-    管理通道使用 bootstrap_cn 对应客户端证书。
+    参数 mtls 保留为旧测试中的调用方权限矩阵，身份认证实际由 Bearer
+    Token 完成；bootstrap_cn 是管理通道所选的调用方 ID。
     """
     root.mkdir(parents=True, exist_ok=True)
     commander_port = reserve_port()
@@ -681,65 +739,82 @@ async def start_gateway(
     commander_server.add_insecure_port(f"127.0.0.1:{commander_port}")
     await commander_server.start()
 
+    # Test certificates no longer authorize Gateway RPCs. Grant isolated
+    # Bearer identities instead; restore environment when harness exits.
+    rights = mtls or {
+        "gw-admin": ("read", "config_read", "config_write", "inject", "lifecycle", "diagnose")
+    }
+    caller_tokens = {name: secrets.token_hex(32) for name in rights}
+    previous_tokens = {_token_env(name): os.environ.get(_token_env(name)) for name in rights}
+    commander_token_env = "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN"
+    previous_tokens[commander_token_env] = os.environ.get(commander_token_env)
+    for name, token in caller_tokens.items():
+        os.environ[_token_env(name)] = token
+    os.environ[commander_token_env] = secrets.token_hex(32)
     pki: dict[str, object] | None = None
-    if mtls is not None:
-        client_names = set(mtls) | set(extra_clients)
-        if bootstrap_cn is not None:
-            client_names.add(bootstrap_cn)
-        pki = write_mtls_pki(root, tuple(client_names))
-    service_path = write_config_tree(
-        root,
-        specs,
-        commander_endpoint=f"127.0.0.1:{commander_port}",
-        grpc_port=grpc_port,
-        forward_queue_capacity=forward_queue_capacity,
-        max_forward_inflight=max_forward_inflight,
-        submit_deadline_ms=submit_deadline_ms,
-        metrics_window_seconds=metrics_window_seconds,
-        permissions=mtls,
-        mtls_enabled=mtls is not None,
-        point_table=point_table,
-        simulation=simulation,
-    )
-    config = load_gateway(service_path, project_root=root)
-    runtime = assemble_gateway(config)
-    snapshots = ConfigSnapshots(runtime, service_path, root)
-    gateway_server = create_gateway_grpc_server(runtime, snapshots)
-    await gateway_server.start()
-    await runtime.start()
-    if mtls is not None:
-        assert pki is not None and bootstrap_cn is not None
-        ca_path = cast(Path, pki["ca"])
-        client_certs = cast(dict[str, tuple[Path, Path]], pki["clients"])
-        ca = ca_path.read_bytes()
-        cert_path, key_path = client_certs[bootstrap_cn]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca,
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
+    gateway_server: grpc.aio.Server | None = None
+    runtime: GatewayRuntime | None = None
+    channel: grpc.aio.Channel | None = None
+    try:
+        service_path = write_config_tree(
+            root,
+            specs,
+            commander_endpoint=f"127.0.0.1:{commander_port}",
+            grpc_port=grpc_port,
+            forward_queue_capacity=forward_queue_capacity,
+            max_forward_inflight=max_forward_inflight,
+            submit_deadline_ms=submit_deadline_ms,
+            metrics_window_seconds=metrics_window_seconds,
+            permissions=rights,
+            mtls_enabled=False,
+            sink_listener_port=sink_listener_port,
+            sink_token_env=sink_token_env,
+            point_table=point_table,
+            simulation=simulation,
         )
-        channel = grpc.aio.secure_channel(
+        config = load_gateway(service_path, project_root=root)
+        runtime = assemble_gateway(config)
+        snapshots = ConfigSnapshots(runtime, service_path, root)
+        gateway_server = create_gateway_grpc_server(runtime, snapshots)
+        await gateway_server.start()
+        await runtime.start()
+        principal = bootstrap_cn or next(iter(rights))
+        channel = grpc.aio.insecure_channel(
             f"127.0.0.1:{grpc_port}",
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
+            interceptors=[_BearerInterceptor(caller_tokens[principal])],
         )
-    else:
-        channel = grpc.aio.insecure_channel(f"127.0.0.1:{grpc_port}")
-    await channel.channel_ready()
-    return GatewayHarness(
-        root=root,
-        service_path=service_path,
-        runtime=runtime,
-        snapshots=snapshots,
-        gateway_server=gateway_server,
-        commander_server=commander_server,
-        commander=commander,
-        specs={spec.server_id: spec for spec in specs},
-        grpc_port=grpc_port,
-        commander_port=commander_port,
-        _channel=channel,
-        pki=pki,
-    )
+        await channel.channel_ready()
+        return GatewayHarness(
+            root=root,
+            service_path=service_path,
+            runtime=runtime,
+            snapshots=snapshots,
+            gateway_server=gateway_server,
+            commander_server=commander_server,
+            commander=commander,
+            specs={spec.server_id: spec for spec in specs},
+            grpc_port=grpc_port,
+            commander_port=commander_port,
+            _channel=channel,
+            caller_tokens=caller_tokens,
+            previous_tokens=previous_tokens,
+            pki=pki,
+        )
+
+    except BaseException:
+        if channel is not None:
+            await channel.close()
+        if runtime is not None:
+            await runtime.stop()
+        if gateway_server is not None:
+            await gateway_server.stop(grace=0)
+        await commander_server.stop(grace=0)
+        for name, previous in previous_tokens.items():
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
+        raise
 
 
 def two_server_specs(

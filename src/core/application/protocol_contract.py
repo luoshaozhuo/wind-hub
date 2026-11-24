@@ -186,11 +186,17 @@ class ProtocolSample:
     device_time: datetime | None = None
     # 协议原生诊断信息。不可变条目避免跨协程修改同一样本。
     protocol_metadata: tuple[tuple[str, int | str], ...] = ()
+    # Original point payload at the adapter decoding boundary, not a full frame.
+    raw_payload: bytes | None = None
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
         if not point_id:
             raise ValueError("point_id must not be empty")
+        if self.raw_payload is not None and (
+            not isinstance(self.raw_payload, bytes) or not self.raw_payload
+        ):
+            raise ValueError("raw_payload must be nonempty immutable bytes")
         if self.timestamp.tzinfo is None:
             raise ValueError("protocol sample timestamp must be timezone-aware")
         if self.receive_time.tzinfo is None:

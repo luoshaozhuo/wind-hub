@@ -1,8 +1,7 @@
-"""真实 mTLS 授权矩阵：CN → 权限集，服务端强制客户端证书。
+"""真实 Bearer 授权矩阵：隔离调用方身份与权限集。
 
-自签 CA + 服务器证书 + 多 CN 客户端证书（write_mtls_pki），覆盖六类权限
-（read/config_read/config_write/inject/lifecycle/diagnose）、未知 CN 拒止、
-明文通道在 TLS 端口失败，以及非环口明文部署的配置期拒绝。
+覆盖读、注入、运维、诊断、配置权限；匿名/错误令牌拒绝、
+未知调用方拒绝，以及管理端点非 loopback 配置期拒绝。
 """
 
 from __future__ import annotations
@@ -164,17 +163,17 @@ async def test_operator_lifecycle_but_no_config_write(harness) -> None:
         await admin.close()
 
 
-async def test_unknown_cn_denied_despite_valid_ca_signature(harness) -> None:
+async def test_unknown_bearer_identity_is_unauthenticated(harness) -> None:
     channel = harness.mtls_channel(STRANGER)
     try:
         with pytest.raises(grpc.aio.AioRpcError) as exc:
             await common_rpc.CommonServiceStub(channel).GetCapabilities(common.Empty())
-        assert exc.value.code() is grpc.StatusCode.PERMISSION_DENIED
+        assert exc.value.code() is grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
 
 
-async def test_plaintext_channel_rejected_on_tls_port(harness) -> None:
+async def test_anonymous_channel_is_unauthenticated(harness) -> None:
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{harness.grpc_port}")
     try:
         with pytest.raises(grpc.aio.AioRpcError):

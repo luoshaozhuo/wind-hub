@@ -420,6 +420,18 @@ def _sample(
 ) -> ProtocolSample:
     """统一将单个测点原始数据解码为带质量和本地时标的协议样本。"""
     now = received_at or datetime.now(UTC)
+    # FC03/04 register words are the actual received data field in wire order.
+    # Do not invent bytes for FC01/02 bits already unpacked by the client.
+    payload: bytes | None = None
+    if (
+        point.register_type in ("holding", "input")
+        and len(raw) == point.count
+        and all(
+            isinstance(word, int) and not isinstance(word, bool) and 0 <= word <= 65535
+            for word in raw
+        )
+    ):
+        payload = struct.pack(f">{len(raw)}H", *raw)
     try:
         value = decode(point, raw)
         quality = Quality.GOOD
@@ -432,6 +444,7 @@ def _sample(
         quality=quality,
         timestamp=now,
         receive_time=now,
+        raw_payload=payload,
     )
 
 

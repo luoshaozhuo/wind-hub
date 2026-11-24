@@ -1,4 +1,4 @@
-"""跨重启 request_id 幂等与聚合回查（语义⑧）——真实 gRPC/mTLS + 真实 SQLite。
+"""跨重启 request_id 幂等与聚合回查（语义⑧）——真实 Bearer gRPC + SQLite。
 
 在测试进程内按生产组合根重建 CommanderService 模拟独立进程崩溃重启：
 先停止 gRPC 入口，再以“进程被 kill”的方式释放全部句柄——取消审计任务、
@@ -105,13 +105,8 @@ async def _restart_server(
     snapshots2 = ConfigSnapshots(service2, stack.yaml_path)
     server2 = grpc.aio.server(maximum_concurrent_rpcs=100)
     register_services(server2, service2, stack.permissions, snapshots2)
-    credentials = grpc.ssl_server_credentials(
-        [(pki.key("server"), pki.cert("server"))],
-        root_certificates=pki.ca_cert,
-        require_client_auth=True,
-    )
     port = free_port()
-    assert server2.add_secure_port(f"127.0.0.1:{port}", credentials)
+    assert server2.add_insecure_port(f"127.0.0.1:{port}")
     await server2.start()
     restarted = GrpcStack(
         service=service2,
@@ -123,6 +118,7 @@ async def _restart_server(
         permissions=stack.permissions,
         stream=stack.stream,
         subject=stack.subject,
+        tokens=stack.tokens,
     )
     return restarted, server2, service2
 

@@ -19,7 +19,7 @@ from commander.infrastructure.config.service_settings import load_service_settin
 pytestmark = pytest.mark.unit
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_SERVICE_FILE = _REPO_ROOT / "configs" / "services" / "service_commander_v1.4.0.yaml"
+_SERVICE_FILE = _REPO_ROOT / "deploy/config_roots/prod-a/services/service_commander_v1.5.0.yaml"
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def _write(tmp_path: Path, document: dict) -> Path:
         "file_version": "1.0.0",
         "deployment_id": "unit-test",
         "services": {"commander": {"config_id": "commander", "file_version": selected_version}},
-        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
+        "instances": {"device": {"farm-a": {"file_version": "1.6.0"}}},
     }
     deployment_path = root / "deployments" / "deployment_unit-test_v1.0.0.yaml"
     deployment_path.parent.mkdir(parents=True)
@@ -102,4 +102,4 @@ def test_valid_file_version_is_accepted(
 def test_shipped_commander_yaml_is_valid() -> None:
     """出厂版本化 Commander Service 必须通过校验。"""
     settings = load_service_settings(_SERVICE_FILE)
-    assert settings.file_version == "1.4.0"
+    assert settings.file_version == "1.5.0"

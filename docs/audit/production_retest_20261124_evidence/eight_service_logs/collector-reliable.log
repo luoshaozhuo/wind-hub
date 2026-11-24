@@ -1,0 +1,2 @@
+INFO:core.infrastructure.executor:进程级协议命令线程池已安装 max_workers=32（restart-required）
+INFO:__main__:Collector configuration service listening on 127.0.0.1:52054

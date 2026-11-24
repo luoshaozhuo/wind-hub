@@ -1,0 +1,391 @@
+...............................................FFF............FFFF...... [ 84%]
+.............                                                            [100%]
+=================================== FAILURES ===================================
+__________ test_model_default_port_equals_explicit_port_is_duplicate ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_port_equals0')
+
+    def test_model_default_port_equals_explicit_port_is_duplicate(tmp_path) -> None:
+        """A 端口缺省走型号默认 5020；B 显式写 5020：物理同址必须拒绝。"""
+        devices = (
+            "schema_version: 1\nfile_version: 1.0.0\ndevices:\n"
+            + _device("WT-A", port="", overrides=_NO_OVERRIDES)
+            + _device("WT-B", port="      port: 5020\n", overrides=_NO_OVERRIDES)
+        )
+        root, service_yaml = _build_tree(tmp_path, devices, model_port=5020)
+        with pytest.raises(ValueError, match="duplicate protocol connection"):
+>           _manager(root, service_yaml)
+
+tests/commander/unit/test_effective_connection_identity.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/unit/test_effective_connection_identity.py:139: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/commander/unit/test_effective_connection_identity.py:137: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_port_equals0/configs/services/service_commander_v1.0.0.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_port_equals0')
+
+    def test_model_default_port_equals_explicit_port_is_duplicate(tmp_path) -> None:
+        """A 端口缺省走型号默认 5020；B 显式写 5020：物理同址必须拒绝。"""
+        devices = (
+            "schema_version: 1\nfile_version: 1.0.0\ndevices:\n"
+            + _device("WT-A", port="", overrides=_NO_OVERRIDES)
+            + _device("WT-B", port="      port: 5020\n", overrides=_NO_OVERRIDES)
+        )
+        root, service_yaml = _build_tree(tmp_path, devices, model_port=5020)
+>       with pytest.raises(ValueError, match="duplicate protocol connection"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'duplicate protocol connection'
+E        Input: 'unsupported Commander service schema_version'
+
+tests/commander/unit/test_effective_connection_identity.py:155: AssertionError
+________ test_model_default_option_equals_instance_option_is_duplicate _________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_option_equa0')
+
+    def test_model_default_option_equals_instance_option_is_duplicate(tmp_path) -> None:
+        """slave_id 一个写在型号模板、一个写在实例 overrides：合成后同址必须拒绝。"""
+        devices = (
+            "schema_version: 1\nfile_version: 1.0.0\ndevices:\n"
+            + _device("WT-A", port="      port: 5020\n", overrides=_NO_OVERRIDES)
+            + _device("WT-B", port="      port: 5020\n", overrides=_SLAVE_OVERRIDE)
+        )
+        root, service_yaml = _build_tree(tmp_path, devices, model_port=5020, slave_id=1)
+        with pytest.raises(ValueError, match="duplicate protocol connection"):
+>           _manager(root, service_yaml)
+
+tests/commander/unit/test_effective_connection_identity.py:168: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/unit/test_effective_connection_identity.py:139: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/commander/unit/test_effective_connection_identity.py:137: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_option_equa0/configs/services/service_commander_v1.0.0.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_model_default_option_equa0')
+
+    def test_model_default_option_equals_instance_option_is_duplicate(tmp_path) -> None:
+        """slave_id 一个写在型号模板、一个写在实例 overrides：合成后同址必须拒绝。"""
+        devices = (
+            "schema_version: 1\nfile_version: 1.0.0\ndevices:\n"
+            + _device("WT-A", port="      port: 5020\n", overrides=_NO_OVERRIDES)
+            + _device("WT-B", port="      port: 5020\n", overrides=_SLAVE_OVERRIDE)
+        )
+        root, service_yaml = _build_tree(tmp_path, devices, model_port=5020, slave_id=1)
+>       with pytest.raises(ValueError, match="duplicate protocol connection"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'duplicate protocol connection'
+E        Input: 'unsupported Commander service schema_version'
+
+tests/commander/unit/test_effective_connection_identity.py:167: AssertionError
+_______________ test_distinct_effective_ports_are_not_duplicate ________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_distinct_effective_ports_0')
+
+    def test_distinct_effective_ports_are_not_duplicate(tmp_path) -> None:
+        """A 缺省走型号 5020；B 显式 5021：物理不同址必须放行。"""
+        devices = (
+            "schema_version: 1\nfile_version: 1.0.0\ndevices:\n"
+            + _device("WT-A", port="", overrides=_NO_OVERRIDES)
+            + _device("WT-B", port="      port: 5021\n", overrides=_NO_OVERRIDES)
+        )
+        root, service_yaml = _build_tree(tmp_path, devices, model_port=5020)
+>       manager = _manager(root, service_yaml)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/unit/test_effective_connection_identity.py:179: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/unit/test_effective_connection_identity.py:139: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/commander/unit/test_effective_connection_identity.py:137: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_distinct_effective_ports_0/configs/services/service_commander_v1.0.0.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+__________________ test_valid_file_version_is_accepted[1.0.0] __________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc0')
+base_document = {'audit': {'nats_servers': ['nats://127.0.0.1:4222'], 'retry_base_ms': 100, 'retry_max_ms': 5000, 'stream': 'COMMAND_A..., 'max_concurrency': 100, 'max_pending_global': 1000, 'max_pending_per_device': 10, ...}, 'file_version': '1.0.0', ...}
+file_version = '1.0.0'
+
+    @pytest.mark.parametrize("file_version", ["1.0.0", "0.0.1", "12.34.56"])
+    def test_valid_file_version_is_accepted(
+        tmp_path: Path, base_document: dict, file_version: str
+    ) -> None:
+        # Instance 的逻辑身份由 Deployment 决定，禁止绝对路径引用。
+        base_document["file_version"] = file_version
+>       settings = load_service_settings(_write(tmp_path, base_document))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/unit/test_service_file_version.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc0/configs/services/service_commander_v1.0.0.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+__________________ test_valid_file_version_is_accepted[0.0.1] __________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc1')
+base_document = {'audit': {'nats_servers': ['nats://127.0.0.1:4222'], 'retry_base_ms': 100, 'retry_max_ms': 5000, 'stream': 'COMMAND_A..., 'max_concurrency': 100, 'max_pending_global': 1000, 'max_pending_per_device': 10, ...}, 'file_version': '0.0.1', ...}
+file_version = '0.0.1'
+
+    @pytest.mark.parametrize("file_version", ["1.0.0", "0.0.1", "12.34.56"])
+    def test_valid_file_version_is_accepted(
+        tmp_path: Path, base_document: dict, file_version: str
+    ) -> None:
+        # Instance 的逻辑身份由 Deployment 决定，禁止绝对路径引用。
+        base_document["file_version"] = file_version
+>       settings = load_service_settings(_write(tmp_path, base_document))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/unit/test_service_file_version.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc1/configs/services/service_commander_v0.0.1.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+________________ test_valid_file_version_is_accepted[12.34.56] _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc2')
+base_document = {'audit': {'nats_servers': ['nats://127.0.0.1:4222'], 'retry_base_ms': 100, 'retry_max_ms': 5000, 'stream': 'COMMAND_A...max_concurrency': 100, 'max_pending_global': 1000, 'max_pending_per_device': 10, ...}, 'file_version': '12.34.56', ...}
+file_version = '12.34.56'
+
+    @pytest.mark.parametrize("file_version", ["1.0.0", "0.0.1", "12.34.56"])
+    def test_valid_file_version_is_accepted(
+        tmp_path: Path, base_document: dict, file_version: str
+    ) -> None:
+        # Instance 的逻辑身份由 Deployment 决定，禁止绝对路径引用。
+        base_document["file_version"] = file_version
+>       settings = load_service_settings(_write(tmp_path, base_document))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/unit/test_service_file_version.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-20/test_valid_file_version_is_acc2/configs/services/service_commander_v12.34.56.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+_____________________ test_shipped_commander_yaml_is_valid _____________________
+
+    def test_shipped_commander_yaml_is_valid() -> None:
+        """出厂版本化 Commander Service 必须通过校验。"""
+>       settings = load_service_settings(_SERVICE_FILE)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/unit/test_service_file_version.py:104: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/home/luosh/wind-hub/configs/services/service_commander_v1.4.0.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+=========================== short test summary info ============================
+FAILED tests/commander/unit/test_effective_connection_identity.py::test_model_default_port_equals_explicit_port_is_duplicate
+FAILED tests/commander/unit/test_effective_connection_identity.py::test_model_default_option_equals_instance_option_is_duplicate
+FAILED tests/commander/unit/test_effective_connection_identity.py::test_distinct_effective_ports_are_not_duplicate
+FAILED tests/commander/unit/test_service_file_version.py::test_valid_file_version_is_accepted[1.0.0]
+FAILED tests/commander/unit/test_service_file_version.py::test_valid_file_version_is_accepted[0.0.1]
+FAILED tests/commander/unit/test_service_file_version.py::test_valid_file_version_is_accepted[12.34.56]
+FAILED tests/commander/unit/test_service_file_version.py::test_shipped_commander_yaml_is_valid
+7 failed, 78 passed in 0.25s

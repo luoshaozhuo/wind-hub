@@ -93,6 +93,48 @@ async def test_common_service_uses_bearer_and_reports_only_real_capabilities(
         await server.stop(grace=0)
 
 
+async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enumerate the live proto, not a frozen count or hand-written method list."""
+    from google.protobuf.message_factory import GetMessageClass
+
+    monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+    config = _config()
+    server = _server(config)
+    await server.start()
+    channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+    try:
+        services = (
+            (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+            (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+        )
+        observed: set[tuple[str, str]] = set()
+        for file_descriptor, name, stub_cls in services:
+            service = file_descriptor.services_by_name[name]
+            stub = stub_cls(channel)
+            for method in service.methods:
+                assert not method.client_streaming and not method.server_streaming
+                request = GetMessageClass(method.input_type)()
+                for metadata in (
+                    None,
+                    (("authorization", "Bearer invalid-credential"),),
+                ):
+                    with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                        await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+                    assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                        name,
+                        method.name,
+                    )
+                observed.add((name, method.name))
+        assert len(observed) == sum(
+            len(descriptor.services_by_name[name].methods) for descriptor, name, _ in services
+        )
+    finally:
+        await channel.close()
+        await server.stop(grace=0)
+
+
 class _Context:
     def __init__(self, token: str) -> None:
         self._metadata = (("authorization", f"Bearer {token}"),)

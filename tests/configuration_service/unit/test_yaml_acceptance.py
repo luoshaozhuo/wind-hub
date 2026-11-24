@@ -16,6 +16,10 @@ from configuration_service.infrastructure.adapters.outbound.yaml.codec import (
 )
 from configuration_service.settings import load_settings
 from core.configuration.publication_identity import resolve_publication_identity
+from tests.support.configuration_archive import (
+    SUPERSEDED_MALFORMED,
+    is_superseded_malformed,
+)
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +27,7 @@ YAML_FILES = tuple(
     path
     for path in sorted((ROOT / "configs").rglob("*.yaml"))
     if not _is_local_bootstrap(path.relative_to(ROOT / "configs").as_posix())
+    and not is_superseded_malformed(path.relative_to(ROOT / "configs").as_posix())
 )
 SCHEMAS = {item.config_type: item for item in iter_schemas()}
 
@@ -48,6 +53,16 @@ def test_shipped_yaml_strict_parse_and_lossless_header_roundtrip(path: Path) -> 
     assert exported.startswith(b"# wind-hub Configuration Service")
     assert b"# schema_version:" in exported
     assert b"# file_version:" in exported
+
+
+@pytest.mark.parametrize("relative_path", sorted(SUPERSEDED_MALFORMED))
+def test_superseded_malformed_candidates_are_rejected_by_strict_parser(
+    relative_path: str,
+) -> None:
+    """已被后继取代的畸形历史候选仍必须被严格解析器拒绝，不可静默接受。"""
+    path = ROOT / "configs" / relative_path
+    with pytest.raises(ValueError, match="malformed or unsafe"):
+        parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
 
 
 @pytest.mark.parametrize(

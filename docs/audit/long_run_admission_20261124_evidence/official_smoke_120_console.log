@@ -1,0 +1,9 @@
+fatal: /tmp/wind-hub-audit/b848050dd/official_smoke_120: '/tmp/wind-hub-audit/b848050dd/official_smoke_120' is outside repository at '/home/luosh/wind-hub'
+WARNING: global 120 batches/s is below 30 devices x 10 Hz = 300 batches/s
+Running ruff_check: python -m ruff check src tests deploy
+Running ruff_format: python -m ruff format --check src tests deploy
+Running mypy: python -m mypy src
+Running rpc_contract: python scripts/generate_rpc.py --check
+Running candidate: python -m pytest -q -rs tests/system/e2e/test_long_run_candidate_preflight.py tests/cli/test_config_loader.py
+Running storage_semantics: python -m pytest -q -rs tests/storage_service/unit/test_device_binding.py tests/storage_service/component/test_grpc_common.py
+FAIL: storage_semantics; see /tmp/wind-hub-audit/b848050dd/official_smoke_120/storage_semantics.log

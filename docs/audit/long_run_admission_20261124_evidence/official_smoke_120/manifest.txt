@@ -1,0 +1,7 @@
+sha=94aec2263c8fa7544c04fbe870cf8ad374bfed75
+mode=smoke
+rate=120
+nominal_target_batches_per_s=300
+devices=30
+points_per_batch=500
+load_profile=DEGRADED_CAPACITY_NOT_30x10HZ

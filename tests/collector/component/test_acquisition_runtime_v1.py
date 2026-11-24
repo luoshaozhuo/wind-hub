@@ -40,7 +40,7 @@ def _device() -> tuple[Device, PointTable, str, str]:
             CONFIG / "instances",
             CONFIG / "templates",
             site_file=CONFIG / "instances" / "site_example_site_v1.1.0.yaml",
-            devices_file=CONFIG / "instances" / "device_farm-a_v1.4.0.yaml",
+            devices_file=CONFIG / "instances" / "device_farm-a_v1.6.0.yaml",
         )
     ).load()
     snapshot = build_shared_snapshot(shared)

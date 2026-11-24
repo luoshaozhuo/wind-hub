@@ -38,7 +38,7 @@ pytestmark = [
 ]
 
 _SERVICE_YAML = """\
-schema_version: 1
+schema_version: 2
 file_version: 1.0.0
 service_id: commander
 config_sources:
@@ -76,8 +76,9 @@ def _build_tree(
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard_v1.4.0.yaml").write_text(
-        _BUSINESS_POINTS, encoding="utf-8"
+    (root / "templates/business_points_standard_v1.5.0.yaml").write_text(
+        _BUSINESS_POINTS.replace("file_version: 1.4.0", "file_version: 1.5.0"),
+        encoding="utf-8",
     )
     db_path = tmp_root / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)

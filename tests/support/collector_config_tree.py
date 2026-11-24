@@ -114,6 +114,9 @@ def write_collector_modbus_tree(
 ) -> Path:
     """One real Modbus device, its Instance-owned task, and exact Deployment."""
     root = _empty_tree(base)
+    # Collector owns exactly one pinned BusinessPoint catalog per tree.
+    for stale in (root / "templates").glob("business_points_standard_v*.yaml"):
+        stale.unlink()
     points = {
         "rotor_speed": ("float32", 100),
         "gen_power": ("float32", 102),
@@ -138,6 +141,13 @@ def write_collector_modbus_tree(
             "file_version": "1.0.0",
             "template_id": "modbus_wtg",
             "protocol": "modbus",
+            "config_sources": [
+                {
+                    "config_type": "business_points",
+                    "config_id": "standard",
+                    "file_version": BUSINESS_CATALOG_VERSION,
+                }
+            ],
             "points": {
                 point: {
                     "business_point_id": point,

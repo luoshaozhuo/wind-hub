@@ -19,7 +19,7 @@ from data_generator.infrastructure.adapters.outbound.csv_history import CsvHisto
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.adapters.outbound.recording import JsonlRecordWriter
 from data_generator.infrastructure.config.service_settings import load_settings
-from data_generator.infrastructure.gateway_tls import gateway_credentials
+from data_generator.infrastructure.gateway_auth import gateway_metadata
 from data_generator.infrastructure.logging import configure_logging
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
 
@@ -35,7 +35,7 @@ async def run(config_path: Path) -> None:
         timeout=float(output.get("grpc_timeout_seconds", 3.0)),
         max_points=int(buffer.get("max_points_per_batch", 1000)),
         max_inflight=int(output.get("max_inflight", 1)),
-        gateway_tls=output.get("gateway_tls"),
+        gateway_token_env=output["gateway_token_env"],
     )
     runtime = Runtime(
         settings, writer, recorder=JsonlRecordWriter(), history_reader=CsvHistoryReader()
@@ -113,9 +113,8 @@ def main() -> int:
     if args.check:
         recover_transaction(args.config.absolute().parent.parent)
         settings = load_settings(args.config)
-        # --check must fail if the configured client certificate bundle is
-        # unavailable, not merely if the YAML paths look syntactically valid.
-        gateway_credentials(settings.service.get("output", {}).get("gateway_tls"))
+        # --check also proves that outbound Gateway credentials are provisioned.
+        gateway_metadata(settings.service["output"]["gateway_token_env"])
         return 0
     configure_logging()
     asyncio.run(run(args.config))

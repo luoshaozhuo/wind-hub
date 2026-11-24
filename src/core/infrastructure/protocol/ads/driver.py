@@ -548,8 +548,13 @@ class ADSDriver:
                 check_length=True,
             )
             received_at = datetime.now(UTC)
+            payload: bytes | None = None
             try:
-                value = point.decoder(bytes(raw), 0)
+                candidate = bytes(raw)
+                if len(candidate) != point.size:
+                    raise ValueError("ADS point response length mismatch")
+                payload = candidate
+                value = point.decoder(payload, 0)
                 quality = Quality.GOOD
             except (ValueError, TypeError, UnicodeDecodeError, struct.error):
                 value = None
@@ -560,6 +565,7 @@ class ADSDriver:
                 quality=quality,
                 timestamp=received_at,
                 receive_time=received_at,
+                raw_payload=payload,
             )
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -568,7 +574,7 @@ class ADSDriver:
                 return ()
             session = self._require_session()
             mapped = self._mapped(point_ids)
-            values: list[tuple[Any, Quality]] = []
+            values: list[tuple[Any, Quality, bytes | None]] = []
             limit = self._config.max_subs_per_sum
             for start in range(0, len(mapped), limit):
                 chunk = mapped[start : start + limit]
@@ -596,12 +602,13 @@ class ADSDriver:
                 offset = 4 * len(chunk)
                 for point, error in zip(chunk, errors, strict=True):
                     if error:
-                        values.append((None, Quality.BAD))
+                        values.append((None, Quality.BAD, None))
                     else:
+                        payload = raw[offset : offset + point.size]
                         try:
-                            values.append((point.decoder(raw, offset), Quality.GOOD))
+                            values.append((point.decoder(raw, offset), Quality.GOOD, payload))
                         except (ValueError, TypeError, UnicodeDecodeError, struct.error):
-                            values.append((None, Quality.BAD))
+                            values.append((None, Quality.BAD, payload))
                     offset += point.size
             received_at = datetime.now(UTC)
             return tuple(
@@ -611,8 +618,9 @@ class ADSDriver:
                     quality=quality,
                     timestamp=received_at,
                     receive_time=received_at,
+                    raw_payload=payload,
                 )
-                for point_id, (value, quality) in zip(point_ids, values, strict=True)
+                for point_id, (value, quality, payload) in zip(point_ids, values, strict=True)
             )
 
     async def write_one(self, write: ProtocolWrite[Any]) -> ProtocolWriteResult:

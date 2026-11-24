@@ -1,0 +1,316 @@
+........................................................................ [ 19%]
+........................................................................ [ 38%]
+........................................................................ [ 58%]
+..................................................s..................... [ 77%]
+........................................................................ [ 97%]
+...........                                                              [100%]
+=============================== warnings summary ===============================
+tests/commander/integration/test_grpc.py::test_no_bearer_token_is_unauthenticated
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c2cc6accf40>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/integration/test_trusted_recovery.py::test_audit_worker_stop_during_recovery_never_unblocks[before-commit]
+tests/commander/integration/test_trusted_recovery.py::test_commit_window_rechecks_live_fencing_before_release[--revoked]
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c2cc6b6d210>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/integration/test_trusted_recovery.py::test_audit_worker_stop_during_recovery_never_unblocks[before-commit]
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c2cc77f2110>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/integration/test_trusted_recovery.py::test_audit_worker_stop_during_recovery_never_unblocks[before-release]
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c2cc6b6ce50>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/integration/test_trusted_recovery.py::test_audit_worker_stop_during_recovery_never_unblocks[before-release]
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c2cc6a564d0>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/integration/test_trusted_recovery.py::test_commit_window_rechecks_live_fencing_before_release[--revoked]
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c2cc6a54b80>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_config_activation_selection.py::test_new_service_write_timeout_requires_restart_and_bootstraps_new_value
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object ModbusDriver.connect at 0x7c2cc7923640>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/wind-hub/src/core/infrastructure/protocol/modbus/driver.py", line 273, in connect
+      await session.open()
+  RuntimeError: coroutine ignored GeneratorExit
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_grpc_end_to_end.py::test_service_info_status
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object ModbusDriver.connect at 0x7c2cc7923e40>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/wind-hub/src/core/infrastructure/protocol/modbus/driver.py", line 273, in connect
+      await session.open()
+  RuntimeError: coroutine ignored GeneratorExit
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_lifecycle.py::test_restart_new_config
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object ModbusDriver.connect at 0x7c2cc7921d40>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/wind-hub/src/core/infrastructure/protocol/modbus/driver.py", line 273, in connect
+      await session.open()
+  RuntimeError: coroutine ignored GeneratorExit
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_service_e2e_real_stack.py::test_full_command_chain_real_modbus_and_jetstream
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c2cc6b6de40>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_service_e2e_real_stack.py::test_full_command_chain_real_modbus_and_jetstream
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c2cc6b6db70>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_service_e2e_real_stack.py::test_reload_unchanged_config_is_noop_and_restart_not_required
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c2cc60585e0>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_service_e2e_real_stack.py::test_reload_unchanged_config_is_noop_and_restart_not_required
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c2cc6903970>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+370 passed, 1 skipped, 14 warnings in 481.64s (0:08:01)

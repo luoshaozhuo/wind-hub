@@ -37,12 +37,7 @@ STRANGER_CN = "gw-stranger"
 def _simulation_block(endpoint: str) -> dict[str, Any]:
     return {
         "endpoint": endpoint,
-        "tls": {
-            "enabled": True,
-            "cert_file": f"certs/client-{COMMANDER_CN}.crt",
-            "key_file": f"certs/client-{COMMANDER_CN}.key",
-            "ca_file": "certs/ca.crt",
-        },
+        "token_env": "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN",
         "scenario_id": "wind-plant-physical",
     }
 
@@ -64,7 +59,10 @@ async def harness(tmp_path: Path):
     gateway = await start_gateway(
         tmp_path / "root",
         [spec],
-        mtls={COMMANDER_CN: ["simulation_execute", "read"]},
+        mtls={
+            COMMANDER_CN: ["simulation_execute", "read"],
+            STRANGER_CN: ["read"],
+        },
         bootstrap_cn=COMMANDER_CN,
         extra_clients=[STRANGER_CN],
         simulation=_simulation_block(f"127.0.0.1:{reserve_port()}"),

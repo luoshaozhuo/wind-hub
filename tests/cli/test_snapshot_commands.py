@@ -1,9 +1,4 @@
-"""Local safety and atomicity guards for the CommonService snapshot commands.
-
-These exercise the pure filesystem/validation layer of ``cli.snapshot_commands``
-without any gRPC server, so symlink races, capacity bounds and atomic export
-behaviour are deterministic and independent of middleware availability.
-"""
+"""Read-only CommonService snapshot integrity and atomic export tests."""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ import typer
 
 from cli.configuration_commands import get as config_get
 from cli.snapshot_commands import (
-    _snapshot_files,
     _verify_snapshot,
     _write_snapshot,
     get_snapshot,
@@ -30,64 +24,6 @@ def _file(name: str, content: bytes) -> common_pb2.SnapshotFile:
         size_bytes=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
     )
-
-
-def test_snapshot_files_happy_path_is_sorted_and_hash_stamped(tmp_path: Path) -> None:
-    (tmp_path / "b").mkdir()
-    (tmp_path / "a.yaml").write_bytes(b"one: 1\n")
-    (tmp_path / "b" / "c.yaml").write_bytes(b"two: 2\n")
-    files = _snapshot_files(tmp_path)
-    assert [item.relative_path for item in files] == ["a.yaml", "b/c.yaml"]
-    for item in files:
-        assert item.size_bytes == len(item.content)
-        assert len(item.sha256) == 64
-
-
-def test_snapshot_files_reject_symlinked_root(tmp_path: Path) -> None:
-    real = tmp_path / "real"
-    real.mkdir()
-    (real / "a.yaml").write_bytes(b"x: 1\n")
-    link = tmp_path / "link"
-    link.symlink_to(real, target_is_directory=True)
-    with pytest.raises(ValueError, match="real directory"):
-        _snapshot_files(link)
-
-
-def test_snapshot_files_reject_nested_symlink(tmp_path: Path) -> None:
-    (tmp_path / "a.yaml").write_bytes(b"x: 1\n")
-    target = tmp_path / "target.yaml"
-    target.write_bytes(b"y: 2\n")
-    (tmp_path / "evil.yaml").symlink_to(target)
-    with pytest.raises(ValueError, match="symbolic links"):
-        _snapshot_files(tmp_path)
-
-
-def test_snapshot_files_reject_non_yaml_and_empty_tree(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text("nope", encoding="utf-8")
-    with pytest.raises(ValueError, match="only .yaml"):
-        _snapshot_files(tmp_path)
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    with pytest.raises(ValueError, match="1..1000"):
-        _snapshot_files(empty)
-
-
-def test_snapshot_files_reject_casefold_duplicate(tmp_path: Path) -> None:
-    # On a case-sensitive filesystem these are distinct files, but the
-    # repository treats casefold-equal relative paths as the same entry.
-    (tmp_path / "a.yaml").write_bytes(b"x: 1\n")
-    (tmp_path / "A.yaml").write_bytes(b"x: 2\n")
-    with pytest.raises(ValueError, match="duplicate"):
-        _snapshot_files(tmp_path)
-
-
-def test_snapshot_files_enforce_total_byte_capacity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "a.yaml").write_bytes(b"x" * 10)
-    monkeypatch.setattr("cli.snapshot_commands._MAX_BYTES", 5)
-    with pytest.raises(ValueError, match="exceeds"):
-        _snapshot_files(tmp_path)
 
 
 def test_verify_snapshot_rejects_checksum_and_size_mismatch() -> None:

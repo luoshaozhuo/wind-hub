@@ -17,6 +17,7 @@ import yaml
 from tests.commander.grpc_harness import (
     GrpcStack,
     Pki,
+    _service_yaml,
     build_pki,
     build_stack,
 )
@@ -24,44 +25,14 @@ from tests.support.process import free_port
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[3] / "configs"
 
-_COMMANDER_YAML = """\
-schema_version: 1
-file_version: 1.0.0
-service_id: commander
-config_sources:
-  instances:
-    devices: farm-a
-dispatcher:
-  max_concurrency: 100
-  max_pending_per_device: 10
-  max_pending_global: 1000
-  max_batch_size: 10
-timeouts:
-  queue_default_ms: 1000
-  connect_ms: 3000
-  write_default_ms: 3000
-repository:
-  sqlite_path: {sqlite_path}
-  max_storage_bytes: 1073741824
-  reserved_storage_bytes: 67108864
-  retention_seconds: 1800
-  cleanup_interval_seconds: 3600
-  storage_warning_ratio: 0.8
-  admission_stop_ratio: 0.9
-audit:
-  nats_servers: [{nats_url}]
-  stream: {stream}
-  subject: {subject}
-  retry_base_ms: 100
-  retry_max_ms: 5000
-shutdown:
-  grace_seconds: 10
-"""
-
 _SETPOINT_TABLE = """\
 schema_version: 1
 template_id: modbus_wtg
 file_version: 1.0.0
+config_sources:
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.5.0"
 protocol: modbus
 points:
   setpoint_power:
@@ -150,6 +121,8 @@ def config_tree(tmp_path: Path, jetstream_url: str) -> tuple[Path, Path]:
     root = tmp_path / "config"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
+    for stale in (root / "templates").glob("business_points_standard_v1.4.0.yaml"):
+        stale.unlink(missing_ok=True)
     return root, tmp_path / "state" / "commander.db"
 
 
@@ -167,7 +140,7 @@ def write_service_config(
     共享配置树包含 GW/TZ 系列真实设备；e2e 额外注入一台仅用于验收的
     WT01（modbus_wtg 1.0.0），指向本用例自管的真实 Modbus 对端。
     """
-    devices = root / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices = root / "instances" / "device_farm-a_v1.6.0.yaml"
     devices_text = devices.read_text(encoding="utf-8")
     # 重启用例会在同一配置树上二次调用本函数，注入必须幂等。
     if "\n  WT01:" not in devices_text:
@@ -194,7 +167,7 @@ def write_service_config(
     model.write_text(_MODELS_TABLE, encoding="utf-8")
     # 保留真实业务点目录（其余 GW/TZ 设备的有效配置解析依赖它），
     # 仅补入验收点表引用的 setpoint_power。
-    business = root / "templates" / "business_points_standard_v1.4.0.yaml"
+    business = root / "templates" / "business_points_standard_v1.5.0.yaml"
     business_text = business.read_text(encoding="utf-8")
     if "  setpoint_power:" not in business_text:
         business_text = business_text.replace(
@@ -211,7 +184,7 @@ def write_service_config(
         "file_version": "1.0.0",
         "deployment_id": "commander-system",
         "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
-        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
+        "instances": {"device": {"farm-a": {"file_version": "1.6.0"}}},
     }
     (deployments / "deployment_commander-system_v1.0.0.yaml").write_text(
         yaml.safe_dump(manifest, sort_keys=False),
@@ -220,9 +193,9 @@ def write_service_config(
     service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
     service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
-        _COMMANDER_YAML.format(
-            sqlite_path=str(db_path),
-            nats_url=nats_url,
+        _service_yaml(
+            db_path,
+            nats_url,
             stream=stream,
             subject=subject,
         ),

@@ -112,13 +112,10 @@ async def test_missing_tls_paths_remain_restart_only_and_cannot_replace_active_s
                 "max_active_rpcs": 16,
             },
             "security": {
-                "ca_cert": str(tmp_path / "missing-ca.crt"),
-                "server_cert": str(tmp_path / "missing-server.crt"),
-                "server_key": str(tmp_path / "missing-server.key"),
                 "callers": [
                     {
                         "caller_id": "ops",
-                        "certificate_identity": "spiffe://wind-hub/ops",
+                        "token_env": "WIND_HUB_TEST_COMMANDER_NEW_OPS_TOKEN",
                         "permissions": ["query", "control"],
                     }
                 ],
@@ -132,7 +129,6 @@ async def test_missing_tls_paths_remain_restart_only_and_cannot_replace_active_s
     assert report.changed == ()
     assert manager.revision == original_revision
     assert manager.active_settings == original_settings
-    assert not (tmp_path / "missing-server.key").exists()
 
 
 async def test_unselected_new_template_does_not_rotate_device_fingerprint(

@@ -11,18 +11,22 @@
   不以 Producer 发布速率代替；
 - 关键参数走环境变量，便于先短烟测再正式长稳：
   R14_DURATION_S（默认 600）、R14_DEGREE（默认 2）、
-  R14_TARGET_BATCH_RATE（全局批/s，默认 120）、R14_POINTS（默认 500）。
-
-结果以 JSON 写入 /tmp/r14_capacity_<degree>_<rate>.json，供验收报告制表。
+  R14_TARGET_BATCH_RATE（全局批/s，默认 120）、R14_POINTS（默认 500）；
+  R14_MIN_SUSTAINED_FRACTION（默认 0.95）与
+  R14_MAX_BACKLOG_SLOPE_FRACTION（默认 0.02）用于稳态容量裁决。
+- JSON 结论与每秒取样 JSONL 保存在 R14_RESULT_DIR（默认 /tmp），
+  文件名包含唯一测试实例标识，运行异常仍保留先前已冲刷的采样证据。
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +56,7 @@ pytestmark = [
     pytest.mark.slow,
     pytest.mark.docker,
     pytest.mark.real_service,
+    pytest.mark.soak,
     pytest.mark.nats,
     pytest.mark.jetstream,
     pytest.mark.kafka,
@@ -61,6 +66,8 @@ DURATION_S = float(os.environ.get("R14_DURATION_S", "600"))
 DEGREE = int(os.environ.get("R14_DEGREE", "2"))
 TARGET_BATCH_RATE = float(os.environ.get("R14_TARGET_BATCH_RATE", "120"))
 POINTS_PER_BATCH = int(os.environ.get("R14_POINTS", "500"))
+MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.95"))
+MAX_BACKLOG_SLOPE_FRACTION = float(os.environ.get("R14_MAX_BACKLOG_SLOPE_FRACTION", "0.02"))
 DRAIN_TIMEOUT_S = 120.0
 SAMPLE_INTERVAL_S = 1.0
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
@@ -83,10 +90,10 @@ async def _grpc_probe(harness: SinkSystemHarness) -> tuple[bool, float]:
     start = time.perf_counter()
     try:
         async with harness.channel() as channel:
-            await common_pb2_grpc.CommonServiceStub(channel).GetServiceStatus(
+            status = await common_pb2_grpc.CommonServiceStub(channel).GetServiceStatus(
                 common_pb2.Empty(), timeout=3
             )
-        return True, (time.perf_counter() - start) * 1000
+        return status.health == "HEALTHY", (time.perf_counter() - start) * 1000
     except Exception:  # noqa: BLE001 - 可用性探针需要全量捕获
         return False, (time.perf_counter() - start) * 1000
 
@@ -159,16 +166,32 @@ class TestR14SustainedCapacity:
         self,
         sink_harness: SinkSystemHarness,
     ) -> None:
+        if not 0 < MIN_SUSTAINED_FRACTION <= 1:
+            raise ValueError("R14_MIN_SUSTAINED_FRACTION must be in (0, 1]")
+        if not 0 <= MAX_BACKLOG_SLOPE_FRACTION < 1:
+            raise ValueError("R14_MAX_BACKLOG_SLOPE_FRACTION must be in [0, 1)")
+        if (
+            not 1 <= DEGREE <= 100
+            or POINTS_PER_BATCH < 1
+            or TARGET_BATCH_RATE <= 0
+            or not 30 <= DURATION_S <= 86400
+        ):
+            raise ValueError("invalid sustained load shape or duration")
         devices = _devices(DEGREE)
         delivery_ids = [_delivery_id(i) for i in range(DEGREE)]
         _write_concurrent_root(sink_harness, devices=devices, delivery_ids=delivery_ids)
         await sink_harness.provision_streams()
         await self._enlarge_history_stream(sink_harness)
-        await sink_harness.start()
         deployment = f"qa-{sink_harness.token}"
         names = {_durable_name(deployment, did) for did in delivery_ids}
-        result_path = Path(f"/tmp/r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}.json")
+        evidence_root = Path(os.environ.get("R14_RESULT_DIR", "/tmp")).resolve()
+        if not evidence_root.is_dir() or evidence_root.is_symlink():
+            raise ValueError("R14_RESULT_DIR must be an existing non-symlink directory")
+        stem = f"r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}_" f"{sink_harness.token}"
+        result_path = evidence_root / f"{stem}.json"
+        samples_path = evidence_root / f"{stem}_samples.jsonl"
         try:
+            await sink_harness.start()
             for did in delivery_ids:
                 await self._wait_running(sink_harness, did)
 
@@ -177,8 +200,9 @@ class TestR14SustainedCapacity:
                 bootstrap_servers=sink_harness.stack.kafka,
                 client_id=f"qa-r14-cap-{sink_harness.token}",
             )
-            await consumer.start()
+            pub_task: asyncio.Task[None] | None = None
             try:
+                await consumer.start()
                 baseline = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
                 js = publisher.jetstream()
                 interval = 1.0 / TARGET_BATCH_RATE if TARGET_BATCH_RATE > 0 else 0.0
@@ -189,24 +213,55 @@ class TestR14SustainedCapacity:
                 async def _publish_loop() -> None:
                     nonlocal published_batches, pub_seq
                     next_send = time.monotonic()
-                    while time.monotonic() < stop_at:
-                        device = devices[pub_seq % DEGREE]
-                        batch = sink_harness.make_batch(
-                            "reliable",
-                            seq=pub_seq,
-                            points=POINTS_PER_BATCH,
-                            device_id=device,
-                        )
-                        await js.publish(batch.subject(), batch.encode(), timeout=10)
+                    pending: deque[asyncio.Task[None]] = deque()
+                    last_per_device: dict[str, asyncio.Task[None]] = {}
+                    max_pending = max(32, DEGREE * 2)
+
+                    async def publish_ordered(
+                        prior: asyncio.Task[None] | None, subject: str, payload: bytes
+                    ) -> None:
+                        nonlocal published_batches
+                        if prior is not None:
+                            await prior
+                        # Count only a real server PubAck, not a queued local send.
+                        await js.publish(subject, payload, timeout=10)
                         published_batches += 1
-                        pub_seq += 1
-                        next_send += interval
-                        drift = next_send - time.monotonic()
-                        if drift > 0:
-                            await asyncio.sleep(drift)
-                        else:
-                            # 落后于调度时不追赶历史，避免突发，对齐到当前时刻。
-                            next_send = time.monotonic()
+
+                    try:
+                        while time.monotonic() < stop_at:
+                            device = devices[pub_seq % DEGREE]
+                            batch = sink_harness.make_batch(
+                                "reliable",
+                                seq=pub_seq,
+                                points=POINTS_PER_BATCH,
+                                device_id=device,
+                            )
+                            task = asyncio.create_task(
+                                publish_ordered(
+                                    last_per_device.get(device),
+                                    batch.subject(),
+                                    batch.encode(),
+                                )
+                            )
+                            last_per_device[device] = task
+                            pending.append(task)
+                            pub_seq += 1
+                            if len(pending) >= max_pending:
+                                await pending.popleft()
+                            next_send += interval
+                            drift = next_send - time.monotonic()
+                            if drift > 0:
+                                await asyncio.sleep(drift)
+                            else:
+                                # Never create unbounded catch-up bursts.
+                                next_send = time.monotonic()
+                        while pending:
+                            await pending.popleft()
+                    finally:
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
 
                 samples: list[dict[str, Any]] = []
                 main_pid = sink_harness.process.proc.pid  # type: ignore[union-attr]
@@ -232,24 +287,25 @@ class TestR14SustainedCapacity:
                     }
                     ok, grpc_ms = await _grpc_probe(sink_harness)
                     metrics = await _fetch_metrics(sink_harness)
-                    samples.append(
-                        {
-                            "t": time.monotonic(),
-                            "kafka_offset": await _kafka_total_offset(
-                                consumer, sink_harness.kafka_topic
-                            ),
-                            "per_durable_pending": per_pending,
-                            "redelivered": redelivered,
-                            "cpu_ticks": ticks,
-                            "rss_kb": rss_kb,
-                            "grpc_ok": ok,
-                            "grpc_ms": grpc_ms,
-                            "lag_p99_ms": metrics.get("reliable_event_loop_lag_ms_p99"),
-                            "write_latency_p99_ms": metrics.get(
-                                "write_latency_ms_max_delivery_p99"
-                            ),
-                        }
-                    )
+                    sample = {
+                        "t": time.monotonic(),
+                        "kafka_offset": await _kafka_total_offset(
+                            consumer, sink_harness.kafka_topic
+                        ),
+                        "per_durable_pending": per_pending,
+                        "redelivered": redelivered,
+                        "cpu_ticks": ticks,
+                        "rss_kb": rss_kb,
+                        "grpc_ok": ok,
+                        "grpc_ms": grpc_ms,
+                        "metrics_ok": bool(metrics),
+                        "lag_p99_ms": metrics.get("reliable_event_loop_lag_ms_p99"),
+                        "write_latency_p99_ms": metrics.get("write_latency_ms_max_delivery_p99"),
+                    }
+                    samples.append(sample)
+                    with samples_path.open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(sample, separators=(",", ":")) + "\n")
+                        stream.flush()
                     await asyncio.sleep(SAMPLE_INTERVAL_S)
                 await pub_task
                 t_pub_end = time.monotonic()
@@ -311,6 +367,7 @@ class TestR14SustainedCapacity:
                 first, last = samples[0], samples[-1]
                 cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
+                metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
                 grpc_max_ms = max(s["grpc_ms"] for s in samples)
                 lag_p99_max = max(
                     (s["lag_p99_ms"] for s in samples if s["lag_p99_ms"] is not None),
@@ -354,6 +411,7 @@ class TestR14SustainedCapacity:
                     "final_pending": final_pending,
                     "dlq_count": dlq,
                     "grpc_failures": grpc_failures,
+                    "metrics_failures": metrics_failures,
                     "grpc_probes": len(samples),
                     "grpc_max_latency_ms": round(grpc_max_ms, 1),
                     "event_loop_lag_p99_max_ms": lag_p99_max,
@@ -362,6 +420,8 @@ class TestR14SustainedCapacity:
                     "rss_max_mib": round(rss_max_mib, 1),
                     "redeliver_peak": redeliver_peak,
                     "drained": all(v == 0 for v in final_pending.values()),
+                    "minimum_sustained_fraction": MIN_SUSTAINED_FRACTION,
+                    "maximum_backlog_slope_fraction": MAX_BACKLOG_SLOPE_FRACTION,
                 }
 
                 # 仅当出现超额（重投重复）时做全量审计，零丢失常态下省一轮读盘。
@@ -370,10 +430,22 @@ class TestR14SustainedCapacity:
                         sink_harness, published_values
                     )
 
+                samples_bytes = samples_path.read_bytes()
+                result["samples_path"] = str(samples_path)
+                result["samples_sha256"] = hashlib.sha256(samples_bytes).hexdigest()
+                result["result_path"] = str(result_path)
                 result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
                 # ---- 硬不变量裁决 ----
+                assert published_batches / wall_pub >= (
+                    TARGET_BATCH_RATE * MIN_SUSTAINED_FRACTION
+                ), result
+                assert result["confirmed_batches_per_s_steady"] >= (
+                    TARGET_BATCH_RATE * MIN_SUSTAINED_FRACTION
+                ), result
+                assert backlog_slope <= (TARGET_BATCH_RATE * MAX_BACKLOG_SLOPE_FRACTION), result
                 assert grpc_failures == 0, result
+                assert metrics_failures == 0, result
                 assert dlq == 0, result
                 assert result["drained"], result
                 assert confirmed_values >= published_values, result
@@ -382,6 +454,9 @@ class TestR14SustainedCapacity:
                     # 允许 at-least-once 重投，但不得有第三次投递（无未知重复）。
                     assert audit["audit_max_occurrence"] == 2, result
             finally:
+                if pub_task is not None and not pub_task.done():
+                    pub_task.cancel()
+                    await asyncio.gather(pub_task, return_exceptions=True)
                 await consumer.stop()
                 await publisher.drain()
         finally:

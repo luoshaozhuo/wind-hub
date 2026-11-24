@@ -102,7 +102,7 @@ def _config(tmp_path: Path, certs: dict[str, Path], port: int, insecure_port: in
         "configuration",
     ):
         target = insecure_port if name in token_services else port
-        block = f'  {name}:\n    grpc_endpoint: "localhost:{target}"\n'
+        block = f'  {name}:\n    grpc_endpoint: "127.0.0.1:{target}"\n'
         if name not in token_services:
             block += "    tls_profile: mtls\n"
         rendered.append(block)

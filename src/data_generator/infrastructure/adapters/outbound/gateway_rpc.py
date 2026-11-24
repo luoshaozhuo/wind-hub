@@ -14,23 +14,23 @@ from data_generator.application.ports.gateway_rpc import (
     VariablePage,
 )
 from data_generator.domain.model import Scalar
-from data_generator.infrastructure.gateway_tls import (
+from data_generator.infrastructure.gateway_auth import (
     create_gateway_channel,
-    gateway_credentials,
+    gateway_metadata,
 )
 
 
 class GatewayRpcClient:
     """Own exactly one authenticated Channel per explicitly configured endpoint."""
 
-    def __init__(self, tls: dict[str, str] | None) -> None:
-        self._credentials = gateway_credentials(tls)
+    def __init__(self, token_env: str) -> None:
+        self._metadata = gateway_metadata(token_env)
         self._channels: dict[str, grpc.aio.Channel] = {}
 
     def _stub(self, endpoint: str) -> industrial_gateway_pb2_grpc.IndustrialGatewayServiceAsyncStub:
         channel = self._channels.get(endpoint)
         if channel is None:
-            channel = create_gateway_channel(endpoint, self._credentials)
+            channel = create_gateway_channel(endpoint)
             self._channels[endpoint] = channel
         return industrial_gateway_pb2_grpc.IndustrialGatewayServiceStub(channel)
 
@@ -50,6 +50,7 @@ class GatewayRpcClient:
                     page_size=1000,
                 ),
                 timeout=timeout,
+                metadata=self._metadata,
             )
         except grpc.RpcError as exc:
             raise self._error(exc) from exc
@@ -83,6 +84,7 @@ class GatewayRpcClient:
                     lease_ms=lease_ms,
                 ),
                 timeout=timeout,
+                metadata=self._metadata,
             )
         except grpc.RpcError as exc:
             raise self._error(exc) from exc
@@ -110,6 +112,7 @@ class GatewayRpcClient:
                     ],
                 ),
                 timeout=timeout,
+                metadata=self._metadata,
             )
         except grpc.RpcError as exc:
             raise self._error(exc) from exc

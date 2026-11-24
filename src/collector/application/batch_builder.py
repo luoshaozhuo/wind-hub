@@ -47,6 +47,7 @@ class BatchBuilder:
             quality=sample.quality.value,
             sample_time=sample.timestamp,
             receive_time=sample.receive_time,
+            raw_payload_hex=sample.raw_payload.hex() if sample.raw_payload is not None else None,
             max_staleness_ms=self._staleness if self._delivery == "realtime" else None,
         )
 

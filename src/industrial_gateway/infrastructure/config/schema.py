@@ -30,34 +30,13 @@ class ConfigSources(StrictModel):
     instances: InstanceSources
 
 
-class TlsConfig(StrictModel):
-    enabled: bool = False
-    cert_file: Path | None = None
-    key_file: Path | None = None
-    ca_file: Path | None = None
+class SecurityCaller(StrictModel):
+    caller_id: str = Field(min_length=1)
+    token_env: str = Field(pattern=r"^[A-Z_][A-Z0-9_]*$")
+    permissions: tuple[str, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_certificates(self) -> TlsConfig:
-        if self.enabled:
-            paths = (self.cert_file, self.key_file, self.ca_file)
-            if any(path is None or str(path) in {"", "."} for path in paths):
-                raise ValueError("enabled mTLS requires explicit certificate file paths")
-        return self
-
-
-class GrpcConfig(StrictModel):
-    listen_host: str = "127.0.0.1"
-    listen_port: int = Field(default=50073, ge=1, le=65535)
-    sink_listener_port: int | None = Field(default=None, ge=1, le=65535)
-    max_active_rpcs: int = Field(default=64, ge=1)
-    request_max_bytes: int = Field(default=2097152, ge=1)
-    tls: TlsConfig = Field(default_factory=TlsConfig)
-    permissions: dict[str, tuple[str, ...]] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_listener(self) -> GrpcConfig:
-        if not self.listen_host.strip():
-            raise ValueError("grpc.listen_host cannot be empty")
+    def validate_caller(self) -> SecurityCaller:
         allowed = {
             "read",
             "config_read",
@@ -67,22 +46,41 @@ class GrpcConfig(StrictModel):
             "lifecycle",
             "diagnose",
         }
-        for name, rights in self.permissions.items():
-            if not name.strip() or not rights or not set(rights) <= allowed:
-                raise ValueError("invalid grpc identity permissions")
-        if self.tls.enabled and not self.permissions:
-            raise ValueError("production mTLS requires explicit identity permissions")
-        if self.sink_listener_port is not None:
-            if not self.tls.enabled:
-                raise ValueError("Gateway Sink listener requires an mTLS management listener")
-            if self.sink_listener_port == self.listen_port:
-                raise ValueError("Gateway Sink listener port must differ from management port")
-        if not self.tls.enabled and self.listen_host not in {
-            "127.0.0.1",
-            "::1",
-            "localhost",
-        }:
-            raise ValueError("non-loopback gRPC requires mTLS")
+        if not self.caller_id.strip():
+            raise ValueError("caller_id cannot be blank")
+        if (
+            len(self.permissions) != len(set(self.permissions))
+            or not set(self.permissions) <= allowed
+        ):
+            raise ValueError("invalid caller permissions")
+        return self
+
+
+class SecurityConfig(StrictModel):
+    callers: tuple[SecurityCaller, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_callers(self) -> SecurityConfig:
+        ids = [caller.caller_id for caller in self.callers]
+        references = [caller.token_env for caller in self.callers]
+        if len(ids) != len(set(ids)) or len(references) != len(set(references)):
+            raise ValueError("duplicate security caller identity or token reference")
+        return self
+
+
+class GrpcConfig(StrictModel):
+    listen_host: str = "127.0.0.1"
+    listen_port: int = Field(default=50073, ge=1, le=65535)
+    sink_listener_port: int | None = Field(default=None, ge=1, le=65535)
+    max_active_rpcs: int = Field(default=64, ge=1)
+    request_max_bytes: int = Field(default=2097152, ge=1)
+
+    @model_validator(mode="after")
+    def validate_listener(self) -> GrpcConfig:
+        if self.listen_host not in {"127.0.0.1", "::1", "localhost"}:
+            raise ValueError("Gateway gRPC must bind loopback")
+        if self.sink_listener_port is not None and self.sink_listener_port == self.listen_port:
+            raise ValueError("Gateway Sink listener must differ from management listener")
         return self
 
 
@@ -98,33 +96,31 @@ class TargetMapping(StrictModel):
 
 
 class SimulationTarget(StrictModel):
-    """Explicit Generator input endpoint used only after Commander authorization."""
+    """Generator input binding allowed only after Commander authorization."""
 
     endpoint: str = Field(min_length=1)
-    tls: TlsConfig
+    token_env: str = Field(pattern=r"^[A-Z_][A-Z0-9_]*$")
     scenario_id: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_simulation(self) -> SimulationTarget:
-        if not self.scenario_id.strip() or not self.endpoint.strip():
-            raise ValueError("simulation endpoint and Scenario must not be blank")
+        if not self.scenario_id.strip():
+            raise ValueError("simulation Scenario must not be blank")
         host, separator, port_text = self.endpoint.rpartition(":")
         if (
             not separator
-            or not host.strip()
+            or host not in {"127.0.0.1", "localhost", "::1"}
             or not port_text.isdecimal()
             or not 1 <= int(port_text) <= 65535
         ):
-            raise ValueError("simulation endpoint must be host:port")
-        if not self.tls.enabled:
-            raise ValueError("simulation model updates require mutual TLS")
+            raise ValueError("Generator endpoint must be loopback host:port")
         return self
 
 
 class ControlTarget(StrictModel):
     kind: Literal["commander", "none"]
     endpoint: str | None = None
-    tls: TlsConfig | None = None
+    token_env: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
     request_timeout_ms: int = Field(default=5000, ge=1, le=60000)
     queue_capacity: int = Field(default=1024, ge=1, le=65536)
     max_inflight: int = Field(default=1, ge=1, le=256)
@@ -132,27 +128,20 @@ class ControlTarget(StrictModel):
     @model_validator(mode="after")
     def validate_target(self) -> ControlTarget:
         if self.kind == "none":
-            if self.endpoint is not None or self.tls is not None:
-                raise ValueError("none control target cannot declare an endpoint")
+            if self.endpoint is not None or self.token_env is not None:
+                raise ValueError("none control target cannot declare an endpoint or token")
             return self
         endpoint = self.endpoint
-        if not isinstance(endpoint, str) or not endpoint.strip():
-            raise ValueError("Commander control target endpoint must be configured")
+        if not isinstance(endpoint, str) or not self.token_env:
+            raise ValueError("Commander target requires endpoint and token_env")
         host, separator, port_text = endpoint.rpartition(":")
         if (
             not separator
-            or not host.strip()
+            or host not in {"127.0.0.1", "localhost", "::1"}
             or not port_text.isdecimal()
             or not 1 <= int(port_text) <= 65535
         ):
-            raise ValueError("Commander endpoint must be host:port")
-        host = host.strip("[]")
-        if (not self.tls or not self.tls.enabled) and host not in {
-            "127.0.0.1",
-            "::1",
-            "localhost",
-        }:
-            raise ValueError("non-loopback Commander target requires mutual TLS")
+            raise ValueError("Commander endpoint must be loopback host:port")
         return self
 
 
@@ -197,17 +186,18 @@ class MetricsConfig(StrictModel):
 
 class GatewayServiceConfig(StrictModel):
     service_id: str = Field(min_length=1)
-    schema_version: Literal[1]
+    schema_version: Literal[2, 3]
 
     @field_validator("schema_version", mode="before")
     @classmethod
     def validate_schema_version(cls, value: object) -> object:
-        if type(value) is not int or value != 1:
-            raise ValueError("schema_version must be integer 1")
+        if type(value) is not int or value not in {2, 3}:
+            raise ValueError("schema_version must be integer 2 or 3")
         return value
 
     file_version: str
     config_sources: ConfigSources
+    security: SecurityConfig
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
     servers: tuple[ServerConfig, ...] = Field(min_length=1)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)

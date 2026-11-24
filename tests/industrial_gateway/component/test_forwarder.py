@@ -21,6 +21,13 @@ from tests.support.gateway import FakeCommanderService
 
 pytestmark = [pytest.mark.component, pytest.mark.real_service]
 
+_COMMANDER_TOKEN_ENV = "WIND_HUB_TEST_GATEWAY_COMMANDER_TOKEN"
+
+
+@pytest.fixture(autouse=True)
+def _commander_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_COMMANDER_TOKEN_ENV, "g" * 40)
+
 
 async def _pair(
     tmp: Path,
@@ -39,11 +46,11 @@ async def _pair(
         ControlTarget(
             kind="commander",
             endpoint=f"127.0.0.1:{port}",
+            token_env=_COMMANDER_TOKEN_ENV,
             queue_capacity=capacity,
             max_inflight=inflight,
             request_timeout_ms=deadline_ms,
         ),
-        project_root=tmp,
     )
     await forwarder.start()
     return forwarder, commander, server

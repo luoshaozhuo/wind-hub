@@ -36,47 +36,38 @@ def _positive(raw: object, name: str, *, integer: bool = False) -> float | int:
 
 
 def validate_transport_settings(raw: dict[str, Any]) -> None:
-    """Validate the service transport contract without opening network resources."""
+    """Validate the token-only Commander gRPC contract, without reading secrets."""
     if "grpc" not in raw and "security" not in raw:
         return
     grpc = _mapping(raw.get("grpc"), "grpc")
     security = _mapping(raw.get("security"), "security")
     _keys(grpc, {"listen_host", "listen_port", "max_active_rpcs"}, "grpc")
-    _keys(
-        security,
-        {"ca_cert", "server_cert", "server_key", "callers", "recovery"},
-        "security",
-    )
-    host = grpc.get("listen_host")
+    _keys(security, {"callers", "recovery"}, "security")
+    if grpc.get("listen_host") not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("grpc.listen_host must be loopback")
     port = grpc.get("listen_port")
-    max_rpcs = grpc.get("max_active_rpcs")
-    if not isinstance(host, str) or not host.strip():
-        raise ValueError("grpc.listen_host is required")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("grpc.listen_port must be in 1..65535")
+    max_rpcs = grpc.get("max_active_rpcs")
     if type(max_rpcs) is not int or max_rpcs < 1:
         raise ValueError("grpc.max_active_rpcs must be positive")
-    for name in ("ca_cert", "server_cert", "server_key"):
-        value = security.get(name)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"security.{name} pathname is required")
     callers = security.get("callers")
     if not isinstance(callers, list) or not callers:
         raise ValueError("security.callers must be a nonempty list")
     seen_ids: set[str] = set()
-    seen_certificates: set[str] = set()
+    seen_refs: set[str] = set()
     for index, candidate in enumerate(callers):
         caller = _mapping(candidate, f"security.callers[{index}]")
-        _keys(caller, {"caller_id", "certificate_identity", "permissions"}, "caller")
-        identity = caller.get("certificate_identity")
+        _keys(caller, {"caller_id", "token_env", "permissions"}, "caller")
         caller_id = caller.get("caller_id")
+        reference = caller.get("token_env")
         permissions = caller.get("permissions")
-        if not isinstance(identity, str) or not identity.strip():
-            raise ValueError("caller certificate_identity is required")
         if not isinstance(caller_id, str) or not caller_id.strip():
             raise ValueError("caller_id is required")
-        if identity in seen_certificates or caller_id in seen_ids:
-            raise ValueError("duplicate caller identity or caller_id")
+        if not isinstance(reference, str) or re.fullmatch(r"[A-Z_][A-Z0-9_]*", reference) is None:
+            raise ValueError("caller token_env must name a secret environment variable")
+        if caller_id in seen_ids or reference in seen_refs:
+            raise ValueError("duplicate caller_id or token_env")
         if (
             not isinstance(permissions, list)
             or not permissions
@@ -87,8 +78,8 @@ def validate_transport_settings(raw: dict[str, Any]) -> None:
             or len(permissions) != len(set(permissions))
         ):
             raise ValueError("invalid caller permissions")
-        seen_certificates.add(identity)
         seen_ids.add(caller_id)
+        seen_refs.add(reference)
 
 
 def load_service_settings(path: str | Path) -> ServiceSettings:
@@ -112,7 +103,7 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         },
         "commander service",
     )
-    if type(raw.get("schema_version")) is not int or raw["schema_version"] != 1:
+    if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
         raise ValueError("unsupported Commander service schema_version")
     file_version = raw.get("file_version")
     if (
@@ -134,28 +125,29 @@ def load_service_settings(path: str | Path) -> ServiceSettings:
         target = _mapping(raw_target, f"simulation_targets.{device_id}")
         _keys(
             target,
-            {"gateway_id", "endpoint", "ca_cert", "client_cert", "client_key"},
+            {"gateway_id", "endpoint", "token_env"},
             f"simulation_targets.{device_id}",
         )
-        fields = ("gateway_id", "endpoint", "ca_cert", "client_cert", "client_key")
+        fields = ("gateway_id", "endpoint", "token_env")
         if any(
             not isinstance(target.get(field), str) or not target[field].strip() for field in fields
         ):
             raise ValueError(f"simulation_targets.{device_id}: required field missing")
+        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", target["token_env"]) is None:
+            raise ValueError(f"simulation_targets.{device_id}: invalid token_env")
         endpoint = target["endpoint"]
         host, separator, port = endpoint.rpartition(":")
-        if not separator or not host.strip() or not port.isdecimal() or not 1 <= int(port) <= 65535:
-            raise ValueError(f"simulation_targets.{device_id}: invalid endpoint")
-        paths = (Path(target[field]) for field in ("ca_cert", "client_cert", "client_key"))
-        ca_cert, client_cert, client_key = (
-            p if p.is_absolute() else Path(path).resolve().parent / p for p in paths
-        )
+        if (
+            not separator
+            or host not in {"127.0.0.1", "localhost", "::1"}
+            or not port.isdecimal()
+            or not 1 <= int(port) <= 65535
+        ):
+            raise ValueError(f"simulation_targets.{device_id}: invalid loopback endpoint")
         simulation_targets[device_id] = SimulationGatewayTarget(
             gateway_id=target["gateway_id"],
             endpoint=endpoint,
-            ca_cert=ca_cert,
-            client_cert=client_cert,
-            client_key=client_key,
+            token_env=target["token_env"],
         )
     dispatch = _mapping(raw.get("dispatcher", {}), "dispatcher")
     timeouts = _mapping(raw.get("timeouts", {}), "timeouts")

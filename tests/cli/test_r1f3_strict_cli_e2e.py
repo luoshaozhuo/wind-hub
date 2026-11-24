@@ -64,39 +64,39 @@ def _write_cli(
     collector: str,
     endpoints: dict[str, str],
     processes: dict[str, dict[str, Any]],
-    gateway_pki: dict[str, object],
-    commander_pki: Any,
+    collector_pki: dict[str, object],
 ) -> Path:
-    clients = cast(dict[str, tuple[Path, Path]], gateway_pki["clients"])
-    gateway_crt, gateway_key = clients["cli"]
+    clients = cast(dict[str, tuple[Path, Path]], collector_pki["clients"])
+    collector_cert, collector_key = clients["cli"]
     profiles = {
-        "gateway": {
-            "ca_cert": str(gateway_pki["ca"]),
-            "client_cert": str(gateway_crt),
-            "client_key": str(gateway_key),
+        "collector": {
+            "ca_cert": str(collector_pki["ca"]),
+            "client_cert": str(collector_cert),
+            "client_key": str(collector_key),
         },
-        "commander": {
-            "ca_cert": str(commander_pki.tmp / "ca.crt"),
-            "client_cert": str(commander_pki.tmp / "ops.crt"),
-            "client_key": str(commander_pki.tmp / "ops.key"),
-        },
+    }
+    token_envs = {
+        "gateway": "WIND_HUB_TEST_GATEWAY_CLI_TOKEN",
+        "data-generator": "WIND_HUB_TEST_DG_CLI_TOKEN",
+        "commander": "WIND_HUB_TEST_COMMANDER_OPS_TOKEN",
+        "sink": "WIND_HUB_SINK_CLI_TOKEN",
     }
     services: dict[str, dict[str, Any]] = {}
     for name in SERVICES:
-        profile = "sink" if name == "sink" else name
-        if name == "data-generator" or name.startswith("collector_"):
-            profile = "gateway"
-        services[name] = {
+        row: dict[str, Any] = {
             "grpc_endpoint": endpoints[name],
             "manager": "process",
             "target": name,
             "process": processes[name],
         }
-        if name != "sink":
-            services[name]["tls_profile"] = profile
+        if name.startswith("collector_"):
+            row["tls_profile"] = "collector"
+        else:
+            row["token_env"] = token_envs[name]
+        services[name] = row
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
-        "tls_profile": "gateway",
+        "tls_profile": "collector",
     }
     _dump(
         path,
@@ -140,6 +140,7 @@ class StrictCliE2E:
         self.cli_realtime = root / "cli-realtime.yaml"
         self.cli_reliable = root / "cli-reliable.yaml"
         self.sink_token: str | None = None
+        self.auth_tokens: dict[str, str] = {}
 
     def register_process(
         self, name: str, argv: list[str], *, cwd: Path, env: dict[str, str] | None = None
@@ -154,7 +155,7 @@ class StrictCliE2E:
 
     def cli_env(self, *, token: str | None = ADMIN_TOKEN) -> dict[str, str]:
         """CLI 子进程环境：默认注入管理令牌；None 表示删除（fail-closed 路径）。"""
-        environment = dict(os.environ)
+        environment = {**os.environ, **self.auth_tokens}
         if token is None:
             environment.pop("WIND_HUB_COLLECTOR_ADMIN_TOKEN", None)
         else:
@@ -349,7 +350,6 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             permissions={
                 "cli": ["read", "lifecycle", "inject", "diagnose"],
                 "generator": ["read", "inject"],
-                "sink": ["read", "inject"],
             },
             point_table={
                 "fb_float": {
@@ -369,20 +369,20 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                     },
                 },
             },
-            mtls_enabled=True,
+            mtls_enabled=False,
         )
 
         dg_root = tmp_path / "dg-config"
         _real_tree(dg_root)
         _dump(
-            dg_root / "instances" / "device_farm-a_v1.4.0.yaml",
+            dg_root / "instances" / "device_farm-a_v1.6.0.yaml",
             {
                 "schema_version": 1,
-                "file_version": "1.4.0",
+                "file_version": "1.6.0",
                 "devices": {
                     "D01": {
                         "enabled": True,
-                        "model": {"id": "wtg_tz2mw", "version": "1.3.0"},
+                        "model": {"id": "wtg_tz2mw", "version": "1.4.0"},
                         "endpoint": {"host": "127.0.0.1", "port": modbus.port},
                         "overrides": {},
                     }
@@ -390,12 +390,12 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             },
         )
         point_table_path = (
-            dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.1.0.yaml"
+            dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.2.0.yaml"
         )
         point_table_doc = yaml.safe_load(point_table_path.read_text(encoding="utf-8"))
         point_table_doc["points"]["generator_speed"]["data_type"] = "float32"
         _dump(point_table_path, point_table_doc)
-        business_path = dg_root / "templates" / "business_points_standard_v1.4.0.yaml"
+        business_path = dg_root / "templates" / "business_points_standard_v1.5.0.yaml"
         business_doc = yaml.safe_load(business_path.read_text(encoding="utf-8"))
         business_doc["business_points"]["tz2mw_generator_speed_raw"]["data_type"] = "float32"
         _dump(business_path, business_doc)
@@ -423,21 +423,9 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             scenarios=scenario_doc["scenarios"],
         )
         dg_doc = yaml.safe_load(dg_service.read_text(encoding="utf-8"))
-        clients = cast(dict[str, tuple[Path, Path]], pki["clients"])
-        generator_crt, generator_key = clients["generator"]
-        dg_doc["output"]["gateway_tls"] = {
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(generator_crt),
-            "key_file": str(generator_key),
-        }
-        dg_doc["security"] = {
-            "tls": {
-                "ca_file": str(pki["ca"]),
-                "cert_file": str(pki["server_crt"]),
-                "key_file": str(pki["server_key"]),
-            },
-            "permissions": {"cli": ["variables_read", "variables_update"]},
-        }
+        # Service YAML already carries the current Bearer security contract.
+        # Generator output uses WIND_HUB_TEST_DG_GATEWAY_TOKEN.
+        assert dg_doc["output"]["gateway_token_env"] == "WIND_HUB_TEST_DG_GATEWAY_TOKEN"
         _dump(dg_service, dg_doc)
 
         collector_roots: dict[str, Path] = {}
@@ -499,6 +487,13 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         gateway_sink_token = os.urandom(32).hex()
         gateway_service_doc = yaml.safe_load(gateway_service.read_text(encoding="utf-8"))
         gateway_service_doc["grpc"]["sink_listener_port"] = gateway_sink_port
+        gateway_service_doc["security"]["callers"].append(
+            {
+                "caller_id": "sink",
+                "token_env": "WIND_HUB_GATEWAY_SINK_TOKEN",
+                "permissions": ["inject"],
+            }
+        )
         _dump(gateway_service, gateway_service_doc)
         sink = SinkSystemHarness(
             root=tmp_path / "sink",
@@ -585,6 +580,16 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
             "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
         }
+        gateway_cli_token = os.urandom(32).hex()
+        generator_gateway_token = os.urandom(32).hex()
+        gateway_sink_management_token = os.urandom(32).hex()
+        dg_cli_token = os.urandom(32).hex()
+        commander_ops_token = os.urandom(32).hex()
+        harness.auth_tokens = {
+            "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+            "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+            "WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token,
+        }
         harness.register_process(
             "gateway",
             [
@@ -597,12 +602,23 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 str(gateway_root),
             ],
             cwd=SRC,
-            env={"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
+            env={
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN": os.urandom(32).hex(),
+                "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+                "WIND_HUB_TEST_GATEWAY_GENERATOR_TOKEN": generator_gateway_token,
+                "WIND_HUB_TEST_GATEWAY_SINK_TOKEN": gateway_sink_management_token,
+            },
         )
         harness.register_process(
             "data-generator",
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
             cwd=SRC,
+            env={
+                "WIND_HUB_TEST_DG_GATEWAY_TOKEN": generator_gateway_token,
+                "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                "WIND_HUB_TEST_DG_CALLER_TOKEN": os.urandom(32).hex(),
+            },
         )
         for name, collector_id in (
             ("collector_realtime", rt_collector),
@@ -651,22 +667,21 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             "commander",
             [python, "-m", "commander", "--config", str(commander_service)],
             cwd=SRC,
+            env={"WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token},
         )
         _write_cli(
             harness.cli_realtime,
             collector="collector_realtime",
             endpoints=endpoints,
             processes=harness.processes,
-            gateway_pki=pki,
-            commander_pki=commander_pki,
+            collector_pki=pki,
         )
         _write_cli(
             harness.cli_reliable,
             collector="collector_reliable",
             endpoints=endpoints,
             processes=harness.processes,
-            gateway_pki=pki,
-            commander_pki=commander_pki,
+            collector_pki=pki,
         )
 
         for name in SERVICES:

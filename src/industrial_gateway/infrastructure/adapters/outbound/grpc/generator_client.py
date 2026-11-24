@@ -7,7 +7,7 @@ request identity, ordering, and transport uncertainty.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+import os
 
 import grpc
 
@@ -17,7 +17,6 @@ from contracts import data_generator_pb2_grpc as dg_rpc
 from contracts.scalar_codec import encode_scalar
 from industrial_gateway.application.ports.simulation import SimulationInputReceipt
 from industrial_gateway.application.variable_store import Scalar
-from industrial_gateway.infrastructure.config.schema import TlsConfig, service_path
 
 
 class GeneratorRpcClient:
@@ -27,33 +26,32 @@ class GeneratorRpcClient:
         self,
         *,
         endpoint: str,
-        tls: TlsConfig,
-        project_root: Path,
+        token_env: str,
         scenario_id: str,
     ) -> None:
         if not endpoint.strip() or not scenario_id.strip():
             raise ValueError("Generator endpoint and scenario binding are required")
         self._endpoint = endpoint
-        self._tls = tls
-        self._project_root = project_root
+        self._token_env = token_env
         self._scenario_id = scenario_id
+        self._metadata: tuple[tuple[str, str], ...] = ()
         self._channel: grpc.aio.Channel | None = None
         self._stub: dg_rpc.DataGeneratorServiceAsyncStub | None = None
 
     def start(self) -> None:
-        """Create the authenticated channel; never silently downgrade to plaintext."""
+        """Create an authorized, loopback-only Generator channel."""
         if self._stub is not None:
             raise RuntimeError("Generator client already started")
-        if not self._tls.enabled:
-            raise ValueError("Generator input control requires mutual TLS")
-        if self._tls.ca_file is None or self._tls.cert_file is None or self._tls.key_file is None:
-            raise ValueError("Generator control requires complete client certificates")
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=service_path(self._project_root, self._tls.ca_file).read_bytes(),
-            private_key=service_path(self._project_root, self._tls.key_file).read_bytes(),
-            certificate_chain=service_path(self._project_root, self._tls.cert_file).read_bytes(),
-        )
-        channel = grpc.aio.secure_channel(self._endpoint, credentials)
+        host, sep, port = self._endpoint.rpartition(":")
+        if not sep or host not in {"127.0.0.1", "::1", "localhost"} or not port.isdecimal():
+            raise ValueError("Generator endpoint must be loopback host:port")
+        if not 1 <= int(port) <= 65535:
+            raise ValueError("Generator endpoint port out of range")
+        token = os.environ.get(self._token_env, "")
+        if len(token) < 32 or not token.isascii() or any(not 33 <= ord(ch) <= 126 for ch in token):
+            raise ValueError("Generator outbound token is missing or invalid")
+        channel = grpc.aio.insecure_channel(self._endpoint)
+        self._metadata = (("authorization", f"Bearer {token}"),)
         self._channel = channel
         self._stub = dg_rpc.DataGeneratorServiceStub(channel)
 
@@ -83,12 +81,14 @@ class GeneratorRpcClient:
                 raise TimeoutError("Generator control deadline expired")
             return left
 
-        device = await stub.GetDevice(common.ObjectId(id=device_id), timeout=remaining())
+        device = await stub.GetDevice(
+            common.ObjectId(id=device_id), timeout=remaining(), metadata=self._metadata
+        )
         generation_id = device.device.generation_id
         if device.device.actual_state != "RUNNING" or not generation_id:
             raise ValueError("target device has no running Generation")
         generation = await stub.GetGeneration(
-            common.ObjectId(id=generation_id), timeout=remaining()
+            common.ObjectId(id=generation_id), timeout=remaining(), metadata=self._metadata
         )
         bound = generation.generation
         if (
@@ -112,6 +112,7 @@ class GeneratorRpcClient:
                     page_token=token,
                 ),
                 timeout=remaining(),
+                metadata=self._metadata,
             )
             if listing.generation_state != "RUNNING":
                 raise ValueError("Generation is no longer running")
@@ -142,6 +143,7 @@ class GeneratorRpcClient:
                 values=[dg.VariableUpdate(point_id=point_id, value=encode_scalar(value))],
             ),
             timeout=remaining(),
+            metadata=self._metadata,
         )
         return SimulationInputReceipt(
             accepted=response.accepted,
@@ -159,6 +161,7 @@ class GeneratorRpcClient:
                 request_id=request_id,
             ),
             timeout=timeout,
+            metadata=self._metadata,
         )
         if response.request_id != request_id:
             return "UNKNOWN"
@@ -169,3 +172,4 @@ class GeneratorRpcClient:
             await self._channel.close()
             self._channel = None
         self._stub = None
+        self._metadata = ()

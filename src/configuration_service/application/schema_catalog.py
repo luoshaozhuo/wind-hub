@@ -304,3 +304,66 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                 },
                 header=updated_header,
             )
+
+            # V1/V2 are immutable published identities. V3 is a new,
+            # token-based contract for controlled simulation deployments.
+            successor = deepcopy(updated)
+            successor_header = deepcopy(updated_header)
+            successor["grpc"]["properties"]["sink_listener_port"] = {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535,
+            }
+            successor_header["grpc"]["properties"]["sink_listener_port"] = _field(
+                "Gateway loopback Sink listener; 1..65535; not the management port",
+                "integer",
+            )
+            for obsolete in ("tls", "permissions"):
+                successor["grpc"]["properties"].pop(obsolete, None)
+                successor_header["grpc"]["properties"].pop(obsolete, None)
+            for obsolete in ("ca_cert", "server_cert", "server_key", "tls"):
+                successor["security"]["properties"].pop(obsolete, None)
+                successor_header["security"]["properties"].pop(obsolete, None)
+            token_reference = {
+                "type": "string",
+                "pattern": r"[A-Z_][A-Z0-9_]*",
+            }
+            caller_schema_v3 = successor["security"]["properties"]["callers"]["items"]
+            caller_schema_v3["properties"]["token_env"] = token_reference.copy()
+            caller_schema_v3["properties"]["caller_id"]["minLength"] = 1
+            target_fields = {
+                "gateway_id": {"type": "string", "minLength": 1},
+                "endpoint": {"type": "string", "pattern": r"[^\s:]+:[0-9]{1,5}"},
+                "token_env": token_reference.copy(),
+            }
+            successor["simulation_targets"] = {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": target_fields,
+                    "required": list(target_fields),
+                    "additionalProperties": False,
+                },
+            }
+            successor_header["simulation_targets"] = {
+                **_field("Commander simulation device to Gateway target", "object"),
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        name: _field(name, "string", required=True) for name in target_fields
+                    },
+                },
+            }
+            successor_header["schema_version"] = _field(
+                "配置结构版本 3（仅令牌身份）", "integer", required=True
+            )
+            yield SchemaSpec(
+                config_type="service",
+                schema_version=3,
+                fields={
+                    "properties": successor,
+                    "required": ["schema_version", "file_version"],
+                    "additionalProperties": False,
+                },
+                header=successor_header,
+            )

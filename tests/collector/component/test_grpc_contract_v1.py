@@ -15,7 +15,7 @@ from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
 
 pytestmark = [pytest.mark.component, pytest.mark.contract]
-CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs"
+CONFIG_ROOT = Path(__file__).resolve().parents[3] / "deploy" / "config_roots" / "prod-a"
 AUTH = (("x-windhub-admin-token", "test-collector-admin"),)
 
 

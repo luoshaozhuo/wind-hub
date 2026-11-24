@@ -1,0 +1,20 @@
+............                                                             [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_grpc_api.py:22
+  /home/luosh/wind-hub/tests/sink_service/system/test_grpc_api.py:22: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_delivery_flow.py:36
+  /home/luosh/wind-hub/tests/sink_service/system/test_delivery_flow.py:36: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_lifecycle.py:45
+  /home/luosh/wind-hub/tests/sink_service/system/test_lifecycle.py:45: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/sink_service/system/test_lifecycle.py:154
+  /home/luosh/wind-hub/tests/sink_service/system/test_lifecycle.py:154: PytestUnknownMarkWarning: Unknown pytest.mark.failure - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.failure
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+12 passed, 4 warnings in 88.06s (0:01:28)

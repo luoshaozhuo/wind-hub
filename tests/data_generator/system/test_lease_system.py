@@ -13,6 +13,7 @@ P1-07 见 test_lifecycle_system.test_crash_unknown_delivery（SIGKILL + TTL 回�
 from __future__ import annotations
 
 import asyncio
+import os
 
 import grpc
 import pytest
@@ -21,6 +22,7 @@ from contracts import common_pb2 as common
 from contracts import data_generator_pb2 as dg
 from contracts import industrial_gateway_pb2 as gw
 from contracts import industrial_gateway_pb2_grpc as gw_rpc
+from tests.support.gateway import _BearerInterceptor
 
 from ..conftest import dg_stubs, read_gateway_variable, ship_scenarios_document
 
@@ -38,7 +40,10 @@ VAR_B = "GW01.pitch_rate"
 
 
 async def _gw_stub(bind: str):  # noqa: ANN202
-    channel = grpc.aio.insecure_channel(bind)
+    channel = grpc.aio.insecure_channel(
+        bind,
+        interceptors=[_BearerInterceptor(os.environ["WIND_HUB_TEST_DG_GATEWAY_TOKEN"])],
+    )
     await channel.channel_ready()
     return channel, gw_rpc.IndustrialGatewayServiceStub(channel)
 

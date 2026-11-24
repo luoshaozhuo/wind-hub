@@ -1,4 +1,4 @@
-"""I08：真实 Collector mTLS 配置候选的乐观锁冲突与不变性。"""
+"""I08: Collector refuses local snapshot writes; Repository is sole publisher."""
 
 from __future__ import annotations
 
@@ -34,60 +34,61 @@ async def _snapshot(
     )
 
 
-async def test_i08_collector_revision_conflict_preserves_disk_and_runtime(
+async def test_i08_collector_local_publication_is_disabled(
     full_chain: FullChainHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
     runtime = Runtime(full_chain.cli_rt, "json")
     try:
-        common_stub = common_rpc.CommonServiceStub(runtime.channel("collector"))
-        disk_before = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_DISK)
-        runtime_before = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_RUNTIME)
-        candidate = await common_stub.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(
-                files=disk_before.files,
-                expected_revision=disk_before.revision,
+        stub = common_rpc.CommonServiceStub(runtime.channel("collector"))
+        disk_before = await _snapshot(runtime, stub, common.SNAPSHOT_SCOPE_DISK)
+        runtime_before = await _snapshot(runtime, stub, common.SNAPSHOT_SCOPE_RUNTIME)
+        rejected: dict[str, str] = {}
+        operations = (
+            (
+                "PushConfigSnapshot",
+                common.PushConfigSnapshotRequest(
+                    files=disk_before.files,
+                    expected_revision=disk_before.revision,
+                ),
             ),
-            timeout=30,
-            metadata=runtime.get_rpc_metadata("collector", "PushConfigSnapshot"),
+            (
+                "ApplyConfigSnapshot",
+                common.ApplyConfigSnapshotRequest(
+                    candidate_id="cannot-publish-outside-repository",
+                    expected_revision=disk_before.revision,
+                ),
+            ),
         )
-        assert candidate.valid is True
-        assert candidate.candidate_id
+        for method, request in operations:
+            with pytest.raises(grpc.aio.AioRpcError) as caught:
+                await getattr(stub, method)(
+                    request,
+                    timeout=30,
+                    metadata=runtime.get_rpc_metadata("collector", method),
+                )
+            assert caught.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+            rejected[method] = caught.value.code().name
 
-        conflict = await full_chain.cli_call(
-            full_chain.cli_rt,
-            "config",
-            "apply",
-            "collector",
-            candidate.candidate_id,
-            "--expected-revision",
-            "0" * 64,
-            "--yes",
-            check=False,
-        )
-        assert conflict["status"] == "FAILURE"
-        assert conflict["error_code"] == grpc.StatusCode.ABORTED.name
-        assert conflict["data"] is None
-
-        disk_after = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_DISK)
-        runtime_after = await _snapshot(runtime, common_stub, common.SNAPSHOT_SCOPE_RUNTIME)
+        disk_after = await _snapshot(runtime, stub, common.SNAPSHOT_SCOPE_DISK)
+        runtime_after = await _snapshot(runtime, stub, common.SNAPSHOT_SCOPE_RUNTIME)
         assert disk_after.revision == disk_before.revision
         assert runtime_after.revision == runtime_before.revision
         assert _files(disk_after) == _files(disk_before)
         assert _files(runtime_after) == _files(runtime_before)
+
+        # Read-only CLI inspection remains permitted for the same Collector.
+        readback = await full_chain.cli_call(
+            full_chain.cli_rt, "config", "get", "collector", "--scope", "disk"
+        )
+        assert readback["status"] == "SUCCESS"
         full_chain.record(
-            "I08-COLLECTOR-REVISION-CONFLICT",
-            candidate_id=candidate.candidate_id,
-            expected_revision="0" * 64,
+            "I08-COLLECTOR-REPOSITORY-SOLE-PUBLISHER",
+            rejected=rejected,
             disk_revision=disk_before.revision,
             runtime_revision=runtime_before.revision,
-            cli_status=conflict["status"],
-            grpc_status=conflict["error_code"],
-            assertions={
-                "precise_status_aborted": True,
-                "disk_revision_and_files_unchanged": True,
-                "runtime_revision_and_files_unchanged": True,
-            },
+            disk_and_runtime_unchanged=True,
+            readonly_cli_status=readback["status"],
         )
     finally:
         await runtime.close()

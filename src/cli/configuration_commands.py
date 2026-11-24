@@ -494,24 +494,3 @@ def backup(service: str = "configuration", label: str = "", request_id: str = ""
 @configuration.command("backup-status")
 def backup_status(task_id: str, service: str = "configuration") -> None:
     _request("GetBackupTask", pb.GetBackupTaskRequest(task_id=task_id), service)
-
-
-@configuration.command("push")
-def push_snapshot_command(target: str, directory: Path, expected_revision: str = "") -> None:
-    """Stage a complete configuration snapshot in one service."""
-    from .snapshot_commands import push_snapshot
-
-    push_snapshot(target, directory, expected_revision)
-
-
-@configuration.command("apply")
-def apply_snapshot_command(
-    target: str,
-    candidate_id: str,
-    expected_revision: str = "",
-    yes: bool = typer.Option(False, "--yes"),
-) -> None:
-    """Apply a staged service snapshot with explicit confirmation."""
-    from .snapshot_commands import apply_snapshot
-
-    apply_snapshot(target, candidate_id, expected_revision, yes)

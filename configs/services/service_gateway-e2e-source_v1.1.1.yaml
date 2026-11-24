@@ -1,0 +1,97 @@
+# 最终联测源 Gateway；只连接源组五设备，和输出目标 Gateway 分离。
+# Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
+# Instance 固定引用 Template，Service 不声明 templates.root。
+# Industrial Gateway simulation target, aligned with device_sim_v1.2.0.yaml and
+# Data Generator scenario wind-plant-physical.
+# Management gRPC listener is plaintext loopback; never expose it outside host.
+# Industrial client control always enters Commander. Only Commander can call the
+# dedicated Gateway simulation execution RPC; Gateway then updates Generator inputs.
+# gRPC 限制在 loopback，所有敏感调用必须校验应用令牌。
+schema_version: 3
+file_version: "1.1.1"
+service_id: gateway-e2e-source
+config_sources:
+  instances:
+    devices: e2e-final
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 52073
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+security:
+  callers:
+    - caller_id: commander
+      token_env: WIND_HUB_E2E_COMMANDER_GATEWAY_TOKEN
+      permissions: [simulation_execute, read]
+    - caller_id: generator
+      token_env: WIND_HUB_E2E_GENERATOR_GATEWAY_TOKEN
+      permissions: [inject, read]
+    - caller_id: operator
+      token_env: WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN
+      permissions: [read, lifecycle, diagnose]
+servers:
+  - server_id: gw-wtg-sim01
+    device_id: WTG_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15221
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-pv-sim01
+    device_id: PV_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15222
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-bess-sim01
+    device_id: BESS_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15223
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-grid-sim01
+    device_id: GRID_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15224
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+  - server_id: gw-ppc-sim01
+    device_id: PPC_SIM01
+    listen_host: "127.0.0.1"
+    listen_port: 15225
+    desired_state: START
+    control:
+      enabled: true
+      target:
+        kind: commander
+        endpoint: "127.0.0.1:52052"
+        token_env: WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN
+        request_timeout_ms: 2000
+        queue_capacity: 1024
+        max_inflight: 1
+      simulation:
+        endpoint: "127.0.0.1:52061"
+        token_env: WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN
+        token_env: WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN
+        scenario_id: e2e-plant-physical
+      mappings:
+        - variable_id: agc_power_setpoint
+          target_point_id: agc_power_setpoint
+metrics:
+  window_seconds: 60
+  collect_interval_ms: 1000

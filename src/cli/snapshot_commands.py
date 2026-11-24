@@ -14,8 +14,6 @@ from google.protobuf.json_format import MessageToDict
 from contracts import common_pb2, common_pb2_grpc
 from core.configuration.publication_identity import validate_relative_path
 
-from .safety import confirm_mutation
-
 _MAX_FILES = 1000
 _MAX_BYTES = 64 * 1024 * 1024
 
@@ -30,42 +28,6 @@ async def _invoke(target: str, method: str, request: Any) -> Any:
         timeout=session.target(target).timeout,
         metadata=session.get_rpc_metadata(target, method),
     )
-
-
-def _snapshot_files(root: Path) -> list[common_pb2.SnapshotFile]:
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError("snapshot root must be a real directory")
-    root = root.resolve(strict=True)
-    entries = list(root.rglob("*"))
-    if any(item.is_symlink() for item in entries):
-        raise ValueError("snapshot tree must not contain symbolic links")
-    if any(item.is_file() and item.suffix != ".yaml" for item in entries):
-        raise ValueError("snapshot tree may contain only .yaml files")
-    files = sorted(item for item in entries if item.is_file())
-    if not 0 < len(files) <= _MAX_FILES:
-        raise ValueError("snapshot requires 1..1000 YAML files")
-    total = 0
-    result: list[common_pb2.SnapshotFile] = []
-    seen: set[str] = set()
-    for item in files:
-        relative = item.relative_to(root).as_posix()
-        validate_relative_path(relative)
-        if relative.casefold() in seen:
-            raise ValueError("duplicate snapshot path")
-        seen.add(relative.casefold())
-        data = item.read_bytes()
-        total += len(data)
-        if total > _MAX_BYTES:
-            raise ValueError("snapshot exceeds 64 MiB")
-        result.append(
-            common_pb2.SnapshotFile(
-                relative_path=relative,
-                content=data,
-                size_bytes=len(data),
-                sha256=hashlib.sha256(data).hexdigest(),
-            )
-        )
-    return result
 
 
 def _verify_snapshot(files: Any) -> list[tuple[str, bytes]]:
@@ -152,71 +114,3 @@ def get_snapshot(target: str, scope: str, output: Path | None, candidate_id: str
     from .main import _run
 
     _run("config get", invoke())
-
-
-def push_snapshot(target: str, directory: Path, expected_revision: str = "") -> None:
-    """Validate and stage a complete service snapshot without applying it."""
-
-    async def invoke() -> dict[str, Any]:
-        files = _snapshot_files(directory)
-        revision = expected_revision
-        if not revision:
-            current = await _invoke(
-                target,
-                "GetConfigSnapshot",
-                common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
-            )
-            revision = current.revision
-        if not revision:
-            raise RuntimeError("target DISK snapshot has no revision")
-        staged = await _invoke(
-            target,
-            "PushConfigSnapshot",
-            common_pb2.PushConfigSnapshotRequest(
-                files=files,
-                expected_revision=revision,
-            ),
-        )
-        data: dict[str, Any] = MessageToDict(staged, preserving_proto_field_name=True)
-        data["valid"] = staged.valid
-        return data
-
-    from .main import _run
-
-    _run("config push", invoke())
-
-
-def apply_snapshot(target: str, candidate_id: str, expected_revision: str, yes: bool) -> None:
-    """Apply a staged snapshot once; transport uncertainty is not retried."""
-    if not candidate_id:
-        raise typer.BadParameter("candidate_id must be nonempty")
-    confirm_mutation(
-        f"Apply configuration candidate {candidate_id} to {target}?",
-        yes,
-        command="config apply",
-    )
-
-    async def invoke() -> dict[str, Any]:
-        revision = expected_revision
-        if not revision:
-            current = await _invoke(
-                target,
-                "GetConfigSnapshot",
-                common_pb2.GetConfigSnapshotRequest(scope=common_pb2.SNAPSHOT_SCOPE_DISK),
-            )
-            revision = current.revision
-        if not revision:
-            raise RuntimeError("target DISK snapshot has no revision")
-        response = await _invoke(
-            target,
-            "ApplyConfigSnapshot",
-            common_pb2.ApplyConfigSnapshotRequest(
-                candidate_id=candidate_id,
-                expected_revision=revision,
-            ),
-        )
-        return MessageToDict(response, preserving_proto_field_name=True)
-
-    from .main import _run
-
-    _run("config ApplyConfigSnapshot", invoke())

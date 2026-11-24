@@ -22,7 +22,7 @@ def _paths() -> SharedConfigPaths:
         instances=_CONFIGS / "instances",
         templates=_CONFIGS / "templates",
         site_file=_CONFIGS / "instances" / "site_example_site_v1.1.0.yaml",
-        devices_file=_CONFIGS / "instances" / "device_farm-a_v1.4.0.yaml",
+        devices_file=_CONFIGS / "instances" / "device_farm-a_v1.6.0.yaml",
     )
 
 
@@ -61,7 +61,7 @@ def test_shared_loader_requires_explicit_devices_and_site_files(tmp_path: Path) 
             SharedConfigPaths(
                 instances=tmp_path,
                 templates=_CONFIGS / "templates",
-                devices_file=tmp_path / "device_farm-a_v1.4.0.yaml",
+                devices_file=tmp_path / "device_farm-a_v1.6.0.yaml",
             )
         ).load()
 
@@ -91,7 +91,7 @@ def test_shared_loader_rejects_invalid_file_version(tmp_path: Path) -> None:
             instances=instances,
             templates=_CONFIGS / "templates",
             site_file=site,
-            devices_file=instances / "device_farm-a_v1.4.0.yaml",
+            devices_file=instances / "device_farm-a_v1.6.0.yaml",
         )
     )
     with pytest.raises(ConfigError, match="file_version"):

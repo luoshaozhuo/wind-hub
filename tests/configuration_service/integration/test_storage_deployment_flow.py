@@ -255,7 +255,7 @@ async def test_real_nats_broadcast_after_configuration_publication(
 
     try:
         connection = await nats.connect(
-            servers=[_NATS_URL], connect_timeout=2, max_reconnect_attempts=0
+            servers=[_NATS_URL], connect_timeout=2, max_reconnect_attempts=1
         )
     except Exception as exc:  # NATS is an optional real-service dependency
         pytest.skip(f"real NATS not reachable for revision broadcast: {exc}")

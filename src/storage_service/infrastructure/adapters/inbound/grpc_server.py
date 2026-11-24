@@ -689,8 +689,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: pb.CreateExportRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
+        owner = self._auth.require(
+            context, permission="storage.export", farm=request.filter.wind_farm_id
+        )
         filter_ = _filter(request.filter)
-        owner = self._auth.require(context, permission="storage.export", farm=filter_.wind_farm_id)
         record = await self._jobs.create_export(
             request_id=request.request_id,
             filter_=filter_,

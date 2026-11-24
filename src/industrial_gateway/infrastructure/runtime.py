@@ -48,7 +48,6 @@ def _make_forwarder(
 ) -> CommandForwarder:
     return CommandForwarder(
         config.servers[server_id].settings.control.target,
-        project_root=config.project_root,
         observer=observer,
     )
 

@@ -97,8 +97,10 @@ async def _wait(predicate: Any, description: str, *, timeout: float = 60.0) -> N
 
 @pytest.mark.asyncio
 async def test_legacy_json_v1_record_blocks_partition_without_commit_or_write(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("WIND_HUB_TDENGINE_USER", "root")
+    monkeypatch.setenv("WIND_HUB_TEST_TDENGINE_PASSWORD", "taosdata")
     if not r5_stack.docker_available():
         pytest.skip("NOT_RUN: docker daemon unavailable")
     stack = await asyncio.to_thread(r5_stack.up_stack)

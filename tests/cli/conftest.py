@@ -271,9 +271,15 @@ def _write_cli_yaml(
     tls: bool = True,
     insecure_port: int | None = None,
 ) -> Path:
-    # Sink and Configuration use internal Bearer-token channels and must not
-    # carry a TLS profile; the other management services remain mTLS-based.
-    token_services = {"sink", "configuration"}
+    # Collector retains the mTLS test path. Other internal services use
+    # loopback Bearer authorization, matching their current production API.
+    token_services = {
+        "sink": "WIND_HUB_SINK_CLI_TOKEN",
+        "configuration": "WIND_HUB_CONFIG_CLI_ADMIN_TOKEN",
+        "commander": "WIND_HUB_TEST_COMMANDER_EMS_TOKEN",
+        "gateway": "WIND_HUB_TEST_GATEWAY_OPERATOR_TOKEN",
+        "data_generator": "WIND_HUB_TEST_GENERATOR_CLI_TOKEN",
+    }
     service_names = (
         "collector",
         "commander",
@@ -285,8 +291,10 @@ def _write_cli_yaml(
     rendered = []
     for name in service_names:
         target_port = insecure_port if name in token_services and insecure_port else port
-        line = f'  {name}:\n    grpc_endpoint: "localhost:{target_port}"'
-        if name not in token_services:
+        line = f'  {name}:\n    grpc_endpoint: "127.0.0.1:{target_port}"'
+        if name in token_services:
+            line += f"\n    token_env: {token_services[name]}"
+        else:
             line += "\n    tls_profile: mtls"
         rendered.append(line)
     services = "\n".join(rendered)
@@ -350,6 +358,11 @@ def cli_env(
     # the Runtime refuses to build metadata without a sufficiently long secret.
     monkeypatch.setenv("WIND_HUB_CONFIG_CLI_ADMIN_TOKEN", "cli-e2e-configuration-admin-token-0001")
     monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", "cli-e2e-sink-management-token-0001")
+    monkeypatch.setenv("WIND_HUB_TEST_COMMANDER_EMS_TOKEN", "cli-e2e-commander-ems-token-0001")
+    monkeypatch.setenv(
+        "WIND_HUB_TEST_GATEWAY_OPERATOR_TOKEN", "cli-e2e-gateway-operator-token-0001"
+    )
+    monkeypatch.setenv("WIND_HUB_TEST_GENERATOR_CLI_TOKEN", "cli-e2e-generator-control-token-0001")
     config_path = _write_cli_yaml(
         tmp_path / "cli.yaml",
         certs,

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -20,7 +21,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import grpc
 import pytest
@@ -44,7 +45,7 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.data_server import 
 )
 from industrial_gateway.infrastructure.config.resolution import load_gateway
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
-from tests.support.gateway import FakeCommanderService, write_mtls_pki
+from tests.support.gateway import FakeCommanderService, _BearerInterceptor
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -99,7 +100,7 @@ def write_service_yaml(
     Scenario 归属版本化 Scenario Instance；Service 仅引用逻辑 Instance ID。
     """
     service = {
-        "schema_version": 1,
+        "schema_version": 2,
         "file_version": "1.0.0",
         "service_id": "data-generator",
         "config_sources": {
@@ -110,7 +111,25 @@ def write_service_yaml(
             },
         },
         "service": {"grpc_bind": bind},
-        "output": {"max_inflight": max_inflight, "grpc_timeout_seconds": output_timeout},
+        "output": {
+            "max_inflight": max_inflight,
+            "grpc_timeout_seconds": output_timeout,
+            "gateway_token_env": "WIND_HUB_TEST_DG_GATEWAY_TOKEN",
+        },
+        "security": {
+            "callers": [
+                {
+                    "caller_id": "cli",
+                    "token_env": "WIND_HUB_TEST_DG_CLI_TOKEN",
+                    "permissions": ["variables_read", "variables_update"],
+                },
+                {
+                    "caller_id": "gateway",
+                    "token_env": "WIND_HUB_TEST_DG_CALLER_TOKEN",
+                    "permissions": ["variables_read", "variables_update"],
+                },
+            ],
+        },
         "buffer": {"max_batches": 128, "max_points_per_batch": 1000},
         "replay": {"read_batch_size": 1000},
         "diagnose": {
@@ -154,7 +173,7 @@ def write_service_yaml(
         },
         "instances": {
             "site": {"example_site": {"file_version": "1.1.0"}},
-            "device": {"farm-a": {"file_version": "1.4.0"}},
+            "device": {"farm-a": {"file_version": "1.6.0"}},
             "scenario": {"test": {"file_version": "1.0.0"}},
         },
     }
@@ -174,6 +193,14 @@ def write_history(root: Path, name: str, rows: Sequence[str], *, header: bool = 
     lines.extend(rows)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+@pytest.fixture(autouse=True)
+def _generator_auth_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide isolated secrets for every v2 Generator test configuration."""
+    monkeypatch.setenv("WIND_HUB_TEST_DG_GATEWAY_TOKEN", "test-out-" + "a" * 40)
+    monkeypatch.setenv("WIND_HUB_TEST_DG_CLI_TOKEN", "test-cli-" + "b" * 40)
+    monkeypatch.setenv("WIND_HUB_TEST_DG_CALLER_TOKEN", "test-caller-" + "c" * 40)
 
 
 @pytest.fixture
@@ -781,7 +808,7 @@ def _gateway_tree(
         },
     )
     service: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 3,
         "file_version": "1.0.0",
         "service_id": "gateway-dg-test",
         "config_sources": {"instances": {"devices": "dg-test"}},
@@ -790,21 +817,27 @@ def _gateway_tree(
             "listen_port": grpc_port,
             "max_active_rpcs": 64,
             "request_max_bytes": 2097152,
-            "tls": (
+        },
+        "security": {
+            "callers": [
                 {
-                    "enabled": True,
-                    "cert_file": "certs/server.crt",
-                    "key_file": "certs/server.key",
-                    "ca_file": "certs/ca.crt",
-                }
-                if mtls_enabled
-                else {"enabled": False}
-            ),
-            **(
-                {"permissions": {name: list(rights) for name, rights in permissions.items()}}
-                if permissions
-                else {}
-            ),
+                    "caller_id": "dg-writer",
+                    "token_env": "WIND_HUB_TEST_DG_GATEWAY_TOKEN",
+                    "permissions": ["inject", "read"],
+                },
+                *[
+                    {
+                        "caller_id": name,
+                        "token_env": (
+                            "WIND_HUB_TEST_DG_GATEWAY_CLIENT_"
+                            + "".join(char.upper() if char.isalnum() else "_" for char in name)
+                            + "_TOKEN"
+                        ),
+                        "permissions": list(rights),
+                    }
+                    for name, rights in (permissions or {}).items()
+                ],
+            ],
         },
         "servers": servers,
         "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
@@ -840,22 +873,16 @@ class RealGateway:
     endpoint_id: str
     data_bind: str
     pki: dict[str, Any] | None = None
+    caller_tokens: dict[str, str] | None = None
 
     def mtls_channel(self, client_name: str) -> grpc.aio.Channel:
-        """以指定 CN 的真实客户端证书打开独立 mTLS 通道（调用方负责关闭）。"""
-        if self.pki is None:
-            raise RuntimeError("PKI was not generated for this real gateway")
-        ca_path = cast(Path, self.pki["ca"])
-        cert_path, key_path = cast(dict[str, tuple[Path, Path]], self.pki["clients"])[client_name]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca_path.read_bytes(),
-            private_key=key_path.read_bytes(),
-            certificate_chain=cert_path.read_bytes(),
-        )
-        return grpc.aio.secure_channel(
+        """Select one isolated Bearer identity on actual loopback gRPC."""
+        token = (self.caller_tokens or {}).get(client_name)
+        if token is None:
+            token = secrets.token_hex(32)
+        return grpc.aio.insecure_channel(
             self.data_bind,
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
+            interceptors=[_BearerInterceptor(token)],
         )
 
     async def stop(self) -> None:
@@ -866,7 +893,7 @@ class RealGateway:
 
 @pytest.fixture
 async def start_real_gateway(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Callable[..., Awaitable[RealGateway]]]:
     running: list[RealGateway] = []
     from contracts import commander_pb2_grpc as crpc
@@ -896,11 +923,18 @@ async def start_real_gateway(
         commander_server.add_insecure_port(f"127.0.0.1:{commander_port}")
         await commander_server.start()
 
-        mtls_enabled = permissions is not None
+        mtls_enabled = False
         pki: dict[str, Any] | None = None
-        if mtls_enabled:
-            names = set(permissions or ()) | set(client_names)
-            pki = write_mtls_pki(root, tuple(names))
+        caller_tokens: dict[str, str] = {}
+        for name in permissions or {}:
+            env_name = (
+                "WIND_HUB_TEST_DG_GATEWAY_CLIENT_"
+                + "".join(char.upper() if char.isalnum() else "_" for char in name)
+                + "_TOKEN"
+            )
+            token = secrets.token_hex(32)
+            monkeypatch.setenv(env_name, token)
+            caller_tokens[name] = token
         service_path = _gateway_tree(
             root,
             endpoint_id=endpoint_id,
@@ -915,7 +949,15 @@ async def start_real_gateway(
         gateway_server = create_gateway_grpc_server(runtime, snapshots)
         await gateway_server.start()
         await runtime.start()
-        gateway = RealGateway(runtime, gateway_server, commander_server, endpoint_id, bind, pki)
+        gateway = RealGateway(
+            runtime,
+            gateway_server,
+            commander_server,
+            endpoint_id,
+            bind,
+            pki,
+            caller_tokens,
+        )
         running.append(gateway)
         return gateway
 
@@ -959,12 +1001,16 @@ async def dg_server(
             timeout=float(output.get("grpc_timeout_seconds", 3.0)) if timeout is None else timeout,
             max_points=int(settings.service.get("buffer", {}).get("max_points_per_batch", 1000)),
             max_inflight=int(output.get("max_inflight", 1)),
+            gateway_token_env=output["gateway_token_env"],
         )
         runtime = Runtime(settings, writer, history_reader=CsvHistoryReader())
         bind = settings.service.get("service", {}).get("grpc_bind", f"127.0.0.1:{reserve_port()}")
         server = make_server(runtime, bind)
         await server.start()
-        channel = grpc.aio.insecure_channel(bind)
+        channel = grpc.aio.insecure_channel(
+            bind,
+            interceptors=[_BearerInterceptor(os.environ.get("WIND_HUB_TEST_DG_CLI_TOKEN", ""))],
+        )
         await channel.channel_ready()
         harness = DataGeneratorHarness(
             runtime,
@@ -1059,7 +1105,10 @@ async def grpc_channel(bind: str) -> AsyncIterator[grpc.aio.Channel]:
 
 async def read_gateway_variable(bind: str, gateway_id: str, variable_id: str) -> common.Sample:
     """通过正式 ReadVariables 读回单个变量。"""
-    async with grpc.aio.insecure_channel(bind) as channel:
+    async with grpc.aio.insecure_channel(
+        bind,
+        interceptors=[_BearerInterceptor(os.environ.get("WIND_HUB_TEST_DG_GATEWAY_TOKEN", ""))],
+    ) as channel:
         stub = gw_rpc.IndustrialGatewayServiceStub(channel)
         response = await stub.ReadVariables(
             gw.ReadVariablesRequest(gateway_id=gateway_id, variable_ids=[variable_id])
@@ -1074,7 +1123,8 @@ def metric_map(metrics_response: Any) -> dict[str, float]:
 
 async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
     """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
-    channel = grpc.aio.insecure_channel(bind)
+    token = os.environ.get("WIND_HUB_TEST_DG_CLI_TOKEN", "")
+    channel = grpc.aio.insecure_channel(bind, interceptors=[_BearerInterceptor(token)])
     try:
         await asyncio.wait_for(channel.channel_ready(), timeout=15.0)
     except TimeoutError as exc:

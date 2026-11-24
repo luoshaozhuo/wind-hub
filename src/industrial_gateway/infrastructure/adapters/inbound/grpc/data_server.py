@@ -31,38 +31,38 @@ from industrial_gateway.infrastructure.adapters.inbound.grpc.diagnostics import 
 from industrial_gateway.infrastructure.adapters.outbound.grpc.generator_client import (
     GeneratorRpcClient,
 )
-from industrial_gateway.infrastructure.config.schema import service_path
 from industrial_gateway.infrastructure.config.snapshots import ConfigSnapshots
 from industrial_gateway.infrastructure.runtime import GatewayRuntime
 
 _PAGE_LIMIT = 500
 _LOGGER = logging.getLogger(__name__)
 
-_SINK_TOKEN_ENV = "WIND_HUB_GATEWAY_SINK_TOKEN"
 
-
-def _verified_sink_caller(
-    context: grpc.aio.ServicerContext[Any, Any], runtime: GatewayRuntime
-) -> bool:
-    """Authenticate the loopback-only Sink injector, never a remote plaintext peer."""
-    config = runtime.config.service.grpc
-    if config.sink_listener_port is None or not config.tls.enabled:
-        return False
+def _caller_identity(
+    context: grpc.aio.ServicerContext[Any, Any],
+    runtime: GatewayRuntime,
+) -> tuple[str, frozenset[str]] | None:
+    """Match exactly one authenticated loopback caller and its grants."""
     if not context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
-        return False
-    # A TLS authenticated caller is handled exclusively by the certificate policy.
-    if context.auth_context().get("x509_common_name"):
-        return False
-    token = os.environ.get(_SINK_TOKEN_ENV, "")
-    if len(token) < 32 or token.strip() != token:
-        return False
-    raw_metadata = context.invocation_metadata()
-    if raw_metadata is None:
-        return False
-    metadata = [value for key, value in raw_metadata if key == "authorization"]
-    if len(metadata) != 1:
-        return False
-    return hmac.compare_digest(str(metadata[0]), f"Bearer {token}")
+        return None
+    metadata = context.invocation_metadata()
+    values = (
+        [value for key, value in metadata if key.lower() == "authorization"] if metadata else []
+    )
+    if len(values) != 1 or not isinstance(values[0], str):
+        return None
+    authorization = values[0]
+    candidate = authorization[7:] if authorization.startswith("Bearer ") else ""
+    if not candidate:
+        return None
+    found: tuple[str, frozenset[str]] | None = None
+    for caller in runtime.config.service.security.callers:
+        expected = os.environ.get(caller.token_env, "")
+        if len(expected) >= 32 and hmac.compare_digest(candidate, expected):
+            if found is not None:
+                return None  # Ambiguous identities must fail closed after token rotation.
+            found = (caller.caller_id, frozenset(caller.permissions))
+    return found
 
 
 async def _authorize(
@@ -70,36 +70,25 @@ async def _authorize(
     runtime: GatewayRuntime,
     permission: str,
 ) -> None:
-    """Enforce mTLS identity permissions or explicitly local-only development."""
-    policy = runtime.config.service.grpc
-    if not policy.tls.enabled:
-        if context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
-            return
-        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only deployment")
-        return
-    if permission == "inject" and _verified_sink_caller(context, runtime):
-        return
-    common_names = tuple(context.auth_context().get("x509_common_name", ()))
-    identity = common_names[0].decode("utf-8") if common_names else ""
-    rights = policy.permissions.get(identity, ())
-    if permission not in rights:
-        await context.abort(
-            grpc.StatusCode.PERMISSION_DENIED,
-            "caller identity has insufficient permissions",
-        )
+    """Reject anonymous or unauthorized calls even from the loopback interface."""
+    caller = _caller_identity(context, runtime)
+    if caller is None:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "valid Bearer token required")
+        raise RuntimeError("gRPC abort returned")
+    if permission not in caller[1]:
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "caller lacks permission")
+        raise RuntimeError("gRPC abort returned")
 
 
 def _trusted_identity(
     context: grpc.aio.ServicerContext[Any, Any],
     runtime: GatewayRuntime,
 ) -> str:
-    """Use authenticated client certificate CN, never client-supplied metadata."""
-    if not runtime.config.service.grpc.tls.enabled:
-        return "local-loopback"
-    if _verified_sink_caller(context, runtime):
-        return "sink-internal"
-    identities = tuple(context.auth_context().get("x509_common_name", ()))
-    return identities[0].decode("utf-8") if identities else "unidentified"
+    """Return the caller identity established by the authoritative token table."""
+    caller = _caller_identity(context, runtime)
+    if caller is None:
+        raise PermissionError("verified caller identity missing")
+    return caller[0]
 
 
 def _timestamp(value: datetime) -> Timestamp:
@@ -137,8 +126,7 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
             raise ValueError("Gateway has no authorized simulation binding")
         return GeneratorRpcClient(
             endpoint=target.endpoint,
-            tls=target.tls,
-            project_root=self._runtime.config.project_root,
+            token_env=target.token_env,
             scenario_id=target.scenario_id,
         )
 
@@ -469,9 +457,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Allow only Commander to request a model-input change."""
         await _authorize(context, self._runtime, "simulation_execute")
-        if not self._runtime.config.service.grpc.tls.enabled:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
-            raise RuntimeError("abort unexpectedly returned") from None
         instance = await self._instance(request.gateway_id, context)
         control = instance.config.settings.control
         if not control.enabled or control.simulation is None:
@@ -521,9 +506,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
     ) -> pb.SimulationCommandResponse:
         """Query known execution evidence; absent records remain UNKNOWN."""
         await _authorize(context, self._runtime, "simulation_execute")
-        if not self._runtime.config.service.grpc.tls.enabled:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "simulation requires mTLS")
-            raise RuntimeError("abort unexpectedly returned") from None
         await self._instance(request.gateway_id, context)
         if not request.request_id.strip():
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request_id is required")
@@ -804,34 +786,27 @@ def create_gateway_grpc_server(
     )
     rpc.add_IndustrialGatewayServiceServicer_to_server(GatewayGrpcService(runtime), server)
     common_rpc.add_CommonServiceServicer_to_server(GatewayCommonService(snapshots), server)
+    resolved: list[str] = []
+    for caller in runtime.config.service.security.callers:
+        token = os.environ.get(caller.token_env, "")
+        if len(token) < 32 or not token.isascii() or any(not 33 <= ord(ch) <= 126 for ch in token):
+            raise ValueError(f"Gateway caller {caller.caller_id}: invalid or missing secret")
+        if any(hmac.compare_digest(token, old) for old in resolved):
+            raise ValueError("Gateway security tokens must be unique")
+        resolved.append(token)
     host = config.listen_host
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     bind = f"{host}:{config.listen_port}"
-    if config.tls.enabled:
-        if not all((config.tls.cert_file, config.tls.key_file, config.tls.ca_file)):
-            raise ValueError("mTLS certificate files are required")
-        assert config.tls.cert_file is not None
-        assert config.tls.key_file is not None
-        assert config.tls.ca_file is not None
-        root = runtime.config.project_root
-        key = service_path(root, config.tls.key_file).read_bytes()
-        cert = service_path(root, config.tls.cert_file).read_bytes()
-        ca = service_path(root, config.tls.ca_file).read_bytes()
-        credentials = grpc.ssl_server_credentials(
-            [(key, cert)],
-            root_certificates=ca,
-            require_client_auth=True,
-        )
-        bound = server.add_secure_port(bind, credentials)
-    else:
-        bound = server.add_insecure_port(bind)
+    bound = server.add_insecure_port(bind)
     if bound == 0:
         raise RuntimeError(f"unable to bind Gateway gRPC: {bind}")
     if config.sink_listener_port is not None:
-        token = os.environ.get(_SINK_TOKEN_ENV, "")
-        if len(token) < 32 or token.strip() != token:
-            raise ValueError("Gateway Sink listener requires a valid environment token")
+        if not any(
+            caller.caller_id == "sink" and caller.permissions == ("inject",)
+            for caller in runtime.config.service.security.callers
+        ):
+            raise ValueError("Gateway Sink listener requires a dedicated inject-only caller")
         internal_bind = f"127.0.0.1:{config.sink_listener_port}"
         if server.add_insecure_port(internal_bind) == 0:
             raise RuntimeError(f"unable to bind Gateway Sink ingress: {internal_bind}")

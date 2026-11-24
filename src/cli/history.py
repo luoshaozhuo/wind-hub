@@ -12,12 +12,21 @@ def is_sensitive(string: str) -> bool:
     try:
         parts = shlex.split(string)
     except ValueError:
-        return False
+        return True
     if not parts:
         return False
-    if parts[0] == "commander" and len(parts) > 1 and parts[1] == "write":
+    if (
+        parts[0] == "commander"
+        and len(parts) > 1
+        and parts[1]
+        in {
+            "write",
+            "batch",
+            "recover-device",
+        }
+    ):
         return True
-    if parts[0] == "config" and len(parts) > 1 and parts[1] in {"push", "apply"}:
+    if parts[0] == "config" and len(parts) > 1 and parts[1] in {"publish", "deprecate", "backup"}:
         return True
     return any("token" in part.lower() or "secret" in part.lower() for part in parts)
 

@@ -1,0 +1,408 @@
+....F.......FF.sssssss.................................................. [ 61%]
+..............................................                           [100%]
+=================================== FAILURES ===================================
+_________ test_every_storage_and_common_rpc_rejects_unauthorized_calls _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x781c10b96c90>
+
+    async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Enumerate the live proto, not a frozen count or hand-written method list."""
+        from google.protobuf.message_factory import GetMessageClass
+    
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        config = _config()
+        server = _server(config)
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        try:
+            services = (
+                (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+                (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+            )
+            observed: set[tuple[str, str]] = set()
+            for file_descriptor, name, stub_cls in services:
+                service = file_descriptor.services_by_name[name]
+                stub = stub_cls(channel)
+                for method in service.methods:
+                    assert not method.client_streaming and not method.server_streaming
+                    request = GetMessageClass(method.input_type)()
+                    for metadata in (
+                        None,
+                        (("authorization", "Bearer invalid-credential"),),
+                    ):
+                        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                            await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+>                       assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                            name,
+                            method.name,
+                        )
+E                       AssertionError: ('StorageService', 'CreateExport')
+E                       assert <StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')> == <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')>
+E                        +  where <StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')> = code()
+E                        +    where code = <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n>.code
+E                        +      where <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n> = <ExceptionInfo <AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n> tblen=2>.value
+E                        +  and   <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')> = <enum 'StatusCode'>.UNAUTHENTICATED
+E                        +    where <enum 'StatusCode'> = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:125: AssertionError
+_______________ test_cli_restart_activates_staged_static_closure _______________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-34/test_cli_restart_activates_sta0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x781c10bcf610>
+
+    @pytest.mark.asyncio
+    async def test_cli_restart_activates_staged_static_closure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        pytest.importorskip("taosws", reason="NOT_RUN: real TDengine SQL driver unavailable")
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = uuid4().hex[:10]
+        storage_port = reserve_port()
+        operator_token = f"f63-storage-operator-{token}-0123456789abcdef"
+        cursor_secret = f"f63-storage-cursor-{token}-0123456789abcdef"
+        # The CLI process attaches this bearer itself when polling gRPC health.
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", operator_token)
+        live: LiveConfiguration | None = None
+        cli_yaml = tmp_path / "cli" / "cli.yaml"
+        cache_root = tmp_path / "storage-cache"
+        bootstrap = tmp_path / "storage-bootstrap.yaml"
+        try:
+            # --- Real Configuration process, launched through its formal CLI. ---
+            root = tmp_path / "configuration"
+            root.mkdir(parents=True)
+            live = write_live_configuration(root, reserve_port())
+            # The mainline live harness provisions the viewer token itself.
+            viewer_token = live.tokens["viewer"]
+            started = await asyncio.to_thread(
+                live.cli, "service", "start", "configuration", "--yes", check=False
+            )
+            assert started["exit_code"] == 0, started
+    
+            # --- Revision A: baseline closure. ---
+            service_a = _service_document(
+                stack=stack, storage_port=storage_port, token=token, work_root=tmp_path
+            )
+            revision_a = await _publish(live, _documents(service_a, "1.0.0"))
+            assert revision_a >= 1
+            await _create_storage_topic(stack.kafka, service_a["service"]["kafka"]["topic"])
+    
+            bootstrap.write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 1,
+                        "file_version": "1.0.0",
+                        "service_id": "storage-main",
+                        "deployment_id": "prod-a",
+                        "configuration": {
+                            "endpoint": f"127.0.0.1:{live.port}",
+                            "token_env": "WIND_HUB_CONFIG_VIEWER_TOKEN",
+                        },
+                        "nats": {"servers": [stack.nats]},
+                        "cache": {"directory": str(cache_root)},
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            process_env = {
+                "WIND_HUB_CONFIG_VIEWER_TOKEN": viewer_token,
+                "WIND_HUB_STORAGE_OPERATOR_TOKEN": operator_token,
+                "WIND_HUB_TDENGINE_USER": "root",
+                "WIND_HUB_TDENGINE_PASSWORD": "taosdata",
+                "WIND_HUB_STORAGE_CURSOR_SECRET": cursor_secret,
+                "WIND_HUB_TEST_NATS_URL": stack.nats,
+            }
+            _write_cli_yaml(
+                cli_yaml,
+                storage_port=storage_port,
+                bootstrap=bootstrap,
+                work_root=tmp_path,
+                env=process_env,
+            )
+    
+            # --- Start Storage through the formal CLI process manager. ---
+            start = await asyncio.to_thread(run_cli, cli_yaml, "service", "start", "storage", "--yes")
+            start_payload = last_json(start.stdout)
+            assert start.returncode == 0, start.stderr
+            assert start_payload["status"] == "SUCCESS", start_payload
+            assert start_payload["data"]["process"]["confirmed"] is True
+            assert start_payload["data"]["business"]["health"] == "HEALTHY"
+    
+            channel = grpc.aio.insecure_channel(f"127.0.0.1:{storage_port}")
+            try:
+                ready = await _wait_status(
+                    channel,
+                    operator_token,
+                    lambda s: s.health == "HEALTHY"
+                    and s.target_revision == s.active_revision
+                    and s.dependencies[0].detail == "READY",
+                    "READY with matching target/active revisions",
+                )
+                target_a = ready.target_revision
+                assert target_a and target_a == ready.active_revision
+    
+                accepted_path = cache_root / "configuration-snapshots" / "accepted_bundle.json"
+                pending_path = cache_root / "configuration-snapshots" / "target_bundle.json"
+                assert accepted_path.exists()
+                assert not pending_path.exists()
+                accepted_a = _snapshot(cache_root, "accepted_bundle.json")
+                assert accepted_a["revision_id"] == revision_a
+                assert accepted_a["config"]["query"]["max_page_size"] == 1000
+                persisted_sample_id, persisted_at = await _verify_real_sink_wire_persists(
+                    channel=channel,
+                    kafka=stack.kafka,
+                    tdengine=stack.tdengine_rest,
+                    topic=service_a["service"]["kafka"]["topic"],
+                    operator_token=operator_token,
+                )
+    
+                # A page size at the A limit is accepted before the static change.
+                storage_stub = storage_rpc.StorageServiceStub(channel)
+                window_start, window_end = _window()
+                await storage_stub.QuerySamples(
+                    storage_pb.QuerySamplesRequest(
+                        filter=storage_pb.StorageFilter(
+                            wind_farm_id="farm-a",
+                            data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
+                            start_time=window_start,
+                            end_time=window_end,
+                        ),
+                        page_size=1000,
+                    ),
+                    timeout=10,
+                    metadata=(("authorization", f"Bearer {operator_token}"),),
+                )
+    
+                # --- Revision B: static parameter change (query page size 999). ---
+                service_b = json.loads(json.dumps(service_a))
+                service_b["file_version"] = "1.1.1"
+                service_b["service"]["query"]["max_page_size"] = 999
+                revision_b = await _publish(live, _documents(service_b, "1.0.1"))
+                assert revision_b > revision_a
+    
+                restart_state = await _wait_status(
+                    channel,
+                    operator_token,
+                    lambda s: s.target_revision != s.active_revision
+                    and s.dependencies[0].detail == "RESTART_REQUIRED",
+                    "RESTART_REQUIRED with split target/active revisions",
+                )
+                target_b = restart_state.target_revision
+                assert target_b != target_a
+                assert restart_state.active_revision == target_a
+                assert restart_state.health == "DEGRADED"
+    
+                # The pending target is durable while the accepted closure stays at A.
+                assert pending_path.exists()
+                pending = _snapshot(cache_root, "target_bundle.json")
+                assert pending["revision_id"] == revision_b
+                assert pending["target_revision"] == target_b
+                assert pending["config"]["query"]["max_page_size"] == 999
+                accepted_still_a = _snapshot(cache_root, "accepted_bundle.json")
+                assert accepted_still_a["target_revision"] == target_a
+                assert accepted_still_a["config"]["query"]["max_page_size"] == 1000
+    
+                # --- CLI stop and restart; the process must activate B itself. ---
+                stop = await asyncio.to_thread(run_cli, cli_yaml, "service", "stop", "storage", "--yes")
+                assert stop.returncode == 0, stop.stderr
+                assert last_json(stop.stdout)["status"] == "SUCCESS"
+                restart = await asyncio.to_thread(
+                    run_cli, cli_yaml, "service", "start", "storage", "--yes"
+                )
+                restart_payload = last_json(restart.stdout)
+                assert restart.returncode == 0, restart.stderr
+                assert restart_payload["status"] == "SUCCESS", restart_payload
+    
+                activated = await _wait_status(
+                    channel,
+                    operator_token,
+                    lambda s: s.health == "HEALTHY"
+                    and s.target_revision == s.active_revision == target_b
+                    and s.dependencies[0].detail == "READY",
+                    "B activated after CLI restart",
+                )
+                assert activated.target_revision == target_b
+                assert activated.active_revision == target_b
+                # Static reactivation must preserve the previously committed rows.
+                past_start, past_end = _sample_window(persisted_at)
+>               persisted = await storage_rpc.StorageServiceStub(channel).QuerySamples(
+                    storage_pb.QuerySamplesRequest(
+                        filter=storage_pb.StorageFilter(
+                            wind_farm_id="farm-a",
+                            device_id="WTG01",
+                            point_table_id="point_table_storage-points_v1.0.0",
+                            point_id="power",
+                            data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
+                            start_time=past_start,
+                            end_time=past_end,
+                        ),
+                        page_size=100,
+                    ),
+                    timeout=15,
+                    metadata=(("authorization", f"Bearer {operator_token}"),),
+                )
+
+tests/storage_service/integration/test_cli_restart_activation.py:640: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <_AioCall of RPC that terminated with:
+	status = historical Configuration closure is unavailable
+	details = "StatusCode.FAILED_PRECONDITION"
+	debug_error_string = "FAILED_PRECONDITION:historical Configuration closure is unavailable"
+>
+
+    def __await__(self) -> Generator[Any, None, ResponseType]:
+        """Wait till the ongoing RPC request finishes."""
+        try:
+            response = yield from self._call_response
+        except asyncio.CancelledError:
+            # Even if we caught all other CancelledError, there is still
+            # this corner case. If the application cancels immediately after
+            # the Call object is created, we will observe this
+            # `CancelledError`.
+            if not self.cancelled():
+                self.cancel()
+            raise
+    
+        # NOTE(lidiz) If we raise RpcError in the task, and users doesn't
+        # 'await' on it. AsyncIO will log 'Task exception was never retrieved'.
+        # Instead, if we move the exception raising here, the spam stops.
+        # Unfortunately, there can only be one 'yield from' in '__await__'. So,
+        # we need to access the private instance variable.
+        if response is cygrpc.EOF:
+            if self._cython_call.is_locally_cancelled():
+                raise asyncio.CancelledError()
+            else:
+>               raise _create_rpc_error(
+                    self._cython_call._initial_metadata,
+                    self._cython_call._status,
+                )
+E               grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+E               	status = StatusCode.FAILED_PRECONDITION
+E               	details = "historical Configuration closure is unavailable"
+E               	debug_error_string = "FAILED_PRECONDITION:historical Configuration closure is unavailable"
+E               >
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/grpc/aio/_call.py:333: AioRpcError
+_____ test_legacy_json_v1_record_blocks_partition_without_commit_or_write ______
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-34/test_legacy_json_v1_record_blo0')
+
+    @pytest.mark.asyncio
+    async def test_legacy_json_v1_record_blocks_partition_without_commit_or_write(
+        tmp_path: Path,
+    ) -> None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = uuid4().hex[:10]
+        farm = f"f6-v1-{token}"
+        topic = f"storage-v1-{token}"
+        group = f"storage-v1-{token}"
+        metadata = MetadataStore(tmp_path / "storage.sqlite3")
+        metadata.open()
+        consumer: KafkaStorageConsumer | None = None
+        runner: asyncio.Task[None] | None = None
+        admin: AIOKafkaAdminClient | None = None
+        producer: AIOKafkaProducer | None = None
+        try:
+            admin = AIOKafkaAdminClient(bootstrap_servers=stack.kafka)
+            await admin.start()
+            await admin.create_topics([NewTopic(name=topic, num_partitions=1, replication_factor=1)])
+            producer = AIOKafkaProducer(bootstrap_servers=stack.kafka)
+            await producer.start()
+    
+            config = StorageConfig.model_validate(
+                {
+                    "schema_version": 2,
+                    "file_version": "1.0.0",
+                    "service_id": "storage-f6-v1",
+                    "allowed_wind_farms": [farm],
+                    "config_sources": {"instances": {"site": "site-f6", "devices": "device-f6"}},
+                    "kafka": {
+                        "bootstrap_servers": stack.kafka,
+                        "topic": topic,
+                        "group_id": group,
+                        "max_partition_workers": 1,
+                    },
+                    "grpc": {},
+                    "auth": {
+                        "callers": [
+                            {
+                                "token_env": "WIND_HUB_TEST_STORAGE_TOKEN",
+                                "permissions": ["storage.read"],
+                                "wind_farms": [farm],
+                            }
+                        ]
+                    },
+                    "tdengine": {
+                        "endpoint": stack.tdengine_rest,
+                        "credential_ref": "env:WIND_HUB_TEST_TDENGINE_PASSWORD",
+                        "database": {},
+                        "max_connections": 1,
+                        "max_inflight_sql": 1,
+                    },
+                    "configuration": {},
+                    "query": {},
+                    "export": {"root": str(tmp_path / "exports")},
+                    "backup": {"root": str(tmp_path / "backups")},
+                    "retry": {},
+                    "reconciliation": {"owner_instance_id": "storage-f6-v1"},
+                }
+            )
+            metadata.register_semantic_pins(
+                point_table_versions={"pt-f6-v1": ("pt-f6-v1", "1.0.0")},
+                business_points_pin=None,
+            )
+            backend = TDengineBackend(config=config, metadata=metadata)
+>           await backend.open()
+
+tests/storage_service/integration/test_kafka_json_versions.py:165: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:211: in open
+    await self._run_bounded(self._open_sync)
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:208: in _run_bounded
+    return await self._await_bounded(future, lease)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:189: in _await_bounded
+    return await asyncio.wait_for(asyncio.wrap_future(future), timeout=lease.timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:489: in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:247: in _open_sync
+    opened.append(self._connect(module))
+                  ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <storage_service.infrastructure.adapters.outbound.tdengine_backend.TDengineBackend object at 0x781c1026cb90>
+module = <module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__.py'>
+
+    def _connect(self, module: _TaosModule) -> _TaosConnection:
+        match = _HOST_PORT.fullmatch(self._config.tdengine.endpoint)
+        if match is None:
+            raise ValueError("TDengine endpoint must be hostname:port")
+        host = match.group("host")
+        port = int(match.group("port"))
+        if not 1 <= port <= 65535:
+            raise ValueError("invalid TDengine port")
+        ref = self._config.tdengine.credential_ref.removeprefix("env:")
+        user = os.environ.get("WIND_HUB_TDENGINE_USER")
+        password = os.environ.get(ref)
+        if not user or not password:
+>           raise ValueError("TDengine username or credential environment is missing")
+E           ValueError: TDengine username or credential environment is missing
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:225: ValueError
+=========================== short test summary info ============================
+FAILED tests/storage_service/component/test_grpc_common.py::test_every_storage_and_common_rpc_rejects_unauthorized_calls
+FAILED tests/storage_service/integration/test_cli_restart_activation.py::test_cli_restart_activates_staged_static_closure
+FAILED tests/storage_service/integration/test_kafka_json_versions.py::test_legacy_json_v1_record_blocks_partition_without_commit_or_write
+3 failed, 108 passed, 7 skipped in 54.09s

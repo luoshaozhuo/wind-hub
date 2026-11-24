@@ -1,4 +1,4 @@
-"""真实 Commander mTLS 系统测试配置：复用正式出厂 Schema 和测试 PKI。"""
+"""Commander internal Bearer system test configuration with precise Deployment pin."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def write_commander_service(
     *,
     grpc_port: int,
 ) -> Path:
-    """生成可用正式 CLI 启动的 Commander 服务文件，证书不写入仓库。"""
+    """Generate a Service configuration using the production Bearer caller model."""
     root = root.resolve()
     tree = config_tree.resolve(strict=True)
     if not tree.is_relative_to(root):
@@ -33,6 +33,10 @@ def write_commander_service(
     document = yaml.safe_load(_SHIPPED.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError("invalid shipped Commander service settings")
+    # The archived v1.4.0 YAML is a legacy source fixture, not a valid
+    # runtime Service. Select the current schema explicitly for this test root.
+    document["schema_version"] = 3
+    document["file_version"] = "1.4.0"
     document["config_sources"] = {"instances": {"devices": "system"}}
     document["grpc"] = {
         "listen_host": "127.0.0.1",
@@ -40,13 +44,10 @@ def write_commander_service(
         "max_active_rpcs": 256,
     }
     document["security"] = {
-        "ca_cert": str(pki.tmp / "ca.crt"),
-        "server_cert": str(pki.tmp / "server.crt"),
-        "server_key": str(pki.tmp / "server.key"),
         "callers": [
             {
                 "caller_id": IDENTITIES["ops"][1],
-                "certificate_identity": IDENTITIES["ops"][0],
+                "token_env": "WIND_HUB_TEST_COMMANDER_OPS_TOKEN",
                 "permissions": ["query", "control", "reload", "recover"],
             }
         ],
@@ -82,9 +83,8 @@ def write_commander_service(
 
 
 def commander_client_env(pki: Pki) -> dict[str, str]:
-    """仅将证书 pathname 传给 Web 子进程，避免隐式明文回退。"""
+    """Provide the named Commander caller credential, never certificate paths."""
     return {
-        "WIND_HUB_COMMANDER_CA_CERT": str(pki.tmp / "ca.crt"),
-        "WIND_HUB_COMMANDER_CLIENT_CERT": str(pki.tmp / "ops.crt"),
-        "WIND_HUB_COMMANDER_CLIENT_KEY": str(pki.tmp / "ops.key"),
+        "WIND_HUB_TEST_COMMANDER_OPS_TOKEN": "commander-system-" + "a" * 40,
+        "WIND_HUB_COMMANDER_TOKEN": "commander-system-" + "a" * 40,
     }

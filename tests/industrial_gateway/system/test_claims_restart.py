@@ -24,6 +24,8 @@ from tests.support.gateway import (
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service]
 
+_AUTH = (("authorization", "Bearer " + "t" * 40),)
+
 
 async def _wait_port_open(port: int, timeout: float = 8.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
@@ -85,7 +87,8 @@ async def test_claims_do_not_survive_process_restart(tmp_path: Path) -> None:
                     variable_ids=[FEEDBACK_FLOAT],
                     action="ACQUIRE",
                     lease_ms=60000,
-                )
+                ),
+                metadata=_AUTH,
             )
             assert claim.accepted
             token = claim.lease_token
@@ -109,7 +112,8 @@ async def test_claims_do_not_survive_process_restart(tmp_path: Path) -> None:
                     variable_ids=[FEEDBACK_FLOAT],
                     action="ACQUIRE",
                     lease_ms=60000,
-                )
+                ),
+                metadata=_AUTH,
             )
             assert takeover.accepted
             # 旧 owner 用旧 token 写入被拒（进程内无此租约）。
@@ -124,7 +128,8 @@ async def test_claims_do_not_survive_process_restart(tmp_path: Path) -> None:
                                 value=encode_scalar(1.0),
                             )
                         ],
-                    )
+                    ),
+                    metadata=_AUTH,
                 )
             assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
     finally:

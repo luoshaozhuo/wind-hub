@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -16,6 +18,16 @@ from rich.console import Console
 from rich.table import Table
 
 from core.infrastructure.config import ConfigOperationError, parse_yaml
+
+_COLLECTOR_TARGETS = frozenset(
+    {
+        "collector",
+        "collector-realtime",
+        "collector-reliable",
+        "collector_realtime",
+        "collector_reliable",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +51,8 @@ class ServiceTarget:
     isula_binary: str | None
     process: ProcessSpec | None
     timeout: float
+    token_env: str | None = None
+    method_token_envs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +101,26 @@ def _path(config_path: Path, raw: Any, name: str) -> Path:
     if not isinstance(raw, str) or not raw:
         raise ValueError(f"{name} requires a path")
     return (config_path.parent / raw).resolve()
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    """Prevent plaintext authentication over network-visible endpoints."""
+    try:
+        parsed = urlsplit(f"//{endpoint}")
+        host = parsed.hostname
+        return (
+            host is not None
+            and parsed.port is not None
+            and parsed.port > 0
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+            and ipaddress.ip_address(host).is_loopback
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def load_config(path: Path) -> CLIConfig:
@@ -158,6 +192,24 @@ def load_config(path: Path) -> CLIConfig:
         if endpoint is not None and (not isinstance(endpoint, str) or not endpoint):
             raise ValueError(f"{name}.grpc_endpoint must be non-empty")
         profile = item.get("tls_profile")
+        token_env = item.get("token_env")
+        method_token_envs = item.get("method_token_envs", {})
+        if not isinstance(method_token_envs, dict) or any(
+            not isinstance(method, str)
+            or re.fullmatch(r"[A-Z][A-Za-z0-9]*", method) is None
+            or not isinstance(env, str)
+            or re.fullmatch(r"[A-Z_][A-Z0-9_]*", env) is None
+            for method, env in method_token_envs.items()
+        ):
+            raise ValueError(f"{name}.method_token_envs must map RPC methods to environment names")
+        if method_token_envs and token_env is None:
+            raise ValueError(f"{name}.method_token_envs requires a default token_env")
+        if token_env is not None and (
+            not isinstance(token_env, str) or re.fullmatch(r"[A-Z_][A-Z0-9_]*", token_env) is None
+        ):
+            raise ValueError(f"{name}.token_env must be an environment variable name")
+        if token_env is not None and profile is not None:
+            raise ValueError(f"{name}: select either TLS profile or loopback bearer token")
         if profile is not None and profile not in profiles:
             raise ValueError(f"{name} references unknown tls_profile {profile}")
         manager = item.get("manager")
@@ -222,8 +274,15 @@ def load_config(path: Path) -> CLIConfig:
         internal_token_services = {"configuration", "sink", "storage"}
         if name in internal_token_services and profile is not None:
             raise ValueError(f"{name} internal gRPC no longer supports TLS profiles")
-        if endpoint is not None and name not in internal_token_services and profile is None:
-            raise ValueError(f"{name}.tls_profile is required")
+        if endpoint is not None and profile is None:
+            if not _is_loopback_endpoint(endpoint):
+                raise ValueError(f"{name}: plaintext RPC requires a loopback endpoint")
+            if (
+                name not in internal_token_services
+                and name not in _COLLECTOR_TARGETS
+                and token_env is None
+            ):
+                raise ValueError(f"{name}.token_env is required for loopback RPC")
         targets[name] = ServiceTarget(
             name,
             endpoint,
@@ -235,6 +294,8 @@ def load_config(path: Path) -> CLIConfig:
             isula_binary,
             process_spec,
             timeout,
+            token_env,
+            tuple(sorted(method_token_envs.items())),
         )
     for name, target in targets.items():
         if target.grpc_endpoint is None and target.manager is None:
@@ -305,14 +366,11 @@ class Runtime:
                 ("grpc.max_send_message_length", max_message),
                 ("grpc.max_receive_message_length", max_message),
             )
-            if target.service_id in {"configuration", "sink", "storage"}:
-                # Internal endpoints are reachable only on the deployment's
-                # isolated internal network; the CLI supplies per-caller
-                # bearer authorization via RPC metadata.
+            if target.tls_profile is None:
+                if not _is_loopback_endpoint(endpoint):
+                    raise ValueError(f"{name}: plaintext RPC requires a loopback endpoint")
                 channel = grpc.aio.insecure_channel(endpoint, options=options)
             else:
-                if target.tls_profile is None:
-                    raise ValueError(f"TLS profile required for {name}")
                 profile = self.config().profiles[target.tls_profile]
                 credentials = grpc.ssl_channel_credentials(
                     root_certificates=profile.ca_cert.read_bytes(),
@@ -355,8 +413,21 @@ class Runtime:
             if len(token) < 32 or token.strip() != token:
                 raise PermissionError(f"{token_service} CLI requires its authorized token")
             return (("authorization", f"Bearer {token}"),)
-        if service == "collector" and method in protected:
-            return self.collector_admin_metadata()
+        if token_service in _COLLECTOR_TARGETS:
+            if method in protected:
+                return self.collector_admin_metadata()
+            return None
+        target = self.target(service)
+        token_env = dict(target.method_token_envs).get(method, target.token_env)
+        if token_env is not None:
+            token = os.getenv(token_env, "")
+            if (
+                len(token) < 32
+                or not token.isascii()
+                or any(not 33 <= ord(ch) <= 126 for ch in token)
+            ):
+                raise PermissionError(f"{service} CLI bearer credential missing or invalid")
+            return (("authorization", f"Bearer {token}"),)
         return None
 
     async def call_common(self, name: str, method: str) -> dict[str, Any]:

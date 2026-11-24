@@ -292,7 +292,7 @@ def test_gateway_unreachable_exit_3(cli_env: Any, tmp_path: Any) -> None:
     cfg = write_cli_yaml(
         tmp_path / "cli.yaml",
         certs,
-        {"gateway": "localhost:1"},
+        {"gateway": "127.0.0.1:1"},
         timeout=1.0,
     )
     completed = run_cli(cfg, "gateway", "list", timeout=20)
@@ -318,7 +318,7 @@ def test_gateway_update_deadline_unknown_single_dispatch(cli_env: Any, tmp_path:
     cfg = write_cli_yaml(
         tmp_path / "cli.yaml",
         server.cert_files,
-        {"gateway": f"localhost:{server.port}"},
+        {"gateway": f"127.0.0.1:{server.port}"},
         timeout=1.0,
     )
     completed = run_cli(

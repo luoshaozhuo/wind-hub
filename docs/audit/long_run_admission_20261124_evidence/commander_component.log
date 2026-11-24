@@ -1,0 +1,221 @@
+.......FFFFF..................................................FF........ [ 56%]
+.......................................................                  [100%]
+=================================== FAILURES ===================================
+___________ test_known_identity_returns_caller_id_when_scope_granted ___________
+
+    @pytest.mark.normal
+    async def test_known_identity_returns_caller_id_when_scope_granted() -> None:
+>       caller, code = await _require(["ops@windhub.test"], "control")
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/component/test_auth.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/component/test_auth.py:59: in _require
+    caller = await _boundary().require(context, scope)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <commander.infrastructure.adapters.inbound.grpc.server._Authorized object at 0x7bb07a1e4410>
+context = <tests.commander.component.test_auth.FakeContext object at 0x7bb07a1e7810>
+scope = 'control'
+
+    async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
+>       metadata = context.invocation_metadata()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'FakeContext' object has no attribute 'invocation_metadata'
+
+src/commander/infrastructure/adapters/inbound/grpc/server.py:86: AttributeError
+_______________ test_missing_client_identity_is_unauthenticated ________________
+
+    @pytest.mark.exception
+    async def test_missing_client_identity_is_unauthenticated() -> None:
+>       caller, code = await _require(None, "query")
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/component/test_auth.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/component/test_auth.py:59: in _require
+    caller = await _boundary().require(context, scope)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <commander.infrastructure.adapters.inbound.grpc.server._Authorized object at 0x7bb07a19c610>
+context = <tests.commander.component.test_auth.FakeContext object at 0x7bb07a19d0d0>
+scope = 'query'
+
+    async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
+>       metadata = context.invocation_metadata()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'FakeContext' object has no attribute 'invocation_metadata'
+
+src/commander/infrastructure/adapters/inbound/grpc/server.py:86: AttributeError
+_______________ test_unregistered_identity_is_permission_denied ________________
+
+    @pytest.mark.exception
+    async def test_unregistered_identity_is_permission_denied() -> None:
+>       caller, code = await _require(["stranger@windhub.test"], "query")
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/component/test_auth.py:86: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/component/test_auth.py:59: in _require
+    caller = await _boundary().require(context, scope)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <commander.infrastructure.adapters.inbound.grpc.server._Authorized object at 0x7bb07a1bf8d0>
+context = <tests.commander.component.test_auth.FakeContext object at 0x7bb07a1be7d0>
+scope = 'query'
+
+    async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
+>       metadata = context.invocation_metadata()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'FakeContext' object has no attribute 'invocation_metadata'
+
+src/commander/infrastructure/adapters/inbound/grpc/server.py:86: AttributeError
+__________ test_authenticated_but_scope_missing_is_permission_denied ___________
+
+    @pytest.mark.exception
+    async def test_authenticated_but_scope_missing_is_permission_denied() -> None:
+        # viewer 只有 query，不能 control/reload。
+>       _caller, code = await _require(["viewer@windhub.test"], "control")
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/component/test_auth.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/component/test_auth.py:59: in _require
+    caller = await _boundary().require(context, scope)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <commander.infrastructure.adapters.inbound.grpc.server._Authorized object at 0x7bb07a1c1d90>
+context = <tests.commander.component.test_auth.FakeContext object at 0x7bb07a1c1b50>
+scope = 'control'
+
+    async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
+>       metadata = context.invocation_metadata()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'FakeContext' object has no attribute 'invocation_metadata'
+
+src/commander/infrastructure/adapters/inbound/grpc/server.py:86: AttributeError
+__________ test_certificate_matching_two_callers_is_permission_denied __________
+
+    @pytest.mark.exception
+    async def test_certificate_matching_two_callers_is_permission_denied() -> None:
+>       _caller, code = await _require(["viewer@windhub.test", "ops@windhub.test"], "query")
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/commander/component/test_auth.py:107: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/component/test_auth.py:59: in _require
+    caller = await _boundary().require(context, scope)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <commander.infrastructure.adapters.inbound.grpc.server._Authorized object at 0x7bb07a1f0490>
+context = <tests.commander.component.test_auth.FakeContext object at 0x7bb07a1f0910>
+scope = 'query'
+
+    async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
+>       metadata = context.invocation_metadata()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'FakeContext' object has no attribute 'invocation_metadata'
+
+src/commander/infrastructure/adapters/inbound/grpc/server.py:86: AttributeError
+__________________ test_persistence_worker_death_is_degraded ___________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-23/test_persistence_worker_death_0')
+
+    async def test_persistence_worker_death_is_degraded(tmp_path: Path) -> None:
+        service = _service(tmp_path, journal_cls=_AppendKillsWorkerRepository)
+>       await service.start()
+
+tests/commander/component/test_persistence_service_health.py:132: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/commander/application/service_lifecycle.py:177: in start
+    await self._start_locked()
+src/commander/application/service_lifecycle.py:193: in _start_locked
+    settings: ServiceSettings = manager.start()
+                                ^^^^^^^^^^^^^^^
+src/commander/application/config_manager.py:160: in start
+    docs = self._load(settings)
+           ^^^^^^^^^^^^^^^^^^^^
+src/commander/application/config_manager.py:150: in _load
+    docs = SharedDocumentLoader(paths).load()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:101: in load
+    return self._with_shared_lock(self._load_locked)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:136: in _with_shared_lock
+    documents = read()
+                ^^^^^^
+src/core/configuration/shared_documents.py:167: in _load_locked
+    return self._load_documents(site, devices_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:318: in _load_documents
+    business_path = sole_catalog("business_points_standard")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+prefix = 'business_points_standard'
+
+    def sole_catalog(prefix: str) -> Path:
+        matches = tuple(self._paths.templates.glob(f"{prefix}_v*.yaml"))
+        if len(matches) != 1 or matches[0].is_symlink():
+>           raise ConfigError(f"{prefix}: exactly one pinned catalog is required")
+E           core.application.errors.ConfigError: business_points_standard: exactly one pinned catalog is required
+
+src/core/configuration/shared_documents.py:181: ConfigError
+___________ test_stop_reports_persistence_queue_when_drain_times_out ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-23/test_stop_reports_persistence_0')
+
+    async def test_stop_reports_persistence_queue_when_drain_times_out(tmp_path: Path) -> None:
+        service = _service(tmp_path, journal_cls=_AppendFailsRepository, grace=1.0)
+>       await service.start()
+
+tests/commander/component/test_persistence_service_health.py:157: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/commander/application/service_lifecycle.py:177: in start
+    await self._start_locked()
+src/commander/application/service_lifecycle.py:193: in _start_locked
+    settings: ServiceSettings = manager.start()
+                                ^^^^^^^^^^^^^^^
+src/commander/application/config_manager.py:160: in start
+    docs = self._load(settings)
+           ^^^^^^^^^^^^^^^^^^^^
+src/commander/application/config_manager.py:150: in _load
+    docs = SharedDocumentLoader(paths).load()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:101: in load
+    return self._with_shared_lock(self._load_locked)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:136: in _with_shared_lock
+    documents = read()
+                ^^^^^^
+src/core/configuration/shared_documents.py:167: in _load_locked
+    return self._load_documents(site, devices_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/core/configuration/shared_documents.py:318: in _load_documents
+    business_path = sole_catalog("business_points_standard")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+prefix = 'business_points_standard'
+
+    def sole_catalog(prefix: str) -> Path:
+        matches = tuple(self._paths.templates.glob(f"{prefix}_v*.yaml"))
+        if len(matches) != 1 or matches[0].is_symlink():
+>           raise ConfigError(f"{prefix}: exactly one pinned catalog is required")
+E           core.application.errors.ConfigError: business_points_standard: exactly one pinned catalog is required
+
+src/core/configuration/shared_documents.py:181: ConfigError
+=========================== short test summary info ============================
+FAILED tests/commander/component/test_auth.py::test_known_identity_returns_caller_id_when_scope_granted
+FAILED tests/commander/component/test_auth.py::test_missing_client_identity_is_unauthenticated
+FAILED tests/commander/component/test_auth.py::test_unregistered_identity_is_permission_denied
+FAILED tests/commander/component/test_auth.py::test_authenticated_but_scope_missing_is_permission_denied
+FAILED tests/commander/component/test_auth.py::test_certificate_matching_two_callers_is_permission_denied
+FAILED tests/commander/component/test_persistence_service_health.py::test_persistence_worker_death_is_degraded
+FAILED tests/commander/component/test_persistence_service_health.py::test_stop_reports_persistence_queue_when_drain_times_out
+7 failed, 120 passed in 24.76s

@@ -1,0 +1,43 @@
+schema_version: 3
+file_version: "1.3.0"
+service_id: gateway
+config_sources:
+  instances:
+    devices: farm-a
+
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50073
+  max_active_rpcs: 64
+  request_max_bytes: 2097152
+
+security:
+  callers:
+    - caller_id: operator
+      token_env: WIND_HUB_GATEWAY_OPERATOR_TOKEN
+      permissions: [read, lifecycle, diagnose]
+    - caller_id: generator
+      token_env: WIND_HUB_GENERATOR_GATEWAY_TOKEN
+      permissions: [inject, read]
+    - caller_id: commander
+      token_env: WIND_HUB_COMMANDER_GATEWAY_TOKEN
+      permissions: [simulation_execute, read]
+    - caller_id: sink
+      token_env: WIND_HUB_GATEWAY_SINK_TOKEN
+      permissions: [inject]
+
+servers:
+  - server_id: gateway-tz01
+    device_id: TZ01
+    listen_host: "127.0.0.1"
+    listen_port: 15020
+    desired_state: START
+    control:
+      enabled: false
+      target:
+        kind: none
+      mappings: []
+
+metrics:
+  window_seconds: 60
+  collect_interval_ms: 1000

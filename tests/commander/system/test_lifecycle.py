@@ -53,7 +53,7 @@ async def test_start_invalid_config(tmp_path) -> None:
     service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
     service_yaml.parent.mkdir(parents=True)
     service_yaml.write_text(
-        f"""schema_version: 1
+        f"""schema_version: 2
 file_version: 1.0.0
 service_id: commander
 config_sources:
@@ -75,12 +75,12 @@ shutdown:
         "file_version": "1.0.0",
         "deployment_id": "commander-invalid",
         "services": {"commander": {"config_id": "commander", "file_version": "1.0.0"}},
-        "instances": {"device": {"farm-a": {"file_version": "1.4.0"}}},
+        "instances": {"device": {"farm-a": {"file_version": "1.6.0"}}},
     }
     manifest = root / "deployments" / "deployment_commander-invalid_v1.0.0.yaml"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(yaml.safe_dump(deployment), encoding="utf-8")
-    referenced = root / "templates/device_models/device_model_wtg_tz2mw_v1.3.0.yaml"
+    referenced = root / "templates/device_models/device_model_wtg_tz2mw_v1.4.0.yaml"
     assert referenced.exists()
     referenced.unlink()
     registry = ProtocolRegistry()
@@ -102,7 +102,7 @@ async def test_graceful_shutdown(sys_pki, grpc_stack) -> None:
 
 def _blackhole_with_short_grace(service_dir: Path) -> None:
     """把 TZ01 指向不可路由地址，并把停止宽限压到 1s。"""
-    devices = service_dir / "configs" / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices = service_dir / "configs" / "instances" / "device_farm-a_v1.6.0.yaml"
     text = devices.read_text(encoding="utf-8")
     # 精确改写 TZ01 块（其前可能存在 GW 系列设备，不能替换首个 host）。
     prefix, rest = text.split("  TZ01:", 1)
@@ -178,7 +178,7 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
         devices_name = next(
             f.relative_path
             for f in runtime_before.files
-            if f.relative_path.endswith("instances/device_farm-a_v1.4.0.yaml")
+            if f.relative_path.endswith("instances/device_farm-a_v1.6.0.yaml")
         )
         before = yaml.safe_load(
             bytes(next(f for f in runtime_before.files if f.relative_path == devices_name).content)
@@ -189,7 +189,7 @@ async def test_restart_new_config(sys_pki, tmp_path) -> None:
         assert await service.stop() == frozenset()
 
         # 模拟外部配置变更：TZ05 端口改写（仅磁盘，不触碰运行时）。
-        original_device = stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
+        original_device = stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.6.0.yaml"
         new_device = original_device.with_name("device_farm-a_v1.4.1.yaml")
         device_document = yaml.safe_load(original_device.read_text(encoding="utf-8"))
         device_document["file_version"] = "1.4.1"

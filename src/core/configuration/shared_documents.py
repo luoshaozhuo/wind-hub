@@ -278,7 +278,7 @@ class SharedDocumentLoader:
                 *definition.templates.inherited_tables,
             ):
                 sources = table.document.get("config_sources", [])
-                if not isinstance(sources, (list, tuple)):
+                if not isinstance(sources, list | tuple):
                     raise ConfigError("PointTable config_sources must be a list")
                 pins = [
                     source
@@ -291,10 +291,14 @@ class SharedDocumentLoader:
                     raise ConfigError("PointTable has duplicate BusinessPoint catalog bindings")
                 if pins:
                     version = pins[0].get("file_version")
-                    if not isinstance(version, str) or re.fullmatch(
-                        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
-                        version,
-                    ) is None:
+                    if (
+                        not isinstance(version, str)
+                        or re.fullmatch(
+                            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+                            version,
+                        )
+                        is None
+                    ):
                         raise ConfigError("PointTable BusinessPoint catalog version is invalid")
                     catalog_versions.add(version)
                 else:
@@ -302,7 +306,9 @@ class SharedDocumentLoader:
         if catalog_versions and unpinned_tables:
             raise ConfigError("mixed pinned and unpinned PointTable catalog interpretations")
         if len(catalog_versions) > 1:
-            raise ConfigError("selected PointTables require different BusinessPoint catalog versions")
+            raise ConfigError(
+                "selected PointTables require different BusinessPoint catalog versions"
+            )
         if catalog_versions:
             version = next(iter(catalog_versions))
             business_path = self._paths.templates / f"business_points_standard_v{version}.yaml"

@@ -183,6 +183,7 @@ class ADSSubscription:
                         timestamp=stamp,
                         timestamp_source=source,
                         receive_time=received_at,
+                        raw_payload=raw[offset : offset + point.size] if valid else None,
                     )
                 )
             try:

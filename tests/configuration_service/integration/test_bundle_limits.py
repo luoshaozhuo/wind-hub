@@ -58,14 +58,16 @@ async def publish(
             request_id=f"{request_id}-candidate",
             expected_revision_id=expected_revision,
             documents=items,
-        )
+        ),
+        timeout=10,
     )
     await repository.PublishCandidate(
         pb.PublishCandidateRequest(
             request_id=f"{request_id}-publish",
             candidate_id=candidate.candidate_id,
             expected_revision_id=expected_revision,
-        )
+        ),
+        timeout=10,
     )
 
 
@@ -110,7 +112,7 @@ async def test_single_document_export_limit_is_resource_exhausted(
         await publish(repository, [oversized], request_id="oversized", expected_revision=0)
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
             await repository.GetConfig(
-                pb.GetConfigRequest(config_id=identity("oversized"), revision_id=1)
+                pb.GetConfigRequest(config_id=identity("oversized"), revision_id=1), timeout=10
             )
         assert rejected.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
     finally:
@@ -129,7 +131,8 @@ async def test_dependency_closure_limit_is_resource_exhausted(
             await repository.GetConfigBundle(
                 pb.GetConfigBundleRequest(
                     roots=[identity("dependent")], revision_id=2, include_dependencies=True
-                )
+                ),
+                timeout=10,
             )
         assert rejected.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
     finally:
@@ -145,10 +148,10 @@ async def test_bundle_total_limit_succeeds_with_headroom_and_rejects_one_extra_b
     try:
         await publish_dependency_pair(repository)
         root = await repository.GetConfig(
-            pb.GetConfigRequest(config_id=identity("root"), revision_id=2)
+            pb.GetConfigRequest(config_id=identity("root"), revision_id=2), timeout=10
         )
         dependent = await repository.GetConfig(
-            pb.GetConfigRequest(config_id=identity("dependent"), revision_id=2)
+            pb.GetConfigRequest(config_id=identity("dependent"), revision_id=2), timeout=10
         )
         exact_bytes = len(root.document.yaml_bytes) + len(dependent.document.yaml_bytes)
         restart_with_limits(
@@ -157,7 +160,8 @@ async def test_bundle_total_limit_succeeds_with_headroom_and_rejects_one_extra_b
         bundle = await repository.GetConfigBundle(
             pb.GetConfigBundleRequest(
                 roots=[identity("dependent")], revision_id=2, include_dependencies=True
-            )
+            ),
+            timeout=10,
         )
         assert len(bundle.files) == 2
         assert sum(len(item.yaml_bytes) for item in bundle.files) == exact_bytes
@@ -167,7 +171,8 @@ async def test_bundle_total_limit_succeeds_with_headroom_and_rejects_one_extra_b
             await repository.GetConfigBundle(
                 pb.GetConfigBundleRequest(
                     roots=[identity("dependent")], revision_id=2, include_dependencies=True
-                )
+                ),
+                timeout=10,
             )
         assert rejected.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
         assert rejected.value.details() == "configuration bundle exceeds response limit"
@@ -184,17 +189,18 @@ async def test_grpc_transport_allows_bundle_at_exact_yaml_quota(
     try:
         await publish_dependency_pair(repository)
         root = await repository.GetConfig(
-            pb.GetConfigRequest(config_id=identity("root"), revision_id=2)
+            pb.GetConfigRequest(config_id=identity("root"), revision_id=2), timeout=10
         )
         dependent = await repository.GetConfig(
-            pb.GetConfigRequest(config_id=identity("dependent"), revision_id=2)
+            pb.GetConfigRequest(config_id=identity("dependent"), revision_id=2), timeout=10
         )
         exact_bytes = len(root.document.yaml_bytes) + len(dependent.document.yaml_bytes)
         restart_with_limits(configurable_live, max_dependencies=2, max_bundle_bytes=exact_bytes)
         bundle = await repository.GetConfigBundle(
             pb.GetConfigBundleRequest(
                 roots=[identity("dependent")], revision_id=2, include_dependencies=True
-            )
+            ),
+            timeout=10,
         )
         assert bundle.total_bytes == exact_bytes
     finally:

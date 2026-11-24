@@ -1,0 +1,25 @@
+{
+  "services": [
+    "gateway",
+    "gateway-target",
+    "commander",
+    "data-generator",
+    "sink",
+    "storage",
+    "collector-realtime",
+    "collector-reliable"
+  ],
+  "protocol_samples": 66,
+  "kafka_offsets": {
+    "total": 67
+  },
+  "tdengine": {
+    "database": "wh_bc28d5159898c3736cefd6f4",
+    "stable": "st_4877c19edb41eea66395157e",
+    "count": 66
+  },
+  "generator_truth_files": [
+    "artifacts/e2e-final/data-generator/3a8b9ebc-1891-4eda-8abb-7123e1c1f8f1.jsonl"
+  ],
+  "replay_after_restart": 84
+}

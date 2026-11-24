@@ -1,15 +1,13 @@
-"""Commander gRPC 测试共享栈：真实 mTLS PKI + build_commander + 安全端口。
+"""Commander integration/system stack: real loopback Bearer RPC and SQLite.
 
-被 integration 与 system 两层 conftest 复用：
-  * EC P-256 CA 签发服务器/客户端证书（RFC8222 邮箱型 SAN 承载 caller 身份）；
-  * ``grpc.ssl_server_credentials(require_client_auth=True)`` 仅开安全端口；
-  * build_commander 组合根（真实 ConfigSnapshots/commit、EventRepository WAL）。
+External trusted recovery still uses independently issued HTTPS/mTLS certificates.
+Internal Commander RPCs authenticate the caller by its explicit Bearer identity.
 """
 
 from __future__ import annotations
 
 import ipaddress
-import json
+import secrets
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +17,7 @@ from shutil import copytree
 from typing import Any
 
 import grpc
+import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -41,8 +40,36 @@ IDENTITIES = {
     "viewer": ("viewer@windhub.test", "viewer-console", ("query",)),
     "ops": ("ops@windhub.test", "ops-console", ("control", "query", "recover")),
     "deployer": ("deployer@windhub.test", "reload-deployer", ("reload", "query", "recover")),
+    "limited": ("limited@windhub.test", "limited-console", ()),
 }
 STRANGER_IDENTITY = "stranger@windhub.test"
+
+
+class _BearerInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
+    """Inject one caller token into each real Commander RPC."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    async def intercept_unary_unary(
+        self,
+        continuation: Any,
+        client_call_details: grpc.aio.ClientCallDetails,
+        request: Any,
+    ) -> Any:
+        return await continuation(
+            client_call_details._replace(
+                metadata=(
+                    *(client_call_details.metadata or ()),
+                    ("authorization", f"Bearer {self._token}"),
+                )
+            ),
+            request,
+        )
+
+
+def _token_env(role: str) -> str:
+    return f"WIND_HUB_TEST_COMMANDER_{role.upper()}_TOKEN"
 
 
 def _service_yaml(
@@ -53,12 +80,27 @@ def _service_yaml(
     subject: str,
 ) -> str:
     return f"""\
-schema_version: 1
-file_version: 1.0.0
+schema_version: 3
+file_version: '1.0.0'
 service_id: commander
 config_sources:
   instances:
     devices: farm-a
+grpc:
+  listen_host: 127.0.0.1
+  listen_port: 1
+  max_active_rpcs: 100
+security:
+  callers:
+    - caller_id: viewer-console
+      token_env: WIND_HUB_TEST_COMMANDER_VIEWER_TOKEN
+      permissions: [query]
+    - caller_id: ops-console
+      token_env: WIND_HUB_TEST_COMMANDER_OPS_TOKEN
+      permissions: [control, query, recover]
+    - caller_id: reload-deployer
+      token_env: WIND_HUB_TEST_COMMANDER_DEPLOYER_TOKEN
+      permissions: [reload, query, recover]
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -108,6 +150,10 @@ _SETPOINT_TABLE = """\
 schema_version: 1
 template_id: modbus_wtg
 file_version: 1.0.0
+config_sources:
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.5.0"
 protocol: modbus
 points:
   setpoint_power:
@@ -341,6 +387,7 @@ class GrpcStack:
     permissions: dict[str, tuple[str, frozenset[str]]]
     stream: str
     subject: str
+    tokens: dict[str, str]
 
     def channel(
         self,
@@ -350,17 +397,11 @@ class GrpcStack:
         no_client_cert: bool = False,
         ca: bytes | None = None,
     ) -> grpc.aio.Channel:
-        """真实 TLS 客户端通道；client=None 且不提供证书时为无证书调用。"""
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=ca if ca is not None else pki.ca_cert,
-            private_key=None if no_client_cert or client is None else pki.key(client),
-            certificate_chain=None if no_client_cert or client is None else pki.cert(client),
-        )
-        return grpc.aio.secure_channel(
-            self.target,
-            credentials,
-            options=(("grpc.ssl_target_name_override", "localhost"),),
-        )
+        """Use current loopback Bearer RPC identity; absence is unauthenticated."""
+        if no_client_cert or client is None:
+            return grpc.aio.insecure_channel(self.target)
+        token = self.tokens.get(client, secrets.token_hex(32))
+        return grpc.aio.insecure_channel(self.target, interceptors=[_BearerInterceptor(token)])
 
     def stubs(
         self, pki: Pki, *, client: str | None = "ops", **kwargs: Any
@@ -372,10 +413,10 @@ class GrpcStack:
         )
 
 
-def _permissions() -> dict[str, tuple[str, frozenset[str]]]:
+def _permissions(tokens: dict[str, str]) -> dict[str, tuple[str, frozenset[str]]]:
     return {
-        identity: (caller_id, frozenset(grants))
-        for identity, caller_id, grants in IDENTITIES.values()
+        tokens[role]: (caller_id, frozenset(grants))
+        for role, (_, caller_id, grants) in IDENTITIES.items()
     }
 
 
@@ -405,6 +446,10 @@ async def build_stack(
     root = service_dir / "configs"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
+    # Production roots pin exactly one BusinessPoint catalog; the archive
+    # carries historical v1.4.0 as well, so mirror the active-root invariant.
+    for stale in (root / "templates").glob("business_points_standard_v1.4.0.yaml"):
+        stale.unlink(missing_ok=True)
     db_path = service_dir / "state" / "commander.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     stream = audit_stream or f"{stream_prefix}_{uuid.uuid4().hex[:12]}"
@@ -419,32 +464,19 @@ async def build_stack(
         "services:\n  commander:\n    config_id: commander\n"
         "    file_version: '1.0.0'\n"
         "instances:\n  device:\n    farm-a:\n"
-        "      file_version: '1.4.0'\n",
+        "      file_version: '1.6.0'\n",
         encoding="utf-8",
     )
     yaml_text = _service_yaml(db_path, nats_url, stream=stream, subject=subject)
     if recovery is not None:
-        yaml_text += (
-            "grpc:\n"
-            "  listen_host: 127.0.0.1\n"
-            "  listen_port: 1\n"
-            "  max_active_rpcs: 100\n"
-            "security:\n"
-            f"  ca_cert: {json.dumps(str(pki.tmp / 'ca.crt'))}\n"
-            f"  server_cert: {json.dumps(str(pki.tmp / 'server.crt'))}\n"
-            f"  server_key: {json.dumps(str(pki.tmp / 'server.key'))}\n"
-            "  callers:\n"
-            "    - caller_id: ops-console\n"
-            f"      certificate_identity: {json.dumps(IDENTITIES['ops'][0])}\n"
-            "      permissions: [control, query, recover]\n"
-            "  recovery:\n"
-            + "".join(f"    {key}: {json.dumps(value)}\n" for key, value in recovery.items())
-        )
+        document = yaml.safe_load(yaml_text)
+        document["security"]["recovery"] = recovery
+        yaml_text = yaml.safe_dump(document, sort_keys=False)
     yaml_path.write_text(yaml_text, encoding="utf-8")
     # All integration scenarios require the same WT01 identity and binding;
     # tests without a live Modbus endpoint use an unbound reserved port.
     selected_port = modbus_port if modbus_port is not None else free_port()
-    devices_yaml = root / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices_yaml = root / "instances" / "device_farm-a_v1.6.0.yaml"
     devices_yaml.write_text(
         devices_yaml.read_text(encoding="utf-8")
         + "".join(
@@ -461,7 +493,7 @@ async def build_stack(
     table.write_text(_SETPOINT_TABLE, encoding="utf-8")
     model = root / "templates" / "device_models" / "device_model_modbus_wtg_v1.0.0.yaml"
     model.write_text(_MODELS_TABLE, encoding="utf-8")
-    business = root / "templates" / "business_points_standard_v1.4.0.yaml"
+    business = root / "templates" / "business_points_standard_v1.5.0.yaml"
     text = business.read_text(encoding="utf-8")
     if "  setpoint_power:" not in text:
         business.write_text(
@@ -476,7 +508,8 @@ async def build_stack(
     service = build_commander(service_config=yaml_path, protocol_registry=registry)
     await service.start()
     snapshots = ConfigSnapshots(service, yaml_path)
-    permissions = _permissions()
+    tokens = {role: secrets.token_hex(32) for role in IDENTITIES}
+    permissions = _permissions(tokens)
     server = grpc.aio.server(maximum_concurrent_rpcs=100)
     authority = (
         IsolationAuthorityClient(
@@ -491,14 +524,9 @@ async def build_stack(
         else None
     )
     register_services(server, service, permissions, snapshots, authority)
-    credentials = grpc.ssl_server_credentials(
-        [(pki.key("server"), pki.cert("server"))],
-        root_certificates=pki.ca_cert,
-        require_client_auth=True,
-    )
     port = free_port()
-    bound = server.add_secure_port(f"127.0.0.1:{port}", credentials)
-    assert bound, "gRPC secure port failed to bind"
+    bound = server.add_insecure_port(f"127.0.0.1:{port}")
+    assert bound, "gRPC loopback port failed to bind"
     await server.start()
     stack = GrpcStack(
         service=service,
@@ -510,5 +538,6 @@ async def build_stack(
         permissions=permissions,
         stream=stream,
         subject=subject,
+        tokens=tokens,
     )
     return stack, server, service

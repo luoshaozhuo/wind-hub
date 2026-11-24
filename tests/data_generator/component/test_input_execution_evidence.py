@@ -97,7 +97,7 @@ def _physical_service_path(configs_root: Any) -> Path:
     service_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     manifest = service_path.parent.parent / "deployments" / "deployment_dg-test_v1.0.0.yaml"
     deployment = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    deployment["instances"]["device"] = {"sim": {"file_version": "1.2.0"}}
+    deployment["instances"]["device"] = {"sim": {"file_version": "1.4.0"}}
     manifest.write_text(yaml.safe_dump(deployment, sort_keys=False), encoding="utf-8")
     return service_path
 

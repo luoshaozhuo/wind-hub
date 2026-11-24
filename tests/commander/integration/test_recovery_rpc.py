@@ -50,7 +50,7 @@ async def _aborts(call: Awaitable[Any], code: grpc.StatusCode) -> grpc.aio.AioRp
 async def test_recover_scope_excludes_viewer_and_allows_only_ops_deployer_to_boundary(
     pki: Pki, grpc_stack: GrpcStack
 ) -> None:
-    for client in ("viewer", "stranger"):
+    for client in ("viewer", "limited"):
         _common, commander = grpc_stack.stubs(pki, client=client)
         await _aborts(
             commander.RecoverDeviceControl(_request(), timeout=5),

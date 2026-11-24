@@ -20,8 +20,9 @@ plaintext control listeners on an external interface.
 
 Never commit the populated deploy/.env, TLS keys, or Collector tokens.
 Deployment configuration is immutable; scripts refuse to overwrite generated CLI YAML.
-All business processes need the correct mTLS identity, least privilege
-permissions, source trees, and writable owned state directories.
+Collector may use its dedicated mTLS client identity. Gateway, Commander and
+Data Generator management gRPC use loopback-only Bearer tokens provisioned
+in the process environment. Every process needs least privilege and owned state.
 
 Step 1: Prepare the private deployment root
 -------------------------------------------
@@ -39,10 +40,16 @@ Verify certificate CN/SAN and module permission mappings independently.
 
 Step 2: Validate the Deployment selected versions
 -------------------------------------------------
-Use configs/deployments/deployment_prod-a_v1.2.0.yaml and the shipped
-versioned Service/Instance/Template files. Realtime and Reliable Collector
+Explicitly select a reviewed immutable Deployment, for example
+configs/deployments/deployment_prod-a_v1.8.0.yaml (UNPUBLISHED CANDIDATE,
+not approved for activation). Verify all referenced Service/Instance versions. Realtime and Reliable Collector
 Services are separate immutable configurations; do not generate unversioned
 Collector files or infer the latest version.
+
+
+Do not use the unapproved prod-a candidate on a live plant. Token environment
+variables referenced in service_cli_v1.4.0.yaml must be provisioned separately
+and must not be written as literal values into CLI YAML or process.env.
 
 Step 3A: Native Linux CLI deployment
 ------------------------------------
@@ -57,6 +64,7 @@ Then:
 
   python deploy/render_cli.py \
     --root /srv/wind-hub --mode process \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --output /srv/wind-hub/cli-runtime.yaml \
     --python /ABSOLUTE/PATH/TO/python \
     --ca /srv/wind-hub/certs/ca.pem \
@@ -66,6 +74,18 @@ Then:
 
   wind-hub --config /srv/wind-hub/cli-runtime.yaml \
     service start gateway --yes
+
+  # Optional: manage Configuration and Storage as two additional CLI processes.
+  # These bootstraps MUST match the exact selected Deployment and Service IDs:
+  #   --configuration-bootstrap /ABSOLUTE/configuration_bootstrap.yaml
+  #   --configuration-endpoint 127.0.0.1:51060
+  #   --storage-bootstrap /ABSOLUTE/storage_bootstrap.yaml
+  #   --storage-endpoint 127.0.0.1:51110
+  # Supply all four flags with --mode process after setting up the service
+  # configuration, token environment, broker and TDengine.
+  # The prod-a renderer expects its selected six role identities and ports.
+  # Do not pass e2e-final/sim-a deployments to it: those have different
+  # service identities and ports and require their own prepared CLI maps.
 
 The generated YAML contains TLS paths but never the admin token. Export the
 four variables from the protected env file into the CLI execution environment
@@ -93,6 +113,7 @@ host-network-reachable service addresses.
 For a container-resident RPC-only CLI config, generate with:
   python deploy/render_cli.py \
     --root /srv/wind-hub --mode rpc --runtime-prefix /etc/wind-hub \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --output /srv/wind-hub/cli-container-runtime.yaml \
     --ca /srv/wind-hub/certs/ca.pem \
     --client-cert /srv/wind-hub/certs/cli.pem \
@@ -131,16 +152,19 @@ Check file permissions before provisioning.
 
 Preview and then apply on an isolated host:
   python deploy/provision.py --runtime containerd --root /srv/wind-hub \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --image IMAGE_REF --uid 1000 --gid 1000 \
     --namespace wind-hub \
     --collector-env-file /ABSOLUTE/PATH/collector.env
 
   python deploy/provision.py --runtime containerd --root /srv/wind-hub \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --image IMAGE_REF --uid 1000 --gid 1000 \
     --namespace wind-hub \
     --collector-env-file /ABSOLUTE/PATH/collector.env --apply
 
   python deploy/provision.py --runtime isulad --root /srv/wind-hub \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --image wind-hub:local --uid 1000 --gid 1000 \
     --collector-env-file /ABSOLUTE/PATH/collector.env --apply
 
@@ -160,6 +184,7 @@ Use CLI service start to start each pre-created target.
 
 Create the HOST CLI manager map:
   python deploy/render_cli.py --root /srv/wind-hub \
+    --deployment configs/deployments/deployment_prod-a_v1.8.0.yaml \
     --mode containerd \
     --output /srv/wind-hub/cli-containerd-runtime.yaml \
     --ca /srv/wind-hub/certs/ca.pem \
@@ -189,7 +214,8 @@ a deployment document changed.
 Known boundaries
 ----------------
 - No new Kubernetes, Helm, systemd or management daemon.
-- No automatic TLS generation, default credentials, or disabling mTLS.
+- No automatic TLS generation or default credentials. Loopback token auth
+  and Collector mTLS remain separately enforced by service configuration.
 - Production multi-host networking and volume isolation require a
   separately reviewed deployment design; host-network Compose is
   intentionally restricted to isolated software-test hosts.

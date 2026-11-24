@@ -7,11 +7,14 @@ import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
+from contracts.sample_batch import SampleBatch, SampleItem
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from storage_service.application.config import (
     DeviceBinding,
     DeviceModel,
@@ -25,7 +28,7 @@ from storage_service.application.ingestion import (
 )
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
-from storage_service.domain.sample import StorageSample
+from storage_service.domain.sample import DataLevel, StorageSample
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
     ImmutableConfigArchive,
@@ -164,6 +167,74 @@ def _sample(
             }
         ).encode()
     )
+
+
+@pytest.mark.asyncio
+async def test_pinned_protocol_unit_can_be_inferred_from_sink_wire(tmp_path: Path) -> None:
+    """A missing unit is not a forged unit; the pinned table supplies authority."""
+    now = datetime(2026, 11, 23, tzinfo=UTC)
+    item = SampleItem(
+        point_id="rotor_speed",
+        sample_id="sink-protocol-source-unit",
+        value=1.5,
+        quality="good",
+        sample_time=now,
+    )
+    batch = SampleBatch(
+        batch_id="batch-sink-source-unit",
+        mode="reliable",
+        wind_farm_id="farm-1",
+        collector_id="collector-1",
+        task_id="task-1",
+        device_type="turbine",
+        device_id="device-1",
+        point_table_id=TABLE,
+        publish_time=now,
+        samples=(item,),
+    )
+    payload = encode_kafka_points(batch, (item,), data_level="protocol")[0]
+    sample = StorageSample.from_kafka_json(payload)
+    assert sample.unit == ""
+    resolver = _resolver(tmp_path, {TABLE: ("shared", "pin-1.0.0")}, [_binding()])
+    await resolver.require_exact_versions((sample,))
+    assert (
+        await resolver.get_unit(
+            point_table_id=TABLE,
+            point_id="rotor_speed",
+            business_point_id="",
+            data_level=DataLevel.PROTOCOL,
+        )
+        == "m/s"
+    )
+
+    forged = json.loads(payload)
+    forged["unit"] = "kW"
+    mismatched = StorageSample.from_kafka_json(json.dumps(forged).encode())
+    with pytest.raises(ConfigHistoryUnavailableError, match="PROTOCOL point unit"):
+        await resolver.require_exact_versions((mismatched,))
+
+
+@pytest.mark.asyncio
+async def test_cold_restart_resolves_pinned_historical_point_unit(tmp_path: Path) -> None:
+    """Query must be able to load an exact historical PointTable before ingest."""
+    pins = {TABLE: ("shared", "pin-1.0.0")}
+    prior = _resolver(tmp_path, pins, [_binding()])
+    await prior.require_exact_versions((_sample(),))
+
+    # Simulate Storage process restart: archive remains, but the in-memory
+    # ConfigurationPointTableResolver document cache is empty.
+    recovered = _resolver(tmp_path, pins, [_binding()])
+    assert (
+        await recovered.get_unit(
+            point_table_id=TABLE,
+            point_id="rotor_speed",
+            business_point_id="",
+            data_level=DataLevel.PROTOCOL,
+        )
+        == "m/s"
+    )
+    # The same immutable version must be available for subsequent ingestion.
+    await recovered.require_exact_versions((_sample(),))
 
 
 @pytest.mark.parametrize(

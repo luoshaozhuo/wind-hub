@@ -1,0 +1,112 @@
+# 最终联测 CLI 进程映射；禁止选择生产实例；工作目录/令牌环境变量需由 Fixture 隔离装配。
+# schema_version=1, file_version=MAJOR.MINOR.PATCH; service_id 精确匹配 Deployment。
+# 各 service manager=process，不允许 containerd/iSulad 混用替代本轮真实 Linux E2E。
+schema_version: 1
+file_version: "1.1.5"
+service_id: cli-e2e
+cli:
+  prompt: "wind-hub-e2e> "
+  output_format: json
+  timeout_seconds: 30
+  history: false
+  max_display_rows: 1000
+  poll_interval_ms: 1000
+  poll_reconnect_attempts: 3
+  snapshot_max_bytes: 67108864
+  diff_max_file_bytes: 1048576
+  diff_max_output_lines: 10000
+services:
+  configuration:
+    grpc_endpoint: "127.0.0.1:51060"
+    manager: process
+    target: configuration
+    process:
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/opt/wind-hub/src/deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/configuration.log"
+  gateway:
+    token_env: WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN
+    grpc_endpoint: "127.0.0.1:52073"
+    manager: process
+    target: gateway
+    process:
+      argv: ["/usr/bin/python3", "-m", "industrial_gateway.main", "--config", "/opt/wind-hub/src/configs/services/service_gateway-e2e-source_v1.1.2.yaml", "--project-root", "/opt/wind-hub/src"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/gateway.log"
+  gateway-target:
+    token_env: WIND_HUB_E2E_GATEWAY_TARGET_OPERATOR_TOKEN
+    grpc_endpoint: "127.0.0.1:52074"
+    manager: process
+    target: gateway-target
+    process:
+      argv: ["/usr/bin/python3", "-m", "industrial_gateway.main", "--config", "/opt/wind-hub/src/configs/services/service_gateway-e2e-target_v1.1.1.yaml", "--project-root", "/opt/wind-hub/src"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/gateway-target.log"
+  data-generator:
+    token_env: WIND_HUB_E2E_GENERATOR_CLI_TOKEN
+    grpc_endpoint: "127.0.0.1:52061"
+    manager: process
+    target: data-generator
+    process:
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/opt/wind-hub/src/configs/services/service_data-generator-e2e_v1.1.1.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/data-generator.log"
+  collector-realtime:
+    grpc_endpoint: "127.0.0.1:52051"
+    manager: process
+    target: collector-realtime
+    process:
+      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-realtime_v1.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-realtime", "--collector-id", "collector-e2e-realtime", "--grpc-host", "127.0.0.1", "--grpc-port", "52051"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/collector-realtime.log"
+  collector-reliable:
+    grpc_endpoint: "127.0.0.1:52054"
+    manager: process
+    target: collector-reliable
+    process:
+      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-reliable_v1.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-reliable", "--collector-id", "collector-e2e-reliable", "--grpc-host", "127.0.0.1", "--grpc-port", "52054"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/collector-reliable.log"
+  collector:
+    grpc_endpoint: "127.0.0.1:52051"
+  commander:
+    token_env: WIND_HUB_E2E_COMMANDER_EMS_TOKEN
+    method_token_envs:
+      RecoverDeviceControl: WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN
+    grpc_endpoint: "127.0.0.1:52052"
+    manager: process
+    target: commander
+    process:
+      argv: ["/usr/bin/python3", "-m", "commander", "--config", "/opt/wind-hub/src/configs/services/service_commander-e2e_v1.1.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/commander.log"
+  sink:
+    grpc_endpoint: "127.0.0.1:52053"
+    manager: process
+    target: sink
+    process:
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/opt/wind-hub/src", "--service-file", "configs/services/service_sink-e2e_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/sink.log"
+  storage:
+    grpc_endpoint: "127.0.0.1:52110"
+    manager: process
+    target: storage
+    process:
+      argv: ["/usr/bin/python3", "-m", "storage_service.main", "--bootstrap", "/opt/wind-hub/src/deploy/e2e/storage_bootstrap_e2e_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
+      log_file: "/var/lib/wind-hub/e2e-final/logs/storage.log"
+network_probe:
+  max_hosts: 1024
+  max_concurrency: 64
+  timeout_seconds: 1
+  industrial_tcp_ports: [502]

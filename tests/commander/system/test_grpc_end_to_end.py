@@ -58,7 +58,7 @@ async def test_service_info_status(sys_pki, grpc_stack) -> None:
     ready = {m.name: m for m in metrics.metrics}["service_ready"]
     assert ready.value in (0.0, 1.0)
     # 无权限身份在系统边界被拒（异常侧）。
-    common_stranger, _ = grpc_stack.stubs(sys_pki, client="stranger")
+    common_stranger, _ = grpc_stack.stubs(sys_pki, client="limited")
     await _aborts(
         common_stranger.GetServiceStatus(common_pb2.Empty(), timeout=5),
         grpc.StatusCode.PERMISSION_DENIED,

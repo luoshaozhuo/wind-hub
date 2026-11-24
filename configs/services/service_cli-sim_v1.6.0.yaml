@@ -1,0 +1,71 @@
+# 仅供 sim-a 独立网络/进程管理使用；无 TLS/mTLS 配置和生产目标。
+# sim-a 隔离管理 CLI，不绑定生产 Sink/Storage；现场进程目标需要复核。
+# Configuration CLI requires WIND_HUB_CONFIG_CLI_ADMIN_TOKEN (32+ chars)
+# Storage CLI requires WIND_HUB_STORAGE_OPERATOR_TOKEN (32+ chars).
+# Collector management operations require WIND_HUB_COLLECTOR_ADMIN_TOKEN
+# in the CLI process environment. Never put the token value in this YAML.
+schema_version: 1
+file_version: "1.6.0"
+service_id: cli-sim
+cli:
+  prompt: "wind-hub-sim-a> "
+  output_format: table
+  timeout_seconds: 5
+  history: true
+  max_display_rows: 1000
+  poll_interval_ms: 1000
+  poll_reconnect_attempts: 3
+  snapshot_max_bytes: 67108864
+  diff_max_file_bytes: 1048576
+  diff_max_output_lines: 10000
+services:
+  configuration:
+    grpc_endpoint: "127.0.0.1:53060"
+    manager: process
+    target: configuration-sim
+    process:
+      argv: ["/usr/bin/python3", "-m", "configuration_service", "--config", "/opt/wind-hub/src/deploy/sim-a/configuration_bootstrap_sim-a_v1.0.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/sim-a/cli-processes"
+      log_file: "/var/lib/wind-hub/sim-a/logs/configuration.log"
+  collector:
+    grpc_endpoint: "127.0.0.1:53051"
+    manager: process
+    target: collector-sim
+    process:
+      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-sim_v1.0.0.yaml", "--state-directory", "/var/lib/wind-hub/sim-a/collector", "--collector-id", "collector-sim", "--grpc-host", "127.0.0.1", "--grpc-port", "53051"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/sim-a/cli-processes"
+      log_file: "/var/lib/wind-hub/sim-a/logs/collector.log"
+  commander:
+    grpc_endpoint: "127.0.0.1:53052"
+    manager: process
+    target: commander-sim
+    process:
+      argv: ["/usr/bin/python3", "-m", "commander", "--config", "/opt/wind-hub/src/configs/services/service_commander-sim_v1.2.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/sim-a/cli-processes"
+      log_file: "/var/lib/wind-hub/sim-a/logs/commander.log"
+  gateway:
+    grpc_endpoint: "127.0.0.1:53073"
+    manager: process
+    target: gateway-sim
+    process:
+      argv: ["/usr/bin/python3", "-m", "industrial_gateway.main", "--config", "/opt/wind-hub/src/configs/services/service_gateway-sim_v1.2.0.yaml", "--project-root", "/opt/wind-hub/src"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/sim-a/cli-processes"
+      log_file: "/var/lib/wind-hub/sim-a/logs/gateway.log"
+  data-generator:
+    grpc_endpoint: "127.0.0.1:53061"
+    manager: process
+    target: data-generator-sim
+    process:
+      argv: ["/usr/bin/python3", "-m", "data_generator.main", "--config", "/opt/wind-hub/src/configs/services/service_data-generator-sim_v1.2.0.yaml"]
+      cwd: "/opt/wind-hub/src"
+      state_dir: "/var/lib/wind-hub/sim-a/cli-processes"
+      log_file: "/var/lib/wind-hub/sim-a/logs/data-generator.log"
+network_probe:
+  max_hosts: 1024
+  max_concurrency: 64
+  timeout_seconds: 1
+  industrial_tcp_ports: [102, 502, 2404, 4840, 44818, 48898]

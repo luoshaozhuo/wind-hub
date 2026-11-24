@@ -13,6 +13,7 @@ from configuration_service.application.directory_manifest import (
 )
 from configuration_service.infrastructure.adapters.outbound.yaml.codec import parse_yaml
 from core.configuration.publication_identity import resolve_publication_identity
+from tests.support.configuration_archive import is_superseded_malformed
 
 
 def _file(path: str, payload: bytes = b"schema_version: 1\n") -> DirectoryFile:
@@ -145,7 +146,7 @@ def test_repository_directory_paths_have_unambiguous_identities() -> None:
     seen: set[tuple[str, str, str]] = set()
     for path in sorted(root.rglob("*.yaml")):
         relative_path = path.relative_to(root).as_posix()
-        if _is_local_bootstrap(relative_path):
+        if _is_local_bootstrap(relative_path) or is_superseded_malformed(relative_path):
             continue
         document = parse_yaml(path.read_bytes(), max_bytes=64 * 1024 * 1024)
         if relative_path.startswith("services/service_configuration_v"):

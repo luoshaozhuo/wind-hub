@@ -110,22 +110,10 @@ class ScriptedGeneratorService(dg_rpc.DataGeneratorServiceServicer):
         )
 
 
-async def _start_generator(
-    pki: dict[str, Any], service: ScriptedGeneratorService, port: int
-) -> grpc.aio.Server:
+async def _start_generator(service: ScriptedGeneratorService, port: int) -> grpc.aio.Server:
     server = grpc.aio.server()
     dg_rpc.add_DataGeneratorServiceServicer_to_server(service, server)
-    credentials = grpc.ssl_server_credentials(
-        [
-            (
-                Path(pki["server_key"]).read_bytes(),
-                Path(pki["server_crt"]).read_bytes(),
-            )
-        ],
-        root_certificates=Path(pki["ca"]).read_bytes(),
-        require_client_auth=True,
-    )
-    server.add_secure_port(f"127.0.0.1:{port}", credentials)
+    server.add_insecure_port(f"127.0.0.1:{port}")
     await server.start()
     return server
 
@@ -133,12 +121,7 @@ async def _start_generator(
 def _simulation_block(endpoint: str) -> dict[str, Any]:
     return {
         "endpoint": endpoint,
-        "tls": {
-            "enabled": True,
-            "cert_file": f"certs/client-{COMMANDER_CN}.crt",
-            "key_file": f"certs/client-{COMMANDER_CN}.key",
-            "ca_file": "certs/ca.crt",
-        },
+        "token_env": "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN",
         "scenario_id": SCENARIO_ID,
     }
 
@@ -180,7 +163,7 @@ async def chain(tmp_path: Path):
         extra_clients=[STRANGER_CN],
         simulation=_simulation_block(f"127.0.0.1:{generator_port}"),
     )
-    server = await _start_generator(harness.pki, generator, generator_port)
+    server = await _start_generator(generator, generator_port)
     try:
         yield harness, generator
     finally:
@@ -228,14 +211,17 @@ async def test_stranger_cn_is_denied_simulation_permission(chain: Any) -> None:
         stub = gw_rpc.IndustrialGatewayServiceStub(channel)
         with pytest.raises(grpc.aio.AioRpcError) as execute_error:
             await stub.ExecuteSimulationCommand(
-                await _command_request(stub, request_id="req-denied-001")
+                await _command_request(
+                    gw_rpc.IndustrialGatewayServiceStub(harness._channel),
+                    request_id="req-denied-001",
+                )
             )
-        assert execute_error.value.code() is grpc.StatusCode.PERMISSION_DENIED
+        assert execute_error.value.code() is grpc.StatusCode.UNAUTHENTICATED
         with pytest.raises(grpc.aio.AioRpcError) as query_error:
             await stub.GetSimulationExecutionResult(
                 gw.SimulationExecutionQuery(gateway_id=GATEWAY_ID, request_id="req-denied-001")
             )
-        assert query_error.value.code() is grpc.StatusCode.PERMISSION_DENIED
+        assert query_error.value.code() is grpc.StatusCode.UNAUTHENTICATED
         assert generator.update_requests == []
     finally:
         await channel.close()

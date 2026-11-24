@@ -55,7 +55,9 @@ async def test_contract_operations(
         status = await common_stub.GetServiceStatus(common.Empty())
         assert status.health in ("HEALTHY", "DEGRADED")
         capabilities = await common_stub.GetCapabilities(common.Empty())
-        assert len(capabilities.rpc_names) == 15
+        assert len(capabilities.rpc_names) == len(
+            dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
+        ) + len(common.DESCRIPTOR.services_by_name["CommonService"].methods)
         devices = await dg_stub.ListDevices(dg.ListDevicesRequest())
         assert {item.device_id for item in devices.devices} == {"GW01"}
         assert await dg_stub.GetDevice(common.ObjectId(id="GW01"))

@@ -22,14 +22,14 @@ pytestmark = [
 
 
 class FakeContext:
-    """记录 abort 的 ServicerContext 替身；auth_context 可控。"""
+    """记录 abort 的 ServicerContext 替身；authorization metadata 可控。"""
 
-    def __init__(self, identities: list[bytes] | None) -> None:
-        self._identities = identities or []
+    def __init__(self, metadata: list[tuple[str, str]] | None = None) -> None:
+        self._metadata = list(metadata or [])
         self.aborted: tuple[grpc.StatusCode, str] | None = None
 
-    def auth_context(self) -> dict[str, list[bytes]]:
-        return {"x509_subject_alternative_name": list(self._identities)}
+    def invocation_metadata(self) -> list[tuple[str, str]]:
+        return list(self._metadata)
 
     async def abort(self, code: grpc.StatusCode, details: str) -> None:
         self.aborted = (code, details)
@@ -41,9 +41,9 @@ class _AbortError(Exception):
 
 
 _PERMISSIONS = {
-    "viewer@windhub.test": ("viewer-console", frozenset({"query"})),
-    "ops@windhub.test": ("ops-console", frozenset({"query", "control"})),
-    "deployer@windhub.test": ("reload-deployer", frozenset({"query", "reload"})),
+    "viewer-token": ("viewer-console", frozenset({"query"})),
+    "ops-token": ("ops-console", frozenset({"query", "control"})),
+    "deployer-token": ("reload-deployer", frozenset({"query", "reload"})),
 }
 
 
@@ -51,10 +51,14 @@ def _boundary() -> _Authorized:
     return _Authorized(service=object(), permissions=_PERMISSIONS)  # type: ignore[arg-type]
 
 
+def _bearer(token: str) -> list[tuple[str, str]]:
+    return [("authorization", f"Bearer {token}")]
+
+
 async def _require(
-    identities: list[str] | None, scope: str
+    headers: list[tuple[str, str]] | None, scope: str
 ) -> tuple[str | None, grpc.StatusCode | None]:
-    context = FakeContext([item.encode() for item in identities] if identities else [])
+    context = FakeContext(headers)
     try:
         caller = await _boundary().require(context, scope)
     except _AbortError:
@@ -65,47 +69,54 @@ async def _require(
 
 @pytest.mark.normal
 async def test_known_identity_returns_caller_id_when_scope_granted() -> None:
-    caller, code = await _require(["ops@windhub.test"], "control")
+    caller, code = await _require(_bearer("ops-token"), "control")
     assert caller == "ops-console" and code is None
-    caller, code = await _require(["deployer@windhub.test"], "reload")
+    caller, code = await _require(_bearer("deployer-token"), "reload")
     assert caller == "reload-deployer" and code is None
-    caller, code = await _require(["viewer@windhub.test"], "query")
+    caller, code = await _require(_bearer("viewer-token"), "query")
     assert caller == "viewer-console" and code is None
 
 
 @pytest.mark.exception
-async def test_missing_client_identity_is_unauthenticated() -> None:
-    caller, code = await _require(None, "query")
-    assert caller is None and code is grpc.StatusCode.UNAUTHENTICATED
-    caller, code = await _require([], "query")
-    assert caller is None and code is grpc.StatusCode.UNAUTHENTICATED
+async def test_missing_authorization_metadata_is_unauthenticated() -> None:
+    assert (await _require(None, "query")) == (None, grpc.StatusCode.UNAUTHENTICATED)
+    assert (await _require([], "query")) == (None, grpc.StatusCode.UNAUTHENTICATED)
+    assert (await _require([("authorization", "Basic abc")], "query")) == (
+        None,
+        grpc.StatusCode.UNAUTHENTICATED,
+    )
 
 
 @pytest.mark.exception
-async def test_unregistered_identity_is_permission_denied() -> None:
-    caller, code = await _require(["stranger@windhub.test"], "query")
-    assert caller is None and code is grpc.StatusCode.PERMISSION_DENIED
+async def test_unregistered_token_is_unauthenticated() -> None:
+    assert (await _require(_bearer("stranger-token"), "query")) == (
+        None,
+        grpc.StatusCode.UNAUTHENTICATED,
+    )
 
 
 @pytest.mark.exception
 async def test_authenticated_but_scope_missing_is_permission_denied() -> None:
     # viewer 只有 query，不能 control/reload。
-    _caller, code = await _require(["viewer@windhub.test"], "control")
+    _caller, code = await _require(_bearer("viewer-token"), "control")
     assert code is grpc.StatusCode.PERMISSION_DENIED
-    _caller, code = await _require(["viewer@windhub.test"], "reload")
+    _caller, code = await _require(_bearer("viewer-token"), "reload")
     assert code is grpc.StatusCode.PERMISSION_DENIED
     # ops 有 control/query，没有 reload。
-    _caller, code = await _require(["ops@windhub.test"], "reload")
+    _caller, code = await _require(_bearer("ops-token"), "reload")
     assert code is grpc.StatusCode.PERMISSION_DENIED
     # deployer 有 reload/query，没有 control。
-    _caller, code = await _require(["deployer@windhub.test"], "control")
+    _caller, code = await _require(_bearer("deployer-token"), "control")
     assert code is grpc.StatusCode.PERMISSION_DENIED
 
 
 @pytest.mark.exception
-async def test_certificate_matching_two_callers_is_permission_denied() -> None:
-    _caller, code = await _require(["viewer@windhub.test", "ops@windhub.test"], "query")
-    assert code is grpc.StatusCode.PERMISSION_DENIED
+async def test_duplicate_authorization_headers_are_rejected() -> None:
+    headers = [
+        ("authorization", "Bearer viewer-token"),
+        ("authorization", "Bearer ops-token"),
+    ]
+    assert (await _require(headers, "query")) == (None, grpc.StatusCode.UNAUTHENTICATED)
 
 
 @pytest.mark.exception
@@ -125,7 +136,7 @@ async def test_certificate_matching_two_callers_is_permission_denied() -> None:
     ],
 )
 async def test_exception_to_grpc_status_mapping(exc: Exception, expected: grpc.StatusCode) -> None:
-    context = FakeContext(["unused"])
+    context = FakeContext()
     with pytest.raises(_AbortError):
         await _boundary().invalid(context, exc)
     assert context.aborted is not None
@@ -135,7 +146,7 @@ async def test_exception_to_grpc_status_mapping(exc: Exception, expected: grpc.S
 
 @pytest.mark.exception
 async def test_unknown_exception_maps_to_internal() -> None:
-    context = FakeContext(["unused"])
+    context = FakeContext()
     with pytest.raises(_AbortError):
         await _boundary().invalid(context, OSError("boom"))
     # OSError 不在映射表内（快照层在调用前自行转 ValidationIssue）；边界层

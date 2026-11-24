@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from time import perf_counter
@@ -82,29 +83,30 @@ class _Authorized:
         self.permissions = permissions
 
     async def require(self, context: grpc.aio.ServicerContext[Any, Any], scope: str) -> str:
-        auth = context.auth_context()
-        identities = auth.get("x509_subject_alternative_name", [])
-        matched: set[str] = set()
-        authorized: set[str] = set()
-        for candidate in identities:
-            identity = candidate.decode("utf-8", errors="strict")
-            registered = self.permissions.get(identity)
-            if registered is not None:
-                caller_id, grants = registered
-                matched.add(caller_id)
-                if scope in grants:
-                    authorized.add(caller_id)
-        if len(matched) > 1:
-            await context.abort(
-                grpc.StatusCode.PERMISSION_DENIED,
-                "certificate identifies multiple configured callers",
-            )
-        if len(matched) == 1 and matched == authorized:
-            return next(iter(matched))
-        if identities:
+        metadata = context.invocation_metadata()
+        supplied = (
+            [item[1] for item in metadata if item[0].lower() == "authorization"] if metadata else []
+        )
+        if len(supplied) != 1 or not isinstance(supplied[0], str):
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "one Bearer token required")
+            raise RuntimeError("unreachable")
+        authorization = supplied[0]
+        token = authorization[7:] if authorization.startswith("Bearer ") else ""
+        if not token:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Bearer token required")
+            raise RuntimeError("unreachable")
+        matched: tuple[str, frozenset[str]] | None = None
+        for expected, identity in self.permissions.items():
+            if hmac.compare_digest(token, expected):
+                matched = identity
+        if matched is None:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "unknown Bearer token")
+            raise RuntimeError("unreachable")
+        caller_id, grants = matched
+        if scope not in grants:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "caller lacks permission")
-        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client certificate identity missing")
-        raise RuntimeError("unreachable")
+            raise RuntimeError("unreachable")
+        return caller_id
 
     async def invalid(self, context: grpc.aio.ServicerContext[Any, Any], exc: Exception) -> None:
         if isinstance(exc, FileExistsError):

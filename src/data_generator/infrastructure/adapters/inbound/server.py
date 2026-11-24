@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
+import os
+import re
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -23,6 +25,7 @@ from data_generator.application.model.inputs import WEATHER_INPUTS, writable_inp
 from data_generator.application.runtime import GenerationState, Runtime
 from data_generator.domain.model import GeneratorError, Scalar
 from data_generator.infrastructure.adapters.inbound.diagnostics import Diagnostics
+from data_generator.infrastructure.adapters.inbound.grpc_auth import GeneratorAuthorization
 from data_generator.infrastructure.metrics import snapshot as metric_snapshot
 from data_generator.infrastructure.persistence.snapshots import (
     SnapshotManager,
@@ -31,19 +34,35 @@ from data_generator.infrastructure.persistence.snapshots import (
 
 
 async def _authorize_variables(context: Any, runtime: Runtime, permission: str) -> str:
-    """Only a verified client-certificate common name can update model inputs."""
-    security = runtime.settings.service.get("security", {})
-    if not isinstance(security, dict) or not security.get("tls"):
-        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "mTLS is required")
+    """Validate one Bearer identity and the exact model permission."""
+    if not context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:")):
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "loopback-only Generator")
         raise RuntimeError("gRPC abort returned")
-    names = context.auth_context().get("x509_common_name", ())
-    principal = names[0].decode("utf-8") if names else ""
-    permissions = security.get("permissions", {})
-    allowed = permissions.get(principal, []) if isinstance(permissions, dict) else []
-    if not principal or permission not in allowed:
+    metadata = context.invocation_metadata()
+    supplied = (
+        [value for key, value in metadata if key.lower() == "authorization"] if metadata else []
+    )
+    if len(supplied) != 1 or not isinstance(supplied[0], str):
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "one Bearer token required")
+        raise RuntimeError("gRPC abort returned")
+    authorization = supplied[0]
+    token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    if not token:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Bearer token required")
+        raise RuntimeError("gRPC abort returned")
+    security = runtime.settings.service["security"]
+    matched: dict[str, Any] | None = None
+    for caller in security["callers"]:
+        secret = os.environ.get(caller["token_env"], "")
+        if len(secret) >= 32 and hmac.compare_digest(token, secret):
+            matched = caller
+    if matched is None:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "unknown Bearer token")
+        raise RuntimeError("gRPC abort returned")
+    if permission not in matched["permissions"]:
         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "caller lacks model permission")
         raise RuntimeError("gRPC abort returned")
-    return principal
+    return cast(str, matched["caller_id"])
 
 
 def runtime_error_code(error: GeneratorError) -> str:
@@ -466,12 +485,8 @@ class CommonService(common_rpc.CommonServiceServicer):
     ) -> common.GetCapabilitiesResponse:
         return common.GetCapabilitiesResponse(
             rpc_names=[
-                m.name
-                for m in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
-                if (
-                    m.name not in {"ListVariables", "UpdateVariables", "GetInputExecution"}
-                    or bool(self.runtime.settings.service.get("security", {}).get("tls"))
-                )
+                method.name
+                for method in dg.DESCRIPTOR.services_by_name["DataGeneratorService"].methods
             ]
             + [m.name for m in common.DESCRIPTOR.services_by_name["CommonService"].methods],
             protocols=["grpc"],
@@ -654,50 +669,54 @@ def make_server(
 ) -> grpc.aio.Server:
     validate_rpc_contracts()
     security = runtime.settings.service.get("security")
-    if security is not None and (
-        not isinstance(security, dict) or set(security) != {"tls", "permissions"}
-    ):
-        raise GeneratorError("security must declare tls and permissions")
-    tls = security.get("tls") if isinstance(security, dict) else None
-    if tls is not None and (
-        not isinstance(tls, dict) or set(tls) != {"cert_file", "key_file", "ca_file"}
-    ):
-        raise GeneratorError("tls must declare cert_file, key_file and ca_file")
-    permissions = security.get("permissions") if isinstance(security, dict) else {}
-    if not isinstance(permissions, dict):
-        raise GeneratorError("security permissions must be a mapping")
-    supported = {"variables_read", "variables_update"}
-    if any(
-        not isinstance(name, str)
-        or not name.strip()
-        or not isinstance(rights, list)
-        or not rights
-        or any(not isinstance(right, str) or right not in supported for right in rights)
-        for name, rights in permissions.items()
-    ):
-        raise GeneratorError("invalid Data Generator caller permission")
-    if bool(tls) != bool(permissions):
-        raise GeneratorError("mTLS and explicit caller permissions are both required")
-    if not tls and not bind.startswith(("127.0.0.1:", "[::1]:")):
-        raise GeneratorError("insecure gRPC listener restricted to loopback")
-    server = grpc.aio.server()
+    if not isinstance(security, dict) or set(security) != {"callers"}:
+        raise GeneratorError("security must declare only authorized callers")
+    callers = security.get("callers")
+    if not isinstance(callers, list) or not callers:
+        raise GeneratorError("security.callers must be nonempty")
+    ids: set[str] = set()
+    references: set[str] = set()
+    resolved: list[str] = []
+    identities: dict[str, tuple[str, frozenset[str]]] = {}
+    allowed = {"variables_read", "variables_update"}
+    for caller in callers:
+        if not isinstance(caller, dict) or set(caller) != {"caller_id", "token_env", "permissions"}:
+            raise GeneratorError("invalid model security caller")
+        caller_id, reference, permissions = (
+            caller["caller_id"],
+            caller["token_env"],
+            caller["permissions"],
+        )
+        if not isinstance(caller_id, str) or not caller_id.strip() or caller_id in ids:
+            raise GeneratorError("invalid or duplicate model caller_id")
+        if (
+            not isinstance(reference, str)
+            or re.fullmatch(r"[A-Z_][A-Z0-9_]*", reference) is None
+            or reference in references
+        ):
+            raise GeneratorError("invalid or duplicate model token_env")
+        if (
+            not isinstance(permissions, list)
+            or not permissions
+            or any(not isinstance(role, str) or role not in allowed for role in permissions)
+            or len(permissions) != len(set(permissions))
+        ):
+            raise GeneratorError("invalid model caller permissions")
+        token = os.environ.get(reference, "")
+        if len(token) < 32 or not token.isascii() or any(not 33 <= ord(ch) <= 126 for ch in token):
+            raise GeneratorError("Generator caller secret is missing or invalid")
+        if any(hmac.compare_digest(token, old) for old in resolved):
+            raise GeneratorError("duplicate Generator caller secret")
+        ids.add(caller_id)
+        references.add(reference)
+        resolved.append(token)
+        identities[token] = (caller_id, frozenset(permissions))
+    if not bind.startswith(("127.0.0.1:", "[::1]:")):
+        raise GeneratorError("Generator listener must bind loopback")
+    server = grpc.aio.server(interceptors=[GeneratorAuthorization(identities)])
     dg_rpc.add_DataGeneratorServiceServicer_to_server(DataGeneratorService(runtime), server)
     common_rpc.add_CommonServiceServicer_to_server(CommonService(runtime, observer), server)
-    if tls:
-        files = {}
-        for key in ("cert_file", "key_file", "ca_file"):
-            value = tls.get(key)
-            if not isinstance(value, str) or not Path(value).is_absolute():
-                raise GeneratorError(f"security.tls.{key} must be an absolute path")
-            files[key] = Path(value).read_bytes()
-        credentials = grpc.ssl_server_credentials(
-            [(files["key_file"], files["cert_file"])],
-            root_certificates=files["ca_file"],
-            require_client_auth=True,
-        )
-        bound = server.add_secure_port(bind, credentials)
-    else:
-        bound = server.add_insecure_port(bind)
+    bound = server.add_insecure_port(bind)
     if bound == 0:
         raise GeneratorError("unable to bind gRPC listener")
     return server

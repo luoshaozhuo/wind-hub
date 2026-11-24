@@ -115,7 +115,7 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         table_id = _point_table_identity(table.reference.template_id, table.reference.file_version)
         for dependency in (table, *definition.templates.inherited_tables):
             sources = dependency.document.get("config_sources", [])
-            if isinstance(sources, (list, tuple)) and any(
+            if isinstance(sources, list | tuple) and any(
                 isinstance(source, Mapping)
                 and source.get("config_type") == "business_points"
                 and source.get("config_id") == "standard"
@@ -209,7 +209,9 @@ def build_shared_snapshot(documents: SharedDocuments) -> SharedDomainSnapshot:
         )
 
     point_tables = _point_tables(
-        {"point_tables": definitions}, business_points, units,
+        {"point_tables": definitions},
+        business_points,
+        units,
         strict_tables=frozenset(strict_tables),
     )
     try:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from commander.application.service_lifecycle import CommanderService
 from commander.infrastructure.adapters.inbound.grpc.server import register_services
 from commander.infrastructure.adapters.inbound.grpc.snapshots import ConfigSnapshots
 from commander.infrastructure.adapters.outbound.recovery_authority import IsolationAuthorityClient
+from commander.infrastructure.config.service_settings import validate_transport_settings
 from core.infrastructure.config import read_yaml
 from core.infrastructure.configuration_repository import DeploymentObserver, SelectedBundle
 
@@ -31,61 +34,32 @@ def _text(value: object, name: str) -> str:
 
 def _security_config(
     service_config: Path,
-) -> tuple[str, int, int, grpc.ServerCredentials, dict[str, tuple[str, frozenset[str]]]]:
+) -> tuple[str, int, int, dict[str, tuple[str, frozenset[str]]]]:
+    """Resolve nonempty unique caller tokens and enforce loopback-only transport."""
     raw = read_yaml(service_config)
+    validate_transport_settings(raw)
     grpc_settings = _section(raw.get("grpc"), "grpc")
     security = _section(raw.get("security"), "security")
     host = _text(grpc_settings.get("listen_host"), "grpc.listen_host")
-    port = grpc_settings.get("listen_port")
-    maximum = grpc_settings.get("max_active_rpcs")
-    if type(port) is not int or not 1 <= port <= 65535:
-        raise ValueError("grpc.listen_port must be in 1..65535")
-    if type(maximum) is not int or maximum < 1:
-        raise ValueError("grpc.max_active_rpcs must be positive")
-
-    def certificate_bytes(field: str) -> bytes:
-        value = Path(_text(security.get(field), f"security.{field}"))
-        if not value.is_absolute():
-            value = service_config.resolve().parent / value
-        return value.read_bytes()
-
-    ca = certificate_bytes("ca_cert")
-    cert = certificate_bytes("server_cert")
-    key = certificate_bytes("server_key")
-    callers = security.get("callers")
-    if not isinstance(callers, list) or not callers:
-        raise ValueError("security.callers must be nonempty")
+    port = grpc_settings["listen_port"]
+    maximum = grpc_settings["max_active_rpcs"]
+    callers = security["callers"]
     permissions: dict[str, tuple[str, frozenset[str]]] = {}
-    callers_seen: set[str] = set()
     for caller in callers:
         item = _section(caller, "security.callers entry")
-        identity = _text(item.get("certificate_identity"), "certificate_identity")
-        caller_id = _text(item.get("caller_id"), "caller_id")
-        if caller_id in callers_seen:
-            raise ValueError(f"duplicate caller_id: {caller_id}")
-        callers_seen.add(caller_id)
-        if identity in permissions:
-            raise ValueError(f"duplicate client certificate identity: {identity}")
-        granted = item.get("permissions")
-        if (
-            not isinstance(granted, list)
-            or not granted
-            or any(
-                permission not in ("query", "reload", "control", "recover")
-                for permission in granted
-            )
-        ):
-            raise ValueError("invalid caller permissions")
-        permissions[identity] = (caller_id, frozenset(granted))
-    credentials = grpc.ssl_server_credentials(
-        [(key, cert)], root_certificates=ca, require_client_auth=True
-    )
-    return host, port, maximum, credentials, permissions
+        reference = _text(item.get("token_env"), "caller.token_env")
+        token = os.environ.get(reference, "")
+        if len(token) < 32 or not token.isascii() or any(not 33 <= ord(ch) <= 126 for ch in token):
+            raise ValueError(f"caller {item['caller_id']}: invalid or missing token")
+        if any(hmac.compare_digest(token, old) for old in permissions):
+            raise ValueError("duplicate security caller token")
+        permissions[token] = (item["caller_id"], frozenset(item["permissions"]))
+    return host, port, maximum, permissions
 
 
 async def start_grpc(service: CommanderService, service_config: Path) -> grpc.aio.Server:
-    """Bind both Proto services. A plaintext endpoint is never opened."""
-    host, port, maximum, credentials, permissions = _security_config(service_config)
+    """Bind both Proto services on authenticated loopback-only gRPC."""
+    host, port, maximum, permissions = _security_config(service_config)
     server = grpc.aio.server(maximum_concurrent_rpcs=maximum)
     snapshots = ConfigSnapshots(service, service_config)
     # No recovery configuration means the RPC remains fail-closed.
@@ -112,7 +86,7 @@ async def start_grpc(service: CommanderService, service_config: Path) -> grpc.ai
             timeout=float(timeout_value),
         )
     register_services(server, service, permissions, snapshots, authority)
-    bound = server.add_secure_port(f"{host}:{port}", credentials)
+    bound = server.add_insecure_port(f"{host}:{port}")
     if not bound:
         raise RuntimeError(f"unable to bind Commander gRPC listener at {host}:{port}")
     await server.start()

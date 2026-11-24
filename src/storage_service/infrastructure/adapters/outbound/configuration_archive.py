@@ -503,7 +503,13 @@ class ConfigurationPointTableResolver:
                 raise ConfigHistoryUnavailableError("source point has invalid semantic definition")
             if sample.data_level == DataLevel.PROTOCOL:
                 expected_unit = point.get("unit")
-                if not isinstance(expected_unit, str) or sample.unit != expected_unit:
+                # Sink's Kafka v2 PROTOCOL record may omit the source unit:
+                # it preserves the decoded scalar without asserting engineering
+                # semantics. Verify the original unit from the pinned PointTable.
+                # An explicitly supplied incompatible unit must still fail.
+                if not isinstance(expected_unit, str) or (
+                    sample.unit and sample.unit != expected_unit
+                ):
                     raise ConfigHistoryUnavailableError(
                         "PROTOCOL point unit disagrees with pinned PointTable"
                     )
@@ -554,7 +560,10 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailableError("query PointTable has no pinned version")
         config_id, version_id = pin
         document = await self._load(
-            config_type="point_table", config_id=config_id, version_id=version_id
+            config_type="point_table",
+            config_id=config_id,
+            version_id=version_id,
+            point_table_id=point_table_id,
         )
         self._require_table_identity(
             point_table_id=point_table_id, config_id=config_id, document=document

@@ -34,7 +34,7 @@ from .semantic_matrix import (
     RPC_ROWS,
     SemanticEntry,
 )
-from .test_e2e_surface_matrix import EXPECTED_LEAF_COUNT, REPOSITORY_ONLY_LEAVES
+from .test_e2e_surface_matrix import OUT_OF_TOPOLOGY_LEAVES
 
 pytestmark = [
     pytest.mark.end_to_end,
@@ -54,18 +54,18 @@ _RPC_MODULES = {
 }
 
 
-def test_semantic_matrix_has_exact_73_cli_51_rpc_and_54_common_deployments() -> None:
-    """Descriptor/CLI 注册树是分母；Common 部署视图不混入 51 唯一 RPC。"""
+def test_semantic_matrix_matches_live_cli_and_rpc_descriptors() -> None:
+    """Derive the denominator from the current CLI tree and RPC descriptors."""
     cli = {row.key: row for row in CLI_ROWS}
     rpc = {row.key: row for row in RPC_ROWS}
     # This six-service topology has no Configuration Repository target, so the
     # Repository-only leaves are out of scope here (covered by real-process
     # suites under tests/configuration_service/integration).
-    in_topology_words = set(_command_words()) - REPOSITORY_ONLY_LEAVES
-    assert len(CLI_ROWS) == len(cli) == EXPECTED_LEAF_COUNT
-    assert len(RPC_ROWS) == len(rpc) == 51
+    in_topology_words = set(_command_words()) - OUT_OF_TOPOLOGY_LEAVES
+    assert len(CLI_ROWS) == len(cli) == len(in_topology_words)
+    assert len(RPC_ROWS) == len(rpc)
     assert set(cli) == in_topology_words
-    assert len(COMMON_DEPLOYMENT_ROWS) == 54
+    assert len(COMMON_DEPLOYMENT_ROWS) == len(COMMON_DEPLOYMENTS) * len(COMMON_METHODS)
     assert len(COMMON_DEPLOYMENTS) == 6
     assert len(COMMON_METHODS) == 9
     assert {(row.deployment, row.key) for row in COMMON_DEPLOYMENT_ROWS} == {
@@ -414,9 +414,9 @@ async def test_cli_semantic_delta_has_exact_exit_and_error_contracts(
         assert _tree_digest(full_chain) == before_config
         full_chain.record(
             "E2E-08-CLI-SEMANTIC-DELTA",
-            total=73,
+            total=len(CLI_ROWS),
             delta=len(calls),
-            reuse=73 - len(calls) - 1,
+            reuse=len(CLI_ROWS) - len(calls) - 1,
             dedicated_generator_update=1,
             calls=calls,
         )
@@ -647,13 +647,23 @@ async def test_common_service_semantics_on_all_six_deployments(
         "sink": ("sink-west", "main"),
         "data-generator": ("data_generator", "generator"),
     }
+    service_descriptors = {
+        "gateway": "IndustrialGatewayService",
+        "collector_realtime": "CollectorService",
+        "collector_reliable": "CollectorService",
+        "commander": "CommanderService",
+        "sink": "SinkService",
+        "data-generator": "DataGeneratorService",
+    }
+    common_count = len(common.DESCRIPTOR.services_by_name["CommonService"].methods)
     expected_rpc_count = {
-        "gateway": 19,
-        "collector_realtime": 20,
-        "collector_reliable": 20,
-        "commander": 17,
-        "sink": 13,
-        "data-generator": 18,
+        deployment: common_count
+        + len(
+            importlib.import_module(f"contracts.{_RPC_MODULES[service_name]}_pb2")
+            .DESCRIPTOR.services_by_name[service_name]
+            .methods
+        )
+        for deployment, service_name in service_descriptors.items()
     }
     targets = {
         "gateway": "gw-wtg_sim01",
@@ -757,8 +767,13 @@ async def test_common_service_semantics_on_all_six_deployments(
                     metadata=_rpc_metadata(runtime, deployment, "GetConfigSnapshot"),
                 )
                 assert _snapshot_content(after) == _snapshot_content(before), deployment
-        assert len(records) == 54
-        full_chain.record("I-09-COMMON-SEMANTICS", unique_rpcs=9, deployments=6, calls=records)
+        assert len(records) == len(COMMON_DEPLOYMENTS) * len(COMMON_METHODS)
+        full_chain.record(
+            "I-09-COMMON-SEMANTICS",
+            unique_rpcs=len(COMMON_METHODS),
+            deployments=len(COMMON_DEPLOYMENTS),
+            calls=records,
+        )
     finally:
         await runtime.close()
 

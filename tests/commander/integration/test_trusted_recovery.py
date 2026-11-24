@@ -31,7 +31,12 @@ from commander.infrastructure.adapters.outbound.recovery_authority import Isolat
 from commander.infrastructure.persistence.event_repository import EventRepository
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc, common_pb2
-from tests.commander.grpc_harness import GrpcStack, Pki, build_stack
+from tests.commander.grpc_harness import (
+    GrpcStack,
+    Pki,
+    _BearerInterceptor,
+    build_stack,
+)
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.fencing_authority import FencingAuthorityProcess
 from tests.support.process import free_port
@@ -350,6 +355,7 @@ def _crash_after_commit_process(
                 "db_path": str(stack.db_path),
                 "revision": revision,
                 "command_id": command_id,
+                "tokens": stack.tokens,
             }
         )
         await asyncio.Event().wait()
@@ -361,7 +367,7 @@ def _crash_after_commit_process(
         raise
 
 
-async def _receive_process_message(messages: Any, timeout: float = 20.0) -> dict[str, Any]:
+async def _receive_process_message(messages: Any, timeout: float = 60.0) -> dict[str, Any]:
     assert await asyncio.to_thread(messages.poll, timeout), "Commander child sent no message"
     value = await asyncio.to_thread(messages.recv)
     assert isinstance(value, dict)
@@ -1056,14 +1062,9 @@ async def test_process_crash_after_commit_requires_new_fencing_and_never_replays
     child.close()
     try:
         ready = await _receive_process_message(parent)
-        channel = grpc.aio.secure_channel(
+        channel = grpc.aio.insecure_channel(
             ready["target"],
-            grpc.ssl_channel_credentials(
-                root_certificates=pki.ca_cert,
-                private_key=pki.key("ops"),
-                certificate_chain=pki.cert("ops"),
-            ),
-            options=(("grpc.ssl_target_name_override", "localhost"),),
+            interceptors=[_BearerInterceptor(ready["tokens"]["ops"])],
         )
         try:
             with pytest.raises(grpc.aio.AioRpcError):

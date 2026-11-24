@@ -20,6 +20,10 @@ _SETPOINT_TABLE = """\
 schema_version: 1
 template_id: modbus_wtg
 file_version: 1.0.0
+config_sources:
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.4.0"
 protocol: modbus
 points:
   setpoint_power:
@@ -43,7 +47,7 @@ business_points:
 """
 
 _SERVICE_YAML = """\
-schema_version: 1
+schema_version: 2
 file_version: 1.0.0
 service_id: commander
 config_sources:

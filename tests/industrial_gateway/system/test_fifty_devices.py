@@ -30,6 +30,8 @@ from tests.support.gateway import (
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.modbus]
 
+_AUTH = (("authorization", "Bearer " + "t" * 40),)
+
 DEVICE_COUNT = 50
 FLOAT_ADDR = POINT_TABLE[FEEDBACK_FLOAT]["address"]["address"]
 
@@ -138,7 +140,9 @@ async def test_fifty_independent_servers_real_subprocess(tmp_path: Path) -> None
                     proc_exited_during_startup = True
                     break
                 try:
-                    listed = await gw_stub.ListGateways(pb.ListGatewaysRequest(page_size=100))
+                    listed = await gw_stub.ListGateways(
+                        pb.ListGatewaysRequest(page_size=100), metadata=_AUTH
+                    )
                     registered = len(listed.gateways)
                     if registered == DEVICE_COUNT:
                         break

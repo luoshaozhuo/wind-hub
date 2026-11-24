@@ -1,0 +1,3 @@
+INFO:pymodbus.logging:Server listening.
+INFO:__main__:Gateway v1 started: 1 configured servers
+INFO:industrial_gateway.infrastructure.adapters.inbound.grpc.data_server:ClaimTargets gateway='gw-e2e-sink-target' principal='sink' owner='e2e-final:e2e_gateway' action='ACQUIRE' variables=['active_power'] accepted=True error_code=''

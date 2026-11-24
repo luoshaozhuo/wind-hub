@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -41,6 +42,10 @@ _PUBLISHED_TEMPLATE_PREFIXES = (
     "templates/protocols/",
     "templates/device_models/",
     "templates/point_tables/",
+)
+_VERSIONED_CATALOG_PREFIXES = (
+    "templates/units_standard_v",
+    "templates/business_points_standard_v",
 )
 
 
@@ -99,10 +104,15 @@ class CollectorSnapshotRepository:
             and "_v" in parts[1]
         ):
             return relative_path
-        if parts in {
-            ("templates", "units_standard_v1.2.0.yaml"),
-            ("templates", "business_points_standard_v1.4.0.yaml"),
-        }:
+        if (
+            len(parts) == 2
+            and parts[0] == "templates"
+            and re.fullmatch(
+                r"(?:units_standard|business_points_standard)_v"
+                r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.yaml",
+                parts[1],
+            )
+        ):
             return relative_path
         # Only the current flat Template structure is supported.
         if (
@@ -351,11 +361,17 @@ class CollectorSnapshotRepository:
                 previous = self.read_generation()
                 current = dict(canonical)
                 for name, content in previous.items():
-                    if (
-                        name.startswith(_PUBLISHED_TEMPLATE_PREFIXES)
-                        and current.get(name) != content
+                    if name.startswith(_PUBLISHED_TEMPLATE_PREFIXES):
+                        if current.get(name) != content:
+                            raise SnapshotError(
+                                "published template version cannot change or disappear"
+                            )
+                    elif (
+                        name.startswith(_VERSIONED_CATALOG_PREFIXES)
+                        and name in current
+                        and current[name] != content
                     ):
-                        raise SnapshotError("published template version cannot change or disappear")
+                        raise SnapshotError("published standard catalog version cannot change")
             self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
             with tempfile.TemporaryDirectory(prefix=".validate-", dir=self._root) as directory:
                 staging = Path(directory)

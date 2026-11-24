@@ -12,7 +12,6 @@ import subprocess
 from pathlib import Path
 
 from render_cli import (
-    DEFAULT_DEPLOYMENT_PATH,
     SERVICE_NAMES,
     _collector_environment,
     _document,
@@ -53,8 +52,11 @@ def _commands(name: str, service_files: dict[str, str]) -> list[str]:
         ]
     if name == "sink":
         return [
-            "sink_service.main", "--config-root", "/etc/wind-hub",
-            "--service-file", f"configs/services/{service_files[name]}",
+            "sink_service.main",
+            "--config-root",
+            "/etc/wind-hub",
+            "--service-file",
+            f"configs/services/{service_files[name]}",
         ]
     return ["commander", "--config", service]
 
@@ -262,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime", choices=("containerd", "isulad"), required=True)
     parser.add_argument("--service", choices=("all", *SERVICE_NAMES), default="all")
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--deployment", default=DEFAULT_DEPLOYMENT_PATH)
+    parser.add_argument("--deployment", required=True)
     parser.add_argument("--image", default="wind-hub:local")
     parser.add_argument("--uid", type=int, required=True)
     parser.add_argument("--gid", type=int, required=True)

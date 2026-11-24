@@ -92,14 +92,14 @@ async def test_real_metrics_counts_latency_backup_states_and_rejected_audits(
         assert any("CreateBackup" in message for message in messages)
         assert any("CommonService.Authorization" in message for message in messages)
         assert all("PRIVATE KEY" not in message for message in messages)
-        status = await common.GetServiceStatus(common_pb2.Empty())
+        status = await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
         assert {item.name for item in status.dependencies} == {
             "sqlite",
             "references",
             "wal",
             "storage",
         }
-        diagnosis = await common.Diagnose(common_pb2.DiagnoseRequest())
+        diagnosis = await common.Diagnose(common_pb2.DiagnoseRequest(), timeout=10)
         assert {item.stage for item in diagnosis.stages} == {
             "sqlite",
             "references",
@@ -141,7 +141,7 @@ async def test_database_loss_makes_health_and_diagnostics_fail_closed(
         live.database_path.with_name(live.database_path.name + suffix)
         for suffix in ("-wal", "-shm")
     ]
-    healthy = await common.GetServiceStatus(common_pb2.Empty())
+    healthy = await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
     assert healthy.health == "HEALTHY"
     with sqlite3.connect(live.database_path) as connection:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -152,13 +152,13 @@ async def test_database_loss_makes_health_and_diagnostics_fail_closed(
             sidecar.rename(sidecar.with_suffix(sidecar.suffix + ".original"))
     try:
         if failure_mode == "removed":
-            missing = await common.GetServiceStatus(common_pb2.Empty())
+            missing = await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
             assert missing.health == "UNHEALTHY", missing
         # Simulate SQLite or an external actor creating a different empty database.
         sqlite3.connect(live.database_path).close()
-        status = await common.GetServiceStatus(common_pb2.Empty())
+        status = await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
         assert status.health == "UNHEALTHY", status
-        diagnosis = await common.Diagnose(common_pb2.DiagnoseRequest())
+        diagnosis = await common.Diagnose(common_pb2.DiagnoseRequest(), timeout=10)
         assert diagnosis.overall_status == "FAIL"
     finally:
         live.database_path.unlink(missing_ok=True)
@@ -168,6 +168,6 @@ async def test_database_loss_makes_health_and_diagnostics_fail_closed(
             if original.exists():
                 original.rename(sidecar)
         moved.rename(live.database_path)
-    restored = await common.GetServiceStatus(common_pb2.Empty())
+    restored = await common.GetServiceStatus(common_pb2.Empty(), timeout=10)
     assert restored.health == "HEALTHY"
     await channel.close()

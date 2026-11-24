@@ -222,10 +222,12 @@ def test_export_snapshot_rejects_duplicates_and_bad_base64(tmp_path: Path) -> No
 def test_safe_history_suppresses_mutations_and_secrets() -> None:
     history = SafeHistory()
     history.store_string("collector devices")
-    history.store_string("commander write dev p '1' --yes token=abc")
-    history.store_string("config push ./candidate")
-    history.store_string("config apply c1")
+    history.store_string("commander batch ./commands.yaml --yes")
+    history.store_string("commander recover-device device1 --yes")
+    history.store_string("config publish --root ./candidate")
+    history.store_string("config deprecate service id --yes")
     history.store_string('commander result "secret-value"')
+    history.store_string("config publish --root 'unterminated")
     assert history._storage == ["collector devices"]
 
 

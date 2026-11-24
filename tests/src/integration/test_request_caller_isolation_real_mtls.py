@@ -18,73 +18,32 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
+import secrets
 from typing import Any
 from uuid import uuid4
 
 import grpc
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 
 from contracts import commander_pb2 as pb
 from contracts import commander_pb2_grpc, common_pb2
-from tests.commander.grpc_harness import GrpcStack, Pki, build_pki, build_stack
+from tests.commander.grpc_harness import (
+    GrpcStack,
+    _BearerInterceptor,
+    build_pki,
+    build_stack,
+)
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 
 pytestmark = [pytest.mark.integration, pytest.mark.real_service]
 
-_SECOND_CALLER_EMAIL = "ops2@windhub.test"
 _SECOND_CALLER_ID = "ops2-console"
 
 
-def _issue_second_control_cert(pki: Pki) -> tuple[bytes, bytes]:
-    """用测试 CA 真实签发第二个 control 调用方的客户端证书（RFC8222 邮箱 SAN）。"""
-    ca_cert = x509.load_pem_x509_certificate((pki.tmp / "ca.crt").read_bytes())
-    ca_key = serialization.load_pem_private_key((pki.tmp / "ca.key").read_bytes(), password=None)
-    assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    now = datetime.datetime.now(datetime.UTC)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "client-ops2")]))
-        .issuer_name(ca_cert.subject)
-        .public_key(private_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(days=1))
-        .add_extension(
-            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]),
-            critical=True,
-        )
-        .add_extension(
-            x509.SubjectAlternativeName([x509.RFC822Name(_SECOND_CALLER_EMAIL)]),
-            critical=False,
-        )
-        .sign(ca_key, hashes.SHA256())
-    )
-    return (
-        cert.public_bytes(serialization.Encoding.PEM),
-        private_key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        ),
-    )
-
-
-def _stub_for_identity(stack: GrpcStack, pki: Pki, cert: bytes, key: bytes) -> Any:
-    credentials = grpc.ssl_channel_credentials(
-        root_certificates=pki.ca_cert,
-        private_key=key,
-        certificate_chain=cert,
-    )
-    channel = grpc.aio.secure_channel(
+def _stub_for_identity(stack: GrpcStack, token: str) -> Any:
+    channel = grpc.aio.insecure_channel(
         stack.target,
-        credentials,
-        options=(("grpc.ssl_target_name_override", "localhost"),),
+        interceptors=[_BearerInterceptor(token)],
     )
     return commander_pb2_grpc.CommanderServiceStub(channel)
 
@@ -117,13 +76,13 @@ async def test_same_request_id_isolated_across_mtls_callers(
     )
     try:
         # 运行期注册第二个 control 调用方；与服务器 _Authorized 持有同一 dict。
-        stack.permissions[_SECOND_CALLER_EMAIL] = (
+        second_token = secrets.token_hex(32)
+        stack.permissions[second_token] = (
             _SECOND_CALLER_ID,
             frozenset({"control", "query"}),
         )
-        cert2, key2 = _issue_second_control_cert(pki)
         _common, commander_a = stack.stubs(pki, client="ops")
-        commander_b = _stub_for_identity(stack, pki, cert2, key2)
+        commander_b = _stub_for_identity(stack, second_token)
 
         revision = await _revision(commander_a)
         request_id = f"req-iso-{uuid4().hex}"

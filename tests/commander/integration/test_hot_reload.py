@@ -67,7 +67,7 @@ async def test_disk_runtime_candidate_scopes_are_distinct(pki, grpc_stack) -> No
     assert len(disk.revision) == 64
     assert disk.snapshot_id != runtime.snapshot_id
     assert any(path.endswith("service_commander_v1.0.0.yaml") for path in _names(disk))
-    assert any(path.endswith("device_farm-a_v1.4.0.yaml") for path in _names(disk))
+    assert any(path.endswith("device_farm-a_v1.6.0.yaml") for path in _names(disk))
     assert {result.object_id for result in runtime.apply_results}
 
 
@@ -98,9 +98,9 @@ async def test_get_unknown_scope_and_candidate_rejected(pki, grpc_stack) -> None
         "config/../escape.yaml",
         "/etc/passwd",
         "./service_commander_v1.0.0.yaml",
-        "config//instances/device_farm-a_v1.4.0.yaml",
+        "config//instances/device_farm-a_v1.6.0.yaml",
         ".hidden.yaml",
-        "configs/.secret/device_farm-a_v1.4.0.yaml",
+        "configs/.secret/device_farm-a_v1.6.0.yaml",
         "services/service_commander_v1.0.0.yaml",
     ),
 )
@@ -199,7 +199,7 @@ async def test_concurrent_retired_pushes_are_all_inert(pki, grpc_stack) -> None:
 async def test_armed_undo_log_rolls_back_on_recovery(pki, grpc_stack) -> None:
     """模拟在 marker 删除前崩溃：after 已替换落盘，重启恢复必须还原 before。"""
     root = grpc_stack.root
-    devices = grpc_stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.4.0.yaml"
+    devices = grpc_stack.yaml_path.parent.parent / "instances" / "device_farm-a_v1.6.0.yaml"
     assert devices.is_relative_to(root)
     original = devices.read_bytes()
     corrupted = original + b"# crashed mid-commit\n"

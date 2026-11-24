@@ -1,0 +1,60 @@
+schema_version: 3
+file_version: "1.5.0"
+service_id: commander
+config_sources:
+  instances:
+    devices: farm-a
+
+grpc:
+  listen_host: "127.0.0.1"
+  listen_port: 50052
+  max_active_rpcs: 256
+
+security:
+  # Tokens are supplied only through process environment. Recovery requires
+  # independent fencing approval and fails closed when absent.
+  callers:
+    - caller_id: ems
+      token_env: WIND_HUB_COMMANDER_EMS_TOKEN
+      permissions: [control, query]
+    - caller_id: maintenance
+      token_env: WIND_HUB_COMMANDER_MAINTENANCE_TOKEN
+      permissions: [query, reload, recover]
+    - caller_id: gateway
+      token_env: WIND_HUB_GATEWAY_COMMANDER_TOKEN
+      permissions: [query, control]
+
+dispatcher:
+  max_concurrency: 100
+  max_pending_per_device: 10
+  max_pending_global: 1000
+  max_batch_size: 10
+  max_request_id_bytes: 128
+
+repository:
+  sqlite_path: "/var/lib/wind-hub/commander/events.db"
+  max_storage_bytes: 68719476736
+  reserved_storage_bytes: 6871947674
+  retention_seconds: 1800
+  cleanup_interval_seconds: 60
+  storage_warning_ratio: 0.80
+  admission_stop_ratio: 0.90
+  accept_commit_timeout_ms: 10000
+  persistence_interval_ms: 50
+  persistence_batch_size: 500
+  persistence_max_events: 100000
+
+audit:
+  nats_servers: ["nats://127.0.0.1:4222"]
+  stream: COMMAND_AUDIT
+  subject: windhub.commander.audit
+  retry_base_ms: 100
+  retry_max_ms: 5000
+
+timeouts:
+  queue_default_ms: 1000
+  write_default_ms: 500
+  connect_ms: 3000
+
+shutdown:
+  grace_seconds: 10

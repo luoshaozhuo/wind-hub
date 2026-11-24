@@ -11,15 +11,18 @@ from core.infrastructure.config import read_yaml
 
 pytestmark = [pytest.mark.unit, pytest.mark.safety]
 
-_CONFIGS = Path(__file__).resolve().parents[4] / "configs"
+# 校验生产激活根：每个调用方按 Deployment 选择唯一 Service/Instance 版本。
+# configs/ 保留全部历史 Deployment，同一 Service 版本可能被多个历史 Deployment
+# 选中，无法再满足 select_local_service 的"唯一 Deployment"契约，因此不再作为
+# 无 deployment 上下文的取样来源。
+_CONFIGS = Path(__file__).resolve().parents[4] / "deploy" / "config_roots" / "prod-a"
 
-_SERVICES = (
-    "service_collector-realtime_v1.1.0.yaml",
-    "service_collector-reliable_v1.0.0.yaml",
-    "service_commander_v1.4.0.yaml",
-    "service_gateway_v1.2.0.yaml",
-    "service_data-generator_v1.1.0.yaml",
-    "service_sink-west_v1.2.0.yaml",
+_SERVICES = tuple(
+    sorted(
+        path.name
+        for path in (_CONFIGS / "services").glob("service_*.yaml")
+        if "instances" in (read_yaml(path).get("config_sources") or {})
+    )
 )
 
 
@@ -27,7 +30,7 @@ _SERVICES = (
 def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
     path = _CONFIGS / "services" / service_name
     service = read_yaml(path)
-    assert service["schema_version"] in {1, 2}
+    assert service["schema_version"] in {1, 2, 3}
     assert service["service_id"]
     sources = service["config_sources"]
     assert set(sources) == {"instances"}

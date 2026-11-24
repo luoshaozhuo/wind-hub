@@ -34,14 +34,17 @@ from data_generator.domain.scenario import Scenario, Settings
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
-def load_yaml(path: Path) -> dict[str, Any]:
+def load_yaml(path: Path, *, service: bool = False) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise GeneratorError(f"{path}: {exc}") from exc
     if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
         raise GeneratorError(f"{path}: expected schema_version integer")
-    if data["schema_version"] != 1 or not isinstance(data.get("file_version"), str):
+    expected_versions = {2} if service else {1}
+    if data["schema_version"] not in expected_versions or not isinstance(
+        data.get("file_version"), str
+    ):
         raise GeneratorError(f"{path}: unsupported document version")
     if not _VERSION.fullmatch(data["file_version"]):
         raise GeneratorError(f"{path}: expected MAJOR.MINOR.PATCH file_version")
@@ -304,19 +307,15 @@ def validate_service_limits(service: dict[str, Any]) -> None:
             ):
                 raise GeneratorError(f"invalid {section}.{key}: must be within {lower}..{upper}")
     output = service.get("output", {})
-    gateway_tls = output.get("gateway_tls")
-    if gateway_tls is not None:
-        if not isinstance(gateway_tls, dict) or set(gateway_tls) != {
-            "ca_file",
-            "cert_file",
-            "key_file",
-        }:
-            raise GeneratorError("output.gateway_tls requires ca_file, cert_file and key_file")
-        if any(
-            not isinstance(value, str) or not Path(value).is_absolute()
-            for value in gateway_tls.values()
-        ):
-            raise GeneratorError("output.gateway_tls paths must be absolute")
+    if not isinstance(output, dict) or set(output) - {
+        "max_inflight",
+        "grpc_timeout_seconds",
+        "gateway_token_env",
+    }:
+        raise GeneratorError("unexpected Data Generator output fields")
+    token_env = output.get("gateway_token_env")
+    if not isinstance(token_env, str) or re.fullmatch(r"[A-Z_][A-Z0-9_]*", token_env) is None:
+        raise GeneratorError("output.gateway_token_env must name an environment variable")
 
     recording = service.get("recording", {})
     if not isinstance(recording, dict):
@@ -340,27 +339,33 @@ def validate_service_limits(service: dict[str, Any]) -> None:
         raise GeneratorError("metrics retention must cover window")
 
 
-def config_sources(service_file: Path, service: dict[str, Any]) -> dict[str, Path]:
+def config_sources(service_file: Path) -> dict[str, Path]:
     """Resolve the exact Site, Device and Scenario Instances selected for this Service."""
     selected = select_local_service(service_file)
     if set(selected.instances) != {"site", "devices", "scenarios"}:
         raise GeneratorError("Data Generator requires site/devices/scenarios Instances")
-    # Catalog versions are pinned by the published C2 baseline, not guessed.
-    catalogs = {
-        "units": "units_standard_v1.2.0.yaml",
-        "business_points": "business_points_standard_v1.4.0.yaml",
-    }
-    for label, filename in catalogs.items():
-        candidate = selected.templates / filename
-        if candidate.is_symlink() or not candidate.is_file():
-            raise GeneratorError(f"required pinned {label} catalog is unavailable")
-
+    # The shared loader resolves exact PointTable catalog pins and validates
+    # their byte-level source closure; never guess from a directory version.
     return {
         **selected.instances,
         "templates_root": selected.templates,
-        "units": selected.templates / catalogs["units"],
-        "business_points": selected.templates / catalogs["business_points"],
     }
+
+
+def _loaded_catalog(documents: SharedDocuments, templates: Path, prefix: str) -> Path:
+    """Recover the exact catalog read under the Core shared-source lock."""
+    selected = [
+        identity.path
+        for identity in documents.source_manifest
+        if identity.path.parent == templates
+        and re.fullmatch(
+            rf"{re.escape(prefix)}_v[0-9]+\.[0-9]+\.[0-9]+\.yaml",
+            identity.path.name,
+        )
+    ]
+    if len(selected) != 1:
+        raise GeneratorError(f"expected exactly one resolved {prefix} catalog")
+    return selected[0]
 
 
 def load_settings(service_path: Path) -> Settings:
@@ -368,9 +373,9 @@ def load_settings(service_path: Path) -> Settings:
     if path.parent.name != "services":
         raise GeneratorError("service configuration must be inside services/")
     root = path.parent.parent
-    service = load_yaml(path)
+    service = load_yaml(path, service=True)
     validate_service_limits(service)
-    paths = config_sources(path, service)
+    paths = config_sources(path)
     try:
         documents = SharedDocumentLoader(
             SharedConfigPaths(
@@ -380,6 +385,10 @@ def load_settings(service_path: Path) -> Settings:
                 devices_file=paths["devices"],
             )
         ).load()
+        paths["units"] = _loaded_catalog(documents, paths["templates_root"], "units_standard")
+        paths["business_points"] = _loaded_catalog(
+            documents, paths["templates_root"], "business_points_standard"
+        )
         shared = build_shared_snapshot(documents)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise GeneratorError(f"invalid shared configuration: {exc}") from exc

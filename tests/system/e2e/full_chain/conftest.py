@@ -974,16 +974,14 @@ def _build_and_start(
         collector="collector_realtime",
         endpoints=harness.endpoints,
         processes=cli.processes,
-        gateway_pki=pki,
-        commander_pki=commander_pki,
+        collector_pki=pki,
     )
     _write_cli(
         harness.cli_rel,
         collector="collector_reliable",
         endpoints=harness.endpoints,
         processes=cli.processes,
-        gateway_pki=pki,
-        commander_pki=commander_pki,
+        collector_pki=pki,
     )
 
     try:

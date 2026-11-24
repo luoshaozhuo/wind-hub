@@ -1,0 +1,22 @@
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+........................................................................ [ 30%]
+........................................................................ [ 40%]
+........................................................................ [ 51%]
+........................................................................ [ 61%]
+........................................................................ [ 71%]
+........................................................................ [ 81%]
+........................................................................ [ 91%]
+....................sssssssssss.......................ss.                [100%]
+=============================== warnings summary ===============================
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+tests/data_generator/integration/test_proto_descriptor.py::test_claim_targets_contract_fields
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py:157: DeprecationWarning: label() is deprecated. Use is_required() or is_repeated() instead.
+    result = testfunction(**testargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+692 passed, 13 skipped, 6 warnings in 406.38s (0:06:46)

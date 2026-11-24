@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -154,6 +155,18 @@ class ConfigurationApplication:
                     raise ValueError(f"invalid field type: {path}")
             if "enum" in rule and value not in rule["enum"]:
                 raise ValueError(f"invalid enum value: {path}")
+            if isinstance(value, str):
+                minimum_length = rule.get("minLength")
+                if minimum_length is not None and len(value) < minimum_length:
+                    raise ValueError(f"string is too short: {path}")
+                pattern = rule.get("pattern")
+                if pattern is not None and re.fullmatch(pattern, value) is None:
+                    raise ValueError(f"invalid string pattern: {path}")
+            if type(value) is int:
+                lower = rule.get("minimum")
+                upper = rule.get("maximum")
+                if (lower is not None and value < lower) or (upper is not None and value > upper):
+                    raise ValueError(f"integer outside allowed range: {path}")
             if isinstance(value, list):
                 items = rule.get("items")
                 if not isinstance(items, dict):
@@ -164,8 +177,11 @@ class ConfigurationApplication:
             if not isinstance(value, dict):
                 return
             properties = rule.get("properties")
+            additional = rule.get("additionalProperties", False)
             if properties is None:
-                return
+                if not isinstance(additional, dict):
+                    return
+                properties = {}
             if not isinstance(properties, dict):
                 raise ValueError(f"invalid nested schema at {path}")
             required = rule.get("required", [])
@@ -174,13 +190,18 @@ class ConfigurationApplication:
             for key in required:
                 if key not in value:
                     raise ValueError(f"missing required field: {path}.{key}")
-            if rule.get("additionalProperties", False) is False:
-                unknown = set(value) - set(properties)
-                if unknown:
-                    raise ValueError(f"unknown configuration fields at {path}: {sorted(unknown)}")
+            unknown = set(value) - set(properties)
+            if additional is False and unknown:
+                raise ValueError(f"unknown configuration fields at {path}: {sorted(unknown)}")
+            if not isinstance(additional, bool | dict):
+                raise ValueError(f"invalid additionalProperties schema at {path}")
             for key, item in value.items():
+                if not isinstance(key, str) or not key:
+                    raise ValueError(f"invalid configuration key at {path}")
                 child = properties.get(key)
                 if child is None:
+                    if isinstance(additional, dict):
+                        validate(item, additional, f"{path}.{key}")
                     continue
                 if not isinstance(child, dict):
                     raise ValueError(f"invalid schema entry at {path}.{key}")
@@ -376,7 +397,9 @@ class ConfigurationApplication:
                 )
                 inherited = versions.get(parent_key)
                 if inherited is None:
-                    raise ValueError(f"PointTable parent is absent from full directory: {parent_key}")
+                    raise ValueError(
+                        f"PointTable parent is absent from full directory: {parent_key}"
+                    )
                 points = expand(inherited, visiting)
             removed = payload.get("remove_points", [])
             if not isinstance(removed, list):

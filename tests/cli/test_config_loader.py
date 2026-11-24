@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.runtime import load_config
+from cli.runtime import Runtime, load_config
 
 
 def _write(tmp_path: Path, body: str) -> Path:
@@ -73,16 +73,58 @@ services:
         load_config(_write(tmp_path, body))
 
 
-def test_endpoint_requires_tls_profile(tmp_path: Path) -> None:
+def test_loopback_collector_without_tls_profile(tmp_path: Path) -> None:
     body = (
         _BASE_HEADER
         + """
 services:
   collector:
-    grpc_endpoint: "localhost:5000"
+    grpc_endpoint: "127.0.0.1:5000"
 """
     )
-    with pytest.raises(ValueError, match="tls_profile is required"):
+    assert load_config(_write(tmp_path, body)).services["collector"].tls_profile is None
+
+
+def test_token_authenticated_loopback_service(tmp_path: Path) -> None:
+    body = (
+        _BASE_HEADER
+        + """
+services:
+  gateway:
+    grpc_endpoint: "127.0.0.1:5000"
+    token_env: WIND_HUB_GATEWAY_OPERATOR_TOKEN
+"""
+    )
+    assert load_config(_write(tmp_path, body)).services["gateway"].token_env == (
+        "WIND_HUB_GATEWAY_OPERATOR_TOKEN"
+    )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "token_env", "error"),
+    [
+        ("192.168.1.20:5000", "WIND_HUB_GATEWAY_TOKEN", "loopback endpoint"),
+        ("127.0.0.1:5000", None, "token_env is required"),
+        ("127.0.0.1:5000", "invalid.token", "token_env must"),
+        ("user@127.0.0.1:5000", "WIND_HUB_GATEWAY_TOKEN", "loopback endpoint"),
+        ("127.0.0.1:5000/path", "WIND_HUB_GATEWAY_TOKEN", "loopback endpoint"),
+        ("localhost:5000", "WIND_HUB_GATEWAY_TOKEN", "loopback endpoint"),
+    ],
+)
+def test_loopback_authentication_fail_closed(
+    tmp_path: Path, endpoint: str, token_env: str | None, error: str
+) -> None:
+    body = (
+        _BASE_HEADER
+        + f"""
+services:
+  gateway:
+    grpc_endpoint: "{endpoint}"
+"""
+    )
+    if token_env is not None:
+        body += f"    token_env: {token_env}\n"
+    with pytest.raises(ValueError, match=error):
         load_config(_write(tmp_path, body))
 
 
@@ -190,3 +232,126 @@ def test_file_version_is_required_semver_string(tmp_path: Path, file_version: ob
         document += f"file_version: {file_version!r}\n"
     with pytest.raises(ValueError, match="file_version"):
         load_config(_write(tmp_path, document))
+
+
+def test_loopback_service_passes_bearer_token_from_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = (
+        _BASE_HEADER
+        + """
+services:
+  gateway:
+    grpc_endpoint: "127.0.0.1:5000"
+    token_env: WIND_HUB_TEST_GATEWAY_CLI_TOKEN
+"""
+    )
+    runtime = Runtime(_write(tmp_path, body), None)
+    with pytest.raises(PermissionError, match="credential missing"):
+        runtime.get_rpc_metadata("gateway", "ReadVariables")
+    monkeypatch.setenv("WIND_HUB_TEST_GATEWAY_CLI_TOKEN", "a" * 40)
+    assert runtime.get_rpc_metadata("gateway", "ReadVariables") == (
+        ("authorization", "Bearer " + "a" * 40),
+    )
+    monkeypatch.setenv("WIND_HUB_TEST_GATEWAY_CLI_TOKEN", "a" * 31)
+    with pytest.raises(PermissionError, match="credential missing"):
+        runtime.get_rpc_metadata("gateway", "ReadVariables")
+
+
+def test_method_specific_caller_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = (
+        _BASE_HEADER
+        + """
+services:
+  commander:
+    grpc_endpoint: "127.0.0.1:50052"
+    token_env: WIND_HUB_TEST_COMMANDER_EMS_TOKEN
+    method_token_envs:
+      RecoverDeviceControl: WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN
+"""
+    )
+    runtime = Runtime(_write(tmp_path, body), None)
+    monkeypatch.setenv("WIND_HUB_TEST_COMMANDER_EMS_TOKEN", "a" * 40)
+    monkeypatch.setenv("WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN", "b" * 40)
+    assert runtime.get_rpc_metadata("commander", "SubmitCommand") == (
+        ("authorization", "Bearer " + "a" * 40),
+    )
+    assert runtime.get_rpc_metadata("commander", "RecoverDeviceControl") == (
+        ("authorization", "Bearer " + "b" * 40),
+    )
+
+
+def test_method_credentials_require_default_identity(tmp_path: Path) -> None:
+    body = (
+        _BASE_HEADER
+        + """
+services:
+  commander:
+    grpc_endpoint: "127.0.0.1:50052"
+    method_token_envs:
+      RecoverDeviceControl: WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN
+"""
+    )
+    with pytest.raises(ValueError, match="requires a default token_env"):
+        load_config(_write(tmp_path, body))
+
+
+@pytest.mark.parametrize(
+    ("domain", "name", "version", "maintenance_env"),
+    [
+        (
+            "e2e-final",
+            "service_cli-e2e_v1.1.5.yaml",
+            "1.1.5",
+            "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN",
+        ),
+        (
+            "sim-a",
+            "service_cli-sim_v1.10.0.yaml",
+            "1.10.0",
+            "WIND_HUB_SIM_COMMANDER_MAINTENANCE_TOKEN",
+        ),
+        ("prod-a", "service_cli_v1.4.0.yaml", "1.4.0", "WIND_HUB_COMMANDER_MAINTENANCE_TOKEN"),
+    ],
+)
+def test_active_candidate_cli_transport(
+    domain: str, name: str, version: str, maintenance_env: str
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    source_path = root / "configs" / "services" / name
+    active_path = root / "deploy" / "config_roots" / domain / "services" / name
+    assert source_path.read_bytes() == active_path.read_bytes()
+    assert f'file_version: "{version}"' in active_path.read_text(encoding="utf-8")
+    configured = load_config(active_path)
+    assert configured.services["commander"].token_env is not None
+    assert dict(configured.services["commander"].method_token_envs) == {
+        "RecoverDeviceControl": maintenance_env
+    }
+    assert configured.services["gateway"].token_env is not None
+    assert configured.services["data-generator"].token_env is not None
+    assert configured.services["commander"].tls_profile is None
+    expected = "local" if domain == "prod-a" else None
+    assert configured.services["collector"].tls_profile == expected
+    if expected is not None:
+        assert expected in configured.profiles
+    if domain == "e2e-final":
+        for role in ("collector-realtime", "collector-reliable"):
+            assert configured.services[role].tls_profile is None
+
+
+@pytest.mark.parametrize("service", ["collector", "collector_realtime", "collector_reliable"])
+def test_collector_management_credential_applies_to_deployed_target_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: str
+) -> None:
+    body = (
+        _BASE_HEADER
+        + f"""
+services:
+  {service}:
+    grpc_endpoint: "127.0.0.1:50051"
+"""
+    )
+    runtime = Runtime(_write(tmp_path, body), None)
+    monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", "a" * 40)
+    assert runtime.get_rpc_metadata(service, "StartTask") == (("x-windhub-admin-token", "a" * 40),)
+    assert runtime.get_rpc_metadata(service, "GetServiceInfo") is None

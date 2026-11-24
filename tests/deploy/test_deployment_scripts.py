@@ -65,6 +65,22 @@ def _configs(root: Path, scripts: SimpleNamespace, *, process: bool) -> None:
             "config_sources": {"instances": {"site": "example_site"}},
             **body,
         }
+        if name in {"gateway", "commander", "data-generator"}:
+            roles = {
+                "gateway": (("operator", "WIND_HUB_TEST_GATEWAY_OPERATOR_TOKEN"),),
+                "commander": (
+                    ("ems", "WIND_HUB_TEST_COMMANDER_EMS_TOKEN"),
+                    ("maintenance", "WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN"),
+                ),
+                "data-generator": (("cli", "WIND_HUB_TEST_GENERATOR_CLI_TOKEN"),),
+            }
+            document["schema_version"] = 2 if name == "data-generator" else 3
+            document["security"] = {
+                "callers": [
+                    {"caller_id": caller, "token_env": env, "permissions": ["read"]}
+                    for caller, env in roles[name]
+                ]
+            }
         (services / f"service_{identity}_v1.0.0.yaml").write_text(
             yaml.safe_dump(document), encoding="utf-8"
         )
@@ -119,7 +135,7 @@ def _render_args(root: Path, scripts: SimpleNamespace, mode: str) -> argparse.Na
         "collector_env_file": collector_env if mode == "process" else None,
         "runtime_prefix": Path("/etc/wind-hub") if mode == "rpc" else None,
     }
-    values["deployment"] = scripts.render.DEFAULT_DEPLOYMENT_PATH
+    values["deployment"] = "configs/deployments/deployment_prod-a_v1.3.0.yaml"
     values.update({name.replace("-", "_"): None for name in scripts.render.SERVICE_NAMES})
     return argparse.Namespace(**values)
 
@@ -133,6 +149,14 @@ def test_render_modes_keep_paths_and_managers_distinct(
 
     gateway = payload["services"]["gateway"]
     assert gateway["grpc_endpoint"] == "127.0.0.1:50073"
+    assert gateway["token_env"] == "WIND_HUB_TEST_GATEWAY_OPERATOR_TOKEN"
+    assert "tls_profile" not in gateway
+    assert payload["services"]["data-generator"]["token_env"] == (
+        "WIND_HUB_TEST_GENERATOR_CLI_TOKEN"
+    )
+    assert payload["services"]["commander"]["method_token_envs"] == {
+        "RecoverDeviceControl": "WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN"
+    }
     if mode == "process":
         assert gateway["manager"] == "process"
         assert gateway["process"]["argv"][:2] == [str(Path(sys.executable).resolve()), "-m"]
@@ -166,6 +190,149 @@ def test_render_modes_keep_paths_and_managers_distinct(
             "--service-file",
             "configs/services/service_sink-west_v1.0.0.yaml",
         ]
+
+
+def test_render_rejects_service_override_outside_deployment(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    selected = tmp_path / "configs" / "services" / "service_gateway_v1.0.0.yaml"
+    alternate = selected.with_name("service_gateway_copy_v1.0.0.yaml")
+    alternate.write_bytes(selected.read_bytes())
+    args.gateway = alternate.name
+    with pytest.raises(ValueError, match="Service override differs from selected Deployment"):
+        scripts.render._render(args)
+
+
+def _native_bootstraps(root: Path, args: argparse.Namespace) -> None:
+    configuration = root / "configuration_bootstrap.yaml"
+    storage = root / "storage_bootstrap.yaml"
+    configuration.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "grpc": {"host": "127.0.0.1", "port": 51060},
+            }
+        ),
+        encoding="utf-8",
+    )
+    storage.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "service_id": "storage-main",
+                "deployment_id": "prod-a",
+                "configuration": {"endpoint": "127.0.0.1:51060"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    deployment_path = root / "configs" / "deployments" / "deployment_prod-a_v1.3.0.yaml"
+    deployment = yaml.safe_load(deployment_path.read_text(encoding="utf-8"))
+    deployment["services"]["storage-main"] = {"config_id": "storage-main", "file_version": "1.0.0"}
+    deployment_path.write_text(yaml.safe_dump(deployment), encoding="utf-8")
+    (root / "configs" / "services" / "service_storage-main_v1.0.0.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 2,
+                "file_version": "1.0.0",
+                "service_id": "storage-main",
+                "service": {"grpc": {"listen_host": "127.0.0.1", "listen_port": 51110}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    args.configuration_bootstrap = configuration
+    args.configuration_endpoint = "127.0.0.1:51060"
+    args.storage_bootstrap = storage
+    args.storage_endpoint = "127.0.0.1:51110"
+
+
+def test_native_render_includes_configuration_and_storage(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    _native_bootstraps(tmp_path, args)
+    result = scripts.render._render(args)
+    from cli.runtime import load_config
+
+    cli_file = tmp_path / "generated-cli.yaml"
+    cli_file.write_text(yaml.safe_dump(result), encoding="utf-8")
+    loaded = load_config(cli_file)
+    assert {"configuration", "storage"} <= set(loaded.services)
+    for name, module, selector in (
+        ("configuration", "configuration_service", "--config"),
+        ("storage", "storage_service.main", "--bootstrap"),
+    ):
+        row = result["services"][name]
+        assert row["manager"] == "process"
+        assert row["process"]["argv"][1:4] == ["-m", module, selector]
+        assert row["process"]["env"] == {
+            "WIND_HUB_DEPLOYMENT_ID": "prod-a",
+            "WIND_HUB_DEPLOYMENT_VERSION": "1.3.0",
+        }
+        assert "tls_profile" not in row
+
+
+def test_native_render_rejects_inconsistent_storage_dependency(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    _native_bootstraps(tmp_path, args)
+    data = yaml.safe_load(args.storage_bootstrap.read_text(encoding="utf-8"))
+    data["configuration"]["endpoint"] = "127.0.0.1:59999"
+    args.storage_bootstrap.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="storage configuration endpoint differs"):
+        scripts.render._render(args)
+
+
+def test_native_storage_rejects_unpublished_selected_service(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    _native_bootstraps(tmp_path, args)
+    (tmp_path / "configs" / "services" / "service_storage-main_v1.0.0.yaml").unlink()
+    with pytest.raises(ValueError, match="missing or symlinked service YAML"):
+        scripts.render._render(args)
+
+
+def test_native_storage_rejects_service_listener_drift(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    _native_bootstraps(tmp_path, args)
+    args.storage_endpoint = "127.0.0.1:51111"
+    with pytest.raises(ValueError, match="storage CLI endpoint differs"):
+        scripts.render._render(args)
+
+
+def test_native_configuration_rejects_endpoint_drift(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=True)
+    args = _render_args(tmp_path, scripts, "process")
+    _native_bootstraps(tmp_path, args)
+    args.configuration_endpoint = "127.0.0.1:51061"
+    with pytest.raises(ValueError, match="configuration bootstrap listener differs"):
+        scripts.render._render(args)
+
+
+def test_additional_service_bootstraps_are_process_only(
+    tmp_path: Path, scripts: SimpleNamespace
+) -> None:
+    _configs(tmp_path, scripts, process=False)
+    args = _render_args(tmp_path, scripts, "rpc")
+    args.configuration_bootstrap = tmp_path / "config.yaml"
+    args.configuration_endpoint = "127.0.0.1:51060"
+    with pytest.raises(ValueError, match="require process mode"):
+        scripts.render._render(args)
 
 
 def test_render_rejects_malformed_nested_config(tmp_path: Path, scripts: SimpleNamespace) -> None:
@@ -273,7 +440,7 @@ def _provision_args(root: Path, scripts: SimpleNamespace, runtime: str) -> argpa
     env_file.chmod(0o600)
     return argparse.Namespace(
         root=root,
-        deployment=scripts.render.DEFAULT_DEPLOYMENT_PATH,
+        deployment="configs/deployments/deployment_prod-a_v1.3.0.yaml",
         image="wind-hub:test",
         uid=1000,
         gid=1000,

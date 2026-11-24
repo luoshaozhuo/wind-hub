@@ -25,7 +25,7 @@ async def test_full_snapshot_grpc_roundtrip(
 ) -> None:
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
     for folder in ("services", "instances", "templates", "deployments"):
-        shutil.copytree(ROOT / "configs" / folder, tmp_path / folder)
+        shutil.copytree(ROOT / "deploy" / "config_roots" / "prod-a" / folder, tmp_path / folder)
     service_file = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
 
     app = await assemble_collector(
@@ -47,7 +47,7 @@ async def test_full_snapshot_grpc_roundtrip(
             assert before.revision and before.files
             names = {item.relative_path for item in before.files}
             assert "services/service_collector-realtime_v1.1.0.yaml" in names
-            assert "instances/device_farm-a_v1.4.0.yaml" in names
+            assert "instances/device_farm-a_v1.6.0.yaml" in names
             with pytest.raises(grpc.aio.AioRpcError) as rejected:
                 await client.PushConfigSnapshot(
                     pb.PushConfigSnapshotRequest(

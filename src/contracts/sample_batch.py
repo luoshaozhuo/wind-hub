@@ -81,6 +81,16 @@ class SampleItem(BaseModel):
     sample_time: datetime
     receive_time: datetime | None = None
     max_staleness_ms: int | None = Field(default=None, gt=0, le=2**63 - 1)
+    raw_payload_hex: str | None = None
+
+    @field_validator("raw_payload_hex")
+    @classmethod
+    def _raw_payload(cls, value: str | None) -> str | None:
+        if value is not None and (
+            not 0 < len(value) <= 4096 or len(value) % 2 or re.fullmatch(r"[0-9a-f]+", value) is None
+        ):
+            raise ValueError("RAW payload must be 1..2048 bytes in canonical lowercase hex")
+        return value
 
     @field_validator("point_id")
     @classmethod
@@ -214,6 +224,8 @@ class SampleBatch(BaseModel):
             raise ValueError("batch exceeds max_samples")
         document = self.model_dump(mode="json")
         for item in document["samples"]:
+            if item["raw_payload_hex"] is None:
+                del item["raw_payload_hex"]
             if item["receive_time"] is None:
                 del item["receive_time"]
             if item["max_staleness_ms"] is None:

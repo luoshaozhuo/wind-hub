@@ -24,8 +24,6 @@ SERVICE_NAMES = (
     "commander",
 )
 
-DEFAULT_DEPLOYMENT_PATH = "configs/deployments/deployment_prod-a_v1.3.0.yaml"
-
 PORTS = {
     "gateway": 50073,
     "data-generator": 50061,
@@ -93,7 +91,7 @@ def _document(path: Path) -> dict[str, Any]:
     if (
         not isinstance(data, dict)
         or type(data.get("schema_version")) is not int
-        or data["schema_version"] not in (1, 2)
+        or data["schema_version"] not in (1, 2, 3)
     ):
         raise ValueError(f"invalid service schema: {path}")
     return data
@@ -137,9 +135,9 @@ def _selected_service_names(root: Path, deployment_path: Path) -> dict[str, str]
         or re.fullmatch(
             r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
             deployment_version,
-        ) is None
-        or deployment_path.name
-        != f"deployment_{deployment_id}_v{deployment_version}.yaml"
+        )
+        is None
+        or deployment_path.name != f"deployment_{deployment_id}_v{deployment_version}.yaml"
     ):
         raise ValueError("invalid Deployment identity or version")
     selected = deployment.get("services")
@@ -174,7 +172,9 @@ def _section(document: dict[str, Any], key: str, service: str) -> dict[str, Any]
     return value
 
 
-def _validate_bindings(root: Path, files: dict[str, Path], mode: str, deployment_path: Path) -> None:
+def _validate_bindings(
+    root: Path, files: dict[str, Path], mode: str, deployment_path: Path
+) -> None:
     docs = {name: _document(path) for name, path in files.items()}
     for name in ("collector_realtime", "collector_reliable"):
         expected = "realtime" if name == "collector_realtime" else "reliable"
@@ -235,9 +235,12 @@ def _validate_bindings(root: Path, files: dict[str, Path], mode: str, deployment
             if not isinstance(version, str):
                 raise ValueError(f"{name}: required Instance version is missing")
             prefix = {
-                "site": "site", "device": "device",
-                "collector_tasks": "collector_tasks", "scenario": "scenarios",
-                "sink": "sinks", "delivery": "deliveries",
+                "site": "site",
+                "device": "device",
+                "collector_tasks": "collector_tasks",
+                "scenario": "scenarios",
+                "sink": "sinks",
+                "delivery": "deliveries",
             }[config_type]
             relative = f"configs/instances/{prefix}_{config_id}_v{version}.yaml"
             if not _relative(root, relative).is_file():
@@ -274,8 +277,12 @@ def _argv(name: str, paths: dict[str, Path], root: Path, python: Path) -> list[s
         ]
     if name == "sink":
         return [
-            *base, "sink_service.main", "--config-root", str(root),
-            "--service-file", f"configs/services/{paths[name].name}",
+            *base,
+            "sink_service.main",
+            "--config-root",
+            str(root),
+            "--service-file",
+            f"configs/services/{paths[name].name}",
         ]
     return [*base, "commander", "--config", str(paths[name])]
 
@@ -285,9 +292,14 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
     deployment_path = _relative(root, args.deployment)
     selected = _selected_service_names(root, deployment_path)
     names = {
-        name: getattr(args, name.replace("-", "_")) or selected[name]
+        name: getattr(args, name.replace("-", "_"), None) or selected[name]
         for name in SERVICE_NAMES
     }
+    # A CLI override must not select a second file outside the Deployment
+    # authority, even when its YAML claims the same ID and file_version.
+    for name, filename in names.items():
+        if filename != selected[name]:
+            raise ValueError(f"{name}: Service override differs from selected Deployment")
     paths = _service_files(root, names)
     _validate_bindings(root, paths, args.mode, deployment_path)
     certs = (args.ca, args.client_cert, args.client_key)
@@ -337,8 +349,34 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         row: dict[str, Any] = {
             "grpc_endpoint": f"127.0.0.1:{PORTS[name]}",
         }
-        if name != "sink":
+        if name.startswith("collector_"):
             row["tls_profile"] = "local"
+        elif name in {"gateway", "commander", "data-generator"}:
+            caller_id = {
+                "gateway": "operator",
+                "commander": "ems",
+                "data-generator": "cli",
+            }[name]
+            security = _section(_document(paths[name]), "security", name)
+            callers = security.get("callers")
+            if not isinstance(callers, list):
+                raise ValueError(f"{name}: token caller identities are required")
+            identities = {
+                caller.get("caller_id"): caller.get("token_env")
+                for caller in callers
+                if isinstance(caller, dict)
+            }
+            token_env = identities.get(caller_id)
+            if not isinstance(token_env, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", token_env):
+                raise ValueError(f"{name}: missing authorized {caller_id} token")
+            row["token_env"] = token_env
+            if name == "commander":
+                maintenance = identities.get("maintenance")
+                if not isinstance(maintenance, str) or not re.fullmatch(
+                    r"[A-Z_][A-Z0-9_]*", maintenance
+                ):
+                    raise ValueError("commander: maintenance caller token required")
+                row["method_token_envs"] = {"RecoverDeviceControl": maintenance}
         if args.mode == "process":
             row.update(
                 {
@@ -378,6 +416,88 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
         "grpc_endpoint": services["collector_realtime"]["grpc_endpoint"],
         "tls_profile": "local",
     }
+    bootstraps = {
+        "configuration": (
+            getattr(args, "configuration_bootstrap", None),
+            getattr(args, "configuration_endpoint", None),
+            "configuration_service",
+            "--config",
+        ),
+        "storage": (
+            getattr(args, "storage_bootstrap", None),
+            getattr(args, "storage_endpoint", None),
+            "storage_service.main",
+            "--bootstrap",
+        ),
+    }
+    if args.mode != "process" and any(
+        bootstrap is not None or endpoint is not None
+        for bootstrap, endpoint, _, _ in bootstraps.values()
+    ):
+        raise ValueError("additional managed service bootstraps require process mode")
+    for name, (bootstrap, endpoint, module, option) in bootstraps.items():
+        if bootstrap is None and endpoint is None:
+            continue
+        if not isinstance(bootstrap, Path) or not isinstance(endpoint, str):
+            raise ValueError(f"{name} requires both bootstrap path and gRPC endpoint")
+        if not re.fullmatch(r"127[.]0[.]0[.]1:[1-9][0-9]{0,4}", endpoint):
+            raise ValueError(f"{name}: endpoint must be numeric IPv4 loopback")
+        if int(endpoint.rsplit(":", 1)[1]) > 65535:
+            raise ValueError(f"{name}: endpoint port must be <= 65535")
+        if not bootstrap.is_absolute() or bootstrap.is_symlink() or not bootstrap.is_file():
+            raise ValueError(f"{name}: bootstrap must be an existing absolute regular file")
+        document = _document(bootstrap)
+        if name == "configuration":
+            grpc = _section(document, "grpc", name)
+            if endpoint != f"{grpc.get('host')}:{grpc.get('port')}":
+                raise ValueError("configuration bootstrap listener differs from CLI endpoint")
+        else:
+            selected_services = _section(deployment, "services", "deployment")
+            service_id = document.get("service_id")
+            selection = selected_services.get(service_id)
+            if (
+                not isinstance(selection, dict)
+                or selection.get("config_id") != service_id
+                or document.get("deployment_id") != deployment.get("deployment_id")
+            ):
+                raise ValueError("storage bootstrap differs from selected Deployment")
+            version = selection.get("file_version")
+            if not isinstance(version, str) or not re.fullmatch(
+                r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+                version,
+            ):
+                raise ValueError("storage selected Service version is invalid")
+            selected_path = _relative(
+                root, f"configs/services/service_{service_id}_v{version}.yaml"
+            )
+            selected_document = _document(selected_path)
+            if (
+                selected_document.get("service_id") != service_id
+                or selected_document.get("file_version") != version
+            ):
+                raise ValueError("storage selected Service identity/version mismatch")
+            storage_grpc = _section(_section(selected_document, "service", name), "grpc", name)
+            if endpoint != (f"{storage_grpc.get('listen_host')}:{storage_grpc.get('listen_port')}"):
+                raise ValueError("storage CLI endpoint differs from selected Service listener")
+            configuration = _section(document, "configuration", name)
+            configuration_endpoint = services.get("configuration", {}).get("grpc_endpoint")
+            if (
+                configuration_endpoint is not None
+                and configuration.get("endpoint") != configuration_endpoint
+            ):
+                raise ValueError("storage configuration endpoint differs from CLI selection")
+        services[name] = {
+            "grpc_endpoint": endpoint,
+            "manager": "process",
+            "target": name,
+            "process": {
+                "argv": [str(python), "-m", module, option, str(bootstrap)],
+                "cwd": str(root),
+                "env": deployment_env.copy(),
+                "state_dir": str(root / "state" / "cli-processes"),
+                "log_file": str(root / "logs" / f"{name}.log"),
+            },
+        }
     return {
         "schema_version": 1,
         "file_version": "1.1.0",
@@ -396,7 +516,7 @@ def _render(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--deployment", default=DEFAULT_DEPLOYMENT_PATH)
+    parser.add_argument("--deployment", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mode", choices=("process", "containerd", "isulad", "rpc"), required=True)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
@@ -409,6 +529,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--client-cert", type=Path, required=True)
     parser.add_argument("--client-key", type=Path, required=True)
     parser.add_argument("--collector-env-file", type=Path)
+    parser.add_argument("--configuration-bootstrap", type=Path)
+    parser.add_argument("--configuration-endpoint")
+    parser.add_argument("--storage-bootstrap", type=Path)
+    parser.add_argument("--storage-endpoint")
     parser.add_argument("--runtime-prefix", type=Path, default=None)
     for name in SERVICE_NAMES:
         parser.add_argument(f"--{name.replace('_', '-')}", default=None)

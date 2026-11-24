@@ -52,7 +52,7 @@ def test_service_status_partial_degradation_is_independent(cli_env: Any, tmp_pat
     """S03：collector 健康、其余端点不可达 → PARTIAL/4，健康服务结果不被阻断。"""
     from tests.cli.e2e_util import last_json, run_cli, write_cli_yaml
 
-    good = f"localhost:{cli_env.server.port}"
+    good = f"127.0.0.1:{cli_env.server.port}"
     cli_env.server.respond_value(
         cli_env.server.method_path("CommonService", "GetServiceStatus"),
         common_pb2.GetServiceStatusResponse(health="HEALTHY"),
@@ -62,10 +62,10 @@ def test_service_status_partial_degradation_is_independent(cli_env: Any, tmp_pat
         cli_env.server.cert_files,
         {
             "collector": good,
-            "commander": "localhost:1",
-            "sink": "localhost:1",
-            "gateway": "localhost:1",
-            "data_generator": "localhost:1",
+            "commander": "127.0.0.1:1",
+            "sink": "127.0.0.1:1",
+            "gateway": "127.0.0.1:1",
+            "data_generator": "127.0.0.1:1",
         },
         timeout=1.0,
     )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from contracts import common_pb2
+
 
 @dataclass(frozen=True)
 class SemanticEntry:
@@ -220,39 +222,6 @@ CLI_ROWS = (
             "exact PERMISSION_DENIED"
         ),
         readback="independent configuration-tree hash remains unchanged",
-        detail="FAILURE/PERMISSION_DENIED",
-    ),
-    _cli(
-        "config push",
-        ("gateway", "{empty}", "--expected-revision", "{zero_revision}"),
-        expected_exit=2,
-        expected_error="PERMISSION_DENIED",
-        object_id="gateway candidate",
-        normal="exit 0 for a valid candidate with config_write permission",
-        rejection=(
-            "malformed content returns valid=false or INVALID_ARGUMENT by service contract, "
-            "never a commit"
-        ),
-        auth="fixture CLI lacks config_write: exact PERMISSION_DENIED",
-        readback="DISK revision/files and independent tree hash remain unchanged",
-        detail="FAILURE/PERMISSION_DENIED",
-    ),
-    _cli(
-        "config apply",
-        (
-            "gateway",
-            "missing-semantic-candidate",
-            "--expected-revision",
-            "{zero_revision}",
-            "--yes",
-        ),
-        expected_exit=2,
-        expected_error="PERMISSION_DENIED",
-        object_id="missing gateway candidate",
-        normal="authorized valid apply has an explicit committed/partial result",
-        rejection="missing/stale candidate cannot commit",
-        auth="fixture CLI lacks config_write: exact PERMISSION_DENIED",
-        readback="DISK revision/files and independent tree hash remain unchanged",
         detail="FAILURE/PERMISSION_DENIED",
     ),
     _cli(
@@ -613,16 +582,8 @@ def _rpc(
     )
 
 
-COMMON_METHODS = (
-    "GetServiceInfo",
-    "GetServiceStatus",
-    "GetCapabilities",
-    "GetConfigSnapshot",
-    "PushConfigSnapshot",
-    "ApplyConfigSnapshot",
-    "GetMetrics",
-    "GetEvents",
-    "Diagnose",
+COMMON_METHODS = tuple(
+    method.name for method in common_pb2.DESCRIPTOR.services_by_name["CommonService"].methods
 )
 
 
@@ -907,21 +868,13 @@ COMMON_DEPLOYMENTS = (
     "sink",
     "data-generator",
 )
-_PUSH_EXPECTATIONS = {
-    "gateway": ("PERMISSION_DENIED", "config_write denied before validation"),
-    "collector_realtime": ("OK", "valid=false with validation issue"),
-    "collector_reliable": ("OK", "valid=false with validation issue"),
-    "commander": ("INVALID_ARGUMENT", "snapshot size mismatch"),
-    "sink": ("OK", "valid=false with validation issue"),
-    "data-generator": ("OK", "valid=false with validation issue"),
-}
-_APPLY_EXPECTATIONS = {
-    "gateway": ("PERMISSION_DENIED", "config_write denied before candidate lookup"),
-    "collector_realtime": ("FAILED_PRECONDITION", "missing candidate"),
-    "collector_reliable": ("FAILED_PRECONDITION", "missing candidate"),
-    "commander": ("NOT_FOUND", "missing candidate"),
-    "sink": ("NOT_FOUND", "missing candidate"),
-    "data-generator": ("OK", "file_commit=FAILED and effective revision unchanged"),
+_WRITE_EXPECTATIONS = {
+    "gateway": ("PERMISSION_DENIED", "missing config_write permission"),
+    "collector_realtime": ("FAILED_PRECONDITION", "Repository is sole publisher"),
+    "collector_reliable": ("FAILED_PRECONDITION", "Repository is sole publisher"),
+    "commander": ("PERMISSION_DENIED", "CLI lacks reload permission"),
+    "sink": ("FAILED_PRECONDITION", "Repository is sole publisher"),
+    "data-generator": ("FAILED_PRECONDITION", "Repository is sole publisher"),
 }
 
 
@@ -933,10 +886,8 @@ def _common_deployment_rows() -> tuple[SemanticEntry, ...]:
             detail = "deployment-specific valid response"
             if deployment == "gateway" and method == "GetConfigSnapshot":
                 status, detail = "PERMISSION_DENIED", "CLI lacks config_read"
-            elif method == "PushConfigSnapshot":
-                status, detail = _PUSH_EXPECTATIONS[deployment]
-            elif method == "ApplyConfigSnapshot":
-                status, detail = _APPLY_EXPECTATIONS[deployment]
+            elif method == "PushConfigSnapshot" or method == "ApplyConfigSnapshot":
+                status, detail = _WRITE_EXPECTATIONS[deployment]
             rows.append(
                 _rpc(
                     "CommonService",

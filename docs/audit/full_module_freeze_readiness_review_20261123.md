@@ -276,8 +276,194 @@ RAW 真实协议字节、BUSINESS 历史 Manifest 与 OEM 的 111 个点审核�
 
 **本轮交付裁决**：`READY_FOR_ROUND3_DESIGN_CONFIG_RETEST`；不能宣布 `DESIGN_CONFIG_REVIEW=PASS`、`DESIGN_FREEZE_APPROVED` 或 `PRODUCTION_ACTIVATION=READY`。
 
-### 15.4 sim-a Schema v2 后继勘误及台账刷新
+#> 第三轮独立复测后事实更新（2026-11-23）：§15.1 的 112 份台账、§15.3 的 sim-a@1.3.0 均为当时的历史审查记录，不能视为当前活动版本。第三轮复测时版本化源 YAML 及台账为 **117/117**，活动根为 prod-a@1.6.0、sim-a@1.4.0、e2e-final@1.0.1；以第三轮报告和该轮证据为历史基线。此后的本分支设计收口又新增两份不可变候选，当前源台账为 **119 项**，sim-a 活动候选升级为 **1.5.0**（Generator Service 1.2.0，移除 gateway_tls）；新状态尚待独立复测。此前的历史审查结果不被追溯改写。\n\n## 15.4 sim-a Schema v2 后继勘误及台账刷新
 
 发现 sim-a 第一代后继 Service 中使用了未纳入当前 Configuration Schema 的 `token_sources`，因此未将其覆盖为同版本修订，而是创建 Gateway-sim@1.2.0、Commander-sim@1.2.0、Data Generator-sim@1.1.0（`schema_version:2`，通过 `security.callers[].token_env` 声明身份），以及 CLI-sim@1.5.0、sim-a Deployment@1.4.0。旧候选保留在源 `configs/`，独立活动根只选择最新版。后续代码专题必须核验各模块运行时解析器是否接受该 Schema，实际受控令牌权限是否执行，未经验证不能宣称可投产。
 
 `config_version_release_ledger_20261123.csv` 随新候选重新生成，其 Git Blob 是客观字节证据；历史是否曾发布仍保持 UNKNOWN，不把该台账等同生产批准记录。
+
+
+## 16. 第一阶段设计与配置收口进度（2026-11-23）
+
+> 本节是开发分支上的阶段性设计审查记录，不替代第三轮独立复测或正式冻结批准。历史记录保留原有基线。
+
+### 16.1 已提交的定向修订
+
+- Collector：将遗留本地 Candidate/Push/Apply 文件提交事务从规范性配置应用流程中移除，改为 Repository 精确闭包查询和设备级独立生效；同步清理 UR、业务触发及一部分测试描述。
+- Commander：Service 业务依赖不再以本地 pathname、模板根选择；区分引导路径和 Repository 精确业务闭包，校正 Common 快照和 Repository 发布 CAS 的所有权。
+- Sink：正式修订仅由 Configuration Repository 提交，Main 仅调和 Worker；修正本地 Push/Apply 测试期待和 require_dedup 证据门禁。
+- Industrial Gateway：10 个专属 + 9 个 Common；只读快照、旧写入口拒绝；管理令牌和业务角色不由本轮放宽。
+- Data Generator：9 个专属 + 9 个 Common；目标变量身份严格使用所选 Gateway PointTable 的 point_id；允许一源多目标（包括同一 Gateway），但每个 `(gateway_id,variable_id)` 只允许一个来源。该约束与 PointTable 内 Point→BusinessPoint 一对一独立。
+- Storage：现有 Common target_revision（4）/active_revision（5）为正式字段；CLI/Configuration 文档引用当前 Contracts v1_44。
+- sim-a 新增不可变 Service data-generator-sim@1.2.0 和 Deployment sim-a@1.5.0，移除 gateway_tls，活动根切换为此后继版本，旧源 YAML 不变。新增两项台账后为 119 项；对应根文件 Blob 已静态匹配。
+- 跨模块测试设计 §15.5 已明确本分支最新根、映射规则、静态和运行时独立门禁。
+
+### 16.2 不能提前关闭的边界
+
+| 门禁/问题 | 第一阶段处理决议 |
+|---|---|
+| D-01 / D-04 / D-06 | 总体 v1_27 字节保持冻结。§13.1 勘误已给出明确替代语义；未经授权批准仍为 DESIGN_FREEZE_APPROVAL_PENDING。 |
+| N-04 | sim 三项 Schema v2 与第一方解析器不兼容，归下一阶段生产代码及测试整改；不得仅放宽解析器绕过令牌鉴权。 |
+| N-05 | e2e 的 simulation_targets 与 grpc.sink_listener_port 尚未纳入已注册 Schema；Configuration 设计 §9.1.1 已规定后继证书身份 Service Schema v3，须代码阶段实现、创建新 YAML/Deployment 版本及复测。不得原地修改历史 Schema 或宣称当前 35/35 PASS。 |
+| C-10 | 现行代码硬编码标准业务目录版本，留待独立代码审查；本轮禁止更改 src。 |
+| C-08/C-11/C-13/C-14 | 实际 Listener 安全、现场基础设施/OEM、RAW/BUSINESS 数据及容量依赖真实执行证据，独立保留生产激活阻断。 |
+| 第三轮原有静态问题 | 本轮仅作定向修订，尚未执行相同分母的严格第四轮审查；不能把文档编辑等同 CLOSED。 |
+
+### 16.3 当前结论
+
+- DESIGN_CONFIG_REVIEW = PENDING_RETEST（不是 PASS）
+- DESIGN_FREEZE_APPROVAL = DESIGN_FREEZE_APPROVAL_PENDING
+- PRODUCTION_ACTIVATION = BLOCKED
+- SOFTWARE_TESTS = NOT_RUN
+- 本阶段所有 GitHub 文件写入仅在 feat/production-readiness-final-20261123，不更改 main、src 或 tests。
+- 报告模板.md 在仓库未能定位；本节沿用已有审计文档结构，模板合规性尚未验证。
+
+### 16.4 第一阶段设计书正式换版（2026-11-23）
+
+本分支规范性内容整改后，九份受影响的设计书已**新建后继版本并删除原版工作文件**；历史文档/验收记录中的旧版本名仍仅作为当时事实保存。总体设计 v1_27、Core v1_45 不变；Contracts 后续因 D-05 发现规范性冲突单独升级至 v1_45（见 §16.5）。
+
+| 模块 | 当前唯一工作文件 |
+|---|---|
+| CLI | `docs/design/CLI_软件设计_v1_56.md` |
+| Collector | `docs/design/Collector_软件设计_v1_44.md` |
+| Commander | `docs/design/Commander_软件设计_v1_60.md` |
+| Configuration | `docs/design/Configuration_Service_软件设计_v1_23.md` |
+| Contracts | `docs/design/Contracts_软件设计_v1_45.md` |
+| Core | `docs/design/Core_软件设计_v1_45.md` |
+| Data Generator | `docs/design/Data_Generator_软件设计_v1_63.md` |
+| Industrial Gateway | `docs/design/industrial_gateway_软件设计_v1_53.md` |
+| Sink Service | `docs/design/Sink_Service_软件设计_v1_76.md` |
+| Storage Service | `docs/design/Storage_Service_软件设计_v1_10.md` |
+| 跨模块测试 | `docs/design/wind-hub_跨模块测试设计_v0_44.md` |
+| 总体架构 | `docs/design/wind-hub_总体逻辑架构设计_v1_27.md` |
+
+**冻结前最终待核查**：上述文档自身及交叉引用、三套根唯一 Deployment、119 份版本台账、Source→Root Blob 恒等、sim-a Listener/Token/状态目录隔离、e2e Schema v1/v3 迁移策略；不能因文档换版宣称校验脚本已 PASS。旧报告中引用已删除工作版本的链接属于历史证据定位问题，不能把旧版本当作现行权威。D-01/D-04/D-06 总体勘误仍待有权批准。
+
+**阶段判定**：DESIGN_CONFIG_REVIEW=PENDING_RETEST；DESIGN_FREEZE_APPROVAL=PENDING；PRODUCTION_ACTIVATION=BLOCKED；SOFTWARE_TESTS=NOT_RUN。
+
+### 16.5 Contracts 写入权威勘误（2026-11-23）
+
+进一步对照冻结审查 D-05，发现原 Contracts v1_44 §4.3 仍将 Common 三项快照 RPC 描述为各服务的独立候选提交/业务生效机制，和 §4.1 以及模块设计的 Repository 唯一发布路径矛盾。已升级唯一现行工作文件为 `docs/design/Contracts_软件设计_v1_45.md`，删除 v1_44 工作文件；保留原 Proto 方法与历史字段号，只从契约语义上禁止业务模块第二套写入。CLI、Commander、Configuration、Data Generator、Gateway、Storage、跨模块测试的现行契约引用已对应更新；Collector/Sink 按现行 Proto 及 Repository 准则实施。
+
+此修订是**设计语义修订而非生产代码修改**。正式冻结前须对 CommonService 全体实现和测试做后续独立代码审查。第三轮报告中的 Contracts v1_44 属于历史审查证据，不将过去的结论反向修改。D-05 需下一轮设计复测后才能 CLOSED。
+
+
+### 16.6 ChatGPT 自主配置整改与静态核对（2026-11-23）
+
+本节由 ChatGPT 负责设计及配置文件整改，不把设计复测移交 Claude。Claude 在后续软件阶段仅负责独立测试、测试代码/Fixture 和小范围修复。
+
+**安全架构定案**：Configuration 现行设计 §9.1.1 已将 Service Schema v3 明确为基于令牌 Schema v2 的严格新增版本，不继承 v1 证书式身份。业务模块间 TLS/mTLS 不再进入新候选。Gateway 的管理与 Sink 注入 Listener 仅允许 loopback、应用令牌、独立权限隔离；真实验证前仍为 STOP。
+
+**E2E 新候选（不修改历史文件）**：
+
+| 对象 | 新版本 | 设计变化 |
+|---|---|---|
+| Commander Service | 1.1.0 / Schema 3 | 令牌调用方与仿真目标 token_env |
+| Gateway source/target Service | 各 1.1.0 / Schema 3 | 移除 mTLS，明确控制/注入令牌，target Sink Listener 为独立受控口 |
+| Data Generator Service | 1.1.0 / Schema 2 | 移除 gateway_tls 和证书身份，声明双向令牌 |
+| CLI Service | 1.1.0 / Schema 1 | 移除 TLS Profile，进程文件参数引用新 Service |
+| Sink Instance | 1.0.1 / Schema 1 | Gateway 目标 credential_ref 使用专用环境变量 |
+| Deployment | e2e-final@1.0.2 | 精确选中上列新版本 |
+
+E2E 独立根保持 35 份 YAML，旧七个被选版本仅从独立活动根移出，仍保留在 configs/ 供不可变历史回溯。prod-a 仍选 1.6.0（29 YAML），sim-a 仍选 1.5.0（23 YAML）。源 YAML 台账增至 **126** 项，新增候选全部为 `UNPUBLISHED_CANDIDATE`。
+
+**已实际执行的静态核对**（GitHub 读取源和独立根）：E2E 七个新配置的 Source/Root Git Blob 为 7/7 一致、file_version/schema_version 与文件名/预定版本 7/7 对应、历史 TLS 结构化字段 0 个、七个源 Blob 在台账均存在；Gateway→Commander、Commander→Gateway、Gateway→Generator、Generator→Gateway、Sink→Gateway 的令牌变量双端对应 **5/5**。sim-a 两个新增候选此前验证 Blob 一致，Generator 无 gateway_tls。台账 126 行且无重复 path。
+
+**严格限制**：上述是已选新配置的**定向文件静态验证**，不是 YAML 全根解析、Configuration Repository v3 校验、Core Loader、运行时/CLI 启动或端到端测试。尝试通过 GitHub Connector 批量完整逐条读取 126 个源文件时触发工具单次调用数上限，未获取 126/126 完整重新校验结果，不能宣称通过。先前独立第三轮 117/117 台账结果只对其当时 HEAD 有效。
+
+**剩余软件实现门禁**：N-04 三模块 v2 运行时拒绝；N-05 新 e2e v3 Schema 未注册（当前发布将被拒绝）；C-10 业务目录硬编码；Gateway Sink Listener 令牌权限与测试真实性；全部由第二阶段代码及测试解决。D-01/D-04/D-06 的总体 v1_27 规范性勘误仍维持用户批准门禁，未改动原总体设计。
+
+**阶段状态**：第一阶段文件级设计收口已交付候选；`DESIGN_CONFIG_REVIEW=PASS_WITH_LIMITATIONS` 仅针对本次定向整改的文件级自审，**不等于**全仓正式冻结；`DESIGN_FREEZE_APPROVAL=PENDING`；`SOFTWARE_TESTS=NOT_RUN`；`PRODUCTION_ACTIVATION=BLOCKED`。
+
+
+### 16.7 ChatGPT 配置台账及独立根逐文件哈希复核（2026-11-23）
+
+**核验输入**：第三轮独立复测 `root-source-hash-manifest.csv` 所列 87 个逻辑配置根路径、当前 `config_version_release_ledger_20261123.csv` 的 128 项源 Git Blob SHA、当前 GitHub 开发分支文件内容。当前分支源配置较第三轮新增 11 个不可变候选（sim-a 4、e2e-final 7）；未覆盖原有 configs/ 已登记 YAML。
+
+**已执行结果**：
+
+| 校验 | 实际结果 | 方法与边界 |
+|---|---|---|
+| 版本台账源文件 | **128/128 PASS** | 分批逐一从当前分支读取全部 128 个 `configs/` 路径，与台账记录的 Git Blob SHA 精确比较；无读失败或不一致。先于最后新增的 sim CLI/Deployment 两文件完成 126/126 检查；两新增文件在版本更新后另行读取并与活动根相等。 |
+| 独立根与源 Blob | **87/87 PASS** | 以前次 87 项 Manifest 的路径为基数，按 11 项候选替换对应的 11 个活动选择（e2e 7、sim 4）；逐项读取 `deploy/config_roots/{deployment}/{relative_path}` 的 Git Blob SHA，与当前台账所列源 SHA 比较；末次 sim 的两条候选路径随后独立验证一致，旧活动根路径确认不存在。 |
+| 不可变选版链 | **定向 PASS** | prod-a@1.6.0、sim-a@1.6.0、e2e-final@1.0.2；sim CLI@1.6.0 与 Generator@1.2.0 绑定一致，e2e CLI 的进程配置与 Deployment 所选 Service 版本无冲突。 |
+| 跨服务令牌配置 | **5/5 静态 PASS** | Gateway→Commander、Commander→Gateway、Gateway→Generator、Generator→Gateway、Sink→Gateway 双端环境变量引用相同；实际授权、令牌是否存在、真正出站元数据的构造仍待代码和进程验证。 |
+
+**新发现并修复（设计/配置）**：sim-a@1.5.0 已选 Generator@1.2.0，但 CLI-sim@1.5.0 的启动 argv 仍硬编码 `service_data-generator-sim_v1.1.0.yaml`。新增不可变 CLI-sim@1.6.0、Deployment sim-a@1.6.0 并同步活动根和台账，不改历史源 Blob；CLI/Deployment 版本配对的静态核查通过。
+
+**严格区分未运行项目**：未在本工具环境中执行完整 YAML 解析、Configuration Repository Schema 校验、Core Domain Snapshot、业务运行时解析器、任何服务启动/测试。已知 e2e v3 尚无正式 Schema 注册，真实 validate_only 不可能 PASS；sim-a v2 一方解析器仍不兼容。因此本表的 Blob 一致性不能替代配置语义或运行时准入。
+
+**阶段自审裁决**：静态版本台账与三个配置根的源 Blob 一致性 **PASS**；设计文件及测试设计中配置写入权威、数据等级和控制安全条款已完成本轮候选整改，但总体 v1_27 的 D-01、D-04、D-06 有权批准仍 **PENDING**。设计冻结仍 **PENDING**；代码阶段实施需保留该正式批准门禁，不能将候选审核等同全面生产就绪。
+
+
+### 16.8 第二阶段 C1：Configuration Schema v3 与 src/tests 清理专题（2026-11-23）
+
+**职责与范围**：ChatGPT 负责生产代码修改、设计偏差修复以及废弃/冗余代码清理；Claude 后续负责独立软件测试、测试代码与 Fixture 维护及小范围修复。固定分支 `feat/production-readiness-final-20261123`，不涉及 Web Server/Admin，不新建 PR，不合并 main。
+
+**本轮已提交生产实现**：
+
+- `src/configuration_service/application/schema_catalog.py`：保留 v1/v2 定义不变，注册独立 Service Schema v3；v3 使用 token_env 调用方、受控 Gateway `grpc.sink_listener_port`，并声明 Commander 的严格动态仿真目标对象。新候选禁用历史证书/TLS 字段和第二个 `grpc.permissions` 权威。
+- `src/configuration_service/application/service.py`：递归验证带 schema 的动态字典值；此前只有 `properties` 才进行嵌套验证，无法限制 `simulation_targets.<device_id>` 对象，现增加规则对象验证且保留旧布尔型 `additionalProperties` 语义。
+- `tests/configuration_service/component/test_schema_regressions.py`：新增 v1/v2 不可变性、v3 真正选版候选、目标必填/未知字段/类型和重复 gRPC 权限源的负例；测试专用自注册 Schema 不再错误抢占正式 v3 的注册位，将原自由版本槽迁至 v5。所有测试仍待执行，不能宣称 PASS。
+
+**新的未发布精确配置候选**：Gateway-source/target@1.1.1、CLI@1.1.1、E2E Deployment@1.0.3，单独消除早期 v3 YAML 内重复的 `grpc.permissions` 配置；旧文件保留在源配置历史，活动 E2E 根只选后继版本。台账从 128 增加至 **132** 项；三套活动根数量保持 29/23/35，总计 87。针对实际新候选的 Source/Root Blob 和全量台账应重新验证。
+
+**正式纳入后续生产代码整改及冗余清理的闭环矩阵**：
+
+| 专题 | 生产代码 | 关联测试 | 删除/保留约束 |
+|---|---|---|---|
+| CFG-01 v3/无重复权限源 | Configuration Schema Catalog/Schema 验证 | `tests/configuration_service/` | 已编写首轮实现和测试，待测试执行后确认；不得覆写历史 v1/v2 |
+| CFG-02 Commander Schema v2/v3 | `src/commander/infrastructure/config/service_settings.py` 与模拟 Gateway RPC 调用方 | `tests/commander/`、`tests/system/rpc/` | 移除证书型运行时分支前先替换鉴权调用、凭据装配和测试；不能只删除证书字段而失去认证 |
+| CFG-03 Gateway Schema v2/v3 | `src/industrial_gateway/infrastructure/config/schema.py`、鉴权及双监听适配器 | `tests/industrial_gateway/`、跨模块 E2E | Sink/管理口必须令牌互斥且仅受控监听；删除旧证书代码后确保无调用者/Fixture 残留 |
+| CFG-04 Generator Schema v2 与出站调用 | `src/data_generator/infrastructure/config/service_settings.py`、`gateway_tls.py`、Gateway RPC 适配器及 main | `tests/data_generator/integration/test_gateway_writer_mtls.py` 等 | 原 mTLS 测试与代码在令牌 RPC 链路可证明之前不能单纯删掉，迁移后集中移除 |
+| CFG-05 退役业务 Push/Apply | Collector/Commander/Sink/Gateway/DG/Storage 的 Common RPC Adapter、CLI 旧快照写入命令 | `tests/cli/test_snapshot_e2e.py`、`tests/sink_service/component/test_config_snapshot.py`、跨模块 Fixture | 保持正式 Proto 9 RPC 注册，业务写入必须 fail-closed；迁移调用方、测试与注释后删除第二套业务配置写入实现 |
+| CFG-06 硬编码目录及过期生成物 | `src/data_generator/infrastructure/config/service_settings.py`、其他 Core/Configuration 选版调用 | Configuration/DG/Collector/Sink 组件和 E2E | 移除 BusinessPoint/Units 固定版本路径前须由 Repository 精确依赖闭包替换；生成 Proto 仅用统一生成器再生并执行一致性检查 |
+
+**验收规则**：清理以“证明没有真实调用者、配置引用、RPC 契约或测试依赖”为前提；不为兼容旧实现保留额外分支；每次改变接口/Schema 同步所有调用方、Fixtures、配置文件和测试，未经真实执行不标记 CLOSED。下一工作次序 CFG-01 实测 → CFG-02/03/04 生产整改 → CFG-05/06 安全清理 → 全仓静态门禁及跨模块 E2E。
+
+**本次测试执行状态：NOT_RUN**。当前执行环境无法直接在项目实际工作树中运行 Ruff、mypy、pytest、完整 132 源 YAML 和 87 根 YAML 解析；已实现的代码需 Claude 后续独立执行测试，也由 ChatGPT 在实现阶段持续进行可执行的局部检查。设计冻结批准 D-01/D-04/D-06 仍为 PENDING，不通过编码替代批准。
+
+
+### 16.9 第二阶段 C2：Commander 令牌化与废弃代码迁移（2026-11-23）
+
+**提交状态：集中开发中，非验收通过。** 本节覆盖冻结设计中的 Commander 内部通信取消 mTLS、E2E 令牌链路及废弃测试迁移；仅影响固定分支，不修改 main 或 Web Server/Admin。
+
+本轮实际修改：
+
+- `src/commander/infrastructure/config/service_settings.py`：Service v2/v3 令牌 Schema、严格 loopback 监听、调用方角色及仿真目标环境引用校验，删除此解析路径对证书 CN/密钥路径的依赖。
+- `src/commander/application/settings.py`：仿真 Gateway Target 使用 `token_env`，不再存储内部 mTLS 证书参数。
+- `src/commander/infrastructure/adapters/inbound/grpc_transport.py` 与 `grpc/server.py`：仅在 loopback 绑定内部 gRPC，启动时读取环境令牌，拒绝缺失、重用、非安全 ASCII 或不足 32 字符的令牌；每个 RPC 从单个 Authorization Bearer 字段在恒定时间对比后做调用方权限和查询隔离。可信恢复外部证明方的独立证书/隔离证据要求不变。
+- `src/commander/infrastructure/adapters/outbound/gateway.py`：删除旧的内部证书通道，改用 loopback + 原有唯一 command_id/双端认证 Bearer 元数据，执行确认语义不变。
+- `tests/commander/component/test_gateway_simulation_session.py`：废弃 mTLS Gateway 测试搭建，改为真实本地 gRPC + Bearer 鉴权伪 Gateway，保留命令执行证明、重试身份、超时的组件断言。
+- `tests/commander/unit/test_token_transport.py`：新增令牌加载、校验、非法监听、证书字段拒绝、权限边界的正反例。**未运行**。
+
+**配置中发现并修复的严重候选缺陷**：E2E Gateway-source@1.1.1 的 `servers[].control.simulation` 存在两个重复 `token_env`，严格 YAML 应拒绝。新建 Gateway-source@1.1.2、CLI@1.1.2、Deployment@1.0.4 并精确重选；原源 YAML 保留未发布历史，当前三根工作文件数仍 29/23/35，版本台账升至 **135** 源项。新配置根是未发布候选，必须在下一轮严格校验中核对。
+
+**仍须由 ChatGPT 完成的开发及清理**：Gateway 目前不符合 Token v2/v3 Schema，且其原本 loopback 明文权限退化逻辑未解决；Generator 仍有 mTLS 客户端实现；CLI 与系统测试大批证书型 Fixture 尚未迁移；prod-a 服务仍引用历史配置；Common RPC 的业务写入旁路及版本硬编码需后续安全删除。**本次不将 C2 宣称完成**，更不应在服务尚未端到端鉴权时开放 Gateway/Commander。
+
+**软件质量状态**：本执行环境没有项目可执行工作树，未运行 Ruff、mypy、pytest 或完整 E2E；不得把 GitHub 成功写入视为代码质量验收。待 ChatGPT 完成各模块生产代码与 Fixture 集中整改后，再由 Claude 独立测试、小范围修复与复测。
+
+
+### 16.10 第二阶段 C3：Gateway / Data Generator Token 化及冗余清理（2026-11-23）
+
+**仍是集中编码中的中间状态，尚未形成测试准入。** 本轮完成配置及生产实现的以下定向变更：
+
+- Gateway：严格 Service Schema v2/v3、`security.callers[]` 单一授权来源、loopback Listener、受控 Sink 注入权限；删除内部 mTLS 和对明文 loopback 匿名放行；Gateway→Commander、Gateway→Generator 使用独立的 `token_env` Bearer 元数据，所有 RPC 必须鉴权。新增 `tests/industrial_gateway/unit/test_token_security_schema.py`，迁移 `test_generator_rpc_client.py` 至真实令牌 gRPC。
+- Commander：此前 C2 已迁移管理及仿真 Gateway 双向令牌链路，仍有大量旧证书式系统测试 Fixture 尚待整改。
+- Data Generator：新增 `infrastructure/gateway_auth.py`，移除 `infrastructure/gateway_tls.py`；Gateway Writer、GatewayRpcClient、Diagnostics 和 CLI `--check` 统一以 `output.gateway_token_env` 授权且限定 loopback；Service 仅接受 Schema v2，删除 `gateway_tls`；所有 9 项专属 RPC 与 Common 9 RPC 由 `GeneratorAuthorization` 统一 Bearer 权限拦截。原 `GetCapabilities` 证书门禁删除。
+- 测试：删除不再适用的 `tests/data_generator/integration/test_gateway_writer_mtls.py`，新增真实 Bearer Gateway RPC 链的 `test_gateway_writer_token.py`、所有 RPC 权限拦截测试 `tests/data_generator/unit/test_grpc_authorization.py`；未完整覆盖删除的旧诊断测试，需要继续补足。
+
+**精确配置候选**：sim-a 最终选择 Deployment@1.8.0（Commander@1.3.0、Gateway@1.3.0、Generator@1.3.1、CLI@1.8.0）；e2e-final 选择 Deployment@1.0.5（Commander@1.1.0、Gateway source@1.1.2/target@1.1.1、Generator@1.1.1、CLI@1.1.3）。这些都是未发布的新文件版本。台账已添加至 **146** 源 YAML，独立根仍目标为 prod-a 29、sim-a 23、e2e-final 35；未经严格配置闭包、Loader 或运行时测试，不宣称 PASS。
+
+**高优先级未关闭项**：prod-a 旧 v1 服务与新运行时代码不兼容；CLI / Commander / Gateway / Generator / Sink 多处测试 Fixture 仍以证书为契约；Generator 改动涉及所有运行时配置测试，需逐调用方同步；Gateway Sink/管理端口虽有角色校验，但物理监听与服务暴露隔离需独立证明；Storage 末端 RAW/PROTOCOL/BUSINESS E2E 和 30×10Hz×500 点性能未跑；旧快照写入及固定目录版本清理仍未结束。
+
+**验证说明**：本轮通过 GitHub 确认生产代码、测试与配置提交，未实际执行 Ruff、mypy、pytest、严格 YAML 解析、真实服务启动或跨模块 E2E。Claude 仅在集中编码收口后做独立测试及小范围修复；ChatGPT 继续承担主要实现及失效测试的迁移修正。所有软件门禁 `NOT_RUN`，生产准入 `BLOCKED`。
+
+
+### 16.11 第二阶段 C3 补充：全 RPC 鉴权与旧测试清理
+
+补充生产代码 `src/data_generator/infrastructure/adapters/inbound/grpc_auth.py`：Generator 专属及 CommonService 共 18 个 Unary 方法统一走 loopback + Bearer 拦截器，按只读/写入分别要求 `variables_read`/`variables_update`；缺失、重复或越权 Token 拒绝，旧 Common Push/Apply 仍明确拒绝发布业务配置。该拦截器在 `make_server` 注入，独立读取配置时按服务端真实 Token 对照。
+
+补充测试 `tests/data_generator/integration/test_gateway_writer_token.py`，用实际本地 gRPC Server 验证 Writer→Gateway 读点、租约、更新及错误 Token 拒绝；删除 `test_gateway_writer_mtls.py`。新增 `tests/data_generator/unit/test_grpc_authorization.py` 覆盖只读、写入和匿名 Common RPC。修改 `tests/data_generator/conftest.py` 的共享 Service Fixture 为 Schema v2/出站授权令牌，配置测试专用环境变量。Gateway 服务端在进程启动及运行中令牌身份歧义均拒绝。
+
+**限制**：其余 Commander/Gateway/CLI/E2E 旧证书 Fixture 尚未整体迁移；删除的历史 mTLS 诊断用例所覆盖的诊断语义需以新的 Bearer 诊断测试补齐；生产候选 Schema 与权限实现也未跑静态门禁。该专题仅能记为 `IMPLEMENTED_PENDING_TEST`，不能记为 `PASS`。依照当前分工，ChatGPT 后续集中修正代码及测试，Claude 最终独立执行测试与小修复。

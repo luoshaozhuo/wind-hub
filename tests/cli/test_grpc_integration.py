@@ -1,4 +1,4 @@
-"""真实 grpc.aio + mTLS 端到端：连接复用、错误码映射、写入安全、轮询、快照（冻结契约）。
+"""真实 grpc.aio + mTLS 端到端：连接复用、错误码映射、写入安全与轮询。
 
 服务器是真实 grpc.aio（TLS 握手、protobuf 序列化、gRPC status 均为真实实现），
 仅业务行为由测试注入；这覆盖 CLI 侧契约，不替代五服务生产服务端验收。
@@ -59,8 +59,6 @@ def test_rpc_whitelist_rejects_undeclared_method(cli_env: Any) -> None:
                 await invoke(runtime, "collector", "DeleteEverything", {})
         finally:
             await runtime.close()
-
-    import asyncio
 
     asyncio.run(scenario())
 
@@ -203,69 +201,6 @@ def test_collector_watch_fails_after_reconnect_budget(cli_env: Any) -> None:
     server.fail(_path(server, "CollectorService", "ReadPoints"), grpc.StatusCode.UNAVAILABLE)
     result = cli_env.invoke("collector", "watch", "d1", "--interval", "0.2", "--count", "1")
     assert result.exit_code == 3
-
-
-def test_snapshot_push_validate_then_apply_partial_exit4(cli_env: Any, tmp_path: Path) -> None:
-    server = cli_env.server
-    server.respond_value(
-        _path(server, "CommonService", "GetConfigSnapshot"),
-        common_pb2.GetConfigSnapshotResponse(snapshot_id="s0", revision="r0"),
-    )
-    server.respond_value(
-        _path(server, "CommonService", "PushConfigSnapshot"),
-        common_pb2.PushConfigSnapshotResponse(candidate_id="c1", valid=True, base_revision="r0"),
-    )
-    candidate = tmp_path / "candidate"
-    candidate.mkdir()
-    (candidate / "collector.yaml").write_text("devices: []\n", encoding="utf-8")
-    pushed = cli_env.invoke("config", "push", "collector", str(candidate))
-    assert pushed.exit_code == 0, pushed.stdout
-    assert pushed.json()["data"]["valid"] is True
-    push_calls = [call for call in server.calls if call.path.endswith("/PushConfigSnapshot")]
-    assert len(push_calls) == 1
-    assert push_calls[0].request.expected_revision == "r0"
-
-    server.respond_value(
-        _path(server, "CommonService", "ApplyConfigSnapshot"),
-        common_pb2.ApplyConfigSnapshotResponse(
-            file_commit="COMMITTED",
-            apply_results=[
-                common_pb2.ApplicationResult(object_id="task-1", status="SUCCESS"),
-                common_pb2.ApplicationResult(object_id="task-2", status="FAILED", error_code="E"),
-            ],
-            effective_revision="r1",
-            restart_required=True,
-        ),
-    )
-    applied = cli_env.invoke("config", "apply", "collector", "c1", "--yes")
-    assert applied.exit_code == 4, applied.stdout
-    assert applied.json()["status"] == "PARTIAL"
-
-
-def test_snapshot_apply_full_success_exit0(cli_env: Any) -> None:
-    server = cli_env.server
-    server.respond_value(
-        _path(server, "CommonService", "GetConfigSnapshot"),
-        common_pb2.GetConfigSnapshotResponse(revision="r1"),
-    )
-    server.respond_value(
-        _path(server, "CommonService", "ApplyConfigSnapshot"),
-        common_pb2.ApplyConfigSnapshotResponse(
-            file_commit="COMMITTED",
-            apply_results=[common_pb2.ApplicationResult(object_id="t", status="APPLIED")],
-            effective_revision="r2",
-        ),
-    )
-    result = cli_env.invoke(
-        "config",
-        "apply",
-        "collector",
-        "c2",
-        "--expected-revision",
-        "r1",
-        "--yes",
-    )
-    assert result.exit_code == 0, result.stdout
 
 
 async def test_mtls_rejects_untrusted_client(

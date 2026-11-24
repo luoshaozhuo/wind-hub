@@ -6,6 +6,7 @@ ListVariables 预检、逐项结果、ReadVariables 真实读回、IP 白名单�
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 
 import grpc
@@ -18,6 +19,7 @@ from data_generator.domain.model import DataBatch, DataPoint
 from data_generator.infrastructure.adapters.outbound.gateway import GatewayWriter
 from data_generator.infrastructure.config.service_settings import load_settings
 from data_generator.infrastructure.persistence.snapshots import recover_transaction
+from tests.support.gateway import _BearerInterceptor
 
 from ..conftest import ship_scenarios_document
 
@@ -33,7 +35,10 @@ GW_DEVICES = {
 
 
 async def _stub(bind: str):  # noqa: ANN202
-    channel = grpc.aio.insecure_channel(bind)
+    channel = grpc.aio.insecure_channel(
+        bind,
+        interceptors=[_BearerInterceptor(os.environ["WIND_HUB_TEST_DG_GATEWAY_TOKEN"])],
+    )
     await channel.channel_ready()
     return channel, gw_rpc.IndustrialGatewayServiceStub(channel)
 
@@ -330,25 +335,23 @@ async def test_batch_shape_and_claim_size_limits(start_real_gateway) -> None:  #
         await channel.close()
 
 
-async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # noqa: ANN001
-    # v1 安全模型：明文仅限 loopback；跨网络写入必须 mTLS，授权边界是服务端按
-    # 客户端证书 CN 配置的权限集。无权限身份在读取/租约/写入三个入口一律拒绝。
+async def test_unknown_bearer_denies_unauthorized_writer(start_real_gateway) -> None:  # noqa: ANN001
+    # 未登记的 Bearer 身份（随机 token）在三个入口均认证失败；
+    # 已登记但只有 read 的调用方在租约/写入入口得到授权拒绝。
     gateway = await start_real_gateway(
         endpoint_id="gw-a",
         devices=GW_DEVICES,
-        permissions={"generator-a": ["read", "inject"]},
-        client_names=("stranger",),
+        permissions={"generator-a": ["read", "inject"], "viewer-a": ["read"]},
     )
     denied_channel = gateway.mtls_channel("stranger")
     denied_stub = gw_rpc.IndustrialGatewayServiceStub(denied_channel)
     try:
         with pytest.raises(grpc.RpcError) as read_denied:
             await denied_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
-        assert read_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
-        # 安全边界在 ClaimTargets，而非只靠写入端自觉。
+        assert read_denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
         with pytest.raises(grpc.RpcError) as claim_denied:
             await _claim(denied_stub, "gw-a", "owner-x", ["GW01.pitch_angle"])
-        assert claim_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert claim_denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
         with pytest.raises(grpc.RpcError) as info:
             await denied_stub.UpdateVariables(
                 gw.UpdateVariablesRequest(
@@ -361,9 +364,21 @@ async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # n
                     ],
                 )
             )
-        assert info.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        assert info.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await denied_channel.close()
+
+    # 已登记但缺 inject/lifecycle 授权：读可用，租约/写入被授权边界拒绝。
+    viewer_channel = gateway.mtls_channel("viewer-a")
+    viewer_stub = gw_rpc.IndustrialGatewayServiceStub(viewer_channel)
+    try:
+        listed = await viewer_stub.ListVariables(gw.ListVariablesRequest(gateway_id="gw-a"))
+        assert listed.variables
+        with pytest.raises(grpc.RpcError) as claim_denied:
+            await _claim(viewer_stub, "gw-a", "owner-v", ["GW01.pitch_angle"])
+        assert claim_denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+    finally:
+        await viewer_channel.close()
 
     # 正面对照：持有 inject 权限的身份可正常申请租约，证明拒绝来自权限而非链路故障。
     authorized_channel = gateway.mtls_channel("generator-a")
@@ -378,8 +393,13 @@ async def test_mtls_denies_unauthorized_writer(start_real_gateway) -> None:  # n
 
 
 async def test_gateway_lifecycle_rpc_and_revision_conflict(start_real_gateway) -> None:  # noqa: ANN001
-    gateway = await start_real_gateway(endpoint_id="gw-a", devices=GW_DEVICES)
-    channel, stub = await _stub(gateway.data_bind)
+    gateway = await start_real_gateway(
+        endpoint_id="gw-a",
+        devices=GW_DEVICES,
+        permissions={"dg-admin": ["read", "lifecycle", "config_read", "config_write", "inject"]},
+    )
+    channel = gateway.mtls_channel("dg-admin")
+    stub = gw_rpc.IndustrialGatewayServiceStub(channel)
     try:
         info = await stub.GetGateway(common.ObjectId(id="gw-a"))
         assert info.gateway.actual_state == "RUNNING"
@@ -424,7 +444,9 @@ async def test_dg_writer_uses_formal_update_rpc_end_to_end(
     recover_transaction(service_path.absolute().parent.parent)
     settings = load_settings(service_path)
     scenario = settings.scenarios["demo-random"]
-    writer = GatewayWriter(timeout=3.0, max_inflight=4)
+    writer = GatewayWriter(
+        timeout=3.0, max_inflight=4, gateway_token_env="WIND_HUB_TEST_DG_GATEWAY_TOKEN"
+    )
     try:
         await writer.validate(scenario)
         await writer.claim(scenario, "gen-x")
@@ -467,7 +489,7 @@ async def test_dg_writer_preflight_rejects_type_mismatch(
     # 直接改写 scenario 点类型模拟服务端类型不一致（目录仍是 float32）。
     scenario = settings.scenarios["demo-random"]
     scenario.points[("GW01", "a02_dm_pitchangle1")]["data_type"] = "str"
-    writer = GatewayWriter(timeout=3.0)
+    writer = GatewayWriter(timeout=3.0, gateway_token_env="WIND_HUB_TEST_DG_GATEWAY_TOKEN")
     try:
         with pytest.raises(Exception, match="expected writable str"):
             await writer.validate(scenario)
