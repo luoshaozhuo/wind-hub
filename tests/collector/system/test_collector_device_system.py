@@ -145,7 +145,7 @@ async def test_uc01_s02_disabled_device_rejects_start(
     with pytest.raises(grpc.aio.AioRpcError) as exc:
         await device_stub.StartTask(
             common.OperationRequest(
-                id=MODBUS,
+                id="modbus_task",
                 expected_revision=await disk_revision(config_stub),
             ),
             metadata=ADMIN_METADATA,
@@ -196,5 +196,5 @@ async def test_uc01_s03_link_loss_watchdog_reconnects(
     await slave.start()
     expected = {"RUNNING"} if protocol == "modbus" else {"STARTING", "RUNNING"}
     assert await wait_actual(device_stub, device_id, expected, timeout=30) in expected
-    task = await device_stub.GetTask(common.ObjectId(id=device_id))
+    task = await device_stub.GetTask(common.ObjectId(id="modbus_task" if device_id == MODBUS else "iec104_task"))
     assert task.task.desired_state == "START"
