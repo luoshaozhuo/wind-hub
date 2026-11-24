@@ -111,3 +111,45 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
             assert sample.value == 821.0
     finally:
         await sink_harness.stop()
+
+
+async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write(
+    sink_harness: SinkSystemHarness,
+) -> None:
+    sink_harness.write_dual_channel_root()
+    template = sink_harness.root / template_path("reliable_history")
+    document = yaml.safe_load(template.read_text(encoding="utf-8"))
+    document["output"]["data_level"] = "raw"
+    template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    await sink_harness.provision_streams()
+    await sink_harness.start()
+    try:
+        # The first point has valid source bytes, the second has none.
+        # The whole batch must be rejected before the first Kafka write.
+        batch = sink_harness.make_batch("reliable", seq=822, points=2)
+        first = batch.samples[0].model_copy(
+            update={"raw_payload_hex": bytes((1, 2)).hex()}
+        )
+        batch = batch.model_copy(
+            update={"samples": (first, batch.samples[1])}
+        )
+        await sink_harness.publish_reliable(batch)
+        deadline = asyncio.get_running_loop().time() + 30
+        while await sink_harness.dlq_count() == 0:
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AssertionError("missing RAW bytes never reached durable DLQ")
+            await asyncio.sleep(0.25)
+        assert await sink_harness.dlq_count() == 1
+        while True:
+            pending = await sink_harness.stream_pending()
+            if pending["durable"] and pending["consumer_pending"] == 0:
+                break
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AssertionError(f"source never ACKed after durable DLQ: {pending}")
+            await asyncio.sleep(0.25)
+        records = await sink_harness.wait_kafka_messages(
+            min_messages=1, timeout=3
+        )
+        assert not records, "invalid RAW batch leaked a Kafka prefix"
+    finally:
+        await sink_harness.stop()
