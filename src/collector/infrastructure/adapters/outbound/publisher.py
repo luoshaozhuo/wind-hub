@@ -135,10 +135,12 @@ class CollectorPublisher:
         *,
         device_type: str,
         point_table_id: str,
+        task_id: str,
     ) -> None:
         """Validate the actual v3 transport schema without sending it."""
         self._builder.pack(
-            device_id, (sample,), device_type=device_type, point_table_id=point_table_id
+            device_id, (sample,), device_type=device_type, point_table_id=point_table_id,
+            task_id=task_id,
         )
 
     async def publish(
@@ -148,6 +150,7 @@ class CollectorPublisher:
         *,
         device_type: str,
         point_table_id: str,
+        task_id: str,
     ) -> None:
         """Queue each complete source batch; reject invalid or duplicate points."""
         if not samples:
@@ -158,6 +161,7 @@ class CollectorPublisher:
                 samples,
                 device_type=device_type,
                 point_table_id=point_table_id,
+                task_id=task_id,
             )
         except (ValueError, TypeError) as exc:
             self.last_error = str(exc)
