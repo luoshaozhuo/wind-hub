@@ -30,7 +30,7 @@ pytestmark = [
     pytest.mark.end_to_end,
 ]
 
-DELIVERIES = ("e2e_kafka_protocol", "e2e_redis_power", "e2e_gateway_power")
+DELIVERIES = ("e2e_kafka_protocol", "e2e_redis_power", "e2e_gateway_power", "e2e_modbus_power")
 STORAGE_PORT = 52110
 
 
@@ -115,9 +115,8 @@ def test_eight_service_chain_is_cli_managed_and_persisted(
     assert listed["status"] == "SUCCESS", listed
     available = (listed.get("data") or {}).get("deliveries") or []
     available_ids = {item.get("delivery_id") or item.get("id") for item in available}
+    assert set(DELIVERIES) <= available_ids, f"missing four-output Delivery: {available_ids}"
     for delivery in DELIVERIES:
-        if delivery not in available_ids:
-            continue
         deadline = time.monotonic() + 45
         last: dict[str, object] = {}
         while time.monotonic() < deadline:
