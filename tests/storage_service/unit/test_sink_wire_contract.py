@@ -12,7 +12,9 @@ from datetime import UTC, datetime
 
 import pytest
 
+from collector.application.batch_builder import BatchBuilder
 from contracts.sample_batch import SampleBatch, SampleItem
+from core.application.protocol_contract import ProtocolSample
 from sink_service.application.business_projection import BusinessValue
 from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from storage_service.domain.sample import DataLevel as StorageDataLevel
@@ -122,3 +124,38 @@ def test_engineering_is_not_an_alias_for_protocol_at_either_boundary() -> None:
             _batch().samples,
             data_level="engineering",  # type: ignore[arg-type]
         )
+
+
+def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
+    original = b"\x00\x01\xff\x80"
+    sample = ProtocolSample(
+        point_id="point.active_power",
+        value=12.5,
+        timestamp=_MOMENT,
+        receive_time=_MOMENT,
+        raw_payload=original,
+    )
+    builder = BatchBuilder(
+        site_id="farm-f6",
+        collector_id="collector-f6",
+        delivery="reliable",
+        max_staleness_ms=500,
+        max_samples_per_batch=500,
+        max_batch_bytes=1048576,
+    )
+    built = builder.pack(
+        "WTG-f6",
+        (sample,),
+        device_type="WTG",
+        point_table_id="point_table_storage-points_v1.0.0",
+    )
+    assert len(built) == 1
+    decoded = SampleBatch.decode(
+        built[0].encode(), "reliable", subject=built[0].subject()
+    )
+    encoded = encode_kafka_points(decoded, decoded.samples, data_level="raw")
+    persisted = StorageSample.from_kafka_json(encoded[0])
+    assert persisted.value == original
+    assert persisted.value_kind.name == "BYTES"
+    assert persisted.sample_id == decoded.samples[0].sample_id
+    assert persisted.task_id == decoded.task_id
