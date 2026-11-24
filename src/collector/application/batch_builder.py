@@ -54,6 +54,7 @@ class BatchBuilder:
     def _batch(
         self,
         device_id: str,
+        task_id: str,
         device_type: str,
         point_table_id: str,
         samples: tuple[SampleItem, ...],
@@ -63,7 +64,7 @@ class BatchBuilder:
             mode=self._delivery,
             wind_farm_id=self._site_id,
             collector_id=self.collector_id,
-            task_id=device_id,
+            task_id=task_id,
             device_type=device_type,
             device_id=device_id,
             point_table_id=point_table_id,
@@ -78,6 +79,7 @@ class BatchBuilder:
         *,
         device_type: str,
         point_table_id: str,
+        task_id: str,
     ) -> list[SampleBatch]:
         if not samples:
             return []
@@ -85,6 +87,7 @@ class BatchBuilder:
         if len(set(point_ids)) != len(point_ids):
             raise ValueError("duplicate point_id in acquisition batch")
         device_type = validate_subject_token(device_type)
+        task_id = validate_subject_token(task_id)
         if not point_table_id.startswith("point_table_") or "_v" not in point_table_id:
             raise ValueError("immutable point_table_id required")
         items = tuple(self._item(sample) for sample in samples)
@@ -93,7 +96,7 @@ class BatchBuilder:
         while start < len(items):
             count = min(self._max_samples, len(items) - start)
             candidate = self._batch(
-                device_id, device_type, point_table_id, items[start : start + count]
+                device_id, task_id, device_type, point_table_id, items[start : start + count]
             )
             while count:
                 try:
@@ -104,7 +107,7 @@ class BatchBuilder:
                         raise
                     count //= 2
                     candidate = self._batch(
-                        device_id, device_type, point_table_id, items[start : start + count]
+                        device_id, task_id, device_type, point_table_id, items[start : start + count]
                     )
             batches.append(candidate)
             start += count
