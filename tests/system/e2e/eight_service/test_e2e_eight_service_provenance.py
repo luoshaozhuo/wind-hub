@@ -65,6 +65,34 @@ def _query(harness: EightServiceHarness, start: str, end: str) -> dict[str, Any]
     )
 
 
+def _truth_points(harness: EightServiceHarness) -> list[dict[str, Any]]:
+    """Independent source recordings, never reconstructed from Kafka data."""
+    recording_root = harness.root / "artifacts" / "e2e-final" / "data-generator"
+    points: list[dict[str, Any]] = []
+    for path in sorted(recording_root.glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            for point in record["points"]:
+                if point["device_id"] == DEVICE and point["point_id"] == POINT:
+                    points.append(point)
+    return points
+
+
+def _source_truth_matches(
+    harness: EightServiceHarness, sample_time: str, value: float
+) -> bool:
+    sampled_at = datetime.fromisoformat(sample_time.replace("Z", "+00:00"))
+    candidates = [
+        (sampled_at - datetime.fromisoformat(point["source_time"])).total_seconds()
+        for point in _truth_points(harness)
+        if isinstance(point["value"], (int, float))
+        and abs(float(point["value"]) - value) <= max(1e-3, abs(value) * 2e-3)
+    ]
+    return any(0 <= lag <= 2.0 for lag in candidates)
+
+
 def test_eight_service_provenance_and_restart_readback(
     started: EightServiceHarness,
 ) -> None:
@@ -99,6 +127,8 @@ def test_eight_service_provenance_and_restart_readback(
         )
         await consumer.start()
         try:
+            # Force Kafka partition assignment before starting the source.
+            await consumer.getmany(timeout_ms=100)
             created = harness.cli(
                 "data-generator",
                 "start",
@@ -130,6 +160,14 @@ def test_eight_service_provenance_and_restart_readback(
     assert wire["sample_id"] and wire["batch_id"] and wire["point_table_id"]
     assert wire["quality"] == "good"
     assert type(wire["value"]) in (int, float)
+    truth_deadline = time.monotonic() + 30
+    while not _source_truth_matches(harness, wire["sample_time"], float(wire["value"])):
+        if time.monotonic() >= truth_deadline:
+            raise AssertionError(
+                "Kafka point does not match any time-aligned Generator JSONL source: "
+                f"{wire}"
+            )
+        time.sleep(0.5)
 
     # Query Storage by the same physical device/point; never accept any other
     # point as proof. Match exact sample_id and the value at this timestamp.
