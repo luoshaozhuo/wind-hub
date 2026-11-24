@@ -148,6 +148,7 @@ def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
         (sample,),
         device_type="WTG",
         point_table_id="point_table_storage-points_v1.0.0",
+        task_id="collector-task-f6",
     )
     assert len(built) == 1
     decoded = SampleBatch.decode(
@@ -158,4 +159,4 @@ def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
     assert persisted.value == original
     assert persisted.value_kind.name == "BYTES"
     assert persisted.sample_id == decoded.samples[0].sample_id
-    assert persisted.task_id == decoded.task_id
+    assert persisted.task_id == decoded.task_id == "collector-task-f6"
