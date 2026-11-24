@@ -80,3 +80,24 @@ def test_legacy_engineering_level_is_not_an_alias_for_protocol() -> None:
         StorageSample.from_kafka_json(_payload(data_level="PROTOCOL"))
     with pytest.raises(ValueError, match="data_level"):
         StorageSample.from_kafka_json(_payload(data_level=""))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [42, 1.5, None, True, "", "0", "abc", "AA", "00FF", "gg", "00" * 2049],
+)
+def test_raw_requires_canonical_original_bytes(value: object) -> None:
+    with pytest.raises(ValueError, match="RAW value"):
+        StorageSample.from_kafka_json(_payload(value=value))
+
+
+def test_raw_identity_is_stable_and_separated_from_protocol() -> None:
+    raw = StorageSample.from_kafka_json(_payload(value="002aff"))
+    replay = StorageSample.from_kafka_json(_payload(value="002aff"))
+    protocol = StorageSample.from_kafka_json(_payload(data_level="protocol", value=42))
+    assert raw.value_kind.name == "BYTES"
+    assert raw.value == bytes.fromhex("002aff")
+    assert raw.logical_key == replay.logical_key
+    assert raw.content_sha256 == replay.content_sha256
+    assert raw.sample_key == replay.sample_key
+    assert raw.logical_key != protocol.logical_key
