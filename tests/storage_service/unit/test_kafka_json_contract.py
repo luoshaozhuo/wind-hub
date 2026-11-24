@@ -35,7 +35,7 @@ def _payload(**overrides: object) -> bytes:
         "data_level": "raw",
         "quality": "good",
         "unit": "",
-        "value": 42,
+        "value": "002aff",
         "sample_time": _rfc3339(_BASE_US),
         "publish_time": _rfc3339(_BASE_US + 10),
         "receive_time": _rfc3339(_BASE_US + 20),
@@ -45,12 +45,15 @@ def _payload(**overrides: object) -> bytes:
 
 
 def test_v2_record_is_accepted_for_every_authoritative_level() -> None:
-    assert StorageSample.from_kafka_json(_payload()).data_level == DataLevel.RAW
-    protocol = StorageSample.from_kafka_json(_payload(data_level="protocol"))
+    raw = StorageSample.from_kafka_json(_payload())
+    assert raw.data_level == DataLevel.RAW
+    assert raw.value == b"\x00\x2a\xff"
+    protocol = StorageSample.from_kafka_json(_payload(data_level="protocol", value=42))
     assert protocol.data_level == DataLevel.PROTOCOL
     business = StorageSample.from_kafka_json(
         _payload(
             data_level="business",
+            value=42,
             business_point_id="bp.active_power",
             unit="kW",
         )
