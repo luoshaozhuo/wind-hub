@@ -160,3 +160,39 @@ def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
     assert persisted.value_kind.name == "BYTES"
     assert persisted.sample_id == decoded.samples[0].sample_id
     assert persisted.task_id == decoded.task_id == "collector-task-f6"
+
+
+def test_raw_protocol_business_are_disjoint_storage_identities_for_one_sample() -> None:
+    batch = _batch()
+    original = bytes((0, 1, 254, 255))
+    item = batch.samples[0].model_copy(update={"raw_payload_hex": original.hex()})
+    projection = {
+        item.sample_id: BusinessValue(
+            business_point_id="bp.active_power",
+            unit="kW",
+            value=25.0,
+        )
+    }
+    raw = StorageSample.from_kafka_json(
+        encode_kafka_points(batch, (item,), data_level="raw")[0]
+    )
+    protocol = StorageSample.from_kafka_json(
+        encode_kafka_points(batch, (item,), data_level="protocol")[0]
+    )
+    business = StorageSample.from_kafka_json(
+        encode_kafka_points(
+            batch,
+            (item,),
+            data_level="business",
+            business_values=projection,
+        )[0]
+    )
+    assert raw.sample_id == protocol.sample_id == business.sample_id
+    assert raw.batch_id == protocol.batch_id == business.batch_id
+    assert raw.value == original
+    assert protocol.value == 12.5
+    assert business.value == 25.0
+    assert business.business_point_id == "bp.active_power"
+    assert raw.business_point_id == protocol.business_point_id == ""
+    assert len({raw.logical_key, protocol.logical_key, business.logical_key}) == 3
+    assert len({raw.sample_key, protocol.sample_key, business.sample_key}) == 3
