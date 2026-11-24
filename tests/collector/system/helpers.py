@@ -59,12 +59,20 @@ async def push_apply(
     return result
 
 
+async def device_task_id(device_stub: CollectorServiceStub, device_id: str) -> str:
+    response = await device_stub.GetDevice(collector.DeviceQuery(device_id=device_id))
+    assert response.device.task_id, device_id
+    return str(response.device.task_id)
+
+
 async def start_task(
     device_stub: CollectorServiceStub, config_stub: CommonServiceStub, device_id: str
 ) -> None:
     revision = await disk_revision(config_stub)
     await device_stub.StartTask(
-        common.OperationRequest(id=device_id, expected_revision=revision),
+        common.OperationRequest(
+            id=await device_task_id(device_stub, device_id), expected_revision=revision
+        ),
         metadata=ADMIN_METADATA,
     )
 
@@ -89,7 +97,9 @@ async def wait_actual(
     deadline = asyncio.get_running_loop().time() + timeout
     last = ""
     while asyncio.get_running_loop().time() < deadline:
-        task = await device_stub.GetTask(common.ObjectId(id=device_id))
+        task = await device_stub.GetTask(
+            common.ObjectId(id=await device_task_id(device_stub, device_id))
+        )
         last = str(task.task.actual_state)
         if last in expected:
             return last
