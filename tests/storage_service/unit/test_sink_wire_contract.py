@@ -84,24 +84,25 @@ def test_business_encoding_without_complete_projection_is_rejected() -> None:
         encode_kafka_points(batch, batch.samples, data_level="business")
 
 
-def test_sink_refuses_to_fabricate_raw_while_storage_accepts_valid_raw() -> None:
+def test_raw_roundtrip_preserves_exact_source_bytes() -> None:
     batch = _batch()
-    # Mainline policy: Sink cannot produce undecoded RAW frames.
-    with pytest.raises(ValueError, match="RAW requires"):
-        encode_kafka_points(batch, batch.samples, data_level="raw")  # type: ignore[arg-type]
-    # Storage itself still accepts a valid RAW v2 record carrying no unit.
-    raw_record = (
-        b'{"schema_version":2,"data_level":"raw","wind_farm_id":"farm-f6",'
-        b'"collector_id":"collector-f6","task_id":"task-f6","batch_id":"batch-f6",'
-        b'"device_type":"WTG","device_id":"WTG-f6",'
-        b'"point_table_id":"point_table_storage-points_v1.0.0",'
-        b'"point_id":"point.frame","sample_id":"sample-raw-1","quality":"good",'
-        b'"value":1,"sample_time":"2026-11-22T01:02:03.456789Z",'
-        b'"publish_time":"2026-11-22T01:02:03.456789Z"}'
+    source_bytes = b"\x00\x2a\xff\x80"
+    item = batch.samples[0].model_copy(
+        update={"raw_payload_hex": source_bytes.hex()}
     )
-    sample = StorageSample.from_kafka_json(raw_record)
+    wire = encode_kafka_points(batch, (item,), data_level="raw")[0]
+    sample = StorageSample.from_kafka_json(wire)
     assert sample.data_level == StorageDataLevel.RAW
+    assert sample.value == source_bytes
     assert sample.unit == ""
+    assert sample.business_point_id == ""
+    assert sample.content_sha256
+
+
+def test_missing_source_bytes_cannot_be_fabricated() -> None:
+    batch = _batch()
+    with pytest.raises(ValueError, match="RAW requires"):
+        encode_kafka_points(batch, batch.samples, data_level="raw")
 
 
 def test_engineering_is_not_an_alias_for_protocol_at_either_boundary() -> None:
