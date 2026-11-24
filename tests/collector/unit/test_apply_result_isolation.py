@@ -21,18 +21,23 @@ async def test_other_device_apply_error_does_not_contaminate_success(
     monkeypatch.setattr(CollectorConfigRpc, "_authorize", authorize)
     status = SimpleNamespace(disk_revision="rev-2", apply_errors={"device-a": "close unsettled"})
 
-    async def set_desired(device_id: str, state: str, *, expected_revision: str) -> Any:
-        assert (device_id, state, expected_revision) == ("device-b", "START", "rev-1")
+    async def set_desired(task_id: str, state: str, *, expected_revision: str) -> Any:
+        assert (task_id, state, expected_revision) == ("task-b", "START", "rev-1")
         return status
 
     service = CollectorDeviceRpc.__new__(CollectorDeviceRpc)
     service._control = SimpleNamespace(set_desired=set_desired)
     service._acquisition = SimpleNamespace(
-        workers={"device-b": SimpleNamespace(actual_state="RUNNING")}
+        workers={
+            "device-b": SimpleNamespace(
+                actual_state="RUNNING", desired_state="START", last_error="",
+                plan=SimpleNamespace(task_id="task-b", device=SimpleNamespace(device_id="device-b")),
+            )
+        }
     )
 
     result = await service._control_task(
-        common.OperationRequest(id="device-b", expected_revision="rev-1"), object(), "START"
+        common.OperationRequest(id="task-b", expected_revision="rev-1"), object(), "START"
     )
     assert result.accepted
     assert result.actual_state == "RUNNING"
@@ -55,12 +60,17 @@ async def test_requested_device_apply_error_is_returned(
     service = CollectorDeviceRpc.__new__(CollectorDeviceRpc)
     service._control = SimpleNamespace(set_desired=set_desired)
     service._acquisition = SimpleNamespace(
-        workers={"device-a": SimpleNamespace(actual_state="FAULTED")}
+        workers={
+            "device-a": SimpleNamespace(
+                actual_state="FAULTED", desired_state="START", last_error="apply failed",
+                plan=SimpleNamespace(task_id="task-a", device=SimpleNamespace(device_id="device-a")),
+            )
+        }
     )
 
     result = await service._control_task(
-        common.OperationRequest(id="device-a", expected_revision="rev-1"), object(), "START"
+        common.OperationRequest(id="task-a", expected_revision="rev-1"), object(), "START"
     )
     assert result.accepted
     assert result.error_code == "APPLY_FAILED"
-    assert result.message == "apply failed"
+    assert result.message == "device-a: apply failed"
