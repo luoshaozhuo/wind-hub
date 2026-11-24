@@ -193,6 +193,9 @@ class StorageSample:
             raise ValueError("RAW values must not declare engineering units")
         if "value" not in data:
             raise ValueError("value: missing required member")
+        kind: ValueKind
+        value: SampleScalar
+        stable_value: str
         if level == DataLevel.RAW:
             raw_hex = data["value"]
             if (
