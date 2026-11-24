@@ -38,6 +38,7 @@ def test_split_order_unique_identities_and_update_site() -> None:
         tuple(_sample(f"p{i}") for i in range(5)),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
     )
     assert [len(batch.samples) for batch in batches] == [2, 2, 1]
     assert [item.point_id for batch in batches for item in batch.samples] == [
@@ -53,6 +54,7 @@ def test_split_order_unique_identities_and_update_site() -> None:
         (_sample("next"),),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
     )[0]
     assert original.wind_farm_id == "farm-a"
     assert following.wind_farm_id == "farm-b"
@@ -60,13 +62,14 @@ def test_split_order_unique_identities_and_update_site() -> None:
 
 def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
     builder = _builder(max_samples_per_batch=100, max_batch_bytes=256)
-    assert builder.pack("wtg-01", (), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE) == []
+    assert builder.pack("wtg-01", (), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-wtg-01") == []
     with pytest.raises(ValueError, match="duplicate point_id"):
         builder.pack(
             "wtg-01",
             (_sample("same"), _sample("same")),
             device_type=DEVICE_TYPE,
             point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
         )
     with pytest.raises(ValueError):
         builder.pack(
@@ -74,6 +77,7 @@ def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
             (_sample("small"), _sample("large", "x" * 1024)),
             device_type=DEVICE_TYPE,
             point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
         )
 
 
@@ -94,13 +98,16 @@ def test_realtime_staleness_and_reliable_identity_fields() -> None:
         (_sample("p"),),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
     )[0]
     reliable = _builder("reliable").pack(
         "wtg-01",
         (_sample("p"),),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
+        task_id="task-wtg-01",
     )[0]
+    assert realtime.task_id == reliable.task_id == "task-wtg-01"
     assert realtime.samples[0].max_staleness_ms == 500
     assert reliable.samples[0].max_staleness_ms is None
     assert realtime.point_table_id == POINT_TABLE and realtime.device_type == DEVICE_TYPE
