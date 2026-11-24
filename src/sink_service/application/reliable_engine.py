@@ -30,6 +30,7 @@ class ReliableDeliveryEngine:
     _stop: asyncio.Event
     _adapter: Any
     _kafka_target: bool
+    _data_level: str
     _active_io: bool
     _capacity_alarm: str
     _last_capacity_check: float
@@ -184,6 +185,24 @@ class ReliableDeliveryEngine:
         self._pending_confirmed_samples = []
         if not count:
             return True
+        # RAW requires original source bytes for every selected sample. Reject
+        # the complete source batch before any Kafka write so a later invalid
+        # point cannot create an accepted prefix or an infinite redelivery loop.
+        if self._kafka_target and self._data_level == "raw":
+            for item in selected:
+                raw = item.raw_payload_hex
+                if (
+                    not isinstance(raw, str)
+                    or not 2 <= len(raw) <= 4096
+                    or len(raw) % 2 != 0
+                    or any(char not in "0123456789abcdef" for char in raw)
+                ):
+                    await self._dlq_with_heartbeat(
+                        message,
+                        f"RAW source payload absent or invalid: {item.point_id}",
+                    )
+                    self.rejected_batches_total += 1
+                    return True
         self.received_total += count
         assert self._adapter is not None
         unresolved = False
