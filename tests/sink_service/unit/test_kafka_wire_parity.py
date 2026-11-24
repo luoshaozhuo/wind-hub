@@ -193,7 +193,7 @@ def test_field_order_matches_kafka_json_v2_schema() -> None:
 
 def test_protocol_rejects_business_projection() -> None:
     batch = _batch(1.0, TIMES[0])
-    with pytest.raises(ValueError, match="PROTOCOL must not carry BUSINESS"):
+    with pytest.raises(ValueError, match="RAW/PROTOCOL must not carry BUSINESS"):
         encode_kafka_points(
             batch,
             batch.samples,
