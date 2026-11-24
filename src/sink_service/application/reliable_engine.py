@@ -8,7 +8,7 @@ import logging
 import time
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -237,7 +237,7 @@ class ReliableDeliveryEngine:
             # Preserve only target-confirmed identities. Publish to diagnostics
             # after the corresponding source ACK, never on an uncertain write.
             for index in outcome.delivered:
-                item = chunk_items[index] if self._kafka_target else chunk[index]
+                item = chunk_items[index] if self._kafka_target else cast(SampleItem, chunk[index])
                 self._pending_confirmed_samples.append(
                     {
                         "device_id": batch.device_id,

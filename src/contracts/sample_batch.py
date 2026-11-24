@@ -87,7 +87,9 @@ class SampleItem(BaseModel):
     @classmethod
     def _raw_payload(cls, value: str | None) -> str | None:
         if value is not None and (
-            not 0 < len(value) <= 4096 or len(value) % 2 or re.fullmatch(r"[0-9a-f]+", value) is None
+            not 0 < len(value) <= 4096
+            or len(value) % 2
+            or re.fullmatch(r"[0-9a-f]+", value) is None
         ):
             raise ValueError("RAW payload must be 1..2048 bytes in canonical lowercase hex")
         return value

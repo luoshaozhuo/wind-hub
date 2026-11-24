@@ -24,12 +24,12 @@ from tests.collector.system.helpers import (
     MODBUS as DEVICE_MODBUS,
 )
 from tests.collector.system.helpers import (
-    disk_revision as _disk_revision,
     device_task_id,
-)
-from tests.collector.system.helpers import (
     start_task,
     stop_task,
+)
+from tests.collector.system.helpers import (
+    disk_revision as _disk_revision,
 )
 from tests.collector.system.helpers import (
     wait_actual as _wait_actual,

@@ -49,8 +49,7 @@ class CollectorTaskControl:
                 raise LookupError("unknown Collector Task")
             group = selected.get("group")
             if not any(
-                definition.get("enabled", True) is not False
-                and definition.get("group") == group
+                definition.get("enabled", True) is not False and definition.get("group") == group
                 for definition in devices.values()
             ):
                 raise LookupError("Collector Task has no enabled devices")

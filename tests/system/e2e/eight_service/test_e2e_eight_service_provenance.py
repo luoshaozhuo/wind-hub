@@ -17,12 +17,12 @@ from typing import Any
 
 import grpc
 import pytest
+from aiokafka import AIOKafkaConsumer
+
 from contracts import data_generator_pb2 as generator_pb
 from contracts import data_generator_pb2_grpc as generator_rpc
-from aiokafka import AIOKafkaConsumer
 from contracts import industrial_gateway_pb2 as gateway_pb
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
-
 from tests.system.e2e.eight_service.conftest import SERVICES, EightServiceHarness
 
 pytestmark = [
@@ -87,14 +87,12 @@ def _truth_points(harness: EightServiceHarness) -> list[dict[str, Any]]:
     return points
 
 
-def _source_truth_matches(
-    harness: EightServiceHarness, sample_time: str, value: float
-) -> bool:
+def _source_truth_matches(harness: EightServiceHarness, sample_time: str, value: float) -> bool:
     sampled_at = datetime.fromisoformat(sample_time.replace("Z", "+00:00"))
     candidates = [
         (sampled_at - datetime.fromisoformat(point["source_time"])).total_seconds()
         for point in _truth_points(harness)
-        if isinstance(point["value"], (int, float))
+        if isinstance(point["value"], int | float)
         and abs(float(point["value"]) - value) <= max(1e-3, abs(value) * 2e-3)
     ]
     return any(0 <= lag <= 2.0 for lag in candidates)
@@ -161,9 +159,7 @@ def test_eight_service_provenance_and_restart_readback(
                             selected[row["sample_id"]] = row
                             if len(selected) >= 5:
                                 return list(selected.values())
-            raise AssertionError(
-                f"expected five distinct live Kafka samples, got {len(selected)}"
-            )
+            raise AssertionError(f"expected five distinct live Kafka samples, got {len(selected)}")
         finally:
             await consumer.stop()
 
@@ -197,7 +193,8 @@ def test_eight_service_provenance_and_restart_readback(
         last = _query(harness, start, end)
         if last.get("status") == "SUCCESS":
             persisted = {
-                row["sample_id"]: row for row in _items(last)
+                row["sample_id"]: row
+                for row in _items(last)
                 if row.get("sample_id") in source_ids
                 and row.get("point_id") == POINT
                 and row.get("device_id") == DEVICE
@@ -212,9 +209,7 @@ def test_eight_service_provenance_and_restart_readback(
     }
     for wire in wire_records:
         stored = persisted[wire["sample_id"]]
-        assert float(stored["value_f64"]) == pytest.approx(
-            float(wire["value"]), rel=1e-6, abs=1e-5
-        )
+        assert float(stored["value_f64"]) == pytest.approx(float(wire["value"]), rel=1e-6, abs=1e-5)
         assert stored["quality"] == wire["quality"]
         assert stored["logical_key"] and stored["content_sha256"]
 
@@ -226,8 +221,7 @@ def test_eight_service_provenance_and_restart_readback(
     replay = _query(harness, start, end)
     assert replay["status"] == "SUCCESS", replay
     recovered = {
-        row["sample_id"]: row for row in _items(replay)
-        if row.get("sample_id") in source_ids
+        row["sample_id"]: row for row in _items(replay) if row.get("sample_id") in source_ids
     }
     assert set(recovered) == source_ids
     for sample_id in source_ids:
@@ -247,9 +241,7 @@ def test_eight_service_commander_gateway_generator_applied(
 ) -> None:
     """Only Generator's request-scoped applied step can confirm control."""
     harness = started
-    generation = harness.cli(
-        "data-generator", "start", "e2e-plant-physical", "--yes", timeout=90
-    )
+    generation = harness.cli("data-generator", "start", "e2e-plant-physical", "--yes", timeout=90)
     assert generation["status"] == "SUCCESS", generation
     generation_id = str(generation["data"]["generation_id"])
     try:
@@ -270,9 +262,7 @@ def test_eight_service_commander_gateway_generator_applied(
         deadline = time.monotonic() + 60
         settled: dict[str, Any] = {}
         while time.monotonic() < deadline:
-            reply = harness.cli(
-                "commander", "result", command_id, check=False, timeout=30
-            )
+            reply = harness.cli("commander", "result", command_id, check=False, timeout=30)
             settled = reply.get("data") or {}
             if settled.get("state") in ("SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"):
                 break
@@ -285,9 +275,7 @@ def test_eight_service_commander_gateway_generator_applied(
         # durable input-execution evidence. This is not Commander self-report.
         token = harness.env["WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN"]
         with grpc.insecure_channel("127.0.0.1:52061") as channel:
-            execution = generator_rpc.DataGeneratorServiceStub(
-                channel
-            ).GetInputExecution(
+            execution = generator_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
                 generator_pb.GetInputExecutionRequest(
                     generation_id=generation_id, request_id=command_id
                 ),
@@ -348,10 +336,7 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
             cache_value: dict[str, Any] = {}
             modbus_value: float | None = None
             quality_code: int | None = None
-            key = (
-                "windhub.e2e.final:e2e-final:collector-e2e-realtime:"
-                f"{DEVICE}:{POINT}"
-            )
+            key = "windhub.e2e.final:e2e-final:collector-e2e-realtime:" f"{DEVICE}:{POINT}"
             while asyncio.get_running_loop().time() < deadline:
                 if not kafka:
                     messages = await broker.getmany(timeout_ms=100, max_records=500)
@@ -373,16 +358,10 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
                 if not modbus.connected:
                     await modbus.connect()
                 if modbus.connected:
-                    data = await modbus.read_holding_registers(
-                        1000, count=2, device_id=1
-                    )
-                    quality = await modbus.read_holding_registers(
-                        2000, count=1, device_id=1
-                    )
+                    data = await modbus.read_holding_registers(1000, count=2, device_id=1)
+                    quality = await modbus.read_holding_registers(2000, count=1, device_id=1)
                     if not data.isError() and not quality.isError():
-                        modbus_value = struct.unpack(
-                            ">f", struct.pack(">HH", *data.registers)
-                        )[0]
+                        modbus_value = struct.unpack(">f", struct.pack(">HH", *data.registers))[0]
                         quality_code = int(quality.registers[0])
                 if (
                     kafka
@@ -431,6 +410,10 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
                 time.sleep(0.5)
     finally:
         harness.cli(
-            "data-generator", "stop", generation_id, "--yes",
-            check=False, timeout=60,
+            "data-generator",
+            "stop",
+            generation_id,
+            "--yes",
+            check=False,
+            timeout=60,
         )

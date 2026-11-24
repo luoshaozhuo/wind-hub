@@ -68,7 +68,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         delivery_template = _template(
             snapshot, "deliveries", delivery["template_id"], delivery["template_version"]
         )
-        self._data_level = cast(DataLevel, delivery_template["output"]["data_level"])
+        self._data_level: DataLevel = cast(DataLevel, delivery_template["output"]["data_level"])
         sync = snapshot.service.get("config_sync", {})
         endpoint = sync.get("repository_endpoint", "")
         token_ref = sync.get("repository_token_ref", "")

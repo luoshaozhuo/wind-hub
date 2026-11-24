@@ -15,9 +15,7 @@ class SqliteTaskIntentStore:
         if self.path.is_symlink():
             raise ValueError("Task intent database cannot be a symlink")
         with sqlite3.connect(self.path) as connection:
-            columns = {
-                str(row[1]) for row in connection.execute("PRAGMA table_info(task_intents)")
-            }
+            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(task_intents)")}
             if columns and "task_id" not in columns:
                 # Old device-scoped intents cannot be safely promoted into a
                 # group-scoped task: an unknown set of devices would be started.

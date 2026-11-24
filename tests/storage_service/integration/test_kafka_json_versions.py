@@ -203,7 +203,8 @@ async def test_legacy_json_v1_record_blocks_partition_without_commit_or_write(
             # Phase 2: a PROTOCOL record with the same source sample identity
             # is a distinct semantic row, not a collision with RAW bytes.
             await producer.send_and_wait(
-                topic, _v2_record(farm, schema_version=2, level="protocol"),
+                topic,
+                _v2_record(farm, schema_version=2, level="protocol"),
                 key=message_key,
             )
             await _wait(
@@ -215,26 +216,25 @@ async def test_legacy_json_v1_record_blocks_partition_without_commit_or_write(
             )
             protocol_names = get_object_names(protocol, SCHEMA_FINGERPRINT)
             assert protocol.logical_key != sample.logical_key
-            assert len(
-                list(raw.query(
-                    f"SELECT ts FROM {protocol_names.database}.{protocol_names.table}"
-                ))
-            ) == 1
+            assert (
+                len(
+                    list(
+                        raw.query(
+                            f"SELECT ts FROM {protocol_names.database}.{protocol_names.table}"
+                        )
+                    )
+                )
+                == 1
+            )
 
             # Phase 3: a replay of identical RAW bytes is idempotent, while
             # the Kafka cursor advances after durable deduplication.
-            await producer.send_and_wait(
-                topic, _v2_record(farm, schema_version=2), key=message_key
-            )
+            await producer.send_and_wait(topic, _v2_record(farm, schema_version=2), key=message_key)
             await _wait(
                 lambda: _offset_is(admin, group, tp, 3),
                 "RAW idempotent replay commit at offset 3",
             )
-            assert len(
-                list(raw.query(
-                    f"SELECT ts FROM {names.database}.{names.table}"
-                ))
-            ) == 1
+            assert len(list(raw.query(f"SELECT ts FROM {names.database}.{names.table}"))) == 1
 
             # Phase 4: the legacy v1 record must be rejected with no compatibility path.
             await producer.send_and_wait(topic, _v2_record(farm, schema_version=1), key=message_key)

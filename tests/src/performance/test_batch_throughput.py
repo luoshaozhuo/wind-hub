@@ -143,7 +143,13 @@ async def test_publisher_pipeline_throughput_with_fake_transport(
     batches = 300  # 30 台 × 10 批
     started = time.perf_counter()
     for i in range(batches):
-        await publisher.publish(f"wtg-{i % 30:02d}", samples, device_type="wtg", point_table_id="point_table_modbus_wtg_sim_v1.0.0", task_id="task-load")
+        await publisher.publish(
+            f"wtg-{i % 30:02d}",
+            samples,
+            device_type="wtg",
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            task_id="task-load",
+        )
     # 确定性完成条件：先等到全部批次真正送达传输层，再 stop()。stop() 内的
     # queue.join() 只有 2s 生产保护超时，负载竞争下直接 stop 会把未排空批次
     # 计入 dropped，造成墙钟抖动型假失败；轮询实际送达数不改变任何生产指标。

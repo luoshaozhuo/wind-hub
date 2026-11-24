@@ -19,7 +19,12 @@ from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel
 from storage_service.domain.sample import DataLevel as StorageLevel
 from storage_service.domain.sample import StorageSample
 from tests.sink_service._stage1_fixtures import template_path
-from tests.sink_service.system.conftest import COLLECTOR_ID, DEVICE_ID, WIND_FARM_ID, SinkSystemHarness
+from tests.sink_service.system.conftest import (
+    COLLECTOR_ID,
+    DEVICE_ID,
+    WIND_FARM_ID,
+    SinkSystemHarness,
+)
 
 pytestmark = [
     pytest.mark.system,
@@ -40,9 +45,7 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
     template = sink_harness.root / template_path("reliable_history")
     document = yaml.safe_load(template.read_text(encoding="utf-8"))
     document["output"]["data_level"] = level
-    template.write_text(
-        yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
-    )
+    template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     await sink_harness.provision_streams()
     await sink_harness.start()
     try:
@@ -86,8 +89,7 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
             match=lambda message: marker.encode() in message.value,
         )
         matching = [
-            record for record in records
-            if json.loads(record.value).get("sample_id") == marker
+            record for record in records if json.loads(record.value).get("sample_id") == marker
         ]
         assert len(matching) == 1, "one Collector sample must reach Kafka"
         wire = json.loads(matching[0].value)
@@ -127,12 +129,8 @@ async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafk
         # The first point has valid source bytes, the second has none.
         # The whole batch must be rejected before the first Kafka write.
         batch = sink_harness.make_batch("reliable", seq=822, points=2)
-        first = batch.samples[0].model_copy(
-            update={"raw_payload_hex": bytes((1, 2)).hex()}
-        )
-        batch = batch.model_copy(
-            update={"samples": (first, batch.samples[1])}
-        )
+        first = batch.samples[0].model_copy(update={"raw_payload_hex": bytes((1, 2)).hex()})
+        batch = batch.model_copy(update={"samples": (first, batch.samples[1])})
         await sink_harness.publish_reliable(batch)
         deadline = asyncio.get_running_loop().time() + 30
         while await sink_harness.dlq_count() == 0:
@@ -147,9 +145,7 @@ async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafk
             if asyncio.get_running_loop().time() >= deadline:
                 raise AssertionError(f"source never ACKed after durable DLQ: {pending}")
             await asyncio.sleep(0.25)
-        records = await sink_harness.wait_kafka_messages(
-            min_messages=1, timeout=3
-        )
+        records = await sink_harness.wait_kafka_messages(min_messages=1, timeout=3)
         assert not records, "invalid RAW batch leaked a Kafka prefix"
     finally:
         await sink_harness.stop()

@@ -131,13 +131,15 @@ class CollectorDeviceRpc(rpc.CollectorServiceServicer):
             revision=revision,
             last_error="; ".join(
                 f"{worker.plan.device.device_id}: {worker.last_error}"
-                for worker in items if worker.last_error
+                for worker in items
+                if worker.last_error
             ),
         )
 
     def _task_workers(self, task_id: str) -> tuple[DeviceWorker, ...]:
         group = tuple(
-            worker for _, worker in sorted(self._acquisition.workers.items())
+            worker
+            for _, worker in sorted(self._acquisition.workers.items())
             if worker.plan.task_id == task_id
         )
         if not group:

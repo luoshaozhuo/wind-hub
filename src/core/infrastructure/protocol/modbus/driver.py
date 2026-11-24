@@ -431,7 +431,7 @@ def _sample(
             for word in raw
         )
     ):
-        words = [int(word) for word in raw]
+        words = [word for word in raw if isinstance(word, int)]
         payload = struct.pack(f">{len(words)}H", *words)
     try:
         value = decode(point, raw)

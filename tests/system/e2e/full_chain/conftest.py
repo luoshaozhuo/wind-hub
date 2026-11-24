@@ -508,8 +508,13 @@ class FullChainHarness:
         # identity through the live Collector before issuing StartTask/StopTask.
         if len(args) >= 3 and args[0] == "collector" and args[1] in {"start", "stop"}:
             device = await self.cli.cli(
-                config, "collector", "device", args[2], timeout=timeout,
-                check=True, token=token,
+                config,
+                "collector",
+                "device",
+                args[2],
+                timeout=timeout,
+                check=True,
+                token=token,
             )
             task_id = device["data"]["device"]["task_id"]
             assert task_id, f"Collector has no configured Task for {args[2]}"

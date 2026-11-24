@@ -64,9 +64,9 @@ def _record(
         "point_id": item.point_id,
         "business_point_id": business_value.business_point_id if business_value else None,
         "sample_id": item.sample_id,
-        "value": raw_hex if data_level == "raw" else (
-            business_value.value if business_value else item.value
-        ),
+        "value": raw_hex
+        if data_level == "raw"
+        else (business_value.value if business_value else item.value),
         "unit": business_value.unit if business_value else None,
         "quality": item.quality,
         "sample_time": _json_timestamp(item.sample_time),

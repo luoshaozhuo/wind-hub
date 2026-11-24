@@ -139,7 +139,10 @@ class CollectorPublisher:
     ) -> None:
         """Validate the actual v3 transport schema without sending it."""
         self._builder.pack(
-            device_id, (sample,), device_type=device_type, point_table_id=point_table_id,
+            device_id,
+            (sample,),
+            device_type=device_type,
+            point_table_id=point_table_id,
             task_id=task_id,
         )
 

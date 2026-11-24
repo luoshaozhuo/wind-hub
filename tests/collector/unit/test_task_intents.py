@@ -76,6 +76,4 @@ def test_legacy_device_scoped_intents_are_not_applied_to_task_groups(
     # Device-scoped START cannot be promoted into a group-scoped Task START.
     assert store.read_intents("collector_tasks_old.yaml:1.0.0") == {}
     store.write_intent("new-task", "collector_tasks_new.yaml:1.0.0", "STOP")
-    assert store.read_intents("collector_tasks_new.yaml:1.0.0") == {
-        "new-task": "STOP"
-    }
+    assert store.read_intents("collector_tasks_new.yaml:1.0.0") == {"new-task": "STOP"}

@@ -30,8 +30,12 @@ async def test_other_device_apply_error_does_not_contaminate_success(
     service._acquisition = SimpleNamespace(
         workers={
             "device-b": SimpleNamespace(
-                actual_state="RUNNING", desired_state="START", last_error="",
-                plan=SimpleNamespace(task_id="task-b", device=SimpleNamespace(device_id="device-b")),
+                actual_state="RUNNING",
+                desired_state="START",
+                last_error="",
+                plan=SimpleNamespace(
+                    task_id="task-b", device=SimpleNamespace(device_id="device-b")
+                ),
             )
         }
     )
@@ -62,8 +66,12 @@ async def test_requested_device_apply_error_is_returned(
     service._acquisition = SimpleNamespace(
         workers={
             "device-a": SimpleNamespace(
-                actual_state="FAULTED", desired_state="START", last_error="apply failed",
-                plan=SimpleNamespace(task_id="task-a", device=SimpleNamespace(device_id="device-a")),
+                actual_state="FAULTED",
+                desired_state="START",
+                last_error="apply failed",
+                plan=SimpleNamespace(
+                    task_id="task-a", device=SimpleNamespace(device_id="device-a")
+                ),
             )
         }
     )

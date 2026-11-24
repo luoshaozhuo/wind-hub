@@ -2,8 +2,9 @@
 
 Producer/consumer wire-contract test using the real Sink encoder and the real
 Storage decoder. It does not replace a live Sink→Storage system test: no Kafka
-broker or business process is involved. RAW records are accepted only with source bytes preserved in the
-SampleBatch; a missing source payload is never synthesized.
+broker or business process is involved.
+RAW records are accepted only when source bytes are preserved in the SampleBatch;
+a missing source payload is never synthesized.
 """
 
 from __future__ import annotations
@@ -88,9 +89,7 @@ def test_business_encoding_without_complete_projection_is_rejected() -> None:
 def test_raw_roundtrip_preserves_exact_source_bytes() -> None:
     batch = _batch()
     source_bytes = b"\x00\x2a\xff\x80"
-    item = batch.samples[0].model_copy(
-        update={"raw_payload_hex": source_bytes.hex()}
-    )
+    item = batch.samples[0].model_copy(update={"raw_payload_hex": source_bytes.hex()})
     wire = encode_kafka_points(batch, (item,), data_level="raw")[0]
     sample = StorageSample.from_kafka_json(wire)
     assert sample.data_level == StorageDataLevel.RAW
@@ -151,9 +150,7 @@ def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
         task_id="collector-task-f6",
     )
     assert len(built) == 1
-    decoded = SampleBatch.decode(
-        built[0].encode(), "reliable", subject=built[0].subject()
-    )
+    decoded = SampleBatch.decode(built[0].encode(), "reliable", subject=built[0].subject())
     encoded = encode_kafka_points(decoded, decoded.samples, data_level="raw")
     persisted = StorageSample.from_kafka_json(encoded[0])
     assert persisted.value == original
@@ -173,9 +170,7 @@ def test_raw_protocol_business_are_disjoint_storage_identities_for_one_sample() 
             value=25.0,
         )
     }
-    raw = StorageSample.from_kafka_json(
-        encode_kafka_points(batch, (item,), data_level="raw")[0]
-    )
+    raw = StorageSample.from_kafka_json(encode_kafka_points(batch, (item,), data_level="raw")[0])
     protocol = StorageSample.from_kafka_json(
         encode_kafka_points(batch, (item,), data_level="protocol")[0]
     )

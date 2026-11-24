@@ -69,7 +69,16 @@ async def _drive(publisher: CollectorPublisher, devices: int, cycles: int, point
     samples = _samples(points)
     for _cycle in range(cycles):
         await asyncio.gather(
-            *(publisher.publish(f"wtg-{device:02d}", samples, device_type="wtg", point_table_id="point_table_modbus_wtg_sim_v1.0.0", task_id="task-load") for device in range(devices))
+            *(
+                publisher.publish(
+                    f"wtg-{device:02d}",
+                    samples,
+                    device_type="wtg",
+                    point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                    task_id="task-load",
+                )
+                for device in range(devices)
+            )
         )
 
 

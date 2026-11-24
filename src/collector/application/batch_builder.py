@@ -107,7 +107,11 @@ class BatchBuilder:
                         raise
                     count //= 2
                     candidate = self._batch(
-                        device_id, task_id, device_type, point_table_id, items[start : start + count]
+                        device_id,
+                        task_id,
+                        device_type,
+                        point_table_id,
+                        items[start : start + count],
                     )
             batches.append(candidate)
             start += count

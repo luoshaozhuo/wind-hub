@@ -109,7 +109,13 @@ async def test_realtime_each_source_batch_is_one_independent_nats_message(
     await publisher.start()
     # 模拟 10 Hz：三个周期间隔 100ms，必须产生三条独立消息而非合并大批。
     for cycle in range(3):
-        await publisher.publish("wtg-01", (_sample(f"p{cycle}"),), device_type="wtg", point_table_id="point_table_modbus_wtg_sim_v1.0.0", task_id="task-wtg")
+        await publisher.publish(
+            "wtg-01",
+            (_sample(f"p{cycle}"),),
+            device_type="wtg",
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            task_id="task-wtg",
+        )
         await asyncio.sleep(0.1)
     await publisher.stop()
 
@@ -152,7 +158,13 @@ async def test_reliable_puback_durable_delivery_and_dlq_routing(nats_url: str) -
             capacity=16,
         )
         await publisher.start()
-        await publisher.publish("wtg-02", (_sample("p1"),), device_type="wtg", point_table_id="point_table_modbus_wtg_sim_v1.0.0", task_id="task-wtg")
+        await publisher.publish(
+            "wtg-02",
+            (_sample("p1"),),
+            device_type="wtg",
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            task_id="task-wtg",
+        )
         deadline = asyncio.get_running_loop().time() + 10
         while adapter.calls < 1 and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.02)
@@ -201,7 +213,13 @@ async def test_duplicate_nats_msg_id_does_not_duplicate_delivery(nats_url: str) 
             capacity=16,
         )
         await publisher.start()
-        await publisher.publish("wtg-03", (_sample("p1"),), device_type="wtg", point_table_id="point_table_modbus_wtg_sim_v1.0.0", task_id="task-wtg")
+        await publisher.publish(
+            "wtg-03",
+            (_sample("p1"),),
+            device_type="wtg",
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            task_id="task-wtg",
+        )
         await publisher.stop()
         client = await nats.connect(servers=[nats_url])
         batch = SampleBatch(

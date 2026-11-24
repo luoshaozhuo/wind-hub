@@ -196,5 +196,7 @@ async def test_uc01_s03_link_loss_watchdog_reconnects(
     await slave.start()
     expected = {"RUNNING"} if protocol == "modbus" else {"STARTING", "RUNNING"}
     assert await wait_actual(device_stub, device_id, expected, timeout=30) in expected
-    task = await device_stub.GetTask(common.ObjectId(id="modbus_task" if device_id == MODBUS else "iec104_task"))
+    task = await device_stub.GetTask(
+        common.ObjectId(id="modbus_task" if device_id == MODBUS else "iec104_task")
+    )
     assert task.task.desired_state == "START"
