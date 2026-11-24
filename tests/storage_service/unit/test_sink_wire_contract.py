@@ -2,9 +2,8 @@
 
 Producer/consumer wire-contract test using the real Sink encoder and the real
 Storage decoder. It does not replace a live Sink→Storage system test: no Kafka
-broker or business process is involved. Mainline Sink intentionally refuses to
-fabricate RAW records; Storage's independent RAW acceptance is verified with an
-explicitly constructed valid v2 record instead.
+broker or business process is involved. RAW records are accepted only with source bytes preserved in the
+SampleBatch; a missing source payload is never synthesized.
 """
 
 from __future__ import annotations
