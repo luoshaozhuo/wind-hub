@@ -87,7 +87,7 @@ async def test_uc08_s03_kill_restart_resumes_durable_start_intent(
     _channel2, _config2, device2 = grpc_clients(restarted.process.grpc_port)
     # No StartTask call: persisted desired_state=START converges by itself.
     assert await wait_actual(device2, MODBUS, {"RUNNING"}, timeout=30) == "RUNNING"
-    task = await device2.GetTask(common.ObjectId(id=MODBUS))
+    task = await device2.GetTask(common.ObjectId(id="modbus_task"))
     assert task.task.desired_state == "START"
 
 
@@ -105,7 +105,7 @@ async def test_uc08_s03_partial_device_failure_keeps_healthy_device_running(
         assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"
 
         await wait_actual(device_stub, "modbus-hold", {"FAULTED", "ISOLATED"})
-        hold = (await device_stub.GetTask(common.ObjectId(id="modbus-hold"))).task
+        hold = (await device_stub.GetTask(common.ObjectId(id="hold_task"))).task
         assert hold.desired_state == "START"
 
         deadline = asyncio.get_running_loop().time() + 15
