@@ -431,7 +431,8 @@ def _sample(
             for word in raw
         )
     ):
-        payload = struct.pack(f">{len(raw)}H", *raw)
+        words = [int(word) for word in raw]
+        payload = struct.pack(f">{len(words)}H", *words)
     try:
         value = decode(point, raw)
         quality = Quality.GOOD
