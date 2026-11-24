@@ -411,9 +411,13 @@ def _validate_delivery(
             frozenset({"data_level"}),
         )
         level = reliable_output["data_level"]
-        if level not in ("protocol", "business"):
+        if level not in ("raw", "protocol", "business"):
             raise ConfigurationError(
-                f"deliveries.{delivery_id}: RAW requires an original undecoded payload"
+                f"deliveries.{delivery_id}: invalid data_level {level!r}"
+            )
+        if level == "raw" and kind != "kafka":
+            raise ConfigurationError(
+                f"deliveries.{delivery_id}: RAW requires Kafka Reliable output"
             )
         if level == "business":
             if kind != "kafka":
