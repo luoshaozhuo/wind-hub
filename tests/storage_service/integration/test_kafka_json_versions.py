@@ -60,7 +60,7 @@ def _rfc3339(microseconds: int) -> str:
     )
 
 
-def _v2_record(farm: str, *, schema_version: int) -> bytes:
+def _v2_record(farm: str, *, schema_version: int, level: str = "raw") -> bytes:
     payload = {
         "schema_version": schema_version,
         "wind_farm_id": farm,
@@ -72,10 +72,10 @@ def _v2_record(farm: str, *, schema_version: int) -> bytes:
         "point_table_id": "pt-f6-v1",
         "point_id": "point.f6",
         "sample_id": "sample-f6-0001",
-        "data_level": "raw",
+        "data_level": level,
         "quality": "good",
         "unit": "",
-        "value": "002a",
+        "value": "002a" if level == "raw" else 42,
         "sample_time": _rfc3339(_BASE_US),
         "publish_time": _rfc3339(_BASE_US + 10),
         "receive_time": _rfc3339(_BASE_US + 20),
@@ -200,23 +200,59 @@ async def test_legacy_json_v1_record_blocks_partition_without_commit_or_write(
             rows = list(raw.query(f"SELECT ts FROM {names.database}.{names.table} ORDER BY ts"))
             assert len(rows) == 1
 
-            # Phase 2: the legacy v1 record must be rejected with no compatibility path.
+            # Phase 2: a PROTOCOL record with the same source sample identity
+            # is a distinct semantic row, not a collision with RAW bytes.
+            await producer.send_and_wait(
+                topic, _v2_record(farm, schema_version=2, level="protocol"),
+                key=message_key,
+            )
+            await _wait(
+                lambda: _offset_is(admin, group, tp, 2),
+                "PROTOCOL v2 record commit at offset 2",
+            )
+            protocol = StorageSample.from_kafka_json(
+                _v2_record(farm, schema_version=2, level="protocol")
+            )
+            protocol_names = get_object_names(protocol, SCHEMA_FINGERPRINT)
+            assert protocol.logical_key != sample.logical_key
+            assert len(
+                list(raw.query(
+                    f"SELECT ts FROM {protocol_names.database}.{protocol_names.table}"
+                ))
+            ) == 1
+
+            # Phase 3: a replay of identical RAW bytes is idempotent, while
+            # the Kafka cursor advances after durable deduplication.
+            await producer.send_and_wait(
+                topic, _v2_record(farm, schema_version=2), key=message_key
+            )
+            await _wait(
+                lambda: _offset_is(admin, group, tp, 3),
+                "RAW idempotent replay commit at offset 3",
+            )
+            assert len(
+                list(raw.query(
+                    f"SELECT ts FROM {names.database}.{names.table}"
+                ))
+            ) == 1
+
+            # Phase 4: the legacy v1 record must be rejected with no compatibility path.
             await producer.send_and_wait(topic, _v2_record(farm, schema_version=1), key=message_key)
             await _wait(
                 lambda: metadata.get_blocked_partition(topic, 0) is not None,
                 "durable blocked partition evidence for the v1 record",
             )
             blocked_offset, reason = metadata.get_blocked_partition(topic, 0)
-            assert blocked_offset == 1
+            assert blocked_offset == 3
             assert "schema_version" in reason
             blocked_page = metadata.list_blocked(page_size=100)
-            assert (topic, 0, 1) == blocked_page[0][:3]
+            assert (topic, 0, 3) == blocked_page[0][:3]
 
             # The cursor must stay at the last confirmed offset; give the broker
             # a real time window to prove no late commit advances past the blocker.
             await asyncio.sleep(3)
             offsets = await admin.list_consumer_group_offsets(group, partitions=[tp])
-            assert offsets[tp].offset == 1
+            assert offsets[tp].offset == 3
 
             # No second physical row may exist for the rejected record.
             rows = list(raw.query(f"SELECT ts FROM {names.database}.{names.table} ORDER BY ts"))
