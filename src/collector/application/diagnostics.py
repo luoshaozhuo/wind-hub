@@ -26,6 +26,7 @@ class PublisherEvidence(Protocol):
         *,
         device_type: str,
         point_table_id: str,
+        task_id: str,
     ) -> None: ...
 
 
@@ -189,6 +190,7 @@ class CollectorDiagnostics:
                                     sample,
                                     device_type=worker.plan.device_type,
                                     point_table_id=worker.plan.point_table_id,
+                                    task_id=worker.plan.task_id,
                                 )
                             except (ValueError, TypeError) as exc:
                                 encoding_failed = True
