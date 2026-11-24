@@ -43,7 +43,7 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
     await sink_harness.start()
     try:
         batch = sink_harness.make_batch("reliable", seq=821, points=1)
-        source = b"\\x00\\x7f\\x80\\xff"
+        source = bytes((0, 127, 128, 255))
         item = batch.samples[0].model_copy(update={"raw_payload_hex": source.hex()})
         batch = batch.model_copy(update={"samples": (item,)})
         ack = await sink_harness.publish_reliable(batch)
