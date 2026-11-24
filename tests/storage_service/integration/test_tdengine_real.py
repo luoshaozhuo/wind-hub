@@ -78,7 +78,7 @@ def _payload(
     point_table: str,
     point: str,
     sample_id: str = "sample-1",
-    level: DataLevel = DataLevel.RAW,
+    level: DataLevel = DataLevel.PROTOCOL,
     value: object = 42,
     quality: str = "good",
     timestamp_us: int = _BASE_US,
@@ -116,7 +116,7 @@ def _timestamp_payload(
     point_table: str,
     point: str,
     sample_id: str = "sample-1",
-    level: DataLevel = DataLevel.RAW,
+    level: DataLevel = DataLevel.PROTOCOL,
     value: object = 42,
     quality: str = "good",
     timestamp_us: int = _BASE_US,
@@ -159,7 +159,7 @@ def _record(sample: StorageSample, *, offset: int, partition: int = 0) -> KafkaR
         point=sample.point_id,
         sample_id=sample.sample_id,
         level=sample.data_level,
-        value=sample.value,
+        value=sample.value.hex() if sample.data_level == DataLevel.RAW else sample.value,
         quality=sample.quality.value,
         timestamp_us=sample.sample_time_us,
     )
@@ -286,8 +286,8 @@ async def test_g01_schema_tags_lengths_levels_and_six_scalar_types(
         business_points_pin=("bp-v1", "1.0.0"),
     )
     definitions = [
-        (DataLevel.RAW, "i64", -(2**63), ValueKind.INT64, -(2**63)),
-        (DataLevel.RAW, "u64", 2**64 - 1, ValueKind.UINT64, 2**64 - 1),
+        (DataLevel.PROTOCOL, "i64", -(2**63), ValueKind.INT64, -(2**63)),
+        (DataLevel.PROTOCOL, "u64", 2**64 - 1, ValueKind.UINT64, 2**64 - 1),
         (DataLevel.PROTOCOL, "f64", 1.23456789012345, ValueKind.DOUBLE, 1.23456789012345),
         (DataLevel.PROTOCOL, "bool", True, ValueKind.BOOL, True),
         (DataLevel.BUSINESS, "text", "有功功率-α", ValueKind.TEXT, "有功功率-α"),
@@ -301,10 +301,10 @@ async def test_g01_schema_tags_lengths_levels_and_six_scalar_types(
             point_table=point_table,
             point=point,
             level=level,
-            value=None if kind == ValueKind.BYTES else value,
+            value=None if kind == ValueKind.BYTES and level != DataLevel.RAW else value,
             timestamp_us=_BASE_US + index,
         )
-        if kind == ValueKind.BYTES:
+        if kind == ValueKind.BYTES and level != DataLevel.RAW:
             content = hashlib.sha256(b"payload:" + bytes(value)).hexdigest()
             sample = replace(
                 sample,
