@@ -90,7 +90,7 @@ def write_config_tree(
             "model": {"id": "modbus_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": modbus_port},
             "enabled": "modbus-1" not in disabled_devices,
-            "group": "turbine",
+            "group": "modbus-group",
             "overrides": {"task": {"desired_state": desired_state}},
         }
     if "iec104-1" in devices:
@@ -98,7 +98,7 @@ def write_config_tree(
             "model": {"id": "iec104_wtg", "version": "1.0.0"},
             "endpoint": {"host": "127.0.0.1", "port": iec104_port},
             "enabled": "iec104-1" not in disabled_devices,
-            "group": "turbine",
+            "group": "iec104-group",
             "overrides": {"task": {"desired_state": desired_state}},
         }
     if blackhole_port is not None:
@@ -246,11 +246,17 @@ def write_config_tree(
             {
                 **_HEADER,
                 "tasks": {
-                    "turbine_all": {
-                        "group": "turbine",
+                    "modbus_task": {
+                        "group": "modbus-group",
                         "point_group": "all",
                         "interval_ms": max(1, round(task_interval * 1000)),
-                        "desired_state": "STOP",
+                        "desired_state": desired_state,
+                    },
+                    "iec104_task": {
+                        "group": "iec104-group",
+                        "point_group": "all",
+                        "interval_ms": max(1, round(task_interval * 1000)),
+                        "desired_state": desired_state,
                     },
                     **(
                         {
