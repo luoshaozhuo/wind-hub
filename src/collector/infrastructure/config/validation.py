@@ -349,7 +349,7 @@ def parse_collector_runtime(
             continue
         config = raw_instances[device_id]
         task_id, task = tasks_by_group[config["group"]]
-        intent = intents.get(device_id, task["desired_state"])
+        intent = intents.get(task_id, task["desired_state"])
         device = snapshot.site.devices[DeviceId(device_id)]
         device_model = snapshot.device_models[device.device_model_id]
         protocol_name = definition.templates.protocol.document["protocol"]
