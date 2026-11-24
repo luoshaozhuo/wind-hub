@@ -30,10 +30,10 @@ class CollectorTaskControl:
         self._lock = asyncio.Lock()
 
     async def set_desired(
-        self, device_id: str, desired_state: str, *, expected_revision: str
+        self, task_id: str, desired_state: str, *, expected_revision: str
     ) -> ConfigurationStatus:
-        """Apply device-specific task intent under a revision guard."""
-        if desired_state not in {"START", "STOP"} or not device_id:
+        """Apply a configured Task-group intent under a revision guard."""
+        if desired_state not in {"START", "STOP"} or not task_id:
             raise SnapshotError("invalid Collector Task intent")
         async with self._lock:
             revision, _ = await asyncio.to_thread(self._configuration.get_disk)
@@ -43,15 +43,24 @@ class CollectorTaskControl:
             if paths.tasks is None or paths.devices is None:
                 raise SnapshotError("selected Collector Tasks/Devices unavailable")
             devices = self._read_config(paths.devices).get("devices", {})
-            if device_id not in devices or devices[device_id].get("enabled", True) is False:
-                raise LookupError("unknown or disabled Collector device")
+            tasks = self._read_config(paths.tasks).get("tasks", {})
+            selected = tasks.get(task_id)
+            if not isinstance(selected, dict):
+                raise LookupError("unknown Collector Task")
+            group = selected.get("group")
+            if not any(
+                definition.get("enabled", True) is not False
+                and definition.get("group") == group
+                for definition in devices.values()
+            ):
+                raise LookupError("Collector Task has no enabled devices")
             task_version = self._read_config(paths.tasks).get("file_version")
             if not isinstance(task_version, str) or not task_version:
                 raise SnapshotError("invalid selected Task Instance version")
             task_identity = f"{paths.tasks.name}:{task_version}"
             await asyncio.to_thread(
                 self._intents.write_intent,
-                device_id,
+                task_id,
                 task_identity,
                 desired_state,
             )
