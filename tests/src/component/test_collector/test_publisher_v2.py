@@ -113,7 +113,7 @@ async def test_realtime_source_batch_becomes_one_nats_publish(fake_nats: FakeNat
         "wtg-01",
         (_sample("p1"), _sample("p2")),
         device_type=DEVICE_TYPE,
-        point_table_id=POINT_TABLE,
+        point_table_id=POINT_TABLE, task_id="task-component",
     )
     await publisher.stop()
     assert len(fake_nats.published) == 1
@@ -132,7 +132,7 @@ async def test_reliable_uses_jetstream_with_stable_nats_msg_id(
     publisher = _publisher("reliable")
     await publisher.start()
     await publisher.publish(
-        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     await publisher.stop()
     assert len(fake_nats.jetstream_calls) == 1
@@ -149,7 +149,7 @@ async def test_reliable_retry_keeps_original_batch_identity(fake_nats: FakeNatsC
     fake_nats.fail_next = 2  # 前两次 PubAck 失败，第三次成功
     await publisher.start()
     await publisher.publish(
-        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     deadline = asyncio.get_event_loop().time() + 10
     while not fake_nats.jetstream_calls and asyncio.get_event_loop().time() < deadline:
@@ -169,10 +169,10 @@ async def test_realtime_backpressure_drops_without_raising(fake_nats: FakeNatsCl
     publisher = _publisher(capacity=1)
     # 不启动消费循环：队列只能容纳 1 批，第二批走背压丢弃路径。
     await publisher.publish(
-        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     await publisher.publish(
-        "wtg-01", (_sample("p2"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p2"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     assert publisher.backpressure == 1
     assert publisher.dropped == 1
@@ -188,11 +188,11 @@ async def test_reliable_enqueue_timeout_is_failure_not_silent_drop(
 ) -> None:
     publisher = _publisher("reliable", capacity=1, enqueue_timeout_s=0.05)
     await publisher.publish(
-        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     with pytest.raises(RuntimeError, match="not accepted"):
         await publisher.publish(
-            "wtg-01", (_sample("p2"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+            "wtg-01", (_sample("p2"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
         )
     assert publisher.not_attempted >= 1
     assert publisher.failed >= 1
@@ -209,7 +209,7 @@ async def test_reliable_split_rejection_never_publishes_accepted_prefix(
             "wtg-01",
             (_sample("p0"), _sample("p1")),
             device_type=DEVICE_TYPE,
-            point_table_id=POINT_TABLE,
+            point_table_id=POINT_TABLE, task_id="task-component",
         )
 
     await publisher.start()
@@ -223,14 +223,14 @@ async def test_reliable_oversized_rejection_preserves_other_queued_events(
 ) -> None:
     publisher = _publisher("reliable", capacity=2, max_samples_per_batch=1)
     await publisher.publish(
-        "wtg-existing", (_sample("existing"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-existing", (_sample("existing"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     with pytest.raises(RuntimeError, match="exceeds bounded queue capacity"):
         await publisher.publish(
             "wtg-rejected",
             tuple(_sample(f"p{i}") for i in range(3)),
             device_type=DEVICE_TYPE,
-            point_table_id=POINT_TABLE,
+            point_table_id=POINT_TABLE, task_id="task-component",
         )
 
     await publisher.start()
@@ -250,14 +250,14 @@ async def test_reliable_split_waits_for_space_for_the_complete_event(
         "wtg-existing",
         (_sample("e0"), _sample("e1")),
         device_type=DEVICE_TYPE,
-        point_table_id=POINT_TABLE,
+        point_table_id=POINT_TABLE, task_id="task-component",
     )
     accepted = asyncio.create_task(
         publisher.publish(
             "wtg-split",
             (_sample("p0"), _sample("p1")),
             device_type=DEVICE_TYPE,
-            point_table_id=POINT_TABLE,
+            point_table_id=POINT_TABLE, task_id="task-component",
         )
     )
     await asyncio.sleep(0)
@@ -286,7 +286,7 @@ async def test_reliable_concurrent_publishers_and_stop_drain_complete_events(
                 f"wtg-{index}",
                 (_sample(f"p{index}-0"), _sample(f"p{index}-1")),
                 device_type=DEVICE_TYPE,
-                point_table_id=POINT_TABLE,
+                point_table_id=POINT_TABLE, task_id="task-component",
             )
         )
         for index in range(4)
@@ -309,7 +309,7 @@ async def test_realtime_expired_batch_is_dropped_and_counted(
     publisher = _publisher(max_staleness_ms=100)
     await publisher.start()
     await publisher.publish(
-        "wtg-01", (_sample("p1", age_ms=1000),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1", age_ms=1000),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     await publisher.stop()
     assert publisher.expired == 1
@@ -327,7 +327,7 @@ async def test_duplicate_point_id_rejected_before_queueing(
             "wtg-01",
             (_sample("p1"), _sample("p1")),
             device_type=DEVICE_TYPE,
-            point_table_id=POINT_TABLE,
+            point_table_id=POINT_TABLE, task_id="task-component",
         )
     assert publisher.failed == 1
     assert publisher.not_attempted == 1
@@ -346,7 +346,7 @@ async def test_oversized_source_event_is_split_into_multiple_batches(
         "wtg-01",
         tuple(_sample(f"p{i}") for i in range(5)),
         device_type=DEVICE_TYPE,
-        point_table_id=POINT_TABLE,
+        point_table_id=POINT_TABLE, task_id="task-component",
     )
     await publisher.stop()
     assert len(fake_nats.published) == 3
@@ -359,7 +359,7 @@ async def test_stop_releases_connection(fake_nats: FakeNatsClient) -> None:
     publisher = _publisher()
     await publisher.start()
     await publisher.publish(
-        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE
+        "wtg-01", (_sample("p1"),), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-component"
     )
     await publisher.stop()
     assert fake_nats.drained and fake_nats.closed
