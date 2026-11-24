@@ -75,7 +75,7 @@ def _v2_record(farm: str, *, schema_version: int) -> bytes:
         "data_level": "raw",
         "quality": "good",
         "unit": "",
-        "value": 42,
+        "value": "002a",
         "sample_time": _rfc3339(_BASE_US),
         "publish_time": _rfc3339(_BASE_US + 10),
         "receive_time": _rfc3339(_BASE_US + 20),
