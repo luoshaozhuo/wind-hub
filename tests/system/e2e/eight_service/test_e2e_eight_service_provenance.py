@@ -118,7 +118,7 @@ def test_eight_service_provenance_and_restart_readback(
     start = (started_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     end = deadline_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    async def _exercise() -> dict[str, Any]:
+    async def _exercise() -> list[dict[str, Any]]:
         # Subscribe before the generator starts; latest offsets exclude stale
         # records from other test runs and avoid an arrival race.
         consumer = AIOKafkaConsumer(
@@ -141,6 +141,7 @@ def test_eight_service_provenance_and_restart_readback(
             )
             assert created["status"] == "SUCCESS", created
             deadline = asyncio.get_running_loop().time() + 120
+            selected: dict[str, dict[str, Any]] = {}
             while asyncio.get_running_loop().time() < deadline:
                 messages = await consumer.getmany(timeout_ms=1500, max_records=500)
                 for records in messages.values():
@@ -153,64 +154,81 @@ def test_eight_service_provenance_and_restart_readback(
                             and row.get("device_id") == DEVICE
                             and row.get("point_id") == POINT
                         ):
-                            return row
-            raise AssertionError("no live Kafka point from the running reliable Collector")
+                            selected[row["sample_id"]] = row
+                            if len(selected) >= 5:
+                                return list(selected.values())
+            raise AssertionError(
+                f"expected five distinct live Kafka samples, got {len(selected)}"
+            )
         finally:
             await consumer.stop()
 
-    wire = asyncio.run(_exercise())
-    assert wire["task_id"] == TASK, "task identity must come from Task Instance"
-    assert wire["sample_id"] and wire["batch_id"] and wire["point_table_id"]
-    assert wire["quality"] == "good"
-    assert type(wire["value"]) in (int, float)
+    wire_records = asyncio.run(_exercise())
+    assert len(wire_records) == 5
+    source_ids = {row["sample_id"] for row in wire_records}
+    assert len(source_ids) == 5
+    for wire in wire_records:
+        assert wire["task_id"] == TASK, "task identity must come from Task Instance"
+        assert wire["sample_id"] and wire["batch_id"] and wire["point_table_id"]
+        assert wire["quality"] == "good"
+        assert type(wire["value"]) in (int, float)
+
     truth_deadline = time.monotonic() + 30
-    while not _source_truth_matches(harness, wire["sample_time"], float(wire["value"])):
+    while not all(
+        _source_truth_matches(harness, row["sample_time"], float(row["value"]))
+        for row in wire_records
+    ):
         if time.monotonic() >= truth_deadline:
             raise AssertionError(
-                "Kafka point does not match any time-aligned Generator JSONL source: "
-                f"{wire}"
+                "Kafka data not time/value-aligned with independent Generator truth"
             )
         time.sleep(0.5)
 
-    # Query Storage by the same physical device/point; never accept any other
-    # point as proof. Match exact sample_id and the value at this timestamp.
+    # Exactly the five independently observed source identities must exist in
+    # Storage with matching scalar values. No count-based substitution.
     deadline = time.monotonic() + 120
     last: dict[str, Any] = {}
-    found: dict[str, Any] | None = None
+    persisted: dict[str, dict[str, Any]] = {}
     while time.monotonic() < deadline:
         last = _query(harness, start, end)
         if last.get("status") == "SUCCESS":
-            found = next(
-                (
-                    row for row in _items(last)
-                    if row.get("sample_id") == wire["sample_id"]
-                    and row.get("point_id") == POINT
-                    and row.get("device_id") == DEVICE
-                ),
-                None,
-            )
-            if found is not None:
+            persisted = {
+                row["sample_id"]: row for row in _items(last)
+                if row.get("sample_id") in source_ids
+                and row.get("point_id") == POINT
+                and row.get("device_id") == DEVICE
+            }
+            if len(persisted) == len(source_ids):
                 break
         time.sleep(1)
-    assert found is not None, f"Kafka sample absent from Storage: {wire}; {last}"
-    assert float(found["value_f64"]) == pytest.approx(
-        float(wire["value"]), rel=1e-6, abs=1e-5
-    )
+    assert set(persisted) == source_ids, {
+        "missing_count": len(source_ids - set(persisted)),
+        "missing_ids": sorted(source_ids - set(persisted)),
+        "last_query": last,
+    }
+    for wire in wire_records:
+        stored = persisted[wire["sample_id"]]
+        assert float(stored["value_f64"]) == pytest.approx(
+            float(wire["value"]), rel=1e-6, abs=1e-5
+        )
+        assert stored["quality"] == wire["quality"]
+        assert stored["logical_key"] and stored["content_sha256"]
 
-    # A process restart cannot erase an already persisted sample. The same
-    # source identity and value must be independently queryable afterward.
+    # Restart Storage using the official CLI, then reconcile the same five
+    # identities and content hashes. No lost or silently rewritten rows.
     restarted = harness.cli("service", "restart", "storage", "--yes", timeout=120)
     assert restarted["status"] == "SUCCESS", restarted
     harness.wait_targets("storage")
     replay = _query(harness, start, end)
     assert replay["status"] == "SUCCESS", replay
-    same = next(
-        (row for row in _items(replay) if row.get("sample_id") == wire["sample_id"]),
-        None,
-    )
-    assert same is not None, f"confirmed sample vanished after restart: {wire['sample_id']}"
-    assert same["content_sha256"] == found["content_sha256"]
-    assert same["logical_key"] == found["logical_key"]
+    recovered = {
+        row["sample_id"]: row for row in _items(replay)
+        if row.get("sample_id") in source_ids
+    }
+    assert set(recovered) == source_ids
+    for sample_id in source_ids:
+        assert recovered[sample_id]["content_sha256"] == persisted[sample_id]["content_sha256"]
+        assert recovered[sample_id]["logical_key"] == persisted[sample_id]["logical_key"]
 
 
 @pytest.mark.parametrize(
