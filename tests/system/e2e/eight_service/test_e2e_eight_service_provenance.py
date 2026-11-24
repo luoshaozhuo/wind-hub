@@ -13,7 +13,10 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import grpc
 import pytest
+from contracts import data_generator_pb2 as generator_pb
+from contracts import data_generator_pb2_grpc as generator_rpc
 from aiokafka import AIOKafkaConsumer
 
 from tests.system.e2e.eight_service.conftest import SERVICES, EightServiceHarness
@@ -208,3 +211,76 @@ def test_eight_service_provenance_and_restart_readback(
     assert same is not None, f"confirmed sample vanished after restart: {wire['sample_id']}"
     assert same["content_sha256"] == found["content_sha256"]
     assert same["logical_key"] == found["logical_key"]
+
+
+@pytest.mark.parametrize(
+    ("point_id", "requested"),
+    [
+        ("agc_power_setpoint", "1500.0"),
+        ("avc_voltage_setpoint", "1.02"),
+    ],
+)
+def test_eight_service_commander_gateway_generator_applied(
+    started: EightServiceHarness, point_id: str, requested: str
+) -> None:
+    """Only Generator's request-scoped applied step can confirm control."""
+    harness = started
+    generation = harness.cli(
+        "data-generator", "start", "e2e-plant-physical", "--yes", timeout=90
+    )
+    assert generation["status"] == "SUCCESS", generation
+    generation_id = str(generation["data"]["generation_id"])
+    try:
+        dispatched = harness.cli(
+            "commander",
+            "write",
+            "PPC_SIM01",
+            point_id,
+            requested,
+            "--yes",
+            timeout=90,
+        )
+        assert dispatched["status"] == "SUCCESS", dispatched
+        command = dispatched["data"]
+        assert command["accepted"] is True, command
+        command_id = str(command["command_id"])
+
+        deadline = time.monotonic() + 60
+        settled: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            reply = harness.cli(
+                "commander", "result", command_id, check=False, timeout=30
+            )
+            settled = reply.get("data") or {}
+            if settled.get("state") in ("SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"):
+                break
+            time.sleep(0.5)
+        assert settled.get("state") == "SUCCEEDED", settled
+        assert settled.get("outcome") == "CONFIRMED_SUCCESS", settled
+        assert settled.get("io_settled") is True, settled
+
+        # Independent authenticated caller directly queries the Generator's
+        # durable input-execution evidence. This is not Commander self-report.
+        token = harness.env["WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN"]
+        with grpc.insecure_channel("127.0.0.1:52061") as channel:
+            execution = generator_rpc.DataGeneratorServiceStub(
+                channel
+            ).GetInputExecution(
+                generator_pb.GetInputExecutionRequest(
+                    generation_id=generation_id, request_id=command_id
+                ),
+                timeout=10,
+                metadata=(("authorization", f"Bearer {token}"),),
+            )
+        assert execution.request_id == command_id
+        assert execution.state == "APPLIED"
+        assert execution.effective_step > 0
+    finally:
+        harness.cli(
+            "data-generator",
+            "stop",
+            generation_id,
+            "--yes",
+            check=False,
+            timeout=60,
+        )
