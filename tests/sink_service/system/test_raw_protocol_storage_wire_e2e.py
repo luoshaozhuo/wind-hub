@@ -6,16 +6,20 @@ Storage's production Kafka decoder checks the consumed record at the boundary.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 import yaml
 
+from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
+from core.application import ProtocolSample
 from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel
 from storage_service.domain.sample import DataLevel as StorageLevel
 from storage_service.domain.sample import StorageSample
 from tests.sink_service._stage1_fixtures import template_path
-from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.sink_service.system.conftest import COLLECTOR_ID, DEVICE_ID, WIND_FARM_ID, SinkSystemHarness
 
 pytestmark = [
     pytest.mark.system,
@@ -42,14 +46,40 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
     await sink_harness.provision_streams()
     await sink_harness.start()
     try:
-        batch = sink_harness.make_batch("reliable", seq=821, points=1)
+        # Use the real Collector batch builder and JetStream publisher, not a
+        # hand-built SampleBatch. This verifies source-byte capture into v3.
         source = bytes((0, 127, 128, 255))
-        item = batch.samples[0].model_copy(update={"raw_payload_hex": source.hex()})
-        batch = batch.model_copy(update={"samples": (item,)})
-        ack = await sink_harness.publish_reliable(batch)
-        assert ack.stream == sink_harness.history_stream
-
-        marker = item.sample_id
+        producer = CollectorPublisher(
+            servers=[sink_harness.stack.nats],
+            site_id=WIND_FARM_ID,
+            collector_id=COLLECTOR_ID,
+            delivery="reliable",
+        )
+        await producer.start()
+        try:
+            await producer.publish(
+                DEVICE_ID,
+                (
+                    ProtocolSample(
+                        point_id="p000",
+                        value=821.0,
+                        timestamp=datetime.now(UTC),
+                        raw_payload=source,
+                    ),
+                ),
+                device_type="wtg",
+                point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                task_id="real-collector-task",
+            )
+            deadline = asyncio.get_running_loop().time() + 30
+            while producer.pubacked < 1 and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.1)
+            assert producer.pubacked == 1, producer.last_error
+        finally:
+            await producer.stop()
+        markers = [item["sample_id"] for item in producer.last_sample_evidence]
+        assert len(markers) == 1
+        marker = markers[0]
         records = await sink_harness.wait_kafka_messages(
             min_messages=1,
             timeout=60,
@@ -59,24 +89,25 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
             record for record in records
             if json.loads(record.value).get("sample_id") == marker
         ]
-        assert len(matching) == 1, "one source sample must reach the Kafka output"
+        assert len(matching) == 1, "one Collector sample must reach Kafka"
         wire = json.loads(matching[0].value)
         assert wire["data_level"] == level
-        assert wire["task_id"] == batch.task_id
-        assert wire["batch_id"] == batch.batch_id
-        assert wire["point_table_id"] == batch.point_table_id
-        assert wire["collector_id"] == batch.collector_id
+        assert wire["task_id"] == "real-collector-task"
+        assert wire["point_table_id"] == "point_table_modbus_wtg_sim_v1.0.0"
+        assert wire["collector_id"] == COLLECTOR_ID
+        assert wire["device_id"] == DEVICE_ID
         assert wire["sample_id"] == marker
+        assert wire["batch_id"]
         sample = StorageSample.from_kafka_json(matching[0].value)
         assert sample.sample_id == marker
-        assert sample.batch_id == batch.batch_id
-        assert sample.task_id == batch.task_id
+        assert sample.batch_id == wire["batch_id"]
+        assert sample.task_id == "real-collector-task"
         if level == "raw":
             assert sample.data_level is StorageLevel.RAW
             assert wire["value"] == source.hex()
             assert sample.value == source
         else:
             assert sample.data_level is StorageLevel.PROTOCOL
-            assert sample.value == item.value
+            assert sample.value == 821.0
     finally:
         await sink_harness.stop()
