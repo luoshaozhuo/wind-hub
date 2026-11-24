@@ -16,12 +16,12 @@ def test_intent_upsert_and_version_scoped_read(tmp_path: Path) -> None:
     identity_v1 = "collector_tasks_sim_v1.0.0.yaml:1.0.0"
     identity_v2 = "collector_tasks_sim_v1.1.0.yaml:1.1.0"
 
-    store.write_intent("d1", identity_v1, "START")
+    store.write_intent("task-1", identity_v1, "START")
     # Re-writing the same key updates rather than duplicating the intent.
     store.write_intent("d1", identity_v1, "STOP")
-    store.write_intent("d2", identity_v1, "START")
+    store.write_intent("task-2", identity_v1, "START")
 
-    assert store.read_intents(identity_v1) == {"d1": "STOP", "d2": "START"}
+    assert store.read_intents(identity_v1) == {"task-1": "STOP", "task-2": "START"}
     # A new immutable Task version must not inherit the previous version's intents.
     assert store.read_intents(identity_v2) == {}
 
@@ -29,13 +29,13 @@ def test_intent_upsert_and_version_scoped_read(tmp_path: Path) -> None:
 def test_intent_validation_rejects_illegal_input(tmp_path: Path) -> None:
     store = SqliteTaskIntentStore(tmp_path / "intents.sqlite3")
     identity = "collector_tasks_sim_v1.0.0.yaml:1.0.0"
-    for device_id, version, state in (
+    for task_id, version, state in (
         ("", identity, "START"),
         ("d1", "", "START"),
         ("d1", identity, "PAUSE"),
     ):
         with pytest.raises(ValueError):
-            store.write_intent(device_id, version, state)
+            store.write_intent(task_id, version, state)
 
 
 def test_intent_store_rejects_symlink_path(tmp_path: Path) -> None:
@@ -51,7 +51,7 @@ def test_reader_and_writer_share_identical_instance_key(tmp_path: Path) -> None:
     """The control writer and runtime reader must key on the same Task identity."""
     store = SqliteTaskIntentStore(tmp_path / "intents.sqlite3")
     identity = "collector_tasks_sim_v1.0.0.yaml:1.0.0"
-    store.write_intent("wind-turbine-1", identity, "START")
-    assert store.read_intents(identity) == {"wind-turbine-1": "START"}
-    # The same device under a mismatched identity string stays invisible.
+    store.write_intent("source-task", identity, "START")
+    assert store.read_intents(identity) == {"source-task": "START"}
+    # The same Task under a mismatched identity string stays invisible.
     assert store.read_intents("collector_tasks_sim_v1.0.0.yaml:9.9.9") == {}
