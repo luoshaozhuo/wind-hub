@@ -140,7 +140,7 @@ async def test_poll_starts_and_stops_with_owned_session() -> None:
         assert driver.connects == 1
         assert driver.reads >= 1
         assert publisher.received
-    assert publisher.last_task_id == "task-component"
+        assert publisher.last_task_id == "task-component"
         assert worker.actual_state == "RUNNING"
     finally:
         await worker.stop()
