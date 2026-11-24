@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import struct
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,6 +20,8 @@ import pytest
 from contracts import data_generator_pb2 as generator_pb
 from contracts import data_generator_pb2_grpc as generator_rpc
 from aiokafka import AIOKafkaConsumer
+from contracts import industrial_gateway_pb2 as gateway_pb
+from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 
 from tests.system.e2e.eight_service.conftest import SERVICES, EightServiceHarness
 
@@ -301,4 +305,132 @@ def test_eight_service_commander_gateway_generator_applied(
             "--yes",
             check=False,
             timeout=60,
+        )
+
+
+def test_eight_service_four_sink_outputs_are_independently_readable(
+    started: EightServiceHarness,
+) -> None:
+    """No Sink internal metrics are used as output-delivery proof."""
+    harness = started
+    listed = harness.cli("sink", "deliveries")
+    assert listed["status"] == "SUCCESS", listed
+    ids = {
+        item.get("delivery_id") or item.get("id")
+        for item in (listed.get("data") or {}).get("deliveries", [])
+    }
+    assert set(DELIVERIES) <= ids
+    for delivery_id in DELIVERIES:
+        result = harness.cli("sink", "start", delivery_id, "--yes", timeout=90)
+        assert result["status"] == "SUCCESS", (delivery_id, result)
+    run = harness.cli("data-generator", "start", "e2e-plant-physical", "--yes")
+    assert run["status"] == "SUCCESS", run
+    generation_id = str(run["data"]["generation_id"])
+
+    async def _check() -> tuple[dict[str, Any], float, int, dict[str, Any]]:
+        import redis.asyncio as redis
+        from pymodbus.client import AsyncModbusTcpClient
+
+        host, _, port = harness.stack.redis.rpartition(":")
+        cache = redis.Redis(host=host, port=int(port), decode_responses=True)
+        modbus = AsyncModbusTcpClient("127.0.0.1", port=25112)
+        broker = AIOKafkaConsumer(
+            TOPIC,
+            bootstrap_servers=harness.stack.kafka,
+            group_id=None,
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+        await broker.start()
+        try:
+            deadline = asyncio.get_running_loop().time() + 90
+            kafka: dict[str, Any] = {}
+            cache_value: dict[str, Any] = {}
+            modbus_value: float | None = None
+            quality_code: int | None = None
+            key = (
+                "windhub.e2e.final:e2e-final:collector-e2e-realtime:"
+                f"{DEVICE}:{POINT}"
+            )
+            while asyncio.get_running_loop().time() < deadline:
+                if not kafka:
+                    messages = await broker.getmany(timeout_ms=100, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("data_level") == "protocol"
+                                and row.get("device_id") == DEVICE
+                                and row.get("point_id") == POINT
+                            ):
+                                kafka = row
+                                break
+                        if kafka:
+                            break
+                value = await cache.get(key)
+                if value:
+                    cache_value = json.loads(value)
+                if not modbus.connected:
+                    await modbus.connect()
+                if modbus.connected:
+                    data = await modbus.read_holding_registers(
+                        1000, count=2, device_id=1
+                    )
+                    quality = await modbus.read_holding_registers(
+                        2000, count=1, device_id=1
+                    )
+                    if not data.isError() and not quality.isError():
+                        modbus_value = struct.unpack(
+                            ">f", struct.pack(">HH", *data.registers)
+                        )[0]
+                        quality_code = int(quality.registers[0])
+                if (
+                    kafka
+                    and cache_value.get("quality") == "good"
+                    and modbus_value is not None
+                    and quality_code == 0
+                ):
+                    return kafka, modbus_value, quality_code, cache_value
+                await asyncio.sleep(0.5)
+            raise AssertionError(
+                "four-output evidence incomplete: "
+                f"kafka={bool(kafka)} redis={cache_value} "
+                f"modbus={modbus_value}/{quality_code}"
+            )
+        finally:
+            await broker.stop()
+            modbus.close()
+            await cache.aclose()
+
+    try:
+        kafka, modbus_value, quality, cache_value = asyncio.run(_check())
+        assert kafka["task_id"] == TASK
+        assert quality == 0
+        assert math.isfinite(modbus_value)
+        assert math.isfinite(float(cache_value["value"]))
+
+        # The target Gateway is a separate service instance, with a separate
+        # operator credential. Query its own exposed variable space.
+        token = harness.env["WIND_HUB_E2E_GATEWAY_TARGET_OPERATOR_TOKEN"]
+        with grpc.insecure_channel("127.0.0.1:52074") as channel:
+            stub = gateway_rpc.IndustrialGatewayServiceStub(channel)
+            deadline = time.monotonic() + 30
+            while True:
+                result = stub.ReadVariables(
+                    gateway_pb.ReadVariablesRequest(
+                        gateway_id="gw-e2e-sink-target", variable_ids=[POINT]
+                    ),
+                    timeout=5,
+                    metadata=(("authorization", f"Bearer {token}"),),
+                )
+                if result.values and result.values[0].quality == "GOOD":
+                    assert math.isfinite(float(result.values[0].value.double_value))
+                    break
+                if time.monotonic() >= deadline:
+                    raise AssertionError("Sink target Gateway has no readable GOOD value")
+                time.sleep(0.5)
+    finally:
+        harness.cli(
+            "data-generator", "stop", generation_id, "--yes",
+            check=False, timeout=60,
         )
