@@ -45,7 +45,7 @@ async def test_uc02_s02_start_while_link_down_converges_after_link_returns(
     # START while unreachable is accepted and persisted; convergence is pending.
     await start_task(device_stub, config_stub, MODBUS)
     await asyncio.sleep(2.0)
-    task = await device_stub.GetTask(common.ObjectId(id=MODBUS))
+    task = await device_stub.GetTask(common.ObjectId(id="modbus_task"))
     assert task.task.desired_state == "START"
     assert task.task.actual_state in {"FAULTED", "ISOLATED", "RECOVERING", "CONNECTING"}
     assert (await config_stub.GetServiceStatus(common.Empty())).health == "DEGRADED"
