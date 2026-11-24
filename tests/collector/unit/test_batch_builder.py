@@ -62,14 +62,23 @@ def test_split_order_unique_identities_and_update_site() -> None:
 
 def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
     builder = _builder(max_samples_per_batch=100, max_batch_bytes=256)
-    assert builder.pack("wtg-01", (), device_type=DEVICE_TYPE, point_table_id=POINT_TABLE, task_id="task-wtg-01") == []
+    assert (
+        builder.pack(
+            "wtg-01",
+            (),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wtg-01",
+        )
+        == []
+    )
     with pytest.raises(ValueError, match="duplicate point_id"):
         builder.pack(
             "wtg-01",
             (_sample("same"), _sample("same")),
             device_type=DEVICE_TYPE,
             point_table_id=POINT_TABLE,
-        task_id="task-wtg-01",
+            task_id="task-wtg-01",
         )
     with pytest.raises(ValueError):
         builder.pack(
@@ -77,7 +86,7 @@ def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
             (_sample("small"), _sample("large", "x" * 1024)),
             device_type=DEVICE_TYPE,
             point_table_id=POINT_TABLE,
-        task_id="task-wtg-01",
+            task_id="task-wtg-01",
         )
 
 
