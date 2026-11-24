@@ -157,7 +157,7 @@ def _sample() -> StorageSample:
         "point_id": "point",
         "business_point_id": "",
         "sample_id": "sample",
-        "data_level": "raw",
+        "data_level": "protocol",
         "quality": "good",
         "unit": "",
         "value": 1,
