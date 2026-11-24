@@ -339,7 +339,7 @@ def parse_collector_runtime(
     raw_instances = read_yaml(paths.devices)["devices"]
     task_document = read_yaml(paths.tasks)
     raw_tasks = task_document["tasks"]
-    tasks_by_group = {item["group"]: item for item in raw_tasks.values()}
+    tasks_by_group = {item["group"]: (task_id, item) for task_id, item in raw_tasks.items()}
     # Scope operator overrides to the selected immutable Task document.
     task_identity = f"{paths.tasks.name}:{task_document['file_version']}"
     intents = task_intents.read_intents(task_identity) if task_intents is not None else {}
@@ -348,7 +348,7 @@ def parse_collector_runtime(
         if not definition.enabled:
             continue
         config = raw_instances[device_id]
-        task = tasks_by_group[config["group"]]
+        task_id, task = tasks_by_group[config["group"]]
         intent = intents.get(device_id, task["desired_state"])
         device = snapshot.site.devices[DeviceId(device_id)]
         device_model = snapshot.device_models[device.device_model_id]
@@ -374,6 +374,7 @@ def parse_collector_runtime(
                 mode=mode,
                 device_type=str(device_model.device_type_id),
                 point_table_id=str(point_table_id),
+                task_id=validate_subject_token(task_id),
                 data_types={
                     point.point_id: snapshot.business_points[
                         point.business_point_id
