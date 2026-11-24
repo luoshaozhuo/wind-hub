@@ -111,3 +111,37 @@ def test_realtime_staleness_and_reliable_identity_fields() -> None:
     assert realtime.samples[0].max_staleness_ms == 500
     assert reliable.samples[0].max_staleness_ms is None
     assert realtime.point_table_id == POINT_TABLE and realtime.device_type == DEVICE_TYPE
+
+
+def test_task_identity_is_not_derived_from_device_identity() -> None:
+    builder = _builder()
+    first = builder.pack(
+        "wtg-01",
+        (_sample("p"),),
+        device_type=DEVICE_TYPE,
+        point_table_id=POINT_TABLE,
+        task_id="task-wind-speed",
+    )[0]
+    second = builder.pack(
+        "wtg-01",
+        (_sample("p"),),
+        device_type=DEVICE_TYPE,
+        point_table_id=POINT_TABLE,
+        task_id="task-power",
+    )[0]
+    assert first.device_id == second.device_id == "wtg-01"
+    assert first.task_id == "task-wind-speed"
+    assert second.task_id == "task-power"
+    assert first.task_id != first.device_id
+    assert second.task_id != second.device_id
+
+
+def test_invalid_task_identity_fails_closed() -> None:
+    with pytest.raises(ValueError):
+        _builder().pack(
+            "wtg-01",
+            (_sample("p"),),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task with space",
+        )
