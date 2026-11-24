@@ -1,9 +1,6 @@
 """Strict Sink Kafka JSON v2 protocol-record serialization.
 
-Protocol is an already protocol-decoded scalar without engineering or business
-conversion. Raw frame bytes are not available in SampleBatch v3; this adapter
-must not fabricate them. Business records require a verified historical mapping
-and cannot be encoded from unprojected samples.
+RAW uses preserved source bytes; PROTOCOL is decoded; BUSINESS needs historical projection.
 """
 
 from __future__ import annotations
@@ -26,9 +23,7 @@ def _json_timestamp(value: datetime | None) -> str | None:
 
 
 def _require_protocol(level: DataLevel) -> None:
-    if level == "raw":
-        raise ValueError("RAW requires original undecoded protocol payload, unavailable")
-    if level not in ("protocol", "business"):
+    if level not in ("raw", "protocol", "business"):
         raise ValueError("data_level must be raw, protocol or business")
 
 
@@ -48,6 +43,14 @@ def _record(
 ) -> dict[str, object]:
     if not device_type or not point_table_id or not batch_id:
         raise ValueError("v3 source identity required")
+    if data_level == "raw":
+        raw_hex = item.raw_payload_hex
+        if raw_hex is None or not 2 <= len(raw_hex) <= 4096 or len(raw_hex) % 2:
+            raise ValueError("RAW requires 1..2048 original payload bytes")
+        if any(char not in "0123456789abcdef" for char in raw_hex):
+            raise ValueError("RAW payload must be canonical lowercase hex")
+    else:
+        raw_hex = None
     return {
         "schema_version": 2,
         "data_level": data_level,
@@ -61,7 +64,9 @@ def _record(
         "point_id": item.point_id,
         "business_point_id": business_value.business_point_id if business_value else None,
         "sample_id": item.sample_id,
-        "value": business_value.value if business_value else item.value,
+        "value": raw_hex if data_level == "raw" else (
+            business_value.value if business_value else item.value
+        ),
         "unit": business_value.unit if business_value else None,
         "quality": item.quality,
         "sample_time": _json_timestamp(item.sample_time),
@@ -90,7 +95,7 @@ def encode_kafka_points(
         if business_values is None or set(business_values) != {item.sample_id for item in items}:
             raise ValueError("BUSINESS requires complete sample-specific verified projection")
     elif business_values is not None:
-        raise ValueError("PROTOCOL must not carry BUSINESS projection")
+        raise ValueError("RAW/PROTOCOL must not carry BUSINESS projection")
     return tuple(
         _encode(
             _record(
