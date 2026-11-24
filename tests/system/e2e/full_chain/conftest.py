@@ -504,6 +504,16 @@ class FullChainHarness:
         check: bool = True,
         token: str | None = ADMIN_TOKEN,
     ) -> dict[str, Any]:
+        # Test cases select a physical device; resolve its selected Task Instance
+        # identity through the live Collector before issuing StartTask/StopTask.
+        if len(args) >= 3 and args[0] == "collector" and args[1] in {"start", "stop"}:
+            device = await self.cli.cli(
+                config, "collector", "device", args[2], timeout=timeout,
+                check=True, token=token,
+            )
+            task_id = device["data"]["device"]["task_id"]
+            assert task_id, f"Collector has no configured Task for {args[2]}"
+            args = (*args[:2], task_id, *args[3:])
         return await self.cli.cli(config, *args, timeout=timeout, check=check, token=token)
 
     async def poll(
