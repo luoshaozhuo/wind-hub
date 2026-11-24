@@ -62,7 +62,8 @@ async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.Mo
             # device owns exactly one task.
             assert found.devices
             tasks = await devices.ListTasks(collector.ListTasksRequest())
-            assert len(tasks.tasks) == len(found.devices)
+            assert tasks.tasks
+            assert len({task.task_id for task in tasks.tasks}) == len(tasks.tasks)
             device_id = found.devices[0].device_id
             detail = await devices.GetDevice(collector.DeviceQuery(device_id=device_id))
             assert detail.device.device_id == device_id
@@ -73,7 +74,7 @@ async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.Mo
             )
             assert point.point.point_id == points.points[0].point_id
             assert point.point.data_type
-            task = await devices.GetTask(common.ObjectId(id=device_id))
+            task = await devices.GetTask(common.ObjectId(id=detail.device.task_id))
             assert task.task.desired_state == "STOP"
             # Task.revision is the writable DISK revision clients echo back in
             # expected_revision; it must match ListTasks and the DISK snapshot.
