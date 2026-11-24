@@ -104,7 +104,9 @@ class FakePublisher:
         *,
         device_type: str,
         point_table_id: str,
+        task_id: str,
     ) -> None:
+        self.last_task_id = task_id
         self.received.append((device_id, samples))
         self.last_device_type = device_type
         self.last_point_table_id = point_table_id
@@ -124,6 +126,7 @@ async def test_poll_starts_and_stops_with_owned_session() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         publisher,
@@ -137,6 +140,7 @@ async def test_poll_starts_and_stops_with_owned_session() -> None:
         assert driver.connects == 1
         assert driver.reads >= 1
         assert publisher.received
+    assert publisher.last_task_id == "task-component"
         assert worker.actual_state == "RUNNING"
     finally:
         await worker.stop()
@@ -163,6 +167,7 @@ async def test_stale_callback_during_recovery_never_promotes_running(
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
@@ -196,6 +201,7 @@ async def test_transient_isolation_with_healthy_io_still_promotes_running() -> N
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
@@ -231,6 +237,7 @@ async def test_stop_intent_does_not_start_protocol_session() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -259,6 +266,7 @@ async def test_unsettled_read_is_not_overlapped_by_reconnect() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -299,6 +307,7 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
         ),
         1,
@@ -322,6 +331,7 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
                     "poll",
                     device_type=device_type,
                     point_table_id=point_table_id,
+            task_id="task-component",
                 ),
             ),
             1,
@@ -392,6 +402,7 @@ async def test_subscribe_mode_owns_remote_notification_handle() -> None:
             "subscribe",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -422,6 +433,7 @@ async def test_listen_mode_owns_local_listener_handle() -> None:
             "listen",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -475,6 +487,7 @@ async def test_active_read_falls_back_to_serial_read_one() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -507,6 +520,7 @@ async def test_interrogation_requires_protocol_capability() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, unsupported),
         FakePublisher(),
@@ -545,6 +559,7 @@ async def test_health_timeout_never_reopens_unsettled_session() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -587,6 +602,7 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
             DevicePlan(
                 second,
@@ -596,6 +612,7 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
         ),
         0.5,
@@ -636,6 +653,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
             DevicePlan(
                 second,
@@ -645,6 +663,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
         ),
         read_timeout=0.03,
@@ -666,6 +685,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                     "poll",
                     device_type=device_type,
                     point_table_id=point_table_id,
+            task_id="task-component",
                 ),
                 DevicePlan(
                     second,
@@ -675,6 +695,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                     "poll",
                     device_type=device_type,
                     point_table_id=point_table_id,
+            task_id="task-component",
                 ),
             ),
             0.03,
@@ -710,6 +731,7 @@ async def test_timed_out_active_rpc_keeps_device_session_owned() -> None:
             "poll",
             device_type=device_type,
             point_table_id=point_table_id,
+            task_id="task-component",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -772,6 +794,7 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
         ),
         0.2,
@@ -793,6 +816,7 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
                 "poll",
                 device_type=device_type,
                 point_table_id=point_table_id,
+            task_id="task-component",
             ),
         ),
         0.2,
