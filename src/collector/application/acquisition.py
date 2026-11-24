@@ -40,6 +40,7 @@ class DevicePlan:
     mode: str
     device_type: str
     point_table_id: str
+    task_id: str
     data_types: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -315,6 +316,7 @@ class DeviceWorker:
                 tuple(converted),
                 device_type=self.plan.device_type,
                 point_table_id=self.plan.point_table_id,
+                task_id=self.plan.task_id,
             )
 
     async def _poll_loop(self, point_ids: tuple[str, ...]) -> None:
