@@ -19,7 +19,7 @@ def test_intent_upsert_and_version_scoped_read(tmp_path: Path) -> None:
 
     store.write_intent("task-1", identity_v1, "START")
     # Re-writing the same key updates rather than duplicating the intent.
-    store.write_intent("d1", identity_v1, "STOP")
+    store.write_intent("task-1", identity_v1, "STOP")
     store.write_intent("task-2", identity_v1, "START")
 
     assert store.read_intents(identity_v1) == {"task-1": "STOP", "task-2": "START"}

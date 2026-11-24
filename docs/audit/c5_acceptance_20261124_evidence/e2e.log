@@ -1,0 +1,143 @@
+F.F..                                                                    [100%]
+=================================== FAILURES ===================================
+______________ test_eight_service_provenance_and_restart_readback ______________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-191/test_eight_service_provenance_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_eight_service_provenance_and_restart_readback(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+        assert all(harness.status(name)["status"] == "SUCCESS" for name in SERVICES)
+    
+        available = harness.cli("sink", "deliveries")
+        assert available["status"] == "SUCCESS", available
+        delivery_ids = {
+            item.get("delivery_id") or item.get("id")
+            for item in (available.get("data") or {}).get("deliveries", [])
+        }
+        assert set(DELIVERIES) <= delivery_ids, delivery_ids
+        for delivery_id in DELIVERIES:
+            result = harness.cli("sink", "start", delivery_id, "--yes", timeout=90)
+            assert result["status"] == "SUCCESS", (delivery_id, result)
+    
+        started_at = datetime.now(UTC)
+        deadline_at = started_at + timedelta(minutes=3)
+        start = (started_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = deadline_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+        async def _exercise() -> list[dict[str, Any]]:
+            # Subscribe before the generator starts; latest offsets exclude stale
+            # records from other test runs and avoid an arrival race.
+            consumer = AIOKafkaConsumer(
+                TOPIC,
+                bootstrap_servers=harness.stack.kafka,
+                group_id=None,
+                auto_offset_reset="latest",
+                enable_auto_commit=False,
+            )
+            await consumer.start()
+            try:
+                # Force Kafka partition assignment before starting the source.
+                await consumer.getmany(timeout_ms=100)
+                created = harness.cli(
+                    "data-generator",
+                    "start",
+                    "e2e-plant-physical",
+                    "--yes",
+                    timeout=90,
+                )
+                assert created["status"] == "SUCCESS", created
+                deadline = asyncio.get_running_loop().time() + 120
+                selected: dict[str, dict[str, Any]] = {}
+                while asyncio.get_running_loop().time() < deadline:
+                    messages = await consumer.getmany(timeout_ms=1500, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("data_level") == "protocol"
+                                and row.get("wind_farm_id") == "e2e-final"
+                                and row.get("collector_id") == "collector-e2e-reliable"
+                                and row.get("device_id") == DEVICE
+                                and row.get("point_id") == POINT
+                            ):
+                                selected[row["sample_id"]] = row
+                                if len(selected) >= 5:
+                                    return list(selected.values())
+                raise AssertionError(f"expected five distinct live Kafka samples, got {len(selected)}")
+            finally:
+                await consumer.stop()
+    
+        wire_records = asyncio.run(_exercise())
+        assert len(wire_records) == 5
+        source_ids = {row["sample_id"] for row in wire_records}
+        assert len(source_ids) == 5
+        for wire in wire_records:
+            assert wire["task_id"] == TASK, "task identity must come from Task Instance"
+            assert wire["sample_id"] and wire["batch_id"] and wire["point_table_id"]
+            assert wire["quality"] == "good"
+            assert type(wire["value"]) in (int, float)
+    
+        truth_deadline = time.monotonic() + 30
+        while not all(
+            _source_truth_matches(harness, row["sample_time"], float(row["value"]))
+            for row in wire_records
+        ):
+            if time.monotonic() >= truth_deadline:
+>               raise AssertionError(
+                    "Kafka data not time/value-aligned with independent Generator truth"
+                )
+E               AssertionError: Kafka data not time/value-aligned with independent Generator truth
+
+tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py:182: AssertionError
+_ test_eight_service_commander_gateway_generator_applied[avc_voltage_setpoint-1.02] _
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-191/test_eight_service_commander_g1/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+point_id = 'avc_voltage_setpoint', requested = '1.02'
+
+    @pytest.mark.parametrize(
+        ("point_id", "requested"),
+        [
+            ("agc_power_setpoint", "1500.0"),
+            ("avc_voltage_setpoint", "1.02"),
+        ],
+    )
+    def test_eight_service_commander_gateway_generator_applied(
+        started: EightServiceHarness, point_id: str, requested: str
+    ) -> None:
+        """Only Generator's request-scoped applied step can confirm control."""
+        harness = started
+        generation = harness.cli("data-generator", "start", "e2e-plant-physical", "--yes", timeout=90)
+        assert generation["status"] == "SUCCESS", generation
+        generation_id = str(generation["data"]["generation_id"])
+        try:
+            dispatched = harness.cli(
+                "commander",
+                "write",
+                "PPC_SIM01",
+                point_id,
+                requested,
+                "--yes",
+                timeout=90,
+            )
+            assert dispatched["status"] == "SUCCESS", dispatched
+            command = dispatched["data"]
+            assert command["accepted"] is True, command
+            command_id = str(command["command_id"])
+    
+            deadline = time.monotonic() + 60
+            settled: dict[str, Any] = {}
+            while time.monotonic() < deadline:
+                reply = harness.cli("commander", "result", command_id, check=False, timeout=30)
+                settled = reply.get("data") or {}
+                if settled.get("state") in ("SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"):
+                    break
+                time.sleep(0.5)
+            if settled.get("state") != "SUCCEEDED":
+                diag = harness.cli("commander", "events", check=False, timeout=30)
+>               raise AssertionError(f"command {command_id} settled={settled}; commander_events={diag}")
+E               AssertionError: command b82ee957-698e-4ccf-9021-b2b2f0d68369 settled={'command_id': 'b82ee957-698e-4ccf-9021-b2b2f0d68369', 'state': 'UNKNOWN', 'outcome': 'UNKNOWN', 'error_code': 'AioRpcError', 'device_id': 'PPC_SIM01', 'point_id': 'avc_voltage_setpoint', 'updated_at': '2026-11-24T16:59:21.566830Z', 'io_settled': True, 'message': ''}; commander_events={'schema_version': 1, 'command': 'commander GetEvents', 'status': 'SUCCESS', 'target': None, 'data': {'events': [{'event_id': 'd27d2cd4-75bb-4b39-b29d-ed9241e09e85', 'timestamp': '2026-11-24T16:59:10.970241Z', 'severity': 'INFO', 'source': 'commander', 'message': 'Commander ready', 'error_code': ''}], 'next_page_token': ''}, 'error_code': None, 'exit_code': 0, 'stderr': ''}
+
+tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py:272: AssertionError
+2 failed, 3 passed in 164.16s (0:02:44)

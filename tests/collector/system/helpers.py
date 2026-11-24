@@ -82,7 +82,9 @@ async def stop_task(
 ) -> None:
     revision = await disk_revision(config_stub)
     await device_stub.StopTask(
-        common.OperationRequest(id=device_id, expected_revision=revision),
+        common.OperationRequest(
+            id=await device_task_id(device_stub, device_id), expected_revision=revision
+        ),
         metadata=ADMIN_METADATA,
     )
 

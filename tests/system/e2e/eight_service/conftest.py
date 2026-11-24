@@ -308,6 +308,7 @@ async def _ensure_streams(server: str) -> None:
         for name, subject, max_age in (
             ("WH_E2E_HISTORY", "wh.hist.batch.>", 3600),
             ("WH_E2E_DLQ", "wh.dlq", 2592000),
+            ("COMMAND_AUDIT", "windhub.commander.audit", 3600),
         ):
             try:
                 await js.add_stream(

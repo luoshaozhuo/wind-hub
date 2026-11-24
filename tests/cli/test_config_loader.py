@@ -301,8 +301,8 @@ services:
     [
         (
             "e2e-final",
-            "service_cli-e2e_v1.1.5.yaml",
-            "1.1.5",
+            "service_cli-e2e_v1.1.7.yaml",
+            "1.1.7",
             "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN",
         ),
         (

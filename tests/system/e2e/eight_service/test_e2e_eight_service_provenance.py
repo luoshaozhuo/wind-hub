@@ -267,6 +267,9 @@ def test_eight_service_commander_gateway_generator_applied(
             if settled.get("state") in ("SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"):
                 break
             time.sleep(0.5)
+        if settled.get("state") != "SUCCEEDED":
+            diag = harness.cli("commander", "events", check=False, timeout=30)
+            raise AssertionError(f"command {command_id} settled={settled}; commander_events={diag}")
         assert settled.get("state") == "SUCCEEDED", settled
         assert settled.get("outcome") == "CONFIRMED_SUCCESS", settled
         assert settled.get("io_settled") is True, settled
@@ -316,11 +319,10 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
     generation_id = str(run["data"]["generation_id"])
 
     async def _check() -> tuple[dict[str, Any], float, int, dict[str, Any]]:
-        import redis.asyncio as redis
         from pymodbus.client import AsyncModbusTcpClient
 
         host, _, port = harness.stack.redis.rpartition(":")
-        cache = redis.Redis(host=host, port=int(port), decode_responses=True)
+        reader, writer = await asyncio.open_connection(host, int(port))
         modbus = AsyncModbusTcpClient("127.0.0.1", port=25112)
         broker = AIOKafkaConsumer(
             TOPIC,
@@ -352,9 +354,14 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
                                 break
                         if kafka:
                             break
-                value = await cache.get(key)
-                if value:
-                    cache_value = json.loads(value)
+                writer.write(f"GET {key}\r\n".encode())
+                await writer.drain()
+                line = await reader.readline()
+                if line.startswith(b"$"):
+                    size = int(line[1:-2])
+                    raw = await reader.readexactly(size + 2) if size >= 0 else b""
+                    if raw:
+                        cache_value = json.loads(raw[:-2].decode())
                 if not modbus.connected:
                     await modbus.connect()
                 if modbus.connected:
@@ -379,7 +386,8 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
         finally:
             await broker.stop()
             modbus.close()
-            await cache.aclose()
+            writer.close()
+            await writer.wait_closed()
 
     try:
         kafka, modbus_value, quality, cache_value = asyncio.run(_check())

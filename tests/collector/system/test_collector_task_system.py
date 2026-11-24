@@ -9,6 +9,7 @@ import pytest
 from contracts import common_pb2 as common
 from tests.collector.system.helpers import (
     MODBUS,
+    device_task_id,
     publishing,
     start_task,
     stop_task,
@@ -74,6 +75,6 @@ async def test_uc02_s03_manual_stop_never_revived_by_watchdog_or_reload(
     await modbus_slave.start()
     await asyncio.sleep(3.0)
 
-    task = await device_stub.GetTask(common.ObjectId(id=MODBUS))
+    task = await device_stub.GetTask(common.ObjectId(id=await device_task_id(device_stub, MODBUS)))
     assert task.task.desired_state == "STOP"
     assert task.task.actual_state == "STOPPED"

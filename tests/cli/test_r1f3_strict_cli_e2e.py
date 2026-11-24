@@ -701,23 +701,29 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
                 "collector",
                 "tasks",
                 predicate=lambda data: any(
-                    item.get("task_id") == device for item in data.get("tasks", [])
+                    item.get("task_id") == "turbine_all" for item in data.get("tasks", [])
                 ),
             )
             assert len(tasks["tasks"]) == 1
             # N-CLI-1：错误令牌与缺失令牌必须被拒绝，且令牌不出现在输出。
             wrong = await harness.cli(
-                config, "collector", "start", device, "--yes", check=False, token="wrong-token"
+                config,
+                "collector",
+                "start",
+                "turbine_all",
+                "--yes",
+                check=False,
+                token="wrong-token",
             )
             assert wrong["status"] == "FAILURE", wrong
             assert "denied" in (wrong.get("message") or "").lower(), wrong
             missing = await harness.cli(
-                config, "collector", "start", device, "--yes", check=False, token=None
+                config, "collector", "start", "turbine_all", "--yes", check=False, token=None
             )
             assert missing["status"] == "FAILURE", missing
             assert "admin credentials" in (missing.get("message") or ""), missing
             assert ADMIN_TOKEN not in json.dumps(wrong) + json.dumps(missing)
-            await harness.cli(config, "collector", "start", device, "--yes")
+            await harness.cli(config, "collector", "start", "turbine_all", "--yes")
         await harness.poll_cli(
             harness.cli_realtime,
             "sink",
@@ -836,7 +842,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         assert persisted["data"]["state"] == "SUCCEEDED"
 
         for config in (harness.cli_realtime, harness.cli_reliable):
-            await harness.cli(config, "collector", "stop", device, "--yes")
+            await harness.cli(config, "collector", "stop", "turbine_all", "--yes")
         for delivery in ("ems_power", "gateway_output", "modbus_output", "power_history"):
             await harness.cli(harness.cli_realtime, "sink", "stop", delivery, "--yes")
         for name in reversed(SERVICES):

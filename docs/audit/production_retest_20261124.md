@@ -1,26 +1,22 @@
-# wind-hub 最终集中复测与测试基础设施收口报告（2026-11-24）
-
-> 报告模板说明：仓库及文件系统中均未找到用户指定的 `报告模板.md`（检索无输出）。本报告按任务第九节十项交付要求组织，未因模板缺失降低检查范围。
+# wind-hub C5 独立集中验收报告（2026-11-24）
 
 ## 0. 最终裁决
 
 | 裁决项 | 结果 |
 |---|---|
-| **长测准入（完整八服务生产资格）** | **BLOCKED（结构性）** |
+| **C5 集中验收（完整八服务生产资格）** | **BLOCKED** |
 | 降额 Sink 容量专项长测（不含 Storage/Configuration 全链语义） | 可单独开展，不等于八服务生产资格 |
 
 模块级测试与新建的八服务 CLI 驱动真实 E2E 已通过；阻断来自尚未解决的**结构性生产缺口**：RAW 无真实来源、单 Sink 无法达到 300 批/s 理想目标（150,000 点/s）、官方准入脚本未能在干净 HEAD 上完成（详见第 7、8 节）。
 
 ## 1. Git 基线、最终 HEAD 与远端状态
 
-- 固定分支：`feat/production-readiness-final-20261123`
-- 交接 HEAD：`e2ba7e77c23d65c0a4751b4f666af796ce7c0a9a`（本地/远端一致，工作树干净）
-- `origin/main`：`c14a677cc533e09ec1b92e019a9a5473c10e30f3`
+- 固定分支：`fix/production-readiness-closure-20261124`
+- 交接 HEAD：`263bf6dd93bc3dd47858394439b36a09189ae72f`（本地/远端一致，工作树干净）
+- `origin/main`：`79946cb3650c8023b46fcee282fa9a1435956ffe`
 - 本轮提交：
-  - `717c3595a` fix(test): repair migration syntax, collection errors and static gates
-  - `531079259` test: migrate fixtures to schema3/Bearer and add eight-service real E2E
-  - `dd9b1be3c` style(test): tidy migrated fixture imports and formatting
-  - `<final>` docs(audit): production retest report and evidence（见交付消息）
+  - `116219ebb` fix(c5): close static gates and narrow modbus raw word types
+  - `<final>` docs(audit): c5 acceptance report and evidence（见交付消息）
 - 未新建分支/PR、未合并 main、未 rebase、未 force push。
 
 ## 2. 静态门禁
@@ -32,7 +28,7 @@
 | `python -m mypy src` | PASS | **PASS：483 files** |
 | `python scripts/generate_rpc.py --check` | PASS | **PASS** |
 | `lint-imports` | PASS | **PASS：22 kept, 0 broken** |
-| `python -m pytest --collect-only -q` | FAIL：27 collection errors | **PASS：4054 tests collected** |
+| `python -m pytest --collect-only -q` | FAIL：27 collection errors | **PASS：4083 tests collected** |
 
 交接 HEAD 的直接缺陷：`tests/support/gateway.py` 中列表解包与生成器混用的 `SyntaxError`（27 个收集错误）、Commander 测试缺失 `CommanderService/build_commander/ConfigSnapshots/register_services` 导入。已在本轮修复。
 

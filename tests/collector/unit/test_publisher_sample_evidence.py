@@ -63,7 +63,7 @@ def _identity(device_id: str) -> dict[str, str]:
 
 
 def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
-    return builder.pack(device_id, samples, **_identity(device_id))
+    return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
 
 
 async def test_evidence_keeps_latest_sample_per_device_and_point() -> None:
