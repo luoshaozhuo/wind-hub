@@ -65,35 +65,6 @@ def _query(harness: EightServiceHarness, start: str, end: str) -> dict[str, Any]
     )
 
 
-async def _collect_kafka(
-    bootstrap: str, expected_device: str, expected_point: str, timeout: float = 90
-) -> dict[str, Any]:
-    consumer = AIOKafkaConsumer(
-        TOPIC,
-        bootstrap_servers=bootstrap,
-        group_id=None,
-        auto_offset_reset="latest",
-        enable_auto_commit=False,
-    )
-    await consumer.start()
-    try:
-        deadline = asyncio.get_running_loop().time() + timeout
-        while asyncio.get_running_loop().time() < deadline:
-            result = await consumer.getmany(timeout_ms=1500, max_records=500)
-            for records in result.values():
-                for record in records:
-                    payload = json.loads(record.value)
-                    if (
-                        payload.get("data_level") == "protocol"
-                        and payload.get("device_id") == expected_device
-                        and payload.get("point_id") == expected_point
-                    ):
-                        return payload
-        raise AssertionError("Collector -> Sink -> Kafka produced no target PROTOCOL point")
-    finally:
-        await consumer.stop()
-
-
 def test_eight_service_provenance_and_restart_readback(
     started: EightServiceHarness,
 ) -> None:
