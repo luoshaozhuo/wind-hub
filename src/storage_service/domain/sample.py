@@ -128,7 +128,7 @@ def _parse_value(value: object) -> tuple[ValueKind, SampleScalar, str]:
         if len(value.encode("utf-8")) > 2048:
             raise ValueError("text value exceeds VARCHAR(2048) policy")
         return ValueKind.TEXT, value, value
-    raise ValueError("value must be scalar/null; RAW bytes require a future wire contract")
+    raise ValueError("value must be scalar/null")
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +193,20 @@ class StorageSample:
             raise ValueError("RAW values must not declare engineering units")
         if "value" not in data:
             raise ValueError("value: missing required member")
-        kind, value, stable_value = _parse_value(data["value"])
+        if level == DataLevel.RAW:
+            raw_hex = data["value"]
+            if (
+                not isinstance(raw_hex, str)
+                or not 2 <= len(raw_hex) <= 4096
+                or len(raw_hex) % 2
+                or re.fullmatch(r"[0-9a-f]+", raw_hex) is None
+            ):
+                raise ValueError("RAW value requires 1..2048 bytes of lowercase hex")
+            value = bytes.fromhex(raw_hex)
+            kind = ValueKind.BYTES
+            stable_value = raw_hex
+        else:
+            kind, value, stable_value = _parse_value(data["value"])
         sample_time_us = _timestamp_us(data.get("sample_time"), "sample_time")
         publish_time_us = _timestamp_us(data.get("publish_time"), "publish_time")
         receive_time_us = _timestamp_us(data.get("receive_time"), "receive_time", optional=True)
