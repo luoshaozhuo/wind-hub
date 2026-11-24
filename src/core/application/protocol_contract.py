@@ -194,7 +194,8 @@ class ProtocolSample:
         if not point_id:
             raise ValueError("point_id must not be empty")
         if self.raw_payload is not None and (
-            not isinstance(self.raw_payload, bytes) or not 1 <= len(self.raw_payload) <= 2048
+            not isinstance(self.raw_payload, bytes)
+            or not 1 <= len(self.raw_payload) <= 2048
         ):
             raise ValueError("raw_payload must be nonempty immutable bytes")
         if self.timestamp.tzinfo is None:
