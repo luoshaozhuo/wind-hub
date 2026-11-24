@@ -25,6 +25,7 @@ from tests.collector.system.helpers import (
 )
 from tests.collector.system.helpers import (
     disk_revision as _disk_revision,
+    device_task_id,
 )
 from tests.collector.system.helpers import (
     start_task,
@@ -137,9 +138,11 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
 
     tasks = await device_stub.ListTasks(collector_pb.ListTasksRequest())
     invoked.add("ListTasks")
-    assert len(tasks.tasks) == 2
+    assert {task.task_id for task in tasks.tasks} == {"modbus_task", "iec104_task"}
 
-    task = await device_stub.GetTask(common.ObjectId(id=DEVICE_MODBUS))
+    task = await device_stub.GetTask(
+        common.ObjectId(id=await device_task_id(device_stub, DEVICE_MODBUS))
+    )
     invoked.add("GetTask")
     assert task.task.desired_state == "STOP"
 
@@ -448,7 +451,7 @@ async def test_uc07_s03_deadline_unconfirmed_and_shutdown_unavailable(
 
         revision = await _disk_revision(config_stub)
         started = await device_stub.StartTask(
-            common.OperationRequest(id="modbus-hold", expected_revision=revision),
+            common.OperationRequest(id="hold_task", expected_revision=revision),
             metadata=ADMIN_METADATA,
         )
         assert started.accepted
@@ -470,7 +473,7 @@ async def test_uc07_s03_deadline_unconfirmed_and_shutdown_unavailable(
         # A stale revision cannot linearize a second control operation.
         with pytest.raises(grpc.aio.AioRpcError) as exc:
             await device_stub.StartTask(
-                common.OperationRequest(id=DEVICE_MODBUS, expected_revision="0" * 64),
+                common.OperationRequest(id="modbus_task", expected_revision="0" * 64),
                 metadata=ADMIN_METADATA,
             )
         assert exc.value.code() == grpc.StatusCode.ABORTED
