@@ -7,7 +7,10 @@ import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.business_projection import BusinessValue
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
+from sink_service.infrastructure.adapters.outbound.kafka_wire import (
+    encode_kafka_wide,
+    encode_kafka_wide_key,
+)
 
 
 def _batch() -> SampleBatch:
@@ -119,3 +122,9 @@ def test_business_columns_use_standard_ids_and_reject_non_bijective_mapping() ->
             data_level="business",
             business_values=projected,
         )
+
+
+def test_kafka_key_uses_only_wind_farm_and_device() -> None:
+    assert encode_kafka_wide_key("farm_a", "wtg_001") == b"farm_a:wtg_001"
+    with pytest.raises(ValueError, match="delimiter"):
+        encode_kafka_wide_key("farm:a", "wtg_001")
