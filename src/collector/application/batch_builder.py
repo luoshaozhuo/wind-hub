@@ -89,7 +89,7 @@ class BatchBuilder:
         sample_time: datetime,
         expected_point_ids: tuple[str, ...],
     ) -> list[SampleBatch]:
-        if not samples:
+        if not samples and self._delivery == "realtime":
             return []
         point_ids = [sample.point_id for sample in samples]
         if len(set(point_ids)) != len(point_ids):
