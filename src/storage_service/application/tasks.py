@@ -19,6 +19,9 @@ from typing import Protocol
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryQueryService
+from storage_service.application.wide_export import export_wide_device_history
+from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
+from storage_service.domain.wide_schema import WideSchema
 from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
 
@@ -123,12 +126,14 @@ class AsyncStorageTasks:
         config: StorageConfig,
         metadata: TaskStore,
         history: HistoryQueryService,
+        wide_history: WideHistoryQueryService,
         backup: NativeBackupPort,
         units: HistoricalUnitsPort,
     ) -> None:
         self._config = config
         self._metadata = metadata
         self._history = history
+        self._wide_history = wide_history
         self._backup = backup
         self._units = units
         self._backup_semaphore = asyncio.Semaphore(config.backup.max_jobs)
@@ -151,6 +156,93 @@ class AsyncStorageTasks:
     def _request_digest(values: list[object]) -> str:
         payload = json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(payload).hexdigest()
+
+    async def create_wide_export(
+        self,
+        *,
+        request_id: str,
+        filter_: WideHistoryFilter,
+        schema: WideSchema,
+        device_type: str,
+        export_format: str,
+        owner_id: str,
+    ) -> TaskRecord:
+        """Register one immutable schema-bound CSV/JSON export job."""
+        if not request_id or len(request_id) > 256:
+            raise ValueError("invalid wide export request_id")
+        if export_format not in {"csv", "json"}:
+            raise ValueError("wide export format must be csv or json")
+        filter_.validate(schema, maximum=self._config.query.max_page_size)
+        if filter_.after_time_us is not None:
+            raise ValueError("wide export cannot accept an external pagination cursor")
+        task_id = uuid.uuid4().hex
+        fingerprint = self._request_digest([
+            "WIDE_EXPORT_V1",
+            filter_.wind_farm_id,
+            filter_.device_id,
+            filter_.device_config_id,
+            filter_.data_level.value,
+            filter_.start_time_us,
+            filter_.end_time_us,
+            filter_.point_ids,
+            schema.fingerprint,
+            export_format,
+        ])
+        existing = await asyncio.to_thread(
+            self._metadata.register_task,
+            task_id=task_id,
+            request_id=request_id,
+            request_sha256=fingerprint,
+            kind="EXPORT",
+            wind_farm_id=filter_.wind_farm_id,
+            owner_id=owner_id,
+        )
+        stored = self.get_export(existing, owner_id=owner_id)
+        if stored is None:
+            raise RuntimeError("registered wide export task not found")
+        if existing == task_id:
+            worker = asyncio.create_task(
+                self._run_wide_export(
+                    task_id=task_id, filter_=filter_, schema=schema,
+                    device_type=device_type, export_format=export_format,
+                ),
+                name=f"storage-export-{task_id}",
+            )
+            self._pending.add(worker)
+            worker.add_done_callback(self._completed)
+        return stored
+
+    async def _run_wide_export(
+        self,
+        *,
+        task_id: str,
+        filter_: WideHistoryFilter,
+        schema: WideSchema,
+        device_type: str,
+        export_format: str,
+    ) -> None:
+        async with self._semaphore:
+            await asyncio.to_thread(self._metadata.set_task_state, task_id, state="RUNNING")
+            try:
+                artifact, size, digest = await export_wide_device_history(
+                    history=self._wide_history, schema=schema,
+                    filter_=filter_, device_type=device_type,
+                    artifact_id=task_id, export_format=export_format,
+                    root=self._config.export.root,
+                    max_bytes=self._config.export.max_bytes,
+                )
+                await asyncio.to_thread(
+                    self._metadata.set_task_state,
+                    task_id, state="SUCCEEDED",
+                    artifact_id=artifact, size_bytes=size, sha256=digest,
+                )
+            except BaseException as exc:
+                await asyncio.to_thread(
+                    self._metadata.set_task_state, task_id,
+                    state="FAILED", error_code="WIDE_EXPORT_FAILED",
+                    message=type(exc).__name__,
+                )
+                raise
 
     def get_export(self, task_id: str, *, owner_id: str) -> TaskRecord | None:
         return self._metadata.get_task(task_id, kind="EXPORT", owner_id=owner_id)
