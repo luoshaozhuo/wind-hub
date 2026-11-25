@@ -158,12 +158,6 @@ class WideIngestionService:
                     break
                 end += 1
             group = pending[index:end]
-            await self._storage.ensure_wide_table(
-                first.schema,
-                wind_farm_id=first.row.wind_farm_id,
-                device_id=first.row.device_id,
-                device_type=first.device_type,
-            )
             # If a device overwrites the same timestamp in this Kafka batch,
             # bind only its latest complete row, ordered by final offset.
             latest_by_time = {
@@ -174,9 +168,13 @@ class WideIngestionService:
                 row for _position, row in sorted(latest_by_time.values())
             )
             try:
-                await self._storage.insert_wide_batch(
-                    first.schema, ordered_rows
+                await self._storage.ensure_wide_table(
+                    first.schema,
+                    wind_farm_id=first.row.wind_farm_id,
+                    device_id=first.row.device_id,
+                    device_type=first.device_type,
                 )
+                await self._storage.insert_wide_batch(first.schema, ordered_rows)
             except (RuntimeError, TimeoutError, OSError) as exc:
                 self._metrics.record_unknown()
                 # A connector error may follow partial durable STMT2 writes.
