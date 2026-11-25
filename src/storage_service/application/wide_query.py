@@ -191,6 +191,41 @@ class WideHistoryQueryService:
         self._limiter = asyncio.Semaphore(max_concurrent)
         self._read_available = read_available or (lambda: True)
 
+    @staticmethod
+    def _validate_rows(
+        rows: Sequence[WideHistoryRow],
+        *,
+        filter_: WideHistoryFilter,
+        last: int | None,
+        horizon: int,
+    ) -> None:
+        """Fail closed on malformed physical columns, quality, or timestamp order."""
+        previous = last
+        for row in rows:
+            if (
+                type(row.sample_time_us) is not int
+                or row.sample_time_us < filter_.start_time_us
+                or row.sample_time_us >= horizon
+                or (previous is not None and row.sample_time_us <= previous)
+            ):
+                raise RuntimeError("wide backend violated strictly ordered timestamp keyset")
+            previous = row.sample_time_us
+            if len(row.points) != len(filter_.point_ids):
+                raise RuntimeError("wide backend returned incomplete physical columns")
+            for point_id, (actual_id, value, quality) in zip(
+                filter_.point_ids, row.points, strict=True
+            ):
+                if point_id != actual_id or (
+                    type(quality) not in (int, PointQuality)
+                    or not 0 <= int(quality) <= 3
+                ):
+                    raise RuntimeError("wide backend returned invalid column or quality")
+                if (
+                    (int(quality) == int(PointQuality.NOT_COLLECTED) and value is not None)
+                    or (int(quality) == int(PointQuality.GOOD) and value is None)
+                ):
+                    raise RuntimeError("wide backend returned inconsistent NULL and quality")
+
     async def _query_filtered(
         self,
         *,
@@ -232,15 +267,10 @@ class WideHistoryQueryService:
                     )
                     if len(rows) > limit:
                         raise RuntimeError("wide quality scan exceeded fetch bound")
+                    self._validate_rows(
+                        rows, filter_=filter_, last=cursor, horizon=horizon
+                    )
                     for row in rows:
-                        if (
-                            row.sample_time_us < filter_.start_time_us
-                            or row.sample_time_us >= horizon
-                            or (cursor is not None and row.sample_time_us <= cursor)
-                            or len(row.points) != 1
-                            or row.points[0][0] != filter_.point_ids[0]
-                        ):
-                            raise RuntimeError("wide quality scan returned invalid row")
                         scanned += 1
                         if int(row.points[0][2]) in filter_.qualities:
                             if len(accepted) >= filter_.limit:
@@ -321,15 +351,7 @@ class WideHistoryQueryService:
             raise RuntimeError("Kafka replay changed while reading device-wide history")
         if len(rows) > request.limit:
             raise RuntimeError("wide backend returned rows beyond requested bound")
-        if any(
-            row.sample_time_us < filter_.start_time_us
-            or row.sample_time_us >= horizon
-            or (last is not None and row.sample_time_us <= last)
-            for row in rows
-        ):
-            raise RuntimeError("wide backend returned timestamp outside the cursor range")
-        if any(a.sample_time_us >= b.sample_time_us for a, b in zip(rows, rows[1:])):
-            raise RuntimeError("wide backend violated strictly ordered timestamp keyset")
+        self._validate_rows(rows, filter_=filter_, last=last, horizon=horizon)
         more = len(rows) > filter_.limit
         included = rows[:filter_.limit]
         token = (
