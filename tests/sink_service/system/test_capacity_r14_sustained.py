@@ -216,21 +216,22 @@ class TestR14SustainedCapacity:
             kafka_max_batch_size=KAFKA_MAX_BATCH_SIZE,
         )
         await sink_harness.provision_streams()
-        if KAFKA_PARTITIONS > 1:
-            admin = AIOKafkaAdminClient(bootstrap_servers=sink_harness.stack.kafka)
-            await admin.start()
-            try:
-                await admin.create_topics(
-                    [
-                        NewTopic(
-                            name=sink_harness.kafka_topic,
-                            num_partitions=KAFKA_PARTITIONS,
-                            replication_factor=1,
-                        )
-                    ]
-                )
-            finally:
-                await admin.close()
+        # Explicitly create even the single-partition baseline so metadata
+        # checks cannot race Kafka's automatic topic creation.
+        admin = AIOKafkaAdminClient(bootstrap_servers=sink_harness.stack.kafka)
+        await admin.start()
+        try:
+            await admin.create_topics(
+                [
+                    NewTopic(
+                        name=sink_harness.kafka_topic,
+                        num_partitions=KAFKA_PARTITIONS,
+                        replication_factor=1,
+                    )
+                ]
+            )
+        finally:
+            await admin.close()
         await self._enlarge_history_stream(sink_harness)
         deployment = f"qa-{sink_harness.token}"
         names = {_durable_name(deployment, did) for did in delivery_ids}
