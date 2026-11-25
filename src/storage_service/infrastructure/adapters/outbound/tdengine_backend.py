@@ -177,6 +177,7 @@ class TDengineBackend:
         self._lock = threading.RLock()
         self._ddl_lock = threading.RLock()
         self._verified_tables: set[str] = set()
+        self._wide_unknown_tables: set[str] = set()
         self._opening = False
         self._closed = False
         self._executor = ThreadPoolExecutor(
@@ -864,9 +865,20 @@ class TDengineBackend:
         with self._lock:
             if name not in self._verified_tables:
                 raise TDengineSchemaConflictError("wide target has not been verified")
-        await self._run_bounded(
-            self._insert_wide_batch_sync, schema=schema, records=tuple(records)
-        )
+            if name in self._wide_unknown_tables:
+                raise TDengineSchemaConflictError(
+                    "prior wide I/O remains UNKNOWN; restart only after old process isolation"
+                )
+        try:
+            await self._run_bounded(
+                self._insert_wide_batch_sync, schema=schema, records=tuple(records)
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            # The driver may still own a worker thread and its connection.
+            # Never retry the same device in this process after UNKNOWN.
+            with self._lock:
+                self._wide_unknown_tables.add(name)
+            raise
 
     def _insert_wide_batch_sync(
         self,
