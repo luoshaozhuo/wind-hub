@@ -173,6 +173,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     max_range_days=bundle.configuration.query.max_range_days,
                     max_concurrent=bundle.configuration.query.max_concurrent,
                     timeout_ms=bundle.configuration.query.timeout_ms,
+                    read_available=lambda: not consumer.recovering,
                 )
                 jobs = AsyncStorageTasks(
                     config=bundle.configuration,
