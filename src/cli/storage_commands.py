@@ -172,6 +172,48 @@ def query_aggregates(
     )
 
 
+@storage.command("wide-export")
+def create_wide_export(
+    request_id: str,
+    wind_farm_id: str,
+    device_id: str,
+    device_config_id: str,
+    start_time: str,
+    end_time: str,
+    level: str = typer.Option(..., "--level"),
+    export_format: str = typer.Option("csv", "--format"),
+    point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    page_size: int = typer.Option(100, min=1, max=1000),
+) -> None:
+    """Create a durable version-scoped device-wide CSV/JSON export task."""
+    levels = {
+        "raw": "STORAGE_DATA_LEVEL_RAW",
+        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
+        "business": "STORAGE_DATA_LEVEL_BUSINESS",
+    }
+    if level not in levels:
+        raise typer.BadParameter("invalid data_level")
+    if export_format not in {"csv", "json"}:
+        raise typer.BadParameter("wide export format must be csv or json")
+    _invoke(
+        "CreateExport",
+        {
+            "request_id": request_id,
+            "export_format": export_format,
+            "wide_filter": {
+                "wind_farm_id": wind_farm_id,
+                "device_id": device_id,
+                "device_config_id": device_config_id,
+                "data_level": levels[level],
+                "start_time": start_time,
+                "end_time": end_time,
+                "point_ids": point_ids or [],
+                "page_size": page_size,
+            },
+        },
+    )
+
+
 @storage.command("export")
 def create_export(
     request_id: str,
