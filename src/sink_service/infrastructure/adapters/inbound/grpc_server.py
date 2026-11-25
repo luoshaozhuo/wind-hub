@@ -315,6 +315,8 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             "metrics_snapshot_ready": "bool",
             "metrics_snapshot_stale": "bool",
             "metrics_covered_ms": "ms",
+            "reliable_source_fetch_seconds_total": "s",
+            "reliable_source_fetch_operations_total": "operations",
             "reliable_encode_seconds_total": "s",
             "reliable_encode_operations_total": "operations",
             "reliable_write_seconds_total": "s",
