@@ -1,12 +1,12 @@
-wind-hub 精确候选配置发布根（2026-11-23）
+wind-hub 精确候选配置发布根（2026-11-25）
 
-来源：/configs 内的版本化 YAML；三个目录的 YAML 字节与相应源文件 Git Blob 相同。
+三个根内 YAML 与 /configs 对应文件 Git Blob 一致。
+prod-a/    Deployment prod-a v2.0.0，29 个 YAML。
+sim-a/     Deployment sim-a v2.0.0，23 个 YAML。
+e2e-final/ Deployment e2e-final v2.0.0，37 个 YAML。
 
-prod-a/    Deployment prod-a v1.6.0，29 个 YAML。待 OEM/Manifest/现场核验，不得生产激活。
-sim-a/     Deployment sim-a v1.4.0，23 个 YAML。模拟服务与管理面候选。
-e2e-final/ Deployment e2e-final v1.0.1，35 个 YAML。仅供独立 E2E 验证。
-
-Claude 本次仅做只读 YAML、精确引用闭包和 Loader 静态校验，不实际发布。
-生产批准后方可使用：wind-hub config publish --root deploy/config_roots/<deployment-id>
-不要使用仓库 configs/ 作为直接发布根：该目录包含不可变历史版本和未固定旧点表。
-不允许自动选择版本最大者；必须显式选择 Deployment ID 和版本。
+宽表候选配置，禁止在 D4 实现迁移及最终独立验收前激活。
+生产仍需 OEM/Manifest/现场核验。
+仅在批准后使用 wind-hub config publish --root deploy/config_roots/<deployment-id>。
+禁止直接发布混合历史版本的 configs/；选择精确 Deployment ID/version。
+仓库历史文件清理不得删除 Configuration 持久化归档。

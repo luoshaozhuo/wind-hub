@@ -105,18 +105,21 @@ class KafkaConfig(_StrictModel):
     group_id: str = Field(min_length=1, max_length=256)
     max_poll_records: int = Field(default=500, ge=1, le=5000)
     max_partition_workers: int = Field(default=4, ge=1, le=64)
-    max_buffer_records: int = Field(default=20000, ge=100, le=100000)
-    max_buffer_bytes: int = Field(default=67108864, ge=1048576, le=536870912)
     commit_interval_ms: int = Field(default=1000, ge=100, le=10000)
     commit_timeout_ms: int = Field(default=10000, ge=100, le=120000)
 
 
 class DatabaseConfig(_StrictModel):
     precision: Literal["us"] = "us"
-    duration: str = "10d"
-    keep: str = "365d"
+    duration: str = "30d"
+    keep: str = "1095d"
     cachemodel: Literal["none", "last_row", "last_value", "both"] = "none"
-    cachesize: int = Field(default=1, ge=1, le=1024)
+    vgroups: int = Field(default=4, strict=True, ge=1)
+    buffer_mb: int = Field(default=256, strict=True, ge=1)
+    replica: Literal[1] = 1
+    comp: Literal[0, 1, 2] = 2
+    wal_level: Literal[2] = 2
+    wal_fsync_period_ms: Literal[0] = 0
 
     @model_validator(mode="after")
     def validate_retention(self) -> DatabaseConfig:
@@ -130,6 +133,40 @@ class DatabaseConfig(_StrictModel):
         return self
 
 
+class IngestionConfig(_StrictModel):
+    batch_max_rows: int = Field(default=1000, strict=True, ge=1, le=10000)
+    batch_max_bytes: int = Field(default=8388608, strict=True, ge=4096, le=8388608)
+    batch_wait_ms: int = Field(default=60000, strict=True, ge=0, le=60000)
+    buffer_max_rows: int = Field(default=10000, strict=True, ge=100, le=100000)
+    buffer_max_bytes: int = Field(default=134217728, strict=True, ge=1048576, le=536870912)
+    writer_count: int = Field(default=4, strict=True, ge=1, le=32)
+    write_timeout_ms: int = Field(default=10000, strict=True, ge=100, le=120000)
+
+    @model_validator(mode="after")
+    def check_budget(self) -> IngestionConfig:
+        if self.batch_max_rows > self.buffer_max_rows:
+            raise ValueError("batch rows exceed buffer")
+        if self.batch_max_bytes >= self.buffer_max_bytes:
+            raise ValueError("buffer must include batch and driver overhead")
+        return self
+
+
+class TypeMapping(_StrictModel):
+    bool: Literal["BOOL"]
+    int8: Literal["TINYINT", "SMALLINT", "INT", "BIGINT"]
+    uint8: Literal["TINYINT UNSIGNED", "SMALLINT UNSIGNED", "INT UNSIGNED", "BIGINT UNSIGNED"]
+    int16: Literal["SMALLINT", "INT", "BIGINT"]
+    uint16: Literal["SMALLINT UNSIGNED", "INT UNSIGNED", "BIGINT UNSIGNED"]
+    int32: Literal["INT", "BIGINT"]
+    uint32: Literal["INT UNSIGNED", "BIGINT UNSIGNED"]
+    int64: Literal["BIGINT"]
+    uint64: Literal["BIGINT UNSIGNED"]
+    float32: Literal["FLOAT", "DOUBLE"]
+    float64: Literal["DOUBLE"]
+    string: Literal["VARCHAR"]
+    bytes: Literal["VARBINARY"]
+
+
 class TDengineConfig(_StrictModel):
     endpoint: str = Field(min_length=1, max_length=256)
     credential_ref: str
@@ -137,10 +174,8 @@ class TDengineConfig(_StrictModel):
     max_connections: int = Field(default=8, ge=1, le=64)
     max_inflight_sql: int = Field(default=4, ge=1, le=32)
     max_concurrent_ddl: int = Field(default=2, ge=1, le=8)
-    batch_max_records: int = Field(default=1000, ge=1, le=10000)
-    batch_max_bytes: int = Field(default=1048576, ge=4096, le=8388608)
-    batch_wait_ms: int = Field(default=20, ge=0, le=1000)
-    write_timeout_ms: int = Field(default=10000, ge=100, le=120000)
+    ingestion: IngestionConfig
+    type_mapping: TypeMapping
 
     @field_validator("credential_ref")
     @classmethod
@@ -153,6 +188,8 @@ class TDengineConfig(_StrictModel):
     def check_limits(self) -> TDengineConfig:
         if self.max_inflight_sql > self.max_connections:
             raise ValueError("max_inflight_sql exceeds max_connections")
+        if self.ingestion.writer_count > self.max_inflight_sql:
+            raise ValueError("writer_count exceeds max_inflight_sql")
         return self
 
 
@@ -248,7 +285,7 @@ class AuthConfig(_StrictModel):
 
 
 class StorageConfig(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[6]
     file_version: str
     service_id: str = Field(min_length=1, max_length=256)
     allowed_wind_farms: list[str] = Field(min_length=1)
@@ -282,12 +319,8 @@ class StorageConfig(_StrictModel):
             raise ValueError("caller token environment names must be unique")
         if self.service_id != self.reconciliation.owner_instance_id:
             raise ValueError("Storage owner_instance_id must equal service_id in v1")
-        if self.kafka.max_poll_records > self.kafka.max_buffer_records:
-            raise ValueError("Kafka fetch records exceed bounded record buffer")
-        if self.tdengine.batch_max_records > self.kafka.max_buffer_records:
-            raise ValueError("batch exceeds maximum record buffer")
-        if self.tdengine.batch_max_bytes > self.kafka.max_buffer_bytes:
-            raise ValueError("batch exceeds maximum byte buffer")
+        if self.kafka.max_poll_records > self.tdengine.ingestion.buffer_max_rows:
+            raise ValueError("Kafka fetch records exceed bounded row buffer")
         if self.export.root == self.backup.root:
             raise ValueError("export and backup roots must not be identical")
         return self
@@ -316,7 +349,7 @@ def load_storage_config(source: bytes) -> StorageConfig:
         raise ValueError("Storage configuration must be a YAML mapping")
     header = {"schema_version", "file_version", "service_id", "config_sources", "service"}
     if set(data) != header or not isinstance(data["service"], dict):
-        raise ValueError("Storage Service v2 must use the canonical service envelope")
+        raise ValueError("Storage Service v6 must use the canonical service envelope")
     parameters = data["service"]
     if set(parameters) & header:
         raise ValueError("Storage Service parameters cannot redefine envelope identity")
