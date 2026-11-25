@@ -238,3 +238,92 @@ async def test_bad_uncertain_and_not_collected_are_excluded_from_good_count() ->
     assert row.result == 5.0
     assert row.good_count == 1
     assert row.missing_count == 1
+
+
+@pytest.mark.asyncio
+async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -> None:
+    schema = WideSchema.build(
+        point_table_id="point_table_wtg_v1.0.0", point_table_version="1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        points=(PhysicalPoint("power", "INT"),),
+        max_row_bytes=65536,
+    )
+    request = WideHistoryFilter(
+        wind_farm_id="farm", device_id="wtg001",
+        device_config_id="device_farm_v1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        start_time_us=1, end_time_us=100_000_000,
+        point_ids=("power",), limit=50, qualities=(PointQuality.GOOD,),
+    )
+    history = Mock()
+    history.read_available.return_value = True
+    history.query = AsyncMock(return_value=WideHistoryPage(
+        rows=(
+            WideHistoryRow(
+                1_000_000, (("power", 10, PointQuality.GOOD),)
+            ),
+            WideHistoryRow(
+                62_000_000, (("power", 15, PointQuality.GOOD),)
+            ),
+        ),
+        complete=True, next_page_token="", schema_fingerprint=schema.fingerprint,
+    ))
+    service = WideAggregationService(history=history, secret=b"x" * 32)
+    first = await service.page(
+        schema=schema, filter_=request, device_type="wind",
+        operation="min", window_ms=60000, page_size=1,
+    )
+    assert first.rows[0].result == 10
+    assert history.query.await_args.kwargs["filter_"].qualities == (PointQuality.GOOD,)
+    changed = WideHistoryFilter(
+        wind_farm_id=request.wind_farm_id,
+        device_id=request.device_id,
+        device_config_id=request.device_config_id,
+        data_level=request.data_level,
+        start_time_us=request.start_time_us,
+        end_time_us=request.end_time_us,
+        point_ids=request.point_ids,
+        limit=request.limit,
+        qualities=(PointQuality.BAD,),
+    )
+    with pytest.raises(ValueError, match="malformed"):
+        await service.page(
+            schema=schema, filter_=changed, device_type="wind",
+            operation="min", window_ms=60000, page_size=1,
+            page_token=first.next_page_token,
+        )
+
+
+@pytest.mark.asyncio
+async def test_signed_bigint_min_preserves_negative_64_bit_boundary() -> None:
+    schema = WideSchema.build(
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        points=(PhysicalPoint("counter", "BIGINT"),),
+        max_row_bytes=65536,
+    )
+    request = WideHistoryFilter(
+        wind_farm_id="farm", device_id="wtg001",
+        device_config_id="device_farm_v1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        start_time_us=1, end_time_us=10_000_000,
+        point_ids=("counter",), limit=20,
+    )
+    history = Mock()
+    history.read_available.return_value = True
+    history.query = AsyncMock(return_value=WideHistoryPage(
+        rows=(
+            WideHistoryRow(1_000_000, (("counter", -(2**63), PointQuality.GOOD),)),
+            WideHistoryRow(2_000_000, (("counter", -3, PointQuality.GOOD),)),
+        ),
+        complete=True, next_page_token="", schema_fingerprint=schema.fingerprint,
+    ))
+    result = await WideAggregationService(
+        history=history, secret=b"x" * 32
+    ).page(
+        schema=schema, filter_=request, device_type="wind",
+        operation="min", window_ms=60000, page_size=10,
+    )
+    assert result.rows[0].result == -(2**63)
+    assert result.rows[0].result_kind == 1
