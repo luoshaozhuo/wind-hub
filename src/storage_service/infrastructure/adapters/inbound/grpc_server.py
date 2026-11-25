@@ -837,13 +837,64 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 grpc.StatusCode.UNAVAILABLE,
                 "Storage history is unavailable during Kafka replay reconciliation",
             )
-        filter_ = _filter(request.filter)
-        record = await self._jobs.create_export(
-            request_id=request.request_id,
-            filter_=filter_,
-            export_format=request.export_format,
-            owner_id=owner,
-        )
+        if request.HasField("wide_filter"):
+            if request.HasField("filter"):
+                raise QueryRejectedError(
+                    "wide and legacy Storage export filters cannot be combined"
+                )
+            wide = request.wide_filter
+            if wide.wind_farm_id != request.filter.wind_farm_id and not wide.wind_farm_id:
+                raise QueryRejectedError("wide export requires one wind farm")
+            self._auth.require(
+                context, permission="storage.export", farm=wide.wind_farm_id
+            )
+            if wide.page_token:
+                raise QueryRejectedError("wide export must begin at a full history horizon")
+            levels = {
+                pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
+                pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
+                pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
+            }
+            level = levels.get(wide.data_level)
+            if level is None or not wide.HasField("start_time") or not wide.HasField("end_time"):
+                raise QueryRejectedError("wide export needs exact level and time bounds")
+            identity = WideIdentity(
+                wind_farm_id=wide.wind_farm_id,
+                device_config_id=wide.device_config_id,
+                device_id=wide.device_id,
+                data_level=level,
+            )
+            schema = await self._point_tables.resolve_wide_schema(
+                identity, type_mapping=self._config.tdengine.type_mapping,
+                max_row_bytes=65536,
+            )
+            ids = tuple(wide.point_ids) or tuple(
+                column.point_id for column in schema.columns
+            )
+            filter_ = WideHistoryFilter(
+                wind_farm_id=identity.wind_farm_id,
+                device_id=identity.device_id,
+                device_config_id=identity.device_config_id,
+                data_level=level,
+                start_time_us=_us(wide.start_time),
+                end_time_us=_us(wide.end_time),
+                point_ids=ids,
+                limit=wide.page_size or 200,
+            )
+            record = await self._jobs.create_wide_export(
+                request_id=request.request_id,
+                filter_=filter_, schema=schema,
+                device_type=self._point_tables.wide_device_type(identity),
+                export_format=request.export_format, owner_id=owner,
+            )
+        else:
+            filter_ = _filter(request.filter)
+            record = await self._jobs.create_export(
+                request_id=request.request_id,
+                filter_=filter_,
+                export_format=request.export_format,
+                owner_id=owner,
+            )
         return _task(record)
 
     @guarded
