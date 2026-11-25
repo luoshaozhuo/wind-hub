@@ -491,7 +491,7 @@ class ConfigurationPointTableResolver:
             parsed[key] = (document, raw)
 
         name = re.fullmatch(
-            r"device_(?P<id>[A-Za-z0-9_.-]+)_v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)",
+            r"device_(?P<id>[A-Za-z0-9_.-]+)_v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)",
             identity.device_config_id,
         )
         if name is None:
