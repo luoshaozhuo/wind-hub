@@ -328,6 +328,10 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             "kafka_submit_seconds_total": "s",
             "kafka_confirm_seconds_total": "s",
             "kafka_timed_writes_total": "operations",
+            "quota_global_seconds_total": "s",
+            "quota_physical_seconds_total": "s",
+            "quota_native_seconds_total": "s",
+            "quota_timed_writes_total": "operations",
         }
         return common_pb2.GetMetricsResponse(
             metrics=[
