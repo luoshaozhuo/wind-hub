@@ -184,6 +184,8 @@ message QueryWideRowsRequest {
   repeated string point_ids = 7;
   uint32 page_size = 8;
   string page_token = 9;
+  // Exact point quality filter; valid only for one selected physical point.
+  repeated uint32 qualities = 10;
 }
 message WidePointColumn {
   string point_id = 1;
