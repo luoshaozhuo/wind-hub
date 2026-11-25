@@ -25,6 +25,7 @@ import yaml
 from storage_service.application.config import DeviceBinding, DeviceClosurePins, TypeMapping
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from core.domain.protocol_types import normalize_protocol_scalar_type
+from core.domain.value_objects import DataType
 from storage_service.domain.sample import DataLevel, StorageSample
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity, WideRecord
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
@@ -549,10 +550,15 @@ class ConfigurationPointTableResolver:
                 raw_type = raw.get("data_type")
             if not isinstance(raw_type, str):
                 raise ConfigHistoryUnavailableError("point declared type is absent")
-            standard = normalize_protocol_scalar_type(
-                protocol if record.data_level is not WideDataLevel.BUSINESS else "modbus",
-                raw_type,
-            )
+            if record.data_level is WideDataLevel.BUSINESS:
+                try:
+                    standard = DataType(raw_type.lower())
+                except ValueError as exc:
+                    raise ConfigHistoryUnavailableError(
+                        "BusinessPoint declared type is invalid"
+                    ) from exc
+            else:
+                standard = normalize_protocol_scalar_type(protocol, raw_type)
             key = "string" if standard.value == "str" else standard.value
             sql_type = str(mapping[key])
             address = raw.get("address")
