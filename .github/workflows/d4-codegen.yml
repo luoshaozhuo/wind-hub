@@ -1,0 +1,42 @@
+name: D4 Branch RPC Binding Generation
+
+on:
+  push:
+    branches:
+      - feat/storage-wide-table-completion-20261125
+    paths:
+      - src/contracts/*.proto
+      - .github/workflows/d4-codegen.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate-bindings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned code generators
+        run: |
+          python -m pip install --disable-pip-version-check \
+            grpcio-tools==1.81.1 mypy-protobuf==5.1.0 \
+            grpcio==1.84.0 protobuf==6.33.6
+      - name: Generate authoritative RPC bindings
+        run: |
+          python scripts/generate_rpc.py
+          python scripts/generate_rpc.py --check
+      - name: Commit generated bindings to this development branch
+        run: |
+          git config user.name 'wind-hub-codegen'
+          git config user.email 'wind-hub-codegen@users.noreply.github.com'
+          git add src/contracts
+          if ! git diff --cached --quiet; then
+            git commit -m 'contracts: regenerate pinned protobuf and mypy bindings'
+            git push origin HEAD:feat/storage-wide-table-completion-20261125
+          fi
