@@ -788,8 +788,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             global_scope=True,
         )
         counters = self._metrics.snapshot()
+        state = "REPLAYING" if self._consumer.recovering else self._config_status()
         response = pb.GetStorageStatsResponse(
-            service_state=self._config_status(),
+            service_state=state,
             persisted_points_total=counters.persisted_points,
             write_unknown_total=counters.write_unknown,
             schema_conflicts_total=counters.schema_conflicts,
