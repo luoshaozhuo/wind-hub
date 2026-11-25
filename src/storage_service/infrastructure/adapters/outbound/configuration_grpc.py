@@ -367,7 +367,7 @@ class ConfigurationGrpcClient:
         """Resolve an archived Device Instance file version without latest selection."""
         match = re.fullmatch(
             r"device_(?P<id>[A-Za-z0-9_.-]+)_v"
-            r"(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)",
+            r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)",
             device_config_id,
         )
         if match is None:
