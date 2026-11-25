@@ -232,6 +232,10 @@ class WideHistoryQueryService:
                 ):
                     raise RuntimeError("wide backend returned inconsistent NULL and quality")
 
+    def read_available(self) -> bool:
+        """Expose the replay visibility fence to snapshot-based consumers."""
+        return self._read_available()
+
     async def _query_filtered(
         self,
         *,
