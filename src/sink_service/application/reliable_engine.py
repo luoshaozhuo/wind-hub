@@ -62,6 +62,11 @@ class ReliableDeliveryEngine:
     reliable_write_operations_total: int
     reliable_source_ack_seconds_total: float
     reliable_source_ack_operations_total: int
+    kafka_lock_seconds_total: float
+    kafka_metadata_seconds_total: float
+    kafka_submit_seconds_total: float
+    kafka_confirm_seconds_total: float
+    kafka_timed_writes_total: int
     last_error: str
 
     async def _fetch_messages(self) -> list[ReliableMessagePort]:
@@ -249,6 +254,13 @@ class ReliableDeliveryEngine:
                 self._active_io = False
                 self.reliable_write_seconds_total += time.monotonic() - write_started
                 self.reliable_write_operations_total += 1
+            if self._kafka_target and outcome.kafka_stage_seconds is not None:
+                lock_s, metadata_s, submit_s, confirm_s = outcome.kafka_stage_seconds
+                self.kafka_lock_seconds_total += lock_s
+                self.kafka_metadata_seconds_total += metadata_s
+                self.kafka_submit_seconds_total += submit_s
+                self.kafka_confirm_seconds_total += confirm_s
+                self.kafka_timed_writes_total += 1
             decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
             # Preserve only target-confirmed identities. Publish to diagnostics
             # after the corresponding source ACK, never on an uncertain write.
