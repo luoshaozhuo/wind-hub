@@ -187,6 +187,56 @@ async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> di
         await audit.stop()
 
 
+async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, Any]:
+    """Sample early p000 records and verify per-device sequence and partition stability."""
+    audit = AIOKafkaConsumer(
+        harness.kafka_topic,
+        bootstrap_servers=harness.stack.kafka,
+        auto_offset_reset="earliest",
+        group_id=f"qa-r14-order-{uuid.uuid4().hex[:10]}",
+        enable_auto_commit=False,
+    )
+    await audit.start()
+    try:
+        observed: dict[str, list[tuple[int, int]]] = {}
+        scanned = 0
+        deadline = time.monotonic() + 60
+        while scanned < 200000 and time.monotonic() < deadline:
+            batch = await audit.getmany(timeout_ms=2000, max_records=5000)
+            if not batch:
+                break
+            for messages in batch.values():
+                for record in messages:
+                    scanned += 1
+                    payload = json.loads(record.value.decode("utf-8"))
+                    if payload.get("point_id") != "p000":
+                        continue
+                    seq = int(payload["sample_id"].split("-")[2])
+                    observed.setdefault(payload["device_id"], []).append((seq, record.partition))
+            if len(observed) == DEGREE and all(len(items) >= 3 for items in observed.values()):
+                break
+        violations = {
+            device: items
+            for device, items in observed.items()
+            if len({partition for _seq, partition in items}) != 1
+            or any(a[0] >= b[0] for a, b in zip(items, items[1:], strict=False))
+        }
+        return {
+            "scanned_records": scanned,
+            "devices_observed": len(observed),
+            "minimum_sequences_per_device": min(
+                (len(items) for items in observed.values()), default=0
+            ),
+            "device_partitions": {
+                device: sorted({partition for _seq, partition in items})
+                for device, items in observed.items()
+            },
+            "order_or_partition_violations": violations,
+        }
+    finally:
+        await audit.stop()
+
+
 class TestR14SustainedCapacity:
     async def test_sustained_capacity_600s(
         self,
@@ -272,39 +322,43 @@ class TestR14SustainedCapacity:
                 stop_at = time.monotonic() + DURATION_S
                 published_batches = 0
                 pub_seq = 0
+                puback_seconds_total = 0.0
 
                 async def _publish_loop() -> None:
-                    nonlocal published_batches, pub_seq
+                    nonlocal published_batches, pub_seq, puback_seconds_total
                     next_send = time.monotonic()
                     pending: deque[asyncio.Task[None]] = deque()
                     last_per_device: dict[str, asyncio.Task[None]] = {}
-                    max_pending = max(32, DEGREE * 2)
+                    max_pending = max(64, DEGREE * 8)
 
                     async def publish_ordered(
-                        prior: asyncio.Task[None] | None, subject: str, payload: bytes
+                        prior: asyncio.Task[None] | None, seq: int, device: str
                     ) -> None:
-                        nonlocal published_batches
+                        nonlocal published_batches, puback_seconds_total
+
+                        def encode() -> tuple[str, bytes]:
+                            batch = sink_harness.make_batch(
+                                "reliable",
+                                seq=seq,
+                                points=POINTS_PER_BATCH,
+                                device_id=device,
+                            )
+                            return batch.subject(), batch.encode()
+
+                        subject, payload = await asyncio.to_thread(encode)
                         if prior is not None:
                             await prior
                         # Count only a real server PubAck, not a queued local send.
+                        puback_started = time.monotonic()
                         await js.publish(subject, payload, timeout=10)
+                        puback_seconds_total += time.monotonic() - puback_started
                         published_batches += 1
 
                     try:
                         while time.monotonic() < stop_at:
                             device = devices[pub_seq % DEGREE]
-                            batch = sink_harness.make_batch(
-                                "reliable",
-                                seq=pub_seq,
-                                points=POINTS_PER_BATCH,
-                                device_id=device,
-                            )
                             task = asyncio.create_task(
-                                publish_ordered(
-                                    last_per_device.get(device),
-                                    batch.subject(),
-                                    batch.encode(),
-                                )
+                                publish_ordered(last_per_device.get(device), pub_seq, device)
                             )
                             last_per_device[device] = task
                             pending.append(task)
@@ -524,9 +578,7 @@ class TestR14SustainedCapacity:
                     quota_diagnostics[stage] = {
                         "duration_seconds": round(duration, 3),
                         "writes": writes,
-                        "mean_duration_ms": round(duration * 1000 / writes, 3)
-                        if writes
-                        else None,
+                        "mean_duration_ms": round(duration * 1000 / writes, 3) if writes else None,
                     }
                 subbatch_samples = [
                     (
@@ -568,6 +620,7 @@ class TestR14SustainedCapacity:
                     if peak
                 }
                 dlq = await sink_harness.dlq_count()
+                order_audit = await _audit_device_order_sample(sink_harness)
 
                 result = {
                     "scenario": "r14_sustained_reliable",
@@ -586,9 +639,16 @@ class TestR14SustainedCapacity:
                         - baseline_partitions.get(partition, 0)
                         for partition in sorted(final_partitions)
                     },
+                    "device_order_audit": order_audit,
                     "zero_loss": confirmed_values == published_values,
                     "publish_wall_seconds": round(wall_pub, 3),
                     "achieved_publish_batches_per_s": round(published_batches / wall_pub, 2),
+                    "publisher_max_inflight_batches": max(64, DEGREE * 8),
+                    "publisher_puback_mean_ms": round(
+                        1000 * puback_seconds_total / published_batches, 3
+                    )
+                    if published_batches
+                    else None,
                     "confirmed_values_per_s_steady": round(steady_values_s, 2),
                     "confirmed_batches_per_s_steady": round(steady_values_s / POINTS_PER_BATCH, 2),
                     "backlog_slope_batches_per_s_steady": round(backlog_slope, 3),
@@ -640,6 +700,9 @@ class TestR14SustainedCapacity:
                 assert grpc_failures == 0, result
                 assert metrics_failures == 0, result
                 assert dlq == 0, result
+                assert order_audit["devices_observed"] == DEGREE, result
+                assert order_audit["minimum_sequences_per_device"] >= 2, result
+                assert not order_audit["order_or_partition_violations"], result
                 assert result["drained"], result
                 assert confirmed_values >= published_values, result
                 if confirmed_values > published_values:

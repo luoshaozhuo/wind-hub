@@ -1,0 +1,54 @@
+src/sink_service/application/output_pool.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Application ownership of shared Sink output resources and unsettled I/O."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import asyncio
+ 6 | | import json
+ 7 | | import time
+ 8 | | from dataclasses import replace
+ 9 | | from collections.abc import Awaitable, Callable
+10 | | from typing import Any
+11 | | 
+12 | | from sink_service.application.config import template_document as _template
+13 | | from sink_service.application.delivery_point import DeliveryPoint
+14 | | from sink_service.application.realtime import BatchOutcome
+15 | | from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+16 | | 
+17 | | 
+18 | | class _PhysicalCapacity:
+   | |_^ I001
+19 |       """Single-loop dynamic cap: use the minimum among all bound Sink owners."""
+   |
+   = help: Organize imports
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+RUFF=1
+Would reformat: tests/sink_service/system/test_capacity_r14_sustained.py
+1 file would be reformatted, 1073 files already formatted
+FMT=0
+Success: no issues found in 483 source files
+MYPY=0
+Writing mypy to contracts/common_pb2.pyi
+Writing mypy to contracts/collector_pb2.pyi
+Writing mypy to contracts/commander_pb2.pyi
+Writing mypy to contracts/sink_service_pb2.pyi
+Writing mypy to contracts/industrial_gateway_pb2.pyi
+Writing mypy to contracts/data_generator_pb2.pyi
+Writing mypy to contracts/configuration_repository_pb2.pyi
+Writing mypy to contracts/storage_service_pb2.pyi
+Writing mypy to contracts/common_pb2_grpc.pyi
+Writing mypy to contracts/collector_pb2_grpc.pyi
+Writing mypy to contracts/commander_pb2_grpc.pyi
+Writing mypy to contracts/sink_service_pb2_grpc.pyi
+Writing mypy to contracts/industrial_gateway_pb2_grpc.pyi
+Writing mypy to contracts/data_generator_pb2_grpc.pyi
+Writing mypy to contracts/configuration_repository_pb2_grpc.pyi
+Writing mypy to contracts/storage_service_pb2_grpc.pyi
+RPC=0
+[22m[0m
+[22mContracts: 22 kept, 0 broken.[0m
+IL=0
+4090 tests collected in 2.38s

@@ -81,6 +81,7 @@ class Observability:
                 "received_total",
                 "delivered_total",
                 "failed_total",
+                "write_success_total",
                 "dropped_total",
                 "dead_letter_total",
                 "io_inflight",

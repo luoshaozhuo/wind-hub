@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import replace
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from sink_service.application.config import template_document as _template
