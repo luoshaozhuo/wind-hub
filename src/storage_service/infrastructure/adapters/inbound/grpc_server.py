@@ -28,6 +28,7 @@ from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import (
     HistoryFilter,
     HistoryQueryService,
+    HistoryReplayUnavailableError,
     QueryRejectedError,
 )
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
@@ -188,6 +189,11 @@ def guarded(
             raise AssertionError("abort must terminate RPC") from None
         except MetadataConflictError:
             await context.abort(grpc.StatusCode.ALREADY_EXISTS, "Storage idempotency conflict")
+            raise AssertionError("abort must terminate RPC") from None
+        except HistoryReplayUnavailableError:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE, "Storage history is replaying Kafka offsets"
+            )
             raise AssertionError("abort must terminate RPC") from None
         except TDengineSchemaConflictError as exc:
             self._metrics.record_schema_conflict()
@@ -473,6 +479,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
         self._auth.require(context, permission="storage.read", farm=request.filter.wind_farm_id)
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE,
+                "Storage history is unavailable during Kafka replay reconciliation",
+            )
         filter_ = _filter(request.filter)
         if request.aggregation not in (
             pb.STORAGE_AGGREGATION_COUNT,
