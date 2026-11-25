@@ -26,6 +26,8 @@ class BatchOutcome:
     successful_latency_weights: tuple[tuple[float, int], ...] = ()
     # Kafka-only: device lock, metadata, send submission, confirmation wall seconds.
     kafka_stage_seconds: tuple[float, float, float, float] | None = None
+    # QuotaWriter global quota, physical Sink quota, native I/O wait in seconds.
+    quota_stage_seconds: tuple[float, float, float] | None = None
 
 
 class RealtimeEngine:
