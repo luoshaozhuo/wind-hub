@@ -456,6 +456,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             end_time_us=_us(request.end_time),
             point_ids=point_ids,
             limit=request.page_size or 200,
+            qualities=tuple(request.qualities),
         )
         page = await self._wide_query.query(
             schema=schema,
@@ -653,6 +654,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             end_time_us=_us(source.end_time),
             point_ids=points,
             limit=source.page_size or 200,
+            qualities=tuple(source.qualities),
         )
         filter_.validate(schema, maximum=self._config.query.max_page_size)
         page = await self._wide_aggregation.page(
@@ -984,6 +986,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 end_time_us=_us(wide.end_time),
                 point_ids=ids,
                 limit=wide.page_size or 200,
+                qualities=tuple(wide.qualities),
             )
             record = await self._jobs.create_wide_export(
                 request_id=request.request_id,
