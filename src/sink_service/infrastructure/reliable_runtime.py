@@ -108,6 +108,10 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self.kafka_submit_seconds_total = 0.0
         self.kafka_confirm_seconds_total = 0.0
         self.kafka_timed_writes_total = 0
+        self.quota_global_seconds_total = 0.0
+        self.quota_physical_seconds_total = 0.0
+        self.quota_native_seconds_total = 0.0
+        self.quota_timed_writes_total = 0
         self.latency_window = LatencyWindow(
             window_ms=snapshot.service["metrics"]["metrics_window_ms"]
         )
@@ -200,6 +204,10 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             "kafka_submit_seconds_total": self.kafka_submit_seconds_total,
             "kafka_confirm_seconds_total": self.kafka_confirm_seconds_total,
             "kafka_timed_writes_total": float(self.kafka_timed_writes_total),
+            "quota_global_seconds_total": self.quota_global_seconds_total,
+            "quota_physical_seconds_total": self.quota_physical_seconds_total,
+            "quota_native_seconds_total": self.quota_native_seconds_total,
+            "quota_timed_writes_total": float(self.quota_timed_writes_total),
             "io_inflight": float(self.io_inflight),
         }
         if self._backlog is not None and self._client is not None and self._client.is_connected:
