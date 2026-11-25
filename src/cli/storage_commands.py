@@ -53,6 +53,44 @@ def _filter(
     }
 
 
+@storage.command("wide-rows")
+def query_wide_rows(
+    wind_farm_id: str,
+    device_id: str,
+    device_config_id: str,
+    start_time: str,
+    end_time: str,
+    level: str = typer.Option(..., "--level"),
+    point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    page_size: int = typer.Option(200, min=1, max=1000),
+    page_token: str = "",
+) -> None:
+    """Read one exact device/schema family as timestamped wide rows."""
+    levels = {
+        "raw": "STORAGE_DATA_LEVEL_RAW",
+        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
+        "business": "STORAGE_DATA_LEVEL_BUSINESS",
+    }
+    if level not in levels:
+        raise typer.BadParameter("level must be raw, protocol, or business")
+    if not all((wind_farm_id, device_id, device_config_id, start_time, end_time)):
+        raise typer.BadParameter("wide query requires complete device identity and UTC range")
+    _invoke(
+        "QueryWideRows",
+        {
+            "wind_farm_id": wind_farm_id,
+            "device_id": device_id,
+            "device_config_id": device_config_id,
+            "data_level": levels[level],
+            "start_time": start_time,
+            "end_time": end_time,
+            "point_ids": point_ids or [],
+            "page_size": page_size,
+            "page_token": page_token,
+        },
+    )
+
+
 @storage.command("samples")
 def query_samples(
     wind_farm_id: str,
