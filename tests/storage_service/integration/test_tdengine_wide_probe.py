@@ -8,6 +8,7 @@ exercised; these probes establish native capabilities, not system acceptance.
 from __future__ import annotations
 
 import os
+import random
 import statistics
 import subprocess
 import time
@@ -335,14 +336,16 @@ def _run_writer(
     return timings
 
 
-def _verify_workload(probe: Probe, devices: int, cycles: int) -> None:
+def _verify_workload(probe: Probe, devices: int, cycles: int, start_us: int) -> None:
     """Check every physical value and quality byte after timed ingestion."""
     for device in range(devices):
         rows = probe.connection.query(
-            f"SELECT * FROM {probe.database}.protocol_d{device} ORDER BY ts"
+            f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+            + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
         )
         count = 0
         for index, row in enumerate(rows):
+            assert int(row[0]) == start_us + index * 100_000
             expected = [device * 1_000_000 + index + point for point in range(_POINT_COUNT)]
             assert list(row[1:-1]) == expected
             assert bytes(row[-1]) == _QUALITY
@@ -417,7 +420,7 @@ def test_td01_td04_td05_td06_td10_capacity_matrix(
         finally:
             stop.set()
         reads = reader.result() if reader is not None else 0
-    _verify_workload(probe, devices, cycles)
+    _verify_workload(probe, devices, cycles, start_us)
     rows = devices * cycles
     record_property("vgroups", probe.vgroups)
     record_property("buffer_mb", probe.buffer_mb)
@@ -430,9 +433,8 @@ def test_td01_td04_td05_td06_td10_capacity_matrix(
     record_property("concurrent_queries", reads)
     if concurrent_read:
         assert reads > 0
-    if probe.vgroups == 4 and probe.buffer_mb == 256 and workers == 4:
-        if not concurrent_read:
-            assert rows / elapsed >= 300
+    if probe.vgroups == 4 and probe.buffer_mb == 256 and workers == 4 and not concurrent_read:
+        assert rows / elapsed >= 300
 
 
 @pytest.mark.fault_injection
@@ -453,8 +455,7 @@ def test_td07_acknowledged_rows_survive_container_restart(wide_probe: Probe) -> 
         assert statement.execute() >= 0
     finally:
         statement.close()
-    subprocess.run(["docker", "kill", container], check=True, timeout=30)
-    subprocess.run(["docker", "start", container], check=True, timeout=30)
+    _restart_dedicated_container(probe, container)
     deadline = time.monotonic() + 120
     while True:
         try:
@@ -483,3 +484,185 @@ def test_td11_reject_excessive_declared_row_width(wide_probe: Probe) -> None:
         )
     message = str(error.value).lower()
     assert any(token in message for token in ("row", "length", "size", "column")), message
+
+
+def _restart_dedicated_container(probe: Probe, container: str) -> None:
+    """Require an explicitly labelled disposable container and a matching endpoint."""
+    import json
+
+    inspected = subprocess.run(
+        ["docker", "inspect", container],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    details = json.loads(inspected.stdout)[0]
+    labels = details["Config"].get("Labels") or {}
+    assert labels.get("windhub.d2.disposable") == "true", "refuse non-test container"
+    ports = details["NetworkSettings"]["Ports"].get("6041/tcp") or []
+    assert probe.connection_options["host"] in {"127.0.0.1", "localhost"}
+    assert any(int(port["HostPort"]) == probe.connection_options["port"] for port in ports)
+    try:
+        subprocess.run(["docker", "kill", container], check=True, timeout=30)
+    finally:
+        subprocess.run(["docker", "start", container], check=True, timeout=30)
+
+
+def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
+    """Observe partial native success and prove complete ordered replay restores values."""
+    probe = wide_probe
+    _create_family(probe, "protocol", "BIGINT")
+    ts = time.time_ns() // 1000
+    probe.connection.execute(f"USE {probe.database}")
+    statement = probe.connection.stmt2_statement()
+    placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+    try:
+        statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+        with pytest.raises(Exception):
+            statement.bind(
+                [
+                    _bind(probe, table="protocol_d0", timestamps=[ts], base=10),
+                    _bind(probe, table="nonexistent_d2", timestamps=[ts], base=20),
+                ]
+            )
+            statement.execute()
+    finally:
+        statement.close()
+
+    # Native multi-table failure may have applied zero or some rows.
+    rows = list(
+        probe.connection.query(
+            f"SELECT COUNT(*) FROM {probe.database}.protocol_d0 WHERE ts = {ts}"
+        )
+    )
+    assert int(rows[0][0]) in (0, 1)
+    for device, base in [(0, 10), (1, 20), (0, 30)]:
+        statement = _single_statement(probe, f"protocol_d{device}")
+        try:
+            statement.bind([_bind(probe, table=None, timestamps=[ts], base=base)])
+            assert statement.execute() >= 0
+        finally:
+            statement.close()
+    _assert_row(probe, "protocol_d0", ts, 30)
+    _assert_row(probe, "protocol_d1", ts, 20)
+
+
+@pytest.mark.parametrize(
+    ("kind", "binder", "values"),
+    [
+        ("BOOL", "bools_to_column", [False, True, None]),
+        ("TINYINT", "tiny_ints_to_column", [-128, 127, None]),
+        ("TINYINT UNSIGNED", "unsigned_tiny_ints_to_column", [0, 255, None]),
+        ("SMALLINT", "small_ints_to_column", [-32768, 32767, None]),
+        ("SMALLINT UNSIGNED", "unsigned_small_ints_to_column", [0, 65535, None]),
+        ("INT", "ints_to_column", [-(2**31), 2**31 - 1, None]),
+        ("INT UNSIGNED", "unsigned_ints_to_column", [0, 2**32 - 1, None]),
+        ("BIGINT", "big_ints_to_column", [-(2**63), 2**63 - 1, None]),
+        ("BIGINT UNSIGNED", "unsigned_big_ints_to_column", [0, 2**64 - 1, None]),
+        ("FLOAT", "floats_to_column", [-1.25, 1.25, None]),
+        ("DOUBLE", "doubles_to_column", [-1.25e100, 1.25e100, None]),
+        ("VARCHAR(32)", "varchar_to_column", ["", "风机", None]),
+        ("VARBINARY(8)", "varbinary_to_column", [b"\\x00", b"\\x00\\xff", None]),
+    ],
+)
+def test_td11_native_type_boundaries(
+    wide_probe: Probe, kind: str, binder: str, values: list[Any]
+) -> None:
+    """Probe each mapping without substituting SQL string literals for binding."""
+    probe = wide_probe
+    table = f"{probe.database}.type_probe"
+    probe.connection.execute(f"CREATE TABLE {table} (ts TIMESTAMP, v {kind})")
+    ts = time.time_ns() // 1000
+    statement = probe.connection.stmt2_statement()
+    try:
+        statement.prepare(f"INSERT INTO {table} VALUES (?, ?)")
+        column = getattr(probe.driver, binder)(values)
+        binding = probe.driver.stmt2_bind_param_view(
+            table_name=None,
+            tags=None,
+            columns=[
+                probe.driver.micros_timestamps_to_column([ts, ts + 1, ts + 2]),
+                column,
+            ],
+        )
+        statement.bind([binding])
+        assert statement.execute() >= 0
+    finally:
+        statement.close()
+    rows = list(probe.connection.query(f"SELECT v FROM {table} ORDER BY ts"))
+    actual = [row[0] for row in rows]
+    assert actual == values
+
+
+@pytest.mark.parametrize("wide_probe", [(2, 256), (4, 128), (4, 512), (8, 256)], indirect=True)
+def test_td12_candidate_parameter_readback(wide_probe: Probe) -> None:
+    """Verify alternative vgroup and buffer settings on the actual server."""
+    probe = wide_probe
+    ddl = " ".join(
+        str(list(probe.connection.query(f"SHOW CREATE DATABASE {probe.database}"))[0][-1])
+        .upper()
+        .split()
+    )
+    assert f"VGROUPS {probe.vgroups}" in ddl
+    assert f"BUFFER {probe.buffer_mb}" in ddl
+    assert "WAL_LEVEL 2" in ddl
+    assert "WAL_FSYNC_PERIOD 0" in ddl
+
+
+@pytest.mark.performance
+@pytest.mark.slow
+def test_td09_compression_measurement(wide_probe: Probe, record_property: Any) -> None:
+    """Write deterministic changing data and record native compressed storage size.
+
+    Native disk-usage metadata is a capability probe, not an assumed ratio.
+    """
+    if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY") != "1":
+        pytest.skip("enable D2 capacity and compression experiments explicitly")
+    probe = wide_probe
+    _create_family(probe, "protocol", "BIGINT", devices=1)
+    cycles = 6000
+    start_us = time.time_ns() // 1000 - cycles * 100_000
+    rng = random.Random(20261125)
+    statement = _single_statement(probe, "protocol_d0")
+    expected_rows: list[list[int]] = []
+    try:
+        for first in range(0, cycles, 100):
+            timestamps = [start_us + i * 100_000 for i in range(first, first + 100)]
+            rows = [
+                [point * 1000 + index + rng.randrange(-50, 51) for point in range(_POINT_COUNT)]
+                for index in range(first, first + 100)
+            ]
+            expected_rows.extend(rows)
+            columns = [probe.driver.micros_timestamps_to_column(timestamps)]
+            columns.extend(
+                probe.driver.big_ints_to_column([row[point] for row in rows])
+                for point in range(_POINT_COUNT)
+            )
+            columns.append(probe.driver.varbinary_to_column([_QUALITY] * len(rows)))
+            statement.bind(
+                [
+                    probe.driver.stmt2_bind_param_view(
+                        table_name=None, tags=None, columns=columns
+                    )
+                ]
+            )
+            assert statement.execute() >= 0
+    finally:
+        statement.close()
+    probe.connection.execute(f"FLUSH DATABASE {probe.database}")
+    rows = probe.connection.query(
+        f"SELECT * FROM {probe.database}.protocol_d0 ORDER BY ts"
+    )
+    count = 0
+    for index, row in enumerate(rows):
+        assert list(row[1:-1]) == expected_rows[index]
+        assert bytes(row[-1]) == _QUALITY
+        count += 1
+    assert count == cycles
+    record_property("uncompressed_payload_bytes", cycles * (8 + _POINT_COUNT * 8 + 125))
+    # Preserve raw server metadata so an independent reviewer can distinguish
+    # compressed data, WAL, indexes and metadata rather than inventing a ratio.
+    usage = list(probe.connection.query(f"SHOW TABLE {probe.database}.protocol_d0 DISTRIBUTED"))
+    assert usage, "native storage statistics are required for TD09"
+    record_property("native_storage_statistics", repr(usage))
