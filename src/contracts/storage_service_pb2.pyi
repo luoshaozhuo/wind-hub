@@ -307,12 +307,15 @@ class QueryAggregatesRequest(_message.Message):
     WINDOW_MS_FIELD_NUMBER: _builtins.int
     PAGE_SIZE_FIELD_NUMBER: _builtins.int
     PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+    WIDE_FILTER_FIELD_NUMBER: _builtins.int
     aggregation: Global___StorageAggregation.ValueType
     window_ms: _builtins.int
     page_size: _builtins.int
     page_token: _builtins.str
     @_builtins.property
     def filter(self) -> Global___StorageFilter: ...
+    @_builtins.property
+    def wide_filter(self) -> Global___QueryWideRowsRequest: ...
     def __init__(
         self,
         *,
@@ -321,10 +324,11 @@ class QueryAggregatesRequest(_message.Message):
         window_ms: _builtins.int = ...,
         page_size: _builtins.int = ...,
         page_token: _builtins.str = ...,
+        wide_filter: Global___QueryWideRowsRequest | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter", "wide_filter", b"wide_filter"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["aggregation", b"aggregation", "filter", b"filter", "page_size", b"page_size", "page_token", b"page_token", "window_ms", b"window_ms"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["aggregation", b"aggregation", "filter", b"filter", "page_size", b"page_size", "page_token", b"page_token", "window_ms", b"window_ms", "wide_filter", b"wide_filter"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -344,6 +348,9 @@ class StorageAggregate(_message.Message):
     GOOD_COUNT_FIELD_NUMBER: _builtins.int
     MISSING_COUNT_FIELD_NUMBER: _builtins.int
     RESULT_FIELD_NUMBER: _builtins.int
+    RESULT_I64_FIELD_NUMBER: _builtins.int
+    RESULT_U64_FIELD_NUMBER: _builtins.int
+    RESULT_VALUE_KIND_FIELD_NUMBER: _builtins.int
     point_id: _builtins.str
     business_point_id: _builtins.str
     point_table_id: _builtins.str
@@ -352,6 +359,9 @@ class StorageAggregate(_message.Message):
     good_count: _builtins.int
     missing_count: _builtins.int
     result: _builtins.float
+    result_i64: _builtins.int
+    result_u64: _builtins.int
+    result_value_kind: _builtins.int
     @_builtins.property
     def window_start(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
@@ -369,10 +379,13 @@ class StorageAggregate(_message.Message):
         good_count: _builtins.int = ...,
         missing_count: _builtins.int = ...,
         result: _builtins.float | None = ...,
+        result_i64: _builtins.int = ...,
+        result_u64: _builtins.int = ...,
+        result_value_kind: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_result", b"_result", "result", b"result", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_result", b"_result", "business_point_id", b"business_point_id", "data_level", b"data_level", "good_count", b"good_count", "missing_count", b"missing_count", "point_id", b"point_id", "point_table_id", b"point_table_id", "result", b"result", "unit", b"unit", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_result", b"_result", "business_point_id", b"business_point_id", "data_level", b"data_level", "good_count", b"good_count", "missing_count", b"missing_count", "point_id", b"point_id", "point_table_id", b"point_table_id", "result", b"result", "result_i64", b"result_i64", "result_u64", b"result_u64", "result_value_kind", b"result_value_kind", "unit", b"unit", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__result: _TypeAlias = _typing.Literal["result"]  # noqa: Y015
     _WhichOneofArgType__result: _TypeAlias = _typing.Literal["_result", b"_result"]  # noqa: Y015
