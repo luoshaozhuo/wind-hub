@@ -1,0 +1,54 @@
+name: dc-ems
+services:
+  dc-ems-db:
+    image: dc-ems-timescaledb:2.7.0-pg14
+    pull_policy: never
+    environment:
+      POSTGRES_DB: ${DB_NAME:?请设置数据库名称}
+      POSTGRES_USER: ${DB_USER:?请设置数据库用户}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请设置数据库密码}
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      - "5432:5432"
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  dc-ems-server:
+    image: ${SERVER_IMAGE:?由 deploy.sh 设置服务端镜像名}
+    pull_policy: never
+    network_mode: host
+    depends_on:
+      dc-ems-db:
+        condition: service_healthy
+    environment:
+      NODE_ROLE: ${NODE_ROLE:-primary}
+    volumes:
+      - type: bind
+        source: ${DEPLOY_CONFIG_DIR:?由 deploy.sh 设置配置目录}
+        target: /config
+      - type: bind
+        source: ${DEPLOY_CONFIG_DIR}/ssl
+        target: /opt/dc-ems/ssl
+        read_only: true
+      - type: bind
+        source: ${DEPLOY_CONFIG_DIR}/log4j.properties
+        target: /opt/dc-ems/log4j.properties
+        read_only: true
+      - files:/opt/dc-ems/files
+      - logs:/opt/dc-ems/logs
+      - cache:/opt/dc-ems/cache
+      - models:/opt/dc-ems/models
+    restart: unless-stopped
+
+volumes:
+  database:
+  files:
+  logs:
+  cache:
+  models:
