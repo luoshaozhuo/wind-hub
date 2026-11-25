@@ -56,6 +56,11 @@ class DocumentFetcher(Protocol):
     ) -> RepositoryDocument:
         """Fetch a single immutable version, not the recommended latest."""
 
+    async def fetch_exact_device_closure(
+        self, *, device_config_id: str
+    ) -> tuple[RepositoryDocument, ...]:
+        """Fetch one full historical Device Instance dependency closure."""
+
 
 class ImmutableConfigArchive:
     """A content-addressed, fsync-durable archive with no implicit garbage collection."""
@@ -272,11 +277,16 @@ class ConfigurationPointTableResolver:
         business_points_version: tuple[str, str] | None = None,
         historical_pins: Mapping[str, tuple[tuple[str, str], tuple[str, str] | None]] | None = None,
         device_bindings: Iterable[DeviceBinding] | None = None,
+        persist_historical: Callable[
+            [dict[str, tuple[str, str]], tuple[str, str] | None, DeviceBinding],
+            None,
+        ] | None = None,
     ) -> None:
         if not point_table_versions:
             raise ValueError("explicitly pinned point table versions are required")
         self._fetcher = fetcher
         self._archive = archive
+        self._persist_historical = persist_historical
         if device_bindings is None and isinstance(point_table_versions, DeviceClosurePins):
             device_bindings = point_table_versions.device_bindings
         self._device_bindings = _index_device_bindings(device_bindings or ())
