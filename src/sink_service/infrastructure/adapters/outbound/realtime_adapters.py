@@ -360,7 +360,12 @@ class KafkaOutput:
         self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int
     ) -> BatchOutcome:
         """Write pre-encoded Reliable points via bounded Kafka BatchBuilders."""
+        lock_started = time.perf_counter()
         async with self._device_locks[stripe]:
+            lock_seconds = time.perf_counter() - lock_started
+            metadata_seconds = 0.0
+            submit_seconds = 0.0
+            confirm_seconds = 0.0
             producer = self._producer
             if producer is None:
                 return BatchOutcome((), (), "Kafka output is not connected")
@@ -373,10 +378,14 @@ class KafkaOutput:
             try:
                 partition = self._partition_cache.get(key)
                 if partition is None:
-                    await asyncio.wait_for(
-                        producer.client._wait_on_metadata(self._topic),
-                        timeout=self._timeout_ms / 1000,
-                    )
+                    metadata_started = time.perf_counter()
+                    try:
+                        await asyncio.wait_for(
+                            producer.client._wait_on_metadata(self._topic),
+                            timeout=self._timeout_ms / 1000,
+                        )
+                    finally:
+                        metadata_seconds += time.perf_counter() - metadata_started
                     partition = producer._partition(self._topic, None, key, None, key, None)
                     self._partition_cache[key] = partition
                     if len(self._partition_cache) > 10000:
@@ -397,6 +406,7 @@ class KafkaOutput:
                         raise ValueError("Kafka record exceeds configured batch capacity")
                     builder.close()
                     queued_at = time.perf_counter()
+                    submit_started = time.perf_counter()
                     try:
                         confirmation = await producer.send_batch(
                             builder, self._topic, partition=partition
@@ -404,6 +414,8 @@ class KafkaOutput:
                     except Exception:
                         failed_attempts += 1
                         raise
+                    finally:
+                        submit_seconds += time.perf_counter() - submit_started
                     pending.append((start, index, confirmation, queued_at))
                     start = index
                     builder = producer.create_batch()
@@ -418,9 +430,13 @@ class KafkaOutput:
                     try:
                         builder.close()
                         queued_at = time.perf_counter()
-                        confirmation = await producer.send_batch(
-                            builder, self._topic, partition=partition
-                        )
+                        submit_started = time.perf_counter()
+                        try:
+                            confirmation = await producer.send_batch(
+                                builder, self._topic, partition=partition
+                            )
+                        finally:
+                            submit_seconds += time.perf_counter() - submit_started
                         pending.append((start, len(payloads), confirmation, queued_at))
                     except Exception as exc:
                         failed_attempts += 1
@@ -430,12 +446,15 @@ class KafkaOutput:
             delivered: list[int] = []
             latency_weights: list[tuple[float, int]] = []
             for begin, end, confirmation, queued_at in pending:
+                confirm_started = time.perf_counter()
                 try:
                     await confirmation
                 except Exception as exc:
                     failed_attempts += 1
                     failures.append(f"Kafka batch [{begin}, {end}) not confirmed: {exc}")
-                else:
+                finally:
+                    confirm_seconds += time.perf_counter() - confirm_started
+                if confirmation.done() and not confirmation.cancelled() and confirmation.exception() is None:
                     delivered.extend(range(begin, end))
                     latency = (time.perf_counter() - queued_at) * 1000
                     latency_weights.append((latency, end - begin))
@@ -447,6 +466,12 @@ class KafkaOutput:
                 successful_attempts=len(latency_weights),
                 failed_attempts=failed_attempts,
                 successful_latency_weights=tuple(latency_weights),
+                kafka_stage_seconds=(
+                    lock_seconds,
+                    metadata_seconds,
+                    submit_seconds,
+                    confirm_seconds,
+                ),
             )
 
     async def _write_records(
