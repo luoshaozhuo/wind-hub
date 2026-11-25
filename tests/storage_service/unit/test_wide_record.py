@@ -78,3 +78,12 @@ def test_invalid_point_value_or_quality_is_rejected(value: list[object]) -> None
     points["wind_speed"] = value
     with pytest.raises(ValueError):
         _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+
+def test_not_collected_requires_null_value() -> None:
+    payload = _payload()
+    points = payload["points"]
+    assert isinstance(points, dict)
+    points["wind_speed"] = [8.2, 0]
+    with pytest.raises(ValueError, match="NOT_COLLECTED must have NULL"):
+        _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
