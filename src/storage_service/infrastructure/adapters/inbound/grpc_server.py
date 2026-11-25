@@ -484,11 +484,17 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         }
         for point_id in point_ids:
             index, column = columns[point_id]
+            unit = await self._point_tables.get_wide_unit(
+                point_table_id=schema.point_table_id,
+                point_id=point_id,
+                data_level=level,
+            )
             response.columns.add(
                 point_id=point_id,
                 physical_column_name=column.column_name,
                 sql_type=column.sql_type,
                 quality_ordinal=index,
+                unit=unit,
             )
         for row in page.rows:
             result = response.rows.add()
