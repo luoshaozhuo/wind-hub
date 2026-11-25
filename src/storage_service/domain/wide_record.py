@@ -107,6 +107,8 @@ class WideRecord:
             value, quality = entry
             if type(quality) is not int or not 0 <= quality <= 3:
                 raise ValueError(f"{point}: invalid two-bit quality")
+            if quality == 0 and value is not None:
+                raise ValueError(f"{point}: NOT_COLLECTED must have NULL value")
             if value is not None and type(value) not in (int, float, bool, str):
                 raise ValueError(f"{point}: unsupported JSON scalar")
             if type(value) is float and not math.isfinite(value):
