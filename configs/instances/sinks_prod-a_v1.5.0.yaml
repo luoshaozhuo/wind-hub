@@ -1,7 +1,7 @@
 # Sink/Storage Topic 一致的候选版本。
 schema_version: 1
-file_version: "1.4.0"
-revision: "sinks-r4"           # 并发修改令牌；由 Writer 更新
+file_version: "1.5.0"
+revision: "sinks-r5"           # 并发修改令牌；由 Writer 更新
 sinks:
   ems_redis:
     template_id: redis_realtime
@@ -13,7 +13,7 @@ sinks:
     overrides: {}                # 仅覆盖模板明确允许的字段
   history_kafka:
     template_id: kafka_history
-    template_version: "1.2.0"   # Kafka 模板须声明幂等/确认能力
+    template_version: "2.0.0"   # Kafka 模板须声明幂等/确认能力
     connection:
       bootstrap_servers: ["192.168.1.20:9092"]
       credential_ref: "env:WH_SINK_KAFKA_SASL"

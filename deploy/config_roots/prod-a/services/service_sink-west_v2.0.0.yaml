@@ -1,3 +1,4 @@
+# Target NATS v4 / Kafka JSON v3; dedup_key is source batch identity, not a stored point key.
 # Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
 # Instance 固定引用 Template，Service 不声明 templates.root。
 # Sink Service 主服务配置：每容器一份
@@ -20,7 +21,7 @@
 # 字段说明：名称 — 作用；合法取值；示例/缺省
 #
 # [身份与配置来源]
-# schema_version — Service 配置结构版本；固定 2。
+# schema_version — Service 配置结构版本；固定 3。
 # file_version — 文件版本；X.Y.Z 数字字符串，如 1.0.0。
 # service_id — 当前服务实例的逻辑标识；非空字符串，如 sink-west。
 # wind_farm_id — 本实例所属风场；非空字符串，如 farm-a。
@@ -63,7 +64,7 @@
 # dlq_max_age_seconds — DLQ 消息最长保留时间；正整数 s，如 2592000。
 # connect_timeout_ms — NATS 初次连接超时；正整数 ms，如 2000。
 # max_reconnect_interval_ms — NATS 断线重连最大等待间隔；正整数 ms，如 5000。
-#   单个源批的 1024 点/1 MiB 上限由 Contracts 固定，不在此设置。
+#   单个源批默认 500 点/1 MiB；实际限额由配置和 NATS Server 共同限制。
 #
 # [运行额度：对 Realtime 与 Reliable 两个 Worker 分别生效]
 # max_inflight_global — 单 Worker 中所有 Sink 合计在途 I/O 上限；
@@ -100,7 +101,7 @@
 # replay_starvation_alarm_seconds — 历史补发持续得不到调度时的告警阈值；
 #   正整数 s，如 300；用于观测，不直接删除积压消息。
 # dedup_key — 可靠数据业务去重标识字段；
-#   固定 sample_id；跨重启是否真正去重仍取决于下游去重契约。
+#   固定 batch_id；仅源批处理身份，不承诺跨系统 exactly-once。
 #
 # [统计与指标]
 # metrics_compute_interval_ms — 指标汇总计算的时间间隔；
@@ -127,8 +128,8 @@
 #
 # Kafka 编码、BatchBuilder、linger_ms、max_batch_size 等在 Sink 模板配置。
 # =============================================================================
-schema_version: 2
-file_version: 1.2.0
+schema_version: 3
+file_version: "2.0.0"
 service_id: sink-west
 wind_farm_id: farm-a
 deployment_id: prod-a
@@ -191,7 +192,7 @@ reliable:
   replay_max_inflight: 1
   replay_max_rate_per_second: 50
   replay_starvation_alarm_seconds: 300
-  dedup_key: sample_id
+  dedup_key: batch_id
 
 metrics:
   metrics_compute_interval_ms: 1000

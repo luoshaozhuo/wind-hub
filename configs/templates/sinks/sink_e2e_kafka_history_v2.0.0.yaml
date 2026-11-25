@@ -1,22 +1,22 @@
 # 最终联测专用模板，不供生产 Deployment 选择；仅创建一个不可变版本。
-schema_version: 1
-file_version: "1.0.0"
+schema_version: 2
+file_version: "2.0.0"
 template_id: "e2e_kafka_history"
 kind: kafka
 capabilities:
   realtime: false
-  reliable: true                # 须明确下游接受至少一次或按 sample_id 去重
+  reliable: true                # 至少一次，完整设备行按同 ts 后到覆盖
   idempotent: false            # Kafka Producer 幂等不等于跨系统业务幂等
-  supports_concurrent_write: false # 单写入序列，无并行写入
-  max_safe_inflight: 1         # 单写入时必须为 1
+  supports_concurrent_write: true # 仅不同设备可并行
+  max_safe_inflight: 8         # 不同设备在途上限，单设备仍严格串行
 connection:
   bootstrap_servers: ["127.0.0.1:9092"]
   credential_ref: "env:WH_E2E_KAFKA_CREDENTIAL"
 output:
   topic: "windhub.e2e.history"
-  key_field: device_id         # 同一设备路由到固定分区
+  key_field: wind_farm_device # 固定编码 farm:device；禁止分隔符冒充
   business_duplicate_policy: allow_at_least_once # require_dedup | allow_at_least_once；显式重复策略
-  dedup_identity_fields: [delivery_id, sample_id] # 稳定身份；下游按需去重
+  dedup_identity_fields: [wind_farm_id, device_id, data_level, sample_time] # 完整设备行逻辑身份，不做逐点去重
   enable_idempotence: true
   acks: all
   write_timeout_ms: 2000

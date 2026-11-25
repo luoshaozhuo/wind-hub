@@ -1,6 +1,6 @@
-# E2E FINAL：测试独立实例/Topic/数据库元数据；生产 Deployment 禁止选择。
-# Storage Service v2: Deployment-selected instances; operational parameters under service.
-# schema_version: required int 2; file_version: required semantic triple MAJOR.MINOR.PATCH.
+# 与 Sink Kafka Broker/Topic 一致的候选；现场地址和权限待核验。
+# Storage Service v3 wide-row candidate: Deployment-selected instances; operational parameters under service.
+# schema_version: required int 3; file_version: required semantic triple MAJOR.MINOR.PATCH.
 # service_id: required nonempty string <= 256 bytes.
 # allowed_wind_farms: required nonempty unique list of authorized farm IDs;
 #   all Kafka records outside this list are blocked before SQL/DDL.
@@ -17,18 +17,24 @@
 #   storage.operate|storage.admin. No plaintext secrets in YAML.
 # kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
 # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
-#   max_partition_workers [1,64] partitions; max_buffer_records [100,100000] records;
-#   max_buffer_bytes [1048576,536870912] bytes; commit_interval_ms [100,10000] ms.
+#   max_partition_workers [1,64] partitions; commit_interval_ms [100,10000] ms.
 # tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
 #   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
-#   database.cachemodel: none|last_row|last_value|both; cachesize [1,1024] MB.
+#   database: precision us; duration 30d, keep 1095d; vgroups positive (4);
+#   buffer_mb positive MB (256); replica 1; comp 0..2 (2);
+#   cachemodel none|last_row|last_value|both; wal_level 2; wal_fsync_period_ms 0.
 #   max_connections [1,64]; max_inflight_sql [1,32], <= max_connections;
-#   max_concurrent_ddl [1,8]; batch_max_records [1,10000] records;
-#   batch_max_bytes [4096,8388608] bytes; batch_wait_ms [0,1000] ms;
-#   write_timeout_ms [100,120000] ms.
+#   max_concurrent_ddl [1,8].
+#   ingestion.batch_max_rows [1,10000]; batch_max_bytes [4096,8388608] bytes;
+#   batch_wait_ms [0,60000] ms; buffer_max_rows [100,100000], >= batch_max_rows;
+#   buffer_max_bytes [1048576,536870912] bytes, includes fetch/driver copies;
+#   writer_count [1,32], <= max_inflight_sql; write_timeout_ms [100,120000] ms.
+#   type_mapping: all 13 standard types; lossless native types only.
+#   VARCHAR/VARBINARY lengths come from fixed point definitions, not guesses.
+#   D2 native limits remain pending; candidate must not be activated before D4.
 # configuration.reconcile_interval_s [5,3600] s;
 #   cache_max_bytes [16777216,2147483648] bytes.
-# query.max_page_size [1,1000] points; max_range_days [1,365] days;
+# query.max_page_size [1,1000] wide rows; max_range_days [1,365] days;
 #   max_concurrent [1,32]; timeout_ms [100,120000] ms.
 # export.root: authorized absolute directory; max_jobs [1,16];
 #   max_bytes [1048576,10737418240] bytes.
@@ -40,18 +46,18 @@
 # reconciliation.auto_alter and allow_retention_shrink: boolean, default false.
 #   KEEP shrink additionally requires independent one-use authorization evidence.
 #   owner_instance_id: required, equals service_id; v1 is single-instance only.
-schema_version: 2
-file_version: "1.1.0"
-service_id: storage-e2e
+schema_version: 3
+file_version: "2.0.0"
+service_id: storage-main
 config_sources:
   instances:
-    site: e2e-final
-    devices: e2e-final
+    site: example_site
+    devices: farm-a
 service:
-  allowed_wind_farms: [e2e-final]
+  allowed_wind_farms: [farm-a]
   grpc:
     listen_host: 127.0.0.1
-    listen_port: 52110
+    listen_port: 51110
     max_active_rpcs: 64
     allow_unauthenticated_status: false
   auth:
@@ -59,32 +65,53 @@ service:
       - token_env: WIND_HUB_STORAGE_OPERATOR_TOKEN
         permissions:
           [storage.read, storage.export, storage.backup, storage.inspect, storage.operate, storage.admin]
-        wind_farms: [e2e-final]
+        wind_farms: [farm-a]
   kafka:
-    bootstrap_servers: 127.0.0.1:9092
-    topic: windhub.e2e.history
-    group_id: storage-e2e
-    max_poll_records: 5000
+    bootstrap_servers: 192.168.1.20:9092
+    topic: windhub-history
+    group_id: storage-main
+    max_poll_records: 500
     max_partition_workers: 4
-    max_buffer_records: 20000
-    max_buffer_bytes: 67108864
     commit_interval_ms: 1000
   tdengine:
     endpoint: 127.0.0.1:6041
     credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
     database:
       precision: us
-      duration: 10d
-      keep: 365d
+      duration: 30d
+      keep: 1095d
+      vgroups: 4
+      buffer_mb: 256
+      replica: 1
+      comp: 2
       cachemodel: none
-      cachesize: 1
+      wal_level: 2
+      wal_fsync_period_ms: 0
     max_connections: 8
     max_inflight_sql: 4
     max_concurrent_ddl: 2
-    batch_max_records: 5000
-    batch_max_bytes: 4194304
-    batch_wait_ms: 20
-    write_timeout_ms: 10000
+    ingestion:
+      batch_max_rows: 1000
+      batch_max_bytes: 8388608
+      batch_wait_ms: 60000
+      buffer_max_rows: 10000
+      buffer_max_bytes: 134217728
+      writer_count: 4
+      write_timeout_ms: 10000
+    type_mapping:
+      bool: BOOL
+      int8: TINYINT
+      uint8: TINYINT UNSIGNED
+      int16: SMALLINT
+      uint16: SMALLINT UNSIGNED
+      int32: INT
+      uint32: INT UNSIGNED
+      int64: BIGINT
+      uint64: BIGINT UNSIGNED
+      float32: FLOAT
+      float64: DOUBLE
+      string: VARCHAR
+      bytes: VARBINARY
   configuration:
     reconcile_interval_s: 60
     cache_max_bytes: 268435456
@@ -94,12 +121,12 @@ service:
     max_concurrent: 4
     timeout_ms: 30000
   export:
-    root: /var/lib/wind-hub/e2e-final/storage/exports
+    root: /var/lib/wind-hub/storage/exports
     max_jobs: 2
     max_bytes: 1073741824
   backup:
     enabled: false
-    root: /var/lib/wind-hub/e2e-final/storage/backups
+    root: /var/lib/wind-hub/storage/backups
     max_jobs: 1
     max_bytes: 53687091200
     timeout_s: 600
@@ -110,4 +137,4 @@ service:
   reconciliation:
     auto_alter: false
     allow_retention_shrink: false
-    owner_instance_id: storage-e2e
+    owner_instance_id: storage-main

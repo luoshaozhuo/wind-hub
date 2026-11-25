@@ -2,8 +2,8 @@
 # schema_version 1; file_version X.Y.Z; all template versions are exact and immutable.
 # sink IDs are local to e2e-final; never attach to prod-a.
 schema_version: 1
-file_version: "1.0.2"
-revision: "e2e-sinks-r3"
+file_version: "1.0.3"
+revision: "e2e-sinks-r4"
 sinks:
   e2e_redis:
     template_id: e2e_redis_realtime
@@ -14,7 +14,7 @@ sinks:
     overrides: {}
   e2e_kafka:
     template_id: e2e_kafka_history
-    template_version: "1.0.0"
+    template_version: "2.0.0"
     connection:
       bootstrap_servers: ["127.0.0.1:9092"]
     overrides: {}

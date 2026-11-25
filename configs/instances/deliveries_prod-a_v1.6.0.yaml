@@ -3,8 +3,8 @@
 # 以 v1.3.0 的 Delivery 行为配置为基线；仅更新不可变文件版本及修订身份。
 # GW2MW 候选 BusinessPoint 未经 OEM 语义审批，不得据此激活生产。
 schema_version: 1
-file_version: "1.5.0"
-revision: "deliveries-r5"
+file_version: "1.6.0"
+revision: "deliveries-r6"
 deliveries:
   ems_power:
     template_id: realtime_power
@@ -26,7 +26,7 @@ deliveries:
       wind_farm_id: farm-a
       collector_id: collector-reliable
       devices: [TZ01]
-      points: [measured_power]
+      points: [] # complete point table; no partial historical row
     overrides: {}
   ems_modbus_view:
     template_id: realtime_power

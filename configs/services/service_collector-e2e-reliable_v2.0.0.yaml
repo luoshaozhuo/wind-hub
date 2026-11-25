@@ -1,13 +1,17 @@
+# Target SampleBatch v4; 500 points / 1048576 bytes; Reliable requires complete device event.
+# Realtime max_staleness_ms positive milliseconds; Reliable forbids this field.
+# E2E reliable Collector，严格独立生产身份；需由 CLI 的双 Collector 进程分别启动。
+# 独立仿真部署的 Service 配置；仅引用仿真 Instance，版本由 sim-a Deployment 选择。
 # Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
 # Instance 固定引用 Template，Service 不声明 templates.root。
-schema_version: 1
+schema_version: 2
 config_sources:
   instances:
-    site: example_site
-    devices: farm-a
-    tasks: farm-a
-file_version: "1.0.0"
-service_id: collector-reliable
+    site: e2e-final
+    devices: e2e-final
+    tasks: e2e-final
+file_version: "2.0.0"
+service_id: collector-e2e-reliable
 runtime:
   shutdown_timeout: 30
   connect_timeout: 10
@@ -21,8 +25,7 @@ messaging:
   servers:
     - nats://127.0.0.1:4222
   delivery: reliable
-  max_staleness_ms: 500
-  max_samples_per_batch: 100
+  max_samples_per_batch: 500
   max_batch_bytes: 1048576
   queue_capacity: 2048
   enqueue_timeout_s: 2.0
