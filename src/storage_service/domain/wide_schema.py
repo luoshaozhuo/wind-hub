@@ -106,8 +106,8 @@ class WideSchema:
             PhysicalColumn(
                 point_id=point.point_id,
                 column_name=(
-                    f"{_name(\"p\", point.point_id, point_table_id, data_level.value)}"
-                    f"_v{point_table_version.replace(\".\", \"_\")}"
+                    f"{_name('p', point.point_id, point_table_id, data_level.value)}"
+                    f"_v{point_table_version.replace('.', '_')}"
                 ),
                 sql_type=point.sql_type,
             )
