@@ -60,6 +60,11 @@ R04_METRICS = {
     "reliable_write_operations_total",
     "reliable_source_ack_seconds_total",
     "reliable_source_ack_operations_total",
+    "kafka_lock_seconds_total",
+    "kafka_metadata_seconds_total",
+    "kafka_submit_seconds_total",
+    "kafka_confirm_seconds_total",
+    "kafka_timed_writes_total",
 }
 
 
