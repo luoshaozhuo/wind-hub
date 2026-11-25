@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
+from sink_service.application.business_projection import BusinessValue
 from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
 
 
@@ -92,4 +93,29 @@ def test_raw_requires_original_capture() -> None:
             device_config_id="device_prod-a_v1.0.1",
             physical_points=("active_power", "wind_speed"),
             data_level="raw",
+        )
+
+
+def test_business_columns_use_standard_ids_and_reject_non_bijective_mapping() -> None:
+    batch = _batch()
+    projected = {
+        "s1": BusinessValue("hub_wind_speed", "m_per_s", 8.2),
+        "s2": BusinessValue("grid_active_power", "kw", None),
+    }
+    raw = encode_kafka_wide(
+        batch, batch.samples,
+        device_config_id="device_prod-a_v1.0.1",
+        physical_points=("grid_active_power", "hub_wind_speed"),
+        data_level="business",
+        business_values=projected,
+    )
+    assert set(json.loads(raw)["points"]) == {"hub_wind_speed", "grid_active_power"}
+    projected["s2"] = BusinessValue("hub_wind_speed", "kw", None)
+    with pytest.raises(ValueError, match="non-unique"):
+        encode_kafka_wide(
+            batch, batch.samples,
+            device_config_id="device_prod-a_v1.0.1",
+            physical_points=("grid_active_power", "hub_wind_speed"),
+            data_level="business",
+            business_values=projected,
         )
