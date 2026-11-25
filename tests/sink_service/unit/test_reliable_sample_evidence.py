@@ -262,3 +262,26 @@ async def test_uncertain_or_failed_writes_never_become_success_evidence(
     assert port._pending_confirmed_samples == []
     assert port.inspect()["sample_evidence"] == "[]"
     assert port.last_error == ""  # engine-level error is recorded only on NAK in _run
+
+
+async def test_kafka_stage_timings_are_attributed_to_the_owning_delivery() -> None:
+    adapter = _FakeKafkaAdapter(
+        BatchOutcome(
+            delivered=(0,),
+            settled=(0,),
+            successful_attempts=1,
+            kafka_stage_seconds=(0.01, 0.02, 0.03, 0.04),
+        )
+    )
+    port = _port(adapter)
+    terminal = await port._deliver_batch(
+        _FakeMessage(), _batch([("active_power", "timed-1")])
+    )
+    assert terminal
+    assert port.kafka_timed_writes_total == 1
+    assert port.kafka_lock_seconds_total == pytest.approx(0.01)
+    assert port.kafka_metadata_seconds_total == pytest.approx(0.02)
+    assert port.kafka_submit_seconds_total == pytest.approx(0.03)
+    assert port.kafka_confirm_seconds_total == pytest.approx(0.04)
+    assert port.metrics["kafka_timed_writes_total"] == 1.0
+    assert port.metrics["kafka_confirm_seconds_total"] == pytest.approx(0.04)
