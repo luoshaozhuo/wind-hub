@@ -95,6 +95,12 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self._last_backlog_output = 0.0
         self.failed_total = 0
         self.write_success_total = 0
+        self.reliable_encode_seconds_total = 0.0
+        self.reliable_encode_operations_total = 0
+        self.reliable_write_seconds_total = 0.0
+        self.reliable_write_operations_total = 0
+        self.reliable_source_ack_seconds_total = 0.0
+        self.reliable_source_ack_operations_total = 0
         self.latency_window = LatencyWindow(
             window_ms=snapshot.service["metrics"]["metrics_window_ms"]
         )
@@ -170,6 +176,12 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             "dead_letter_total": float(self.dlq_total),
             "dead_letter_invalid_batches_total": float(self.dlq_invalid_batches_total),
             "retry_total": float(self.retry_total),
+            "reliable_encode_seconds_total": self.reliable_encode_seconds_total,
+            "reliable_encode_operations_total": float(self.reliable_encode_operations_total),
+            "reliable_write_seconds_total": self.reliable_write_seconds_total,
+            "reliable_write_operations_total": float(self.reliable_write_operations_total),
+            "reliable_source_ack_seconds_total": self.reliable_source_ack_seconds_total,
+            "reliable_source_ack_operations_total": float(self.reliable_source_ack_operations_total),
             "io_inflight": float(self.io_inflight),
         }
         if self._backlog is not None and self._client is not None and self._client.is_connected:
