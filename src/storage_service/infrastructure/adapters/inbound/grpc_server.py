@@ -33,6 +33,7 @@ from storage_service.application.query import (
 )
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
 from storage_service.application.wide_query import WideHistoryQueryService, WideHistoryFilter
+from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
@@ -254,6 +255,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         metadata: MetadataStore,
         query: HistoryQueryService,
         wide_query: WideHistoryQueryService,
+        wide_aggregation: WideAggregationService,
         jobs: AsyncStorageTasks,
         point_tables: ConfigurationPointTableResolver,
         consumer: KafkaStorageConsumer,
@@ -267,6 +269,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._metadata = metadata
         self._query = query
         self._wide_query = wide_query
+        self._wide_aggregation = wide_aggregation
         self._jobs = jobs
         self._point_tables = point_tables
         self._consumer = consumer
@@ -596,12 +599,105 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 raise TDengineSchemaConflictError("unknown stored value kind")
         return reply
 
+    async def _query_wide_aggregates(
+        self, request: pb.QueryAggregatesRequest,
+    ) -> pb.QueryAggregatesResponse:
+        """Aggregate one exact device/schema with integer-preserving output."""
+        source = request.wide_filter
+        levels = {
+            pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
+            pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
+            pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
+        }
+        level = levels.get(source.data_level)
+        if (
+            level is None or not source.HasField("start_time")
+            or not source.HasField("end_time")
+            or source.page_token
+        ):
+            raise QueryRejectedError("invalid wide aggregation source")
+        operations = {
+            pb.STORAGE_AGGREGATION_COUNT: "count",
+            pb.STORAGE_AGGREGATION_MIN: "min",
+            pb.STORAGE_AGGREGATION_MAX: "max",
+            pb.STORAGE_AGGREGATION_AVG: "avg",
+        }
+        operation = operations.get(request.aggregation)
+        if operation is None:
+            raise QueryRejectedError("wide aggregation requires count/min/max/avg")
+        identity = WideIdentity(
+            wind_farm_id=source.wind_farm_id,
+            device_config_id=source.device_config_id,
+            device_id=source.device_id,
+            data_level=level,
+        )
+        schema = await self._point_tables.resolve_wide_schema(
+            identity, type_mapping=self._config.tdengine.type_mapping,
+            max_row_bytes=65536,
+        )
+        points = tuple(source.point_ids) or tuple(
+            column.point_id for column in schema.columns
+        )
+        filter_ = WideHistoryFilter(
+            wind_farm_id=identity.wind_farm_id,
+            device_id=identity.device_id,
+            device_config_id=identity.device_config_id,
+            data_level=level,
+            start_time_us=_us(source.start_time),
+            end_time_us=_us(source.end_time),
+            point_ids=points,
+            limit=source.page_size or 200,
+        )
+        filter_.validate(schema, maximum=self._config.query.max_page_size)
+        page = await self._wide_aggregation.page(
+            schema=schema, filter_=filter_,
+            device_type=self._point_tables.wide_device_type(identity),
+            operation=operation,
+            window_ms=request.window_ms,
+            page_size=request.page_size or 200,
+            page_token=request.page_token,
+        )
+        if self._consumer.recovering:
+            raise HistoryReplayUnavailableError("wide aggregation replay changed")
+        response = pb.QueryAggregatesResponse(
+            next_page_token=page.next_page_token
+        )
+        for row in page.rows:
+            item = response.items.add(
+                point_id=row.point_id,
+                business_point_id=row.point_id if level is WideDataLevel.BUSINESS else "",
+                point_table_id=schema.point_table_id,
+                data_level=source.data_level,
+                good_count=row.good_count,
+                missing_count=row.missing_count,
+                result_value_kind=row.result_kind,
+            )
+            item.window_start.CopyFrom(_date(row.start_us))
+            item.window_end.CopyFrom(_date(row.end_us))
+            if row.result_kind == 1:
+                item.result_i64 = int(cast(int, row.result))
+            elif row.result_kind == 2:
+                item.result_u64 = int(cast(int, row.result))
+            elif row.result_kind == 3:
+                item.result = float(cast(float, row.result))
+        return response
+
     @guarded
     async def QueryAggregates(
         self,
         request: pb.QueryAggregatesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
+        if request.HasField("wide_filter"):
+            if request.HasField("filter"):
+                raise QueryRejectedError("cannot mix wide and legacy aggregate filters")
+            self._auth.require(
+                context, permission="storage.read",
+                farm=request.wide_filter.wind_farm_id,
+            )
+            if self._consumer.recovering:
+                raise HistoryReplayUnavailableError("Kafka history replay is not settled")
+            return await self._query_wide_aggregates(request)
         self._auth.require(context, permission="storage.read", farm=request.filter.wind_farm_id)
         if self._consumer.recovering:
             await context.abort(
@@ -1078,6 +1174,7 @@ def build_storage_grpc_server(
     metadata: MetadataStore,
     query: HistoryQueryService,
     wide_query: WideHistoryQueryService,
+    wide_aggregation: WideAggregationService,
     jobs: AsyncStorageTasks,
     point_tables: ConfigurationPointTableResolver,
     consumer: KafkaStorageConsumer,
@@ -1100,6 +1197,7 @@ def build_storage_grpc_server(
         metadata=metadata,
         query=query,
         wide_query=wide_query,
+        wide_aggregation=wide_aggregation,
         jobs=jobs,
         point_tables=point_tables,
         consumer=consumer,
