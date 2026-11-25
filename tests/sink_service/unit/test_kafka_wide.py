@@ -24,6 +24,8 @@ def _batch() -> SampleBatch:
         device_type="wind_turbine",
         device_id="wtg_001",
         point_table_id="point_table_example_v1.0.0",
+        device_config_id="device_prod-a_v1.0.1",
+        sample_time=stamp,
         publish_time=stamp,
         samples=(
             SampleItem(
