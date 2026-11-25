@@ -743,16 +743,16 @@ class TDengineBackend:
             )
             registrations = [
                 self._metadata.reserve_object(
-                    name, digest, description, schema.fingerprint,
+                    metadata_name, digest, description, schema.fingerprint,
                     physical_database=database_name,
-                    stable_name=stable_name if name != database_name else "",
-                    table_name=table_name if name == table_name else "",
-                    closure_hash=db_hash if name == database_name else stable_hash,
+                    stable_name=stable_name if kind != "database" else "",
+                    table_name=table_name if kind == "table" else "",
+                    closure_hash=db_hash if kind == "database" else stable_hash,
                 )
-                for name, digest, description in (
-                    (database_name, db_hash, db_json),
-                    (stable_name, stable_hash, stable_json),
-                    (table_name, table_hash, table_json),
+                for kind, metadata_name, digest, description in (
+                    ("database", database_name, db_hash, db_json),
+                    ("stable", f"{database_name}.{stable_name}", stable_hash, stable_json),
+                    ("table", f"{database_name}.{table_name}", table_hash, table_json),
                 )
             ]
             names = StorageObjectNames(
