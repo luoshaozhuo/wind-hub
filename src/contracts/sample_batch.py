@@ -1,4 +1,4 @@
-"""Strict version-3 batched NATS telemetry contract.
+"""Strict version-4 batched NATS telemetry contract.
 
 The batch is the transport and JetStream acknowledgment unit; individual
 samples retain independent identities, timestamps, quality, and TTL.
@@ -77,8 +77,9 @@ class SampleItem(BaseModel):
     point_id: str
     sample_id: str
     value: float | int | bool | str | None
-    quality: Literal["good", "bad", "uncertain"]
+    quality: Literal["not_collected", "good", "bad", "uncertain"]
     sample_time: datetime
+    source_time: datetime | None = None
     receive_time: datetime | None = None
     max_staleness_ms: int | None = Field(default=None, gt=0, le=2**63 - 1)
     raw_payload_hex: str | None = None
@@ -108,13 +109,17 @@ class SampleItem(BaseModel):
             raise ValueError("invalid sample_id")
         return value
 
-    @field_validator("sample_time", "receive_time")
+    @field_validator("sample_time", "source_time", "receive_time")
     @classmethod
     def _timestamps(cls, value: datetime | None) -> datetime | None:
         return _utc(value)
 
     @model_validator(mode="after")
     def _finite(self) -> SampleItem:
+        if self.quality == "not_collected" and (
+            self.value is not None or self.raw_payload_hex is not None
+        ):
+            raise ValueError("not_collected requires NULL value and no raw bytes")
         if isinstance(self.value, float) and not math.isfinite(self.value):
             raise ValueError("nonfinite sample value")
         if (
@@ -131,7 +136,7 @@ class SampleBatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     batch_id: str
     mode: DeliveryMode
     wind_farm_id: str
@@ -140,6 +145,8 @@ class SampleBatch(BaseModel):
     device_type: str
     device_id: str
     point_table_id: str
+    device_config_id: str
+    sample_time: datetime
     publish_time: datetime
     samples: tuple[SampleItem, ...]
 
@@ -157,6 +164,25 @@ class SampleBatch(BaseModel):
         ):
             raise ValueError("invalid immutable point_table_id")
         return value
+
+    @field_validator("device_config_id")
+    @classmethod
+    def _device_version_identity(cls, value: str) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(
+                r"device_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+", value
+            ) is None
+        ):
+            raise ValueError("exact Device Instance identity required")
+        return value
+
+    @field_validator("sample_time")
+    @classmethod
+    def _logical_time(cls, value: datetime) -> datetime:
+        normalized = _utc(value)
+        assert normalized is not None
+        return normalized
 
     @field_validator("batch_id")
     @classmethod
@@ -183,6 +209,8 @@ class SampleBatch(BaseModel):
         if len(set(sample_ids)) != len(sample_ids):
             raise ValueError("duplicate sample_id in batch")
         for sample in self.samples:
+            if sample.sample_time != self.sample_time:
+                raise ValueError("device batch points must share logical sample_time")
             if self.mode == "realtime" and sample.max_staleness_ms is None:
                 raise ValueError("realtime sample requires max_staleness_ms")
             if self.mode == "reliable" and sample.max_staleness_ms is not None:
@@ -199,6 +227,7 @@ class SampleBatch(BaseModel):
             self.device_type,
             self.device_id,
             self.point_table_id,
+            self.device_config_id,
             self.mode,
             self.batch_id,
         )
@@ -228,6 +257,8 @@ class SampleBatch(BaseModel):
         for item in document["samples"]:
             if item["raw_payload_hex"] is None:
                 del item["raw_payload_hex"]
+            if item["source_time"] is None:
+                del item["source_time"]
             if item["receive_time"] is None:
                 del item["receive_time"]
             if item["max_staleness_ms"] is None:
@@ -272,9 +303,10 @@ class SampleBatch(BaseModel):
             raise ValueError("invalid UTF-8 JSON batch") from exc
         if not isinstance(raw, dict):
             raise ValueError("batch envelope must be an object")
-        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 3:
-            raise ValueError("explicit schema_version=3 required")
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] != 4:
+            raise ValueError("explicit schema_version=4 required")
         _require_wire_timestamp(raw.get("publish_time"), "publish_time")
+        _require_wire_timestamp(raw.get("sample_time"), "sample_time")
         items = raw.get("samples")
         if not isinstance(items, list) or not 0 < len(items) <= max_samples:
             raise ValueError("invalid batch sample count")
@@ -282,6 +314,8 @@ class SampleBatch(BaseModel):
             raise ValueError("every sample must explicitly contain value")
         for item in items:
             _require_wire_timestamp(item.get("sample_time"), "sample_time")
+            if "source_time" in item:
+                _require_wire_timestamp(item["source_time"], "source_time")
             if "receive_time" in item:
                 _require_wire_timestamp(item["receive_time"], "receive_time")
         if mode == "reliable" and any("max_staleness_ms" in item for item in items):
