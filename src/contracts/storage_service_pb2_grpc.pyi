@@ -32,6 +32,7 @@ class StorageServiceStub:
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> StorageServiceAsyncStub: ...
     QuerySamples: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]
+    QueryWideRows: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QueryWideRowsRequest, _storage_service_pb2.QueryWideRowsResponse]
     QueryAggregates: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QueryAggregatesRequest, _storage_service_pb2.QueryAggregatesResponse]
     CreateExport: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.CreateExportRequest, _storage_service_pb2.StorageTask]
     GetExportTask: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.GetStorageTaskRequest, _storage_service_pb2.StorageTask]
@@ -45,6 +46,7 @@ class StorageServiceStub:
 class StorageServiceAsyncStub(StorageServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
     QuerySamples: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]  # type: ignore[assignment]
+    QueryWideRows: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QueryWideRowsRequest, _storage_service_pb2.QueryWideRowsResponse]  # type: ignore[assignment]
     QueryAggregates: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QueryAggregatesRequest, _storage_service_pb2.QueryAggregatesResponse]  # type: ignore[assignment]
     CreateExport: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.CreateExportRequest, _storage_service_pb2.StorageTask]  # type: ignore[assignment]
     GetExportTask: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.GetStorageTaskRequest, _storage_service_pb2.StorageTask]  # type: ignore[assignment]
@@ -55,6 +57,13 @@ class StorageServiceAsyncStub(StorageServiceStub):
     RetryBlockedPartition: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.RetryBlockedPartitionRequest, _storage_service_pb2.RetryBlockedPartitionResponse]  # type: ignore[assignment]
 
 class StorageServiceServicer(metaclass=_abc_1.ABCMeta):
+    @_abc_1.abstractmethod
+    def QueryWideRows(
+        self,
+        request: _storage_service_pb2.QueryWideRowsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_storage_service_pb2.QueryWideRowsResponse, _abc.Awaitable[_storage_service_pb2.QueryWideRowsResponse]]: ...
+
     @_abc_1.abstractmethod
     def QuerySamples(
         self,
