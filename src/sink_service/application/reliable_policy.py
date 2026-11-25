@@ -44,10 +44,12 @@ def select_reliable(
         return ReliableSelection((), (), b"", 0, "device_mismatch")
     point_ids = frozenset(source["points"]) if source["points"] else None
     if kafka:
-        items = tuple(
-            item for item in batch.samples if point_ids is None or item.point_id in point_ids
-        )
-        key = ":".join((batch.wind_farm_id, batch.collector_id, batch.device_id)).encode("utf-8")
+        if point_ids is not None and point_ids != frozenset(
+            item.point_id for item in batch.samples
+        ):
+            raise ValueError("Kafka wide delivery must select complete device samples")
+        items = batch.samples
+        key = ":".join((batch.wind_farm_id, batch.device_id)).encode("utf-8")
         # Use stable device-lock affinity regardless of Python hash randomization.
         stripe = crc32(key) % 128
         return ReliableSelection(items, (), key, stripe, "" if items else "point_filter_no_match")
