@@ -79,3 +79,17 @@ def test_invalid_value_fails_before_any_io(
     )
     with pytest.raises(ValueError, match=error):
         bind_wide_row(row, schema)
+
+
+@pytest.mark.parametrize("sql_type, value", [
+    ("FLOAT", 2**24 + 1),
+    ("DOUBLE", 2**53 + 1),
+])
+def test_no_lossy_integer_to_float_conversion(sql_type: str, value: int) -> None:
+    row, schema = _row(
+        level=WideDataLevel.PROTOCOL,
+        types=(PhysicalPoint("p", sql_type),),
+        points={"p": [value, 1]},
+    )
+    with pytest.raises(ValueError, match="represented exactly"):
+        bind_wide_row(row, schema)
