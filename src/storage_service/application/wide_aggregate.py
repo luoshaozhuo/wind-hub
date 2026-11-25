@@ -177,7 +177,10 @@ class WideAggregationService:
                 elif operation == "max":
                     actual = max(entries)
                 else:
-                    if physical in _INTEGER and any(abs(v) > 2**53 for v in entries):
+                    if physical in _INTEGER and (
+                        any(abs(v) > 2**53 for v in entries)
+                        or abs(sum(int(value) for value in entries)) > 2**53
+                    ):
                         raise ValueError("AVG would silently lose integer precision")
                     actual = sum(float(value) for value in entries) / len(entries)
                 kind = (
