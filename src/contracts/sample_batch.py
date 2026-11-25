@@ -218,7 +218,7 @@ class SampleBatch(BaseModel):
         return self
 
     @property
-    def identity(self) -> tuple[str, str, str, str, str, str, str, str]:
+    def identity(self) -> tuple[str, str, str, str, str, str, str, str, str]:
         """Scope a batch ID to its immutable producer identity."""
         return (
             self.wind_farm_id,
