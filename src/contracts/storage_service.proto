@@ -100,8 +100,10 @@ message StorageAggregate {
   uint64 good_count = 8;
   uint64 missing_count = 9;
   optional double result = 10;
-  optional sint64 result_i64 = 11;
-  optional uint64 result_u64 = 12;
+  sint64 result_i64 = 11;
+  uint64 result_u64 = 12;
+  // 1=signed, 2=unsigned, 3=double; distinguishes valid zero from unset.
+  uint32 result_value_kind = 13;
 }
 message QueryAggregatesResponse {
   repeated StorageAggregate items = 1;
