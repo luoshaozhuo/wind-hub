@@ -65,6 +65,10 @@ R04_METRICS = {
     "kafka_submit_seconds_total",
     "kafka_confirm_seconds_total",
     "kafka_timed_writes_total",
+    "quota_global_seconds_total",
+    "quota_physical_seconds_total",
+    "quota_native_seconds_total",
+    "quota_timed_writes_total",
 }
 
 
