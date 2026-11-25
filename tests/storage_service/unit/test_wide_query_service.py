@@ -76,3 +76,39 @@ async def test_backend_out_of_order_fails_closed() -> None:
     )
     with pytest.raises(RuntimeError, match="ordered timestamp"):
         await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "points, expected",
+    [
+        ((("power", 1, 0),), "NULL and quality"),
+        ((("power", None, 1),), "NULL and quality"),
+        ((("different", 1, 1),), "invalid column"),
+        ((("power", 1, 4),), "invalid column"),
+        ((), "incomplete physical"),
+    ],
+)
+async def test_wide_query_rejects_malformed_physical_rows(
+    points: tuple[tuple[str, object, int], ...], expected: str
+) -> None:
+    backend = AsyncMock()
+    backend.fetch_wide_history.return_value = (WideHistoryRow(10, points),)
+    service = WideHistoryQueryService(
+        backend=backend, codec=WideCursorCodec(b"x" * 32)
+    )
+    with pytest.raises(RuntimeError, match=expected):
+        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+
+
+@pytest.mark.asyncio
+async def test_wide_query_rejects_backend_row_from_other_version_field() -> None:
+    backend = AsyncMock()
+    backend.fetch_wide_history.return_value = (
+        WideHistoryRow(10, (("power_v1_1_0", 11, 1),)),
+    )
+    service = WideHistoryQueryService(
+        backend=backend, codec=WideCursorCodec(b"x" * 32)
+    )
+    with pytest.raises(RuntimeError, match="invalid column"):
+        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
