@@ -10,7 +10,6 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Literal
 
 from storage_service.domain.wide_record import WideDataLevel
 
@@ -106,8 +105,9 @@ class WideSchema:
         columns = tuple(
             PhysicalColumn(
                 point_id=point.point_id,
-                column_name=_name(
-                    "p", point.point_id, point_table_id, point_table_version, data_level.value
+                column_name=(
+                    f"{_name(\"p\", point.point_id, point_table_id, data_level.value)}"
+                    f"_v{point_table_version.replace(\".\", \"_\")}"
                 ),
                 sql_type=point.sql_type,
             )
