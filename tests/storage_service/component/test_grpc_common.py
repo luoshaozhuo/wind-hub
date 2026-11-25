@@ -52,6 +52,7 @@ def _server(
         metadata=cast(Any, object()),
         query=cast(Any, object()),
         wide_query=cast(Any, object()),
+        wide_aggregation=cast(Any, object()),
         jobs=cast(Any, object()),
         point_tables=cast(Any, object()),
         consumer=cast(Any, object()),
