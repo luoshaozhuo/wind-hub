@@ -361,6 +361,99 @@ class ConfigurationGrpcClient:
         await asyncio.to_thread(self._archive.persist, document)
         return document
 
+    async def fetch_exact_device_closure(
+        self, *, device_config_id: str
+    ) -> tuple[RepositoryDocument, ...]:
+        """Resolve an archived Device Instance file version without latest selection."""
+        match = re.fullmatch(
+            r"device_(?P<id>[A-Za-z0-9_.-]+)_v"
+            r"(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)",
+            device_config_id,
+        )
+        if match is None:
+            raise ConfigHistoryUnavailableError("invalid exact Device Instance identity")
+        identity = pb.ConfigId(config_type="device", config_id=match["id"])
+        matching: set[str] = set()
+        cursor = ""
+        seen_cursors: set[str] = set()
+        for _ in range(100):
+            response = await self._client().ListConfigVersions(
+                pb.ListConfigVersionsRequest(
+                    config_id=identity,
+                    include_deprecated=True,
+                    page_size=100,
+                    page_token=cursor,
+                ),
+                timeout=self._timeout,
+                metadata=self._metadata(),
+            )
+            matching.update(
+                item.version_id for item in response.versions
+                if item.file_version == match["version"] and item.version_id
+            )
+            cursor = response.next_page_token
+            if not cursor:
+                break
+            if cursor in seen_cursors:
+                raise ConfigHistoryUnavailableError("historical version cursor repeated")
+            seen_cursors.add(cursor)
+        else:
+            raise ConfigHistoryUnavailableError("historical version pagination limit exceeded")
+        if len(matching) != 1:
+            raise ConfigHistoryUnavailableError(
+                "exact historical Device Instance version missing or ambiguous"
+            )
+        version_id = next(iter(matching))
+        response = await self._client().GetConfigBundle(
+            pb.GetConfigBundleRequest(
+                exact_roots=[
+                    pb.ConfigVersionRef(config_id=identity, version_id=version_id)
+                ],
+                include_dependencies=True,
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata(),
+        )
+        if response.revision_id != 0 or not response.files:
+            raise ConfigHistoryUnavailableError("exact historical bundle is malformed")
+        digest = hashlib.sha256()
+        documents: list[RepositoryDocument] = []
+        identities: set[tuple[str, str, str]] = set()
+        paths: set[str] = set()
+        roots = 0
+        for item in response.files:
+            doc = _document(item)
+            key = (doc.config_type, doc.config_id, doc.version_id)
+            if key in identities or not item.relative_path or item.relative_path in paths:
+                raise ConfigHistoryUnavailableError("historical bundle duplicates a document")
+            identities.add(key)
+            paths.add(item.relative_path)
+            parsed = _yaml_object(doc)
+            if (
+                type(parsed.get("schema_version")) is not int
+                or parsed["schema_version"] != item.schema_version
+                or parsed.get("file_version") != item.file_version
+                or _document_content_hash(doc) != item.content_sha256
+            ):
+                raise ConfigHistoryUnavailableError(
+                    "historical configuration semantic identity failed validation"
+                )
+            for value in (item.relative_path, item.version_id, item.yaml_sha256):
+                encoded = value.encode("utf-8")
+                digest.update(len(encoded).to_bytes(4, "big"))
+                digest.update(encoded)
+            documents.append(doc)
+            if key == ("device", match["id"], version_id):
+                roots += 1
+        if (
+            roots != 1 or digest.hexdigest() != response.manifest_sha256
+            or sum(len(doc.yaml_bytes) for doc in documents) != response.total_bytes
+        ):
+            raise ConfigHistoryUnavailableError("historical bundle manifest or root mismatch")
+        for doc in documents:
+            await asyncio.to_thread(self._archive.persist, doc)
+        return tuple(documents)
+
     async def get_current_revision(self) -> int:
         """Read the authoritative publication cursor, not a recommended version."""
         response = await self._client().GetCurrentRevision(
