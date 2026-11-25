@@ -24,6 +24,8 @@ class BatchOutcome:
     successful_latencies_ms: tuple[float, ...] = ()
     permanent: tuple[int, ...] = ()
     successful_latency_weights: tuple[tuple[float, int], ...] = ()
+    # Kafka-only: device lock, metadata, send submission, confirmation wall seconds.
+    kafka_stage_seconds: tuple[float, float, float, float] | None = None
 
 
 class RealtimeEngine:
