@@ -13,7 +13,7 @@ import hmac
 import json
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -23,6 +23,10 @@ from storage_service.domain.sample import DataLevel
 
 class QueryRejectedError(ValueError):
     """Request exceeds the documented Storage query and pagination contract."""
+
+
+class HistoryReplayUnavailableError(RuntimeError):
+    """Kafka replay makes the visible TDengine history temporarily unstable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +200,7 @@ class HistoryQueryService:
         max_range_days: int = 31,
         max_concurrent: int = 4,
         timeout_ms: int = 30000,
+        read_available: Callable[[], bool] | None = None,
     ) -> None:
         if not 1 <= max_page_size <= 1000:
             raise ValueError("max page size must be 1..1000")
@@ -208,6 +213,7 @@ class HistoryQueryService:
         self._limit = asyncio.Semaphore(max_concurrent)
         self._timeout = timeout_ms / 1000
         self._active_queries = 0
+        self._read_available = read_available or (lambda: True)
 
     @property
     def active_queries(self) -> int:
@@ -220,6 +226,8 @@ class HistoryQueryService:
         page_size: int = 200,
         page_token: str = "",
     ) -> HistoryPage:
+        if not self._read_available():
+            raise HistoryReplayUnavailableError("Kafka replay is still reconciling history")
         filter_.validate(max_range_days=self._max_range_days)
         if not 1 <= page_size <= self._max_page_size:
             raise QueryRejectedError("page_size outside configured range")
