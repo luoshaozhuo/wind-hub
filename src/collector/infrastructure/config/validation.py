@@ -378,6 +378,7 @@ def parse_collector_runtime(
                 device_type=str(device_model.device_type_id),
                 point_table_id=str(point_table_id),
                 task_id=validate_subject_token(task_id),
+                device_config_id=paths.devices.stem,
                 data_types={
                     point.point_id: snapshot.business_points[
                         point.business_point_id
