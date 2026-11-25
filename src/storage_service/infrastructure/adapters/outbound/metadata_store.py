@@ -278,7 +278,7 @@ class MetadataStore:
         with self._mutex:
             import hashlib
 
-            if not topic or partition < 0 or offset < 0 or len(payload) > 4 * 1024 * 1024:
+            if not topic or partition < 0 or offset < 0 or len(payload) > 16 * 1024 * 1024:
                 raise ValueError("invalid blocked partition evidence")
             digest = hashlib.sha256(payload).hexdigest()
             db = self._db()
