@@ -33,6 +33,7 @@ from typing import Any
 import nats
 import pytest
 from aiokafka import AIOKafkaConsumer, TopicPartition
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 from contracts import common_pb2, common_pb2_grpc
 from tests.sink_service.system.conftest import (
@@ -66,6 +67,9 @@ DURATION_S = float(os.environ.get("R14_DURATION_S", "600"))
 DEGREE = int(os.environ.get("R14_DEGREE", "2"))
 TARGET_BATCH_RATE = float(os.environ.get("R14_TARGET_BATCH_RATE", "120"))
 POINTS_PER_BATCH = int(os.environ.get("R14_POINTS", "500"))
+KAFKA_MAX_SAFE_INFLIGHT = int(os.environ.get("R14_KAFKA_MAX_SAFE_INFLIGHT", "4"))
+KAFKA_MAX_BATCH_SIZE = int(os.environ.get("R14_KAFKA_MAX_BATCH_SIZE", "131072"))
+KAFKA_PARTITIONS = int(os.environ.get("R14_KAFKA_PARTITIONS", "1"))
 MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.95"))
 MAX_BACKLOG_SLOPE_FRACTION = float(os.environ.get("R14_MAX_BACKLOG_SLOPE_FRACTION", "0.02"))
 DRAIN_TIMEOUT_S = 120.0
@@ -197,19 +201,47 @@ class TestR14SustainedCapacity:
             or POINTS_PER_BATCH < 1
             or TARGET_BATCH_RATE <= 0
             or not 30 <= DURATION_S <= 86400
+            or not 1 <= KAFKA_MAX_SAFE_INFLIGHT <= 128
+            or not 1 <= KAFKA_MAX_BATCH_SIZE <= 1048576
+            or not 1 <= KAFKA_PARTITIONS <= 32
         ):
             raise ValueError("invalid sustained load shape or duration")
         devices = _devices(DEGREE)
         delivery_ids = [_delivery_id(i) for i in range(DEGREE)]
-        _write_concurrent_root(sink_harness, devices=devices, delivery_ids=delivery_ids)
+        _write_concurrent_root(
+            sink_harness,
+            devices=devices,
+            delivery_ids=delivery_ids,
+            kafka_max_safe_inflight=KAFKA_MAX_SAFE_INFLIGHT,
+            kafka_max_batch_size=KAFKA_MAX_BATCH_SIZE,
+        )
         await sink_harness.provision_streams()
+        if KAFKA_PARTITIONS > 1:
+            admin = AIOKafkaAdminClient(bootstrap_servers=sink_harness.stack.kafka)
+            await admin.start()
+            try:
+                await admin.create_topics(
+                    [
+                        NewTopic(
+                            name=sink_harness.kafka_topic,
+                            num_partitions=KAFKA_PARTITIONS,
+                            replication_factor=1,
+                        )
+                    ]
+                )
+            finally:
+                await admin.close()
         await self._enlarge_history_stream(sink_harness)
         deployment = f"qa-{sink_harness.token}"
         names = {_durable_name(deployment, did) for did in delivery_ids}
         evidence_root = Path(os.environ.get("R14_RESULT_DIR", "/tmp")).resolve()
         if not evidence_root.is_dir() or evidence_root.is_symlink():
             raise ValueError("R14_RESULT_DIR must be an existing non-symlink directory")
-        stem = f"r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}_" f"{sink_harness.token}"
+        stem = (
+            f"r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}_"
+            f"c{KAFKA_MAX_SAFE_INFLIGHT}_b{KAFKA_MAX_BATCH_SIZE}_"
+            f"p{KAFKA_PARTITIONS}_{sink_harness.token}"
+        )
         result_path = evidence_root / f"{stem}.json"
         samples_path = evidence_root / f"{stem}_samples.jsonl"
         try:
@@ -229,6 +261,11 @@ class TestR14SustainedCapacity:
                 baseline_partitions = await _kafka_partition_offsets(
                     consumer, sink_harness.kafka_topic
                 )
+                if len(baseline_partitions) != KAFKA_PARTITIONS:
+                    raise AssertionError(
+                        f"Kafka topic partition count: {len(baseline_partitions)} "
+                        f"!= configured {KAFKA_PARTITIONS}"
+                    )
                 js = publisher.jetstream()
                 interval = 1.0 / TARGET_BATCH_RATE if TARGET_BATCH_RATE > 0 else 0.0
                 stop_at = time.monotonic() + DURATION_S
@@ -549,6 +586,11 @@ class TestR14SustainedCapacity:
                     "reliable_stage_diagnostics": stage_diagnostics,
                     "kafka_stage_diagnostics": kafka_diagnostics,
                     "quota_stage_diagnostics": quota_diagnostics,
+                    "kafka_capacity_profile": {
+                        "max_safe_inflight": KAFKA_MAX_SAFE_INFLIGHT,
+                        "max_batch_size": KAFKA_MAX_BATCH_SIZE,
+                        "partitions": KAFKA_PARTITIONS,
+                    },
                     "cpu_percent_of_one_core": round(100 * cpu_seconds / (t_end - t0), 1),
                     "rss_max_mib": round(rss_max_mib, 1),
                     "redeliver_peak": redeliver_peak,
