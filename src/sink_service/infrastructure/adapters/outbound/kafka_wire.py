@@ -114,3 +114,62 @@ def encode_kafka_points(
         )
         for item in items
     )
+
+
+_QUALITY_BITS = {"good": 1, "bad": 2, "uncertain": 3}
+
+
+def encode_kafka_wide(
+    batch: SampleBatch,
+    items: tuple[SampleItem, ...],
+    *,
+    device_config_id: str,
+    physical_points: tuple[str, ...],
+    data_level: DataLevel,
+    business_values: Mapping[str, BusinessValue] | None = None,
+) -> bytes:
+    """Encode one complete device-wide Kafka JSON v3 record.
+
+    Only an already synchronized device batch may be encoded; this layer never
+    joins points across sample times or invents values for absent samples.
+    """
+    _require_protocol(data_level)
+    if not device_config_id:
+        raise ValueError("exact Device Instance version identity required")
+    if not items or not physical_points or len(set(physical_points)) != len(physical_points):
+        raise ValueError("complete physical point set required")
+    by_point = {item.point_id: item for item in items}
+    if len(by_point) != len(items) or set(by_point) != set(physical_points):
+        raise ValueError("incomplete device-wide sample")
+    timestamps = {item.sample_time for item in items}
+    if len(timestamps) != 1:
+        raise ValueError("device-wide points do not share one logical sample_time")
+    if data_level == "business":
+        if business_values is None or set(business_values) != {item.sample_id for item in items}:
+            raise ValueError("BUSINESS requires complete historical projection")
+    elif business_values is not None:
+        raise ValueError("RAW/PROTOCOL cannot contain BUSINESS projections")
+    points: dict[str, list[object]] = {}
+    for point_id in physical_points:
+        item = by_point[point_id]
+        value: object = item.value
+        if data_level == "raw":
+            raw_hex = item.raw_payload_hex
+            if raw_hex is None:
+                raise ValueError("RAW requires original protocol bytes")
+            value = raw_hex
+        elif data_level == "business":
+            assert business_values is not None
+            value = business_values[item.sample_id].value
+        points[point_id] = [value, _QUALITY_BITS[item.quality]]
+    return _encode(
+        {
+            "schema_version": 3,
+            "wind_farm_id": batch.wind_farm_id,
+            "device_config_id": device_config_id,
+            "device_id": batch.device_id,
+            "data_level": data_level,
+            "sample_time": _json_timestamp(next(iter(timestamps))),
+            "points": points,
+        }
+    )
