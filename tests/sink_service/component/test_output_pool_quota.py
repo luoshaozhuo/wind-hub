@@ -324,8 +324,12 @@ async def test_global_quota_serializes_when_set_to_one(
         await asyncio.sleep(0.05)
         assert adapter.max_inflight == 1  # 全局额度 1：第二个写入在信号量外等待
         gate.set()
-        await asyncio.gather(first, second)
+        first_result, second_result = await asyncio.gather(first, second)
         assert adapter.writes == 2
+        assert first_result.quota_stage_seconds is not None
+        assert second_result.quota_stage_seconds is not None
+        assert second_result.quota_stage_seconds[0] >= 0.03
+        assert all(value >= 0 for value in second_result.quota_stage_seconds)
     finally:
         await pool.release("history_kafka")
         await pool.release("history_kafka")
@@ -351,6 +355,8 @@ async def test_quota_released_after_uncertain_timeout_and_settlement(
         gate.set()
         settled = await writer.settle()
         assert settled is not None and settled.delivered == (0,)
+        assert settled.quota_stage_seconds is not None
+        assert all(value >= 0 for value in settled.quota_stage_seconds)
         # 收敛回调释放额度。
         assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001
     finally:
@@ -383,6 +389,8 @@ async def test_encoded_batch_keeps_quota_through_uncertain_timeout(
         gate.set()
         settled = await writer.settle()
         assert settled is not None and settled.delivered == (0,)
+        assert settled.quota_stage_seconds is not None
+        assert settled.quota_stage_seconds[2] > 0
         assert entry.quota.limit - entry.quota.inflight == 4  # noqa: SLF001  终局回调释放
     finally:
         await pool.release("history_kafka")
