@@ -161,6 +161,19 @@ class DeviceWorker:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                # A failed read is BAD, distinct from a point never acquired.
+                # Emit one complete failed logical device cycle before recovery.
+                failed = tuple(
+                    ProtocolSample(
+                        point_id=point_id, value=None,
+                        timestamp=cycle_time, quality=Quality.BAD
+                    )
+                    for point_id in point_ids
+                )
+                try:
+                    await self._on_samples(failed, sample_time=cycle_time)
+                except Exception:
+                    logger.warning("cannot publish failed device cycle", exc_info=True)
                 self.actual_state = "FAULTED"
                 self.last_error = str(exc)
                 if self.telemetry is not None:
@@ -306,7 +319,7 @@ class DeviceWorker:
                     )
                 self._recovery_started = None
             self.actual_state = "RUNNING"
-        if converted:
+        if converted or self.plan.mode == "poll":
             if self.telemetry is not None:
                 self.telemetry.increment("collector.points.collected", len(converted))
                 bad = sum(item.quality is Quality.BAD for item in converted)
@@ -331,6 +344,7 @@ class DeviceWorker:
         while self.desired_state == "START" and not self._closed:
             next_slot += self.plan.interval
             started = time.monotonic()
+            cycle_time = datetime.now(UTC)
             if self.telemetry is not None:
                 self.telemetry.increment("collector.poll.executions")
                 self.telemetry.observe_milliseconds(
@@ -339,10 +353,19 @@ class DeviceWorker:
                 )
             try:
                 async with self._lock:
-                    received = await self._bounded(self.driver.read_many(point_ids), self.timeout)
+                    remaining = max(0.001, next_slot - time.monotonic())
+                    received = await self._bounded(
+                        self.driver.read_many(point_ids), min(self.timeout, remaining)
+                    )
                     samples = tuple(received)
                     validate_read_many_results(point_ids, samples)
-                await self._on_samples(samples)
+                # Never fill a closed cycle with data received after its deadline.
+                if time.monotonic() >= next_slot:
+                    if self.telemetry is not None:
+                        self.telemetry.increment("collector.poll.late_discarded")
+                    await self._on_samples((), sample_time=cycle_time)
+                else:
+                    await self._on_samples(samples, sample_time=cycle_time)
                 if self.telemetry is not None:
                     self.telemetry.increment("collector.poll.success")
                     if any(item.quality is Quality.BAD for item in samples):
