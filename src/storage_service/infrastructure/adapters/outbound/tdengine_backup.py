@@ -16,6 +16,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from storage_service.application.config import StorageConfig
+from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
@@ -34,12 +35,8 @@ class NativeTDengineBackup:
 
     @staticmethod
     def _database_for_farm(wind_farm_id: str) -> str:
-        if not wind_farm_id:
-            raise ValueError("backup requires a nonempty wind farm ID")
-        digest = hashlib.sha256(
-            json.dumps([wind_farm_id], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        return f"wh_{digest[:24]}"
+        """Use the one authoritative wide database naming algorithm."""
+        return WideSchema.database_name(wind_farm_id)
 
     async def backup(
         self,
@@ -52,8 +49,13 @@ class NativeTDengineBackup:
         if not _SAFE_IDENTIFIER.fullmatch(task_id):
             raise ValueError("backup task ID is not a generated UUID hex")
         database = self._database_for_farm(wind_farm_id)
-        if not await asyncio.to_thread(self._metadata.list_tables, database=database):
-            raise NativeBackupError("Storage has no registered tables for this farm")
+        registrations = await asyncio.to_thread(
+            self._metadata.list_ready_wide_tables, database=database
+        )
+        if not registrations:
+            raise NativeBackupError(
+                "Storage has no verified device-wide tables for this farm"
+            )
         host, port = self._split_endpoint(self._config.tdengine.endpoint)
         password_name = self._config.tdengine.credential_ref.removeprefix("env:")
         password = os.getenv(password_name)
@@ -130,6 +132,15 @@ class NativeTDengineBackup:
         )
         if bytes_written > self._config.backup.max_bytes:
             raise NativeBackupError("native backup exceeded configured byte budget")
+        manifest["wide_schema_ownership"] = [
+            {
+                "name": item.name,
+                "full_sha256": item.full_sha256,
+                "schema_fingerprint": item.schema_fingerprint,
+                "identity_json": item.identity_json,
+            }
+            for item in registrations
+        ]
         manifest_file = path / "storage_manifest.json"
         with manifest_file.open("x", encoding="utf-8") as stream:
             os.fchmod(stream.fileno(), 0o600)
