@@ -121,11 +121,15 @@ class WideSchema:
             )
         fingerprint = _digest(
             "windhub-wide-v1",
+            "primary-key:ts:TIMESTAMP",
+            "tags:device_id:VARCHAR(128),device_type:VARCHAR(64),"
+            "point_table_id:VARCHAR(192),data_level:TINYINT,"
+            "schema_fingerprint:VARCHAR(64)",
             point_table_id,
             point_table_version,
             data_level.value,
             *(f"{c.column_name}:{c.sql_type}" for c in columns),
-            f"quality-2bit-lowfirst:{quality_bytes}",
+            f"quality:VARBINARY({quality_bytes}):2bit-lowfirst",
         )
         return cls(
             point_table_id=point_table_id,
