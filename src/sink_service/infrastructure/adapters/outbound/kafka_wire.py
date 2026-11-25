@@ -116,7 +116,7 @@ def encode_kafka_points(
     )
 
 
-_QUALITY_BITS = {"good": 1, "bad": 2, "uncertain": 3}
+_QUALITY_BITS = {"not_collected": 0, "good": 1, "bad": 2, "uncertain": 3}
 
 
 def encode_kafka_wide_key(wind_farm_id: str, device_id: str) -> bytes:
@@ -171,9 +171,14 @@ def encode_kafka_wide(
         value: object = item.value
         if data_level == "raw":
             raw_hex = item.raw_payload_hex
-            if raw_hex is None:
+            if item.quality == "not_collected":
+                if item.value is not None or raw_hex is not None:
+                    raise ValueError("not_collected RAW point must be NULL")
+                value = None
+            elif raw_hex is None:
                 raise ValueError("RAW requires original protocol bytes")
-            value = raw_hex
+            else:
+                value = raw_hex
         elif data_level == "business":
             assert business_values is not None
             value = business_values[item.sample_id].value
