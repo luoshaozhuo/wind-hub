@@ -70,6 +70,7 @@ MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.9
 MAX_BACKLOG_SLOPE_FRACTION = float(os.environ.get("R14_MAX_BACKLOG_SLOPE_FRACTION", "0.02"))
 DRAIN_TIMEOUT_S = 120.0
 SAMPLE_INTERVAL_S = 1.0
+RELIABLE_STAGES = ("reliable_encode", "reliable_write", "reliable_source_ack")
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
 # JetStream Limits 保留策略下 ACK 只推进消费者位置、不删除流消息，600s 持续
 # 压测累积约 7 万批会按 max_bytes 撑爆（与消费快慢无关）。长稳专用：
@@ -301,6 +302,13 @@ class TestR14SustainedCapacity:
                         "metrics_ok": bool(metrics),
                         "lag_p99_ms": metrics.get("reliable_event_loop_lag_ms_p99"),
                         "write_latency_p99_ms": metrics.get("write_latency_ms_max_delivery_p99"),
+                        "reliable_stages": {
+                            stage: {
+                                "seconds_total": metrics.get(f"{stage}_seconds_total"),
+                                "operations_total": metrics.get(f"{stage}_operations_total"),
+                            }
+                            for stage in RELIABLE_STAGES
+                        },
                     }
                     samples.append(sample)
                     with samples_path.open("a", encoding="utf-8") as stream:
@@ -365,6 +373,30 @@ class TestR14SustainedCapacity:
                     )
 
                 first, last = samples[0], samples[-1]
+                stage_diagnostics: dict[str, dict[str, float | int | None]] = {}
+                for stage in RELIABLE_STAGES:
+                    before = first["reliable_stages"][stage]
+                    after = last["reliable_stages"][stage]
+                    if any(
+                        entry[field] is None
+                        for entry in (before, after)
+                        for field in ("seconds_total", "operations_total")
+                    ):
+                        stage_diagnostics[stage] = {
+                            "duration_seconds": None,
+                            "operations": None,
+                            "mean_duration_ms": None,
+                        }
+                        continue
+                    duration = max(0.0, after["seconds_total"] - before["seconds_total"])
+                    operations = max(0, int(after["operations_total"] - before["operations_total"]))
+                    stage_diagnostics[stage] = {
+                        "duration_seconds": round(duration, 3),
+                        "operations": operations,
+                        "mean_duration_ms": round(1000 * duration / operations, 3)
+                        if operations
+                        else None,
+                    }
                 cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
                 metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
@@ -416,6 +448,7 @@ class TestR14SustainedCapacity:
                     "grpc_max_latency_ms": round(grpc_max_ms, 1),
                     "event_loop_lag_p99_max_ms": lag_p99_max,
                     "write_latency_p99_max_ms": write_p99_max,
+                    "reliable_stage_diagnostics": stage_diagnostics,
                     "cpu_percent_of_one_core": round(100 * cpu_seconds / (t_end - t0), 1),
                     "rss_max_mib": round(rss_max_mib, 1),
                     "redeliver_peak": redeliver_peak,
