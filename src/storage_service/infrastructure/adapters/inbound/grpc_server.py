@@ -829,8 +829,13 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: pb.CreateExportRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
+        requested_farm = (
+            request.wide_filter.wind_farm_id
+            if request.HasField("wide_filter")
+            else request.filter.wind_farm_id
+        )
         owner = self._auth.require(
-            context, permission="storage.export", farm=request.filter.wind_farm_id
+            context, permission="storage.export", farm=requested_farm
         )
         if self._consumer.recovering:
             await context.abort(
@@ -843,11 +848,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                     "wide and legacy Storage export filters cannot be combined"
                 )
             wide = request.wide_filter
-            if wide.wind_farm_id != request.filter.wind_farm_id and not wide.wind_farm_id:
+            if not wide.wind_farm_id:
                 raise QueryRejectedError("wide export requires one wind farm")
-            self._auth.require(
-                context, permission="storage.export", farm=wide.wind_farm_id
-            )
             if wide.page_token:
                 raise QueryRejectedError("wide export must begin at a full history horizon")
             levels = {
