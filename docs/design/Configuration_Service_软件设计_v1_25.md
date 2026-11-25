@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_24 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_25 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -748,7 +748,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
@@ -1348,14 +1348,14 @@ flowchart TB
 
 # 9. gRPC 接口实现与调用方适配
 
-**精确根版本闭包（目标）**：扩展现有 GetConfigBundle，新增与 roots/revision_id 选择模式互斥的 exact_roots（重复 ConfigVersionRef，必填 config_type/config_id 及 file_version 或不可变 version_id）。同时提供多个选择字段必须一致；include_dependencies=true，按一致读取事务递归解析不可变固定依赖，返回完整 YAML、Manifest 和 total_bytes；不使用推荐版填补、不改变活动配置。不存在、权限不足、冲突、超限明确失败。Device Instance 完整身份是新遥测解析入口；GetPointTableBundle 仅在其他合法调用仍需要时保留，不新增 Storage 专用接口。正式字段号、错误码及全部调用方须在 Proto 冻结前确定。
+**精确根版本闭包（目标）**：`GetConfigBundleRequest` 保留 roots=1、optional revision_id=2、optional include_dependencies=3，新增 repeated ConfigVersionRef exact_roots=4。exact_roots 非空时 roots 必须为空、revision_id 不得出现且 include_dependencies 显式为 true。ConfigVersionRef 沿用 config_id=1、version_id=2、file_version=3、content_sha256=4；config_id 完整有效且至少指定 version_id 或 file_version，同时指定必须匹配，非空摘要须匹配。单一一致事务递归解析不可变固定依赖；禁止推荐版回退。响应保持原字段号；revision_id 表示本次一致读取的 Repository 修订而非根发布修订；Manifest 按既有规则稳定排序及校验。非法组合 INVALID_ARGUMENT，未授权 PERMISSION_DENIED，版本不存在 NOT_FOUND，历史依赖损坏或摘要冲突 FAILED_PRECONDITION，超限 RESOURCE_EXHAUSTED，暂不可用 UNAVAILABLE。无部分成功，不改变推荐、发布、活动状态。不新增 Storage 专用 RPC。
 
 历史 Device Instance→DeviceModel→PointTable→BusinessPoint/Units 固定闭包是遥测权威；未知设备主动查询精确历史闭包。运行归档在数据/重放/备份依赖期间保留；删除仓库 YAML 不删除归档。Storage 新 database/ingestion/type_mapping 配置须白名单校验、无损类型、KEEP/DURATION 关系及 WAL 可靠性。Service 只依赖 Instance，Instance 固定依赖模板。清理覆盖全部有效 Deployment、测试/Fixture/脚本引用。
 
 
 ## 9.1 唯一接口契约来源
 
-**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现行 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；Configuration Repository RPC 已由现行《Contracts 软件设计 v1_45》和 `src/contracts/configuration_repository.proto` 正式定义。本模块按冻结 Proto 实现并维护生成文件一致性，不在本设计新增建议字段或第二套 RPC 契约。
+**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现行 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；Configuration Repository RPC 已由现行《Contracts 软件设计 v1_47》和 `src/contracts/configuration_repository.proto` 正式定义。本模块按冻结 Proto 实现并维护生成文件一致性，不在本设计新增建议字段或第二套 RPC 契约。
 
 | 入口类别 | 契约权威 | 本模块实现职责 | 关联需求 |
 |---|---|---|---|

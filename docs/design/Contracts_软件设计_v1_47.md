@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_46 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -748,7 +748,7 @@ System Test 必须遵守以下规定：
 
 # 3. 范围、现行基线及接口总览
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
@@ -913,7 +913,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 
 # 10. Configuration Repository 现行接口契约
 
-**精确根版本闭包（目标）**：扩展现有 GetConfigBundle，新增与 roots/revision_id 选择模式互斥的 exact_roots（重复 ConfigVersionRef，必填 config_type/config_id 及 file_version 或不可变 version_id）。同时提供多个选择字段必须一致；include_dependencies=true，按一致读取事务递归解析不可变固定依赖，返回完整 YAML、Manifest 和 total_bytes；不使用推荐版填补、不改变活动配置。不存在、权限不足、冲突、超限明确失败。Device Instance 完整身份是新遥测解析入口；GetPointTableBundle 仅在其他合法调用仍需要时保留，不新增 Storage 专用接口。正式字段号、错误码及全部调用方须在 Proto 冻结前确定。
+**精确根版本闭包（目标）**：`GetConfigBundleRequest` 保留 roots=1、optional revision_id=2、optional include_dependencies=3，新增 repeated ConfigVersionRef exact_roots=4。exact_roots 非空时 roots 必须为空、revision_id 不得出现且 include_dependencies 显式为 true。ConfigVersionRef 沿用 config_id=1、version_id=2、file_version=3、content_sha256=4；config_id 完整有效且至少指定 version_id 或 file_version，同时指定必须匹配，非空摘要须匹配。单一一致事务递归解析不可变固定依赖；禁止推荐版回退。响应保持原字段号；revision_id 表示本次一致读取的 Repository 修订而非根发布修订；Manifest 按既有规则稳定排序及校验。非法组合 INVALID_ARGUMENT，未授权 PERMISSION_DENIED，版本不存在 NOT_FOUND，历史依赖损坏或摘要冲突 FAILED_PRECONDITION，超限 RESOURCE_EXHAUSTED，暂不可用 UNAVAILABLE。无部分成功，不改变推荐、发布、活动状态。不新增 Storage 专用 RPC。
 
 
 ### 现行配置闭包与部署选择（合并基线）
@@ -1199,7 +1199,7 @@ SQLite 的 `db_meta.schema_version` 描述数据库结构迁移，独立于 YAML
 
 ## 11.2 操作、结果与失败语义
 
-gRPC `UNAUTHENTICATED`、`PERMISSION_DENIED`、`INVALID_ARGUMENT`、`NOT_FOUND`、`ALREADY_EXISTS`、`ABORTED`、`FAILED_PRECONDITION`、`RESOURCE_EXHAUSTED`、`UNAVAILABLE`、`DEADLINE_EXCEEDED`、`INTERNAL` 应依真实错误分类使用。业务操作的 `accepted` 与最终执行/生效不相等；外部取消或 Deadline 不代表底层 I/O 完成。涉及设备控制的 `UNKNOWN`/`io_settled` 不可改写为明确失败。所有返回列表稳定排序，分页 token 必须绑定查询条件及一致快照，返回空列表不等于对象不存在。
+gRPC `UNAUTHENTICATED`、`PERMISSION_DENIED`、`INVALID_ARGUMENT`、`NOT_FOUND`、`ALREADY_EXISTS`、`ABORTED`、`FAILED_PRECONDITION`、`RESOURCE_EXHAUSTED`、`UNAVAILABLE`、`DEADLINE_EXCEEDED`、`INTERNAL` 应依真实错误分类使用。业务操作的 `accepted` 与最终执行/生效不相等；外部取消或 Deadline 不代表底层 I/O 完成。涉及设备控制的 `UNKNOWN`/`io_settled` 不可改写为明确失败。所有返回列表稳定排序，分页 token 必须绑定查询条件及该 RPC 声明的一致性边界（Storage 为非 MVCC 分页），返回空列表不等于对象不存在。
 
 ## 11.3 配置变更作用域
 
@@ -1217,15 +1217,33 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 
 ## 11.6 Collector→Sink：同步设备采样批次目标线格式
 
-现行 SampleBatch v3 是迁移基线；不兼容目标版本建议 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
+现行 SampleBatch v3 是迁移基线；不兼容目标版本固定为 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
 
-拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。v4 具体字段、版本及对其他输出的影响待编码冻结审查。
+拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。目标字段及存在性见下表。Realtime 可以传输部分原生事件；Reliable 仅接收完整同步设备事件。
+
+<p class="table-caption">表 11-6 SampleBatch v4 字段及存在性</p>
+
+| 字段 | 类型与约束 |
+|---|---|
+| schema_version | 必填 JSON 整数 4 |
+| batch_id、collector_id、task_id | 必填非空字符串，重投保持不变 |
+| wind_farm_id、device_config_id、device_id | 必填非空字符串；配置身份无 .yaml；Subject 与授权范围一致 |
+| mode | 必填 realtime 或 reliable |
+| sample_time、publish_time | 必填 UTC RFC3339，六位小数秒及 Z |
+| max_staleness_ms | Realtime 必填正整数，Reliable 禁止出现；按批次采样时间计算 TTL |
+| samples | 必填非空数组；每项 point_id、sample_id、value、quality 必填；receive_time、raw_payload_hex 可选；禁止重复点及样本身份 |
+| samples.value | 固定协议类型的 JSON 标量或 null；禁止非有限浮点 |
+| samples.quality | JSON 整数 0/1/2/3；禁止 bool；0 时 value 必须 null |
+| samples.receive_time | 可选真实 UTC RFC3339 六位小数秒 Z，不作为行键 |
+| samples.raw_payload_hex | 可选真实协议原始字节的小写偶数长度十六进制串，不得由解码值反推 |
+
+Reliable 批每个可读点必须恰好出现一次。未尝试点 NULL/0，尝试失败 NULL/2；合法非空协议值缺 RAW 载荷为 RAW Delivery 契约违反，不得填0掩盖。Kafka points 必须等于固定完整点表源 ID 集合，包含不可读点 NULL/0；禁止缺列及额外列。Sink 不得把非法缺失的可靠源批当成完整事件。Realtime 原生事件可拆稳定子批，不跨事件合并；Redis/Modbus/Gateway 保留独立输出契约。
 
 ## 11.7 数据三级语义与映射不变量
 
 **规范性裁决**：RAW=Driver 可核验的协议解码前字节或帧；PROTOCOL=协议解码后的标量（尚无点表工程换算）；BUSINESS=依据 SampleBatch 所携带固定 Device Instance 身份解析的历史 PointTable ID 及锁定标准目录依赖闭包得到的标准业务值。现有 Collector 仅产生 PROTOCOL 输入，未采集解码前载荷时不得标 RAW。不存在 ENGINEERING 等级或默认 BUSINESS；转换责任只在 Sink 的业务层。
 
-Storage v1_12 §10 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
+Storage v1_13 §10 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
 
 - **RAW**：协议解码前的真实原始帧或字节载荷，需要 Driver 可证明的采集边界与显式编码。现有 `ProtocolSample.value` 已经解码，绝不能冒充 RAW。
 - **PROTOCOL**：已完成协议数据类型、字序等解码的标量，尚未执行 PointTable scale/offset、BusinessPoint 语义映射及单位转换。
@@ -1285,7 +1303,8 @@ Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value �
 | `sink_service.proto` | 4 | Delivery 身份、状态及可靠/实时通道隔离 |
 | `industrial_gateway.proto` | 10 | 租约 ClaimTargets、变量更新、仿真指令唯一链路 |
 | `data_generator.proto` | 9 | 变量目录、点表身份、物理时间步、输入执行查询 |
-| `configuration_repository.proto` | 15 | 完整目录发布、部署选择、历史点表及服务闭包查询、全局修订、版本与备份 |
+| `configuration_repository.proto` | 15 | 完整目录发布、部署选择、历史点表及服务闭包查询、全局修订、版本与备份；精确根字段4及错误路径 |
+| `storage_service.proto` | 9 | v2 宽表查询、聚合、任务、统计、阻断与恢复；全部字段号、presence、权限及 CLI 覆盖 |
 
 ## 12.2 Configuration Repository 专项验收
 
@@ -1328,7 +1347,7 @@ Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value �
 
 # 14. Storage Service RPC 契约（宽表目标）
 
-现行 storage_service.proto v1 为迁移基线。不兼容宽表结构使用新包版本，同时迁移生成代码、CLI、权限、测试及调用方，不复用旧字段号改义。正式 Proto 字段号待编码冻结。
+现行 storage_service.proto v1 仅为迁移基线。目标包固定 windhub.storage.v2，保持九项 StorageService RPC 能力，协同迁移生成代码、CLI、权限、测试及调用方，不部署 v1 兼容服务。字段编号见 §14.1，D2 验证物理能力后实施。
 
 <p class="table-caption">表 14-1 Storage 目标接口</p>
 
@@ -1342,5 +1361,37 @@ Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value �
 | ListBlockedPartitions | page_size、page_token；topic/partition/offset、阻断原因 |
 | RetryBlockedPartition | request_id、topic、partition、expected_blocked_offset；accepted/result，不跳 offset |
 
-过滤器含场站、设备、可选设备类型、显式等级、可选 PointTable 完整版本、测点 ID 集合、UTC 半开时间区间、Quality。列描述恢复源 point_id、business_point_id、单位、原生类型和物理列身份；值使用有类型 oneof 或等价结构，明确 NULL；质量 0..3。删除未持久化 sample_id、logical_key、content_sha256、逐点 receive/publish_time。签名游标绑定过滤条件、初始上界、版本表族及 ts 排序，15 分钟有效期，不承诺 MVCC。跨版本默认分别返回，仅语义兼容时显式聚合。任务状态 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED，request_id 幂等；保持 Bearer 场站权限 storage.read/export/backup/inspect/operate/admin。错误 INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、NOT_FOUND、FAILED_PRECONDITION、RESOURCE_EXHAUSTED、UNAVAILABLE、DEADLINE_EXCEEDED、INTERNAL。详细存储/查询/恢复见 Storage v1_12。不得伪造旧字段或保留窄表兼容 RPC。
+过滤器含场站、设备、可选设备类型、显式等级、可选 PointTable 完整版本、测点 ID 集合、UTC 半开时间区间、Quality。列描述恢复源 point_id、business_point_id、单位、原生类型和物理列身份；值使用有类型 oneof 或等价结构，明确 NULL；质量 0..3。删除未持久化 sample_id、logical_key、content_sha256、逐点 receive/publish_time。签名游标绑定过滤条件、初始上界、版本表族及 ts 排序，15 分钟有效期，不承诺 MVCC。跨版本默认分别返回，仅语义兼容时显式聚合。任务状态 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED，request_id 幂等；保持 Bearer 场站权限 storage.read/export/backup/inspect/operate/admin。错误 INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、NOT_FOUND、FAILED_PRECONDITION、RESOURCE_EXHAUSTED、UNAVAILABLE、DEADLINE_EXCEEDED、INTERNAL。详细存储/查询/恢复见 Storage v1_13。不得伪造旧字段或保留窄表兼容 RPC。
 
+## 14.1 宽表消息字段编号
+
+字段按名称:类型=编号表示；repeated 为列表，optional 明示 scalar presence，Timestamp 为 google.protobuf.Timestamp。
+
+<p class="table-caption">表 14-2 宽表查询消息</p>
+
+| 消息 | 字段 |
+|---|---|
+| StorageFilter | wind_farm_id:string=1; device_type:string=2; repeated device_ids:string=3; point_table_id:string=4; data_level:StorageDataLevel=5; repeated point_ids:string=6; start_time:Timestamp=7; end_time:Timestamp=8; repeated qualities:StorageQuality=9; optional schema_fingerprint:string=10 |
+| StorageQuality | NOT_COLLECTED=0, GOOD=1, BAD=2, UNCERTAIN=3 |
+| StorageValue | oneof value: value_i64:sint64=1, value_u64:uint64=2, value_f64:double=3, value_bool:bool=4, value_text:string=5, payload_bytes:bytes=6; oneof 未设置表示 NULL |
+| StorageColumn | point_id:string=1; business_point_id:string=2; unit:string=3; data_type:string=4; physical_name:string=5 |
+| StorageWideRow | sample_time:Timestamp=1; repeated values:StorageValue=2; bytes quality=3 |
+| StorageGroup | wind_farm_id:string=1; device_id:string=2; device_type:string=3; point_table_id:string=4; data_level:StorageDataLevel=5; schema_fingerprint:string=6; repeated columns:StorageColumn=7; repeated rows:StorageWideRow=8 |
+| QuerySamplesRequest | filter:StorageFilter=1; page_size:uint32=2; page_token:string=3 |
+| QuerySamplesResponse | repeated groups:StorageGroup=1; next_page_token:string=2; complete:bool=3 |
+| QueryAggregatesRequest | filter:StorageFilter=1; aggregation:StorageAggregation=2; window_ms:uint64=3; page_size:uint32=4; page_token:string=5 |
+| StorageAggregate | window_start:Timestamp=1; window_end:Timestamp=2; wind_farm_id:string=3; device_id:string=4; point_table_id:string=5; data_level:StorageDataLevel=6; schema_fingerprint:string=7; column:StorageColumn=8; good_count:uint64=9; missing_count:uint64=10; valid_count:uint64=11; result:StorageValue=12 |
+| QueryAggregatesResponse | repeated items:StorageAggregate=1; next_page_token:string=2; complete:bool=3 |
+
+StorageDataLevel、StorageAggregation、StorageTaskState 沿用 v1 数值。场站、等级、起止时间必填，区间左闭右开且正长度。device_ids、point_ids 空表示授权范围全部，其他空表示不限制。Quality 空表示查询不限；查询按至少一个投影点匹配筛行，其他投影列原值与质量保留。聚合按每点筛选。values 数量等于 columns，quality 按返回列顺序重新打包。page_size 按宽表行计，聚合按结果项计；响应字节超限缩页，单行超限拒绝。按 Schema 指纹、设备 ID、ts 升序；聚合增加窗口和列 ID。跨 Schema 不自动合并。COUNT 返回 uint64；MIN/MAX 保留原值类型；AVG 返回 double；无有效值时 MIN/MAX/AVG 未设置 oneof，COUNT 为0。RAW 与非数值仅支持 COUNT。默认有效值 GOOD 且非 NULL，显式 Quality 条件替代默认 GOOD；NULL 不参与有效计数。good_count、missing_count、valid_count 分别为筛选前 GOOD 非空数、NULL 数及满足有效条件的非空数。空窗口不补造。
+
+<p class="table-caption">表 14-3 管理消息新增字段</p>
+
+| 消息 | 新增字段（其他字段沿用 v1 编号与类型） |
+|---|---|
+| StorageTask | artifact_path:string=10; integrity_verified:bool=11 |
+| PartitionProgress | optional blocked_offset:int64=7; assignment_epoch:string=8 |
+| GetStorageStatsResponse | persisted_rows_total:uint64=9; confirmed_records_total:uint64=10; buffer_rows:uint64=11; buffer_bytes:uint64=12; replay_in_progress:bool=13 |
+| ListBlockedPartitionsResponse | complete:bool=3 |
+
+CreateExportRequest、CreateBackupRequest、GetStorageTaskRequest、GetStorageStatsRequest、ListBlockedPartitionsRequest、RetryBlockedPartitionRequest/Response 沿用现行字段编号与类型（CreateExportRequest.filter 指向 v2）。九个 RPC 名称保持；成功且已验证 artifact 才返回可信路径、大小及摘要。阻断重试仅接受当前 expected_blocked_offset，不跳数据。无旧 StorageSample 或 v1 兼容响应。

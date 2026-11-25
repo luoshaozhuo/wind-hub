@@ -1,6 +1,6 @@
 <h1 class="title">Data Generator 软件设计</h1>
 
-<p class="subtitle">v1_63 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_64 · 20261125 · 设计冻结语义与配置闭包整改</p>
 
 > **集中配置契约（C7）**：Configuration Repository 是唯一配置发布者；Deployment 精确选定不可变 Service 和 Instance 文件版本，Service 只通过逻辑身份引用 Scenario 等 Instance，Instance 引用 Template。发布成功仅表示目标修订成立，不代表 Data Generator 已激活。Data Generator 在拉取目标闭包后独立进行模型拓扑、输出目标唯一性和运行安全校验；失败保留旧运行代际和 active_revision，报告 target_revision 与失败原因。旧 Push/ApplyConfigSnapshot 不再是有效发布或激活入口。
 
@@ -1906,11 +1906,11 @@ flowchart LR
 
 # 9. 接口与通信契约（现行九项业务 RPC）
 
-本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_45 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
+本章依据仓库的 `src/contracts/common.proto`、`src/contracts/data_generator.proto`、`src/contracts/industrial_gateway.proto` 和 Contracts v1_47 设计。三份 Proto 均为 `proto3`；DataGeneratorService 定义九项正式 RPC，包含只读请求级生效证据查询；是否可调用以正式 Proto、生成绑定与 Server 实际行为为准。
 
 ## 9.1 DataGeneratorService：九项现行 gRPC Server RPC
 
-现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_45 的 RPC 接口矩阵及 `src/contracts/data_generator.proto`。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
+现行 `data_generator.proto` 已提供 **9 个** Unary RPC，其中 `ListVariables` 和 `UpdateVariables` 均已声明；其语义见 Contracts v1_47 的 RPC 接口矩阵及 `src/contracts/data_generator.proto`。必须同步验证 Proto、生成绑定、Server 行为及调用方；占位返回 `UNIMPLEMENTED` 不构成功能实现。
 
 <p class="table-caption">表 9-1 DataGeneratorService 方法与实现映射（已核实）</p>
 
@@ -1999,7 +1999,7 @@ flowchart LR
 
 ## 9.5 冻结基础与批量注入协作（规范性）
 
-现行接口以 Contracts v1_45 和 `src/contracts/data_generator.proto` 为准：DataGeneratorService 9 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
+现行接口以 Contracts v1_47 和 `src/contracts/data_generator.proto` 为准：DataGeneratorService 9 个 Unary RPC，另有 CommonService 9 个；输出唯一 RPC 为 Gateway `UpdateVariables`。生产生成任务必须先通过 `ClaimTargets` 对每个 Gateway 的完整目标集合获取 fencing token；没有有效 token 时不允许调用 `UpdateVariables`；每一个输出目标 `(gateway_id,variable_id)` 在单一 Generation 的展开映射中只允许出现一次，冲突必须在启动前全量拒绝，禁止依赖最后写入覆盖。
 
 **映射与执行**：一个 Generation 可管理多个 Device，同一个源 `(device_id,point_id)` 可以路由到不同 Gateway，也可以映射到同一 Gateway 内多个不同目标变量；目标 `variable_id` 必须存在于所选 Gateway PointTable 中，且同一 `(gateway_id,variable_id)` 仅能被一个源点占用。按 Gateway 分组为 `UpdateVariablesRequest {gateway_id,values[],lease_token}`，不得额外增加质量、时间戳、批次 ID 或请求级幂等字段。无令牌请求即使当前目标未被其他 Generation 认领，也必须被 Gateway 拒绝。一个 Gateway 的成功不构成其他 Gateway 的成功，逐项失败和响应缺失必须分别记录；UNKNOWN 不得虚报为投递成功。
 
@@ -3084,7 +3084,7 @@ scenarios:
 
 Data Generator 的仿真变量通过 Device Instance、DeviceModel、PointTable 及变量映射表达，使用与对应真实设备相同的 BusinessPoint 标准，不得仅因 `sim`、型号或模拟协议而创建不同含义的业务标准。模型状态可以使用独立内部变量标识，只有实际对外测点才通过相同类型的 PointTable 与业务标准绑定；不同位置/统计口径必须显式区分。同一有效 PointTable 中每个 Point 的 `business_point_id` 必填、且不可与其他 Point 重复。
 
-Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator 自行从 Configuration Repository gRPC 读取对应的完整修订闭包。正在执行的物理模型和随机场景持有完整不可变配置快照，更新不得混合不同修订的模型参数、仿真变量映射及 Gateway 目标；不能安全热切换的参数返回重启要求。Data Generator 不填写 Collector 的采集修订号；当 Collector 从 Gateway/协议对端采样时，Collector 仅在运行态记录生效配置闭包，不向 SampleBatch v3 增加 `config_revision_id` 字段。
+Configuration 发布完整目录后经 NATS Core 广播修订；Data Generator 自行从 Configuration Repository gRPC 读取对应的完整修订闭包。正在执行的物理模型和随机场景持有完整不可变配置快照，更新不得混合不同修订的模型参数、仿真变量映射及 Gateway 目标；不能安全热切换的参数返回重启要求。Data Generator 不填写 Collector 的采集修订号；当 Collector 从 Gateway/协议对端采样时，Collector 仅在运行态记录生效配置闭包，不向目标 SampleBatch v4 增加 `config_revision_id` 字段。
 
 **变量身份定案**：单设备 Gateway API 使用 PointTable 原始 `point_id`，跨设备区分使用设备 ID+Point ID 的结构化键；源、目标 PointTable 的 `point_id` 不同时使用显式 `variable_mapping` 关联目标已有点位；允许一个源点映射到同一或不同 Gateway 的多个目标，禁止多个来源占用同一目标，禁止创建新变量身份。Data Generator 不创建独立第二套变量目录，不伪造采样配置修订。现行 DataGeneratorService 恰有 9 项专属 RPC，受控内部连接禁用 TLS/mTLS 并要求令牌。
 

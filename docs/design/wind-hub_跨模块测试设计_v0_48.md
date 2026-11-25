@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v0_48 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -165,11 +165,11 @@ $$
 
 # 3. 测试目标、范围与总体要求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
-**main 集成基线（2026-11-23）**：按当前集成的 Storage、Contracts、Configuration、CLI 及 SampleBatch v3/Kafka v2 设计真实完整链路；中间件和数据库由测试单独启动，其他服务经 CLI 启动，操作经 CLI 发出，覆盖全部现行接口。 旧分支的开发状态及历史适配方案不得替代已集成代码与当前协议。
+**迁移基线（非目标验收）**：现行 main NATS v3/Kafka v2；目标验收采用 NATS v4/Kafka v3、Storage v2。中间件与数据库由测试启动，服务经 CLI 启停及操作，覆盖全部目标 RPC/CLI 叶子。
 
 ## 3.1 测试目标
 
@@ -192,12 +192,12 @@ $$
 
 | 领域 | main 归并后唯一设计文件 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_28.md`、`Core_软件设计_v1_46.md` | DFD 归属、共享配置归 Core |
-| Contracts / Configuration | `Contracts_软件设计_v1_46.md`、`Configuration_Service_软件设计_v1_24.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
-| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_63.md`、`industrial_gateway_软件设计_v1_53.md` | 仿真、变量身份、目标写入与端口权限 |
-| Collector / Commander | `Collector_软件设计_v1_45.md`、`Commander_软件设计_v1_60.md` | 目标同步 SampleBatch、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_78.md`、`Storage_Service_软件设计_v1_12.md` | Kafka JSON v3、设备宽表及查询 |
-| CLI | `CLI_软件设计_v1_57.md` | CLI 命令树、进程启动和全量发布 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_29.md`、`Core_软件设计_v1_47.md` | DFD 归属、共享配置归 Core |
+| Contracts / Configuration | `Contracts_软件设计_v1_47.md`、`Configuration_Service_软件设计_v1_25.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
+| Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_64.md`、`industrial_gateway_软件设计_v1_53.md` | 仿真、变量身份、目标写入与端口权限 |
+| Collector / Commander | `Collector_软件设计_v1_46.md`、`Commander_软件设计_v1_60.md` | 目标同步 SampleBatch、控制安全、运行状态 |
+| Sink / Storage | `Sink_Service_软件设计_v1_79.md`、`Storage_Service_软件设计_v1_13.md` | Kafka JSON v3、设备宽表及查询 |
+| CLI | `CLI_软件设计_v1_58.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
@@ -604,7 +604,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 ## 9.5 Contracts 数据包与 Sink 三级交付的真实链路验收
 
-测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。现行输入采用 `SampleBatch(schema_version=3)`，Kafka/Redis JSON 为 `schema_version=2`；用独立真值及 Broker/Storage 观察验证而非沿用旧 v2/v1 断言。
+测试按 Contracts §11.6 及 §11.9 的**唯一正式线格式**生成 Golden Data 并从真实 NATS 和下游目标独立读取，不得用测试私有 JSON 替代。目标输入采用 SampleBatch v4，Kafka JSON v3；Redis 单独按其既有目标契约验证；用独立真值及 Broker/Storage 观察验证而非沿用旧 v2/v1 断言。
 
 | 验收项 | 激励及配置 | 独立观察与断言 |
 |---|---|---|
@@ -658,7 +658,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 ## 10.4 Storage 性能、故障与落地容量
 
-按 Storage v1_12 §14 执行 F01–F22、TD01–TD12。单等级 P1 10×500×10=50000 点/s、100 行/s；P2 12×500×10=60000 点/s、120 行/s；P3 30×500×10=150000 点/s、300 行/s；三等级完整同时写入为450000点/s、900行/s。每工况至少60s，最高满足工况至少600s；保留10分钟及60分钟长稳目标。单实例，不做多实例容量。裸库、Kafka→Storage、Sink→Kafka、全链路分段；实际发布≥目标95%，lag 不持续增长，最终无缺值、错值；记录CPU/RSS、IO、压缩、延迟、批大小、broker ACK、数据库确认/commit。真实500不同点及变化值，不重复同点。
+按 Storage v1_13 §14 执行 F01–F22、TD01–TD12。单等级 P1 10×500×10=50000 点/s、100 行/s；P2 12×500×10=60000 点/s、120 行/s；P3 30×500×10=150000 点/s、300 行/s；三等级完整同时写入为450000点/s、900行/s。每工况至少60s，最高满足工况至少600s；保留10分钟及60分钟长稳目标。单实例，不做多实例容量。裸库、Kafka→Storage、Sink→Kafka、全链路分段；稳定计量窗口实际发布≥目标100%，lag 不持续增长，最终无缺值、错值；记录CPU/RSS、IO、压缩、延迟、批大小、broker ACK、数据库确认/commit。真实500不同点及变化值，不重复同点。
 
 TD01 裸库/taosBenchmark、TD02 STMT2 多表、TD03 Statement 复用、TD04 vgroups 2/4/8、TD05 buffer 128/256/512 MB、TD06 批量阈值、TD07 WAL/故障恢复、TD08 NULL覆盖、TD09真实压缩、TD10查询并发、TD11 500点列/行宽与 VARBINARY、TD12参数回读。WAL_LEVEL=2/WAL_FSYNC_PERIOD=0 可靠基线，不允许关闭 WAL 取得性能；只保留显著收益调优，不擅自降额认定 READY。
 

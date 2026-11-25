@@ -1,6 +1,6 @@
 <h1 class="title">CLI 软件设计</h1>
 
-<p class="subtitle">v1_57 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_58 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -635,13 +635,13 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
 **main 集成基线（2026-11-23）**：以当前 `src/cli/` 命令树及 `src/contracts/*.proto` 为唯一运行接口基线；CLI 根目录全量发布 Deployment，业务服务独立拉取配置并热更新或等待重启。不得恢复旧的逐模块配置分发流程。 历史章节如与此基线、当前 Proto 或已集成源码冲突，以可执行契约为准，不将开发阶段的待办状态视为当前事实。
 
-**当前冻结契约基线**：现行正式 Proto。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_45》为准；旧 main SHA 及旧版 CLI 不再作为接口依据。
+**当前冻结契约基线**：现行正式 Proto。外部 RPC/消息以 `src/contracts/*.proto` 和《Contracts 软件设计 v1_47》为准；旧 main SHA 及旧版 CLI 不再作为接口依据。
 
 CLI 是 wind-hub 的统一管理、控制、调试和诊断客户端。其业务输出为发往 Service 的 gRPC 请求、发往进程管理器的操作请求以及 CLI 本地网络探测；现场操作和权威业务状态归对应 Service 所有。第 3.1 节是已确认的需求范围，第 3.2 节将其分解为可核验要求。
 
@@ -1744,10 +1744,10 @@ flowchart LR
 
 ## 9.0 宽表接口迁移
 
-按 Contracts 精确根版本 GetConfigBundle 与 Storage 宽表 RPC 生成客户端；查询、聚合、导出、备份、统计、阻断分区及重试全部叶子覆盖。显示设备、版本、等级、列描述、时间、质量；不伪造被删除的逐点身份及内容哈希。跨版本分组、分页、授权保持。配置发布仍按完整目录；校验清理后的引用，不以推荐版本替代历史。正式 Proto/命令参数待编码冻结，不保留废弃兼容命令。
+按 Contracts 精确根 GetConfigBundle 与 Storage v2 九 RPC 生成客户端；保留业务叶子，删除逐点身份、逻辑键、哈希参数/输出。查询/聚合/导出过滤：--wind-farm-id、--device-id（可重复）、--device-type、--point-table-id、--data-level（必填）、--point-id（可重复）、--start-time、--end-time、--quality（可重复）、--schema-fingerprint；查询/聚合增加 --page-size、--page-token，聚合增加 --aggregation、--window-ms。配置 bundle 增加可重复 --exact-root（完整类型、ID、固定版本），与 roots/revision 互斥、依赖必取。JSON 保留组、列、值、NULL、质量与分页，表格按组输出，不伪造跨 Schema 对齐。其余管理参数及权限遵循 Contracts，全部叶子覆盖。最终叶子名称按现行 CLI 生成映射核验，不保留兼容命令。
 
 
-本章只规定 CLI 如何消费远程接口；本地通用机制按第 7.3 节优先复用 Core。**所有 gRPC Service、RPC 参数、消息字段编号、枚举和 wire 兼容性由《Contracts 软件设计 v1_45》及上述基线的 `src/contracts/*.proto` 统一定义**。CLI 不拥有 Proto，不实现业务 Server，不得私自新增字段或通过空字符串模拟缺失字段。契约版本更新须先修改 Contracts 文档与 Proto，并检查所有调用方。
+本章只规定 CLI 如何消费远程接口；本地通用机制按第 7.3 节优先复用 Core。**所有 gRPC Service、RPC 参数、消息字段编号、枚举和 wire 兼容性由《Contracts 软件设计 v1_47》及上述基线的 `src/contracts/*.proto` 统一定义**。CLI 不拥有 Proto，不实现业务 Server，不得私自新增字段或通过空字符串模拟缺失字段。契约版本更新须先修改 Contracts 文档与 Proto，并检查所有调用方。
 
 ## 9.1 客户端通信与边界
 
@@ -1834,7 +1834,7 @@ CLI 发现契约不能表达的需求时，记录差异并提交 Contracts 统�
 
 **批量业务结果：**accepted 仅代表完整受理；CLI 不将收到 command_ids[] 当作已写入。各项 state/outcome 与 io_settled 均按 Commander 返回渲染；请求级 UNKNOWN、部分成功及部分失败需同时呈现，不自行汇总为 PASS。所有访问按正式 control/query 权限模型授权。Commander 返回 NOT_FOUND 也不能等同于“从未执行”。
 
-**契约与版本声明：**集中配置遵从 Contracts v1_45、冻结总体设计 v1_27 第 5 章；现场控制仍以 Commander 正式接口为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。配置发布调用独立 Configuration Repository，通知由 Configuration 经 NATS Core 广播；业务模块主动通过 gRPC 拉取，不在 CLI 实现第二套配置装配机制。
+**契约与版本声明：**集中配置遵从 Contracts v1_47、冻结总体设计 v1_27 第 5 章；现场控制仍以 Commander 正式接口为准。`SubmitCommands` 与 `GetRequestResult` 已存在于正式 Proto，客户端实现与真实 RPC 行为仍须独立验收。配置发布调用独立 Configuration Repository，通知由 Configuration 经 NATS Core 广播；业务模块主动通过 gRPC 拉取，不在 CLI 实现第二套配置装配机制。
 
 ## 9.6 冻结接口与客户端行为（规范性）
 
@@ -1928,7 +1928,7 @@ wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
 | `sink start/stop` | DELIVERY_ID | Sink Delivery 控制 | 修改期望状态 |
 | `sink metrics/events` | 可选筛选 | Sink 指标/事件 | 消费及交付 |
 | `gateway list/status/variables/update/start/stop/metrics` | `update`：GATEWAY_ID、变量值集合；其他同前 | Gateway `ListVariables`/`ReadVariables`/`ClaimTargets`/`UpdateVariables` 等 | CLI 支持变量发现→租约申请→批量更新→租约释放→逐项结果→读回确认；RPC 不触发现场控制；未实现验收失败 |
-| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_45 的专属 RPC 实现 |
+| `data-generator devices/device/scenarios` | 可选对象 ID | Data Generator ListDevices/ListScenarios | 依据 9.2 及 Contracts v1_47 的专属 RPC 实现 |
 | `data-generator start/stop/status` | 场景/任务标识 | StartGeneration / StopGeneration / GetGeneration | start 传 scenario_id、stop/status 传 generation_id；无故障注入命令 |
 | `data-generator variables list` | generation_id、device_id，分页参数 | 现行 DataGeneratorService `ListVariables` | 展示 POINT_TABLE/WEATHER_INPUT 来源、类型、单位、角色和当前 writable；是否可用仍须真实 RPC 验证 |
 | `data-generator variables update` | generation_id、device_id、point_id/value 或 values-file、request_id | 目标 DataGeneratorService `UpdateVariables` | 仅可控模型 INPUT；整批原子、幂等、有效步反馈，不是 Gateway 数据注入 |
@@ -2361,7 +2361,7 @@ Message : Snapshot revision changed; fetch the current snapshot
 
 **接口实施门槛**：正式 Proto 与生成绑定必须一致，Data Generator Server 和 CLI 均须实现可调用的变量发现与更新；仅声明接口或返回 `UNIMPLEMENTED` 不构成功能完成。
 
-基于 Data Generator v1_62 与 Contracts v1_45，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
+基于 Data Generator v1_62 与 Contracts v1_47，本节定义变量发现与运行时模型输入更新。完整功能必须以真实 Server/CLI 调用验收为依据；既有设备、场景及生成任务契约不变。
 
 | CLI 命令（目标） | 调用 RPC | 作用与输出 |
 |---|---|---|

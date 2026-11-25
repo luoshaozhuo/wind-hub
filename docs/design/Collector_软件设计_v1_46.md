@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_45 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_46 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC；由 Configuration 广播 revision 提示，Collector 独立对账。
 
@@ -751,7 +751,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
@@ -2706,7 +2706,7 @@ flowchart LR
   NATS 不可用/发布超时    分别记录明确失败、未确认与未发送；NATS   **两种模式均可能丢失本轮数据**；PubAck
                           连接监督独立重试                         超时不等于确定未送达，不能盲重发
 
-  超限的单次来源批次      只在当前源事件内拆分多个稳定子批             不跨采集周期/原生回调合并   
+  超限的单次来源批次      Realtime 仅源事件内拆分；Reliable 拒绝超限             不跨采集周期/原生回调合并   
 
   消费端慢/下游存储故障   Collector 与 Sink 通过 NATS 解耦         由 NATS/JetStream 与 Sink
                                                                    自身确认、保留、重试策略决定，不属于
@@ -3067,6 +3067,8 @@ Collector 的 Server 实现责任。实现中如发现 `common.proto`
 固定活动 Device Instance 完整版本身份及 device_id，目标 SampleBatch v4 见 Contracts §11.6，派生字段由闭包解析。历史设备采样事件统一 sample_time，允许 NULL；不得让多个 Task/点组同设备同一时刻提交不同部分行。核验现行调度、point_groups、采样事件及消息大小；超限或不满足同步约束时阻断，不拆完整历史行。协议响应可分次读取，不宣称物理同时测量，统一采样事件时间语义由采集计划定义。保留真实原始载荷、质量、必要追踪、实时 TTL。配置切换在途批固定旧身份。
 
 
+**Reliable 历史采样计划：**每设备唯一历史 Task，激活前检查全可读点覆盖、唯一所有权、统一周期、协议能力及编码限额。poll 每个 fixed-rate 时隙开始固定 sample_time 和配置闭包，按计划完成协议块读取；多次读取不声明物理同时。截止不晚于下一时隙，不重入；已完成值保留，未尝试 NULL/0，已尝试失败 NULL/2；固定点集事件只提交一次。迟到回调不补写，跳过时隙独立计数，不伪造观测。订阅源仅在提供完整同步设备事件时用于 Reliable，其他 subscribe/listen 只用于 Realtime，不跨回调对齐历史。切换先停止旧 Task 新事件、结算旧事件，再激活新计划。验收覆盖多块、部分失败、迟到、重复 Task、超限、热切换及500点10 Hz。
+
 ## 10.1 单设备唯一任务与采集机制
 
 每设备一个采集实例。**采集触发策略与 Sink 的下游输出策略分离**；各采集模式统一调用批量回调 `tuple[ProtocolSample, ...]`，一次来源采集完成或一次原生通知形成一个逻辑批次。
@@ -3074,14 +3076,14 @@ Collector 的 Server 实现责任。实现中如发现 `common.proto`
 | 模式 | 采集触发 | 源批次边界 | 当前实现 |
 |---|---|---|---|
 | `poll` | Task `interval` 周期主动批读，fixed-rate、超期跳过、不重入 | 每次采集周期完成即提交一批 | ADS、Modbus 及声明真实读取能力的协议 |
-| `subscribe` | PLC 原生 Notification 回调 | 每次原生通知回调所含测点构成一批；多个块分别到达就分别发，不等待点表全点齐全 | ADS `cyclic/on_change` 原生注册均已编码；`on_change` 尚待 PLC 系统验收 |
-| `listen` | 设备原生主动上送事件 | 每次协议接收消息集合构成一批；无事件不补造采样 | IEC104 Listener |
+| `subscribe` | PLC 原生 Notification 回调 | Realtime 按原生事件；Reliable 仅完整同步可读点表事件 | ADS cyclic/on_change；on_change 不作为固定频率历史采样 |
+| `listen` | 设备原生主动上送事件 | Realtime 按原生事件；非完整同步事件禁止 Reliable 历史输出 | IEC104 Listener |
 
 例如 `poll.interval=0.1 s` 时，正常情况下每 100 ms 采集并提交一批（约 10 批/s）；绝不等 1 s 凑十个周期再交付。该频率表示**采样与发布提交节奏**，不保证 Broker/Sink 每 100 ms 完成确认；设备 I/O 过慢时记录延迟与跳过时隙。原生 `subscribe/listen` 不臆造计划采样次数，也不增设 Collector 的周期补发或缓存合批功能。
 
 **ADS 通知触发方式（目标协议配置）：**在通用 ADS 协议模板内增加 `notification_trigger: cyclic | on_change`，默认 `cyclic`。`cyclic` 使用已有 `notification_interval`；`on_change` 必须基于 PLC 原生变化通知能力，不通过 Collector 轮询或值比较模拟。**ADSSubscription 已按 `notification_trigger` 使用原生 `ADSTRANS_SERVERCYCLE/ADSTRANS_SERVERONCHA`**，且更新点表时保持触发模式。Core 新增 `ads_1.2.0.yaml`；现有设备实例仍引用旧型号版本，升级引用后才能选用新参数。实际 PLC 原生变化通知、块级触发、断连恢复和热更新尚未通过系统验收，不得宣称现场能力 PASS。订阅类型属于 Core 原生协议能力，不作为 Collector 新增业务采集模式。
 
-**源批次与传输子批：**每次 `poll` 结果或 `subscribe/listen` 原生回调形成独立源批次；NATS 批次点数/字节超限时，仅对**这一事件的测点**确定性拆分多个稳定子批，不跨来源事件合并；各子批保留原样本时间和唯一身份，Reliable 重投不得替换内容与 ID。Metrics 的 1 s / 60 s 汇总周期不是采样批次发布周期。
+**源批次与传输子批：**Realtime 原生事件可以确定性拆稳定子批，不跨事件合并；Reliable 一个设备采样事件仅允许一个完整批，超限拒绝激活或阻断，禁止拆分。重投保持原始 ID、时间及内容。Metrics 汇总周期不是采样周期。
 
 **gRPC：**`ReadPoints` 是一次性主动现场设备读，响应 `samples[]` 是本次读点集合；此接口不会创建周期采集任务，也不将其结果额外发布 NATS。客户端需要 10 Hz 时可间隔 100 ms 发起独立 Unary 请求，实际完成率仍受设备 I/O 串行和超时约束。
 
@@ -3199,7 +3201,7 @@ Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集�
 
 
 
-**配置与数据契约：**现行代码按 `SampleBatch(schema_version=3)` 和 Configuration 依赖闭包运行，消息字段以 Contracts 与当前实现为准。Collector 发布成功不构成任何 Sink 目标交付确认；Reliable Publish 仅以 JetStream PubAck 记账。源事件的 `batch_id/sample_id` 在进入有界发送队列时确定并在重试中保持不变。Sink 对合法来源零 Delivery 匹配的跳过不应反向改变 Collector 采样语义。
+**配置与数据契约：**目标按 Contracts SampleBatch v4 和固定 Configuration 闭包运行；v3 仅为现行迁移基线。Reliable Publish 以 JetStream PubAck 记账，不代替目标确认。batch_id/sample_id 进入队列前确定，重投保持不变；合法零 Delivery 匹配不改变采样语义。
 
 ## 11.1 三类配置与所有权
 

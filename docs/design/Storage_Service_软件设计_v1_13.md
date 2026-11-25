@@ -1,6 +1,6 @@
 <h1 class="title">Storage Service 软件设计</h1>
 
-<p class="subtitle">v1_12 · 20261125 · 设备级宽表重构设计（待技术验证）</p>
+<p class="subtitle">v1_13 · 20261125 · 设备级宽表重构设计（待技术验证）</p>
 
 <style>
 body {
@@ -851,9 +851,9 @@ Configuration 当前 GetServiceConfigBundle 用于活动闭包；扩展 GetConfi
 
 ## 9.2 查询接口
 
-目标保留查询、聚合、导出、备份任务、统计、阻断分区查询和重试能力；接口结构归 Contracts，不保留已删除的 sample_id、logical_key、content_sha256、逐点 publish_time/receive_time 等虚假历史字段。QuerySamples 改为设备级宽表分页结果：每组给出场站、设备、PointTable 完整身份、等级、物理 Schema 标识、逻辑测点列描述（类型、单位）与多行采样时间、值、质量。过滤项包含场站、设备、等级（显式必选）、PointTable 版本、测点集合、时间半开区间、Quality、page_size/page_token。分页按版本表族及时间稳定排序，签名不透明游标绑定条件、初始上界、排序位置和 15 分钟有效期；不承诺跨页 MVCC。跨版本默认分别返回，只有类型、单位、物理意义已确认兼容时才可显式合并。
+目标保留查询、聚合、导出、备份任务、统计、阻断分区查询和重试能力；接口结构归 Contracts，不保留已删除的 sample_id、logical_key、content_sha256、逐点 publish_time/receive_time 等虚假历史字段。QuerySamples 改为设备级宽表分页结果：每组给出场站、设备、PointTable 完整身份、等级、物理 Schema 标识、逻辑测点列描述（类型、单位）与多行采样时间、值、质量。过滤项包含场站、设备、等级（显式必选）、PointTable 版本、测点集合、时间半开区间、Quality、page_size/page_token。分页按 Schema 指纹、设备 ID、时间稳定排序，签名不透明游标绑定条件、初始上界、排序位置和 15 分钟有效期；不承诺跨页 MVCC。跨版本默认分别返回，只有类型、单位、物理意义已确认兼容时才可显式合并。
 
-QueryAggregates 支持 COUNT/MIN/MAX/AVG 与窗口；默认原生聚合仅在语义与过滤条件一致时使用，Quality 筛选需正确解码位图后计算；空窗口、NULL、非数值和无有效样本应明确结果，不能把 NULL 当 0。导出 CSV 宽表（版本化列，质量可解码输出）、JSON 设备行；跨 Schema 分文件或显式版本分组，流式写入、有界任务及大小限制。备份使用实际版本验证过的 TDengine 原生工具，并包含受管 Schema 元数据、历史解释闭包及恢复校验；未通过鉴权及恢复测试不得启用。任务 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED；任务 ID 幂等，受控目录，返回路径/标识、字节数、SHA-256、状态，不泄露凭据。重启在途任务标 INTERRUPTED。管理接口权限及字段迁移同步 CLI。
+QueryAggregates 支持 COUNT/MIN/MAX/AVG 与窗口；默认原生聚合仅在语义与过滤条件一致时使用，Quality 筛选需正确解码位图后计算；空窗口不补造；COUNT/MIN/MAX/AVG、Quality、诊断计数、NULL 与有类型结果按 Contracts §14.1，不把 NULL 当0或把 uint64 MIN/MAX 转 double。导出 CSV 宽表（版本化列，质量可解码输出）、JSON 设备行；跨 Schema 分文件或显式版本分组，流式写入、有界任务及大小限制。备份使用实际版本验证过的 TDengine 原生工具，并包含受管 Schema 元数据、历史解释闭包及恢复校验；未通过鉴权及恢复测试不得启用。任务 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED；任务 ID 幂等，受控目录，返回路径/标识、字节数、SHA-256、状态，不泄露凭据。重启在途任务标 INTERRUPTED。管理接口权限及字段迁移同步 CLI。
 
 # 10. 核心技术与数据契约
 
@@ -868,7 +868,7 @@ QueryAggregates 支持 COUNT/MIN/MAX/AVG 与窗口；默认原生聚合仅在语
 | SubTable | 场站、设备、SuperTable 身份；首次设备数据 |
 | Column | RAW/PROTOCOL 用源 point_id，BUSINESS 用 business_point_id；均附 PointTable file_version |
 | Row | ts 唯一主键；完整设备同步采样值和 Quality |
-| TAG | device_id、device_type、point_table_id、data_level、Schema 指纹（或可校验元数据键） |
+| TAG | device_id、device_type、point_table_id、data_level、schema_fingerprint |
 
 不按自然月拆表，TDengine DURATION 决定原生固定时间跨度。旧版本表及列不修改、不因停用自动删除；旧消息路由原版本。仅 Device Instance 版本、IP、Task 或采样率变动不触发新 Schema。PointTable 版本变化即分表族，即使列相同。物理类型映射变化影响列类型时产生新指纹表族。
 
@@ -903,7 +903,8 @@ CREATE STABLE IF NOT EXISTS farm_a.ads_wtg_gw2mw_v1_2_0_protocol (
     device_id VARCHAR(128),
     device_type VARCHAR(64),
     point_table_id VARCHAR(192),
-    data_level TINYINT
+    data_level TINYINT,
+    schema_fingerprint VARCHAR(64)
 );
 ```
 
@@ -942,7 +943,7 @@ DDL 为示例，字段边界及绑定须经目标版本验证。使用白名单 
 | commit 失败/进程崩溃 | 由 broker 已提交位置恢复，原生覆盖；禁止越过未确认缺口 |
 | 撤销分区 | fence 旧代际；旧写入安全结束或可信隔离后恢复 |
 
-注意同键后到覆盖与跨崩溃重放的关系：较小 offset 重放可能暂时覆盖较大 offset 已写值；必须从连续提交位置有序重放直到恢复最后值，恢复中查询不承诺已恢复最终状态。不得把原生覆盖宣称为跨系统 exactly-once。跨进程旧 I/O 无法隔离是生产阻断条件。
+恢复时先记录 broker 已提交位置和开始时末端 offset，旧 I/O 必须安全结束或可信隔离。按 offset 有序重放至恢复边界并提交连续前缀；期间可能暂时覆盖较新未提交值，受影响场站历史查询、聚合、导出、备份返回 UNAVAILABLE，直至恢复边界确认提交。例：提交 next=10，10/11 同 ts，11 已写未提交，重放10、11最终为11，期间查询关闭。正常查询不承诺未确认数据最终状态。禁止手工回退正常消费组，历史重建另行授权并隔离目标。不宣称跨系统 exactly-once；跨进程旧 I/O 无法隔离是生产阻断，D2 未证明不得进入编码冻结。
 
 # 11. 配置与动态生效
 
@@ -950,11 +951,11 @@ DDL 为示例，字段边界及绑定须经目标版本验证。使用白名单 
 
 Service 仅依赖 Instance，Instance 固定依赖模板；不新增 Storage 专用点表。Device Cache 按场站、Device Instance 完整版本、设备 ID；Schema Cache 按 PointTable 完整身份、等级、物理类型映射代际；Table Cache 按场站、设备、Schema 指纹。未知设备或版本主动获取精确闭包，校验授权、身份、文件摘要、依赖关系及 Manifest；不可变历史归档持久化，缓存有界、单飞、引用中不可淘汰。Configuration 发布通知为唤醒，周期对账；候选校验后原子切换，失败保留原 active，目标与活动版本分别报告。新表按需生成，旧闭包仍可解析。历史配置在数据/重放/备份依赖期间不得物理清除。
 
-类型映射改变物理 Schema 时，旧缓冲固定旧代际并排空。为防重放到不同表，必须持久保存物理映射生效边界（至少 topic/partition offset 起始位置与映射指纹），按原边界恢复历史写入；该规则是补充安全门禁，未验证前类型映射变更须停写、排空并受控切换，不宣称无条件热更新。
+类型映射改变物理 Schema 时，物理映射变更仅受控停写切换：停止生产者、确认旧 topic 末端、排空并确认全部分区连续前缀、证明无 UNKNOWN；各分区 next offset 为新代际起点。持久登记 topic 不可变身份、partition、起始 offset、完整映射及指纹并回读；全部登记成功才激活新配置及恢复生产。失败保持停写，重启核验切换状态后完成或回滚未激活登记。按原 offset 区间解释历史，保留映射及备份。禁止未受控变更分区数、算法或重建同名 topic。D2 验证持久化能力。
 
 ## 11.2 配置示例与参数
 
-以下为目标增量配置，不是已经部署的 YAML；保留现有 bootstrap、Service/Deployment、授权场站、Kafka、gRPC、auth、query、export、backup、reconciliation 等必要配置。实现阶段应形成完整唯一 YAML 契约，并逐字段同步 Schema、加载器、Fixture；不保留旧 batch_max_records 和新 batch_max_rows 两套同义字段。
+以下为目标增量配置，不是已经部署的 YAML；保留现有 bootstrap、Service/Deployment、授权场站、Kafka、gRPC、auth、query、export、backup、reconciliation 等必要配置。实现阶段应形成完整唯一 YAML 契约，并逐字段同步 Schema、加载器、Fixture；删除 kafka.max_buffer_records/max_buffer_bytes 与 tdengine 旧平铺 batch_max_records、batch_max_bytes、batch_wait_ms、write_timeout_ms；统一 ingestion 预算，保留 Kafka poll/partition/commit 与 TDengine connection/SQL/DDL 限额；query.max_page_size 改为宽表行。cachesize 不作为新基线，原生默认及可配置性由 D2 核验。
 
 ```yaml
 tdengine:
@@ -1011,7 +1012,7 @@ tdengine:
 | batch_wait_ms | 0–60000，60000 | 最老缓冲等待上限 |
 | buffer_max_rows | 100–100000，10000 | 不低于 batch_max_rows |
 | buffer_max_bytes | 1–512 MiB，128 MiB | 不低于批次及 fetch/驱动余量 |
-| writer_count | 1–32，4 | 不超过连接/SQL 并发限额 |
+| writer_count | 1–32，4 | 不超过连接/SQL 并发限额；受控排空、重建 writer 池后整体激活 |
 | write_timeout_ms | 100–120000，10000 | 不代表 I/O 终结 |
 | type_mapping | 完整标准类型到合法无损 TDengine 类型 | 新物理指纹，旧批固定代际 |
 
@@ -1093,11 +1094,11 @@ TDengine 官方参考（公开文档可能含较新版本能力，均须在 3.3.
 | P2 | 12 | 500 | 10 | 60000 | 120 |
 | P3 | 30 | 500 | 10 | 150000 | 300 |
 
-逐阶段测裸库、Kafka→Storage、Sink→Kafka、完整 Collector→Sink→Storage；每工况至少 60s，最高满足工况持续至少 600s。真实设备配置、不同测点、真实变化值，不以重复同一测点冒充 500 点。独立预期集合按场站/设备/Schema/ts/等级和最终 offset 内容核对实际 SQL、RPC 结果，逐值及质量核验，RAW 对照真实载荷。实际发布速率至少目标 95%，确认/最终落库不得缺行或错值，稳定期 lag 不持续增长；报告吞吐、p50/p95/p99、资源、批次大小与实际压缩。三等级同时运行单列报各级实际负载，不混淆点数、逻辑行、Kafka Record 与物理 builder。P3 为目标，不能未经授权降额认定生产 READY。仅单实例，不开展多实例容量测试。
+逐阶段测裸库、Kafka→Storage、Sink→Kafka、完整 Collector→Sink→Storage；每工况至少 60s，最高满足工况持续至少 600s。真实设备配置、不同测点、真实变化值，不以重复同一测点冒充 500 点。独立预期集合按场站/设备/Schema/ts/等级和最终 offset 内容核对实际 SQL、RPC 结果，逐值及质量核验，RAW 对照真实载荷。稳定计量窗口实际发布速率至少目标 100%，确认/最终落库不得缺行或错值，稳定期 lag 不持续增长；报告吞吐、p50/p95/p99、资源、批次大小与实际压缩。三等级同时运行单列报各级实际负载，不混淆点数、逻辑行、Kafka Record 与物理 builder。P3 为目标，不能未经授权降额认定生产 READY。仅单实例，不开展多实例容量测试。
 
 # 15. 设计决策追溯及编码准入
 
 本版覆盖本轮 A01–A38：宽表、按场站建库、按需建表、三级版本化列、1095d KEEP、30d DURATION、us、固定设备配置身份、精确历史闭包、可配置无损类型映射、Quality 2 bit、完整同步设备批次、原生时间戳覆盖、后到优先、异步有界消费、多表绑定、连续 Offset、历史保留、配置及文档清理。
 
-当前状态 DESIGN_DRAFT / TECHNICAL_GATES_PENDING；文档基线已归并但不是生产或编码冻结批准。必须取得 TD01–TD12 中直接影响正确性/可实现性的证据，完成 Collector 完整同步批次、精确 Configuration 根版本闭包、物理映射代际重放、接口字段与 CLI 迁移设计、完整 YAML 契约及跨文档一致性审查，才可宣称编码冻结。未执行测试或真实渲染时如实标记 NOT_RUN。当前代码仍为旧契约，禁止混合部署；不保留废弃兼容实现。
+当前状态 DESIGN_REVISED / TECHNICAL_GATES_PENDING；文档基线已归并但不是生产或编码冻结批准。必须取得 TD01–TD12 中直接影响正确性/可实现性的证据，完成 Collector 完整同步批次、精确 Configuration 根版本闭包、物理映射代际重放、接口字段与 CLI 迁移设计、完整 YAML 契约及跨文档一致性审查，才可宣称编码冻结。未执行测试或真实渲染时如实标记 NOT_RUN。当前代码仍为旧契约，禁止混合部署；不保留废弃兼容实现。
 

@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_78 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_79 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -753,11 +753,11 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
-**main 集成基线（2026-11-23）**：本模块按已集成的 Collector SampleBatch v3、Kafka JSON v2、Storage 与 Configuration Deployment 闭包解释数据。`output.data_level` 必须显式选用 `raw`、`protocol` 或 `business`，不能隐式默认 business；RAW 无真实协议载荷时必须拒绝。三进程结构与可靠 ACK 语义保持。历史 R0/R1/旧 Schema 小节仅为非规范性迁移记录，不得覆盖当前实现。
+**迁移基线（非目标契约）**：现行 main NATS v3/Kafka v2；目标为 Contracts NATS v4/Kafka v3、固定 Device Instance 闭包及完整设备记录。历史 R0/R1/旧 Schema 仅为迁移和性能证据，不作为目标验收。三级显式选择，可靠 ACK 保持。
 
 本章按第 2.2 节规定，以“基本信息与触发方式 → 业务流程 → 业务规则 → 关键约束”描述八项原始需求。业务规则仅展开流程中的复杂算法、精确数据契约及边界，不复述图形；关键约束仅放非功能要求。第 4 章按用例组织场景，第 5～13 章落实实现契约。
 
@@ -776,7 +776,7 @@ System Test 必须遵守以下规定：
 | UR-07 | 链路诊断（Diagnose） | 按阶段提供可核验证据而不破坏生产链路 | API |
 | UR-08 | gRPC 服务端实现 | 实现已冻结的 9 公共 + 4 专属 Unary RPC | API、生命周期 |
 
-首版 Sink 必须支持四种交付目标：Redis Client、Modbus TCP Server、Industrial Gateway gRPC Client（均只允许 Realtime）以及 Kafka Producer（只允许 Reliable）。不支持 TDengine、MQTT、IEC 104。当前 main 已发布 `contracts.sample_batch.SampleBatch(schema_version=3)` 双通道批量契约；Sink 的消费实现须按该已冻结契约与 Collector 联调，未验证的联调结果不得标记为 PASS。Realtime 经 NATS Core、Reliable 经 JetStream，质量标志不得被改变。
+首版 Sink 必须支持四种交付目标：Redis Client、Modbus TCP Server、Industrial Gateway gRPC Client（均只允许 Realtime）以及 Kafka Producer（只允许 Reliable）。不支持 TDengine、MQTT、IEC 104。目标采用 `SampleBatch(schema_version=4)` 双通道批量契约；Sink 须按目标契约与 Collector 联调，未验证的联调结果不得标记为 PASS。Realtime 经 NATS Core、Reliable 经 JetStream，质量标志不得被改变。
 
 ### 3.1.1 首版派发负载与验收基准
 
@@ -2582,7 +2582,7 @@ R12 已验证 Kafka 编码 CPU 可降低约 33.1%，短时饱和吞吐增加 18.
 
 ## 10.3 批量消息接收与校验
 
-现行生产源消息使用 `contracts.sample_batch.SampleBatch(schema_version=3)`，遵循 Contracts §11.6，批内测点为 `SampleItem`。接收上限由 Service 配置 `nats.max_samples_per_batch` 和 `nats.max_batch_bytes` 显式传入 `SampleBatch.decode()`；未配置或超过容量拒绝，不能修改 Contracts 常量。仓库默认 500 点、1 MiB 仅为默认值，Collector 发布上限不得超过 Sink 的对应接收上限及 NATS Server `max_payload`。批次身份包括 `wind_farm_id/collector_id/task_id/device_id/mode/batch_id`，逐点保留 `point_id/sample_id/value/quality/sample_time`；Realtime TTL 随测点提供。
+目标源消息采用 SampleBatch v4，见 Contracts §11.6。默认500点、1 MiB；接收上限由 Service 显式传入 decode，发布上限不得超过 Sink 与 NATS Server 上限。批身份包含固定 device_config_id、场站、Collector、Task、设备、mode、batch_id；统一 sample_time，TTL 位于 Realtime 批次，逐点身份与真实载荷保留。历史批缺应有可读点为契约违反，不进入 Kafka 正常编码。
 
 | 通道 | Subject | 校验不通过 |
 |---|---|---|
@@ -2727,7 +2727,7 @@ sequenceDiagram
 
 ## 10.7 Kafka 高吞吐批量交付
 
-目标 Kafka JSON v3 见 Contracts §11.9，一设备同步采样事件、一等级、一条完整 Record。解析 device_config_id + device_id 固定历史闭包，按 Delivery 做 RAW/PROTOCOL/BUSINESS 处理并保持源点及质量；缺真实 RAW 或批准业务闭包时可靠源不确认。删除逐点 Kafka 编码。
+目标 Kafka JSON v3 见 Contracts §11.9，一设备同步采样事件、一等级、一条完整 Record。解析 device_config_id + device_id 固定历史闭包，按 Delivery 做 RAW/PROTOCOL/BUSINESS 处理并保持源点及质量；合法非空源值缺真实 RAW 或批准业务闭包时不作正常目标确认；永久无效按持久 DLQ 证据规则结算，暂不可用则重试。删除逐点 Kafka 编码。
 
 ### 10.7.1 设备批编码
 
@@ -3441,7 +3441,7 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 ## 12.1.5 三级转换和对外数据包格式
 
-**唯一权威**：目标 Collector→Sink NATS v4、Sink→Kafka 设备级 JSON v3 以 Contracts §11.6/§11.9 为准，Storage v1_12 定义宽表。
+**唯一权威**：目标 Collector→Sink NATS v4、Sink→Kafka 设备级 JSON v3 以 Contracts §11.6/§11.9 为准，Storage v1_13 定义宽表。
 
 每个 Delivery 的 `output.data_level` **必须显式配置**，仅允许 `raw`、`protocol`、`business`，不得默认 `business` 或把旧 `engineering` 静默重命名为 `protocol`。
 
@@ -3812,7 +3812,7 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 | 测试标识与建议文件 | 层级 Marker | 专题 Marker | 场景 Marker | 输入、失败注入及必须断言 | 追溯 |
 |---|---|---|---|---|---|
-| B2-01 `test_kafka_builder.py` | unit | contract、reliability | normal、boundary | 逐点字节与 B1 234 例 parity 等价；500 点、拆 Builder、空 Builder、超大 Record、原始索引映射一致 | §10.7.2、§12.1.4、UC-05-S02 |
+| B2-01 `test_kafka_builder.py` | unit | contract、reliability | normal、boundary | 独立 JSON v3 golden record；500点完整行、Builder 拆批不拆 Record、空 Builder、超大 Record、Future 索引及 ACK 一致 | §10.7.2、§12.1.4、UC-05-S02 |
 | B2-02 `test_kafka_builder.py` | component | reliability、contract | timeout、exception | 部分 Builder 成功/失败、提交中抛错、全部已登记 Future 必须终局；不提前标记 settled 或 ACK；一 Builder 成功确认 500 条 Record 时 `delivered_total` 增 500，而 `write_success_ratio` 的 I/O 成功尝试仅增 1 | §3.5、§10.7.2、UC-05-S02/S03 |
 | B2-03 `test_kafka_metadata.py` | component | reliability | recovery、concurrency | 冷 Topic、Metadata 超时/刷新、扩分区、缓存 listener 竞态；设备 Key/分区/顺序不变，故障 fail-closed | §10.7.2、UC-11-S03 |
 | B2-04 `test_kafka_delivery_e2e.py` | system | reliability | timeout、recovery | 真实 Kafka KRaft/JetStream：STOP/Reload、断连恢复、SIGKILL、ACK/DLQ/UNKNOWN、重复投递及 Durable 责任正确 | §10.6、UC-05/10/11 |
@@ -3869,7 +3869,7 @@ lint-imports
 | 设计范围 | 第一、二章编制原则保留；第三章定义单实例性能目标，§10.3 统一 main 输入契约，§10.7/§12.1.4/§13.3.2 保持 Kafka 性能与观测边界 |
 | UR/UC/场景映射 | 8 项 UR、14 项 UC 和每个规定的 System 场景均有唯一可执行测试入口；每个场景有明确断言 |
 | gRPC 契约 | 以锁定 main 提交的 Proto 逐项核对 9+4 RPC、消息字段、枚举、状态返回；不得在设计中发明 wire 字段 |
-| 消息契约 | 现行 `SampleBatch(schema_version=3)` / `SampleItem` 统一遵循 Contracts §11.6；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
+| 消息契约 | 目标 `SampleBatch(schema_version=4)` / `SampleItem` 统一遵循 Contracts §11.6；Sink 私有 `DeliveryPoint` 不可充当跨模块 Schema；Collector→NATS→Sink 必须重新联调 |
 | 数据可靠性 | 明确 ACK/DLQ PubAck/未知 I/O 所有权；Broker 限额未证实时不写“无损” |
 | 配置闭包 | 每个模板与实例引用都存在；角色、监听端口、容量、策略、质量寄存器映射合法 |
 | 术语一致 | `Sink` 指目标实例，`Delivery` 指派发任务，`Realtime/Reliable` 指通道，`sample` 为批内测点条目，`source batch` 为采集来源事件，`output batch` 为 Adapter 输出组 |
