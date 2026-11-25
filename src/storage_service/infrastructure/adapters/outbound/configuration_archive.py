@@ -456,6 +456,28 @@ class ConfigurationPointTableResolver:
                 "PointTable device_type disagrees with authoritative DeviceModel"
             )
 
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        matches = {
+            (binding.device_version_id, binding.point_table_id): binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == identity.wind_farm_id and device == identity.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == identity.device_config_id
+            )
+        }
+        if len(matches) != 1:
+            raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+        return next(iter(matches.values()))
+
+    def wide_device_type(self, identity: WideIdentity | WideRecord) -> str:
+        """Return the authoritative pinned DeviceModel type for a Kafka identity."""
+        return self._wide_binding(identity).device_type_id
+
     async def resolve_wide_schema(
         self,
         record: WideRecord | WideIdentity,
@@ -467,34 +489,13 @@ class ConfigurationPointTableResolver:
 
         No Kafka value or current recommendation determines the physical columns.
         """
-        matches = [
-            binding
-            for (farm, device, _), entries in self._device_bindings.items()
-            if farm == record.wind_farm_id and device == record.device_id
-            for binding in entries
-            if (
-                f"device_{binding.device_config_id}_v{binding.device_file_version}"
-                == record.device_config_id
-            )
-        ]
-        if not matches and self._refresh_hook is not None:
+        try:
+            binding = self._wide_binding(record)
+        except ConfigHistoryUnavailableError:
+            if self._refresh_hook is None:
+                raise
             await self._refresh_hook()
-            matches = [
-                binding
-                for (farm, device, _), entries in self._device_bindings.items()
-                if farm == record.wind_farm_id and device == record.device_id
-                for binding in entries
-                if (
-                    f"device_{binding.device_config_id}_v{binding.device_file_version}"
-                    == record.device_config_id
-                )
-            ]
-        identities = {(b.device_version_id, b.point_table_id): b for b in matches}
-        if len(identities) != 1:
-            raise ConfigHistoryUnavailableError(
-                "Kafka Device Instance version lacks one exact historical binding"
-            )
-        binding = next(iter(identities.values()))
+            binding = self._wide_binding(record)
         pin = self._pins.get(binding.point_table_id)
         if pin is None:
             raise ConfigHistoryUnavailableError("PointTable lacks an immutable pin")
