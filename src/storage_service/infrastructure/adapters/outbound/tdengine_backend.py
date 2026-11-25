@@ -821,7 +821,7 @@ class TDengineBackend:
         for row, (name, sql_type) in zip(observed, wanted, strict=False):
             if str(row[0]).lower() != name:
                 raise TDengineSchemaConflictError("wide-table column order differs")
-            match = re.fullmatch(r"(.+?)\\(([0-9]+)\\)", sql_type)
+            match = re.fullmatch(r"(.+?)\(([0-9]+)\)", sql_type)
             expected_type = sql_type if match is None else match.group(1)
             if str(row[1]).upper() != expected_type:
                 raise TDengineSchemaConflictError(f"wide-table type mismatch: {name}")
