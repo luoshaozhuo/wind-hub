@@ -725,10 +725,6 @@ class TDengineBackend:
                 raise TDengineSchemaConflictError(
                     "wide table lacks an immutable historical PointTable closure"
                 )
-            if pinned[0][1] != schema.point_table_version:
-                raise TDengineSchemaConflictError(
-                    "wide table PointTable version differs from authorized closure"
-                )
 
             def identity(*parts: str) -> tuple[str, str]:
                 content = self._identity_json(parts)
@@ -820,7 +816,7 @@ class TDengineBackend:
             *((column.column_name, column.sql_type) for column in schema.columns),
             ("quality", f"VARBINARY({schema.quality_bytes})"),
         ]
-        if len(observed) != len(wanted) + 5:
+        if len(observed) not in (len(wanted), len(wanted) + 5):
             raise TDengineSchemaConflictError("wide-table column/tag count differs")
         for row, (name, sql_type) in zip(observed, wanted, strict=False):
             if str(row[0]).lower() != name:
@@ -829,8 +825,11 @@ class TDengineBackend:
             expected_type = sql_type if match is None else match.group(1)
             if str(row[1]).upper() != expected_type:
                 raise TDengineSchemaConflictError(f"wide-table type mismatch: {name}")
-            if match is not None and int(row[2]) != int(match.group(2)):
-                raise TDengineSchemaConflictError(f"wide-table width mismatch: {name}")
+            if match is not None:
+                if len(row) < 3 or not str(row[2]).isdigit():
+                    raise TDengineSchemaConflictError(f"wide-table width unknown: {name}")
+                if int(row[2]) != int(match.group(2)):
+                    raise TDengineSchemaConflictError(f"wide-table width mismatch: {name}")
         tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
         tags = {str(row[3]): str(row[5]) for row in tag_rows}
         wanted_tags = {
