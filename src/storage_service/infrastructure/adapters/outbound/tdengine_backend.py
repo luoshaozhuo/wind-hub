@@ -698,13 +698,30 @@ class TDengineBackend:
         device_type: str,
     ) -> None:
         """Create/verify a complete immutable wide-table family on first use."""
-        await self._run_bounded(
-            self._ensure_wide_table_sync,
-            schema=schema,
-            wind_farm_id=wind_farm_id,
-            device_id=device_id,
-            device_type=device_type,
+        target = (
+            f"{schema.database_name(wind_farm_id)}."
+            f"{schema.subtable_name(device_id)}"
         )
+        with self._lock:
+            if target in self._wide_unknown_tables:
+                raise TDengineSchemaConflictError(
+                    "wide DDL I/O is unresolved; require process isolation"
+                )
+        try:
+            await self._run_bounded(
+                self._ensure_wide_table_sync,
+                schema=schema,
+                wind_farm_id=wind_farm_id,
+                device_id=device_id,
+                device_type=device_type,
+            )
+        except TDengineSchemaConflictError:
+            raise
+        except BaseException:
+            # Timed-out DDL may still own the connector thread.
+            with self._lock:
+                self._wide_unknown_tables.add(target)
+            raise
 
     def _ensure_wide_table_sync(
         self,
@@ -803,7 +820,8 @@ class TDengineBackend:
             )
             for registration in registrations:
                 self._metadata.mark_ready(registration, verified=True)
-            self._verified_tables.add(qualified_name)
+            with self._lock:
+                self._verified_tables.add(qualified_name)
 
     @staticmethod
     def _verify_wide_table(
