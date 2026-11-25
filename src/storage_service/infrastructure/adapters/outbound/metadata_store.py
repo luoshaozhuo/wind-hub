@@ -251,6 +251,21 @@ class MetadataStore:
                 raise
             return ObjectRegistration(name, full_sha256, identity_json, schema_fingerprint, state)
 
+    def require_ready_wide_table(
+        self, *, name: str, fingerprint: str, identity_sha256: str
+    ) -> None:
+        """Require durable exact physical ownership before any historical read."""
+        with self._mutex:
+            row = self._db().execute(
+                """SELECT full_sha256, schema_fingerprint, state
+                   FROM storage_objects WHERE name = ?""",
+                (name,),
+            ).fetchone()
+        if row != (identity_sha256, fingerprint, "READY"):
+            raise MetadataConflictError(
+                "wide historical table is not READY under the requested immutable identity"
+            )
+
     def mark_ready(self, registration: ObjectRegistration, *, verified: bool) -> None:
         """Only call after live TDengine schema and ownership have been checked."""
         with self._mutex:
