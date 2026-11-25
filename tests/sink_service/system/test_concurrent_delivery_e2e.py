@@ -75,7 +75,13 @@ def _write_concurrent_root(
     concurrent: bool = True,
     delivery_ids: list[str] | None = None,
     ack_wait_seconds: int | None = None,
+    kafka_max_safe_inflight: int = 4,
+    kafka_max_batch_size: int | None = None,
 ) -> None:
+    if not 1 <= kafka_max_safe_inflight <= 128:
+        raise ValueError("Kafka safe in-flight limit must be in [1, 128]")
+    if kafka_max_batch_size is not None and not 1 <= kafka_max_batch_size <= 1048576:
+        raise ValueError("Kafka batch capacity must be in [1, 1048576] bytes")
     version = "1.1.0" if concurrent else "1.0.0"
     delivery_ids = delivery_ids or [_delivery_id(i) for i in range(len(devices))]
     service = service_document(
@@ -104,7 +110,12 @@ def _write_concurrent_root(
     kafka_template["output"]["topic"] = harness.kafka_topic
     if concurrent:
         kafka_template["capabilities"]["supports_concurrent_write"] = True
-        kafka_template["capabilities"]["max_safe_inflight"] = 4
+        kafka_template["capabilities"]["max_safe_inflight"] = kafka_max_safe_inflight
+        service["runtime"]["max_inflight_per_sink"] = max(
+            service["runtime"]["max_inflight_per_sink"], kafka_max_safe_inflight
+        )
+        if kafka_max_batch_size is not None:
+            kafka_template["output"]["max_batch_size"] = kafka_max_batch_size
     reliable_template = template_doc("reliable_history")
     reliable_template["reliable"]["dead_letter_subject"] = harness.dlq_subject
 
