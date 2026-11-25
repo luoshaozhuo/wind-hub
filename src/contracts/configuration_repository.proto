@@ -175,9 +175,12 @@ message GetConfigResponse {
 }
 
 message GetConfigBundleRequest {
+  // Recommended roots at one published revision; mutually exclusive with exact_roots.
   repeated ConfigId roots = 1;
   optional uint64 revision_id = 2;
   optional bool include_dependencies = 3;
+  // Immutable historical repository version IDs, independent of recommendations.
+  repeated ConfigVersionRef exact_roots = 4;
 }
 message GetConfigBundleResponse {
   uint64 revision_id = 1;
