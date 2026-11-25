@@ -38,6 +38,8 @@ class WideSchemaResolver(Protocol):
         max_row_bytes: int,
     ) -> WideSchema: ...
 
+    def wide_device_type(self, identity: WideIdentity) -> str: ...
+
 
 class WideBackend(Protocol):
     async def ensure_wide_table(
