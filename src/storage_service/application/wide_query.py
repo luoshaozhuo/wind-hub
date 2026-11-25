@@ -68,6 +68,11 @@ class WideHistoryPage:
 
 
 class WideQueryBackend(Protocol):
+    async def verify_existing_wide_table(
+        self, schema: WideSchema, *,
+        wind_farm_id: str, device_id: str, device_type: str,
+    ) -> None: ...
+
     async def fetch_wide_history(
         self, schema: WideSchema, query: WideHistoryFilter,
     ) -> Sequence[WideHistoryRow]: ...
@@ -178,6 +183,7 @@ class WideHistoryQueryService:
         *,
         schema: WideSchema,
         filter_: WideHistoryFilter,
+        device_type: str,
         page_token: str = "",
     ) -> WideHistoryPage:
         filter_.validate(schema, maximum=self._max_page_size)
@@ -207,10 +213,16 @@ class WideHistoryQueryService:
             after_time_us=last,
         )
         async with self._limiter:
-            rows = tuple(await asyncio.wait_for(
-                self._backend.fetch_wide_history(schema, request),
-                timeout=self._timeout,
-            ))
+            async with asyncio.timeout(self._timeout):
+                await self._backend.verify_existing_wide_table(
+                    schema,
+                    wind_farm_id=filter_.wind_farm_id,
+                    device_id=filter_.device_id,
+                    device_type=device_type,
+                )
+                rows = tuple(
+                    await self._backend.fetch_wide_history(schema, request)
+                )
         if len(rows) > request.limit:
             raise RuntimeError("wide backend returned rows beyond requested bound")
         if any(
