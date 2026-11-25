@@ -1,7 +1,7 @@
 """KafkaOutput device-lock stripe concurrency semantics (unit, fake producer).
 
-Covers design §6.3.3: the same device stripe serializes while distinct stripes
-overlap; a hash collision only reduces parallelism; a mid-batch failure still
+Covers design §6.3.3: the same device stripe serializes while distinct
+partitions overlap; a hash collision only reduces parallelism; a mid-batch failure still
 awaits the in-flight confirmation (no orphan future); close/reopen leaves no
 pending confirmation and unopened writes fail closed.
 
@@ -100,6 +100,7 @@ class _BatchProducer:
         self.futures: list[_Future] = []
         self._sends = 0
         self.stopped = False
+        self.partitions: dict[bytes, int] = {}
 
     async def start(self) -> None:
         return None
@@ -119,7 +120,7 @@ class _BatchProducer:
         serialized_key: bytes,
         serialized_value: Any,
     ) -> int:
-        return 0
+        return self.partitions.get(serialized_key, 0)
 
     def create_batch(self) -> _BatchBuilder:
         return _BatchBuilder()
@@ -190,7 +191,7 @@ def test_device_locks_are_bounded_stripes() -> None:
     assert all(isinstance(lock, asyncio.Lock) for lock in output._device_locks)  # noqa: SLF001
 
 
-async def test_distinct_stripes_overlap_and_each_fully_settles(
+async def test_distinct_partitions_overlap_and_each_fully_settles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gate = asyncio.Event()
@@ -201,6 +202,7 @@ async def test_distinct_stripes_overlap_and_each_fully_settles(
     try:
         key_a, stripe_a = _route("DEV-A")
         key_b, stripe_b = _route("DEV-B")
+        producer.partitions[key_b] = 1
         task_a = asyncio.create_task(
             output.write_encoded_batch(_encoded("DEV-A", 3), key=key_a, stripe=stripe_a)
         )
@@ -211,7 +213,7 @@ async def test_distinct_stripes_overlap_and_each_fully_settles(
             await asyncio.sleep(0.005)
             if producer.max_inflight == 2:
                 break
-        assert producer.max_inflight == 2  # distinct stripes genuinely overlap
+        assert producer.max_inflight == 2  # distinct partitions overlap
         gate.set()
         outcome_a, outcome_b = await asyncio.gather(task_a, task_b)
         # One batch confirmation settles all three encoded records.

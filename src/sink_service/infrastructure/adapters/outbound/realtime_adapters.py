@@ -11,6 +11,7 @@ import struct
 import time
 from collections import OrderedDict
 from contextlib import AsyncExitStack
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol, cast
@@ -258,6 +259,27 @@ class RedisOutput:
                 return BatchOutcome((), (), error=str(exc))
 
 
+@dataclass(slots=True)
+class _KafkaWrite:
+    """One source write awaiting partition-local physical batch settlement."""
+
+    key: bytes
+    payloads: tuple[bytes, ...]
+    result: asyncio.Future[BatchOutcome]
+    enqueued_at: float
+    delivered: list[int] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    latency_weights: list[tuple[float, int]] = field(default_factory=list)
+    successful_attempts: int = 0
+    failed_attempts: int = 0
+    submit_seconds: float = 0.0
+
+
+# Each physical Builder owns contiguous slices of one or more original writes.
+_KafkaSlice = tuple[_KafkaWrite, int, int]
+_KafkaConfirmation = tuple[list[_KafkaSlice], Any, float]
+
+
 class KafkaOutput:
     """Broker-confirmed messages, using the unchanged upstream DeliveryPoint JSON."""
 
@@ -284,6 +306,10 @@ class KafkaOutput:
         self._producer: Any = None
         self._device_locks = tuple(asyncio.Lock() for _ in range(128))
         self._partition_cache: OrderedDict[bytes, int] = OrderedDict()
+        self._partition_queues: dict[int, list[_KafkaWrite]] = {}
+        self._partition_workers: dict[int, asyncio.Task[None]] = {}
+        self._settlements: set[asyncio.Task[None]] = set()
+        self._closing = False
 
     def _invalidate_partition_cache(self, _cluster: Any) -> None:
         """Never reuse a partition selected from obsolete broker metadata."""
@@ -330,10 +356,20 @@ class KafkaOutput:
         self._partition_cache.clear()
         producer.client.cluster.add_listener(self._invalidate_partition_cache)
         self._producer = producer
+        self._closing = False
 
     async def close(self) -> None:
         producer = self._producer
         if producer is not None:
+            # Stop admission before draining submissions and their confirmations.
+            # Normal STOP/Reload must never cancel an owned Broker Future.
+            self._closing = True
+            workers = tuple(self._partition_workers.values())
+            if workers:
+                await asyncio.gather(*(asyncio.shield(task) for task in workers))
+            settlements = tuple(self._settlements)
+            if settlements:
+                await asyncio.gather(*(asyncio.shield(task) for task in settlements))
             producer.client.cluster.remove_listener(self._invalidate_partition_cache)
             self._partition_cache.clear()
             await producer.stop()
@@ -359,22 +395,29 @@ class KafkaOutput:
     async def write_encoded_batch(
         self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int
     ) -> BatchOutcome:
-        """Write pre-encoded Reliable points via bounded Kafka BatchBuilders."""
+        """Queue one Reliable write while retaining its device order and result.
+
+        Args:
+            payloads: Pre-encoded Kafka records, in source order.
+            key: Immutable device routing key.
+            stripe: Device lock index.
+
+        Returns:
+            Confirmation and failure indexes local to this write.
+        """
         lock_started = time.perf_counter()
-        async with self._device_locks[stripe]:
+        lock = self._device_locks[stripe]
+        await lock.acquire()
+        release_lock = True
+        try:
             lock_seconds = time.perf_counter() - lock_started
             metadata_seconds = 0.0
-            submit_seconds = 0.0
-            confirm_seconds = 0.0
             producer = self._producer
-            if producer is None:
+            if producer is None or self._closing:
                 return BatchOutcome((), (), "Kafka output is not connected")
             if not payloads:
                 return BatchOutcome((), ())
 
-            pending: list[tuple[int, int, Any, float]] = []
-            failures: list[str] = []
-            failed_attempts = 0
             try:
                 partition = self._partition_cache.get(key)
                 if partition is None:
@@ -396,83 +439,188 @@ class KafkaOutput:
                 self._partition_cache.pop(key, None)
                 return BatchOutcome((), (), f"Kafka partition unavailable: {exc}")
 
-            builder = producer.create_batch()
-            start = 0
-            for index, payload in enumerate(payloads):
-                try:
-                    if builder.append(key=key, value=payload, timestamp=None) is not None:
-                        continue
-                    if index == start:
-                        raise ValueError("Kafka record exceeds configured batch capacity")
-                    builder.close()
-                    queued_at = time.perf_counter()
-                    submit_started = time.perf_counter()
-                    try:
-                        confirmation = await producer.send_batch(
-                            builder, self._topic, partition=partition
-                        )
-                    except Exception:
-                        failed_attempts += 1
-                        raise
-                    finally:
-                        submit_seconds += time.perf_counter() - submit_started
-                    pending.append((start, index, confirmation, queued_at))
-                    start = index
-                    builder = producer.create_batch()
-                    if builder.append(key=key, value=payload, timestamp=None) is None:
-                        raise ValueError("Kafka record exceeds configured batch capacity")
-                except Exception as exc:
-                    failures.append(f"Kafka batch at sample {index} not queued: {exc}")
-                    self._partition_cache.pop(key, None)
-                    break
-            else:
-                if start < len(payloads):
-                    try:
-                        builder.close()
-                        queued_at = time.perf_counter()
-                        submit_started = time.perf_counter()
-                        try:
-                            confirmation = await producer.send_batch(
-                                builder, self._topic, partition=partition
-                            )
-                        finally:
-                            submit_seconds += time.perf_counter() - submit_started
-                        pending.append((start, len(payloads), confirmation, queued_at))
-                    except Exception as exc:
-                        failed_attempts += 1
-                        failures.append(f"Kafka batch at sample {start} not queued: {exc}")
-                        self._partition_cache.pop(key, None)
+            if self._closing or producer is not self._producer:
+                self._partition_cache.pop(key, None)
+                return BatchOutcome((), (), "Kafka output is not connected")
+            result: asyncio.Future[BatchOutcome] = asyncio.get_running_loop().create_future()
+            request = _KafkaWrite(key, payloads, result, time.perf_counter())
+            queue = self._partition_queues.setdefault(partition, [])
+            queue.append(request)
+            if partition not in self._partition_workers:
+                task = asyncio.create_task(self._drain_partition(partition, producer))
+                self._partition_workers[partition] = task
+                task.add_done_callback(self._observe_worker)
 
-            delivered: list[int] = []
-            latency_weights: list[tuple[float, int]] = []
-            for begin, end, confirmation, queued_at in pending:
-                confirm_started = time.perf_counter()
+            try:
+                outcome = await asyncio.shield(result)
+            except asyncio.CancelledError:
+                # The native write still owns the device until its result settles.
+                # The quota layer separately quarantines cancelled native I/O.
+                if not result.done():
+                    result.add_done_callback(lambda _result: lock.release())
+                    release_lock = False
+                raise
+
+            stages = outcome.kafka_stage_seconds
+            assert stages is not None
+            return replace(
+                outcome,
+                kafka_stage_seconds=(lock_seconds, metadata_seconds, stages[2], stages[3]),
+            )
+        finally:
+            if release_lock:
+                lock.release()
+
+    def _observe_worker(self, task: asyncio.Task[None]) -> None:
+        """Fail closed on unexpected dispatcher or settlement termination."""
+        if task.cancelled() or task.exception() is not None:
+            self._closing = True
+
+    def _settlement_finished(self, task: asyncio.Task[None]) -> None:
+        self._settlements.discard(task)
+        self._observe_worker(task)
+
+    async def _drain_partition(self, partition: int, producer: Any) -> None:
+        """Submit ready writes in FIFO order, without waiting for earlier ACKs."""
+        queue = self._partition_queues[partition]
+        try:
+            # Give already runnable device writes a chance to join the Builder.
+            # There is no timer-based linger and no additional admission quota.
+            await asyncio.sleep(0)
+            while queue:
+                requests = queue[:]
+                queue.clear()
+                try:
+                    pending, error = await self._submit_group(partition, producer, requests)
+                    task = asyncio.create_task(self._settle_group(requests, pending, error))
+                    self._settlements.add(task)
+                    task.add_done_callback(self._settlement_finished)
+                except BaseException:
+                    # An unexpected abort is not evidence of successful I/O.
+                    self._closing = True
+                    for request in requests:
+                        request.result.cancel()
+                    raise
+        finally:
+            for request in queue:
+                request.result.cancel()
+            del self._partition_queues[partition]
+            del self._partition_workers[partition]
+
+    async def _submit_builder(
+        self,
+        producer: Any,
+        partition: int,
+        builder: Any,
+        members: list[_KafkaSlice],
+        pending: list[_KafkaConfirmation],
+    ) -> None:
+        """Submit one physical Builder and retain every source slice it owns."""
+        builder.close()
+        submitted_at = time.perf_counter()
+        try:
+            confirmation = await producer.send_batch(builder, self._topic, partition=partition)
+        except Exception:
+            members[0][0].failed_attempts += 1
+            raise
+        finally:
+            now = time.perf_counter()
+            for request, _begin, _end in members:
+                request.submit_seconds = now - request.enqueued_at
+        pending.append((members, confirmation, submitted_at))
+
+    async def _submit_group(
+        self,
+        partition: int,
+        producer: Any,
+        requests: list[_KafkaWrite],
+    ) -> tuple[list[_KafkaConfirmation], str]:
+        """Fill physical Builders across device boundaries in one Partition."""
+        pending: list[_KafkaConfirmation] = []
+        members: list[_KafkaSlice] = []
+        error = ""
+        try:
+            builder = producer.create_batch()
+            for request in requests:
+                begin = 0
+                for index, payload in enumerate(request.payloads):
+                    if builder.append(key=request.key, value=payload, timestamp=None) is not None:
+                        continue
+                    if index > begin:
+                        members.append((request, begin, index))
+                    if not members:
+                        raise ValueError("Kafka record exceeds configured batch capacity")
+                    await self._submit_builder(producer, partition, builder, members, pending)
+                    builder = producer.create_batch()
+                    members = []
+                    begin = index
+                    if builder.append(key=request.key, value=payload, timestamp=None) is None:
+                        raise ValueError("Kafka record exceeds configured batch capacity")
+                members.append((request, begin, len(request.payloads)))
+            if members:
+                await self._submit_builder(producer, partition, builder, members, pending)
+        except Exception as exc:
+            error = f"Kafka batch not queued: {exc}"
+            for request in requests:
+                self._partition_cache.pop(request.key, None)
+                request.submit_seconds = time.perf_counter() - request.enqueued_at
+        return pending, error
+
+    @staticmethod
+    async def _settle_group(
+        requests: list[_KafkaWrite],
+        pending: list[_KafkaConfirmation],
+        queue_error: str,
+    ) -> None:
+        """Fan physical confirmations out to the original zero-based indexes.
+
+        Count each physical attempt once, on its first source slice. Latency
+        weights and delivery indexes always belong to the actual source write.
+        """
+        try:
+            for members, confirmation, submitted_at in pending:
                 try:
                     await confirmation
                 except Exception as exc:
-                    failed_attempts += 1
-                    failures.append(f"Kafka batch [{begin}, {end}) not confirmed: {exc}")
+                    members[0][0].failed_attempts += 1
+                    for request, begin, end in members:
+                        request.failures.append(
+                            f"Kafka batch [{begin}, {end}) not confirmed: {exc}"
+                        )
                 else:
-                    delivered.extend(range(begin, end))
-                    latency = (time.perf_counter() - queued_at) * 1000
-                    latency_weights.append((latency, end - begin))
-                finally:
-                    confirm_seconds += time.perf_counter() - confirm_started
-            indexes = tuple(delivered)
-            return BatchOutcome(
-                delivered=indexes,
-                settled=indexes,
-                error="; ".join(failures),
-                successful_attempts=len(latency_weights),
-                failed_attempts=failed_attempts,
-                successful_latency_weights=tuple(latency_weights),
-                kafka_stage_seconds=(
-                    lock_seconds,
-                    metadata_seconds,
-                    submit_seconds,
-                    confirm_seconds,
-                ),
-            )
+                    members[0][0].successful_attempts += 1
+                    latency_ms = (time.perf_counter() - submitted_at) * 1000
+                    for request, begin, end in members:
+                        request.delivered.extend(range(begin, end))
+                        request.latency_weights.append((latency_ms, end - begin))
+
+            now = time.perf_counter()
+            for request in requests:
+                if queue_error and len(request.delivered) < len(request.payloads):
+                    request.failures.append(queue_error)
+                indexes = tuple(request.delivered)
+                request.result.set_result(
+                    BatchOutcome(
+                        delivered=indexes,
+                        settled=indexes,
+                        error="; ".join(request.failures),
+                        successful_attempts=request.successful_attempts,
+                        failed_attempts=request.failed_attempts,
+                        successful_latency_weights=tuple(request.latency_weights),
+                        kafka_stage_seconds=(
+                            0.0,
+                            0.0,
+                            request.submit_seconds,
+                            max(0.0, now - request.enqueued_at - request.submit_seconds),
+                        ),
+                    )
+                )
+        finally:
+            # Never turn an unexpectedly aborted settlement into a negative ACK.
+            # Cancellation propagates to the native quota's quarantine path.
+            for request in requests:
+                if not request.result.done():
+                    request.result.cancel()
 
     async def _write_records(
         self,

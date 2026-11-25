@@ -9,7 +9,7 @@
 - 分区解析失败 fail-closed：任何 Builder 提交前即返回，无 Future 可孤儿；
 - metadata 失效（R7 竞态）不清空在途 Future 的所有权、不抛 KeyError；
 - send_batch 失败 fail-closed break，确认拒绝 UNKNOWN 不当成功；未 open 报错；
-- stripe 映射到 128 把设备锁：同 stripe 串行、异 stripe 可并行。
+- 同 stripe 串行；不同分区并行；同分区就绪请求合并并分别结算。
 
 R8 八项守卫的进程内回归保留在本文件与 test_kafka_attempt_counters.py，
 二者共享同一套 fake 基建。
@@ -179,7 +179,7 @@ async def test_encoded_write_without_open_returns_error_outcome() -> None:
     assert "not connected" in outcome.error
 
 
-async def test_same_stripe_serializes_while_distinct_stripes_overlap(
+async def test_same_stripe_serializes_while_distinct_partitions_overlap(
     producer_env: dict[str, Any],
 ) -> None:
     output = _output()
@@ -187,6 +187,8 @@ async def test_same_stripe_serializes_while_distinct_stripes_overlap(
     producer: _FakeProducer = producer_env["producer"]
     gate = asyncio.Event()
     producer_env["gates"]["send_gate"] = gate
+    other_key = b"farm-a:collector-1:WT002"
+    producer_env["gates"]["partitions"] = {other_key: 4}
     try:
         other_stripe = (STRIPE + 1) % 128
         first = asyncio.create_task(
@@ -203,14 +205,14 @@ async def test_same_stripe_serializes_while_distinct_stripes_overlap(
         )
         other = asyncio.create_task(
             output.write_encoded_batch(
-                _payloads(1), key=b"farm-a:collector-1:WT002", stripe=other_stripe
+                _payloads(1), key=other_key, stripe=other_stripe
             )
         )
         for _ in range(40):
             await asyncio.sleep(0.005)
             if producer.send_attempts == 2:
                 break
-        # 异 stripe 已并行进入，同 stripe 仍被锁挡住；门控未放行无完成提交
+        # 不同分区并行提交，同 stripe 仍被锁挡住。
         assert producer.send_attempts == 2
         assert len(producer.submissions) == 0
         gate.set()
@@ -219,3 +221,186 @@ async def test_same_stripe_serializes_while_distinct_stripes_overlap(
         assert len(producer.submissions) == 3
     finally:
         await output.close()
+
+
+async def test_same_partition_merges_keys_and_preserves_original_indexes(
+    producer_env: dict[str, Any],
+) -> None:
+    producer_env["capacity"]["value"] = 3
+    output = _output()
+    await output.open()
+    producer: _FakeProducer = producer_env["producer"]
+    other_key = b"farm-a:collector-1:WT002"
+    a = _payloads(2)
+    b = _payloads(3)
+    try:
+        first, second = await asyncio.gather(
+            output.write_encoded_batch(a, key=KEY, stripe=STRIPE),
+            output.write_encoded_batch(b, key=other_key, stripe=STRIPE + 1),
+        )
+        assert first.delivered == first.settled == (0, 1)
+        assert second.delivered == second.settled == (0, 1, 2)
+        assert not first.error and not second.error
+        assert first.successful_attempts + second.successful_attempts == 2
+        assert first.failed_attempts + second.failed_attempts == 0
+        assert sum(n for _, n in first.successful_latency_weights) == 2
+        assert sum(n for _, n in second.successful_latency_weights) == 3
+        assert len(producer.submissions) == 2
+        records = [builder.records for builder, _, _ in producer.submissions]
+        assert records == [
+            [(KEY, a[0]), (KEY, a[1]), (other_key, b[0])],
+            [(other_key, b[1]), (other_key, b[2])],
+        ]
+        assert all(future.awaited == 1 for future in producer.futures)
+    finally:
+        await output.close()
+
+
+async def test_shared_confirmation_failure_is_not_success_for_either_request(
+    producer_env: dict[str, Any],
+) -> None:
+    producer_env["flags"]["confirm_fails"] = True
+    output = _output()
+    await output.open()
+    producer: _FakeProducer = producer_env["producer"]
+    try:
+        first, second = await asyncio.gather(
+            output.write_encoded_batch(_payloads(2), key=KEY, stripe=STRIPE),
+            output.write_encoded_batch(
+                _payloads(3), key=b"farm-a:collector-1:WT002", stripe=STRIPE + 1
+            ),
+        )
+        assert len(producer.submissions) == 1
+        assert first.delivered == second.delivered == ()
+        assert first.settled == second.settled == ()
+        assert "not confirmed" in first.error and "not confirmed" in second.error
+        assert first.successful_attempts + second.successful_attempts == 0
+        assert first.failed_attempts + second.failed_attempts == 1
+        assert producer.futures[0].awaited == 1
+    finally:
+        await output.close()
+
+
+async def test_merged_partial_submit_failure_keeps_confirmed_prefix(
+    producer_env: dict[str, Any],
+) -> None:
+    producer_env["capacity"]["value"] = 3
+    output = _output()
+    await output.open()
+    producer: _FakeProducer = producer_env["producer"]
+
+    def reject_second() -> None:
+        if producer.send_attempts == 1:
+            producer_env["flags"]["send_batch_fails"] = True
+
+    producer_env["gates"]["on_send_batch"] = reject_second
+    try:
+        first, second = await asyncio.gather(
+            output.write_encoded_batch(_payloads(2), key=KEY, stripe=STRIPE),
+            output.write_encoded_batch(
+                _payloads(3), key=b"farm-a:collector-1:WT002", stripe=STRIPE + 1
+            ),
+        )
+        assert first.delivered == first.settled == (0, 1)
+        assert first.error == ""
+        assert second.delivered == second.settled == (0,)
+        assert "not queued" in second.error
+        assert first.successful_attempts + second.successful_attempts == 1
+        assert first.failed_attempts + second.failed_attempts == 1
+        assert len(producer.futures) == 1
+        assert producer.futures[0].awaited == 1
+    finally:
+        await output.close()
+
+
+async def test_partition_dispatch_does_not_wait_for_prior_broker_confirmation(
+    producer_env: dict[str, Any],
+) -> None:
+    gate = asyncio.Event()
+    producer_env["gates"]["confirm_gate"] = gate
+    output = _output()
+    await output.open()
+    producer: _FakeProducer = producer_env["producer"]
+    tasks: list[asyncio.Task[Any]] = []
+    try:
+        tasks.append(
+            asyncio.create_task(output.write_encoded_batch(_payloads(1), key=KEY, stripe=STRIPE))
+        )
+        async with asyncio.timeout(2):
+            while not producer.futures or not producer.futures[0].awaited:
+                await asyncio.sleep(0)
+        tasks.extend(
+            [
+                asyncio.create_task(
+                    output.write_encoded_batch(
+                        _payloads(1), key=b"WT002", stripe=STRIPE + 1
+                    )
+                ),
+                asyncio.create_task(
+                    output.write_encoded_batch(
+                        _payloads(1), key=b"WT003", stripe=STRIPE + 2
+                    )
+                ),
+            ]
+        )
+        async with asyncio.timeout(2):
+            while len(producer.submissions) < 2:
+                await asyncio.sleep(0)
+        assert len(producer.submissions[1][0].records) == 2
+        assert not any(task.done() for task in tasks)
+        gate.set()
+        results = await asyncio.gather(*tasks)
+        assert all(result.delivered == (0,) for result in results)
+        assert sum(result.successful_attempts for result in results) == 2
+    finally:
+        gate.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await output.close()
+
+
+async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
+    producer_env: dict[str, Any],
+) -> None:
+    gate = asyncio.Event()
+    producer_env["gates"]["confirm_gate"] = gate
+    output = _output()
+    await output.open()
+    producer: _FakeProducer = producer_env["producer"]
+    first = asyncio.create_task(
+        output.write_encoded_batch(_payloads(1), key=KEY, stripe=STRIPE)
+    )
+    second = asyncio.create_task(
+        output.write_encoded_batch(_payloads(2), key=b"WT002", stripe=STRIPE + 1)
+    )
+    closing: asyncio.Task[None] | None = None
+    try:
+        async with asyncio.timeout(2):
+            while not producer.futures or not producer.futures[0].awaited:
+                await asyncio.sleep(0)
+        assert len(producer.futures) == 1
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert output._device_locks[STRIPE].locked()  # noqa: SLF001
+        assert not second.done()
+
+        closing = asyncio.create_task(output.close())
+        await asyncio.sleep(0)
+        rejected = await output.write_encoded_batch(
+            _payloads(1), key=b"WT003", stripe=STRIPE + 2
+        )
+        assert "not connected" in rejected.error
+        assert not closing.done() and not producer.stopped
+        gate.set()
+        assert (await second).delivered == (0, 1)
+        await closing
+        assert producer.stopped
+        assert producer.futures[0].awaited == 1
+        assert not output._device_locks[STRIPE].locked()  # noqa: SLF001
+    finally:
+        gate.set()
+        await asyncio.gather(first, second, return_exceptions=True)
+        if closing is not None:
+            await closing
+        else:
+            await output.close()

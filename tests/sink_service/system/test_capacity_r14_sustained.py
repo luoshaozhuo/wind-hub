@@ -11,7 +11,8 @@
   不以 Producer 发布速率代替；
 - 关键参数走环境变量，便于先短烟测再正式长稳：
   R14_DURATION_S（默认 600）、R14_DEGREE（默认 2）、
-  R14_TARGET_BATCH_RATE（全局批/s，默认 120）、R14_POINTS（默认 500）；
+  R14_TARGET_BATCH_RATE（全局批/s，默认 120）、R14_POINTS（默认 500）、
+  R14_PUBLISH_ENCODERS（独立编码进程数，默认 4）；
   R14_MIN_SUSTAINED_FRACTION（默认 0.95）与
   R14_MAX_BACKLOG_SLOPE_FRACTION（默认 0.02）用于稳态容量裁决。
 - JSON 结论与每秒取样 JSONL 保存在 R14_RESULT_DIR（默认 /tmp），
@@ -27,6 +28,9 @@ import os
 import time
 import uuid
 from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+from datetime import UTC, datetime
+from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +40,10 @@ from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 from contracts import common_pb2, common_pb2_grpc
+from contracts.sample_batch import SampleBatch
 from tests.sink_service.system.conftest import (
     SinkSystemHarness,
+    make_system_batch,
     worker_pid_set,
 )
 from tests.sink_service.system.test_concurrent_delivery_e2e import (
@@ -70,6 +76,7 @@ POINTS_PER_BATCH = int(os.environ.get("R14_POINTS", "500"))
 KAFKA_MAX_SAFE_INFLIGHT = int(os.environ.get("R14_KAFKA_MAX_SAFE_INFLIGHT", "4"))
 KAFKA_MAX_BATCH_SIZE = int(os.environ.get("R14_KAFKA_MAX_BATCH_SIZE", "131072"))
 KAFKA_PARTITIONS = int(os.environ.get("R14_KAFKA_PARTITIONS", "1"))
+PUBLISH_ENCODERS = int(os.environ.get("R14_PUBLISH_ENCODERS", "4"))
 MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.95"))
 MAX_BACKLOG_SLOPE_FRACTION = float(os.environ.get("R14_MAX_BACKLOG_SLOPE_FRACTION", "0.02"))
 DRAIN_TIMEOUT_S = 120.0
@@ -92,6 +99,16 @@ QUOTA_STAGES = ("global", "physical", "native")
 #   （reliable_runtime 仅要求 limits + 有限 max_bytes/max_age，不限定值）。
 STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(4 * 1024**3)))
 STREAM_MAX_AGE_S = int(os.environ.get("R14_STREAM_MAX_AGE_S", "180"))
+
+
+def _encode_r14_batch(
+    token: str, seq: int, device: str, points: int, now: datetime
+) -> tuple[str, bytes]:
+    """Build and encode a strict fixture outside the publisher's GIL."""
+    batch = make_system_batch(
+        "reliable", seq, points, token=token, device_id=device, now=now
+    )
+    return batch.subject(), batch.encode()
 
 
 async def _kafka_partition_offsets(consumer: AIOKafkaConsumer, topic: str) -> dict[int, int]:
@@ -254,6 +271,7 @@ class TestR14SustainedCapacity:
             or not 1 <= KAFKA_MAX_SAFE_INFLIGHT <= 128
             or not 1 <= KAFKA_MAX_BATCH_SIZE <= 1048576
             or not 1 <= KAFKA_PARTITIONS <= 32
+            or not 1 <= PUBLISH_ENCODERS <= 16
         ):
             raise ValueError("invalid sustained load shape or duration")
         devices = _devices(DEGREE)
@@ -306,6 +324,7 @@ class TestR14SustainedCapacity:
                 client_id=f"qa-r14-cap-{sink_harness.token}",
             )
             pub_task: asyncio.Task[None] | None = None
+            encoder_pool: ProcessPoolExecutor | None = None
             try:
                 await consumer.start()
                 baseline = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
@@ -318,34 +337,68 @@ class TestR14SustainedCapacity:
                         f"!= configured {KAFKA_PARTITIONS}"
                     )
                 js = publisher.jetstream()
-                interval = 1.0 / TARGET_BATCH_RATE if TARGET_BATCH_RATE > 0 else 0.0
-                stop_at = time.monotonic() + DURATION_S
+                interval = 1.0 / TARGET_BATCH_RATE
+                loop = asyncio.get_running_loop()
+                pool = ProcessPoolExecutor(
+                    max_workers=PUBLISH_ENCODERS, mp_context=get_context("spawn")
+                )
+                encoder_pool = pool
+                # Warm the isolated encoders before timing and verify their wire
+                # output with the same strict contract used by production Sink.
+                warm_time = datetime.now(UTC)
+                warm = await asyncio.gather(
+                    *(
+                        loop.run_in_executor(
+                            pool,
+                            _encode_r14_batch,
+                            sink_harness.token,
+                            -index - 1,
+                            devices[index % DEGREE],
+                            POINTS_PER_BATCH,
+                            warm_time,
+                        )
+                        for index in range(PUBLISH_ENCODERS)
+                    )
+                )
+                for index, (subject, payload) in enumerate(warm):
+                    expected = make_system_batch(
+                        "reliable",
+                        -index - 1,
+                        POINTS_PER_BATCH,
+                        token=sink_harness.token,
+                        device_id=devices[index % DEGREE],
+                        now=warm_time,
+                    )
+                    assert SampleBatch.decode(payload, "reliable", subject=subject) == expected
+
                 published_batches = 0
                 pub_seq = 0
                 puback_seconds_total = 0.0
+                pub_finished_at = 0.0
+                max_pending = max(64, DEGREE * 8)
+                scheduled_target = int(TARGET_BATCH_RATE * DURATION_S)
 
                 async def _publish_loop() -> None:
-                    nonlocal published_batches, pub_seq, puback_seconds_total
-                    next_send = time.monotonic()
+                    nonlocal published_batches, pub_seq, puback_seconds_total, pub_finished_at
                     pending: deque[asyncio.Task[None]] = deque()
                     last_per_device: dict[str, asyncio.Task[None]] = {}
-                    max_pending = max(64, DEGREE * 8)
 
                     async def publish_ordered(
-                        prior: asyncio.Task[None] | None, seq: int, device: str
+                        prior: asyncio.Task[None] | None,
+                        seq: int,
+                        device: str,
+                        sample_time: datetime,
                     ) -> None:
                         nonlocal published_batches, puback_seconds_total
-
-                        def encode() -> tuple[str, bytes]:
-                            batch = sink_harness.make_batch(
-                                "reliable",
-                                seq=seq,
-                                points=POINTS_PER_BATCH,
-                                device_id=device,
-                            )
-                            return batch.subject(), batch.encode()
-
-                        subject, payload = await asyncio.to_thread(encode)
+                        subject, payload = await loop.run_in_executor(
+                            pool,
+                            _encode_r14_batch,
+                            sink_harness.token,
+                            seq,
+                            device,
+                            POINTS_PER_BATCH,
+                            sample_time,
+                        )
                         if prior is not None:
                             await prior
                         # Count only a real server PubAck, not a queued local send.
@@ -355,25 +408,35 @@ class TestR14SustainedCapacity:
                         published_batches += 1
 
                     try:
-                        while time.monotonic() < stop_at:
+                        while pub_seq < scheduled_target:
+                            now = time.monotonic()
+                            if now >= stop_at:
+                                break
+                            due = t0 + pub_seq * interval
+                            if due > now:
+                                await asyncio.sleep(due - now)
+                                continue
                             device = devices[pub_seq % DEGREE]
                             task = asyncio.create_task(
-                                publish_ordered(last_per_device.get(device), pub_seq, device)
+                                publish_ordered(
+                                    last_per_device.get(device),
+                                    pub_seq,
+                                    device,
+                                    datetime.now(UTC),
+                                )
                             )
                             last_per_device[device] = task
                             pending.append(task)
                             pub_seq += 1
+                            # Absolute deadlines avoid accumulating sleep rounding
+                            # drift. The bounded in-flight window limits catch-up.
                             if len(pending) >= max_pending:
                                 await pending.popleft()
-                            next_send += interval
-                            drift = next_send - time.monotonic()
-                            if drift > 0:
-                                await asyncio.sleep(drift)
-                            else:
-                                # Never create unbounded catch-up bursts.
-                                next_send = time.monotonic()
+                            elif pub_seq % 16 == 0:
+                                await asyncio.sleep(0)
                         while pending:
                             await pending.popleft()
+                        pub_finished_at = time.monotonic()
                     finally:
                         for task in pending:
                             task.cancel()
@@ -383,6 +446,7 @@ class TestR14SustainedCapacity:
                 samples: list[dict[str, Any]] = []
                 main_pid = sink_harness.process.proc.pid  # type: ignore[union-attr]
                 t0 = time.monotonic()
+                stop_at = t0 + DURATION_S
                 pub_task = asyncio.create_task(_publish_loop())
 
                 # 持续期 1s 采样。
@@ -406,6 +470,7 @@ class TestR14SustainedCapacity:
                     metrics = await _fetch_metrics(sink_harness)
                     sample = {
                         "t": time.monotonic(),
+                        "publisher_puback_batches": published_batches,
                         "kafka_offset": await _kafka_total_offset(
                             consumer, sink_harness.kafka_topic
                         ),
@@ -447,7 +512,7 @@ class TestR14SustainedCapacity:
                         stream.flush()
                     await asyncio.sleep(SAMPLE_INTERVAL_S)
                 await pub_task
-                t_pub_end = time.monotonic()
+                t_pub_end = pub_finished_at
 
                 # 排空期：等到全部 durable 零积压或超时。
                 drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
@@ -492,6 +557,19 @@ class TestR14SustainedCapacity:
                     steady_values_s = (offsets[-1][1] - offsets[0][1]) / dt if dt > 0 else 0.0
                 else:
                     steady_values_s = 0.0
+
+                puback_series = [
+                    (s["t"], s["publisher_puback_batches"])
+                    for s in samples
+                    if t0 + 0.1 * DURATION_S <= s["t"] <= t0 + 0.9 * DURATION_S
+                ]
+                steady_puback_batches_s = 0.0
+                if len(puback_series) >= 2:
+                    puback_dt = puback_series[-1][0] - puback_series[0][0]
+                    if puback_dt > 0:
+                        steady_puback_batches_s = (
+                            puback_series[-1][1] - puback_series[0][1]
+                        ) / puback_dt
 
                 # 积压斜率（聚合）：稳态窗口末段 pending 线性趋势，应≈0。
                 pend_series = [
@@ -630,6 +708,8 @@ class TestR14SustainedCapacity:
                     "degree": DEGREE,
                     "target_batch_rate_global": TARGET_BATCH_RATE,
                     "points_per_batch": POINTS_PER_BATCH,
+                    "scheduled_target_batches": scheduled_target,
+                    "scheduled_batches": pub_seq,
                     "published_batches": published_batches,
                     "published_values": published_values,
                     "confirmed_values": confirmed_values,
@@ -643,7 +723,9 @@ class TestR14SustainedCapacity:
                     "zero_loss": confirmed_values == published_values,
                     "publish_wall_seconds": round(wall_pub, 3),
                     "achieved_publish_batches_per_s": round(published_batches / wall_pub, 2),
-                    "publisher_max_inflight_batches": max(64, DEGREE * 8),
+                    "publisher_puback_batches_per_s_steady": round(steady_puback_batches_s, 2),
+                    "publisher_encoder_processes": PUBLISH_ENCODERS,
+                    "publisher_max_inflight_batches": max_pending,
                     "publisher_puback_mean_ms": round(
                         1000 * puback_seconds_total / published_batches, 3
                     )
@@ -693,6 +775,10 @@ class TestR14SustainedCapacity:
                 assert published_batches / wall_pub >= (
                     TARGET_BATCH_RATE * MIN_SUSTAINED_FRACTION
                 ), result
+                assert steady_puback_batches_s >= (
+                    TARGET_BATCH_RATE * MIN_SUSTAINED_FRACTION
+                ), result
+                assert published_batches == pub_seq, result
                 assert result["confirmed_batches_per_s_steady"] >= (
                     TARGET_BATCH_RATE * MIN_SUSTAINED_FRACTION
                 ), result
@@ -713,6 +799,10 @@ class TestR14SustainedCapacity:
                 if pub_task is not None and not pub_task.done():
                     pub_task.cancel()
                     await asyncio.gather(pub_task, return_exceptions=True)
+                if encoder_pool is not None:
+                    await asyncio.to_thread(
+                        encoder_pool.shutdown, wait=True, cancel_futures=True
+                    )
                 await consumer.stop()
                 await publisher.drain()
         finally:

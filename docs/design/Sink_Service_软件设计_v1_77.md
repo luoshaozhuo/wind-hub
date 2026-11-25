@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_76 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_77 · 20261125 · Kafka 同分区批次合并与独立容量验收</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -1078,7 +1078,7 @@ flowchart TD
 
 此时还有 **3 条待重投**，但不能仅凭以上五个累计计数推断所有积压：其他时刻可能存在重复投递、多个在途 I/O 或外部消费者积压。若这 3 条随后重新投递，`received_total` 还会按实际再次接收计数。
 
-**计量单位补充。** 一次批量输出包含 500 个 `float32` 数值，不等于 500 次目标 I/O；若该批由 500 条测点样本组成，则样本计数按 500 条，实际 I/O 尝试次数取决于 Adapter 的批量写入行为。指标 `failed_total` 仅计明确失败的目标 I/O 尝试，而非批内每个数值。
+**计量单位补充。** 一次批量输出包含 500 个 `float32` 数值，不等于 500 次目标 I/O；若该批由 500 条测点样本组成，则样本计数按 500 条，实际 I/O 尝试次数取决于 Adapter 的批量写入行为。指标 `failed_total` 仅计明确失败的目标 I/O 尝试，而非批内每个数值。跨 Delivery 合并的 Kafka 物理尝试仅归属该 Builder 首个源片段所在 Delivery；各 Delivery 的测点交付与错误仍按原始请求独立归属。
 
 **R04-02 统计窗口、初始化及计算周期。** 设统计时刻为 $t$，纪元创建时刻为 $t_0$，配置的窗口长度为 $W$（秒），则有效窗口和覆盖时长定义为：
 
@@ -2734,46 +2734,51 @@ Kafka Reliable 的输出线格式以 Contracts §11.9 和现行 `src/sink_servic
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TD
-    A["可信 Kafka 子批：最多 500 点"] --> B["公共前缀复用 + 逐点 JSON"]
-    B --> C["设备 Key、锁和显式 Partition"]
-    C --> D["BatchBuilder.append 逐条装入"]
-    D --> E{"Record 能装下？"}
-    E -->|能| F["继续追加 / 提交末尾非空 Builder"]
-    E -->|不能，Builder 非空| G["先提交旧 Builder；新 Builder 重试此 Record"]
-    E -->|不能，Builder 为空| X["超大 Record；保留失败归属"]
-    G --> H["登记索引区间和 Future"]
-    F --> H
-    H --> I["等待所有已提交 Future 安全终局"]
-    I --> J["Broker ACK 后映射 delivered/settled"]
-    J --> K["源批确认按 §10.6"]
+    A["可信源子批：最多 500 点"] --> B["保留源身份与逐点编码"]
+    B --> C["设备有序准入与分区归属"]
+    C --> D["同分区就绪请求有界合并"]
+    D --> E["按容量装入目标写入批"]
+    E --> F{"目标批能容纳下一条记录？"}
+    F -->|能| G["继续装入；最后提交非空批"]
+    F -->|不能且批非空| H["提交当前批；新批重试该记录"]
+    F -->|不能且批为空| X["拒绝超大记录并保留失败归属"]
+    G --> I["登记原始请求与局部索引区间"]
+    H --> I
+    I --> J["等待目标确认；继续调度已就绪请求"]
+    J --> K["可信确认结果分配至原始请求"]
+    K --> L["各来源独立裁定源批确认"]
 ```
 
-<p class="figure-caption">图 10-6 Kafka Builder、Future 与结果映射</p>
+<p class="figure-caption">图 10-6 Kafka 同分区批次合并与确认结果映射</p>
 
 | 技术条件 | 约束 |
 |---|---|
-| Builder 容量 | `append(key=...,value=...,timestamp=None)` 返回值为准，非空 Builder 超限先提交再重试 |
-| Future 索引 | `send_batch(builder,topic,partition=p)` 后登记 `(start,end,future,submitted_at)` |
-| 确认时点 | 仅 Broker Future 成功才将相应原始零基索引加入 `delivered/settled` |
-| 资源所有权 | 部分 Builder 失败或 STOP/Reload 后，已提交 Future 不得被遗弃 |
-| Producer | `acks=all`、`enable_idempotence=true`、`linger_ms=0`，`max_batch_size` 默认 131072 byte |
-| 观测 | 每个成功 Builder 仅采一次确认耗时，按 Record 成功数加权，P99 算法见 §13.3.2 |
+| 准入边界 | 每逻辑写入仍受全局与物理目标额度约束；设备 stripe 保持至本请求结果终局 |
+| 合并范围 | 同一 Producer、Topic、Partition 内的就绪请求；保留各 Record 的原始 Key 与 bytes，不合并不同分区 |
+| 容量 | 500 点是源子批限制，不是物理 Builder 点数限制；实际容量以 `append` 返回值为准；非空批装不下时提交并重试该记录 |
+| 调度 | 单事件循环、每活跃 Partition 一个提交任务，FIFO 取就绪请求；提交与确认分离，不等待先前 Broker 确认才开始下一组提交；无新增定时 linger 或独立准入额度 |
+| Future 索引 | 每次 `send_batch` 登记原始请求及其局部零基半开区间、Future 和提交时刻 |
+| 确认 | Broker Future 成功后才确认其覆盖的各请求索引；共享 Future 拒绝时各成员分别获知失败，不得将其他请求的确认视为自身成功 |
+| 资源所有权 | 调用取消不取消共享确认；未决请求仍持有 stripe；STOP/Reload 先停止准入，再收敛提交与确认；异常取消继续服从物理输出隔离约束 |
+| Producer | `acks=all`、`enable_idempotence=true`、`linger_ms=0`，`max_batch_size` 默认 131072 byte；实验配置不等于生产冻结配置 |
+| 观测 | 物理 Builder 尝试只计一次，归属首个源片段；确认延迟按每个原始请求实际成功 Record 数加权，服务级合计不得重复计数 |
 
-Builder 合并 Future 管理不保证 ProduceRequest 数降低。当前 `successful_attempts` 计数单位与指标定义的已知偏差见 §14.7.2。
+共享提交不承诺 Kafka ProduceRequest 数与 Builder 数一一对应。合并后的性能收益及安全性必须经独立真实容量复测确认。
 
 ## 10.8 设备顺序与有界写入并发
 
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart TB
-    A["设备 A / Durable A"] --> L1["Stripe Lock A"]
-    B["设备 B / Durable B"] --> L2["Stripe Lock B"]
-    C["设备 C / Durable C"] --> L3["Stripe Lock C"]
-    L1 --> Q["共享 SinkRuntime / I/O 额度"]
-    L2 --> Q
-    L3 --> Q
-    Q --> P["单 AIOKafkaProducer"]
-    P --> T["Kafka 显式分区"]
+    A["设备 A / 可靠订阅 A"] --> Q["共享物理目标与全局额度"]
+    B["设备 B / 可靠订阅 B"] --> Q
+    C["设备 C / 可靠订阅 C"] --> Q
+    Q --> L1["设备 A、B 各自有序锁"]
+    Q --> L2["设备 C 有序锁"]
+    L1 --> P1["目标分区 1 就绪批次合并"]
+    L2 --> P2["目标分区 2 就绪批次合并"]
+    P1 --> K["共享 Kafka Producer"]
+    P2 --> K
 ```
 
 <p class="figure-caption">图 10-7 单设备有序与跨设备并发</p>
@@ -2781,7 +2786,7 @@ flowchart TB
 | 技术边界 | 规则 |
 |---|---|
 | 设备 Durable | 显式单设备来源使用精确 Subject；多设备或未限定设备的 Delivery 使用范围 Subject 再过滤；`max_ack_pending=1`、`fetch(batch=1)`；前批未终局不处理后批 |
-| 不同设备 | 并发受第 6 章资源预算、模板 `supports_concurrent_write/max_safe_inflight` 限制 |
+| 不同设备 | 并发受第 6 章资源预算、模板 `supports_concurrent_write/max_safe_inflight` 限制；同分区可合并就绪请求，不同分区可独立提交 |
 | 来源交叉 | 同物理目标同设备重叠拒绝，不能以新 Sink ID 绕过共享额度 |
 | 设备 Key | UTF-8 `wind_farm_id:collector_id:device_id`；128 stripe 锁保证同设备写入及确认顺序 |
 | Topic 分区 | 缓存命中显式指定；失效时用 `_wait_on_metadata` 有界解析并使用 Producer 分区算法；不明则 fail-closed |
@@ -3456,8 +3461,8 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 | `write_encoded_batch(payloads,key,stripe)` | 接收已编码子批，保持测点原始顺序 |
 | `write_batch(samples)` | 保留点对象接口，不改变其他 Adapter |
 | `BatchOutcome.delivered/settled` | 只使用原始零基点索引；可信确认后才标记成功 |
-| `successful_latency_weights` | 每成功 Builder 输出一次 `(确认延迟,成功点权重)`，参见 §13.3.2 |
-| `successful_attempts/failed_attempts` | §3.5 规定目标 I/O 尝试统计单位；当前实现差异见 §14.7.2 |
+| `successful_latency_weights` | 同一成功 Builder 的确认延迟按各请求实际成功点数分别赋权，全部请求的权重之和等于该 Builder 确认点数，参见 §13.3.2 |
+| `successful_attempts/failed_attempts` | 每物理 Builder 尝试只归属首个源片段一次；单 Delivery 可能有确认测点但无独立物理尝试，服务级汇总不得重复计数 |
 | STOP/Reload/异常 | 不遗弃已提交 Future，不提前释放 I/O 所有权 |
 
 目标 Broker ACK 不等于 JetStream 源批 ACK；源批确认规则见 §10.6。
@@ -3562,7 +3567,7 @@ flowchart TD
 
 ### 13.3.2 P99 有界加权近似与跨进程聚合
 
-本节实现 §3.5.3 的 R04-05；不新增 GetMetrics 必选指标或 Proto 字段。采用**单事件循环拥有的有界时间桶 + 加权对数直方图**，不保存逐测点原始延迟；每个成功 Kafka Builder 只记录一次确认延迟及其成功 Record 权重，完整发送与确认过程见 §10.7。
+本节实现 §3.5.3 的 R04-05；不新增 GetMetrics 必选指标或 Proto 字段。采用**单事件循环拥有的有界时间桶 + 加权对数直方图**，不保存逐测点原始延迟；每个成功 Kafka Builder 的确认延迟按实际成功 Record 数分配至各原始请求的权重，服务级聚合时总权重等于实际确认点数；完整发送与确认过程见 §10.7。
 
 **统计参数。** 时间桶固定为 250 ms，每 Delivery 至多保留配置 `metrics_window_ms` 对应窗口及 2 个边界桶；合法统计窗口 1000～3600000 ms。延迟 $d$ 为毫秒、$d\ge0$ 且有限，分桶函数 $k(d)$ 为：
 
@@ -3906,7 +3911,7 @@ lint-imports
 |---|---|---|
 | 部署 | 单容器 Main、Realtime、Reliable 三进程，两个 Worker 独立事件循环 | Sink 当前代码、R11/R12 |
 | 源数据 | main `SampleBatch` Schema 3 与 `SampleItem`；精确设备 Subject 使用 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`；Sink 私有 `DeliveryPoint` 只承担输出上下文 | main `src/contracts/sample_batch.py`、Sink `application/delivery_point.py` |
-| 高吞吐实现 | Reliable Kafka 每输出子批最多 500 点；`encode_kafka_points` 复用公共字段并逐点拼接差异字段；一测点一 Kafka Record；Builder、Future 与 ACK 规则见 §10.7 | `kafka_wire.py`、`reliable_runtime.py`、`realtime_adapters.py` |
+| 高吞吐实现 | Reliable Kafka 每源子批最多 500 点；`encode_kafka_points` 复用公共字段并逐点拼接差异字段；一测点一 Kafka Record；同分区就绪请求合并、Future 与 ACK 规则见 §10.7 | `kafka_wire.py`、`reliable_runtime.py`、`realtime_adapters.py` |
 | B3 正确性 | 历史 234 项 parity、新增 307 项逐字节测试；Sink 525、Contracts 91、R10/R11 系统回归 5 项 PASS | `docs/sink-service-r12-final-optimization-acceptance.md` |
 | R12 饱和吞吐 | Reliable-only 三轮 120s A/B 中位数 B2 **72281** → B3 **85937** 确认值/s（+18.89%），JSON 编码 CPU −33.1%；不等于 600s 稳定容量 | R12 §3 |
 | Reliable 长稳 | B3 **125 批/s × 500 点 = 62500 值/s**，600s 无持续积压；150 批/s 在 600s 出现积压，不能认定稳定 | R12 §4 |
@@ -3916,7 +3921,7 @@ lint-imports
 
 **实现与验收边界：** Kafka Builder 的成功尝试按确认 Future 数计，交付值数按 Record 计；UNKNOWN 不计成功。R13 在旧分支通信契约上获得 PASS WITH LIMITATIONS，但本次适配 main 的 SampleBatch、Subject、Core YAML 后，**跨模块联调、静态门禁和 600 秒容量必须重新独立测试**；不得继承既有结果为 v1_48 的 PASS。
 
-**容量判定：** 120s 容量探测无法可靠排除小于 0.1 批/s 的慢性积压；稳定拐点至少连续 600s，同时报告 offered、ACK、backlog 斜率、CPU 及环境事件。B3 作为最终一次编码优化保留，不再开展 B4、aiokafka 私有 `_build` 改造或多进程分片。
+**容量判定：** 120s 容量探测无法可靠排除小于 0.1 批/s 的慢性积压；稳定拐点至少连续 600s，同时报告 offered、ACK、backlog 斜率、CPU 及环境事件。C6 第四轮仅开展同分区多设备就绪请求合并和真实供数能力整改，不引入生产多实例、额外 Producer、私有 `_build` 改造或新的协议格式。第三轮最佳 130.56 批/s 为比较基线，第四轮收益和稳定容量尚未独立验收。R14 发布器以独立编码进程、绝对时间调度和有界在途窗口供数；稳态 PubAck 速率必须单独验证，不能以计划发布量替代实际负载。
 
 ## 14.8 配置契约专项验收（补充）
 

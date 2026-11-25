@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Generator
 from types import SimpleNamespace
 from typing import Any
@@ -17,16 +18,17 @@ STRIPE = 7
 
 
 class _FakeConfirmation:
-    def __init__(self, *, fails: bool) -> None:
+    def __init__(self, *, fails: bool, gate: asyncio.Event | None = None) -> None:
         self.fails = fails
+        self.gate = gate
         self.awaited = 0
 
     def __await__(self) -> Generator[Any, None, None]:
         self.awaited += 1
+        if self.gate is not None:
+            yield from self.gate.wait().__await__()
         if self.fails:
             raise RuntimeError("broker rejected confirmation")
-        if False:
-            yield None
         return None
 
 
@@ -87,18 +89,20 @@ class _FakeProducer:
         self.send_attempts = 0
         self.submissions: list[tuple[_FakeBuilder, str, int]] = []
         self.futures: list[_FakeConfirmation] = []
+        self.stopped = False
 
     async def start(self) -> None:
         return None
 
     async def stop(self) -> None:
-        return None
+        self.stopped = True
 
     def _partition(self, *_args: Any) -> int:
         self.partition_calls += 1
         if self.flags["partition_fails"]:
             raise RuntimeError("partition unavailable")
-        return 3
+        partitions: dict[bytes, int] = self.gates.get("partitions", {})
+        return partitions.get(_args[2], 3)
 
     def create_batch(self) -> _FakeBuilder:
         return _FakeBuilder(self.capacity)
@@ -115,7 +119,9 @@ class _FakeProducer:
             await gate.wait()
         if self.flags["send_batch_fails"]:
             raise RuntimeError("send_batch rejected")
-        confirmation = _FakeConfirmation(fails=self.flags["confirm_fails"])
+        confirmation = _FakeConfirmation(
+            fails=self.flags["confirm_fails"], gate=self.gates.get("confirm_gate")
+        )
         self.futures.append(confirmation)
         self.submissions.append((builder, topic, partition))
         return confirmation

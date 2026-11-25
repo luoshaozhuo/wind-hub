@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_44 · 20261123 · 设计冲突裁决与新部署配置候选闭包</p>
+<p class="subtitle">v0_45 · 20261125 · 同步 Sink 批次合并设计基线</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -194,7 +194,7 @@ $$
 | Contracts / Configuration | `Contracts_软件设计_v1_45.md`、`Configuration_Service_软件设计_v1_23.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
 | Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_63.md`、`industrial_gateway_软件设计_v1_53.md` | 仿真、变量身份、目标写入与端口权限 |
 | Collector / Commander | `Collector_软件设计_v1_44.md`、`Commander_软件设计_v1_60.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_76.md`、`Storage_Service_软件设计_v1_10.md` | Kafka JSON v2、数据等级、持久入库及查询 |
+| Sink / Storage | `Sink_Service_软件设计_v1_77.md`、`Storage_Service_软件设计_v1_10.md` | Kafka JSON v2、数据等级、持久入库及查询 |
 | CLI | `CLI_软件设计_v1_56.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。

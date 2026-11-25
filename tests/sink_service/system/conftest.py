@@ -59,6 +59,51 @@ KAFKA_SINK = "history_kafka"
 DEFAULT_STALENESS_MS = 60_000
 
 
+def make_system_batch(
+    mode: str,
+    seq: int,
+    points: int,
+    *,
+    token: str,
+    staleness_ms: int = DEFAULT_STALENESS_MS,
+    device_id: str = DEVICE_ID,
+    quality: str = "good",
+    stale: bool = False,
+    now: datetime | None = None,
+) -> SampleBatch:
+    """Build the same strict fixture in the parent or an encoder process."""
+    if now is None:
+        now = datetime.now(UTC)
+    sample_time = (
+        now
+        if not stale
+        else datetime.fromtimestamp(now.timestamp() - staleness_ms / 1000.0 - 5, UTC)
+    )
+    samples = tuple(
+        SampleItem(
+            point_id=f"p{idx:03d}",
+            sample_id=f"s-{mode}-{seq}-{idx}-{token[:4]}",
+            value=float(seq + idx),
+            quality=quality,  # type: ignore[arg-type]
+            sample_time=sample_time,
+            max_staleness_ms=staleness_ms if mode == "realtime" else None,
+        )
+        for idx in range(points)
+    )
+    return SampleBatch(
+        batch_id=f"b-{mode}-{seq}-{token}",
+        mode=mode,  # type: ignore[arg-type]
+        wind_farm_id=WIND_FARM_ID,
+        collector_id=COLLECTOR_ID,
+        task_id="task-qa",
+        device_type="wtg",
+        device_id=device_id,
+        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+        publish_time=now,
+        samples=samples,
+    )
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
@@ -399,34 +444,16 @@ class SinkSystemHarness:
         quality: str = "good",
         stale: bool = False,
     ) -> SampleBatch:
-        now = datetime.now(UTC)
-        sample_time = (
-            now
-            if not stale
-            else datetime.fromtimestamp(now.timestamp() - self.staleness_ms / 1000.0 - 5, UTC)
-        )
-        samples = tuple(
-            SampleItem(
-                point_id=f"p{idx:03d}",
-                sample_id=f"s-{mode}-{seq}-{idx}-{self.token[:4]}",
-                value=float(seq + idx),
-                quality=quality,  # type: ignore[arg-type]
-                sample_time=sample_time,
-                max_staleness_ms=self.staleness_ms if mode == "realtime" else None,
-            )
-            for idx in range(points)
-        )
-        return SampleBatch(
-            batch_id=f"b-{mode}-{seq}-{self.token}",
-            mode=mode,  # type: ignore[arg-type]
-            wind_farm_id=WIND_FARM_ID,
-            collector_id=COLLECTOR_ID,
-            task_id="task-qa",
-            device_type="wtg",
+        """Build an input fixture using this harness's immutable identity."""
+        return make_system_batch(
+            mode,
+            seq,
+            points,
+            token=self.token,
+            staleness_ms=self.staleness_ms,
             device_id=device_id,
-            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
-            publish_time=now,
-            samples=samples,
+            quality=quality,
+            stale=stale,
         )
 
     async def publish_realtime(self, batches: list[SampleBatch], *, interval: float = 0.0) -> None:
