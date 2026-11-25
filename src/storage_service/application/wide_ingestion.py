@@ -177,11 +177,11 @@ class WideIngestionService:
                 await self._storage.insert_wide_batch(
                     first.schema, ordered_rows
                 )
-            except TimeoutError:
+            except (RuntimeError, TimeoutError, OSError) as exc:
                 self._metrics.record_unknown()
-                # A bounded driver call may still be running in a worker thread.
-                # No retry is allowed in the same process after UNKNOWN.
-                self._block(first.source, "TDENGINE_WIDE_IO_UNKNOWN")
+                # A connector error may follow partial durable STMT2 writes.
+                # Freeze the Kafka partition and require isolated recovery.
+                self._block(first.source, f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}")
             for item in group:
                 offsets.confirm(generation=generation, offset=item.source.offset)
             self._metrics.record_persisted(len(ordered_rows))
