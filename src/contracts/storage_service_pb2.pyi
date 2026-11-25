@@ -734,6 +734,7 @@ class QueryWideRowsRequest(_message.Message):
     POINT_IDS_FIELD_NUMBER: _builtins.int
     PAGE_SIZE_FIELD_NUMBER: _builtins.int
     PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+    QUALITIES_FIELD_NUMBER: _builtins.int
     wind_farm_id: _builtins.str
     device_id: _builtins.str
     device_config_id: _builtins.str
@@ -744,6 +745,8 @@ class QueryWideRowsRequest(_message.Message):
     def end_time(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
     def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    @_builtins.property
+    def qualities(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]: ...
     page_size: _builtins.int
     page_token: _builtins.str
     def __init__(
@@ -758,6 +761,7 @@ class QueryWideRowsRequest(_message.Message):
         point_ids: _abc.Iterable[_builtins.str] | None = ...,
         page_size: _builtins.int = ...,
         page_token: _builtins.str = ...,
+        qualities: _abc.Iterable[_builtins.int] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["start_time", b"start_time", "end_time", b"end_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
