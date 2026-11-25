@@ -145,8 +145,8 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     evidence=metadata,
                     metrics=metrics,
                     allowed_wind_farms=frozenset(bundle.configuration.allowed_wind_farms),
-                    max_batch_records=bundle.configuration.tdengine.batch_max_records,
-                    max_batch_bytes=bundle.configuration.tdengine.batch_max_bytes,
+                    max_batch_records=bundle.configuration.tdengine.ingestion.batch_max_rows,
+                    max_batch_bytes=bundle.configuration.tdengine.ingestion.batch_max_bytes,
                 )
                 consumer = KafkaStorageConsumer(
                     configuration=bundle.configuration,

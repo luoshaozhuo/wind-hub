@@ -70,8 +70,8 @@ class KafkaStorageConsumer:
             enable_auto_commit=False,
             auto_offset_reset="earliest",
             max_poll_records=configuration.kafka.max_poll_records,
-            fetch_max_bytes=configuration.kafka.max_buffer_bytes,
-            max_partition_fetch_bytes=min(1048576, configuration.kafka.max_buffer_bytes),
+            fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
+            max_partition_fetch_bytes=min(1048576, configuration.tdengine.ingestion.buffer_max_bytes),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
         self._retry_failures: dict[TopicPartition, int] = {}
@@ -309,7 +309,7 @@ class KafkaStorageConsumer:
         try:
             while not self._stop.is_set():
                 batches = await self._consumer.getmany(
-                    timeout_ms=self._config.tdengine.batch_wait_ms,
+                    timeout_ms=self._config.tdengine.ingestion.batch_wait_ms,
                     max_records=self._config.kafka.max_poll_records,
                 )
                 if not batches:
@@ -332,7 +332,7 @@ class KafkaStorageConsumer:
                     ]
                     bytes_received += sum(len(record.value) for record in records)
                     workload.append((tp, records))
-                if bytes_received > self._config.kafka.max_buffer_bytes:
+                if bytes_received > self._config.tdengine.ingestion.buffer_max_bytes:
                     # Fatal fail-closed: do not commit any Kafka offsets.
                     raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
                 # One task per partition and one poll per iteration means

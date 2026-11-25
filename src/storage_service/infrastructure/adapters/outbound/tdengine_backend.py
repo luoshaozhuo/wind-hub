@@ -200,7 +200,7 @@ class TDengineBackend:
         self, operation: Callable[..., _Result], *args: Any, **kwargs: Any
     ) -> _Result:
         """只等待到有界期限；线程超时不是 SQL 取消，由租约隔离其连接。"""
-        lease = _OperationLease(self._config.tdengine.write_timeout_ms)
+        lease = _OperationLease(self._config.tdengine.ingestion.write_timeout_ms)
         with self._lock:
             if self._closed:
                 raise RuntimeError("TDengine adapter is closed")
@@ -229,7 +229,7 @@ class TDengineBackend:
             host=host,
             port=port,
             # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
-            read_timeout=str(max(1, (self._config.tdengine.write_timeout_ms + 999) // 1000)),
+            read_timeout=str(max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)),
         )
 
     def _open_sync(self, *, lease: _OperationLease) -> None:
@@ -268,7 +268,7 @@ class TDengineBackend:
             self._closed = True
             self._driver = None
             self._verified_tables.clear()
-            lease = _OperationLease(self._config.tdengine.write_timeout_ms)
+            lease = _OperationLease(self._config.tdengine.ingestion.write_timeout_ms)
             # SQL 工作全部阻塞时，关闭仍须立即排空已空闲连接。
             future = self._close_executor.submit(self._close_sync, lease=lease)
         try:
@@ -454,7 +454,12 @@ class TDengineBackend:
                         names,
                         retention,
                         cachemodel=self._config.tdengine.database.cachemodel,
-                        cachesize=self._config.tdengine.database.cachesize,
+                        vgroups=self._config.tdengine.database.vgroups,
+                        buffer_mb=self._config.tdengine.database.buffer_mb,
+                        replica=self._config.tdengine.database.replica,
+                        comp=self._config.tdengine.database.comp,
+                        wal_level=self._config.tdengine.database.wal_level,
+                        wal_fsync_period_ms=self._config.tdengine.database.wal_fsync_period_ms,
                     )
                 )
                 # IF NOT EXISTS cannot mutate existing KEEP. Changes are controlled.
@@ -512,9 +517,17 @@ class TDengineBackend:
         expected_cachemodel = self._config.tdengine.database.cachemodel.upper()
         if f"CACHEMODEL{expected_cachemodel}" not in normalized:
             raise TDengineSchemaConflictError("database CACHEMODEL differs from configuration")
-        expected_cachesize = f"CACHESIZE{self._config.tdengine.database.cachesize}"
-        if expected_cachesize not in normalized:
-            raise TDengineSchemaConflictError("database CACHESIZE differs from configuration")
+        database = self._config.tdengine.database
+        for name, value in (
+            ("VGROUPS", database.vgroups),
+            ("BUFFER", database.buffer_mb),
+            ("REPLICA", database.replica),
+            ("COMP", database.comp),
+            ("WAL_LEVEL", database.wal_level),
+            ("WAL_FSYNC_PERIOD", database.wal_fsync_period_ms),
+        ):
+            if f"{name}{value}" not in normalized:
+                raise RuntimeError(f"TDengine database parameter mismatch: {name}")
         duration = re.search(r"DURATION([1-9][0-9]*)D", normalized)
         keep = re.search(r"KEEP([1-9][0-9]*)D", normalized)
         if duration is None or keep is None:
@@ -651,7 +664,7 @@ class TDengineBackend:
             groups[f"{names.database}.{names.table}"].append(sample)
         with self._borrow_connection(lease=lease) as (connection, driver):
             for table_name, batch in groups.items():
-                if len(batch) > self._config.tdengine.batch_max_records:
+                if len(batch) > self._config.tdengine.ingestion.batch_max_rows:
                     raise ValueError("TDengine batch record count exceeds configured maximum")
                 statement = connection.stmt2_statement()
                 try:

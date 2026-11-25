@@ -58,8 +58,8 @@ def _digest(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class DatabaseRetention:
-    duration_days: int = 10
-    keep_days: int = 365
+    duration_days: int = 30
+    keep_days: int = 1095
 
     def __post_init__(self) -> None:
         if self.duration_days < 1 or self.keep_days < 3 * self.duration_days:
@@ -77,7 +77,12 @@ def create_database_sql(
     retention: DatabaseRetention,
     *,
     cachemodel: str | None = None,
-    cachesize: int | None = None,
+    vgroups: int = 4,
+    buffer_mb: int = 256,
+    replica: int = 1,
+    comp: int = 2,
+    wal_level: int = 2,
+    wal_fsync_period_ms: int = 0,
 ) -> str:
     database = _identifier(names.database)
     sql = (
@@ -88,11 +93,17 @@ def create_database_sql(
         if cachemodel not in {"none", "last_row", "last_value", "both"}:
             raise ValueError("unsupported TDengine CACHEMODEL")
         sql += f" CACHEMODEL '{cachemodel}'"
-    if cachesize is not None:
-        if not 1 <= cachesize <= 65536:
-            raise ValueError("TDengine CACHESIZE must be 1..65536")
-        sql += f" CACHESIZE {cachesize}"
-    return sql
+    if (
+        type(vgroups) is not int or vgroups < 1
+        or type(buffer_mb) is not int or buffer_mb < 1
+        or replica != 1 or comp not in (0, 1, 2)
+        or wal_level != 2 or wal_fsync_period_ms != 0
+    ):
+        raise ValueError("invalid database durability or allocation settings")
+    return (
+        f"{sql} VGROUPS {vgroups} BUFFER {buffer_mb} REPLICA {replica}"
+        f" COMP {comp} WAL_LEVEL {wal_level} WAL_FSYNC_PERIOD {wal_fsync_period_ms}"
+    )
 
 
 def create_stable_sql(names: StorageObjectNames) -> str:
