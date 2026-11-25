@@ -125,6 +125,13 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     *metadata.list_device_bindings(),
                     *bundle.device_bindings,
                 ),
+                persist_historical=lambda pins, business, binding: (
+                    metadata.register_semantic_pins(
+                        point_table_versions=pins,
+                        business_points_pin=business,
+                        device_bindings=(binding,),
+                    )
+                ),
             )
             metadata.register_semantic_pins(
                 point_table_versions=bundle.point_table_versions,
