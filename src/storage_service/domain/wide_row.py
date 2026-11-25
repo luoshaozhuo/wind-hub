@@ -55,6 +55,8 @@ def bind_wide_row(record: WideRecord, schema: WideSchema) -> BoundWideRow:
         elif sql_type in ("FLOAT", "DOUBLE"):
             if type(value) not in (float, int):
                 raise ValueError(f"{column.point_id}: expected numeric")
+            if type(value) is int and abs(value) > (2**24 if sql_type == "FLOAT" else 2**53):
+                raise ValueError(f"{column.point_id}: integer cannot be represented exactly")
             if sql_type == "FLOAT" and abs(value) > 3.4028234663852886e38:
                 raise ValueError(f"{column.point_id}: FLOAT overflow")
         elif sql_type.startswith("VARCHAR("):
