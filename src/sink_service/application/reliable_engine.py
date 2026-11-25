@@ -54,6 +54,8 @@ class ReliableDeliveryEngine:
     _pending_confirmed_samples: list[dict[str, str]]
     _confirmed_samples: deque[dict[str, str]]
     latency_window: LatencyWindow
+    reliable_source_fetch_seconds_total: float
+    reliable_source_fetch_operations_total: int
     reliable_encode_seconds_total: float
     reliable_encode_operations_total: int
     reliable_write_seconds_total: float
@@ -293,6 +295,7 @@ class ReliableDeliveryEngine:
             if now - self._last_capacity_check >= 10:
                 self._last_capacity_check = now
                 await self._check_capacity()
+            fetch_started = time.monotonic()
             try:
                 messages = await self._fetch_messages()
             except TimeoutError:
@@ -304,6 +307,9 @@ class ReliableDeliveryEngine:
                 backoff = min(backoff * 2, max_backoff)
                 continue
 
+            if messages:
+                self.reliable_source_fetch_seconds_total += time.monotonic() - fetch_started
+                self.reliable_source_fetch_operations_total += len(messages)
             for message in messages:
                 if self._stop.is_set():
                     return
