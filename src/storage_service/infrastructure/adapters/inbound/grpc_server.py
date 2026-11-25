@@ -407,6 +407,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QuerySamplesResponse:
         self._auth.require(context, permission="storage.read", farm=request.filter.wind_farm_id)
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE,
+                "Storage history is unavailable during Kafka replay reconciliation",
+            )
         filter_ = _filter(request.filter)
         page = await self._query.query(
             filter_,
@@ -692,6 +697,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         owner = self._auth.require(
             context, permission="storage.export", farm=request.filter.wind_farm_id
         )
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE,
+                "Storage history is unavailable during Kafka replay reconciliation",
+            )
         filter_ = _filter(request.filter)
         record = await self._jobs.create_export(
             request_id=request.request_id,
@@ -721,6 +731,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         self._auth.require(context, permission="storage.backup", farm=request.wind_farm_id)
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE,
+                "Storage history is unavailable during Kafka replay reconciliation",
+            )
         if not self._config.backup.enabled:
             await context.abort(
                 grpc.StatusCode.FAILED_PRECONDITION,
