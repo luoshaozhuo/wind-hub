@@ -191,6 +191,80 @@ class WideHistoryQueryService:
         self._limiter = asyncio.Semaphore(max_concurrent)
         self._read_available = read_available or (lambda: True)
 
+    async def _query_filtered(
+        self,
+        *,
+        schema: WideSchema,
+        filter_: WideHistoryFilter,
+        device_type: str,
+        last: int | None,
+        horizon: int,
+    ) -> WideHistoryPage:
+        """Bounded one-field quality scan with lossless cursor advancement."""
+        accepted: list[WideHistoryRow] = []
+        cursor = last
+        scanned = 0
+        complete = False
+        more = False
+        async with self._limiter:
+            async with asyncio.timeout(self._timeout):
+                await self._backend.verify_existing_wide_table(
+                    schema,
+                    wind_farm_id=filter_.wind_farm_id,
+                    device_id=filter_.device_id,
+                    device_type=device_type,
+                )
+                while scanned < 10000:
+                    limit = min(filter_.limit + 1, 10000 - scanned)
+                    request = WideHistoryFilter(
+                        wind_farm_id=filter_.wind_farm_id,
+                        device_id=filter_.device_id,
+                        device_config_id=filter_.device_config_id,
+                        data_level=filter_.data_level,
+                        start_time_us=filter_.start_time_us,
+                        end_time_us=horizon,
+                        point_ids=filter_.point_ids,
+                        limit=limit,
+                        after_time_us=cursor,
+                    )
+                    rows = tuple(
+                        await self._backend.fetch_wide_history(schema, request)
+                    )
+                    if len(rows) > limit:
+                        raise RuntimeError("wide quality scan exceeded fetch bound")
+                    for row in rows:
+                        if (
+                            row.sample_time_us < filter_.start_time_us
+                            or row.sample_time_us >= horizon
+                            or (cursor is not None and row.sample_time_us <= cursor)
+                            or len(row.points) != 1
+                            or row.points[0][0] != filter_.point_ids[0]
+                        ):
+                            raise RuntimeError("wide quality scan returned invalid row")
+                        scanned += 1
+                        if int(row.points[0][2]) in filter_.qualities:
+                            if len(accepted) >= filter_.limit:
+                                more = True
+                                break
+                            accepted.append(row)
+                        cursor = row.sample_time_us
+                    if more:
+                        break
+                    if len(rows) < limit:
+                        complete = True
+                        break
+        if not self._read_available():
+            raise RuntimeError("Kafka replay changed during quality scan")
+        if not complete and not more and scanned == 10000:
+            more = True
+        token = (
+            self._codec.encode(
+                filter_, schema, last_us=cursor, horizon_us=horizon
+            )
+            if more and cursor is not None else ""
+        )
+        return WideHistoryPage(tuple(accepted), token, not more, schema.fingerprint)
+
     async def query(
         self,
         *,
@@ -216,6 +290,11 @@ class WideHistoryQueryService:
             last, horizon = self._codec.decode(page_token, filter_, schema)
         if horizon <= filter_.start_time_us:
             return WideHistoryPage((), "", True, schema.fingerprint)
+        if filter_.qualities:
+            return await self._query_filtered(
+                schema=schema, filter_=filter_, device_type=device_type,
+                last=last, horizon=horizon,
+            )
         request = WideHistoryFilter(
             wind_farm_id=filter_.wind_farm_id,
             device_id=filter_.device_id,
