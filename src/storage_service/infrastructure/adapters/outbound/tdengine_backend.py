@@ -745,7 +745,8 @@ class TDengineBackend:
             )
             registrations = [
                 self._metadata.reserve_object(
-                    metadata_name, digest, description, schema.fingerprint,
+                    metadata_name, digest, description,
+                    "windhub-database-v1" if kind == "database" else schema.fingerprint,
                     physical_database=database_name,
                     stable_name=stable_name if kind != "database" else "",
                     table_name=table_name if kind == "table" else "",
