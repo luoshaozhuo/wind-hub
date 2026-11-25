@@ -82,6 +82,7 @@ def _servicer(monkeypatch: pytest.MonkeyPatch, query: _Query) -> StorageServicer
         config=_config(),
         metadata=cast(Any, object()),
         query=cast(Any, query),
+        wide_query=cast(Any, object()),
         jobs=cast(Any, object()),
         point_tables=cast(Any, _Units()),
         consumer=cast(Any, object()),
