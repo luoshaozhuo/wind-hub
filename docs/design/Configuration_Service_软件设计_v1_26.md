@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_25 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_26 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -748,7 +748,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
@@ -1355,7 +1355,7 @@ flowchart TB
 
 ## 9.1 唯一接口契约来源
 
-**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现行 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；Configuration Repository RPC 已由现行《Contracts 软件设计 v1_47》和 `src/contracts/configuration_repository.proto` 正式定义。本模块按冻结 Proto 实现并维护生成文件一致性，不在本设计新增建议字段或第二套 RPC 契约。
+**对外 RPC 的方法名、请求/响应字段、类型、可选性、枚举、分页、错误码、认证授权及版本规则统一归属《Contracts 软件设计》与 `src/contracts/*.proto`。** 本设计只规定 Configuration Service 如何实现这些契约，不独立冻结第二套通信协议。现行 `src/contracts/common.proto::CommonService` 的 9 个 RPC 直接复用；Configuration Repository RPC 已由现行《Contracts 软件设计 v1_48》和 `src/contracts/configuration_repository.proto` 正式定义。本模块按冻结 Proto 实现并维护生成文件一致性，不在本设计新增建议字段或第二套 RPC 契约。
 
 | 入口类别 | 契约权威 | 本模块实现职责 | 关联需求 |
 |---|---|---|---|

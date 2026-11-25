@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_79 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_80 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -753,7 +753,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
@@ -2604,7 +2604,7 @@ flowchart TD
 
 <p class="figure-caption">图 10-2 批量输入可信边界</p>
 
-Collector 的一次采样周期、原生回调或主动上送分别形成一次源事件，不跨事件合并。Sink 在来源批次通过 Contracts 严格解码后，将 `SampleItem` 投影为私有 `DeliveryPoint` 供 Redis、Modbus 和普通 Kafka 输出；该对象不提供 NATS 解码或发布入口。Reliable Kafka 热路径直接使用 `SampleBatch + SampleItem`，避免逐点重复创建校验模型。
+Collector 的一次采样周期、原生回调或主动上送分别形成一次源事件，不跨事件合并。Sink 在来源批次通过 Contracts 严格解码后，将 `SampleItem` 投影为私有 `DeliveryPoint` 供 Redis、Modbus 和 Gateway 实时输出；该对象不提供 NATS 解码或发布入口。Reliable Kafka 热路径直接使用 `SampleBatch + SampleItem`，避免逐点重复创建校验模型。
 
 ## 10.4 来源筛选、测点路由与 Delivery 派发
 
@@ -3441,7 +3441,7 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 ## 12.1.5 三级转换和对外数据包格式
 
-**唯一权威**：目标 Collector→Sink NATS v4、Sink→Kafka 设备级 JSON v3 以 Contracts §11.6/§11.9 为准，Storage v1_13 定义宽表。
+**唯一权威**：目标 Collector→Sink NATS v4、Sink→Kafka 设备级 JSON v3 以 Contracts §11.6/§11.9 为准，Storage v1_14 定义宽表。
 
 每个 Delivery 的 `output.data_level` **必须显式配置**，仅允许 `raw`、`protocol`、`business`，不得默认 `business` 或把旧 `engineering` 静默重命名为 `protocol`。
 

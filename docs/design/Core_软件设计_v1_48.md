@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_48 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -747,7 +747,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
@@ -1497,7 +1497,7 @@ flowchart TB
 | 多文件配置提交、候选快照 CAS 和热更新 | `core.configuration` 共享协调机制及具体业务 Service | Core 通用 `save_yaml` 仅确保单文件原子写入，不承诺全局事务 |
 | 端到端设备—NATS—Sink 诊断 | CLI、Web Server 与各业务服务的编排层 | Core 只提供网络、工业协议的局部诊断证据；Web Admin 经 Web Server 展示 |
 
-**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以冻结的 `wind-hub_总体逻辑架构设计_v1_29.md` 为上位依据。
+**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以冻结的 `wind-hub_总体逻辑架构设计_v1_30.md` 为上位依据。
 
 
 # 6. 通用配置数据处理设计

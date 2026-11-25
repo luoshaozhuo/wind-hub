@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_48 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -161,11 +161,11 @@ pre code {
 7. [Sink Service 派发服务 sink_service.proto](#7-sink-service-派发服务-sink_serviceproto)
 8. [Industrial Gateway 服务 industrial_gateway.proto](#8-industrial-gateway-服务-industrial_gatewayproto)
 9. [Data Generator 服务 data_generator.proto](#9-data-generator-服务-data_generatorproto)
-10. [Configuration Repository 新增接口契约](#10-configuration-repository-新增接口契约)
+10. [Configuration Repository 现行接口契约](#10-configuration-repository-现行接口契约)
 11. [跨契约一致性与演进](#11-跨契约一致性与演进)
 12. [测试、生成与验收](#12-测试生成与验收)
 13. [Commander 扩展契约补充规则](#13-commander-扩展契约补充规则)
-14. [Storage Service RPC 契约](#14-storage-service-rpc-契约)
+14. [Storage Service RPC 契约（宽表目标）](#14-storage-service-rpc-契约宽表目标)
 
 ---
 
@@ -748,7 +748,7 @@ System Test 必须遵守以下规定：
 
 # 3. 范围、现行基线及接口总览
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
@@ -1122,7 +1122,7 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 | `ListConfigs` | 1:string config_type；2:string config_id_prefix；3:string module_type；4:optional uint64 revision_id；5:uint32 page_size；6:string page_token | 1:ConfigSummary[] items；2:uint64 snapshot_revision_id；3:string next_page_token |
 | `ListConfigVersions` | 1:ConfigId config_id；2:bool include_deprecated；3:uint32 page_size；4:string page_token | 1:ConfigVersionSummary[] versions；2:string next_page_token |
 | `GetConfig` | 1:ConfigId config_id；oneof selector {2:string version_id；3:uint64 revision_id} | 1:ConfigYamlDocument document |
-| `GetConfigBundle` | 1:ConfigId[] roots；2:optional uint64 revision_id；3:optional bool include_dependencies | 1:uint64 revision_id；2:ConfigYamlDocument[] files；3:string manifest_sha256；4:uint64 total_bytes |
+| `GetConfigBundle` | 1:ConfigId[] roots；2:optional uint64 revision_id；3:optional bool include_dependencies；4:ConfigVersionRef[] exact_roots | 1:uint64 revision_id；2:ConfigYamlDocument[] files；3:string manifest_sha256；4:uint64 total_bytes |
 | `GetServiceConfigBundle` | 1:string deployment_id；2:string service_id；3:uint64 revision_id（该 RPC 中 0=当前发布修订） | 1:uint64 repository_revision_id；2:string target_revision；3:ConfigYamlDocument[] files；4:string manifest_sha256；5:uint64 total_bytes |
 | `GetPointTableBundle` | 1:string point_table_id；2:string expected_manifest_sha256 | 1:string point_table_id；2:string device_type；3:ConfigYamlDocument[] documents；4:string manifest_sha256 |
 | `GetCurrentRevision` | 空消息 | 1:uint64 revision_id；2:string manifest_sha256；3:Timestamp committed_at |
@@ -1217,7 +1217,7 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 
 ## 11.6 Collector→Sink：同步设备采样批次目标线格式
 
-现行 SampleBatch v3 是迁移基线；不兼容目标版本固定为 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
+现行 SampleBatch v3 是迁移基线；不兼容目标版本固定为 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时批次必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
 
 拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。目标字段及存在性见下表。Realtime 可以传输部分原生事件；Reliable 仅接收完整同步设备事件。
 
@@ -1235,7 +1235,7 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 | samples.value | 固定协议类型的 JSON 标量或 null；禁止非有限浮点 |
 | samples.quality | JSON 整数 0/1/2/3；禁止 bool；0 时 value 必须 null |
 | samples.receive_time | 可选真实 UTC RFC3339 六位小数秒 Z，不作为行键 |
-| samples.raw_payload_hex | 可选真实协议原始字节的小写偶数长度十六进制串，不得由解码值反推 |
+| samples.raw_payload_hex | 可选真实协议原始字节的1–2048 字节真实载荷的小写偶数长度十六进制串，不得由解码值反推 |
 
 Reliable 批每个可读点必须恰好出现一次。未尝试点 NULL/0，尝试失败 NULL/2；合法非空协议值缺 RAW 载荷为 RAW Delivery 契约违反，不得填0掩盖。Kafka points 必须等于固定完整点表源 ID 集合，包含不可读点 NULL/0；禁止缺列及额外列。Sink 不得把非法缺失的可靠源批当成完整事件。Realtime 原生事件可拆稳定子批，不跨事件合并；Redis/Modbus/Gateway 保留独立输出契约。
 
@@ -1243,7 +1243,7 @@ Reliable 批每个可读点必须恰好出现一次。未尝试点 NULL/0，尝�
 
 **规范性裁决**：RAW=Driver 可核验的协议解码前字节或帧；PROTOCOL=协议解码后的标量（尚无点表工程换算）；BUSINESS=依据 SampleBatch 所携带固定 Device Instance 身份解析的历史 PointTable ID 及锁定标准目录依赖闭包得到的标准业务值。现有 Collector 仅产生 PROTOCOL 输入，未采集解码前载荷时不得标 RAW。不存在 ENGINEERING 等级或默认 BUSINESS；转换责任只在 Sink 的业务层。
 
-Storage v1_13 §10 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
+Storage v1_14 §10 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
 
 - **RAW**：协议解码前的真实原始帧或字节载荷，需要 Driver 可证明的采集边界与显式编码。现有 `ProtocolSample.value` 已经解码，绝不能冒充 RAW。
 - **PROTOCOL**：已完成协议数据类型、字序等解码的标量，尚未执行 PointTable scale/offset、BusinessPoint 语义映射及单位转换。
@@ -1361,7 +1361,7 @@ Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value �
 | ListBlockedPartitions | page_size、page_token；topic/partition/offset、阻断原因 |
 | RetryBlockedPartition | request_id、topic、partition、expected_blocked_offset；accepted/result，不跳 offset |
 
-过滤器含场站、设备、可选设备类型、显式等级、可选 PointTable 完整版本、测点 ID 集合、UTC 半开时间区间、Quality。列描述恢复源 point_id、business_point_id、单位、原生类型和物理列身份；值使用有类型 oneof 或等价结构，明确 NULL；质量 0..3。删除未持久化 sample_id、logical_key、content_sha256、逐点 receive/publish_time。签名游标绑定过滤条件、初始上界、版本表族及 ts 排序，15 分钟有效期，不承诺 MVCC。跨版本默认分别返回，仅语义兼容时显式聚合。任务状态 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED，request_id 幂等；保持 Bearer 场站权限 storage.read/export/backup/inspect/operate/admin。错误 INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、NOT_FOUND、FAILED_PRECONDITION、RESOURCE_EXHAUSTED、UNAVAILABLE、DEADLINE_EXCEEDED、INTERNAL。详细存储/查询/恢复见 Storage v1_13。不得伪造旧字段或保留窄表兼容 RPC。
+过滤器含场站、设备、可选设备类型、显式等级、可选 PointTable 完整版本、测点 ID 集合、UTC 半开时间区间、Quality。列描述恢复源 point_id、business_point_id、单位、原生类型和物理列身份；值使用有类型 oneof 或等价结构，明确 NULL；质量 0..3。删除未持久化 sample_id、logical_key、content_sha256、逐点 receive/publish_time。签名游标绑定过滤条件、初始上界、固定表族、Schema 指纹、设备 ID 及 ts 排序，15 分钟有效期，不承诺 MVCC。跨版本分别返回；本期不提供跨版本聚合 RPC，调用方可在独立确认语义兼容后处理结果。任务状态 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED，request_id 幂等；保持 Bearer 场站权限 storage.read/export/backup/inspect/operate/admin。错误 INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、NOT_FOUND、FAILED_PRECONDITION、RESOURCE_EXHAUSTED、UNAVAILABLE、DEADLINE_EXCEEDED、INTERNAL。详细存储/查询/恢复见 Storage v1_14。不得伪造旧字段或保留窄表兼容 RPC。
 
 ## 14.1 宽表消息字段编号
 

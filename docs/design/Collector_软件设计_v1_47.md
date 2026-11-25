@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_46 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC；由 Configuration 广播 revision 提示，Collector 独立对账。
 
@@ -751,11 +751,11 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_13 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
-**main 集成基线（2026-11-23）**：Collector 的采样输出以当前 `SampleBatch` v3 代码与共享协议契约为准；历史配置点表身份必须固定，Realtime 与 Reliable 使用一致的样本身份；不再以旧 Schema 2 为当前格式。 历史章节如与此基线、当前 Proto 或已集成源码冲突，以可执行契约为准，不将开发阶段的待办状态视为当前事实。
+**迁移基线（非目标契约）**：现行代码为 NATS SampleBatch v3；本设计目标为 Contracts v4 与固定 Device Instance 身份。历史执行记录仅为迁移证据，不覆盖本设计目标。
 
 Collector
 的业务是连接现场设备，采集配置允许的动态测点，对采样值进行标准化处理并向
