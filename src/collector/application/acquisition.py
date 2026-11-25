@@ -7,6 +7,7 @@ import contextlib
 import inspect
 import logging
 import time
+from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -41,6 +42,7 @@ class DevicePlan:
     device_type: str
     point_table_id: str
     task_id: str
+    device_config_id: str
     data_types: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -273,7 +275,9 @@ class DeviceWorker:
             raise ValueError(f"unsupported acquisition mode: {mode}")
         self.last_error = ""
 
-    async def _on_samples(self, samples: tuple[ProtocolSample, ...]) -> None:
+    async def _on_samples(
+        self, samples: tuple[ProtocolSample, ...], *, sample_time: datetime | None = None
+    ) -> None:
         # ISOLATED is also set transiently while a healthy device has an
         # in-flight read, so it must not suppress the owned poll's own
         # samples; stale callbacks are excluded by _needs_reconnect and the
@@ -317,6 +321,9 @@ class DeviceWorker:
                 device_type=self.plan.device_type,
                 point_table_id=self.plan.point_table_id,
                 task_id=self.plan.task_id,
+                device_config_id=self.plan.device_config_id,
+                sample_time=sample_time or datetime.now(UTC),
+                expected_point_ids=tuple(self.plan.point_table.points),
             )
 
     async def _poll_loop(self, point_ids: tuple[str, ...]) -> None:
