@@ -62,6 +62,7 @@ def query_wide_rows(
     end_time: str,
     level: str = typer.Option(..., "--level"),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    qualities: list[int] | None = typer.Option(None, "--quality"),
     page_size: int = typer.Option(200, min=1, max=1000),
     page_token: str = "",
 ) -> None:
@@ -85,6 +86,7 @@ def query_wide_rows(
             "start_time": start_time,
             "end_time": end_time,
             "point_ids": point_ids or [],
+            "qualities": qualities or [],
             "page_size": page_size,
             "page_token": page_token,
         },
@@ -137,6 +139,7 @@ def query_wide_aggregates(
     operation: str = typer.Option("avg", "--operation"),
     window_ms: int = typer.Option(60000, min=1),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    qualities: list[int] | None = typer.Option(None, "--quality"),
     page_size: int = typer.Option(200, min=1, max=1000),
     page_token: str = "",
 ) -> None:
@@ -165,6 +168,7 @@ def query_wide_aggregates(
                 "start_time": start_time,
                 "end_time": end_time,
                 "point_ids": point_ids or [],
+            "qualities": qualities or [],
                 "page_size": min(page_size, 200),
             },
             "aggregation": operations[operation],
@@ -232,6 +236,7 @@ def create_wide_export(
     level: str = typer.Option(..., "--level"),
     export_format: str = typer.Option("csv", "--format"),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    qualities: list[int] | None = typer.Option(None, "--quality"),
     page_size: int = typer.Option(100, min=1, max=1000),
 ) -> None:
     """Create a durable version-scoped device-wide CSV/JSON export task."""
@@ -257,6 +262,7 @@ def create_wide_export(
                 "start_time": start_time,
                 "end_time": end_time,
                 "point_ids": point_ids or [],
+            "qualities": qualities or [],
                 "page_size": page_size,
             },
         },
