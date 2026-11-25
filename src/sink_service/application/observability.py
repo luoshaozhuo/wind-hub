@@ -93,6 +93,8 @@ class Observability:
                 "routed_values_total",
                 "retry_total",
                 "dead_letter_invalid_batches_total",
+                "reliable_source_fetch_seconds_total",
+                "reliable_source_fetch_operations_total",
                 "reliable_encode_seconds_total",
                 "reliable_encode_operations_total",
                 "reliable_write_seconds_total",
