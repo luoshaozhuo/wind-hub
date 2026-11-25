@@ -64,10 +64,10 @@ class DeviceBinding:
                 self.device_config_id,
                 self.device_version_id,
                 self.device_file_version,
-                self.site_config_id,
-                self.site_file_version,
             )
         )
+        if bool(self.site_config_id) != bool(self.site_file_version):
+            raise ValueError("historical Site Instance identity must be complete or absent")
 
     @property
     def point_table_id(self) -> str:
