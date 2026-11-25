@@ -119,6 +119,17 @@ def encode_kafka_points(
 _QUALITY_BITS = {"good": 1, "bad": 2, "uncertain": 3}
 
 
+def encode_kafka_wide_key(wind_farm_id: str, device_id: str) -> bytes:
+    """Partition every data level of one device onto the same Kafka key."""
+    for identity in (wind_farm_id, device_id):
+        if (
+            not isinstance(identity, str) or not identity or ":" in identity
+            or len(identity.encode("utf-8")) > 256
+        ):
+            raise ValueError("Kafka device identity is missing or contains a delimiter")
+    return f"{wind_farm_id}:{device_id}".encode("utf-8")
+
+
 def encode_kafka_wide(
     batch: SampleBatch,
     items: tuple[SampleItem, ...],
@@ -136,6 +147,7 @@ def encode_kafka_wide(
     _require_protocol(data_level)
     if not device_config_id:
         raise ValueError("exact Device Instance version identity required")
+    encode_kafka_wide_key(batch.wind_farm_id, batch.device_id)
     if not items or not physical_points or len(set(physical_points)) != len(physical_points):
         raise ValueError("complete physical point set required")
     if data_level == "business":
