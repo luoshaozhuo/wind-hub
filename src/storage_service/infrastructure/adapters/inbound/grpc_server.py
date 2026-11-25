@@ -32,6 +32,8 @@ from storage_service.application.query import (
     QueryRejectedError,
 )
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
+from storage_service.application.wide_query import WideHistoryQueryService, WideHistoryFilter
+from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
@@ -251,6 +253,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         config: StorageConfig,
         metadata: MetadataStore,
         query: HistoryQueryService,
+        wide_query: WideHistoryQueryService,
         jobs: AsyncStorageTasks,
         point_tables: ConfigurationPointTableResolver,
         consumer: KafkaStorageConsumer,
@@ -263,6 +266,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config = config
         self._metadata = metadata
         self._query = query
+        self._wide_query = wide_query
         self._jobs = jobs
         self._point_tables = point_tables
         self._consumer = consumer
@@ -405,6 +409,123 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.DiagnoseResponse:
         return await self._unsupported_common(context, "storage.inspect")
+
+    @guarded
+    async def QueryWideRows(
+        self,
+        request: pb.QueryWideRowsRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
+    ) -> pb.QueryWideRowsResponse:
+        """Return frozen device-wide columns and quality without cross-version joins."""
+        self._auth.require(context, permission="storage.read", farm=request.wind_farm_id)
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE, "Storage Kafka replay is not settled"
+            )
+        levels = {
+            pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
+            pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
+            pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
+        }
+        level = levels.get(request.data_level)
+        if level is None or not request.HasField("start_time") or not request.HasField("end_time"):
+            raise QueryRejectedError("wide queries require explicit level and UTC time boundaries")
+        identity = WideIdentity(
+            wind_farm_id=request.wind_farm_id,
+            device_config_id=request.device_config_id,
+            device_id=request.device_id,
+            data_level=level,
+        )
+        schema = await self._point_tables.resolve_wide_schema(
+            identity,
+            type_mapping=self._config.tdengine.type_mapping,
+            max_row_bytes=65536,
+        )
+        point_ids = tuple(request.point_ids) or tuple(
+            column.point_id for column in schema.columns
+        )
+        filter_ = WideHistoryFilter(
+            wind_farm_id=identity.wind_farm_id,
+            device_id=identity.device_id,
+            device_config_id=identity.device_config_id,
+            data_level=level,
+            start_time_us=_us(request.start_time),
+            end_time_us=_us(request.end_time),
+            point_ids=point_ids,
+            limit=request.page_size or 200,
+        )
+        page = await self._wide_query.query(
+            schema=schema, filter_=filter_, page_token=request.page_token
+        )
+        if self._consumer.recovering:
+            await context.abort(
+                grpc.StatusCode.UNAVAILABLE, "Storage replay began during query"
+            )
+        response = pb.QueryWideRowsResponse(
+            wind_farm_id=identity.wind_farm_id,
+            device_id=identity.device_id,
+            device_config_id=identity.device_config_id,
+            point_table_id=schema.point_table_id,
+            point_table_version=schema.point_table_version,
+            data_level=request.data_level,
+            schema_fingerprint=schema.fingerprint,
+            next_page_token=page.next_page_token,
+            complete=page.complete,
+        )
+        columns = {
+            column.point_id: (index, column)
+            for index, column in enumerate(schema.columns)
+        }
+        for point_id in point_ids:
+            index, column = columns[point_id]
+            response.columns.add(
+                point_id=point_id,
+                physical_column_name=column.column_name,
+                sql_type=column.sql_type,
+                quality_ordinal=index,
+            )
+        for row in page.rows:
+            result = response.rows.add()
+            result.sample_time.CopyFrom(_date(row.sample_time_us))
+            if len(row.points) != len(point_ids):
+                raise TDengineSchemaConflictError("wide query returned a partial row")
+            for expected, (point_id, value, quality) in zip(
+                point_ids, row.points, strict=True
+            ):
+                if point_id != expected:
+                    raise TDengineSchemaConflictError("wide row column order mismatch")
+                physical = columns[point_id][1]
+                point = result.points.add(point_id=point_id, quality=int(quality))
+                if value is None:
+                    continue
+                kind = physical.sql_type
+                if kind == "BOOL":
+                    if type(value) is not bool:
+                        raise TDengineSchemaConflictError("wide BOOL invalid")
+                    point.bool_value = value
+                elif kind in {"TINYINT", "SMALLINT", "INT", "BIGINT"}:
+                    if type(value) is not int:
+                        raise TDengineSchemaConflictError("wide signed integer invalid")
+                    point.signed_value = value
+                elif kind.endswith(" UNSIGNED"):
+                    if type(value) is not int or value < 0:
+                        raise TDengineSchemaConflictError("wide unsigned integer invalid")
+                    point.unsigned_value = value
+                elif kind in {"FLOAT", "DOUBLE"}:
+                    if type(value) not in {int, float}:
+                        raise TDengineSchemaConflictError("wide float invalid")
+                    point.float_value = float(value)
+                elif kind.startswith("VARCHAR("):
+                    if not isinstance(value, str):
+                        raise TDengineSchemaConflictError("wide text invalid")
+                    point.string_value = value
+                elif kind.startswith("VARBINARY("):
+                    if not isinstance(value, bytes | bytearray | memoryview):
+                        raise TDengineSchemaConflictError("wide binary invalid")
+                    point.bytes_value = bytes(value)
+                else:
+                    raise TDengineSchemaConflictError("unsupported wide physical field type")
+        return response
 
     @guarded
     async def QuerySamples(
@@ -900,6 +1021,7 @@ def build_storage_grpc_server(
     config: StorageConfig,
     metadata: MetadataStore,
     query: HistoryQueryService,
+    wide_query: WideHistoryQueryService,
     jobs: AsyncStorageTasks,
     point_tables: ConfigurationPointTableResolver,
     consumer: KafkaStorageConsumer,
@@ -921,6 +1043,7 @@ def build_storage_grpc_server(
         config=config,
         metadata=metadata,
         query=query,
+        wide_query=wide_query,
         jobs=jobs,
         point_tables=point_tables,
         consumer=consumer,
