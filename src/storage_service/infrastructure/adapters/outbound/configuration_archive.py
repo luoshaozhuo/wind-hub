@@ -467,6 +467,145 @@ class ConfigurationPointTableResolver:
                 "PointTable device_type disagrees with authoritative DeviceModel"
             )
 
+    @staticmethod
+    def _parse_exact_device_binding(
+        identity: WideIdentity | WideRecord,
+        documents: tuple[RepositoryDocument, ...],
+    ) -> tuple[
+        DeviceBinding, tuple[str, str], tuple[str, str] | None,
+    ]:
+        """Rebuild immutable Device → Model → PointTable semantic pins from YAML."""
+        parsed: dict[tuple[str, str, str], tuple[RepositoryDocument, dict[str, Any]]] = {}
+        for document in documents:
+            if hashlib.sha256(document.yaml_bytes).hexdigest() != document.yaml_sha256:
+                raise ConfigHistoryUnavailableError("historical YAML checksum mismatch")
+            raw = yaml.safe_load(document.yaml_bytes)
+            if not isinstance(raw, dict):
+                raise ConfigHistoryUnavailableError("historical configuration YAML is invalid")
+            version = raw.get("file_version")
+            if type(raw.get("schema_version")) is not int or not isinstance(version, str):
+                raise ConfigHistoryUnavailableError("historical schema/version metadata is absent")
+            key = (document.config_type, document.config_id, version)
+            if key in parsed:
+                raise ConfigHistoryUnavailableError("historical closure contains duplicate version")
+            parsed[key] = (document, raw)
+
+        name = re.fullmatch(
+            r"device_(?P<id>[A-Za-z0-9_.-]+)_v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)",
+            identity.device_config_id,
+        )
+        if name is None:
+            raise ConfigHistoryUnavailableError("invalid historical Device Instance name")
+        root = parsed.get(("device", name["id"], name["version"]))
+        if root is None:
+            raise ConfigHistoryUnavailableError("historical Device Instance root not found")
+        device_document, root_yaml = root
+        devices = root_yaml.get("devices")
+        if not isinstance(devices, dict) or identity.device_id not in devices:
+            raise ConfigHistoryUnavailableError("historical device is absent from its Instance")
+        selected = devices[identity.device_id]
+        if not isinstance(selected, dict) or not isinstance(selected.get("model"), dict):
+            raise ConfigHistoryUnavailableError("historical device Model reference absent")
+        model_ref = selected["model"]
+        model_id, model_version = model_ref.get("id"), model_ref.get("version")
+        if not isinstance(model_id, str) or not isinstance(model_version, str):
+            raise ConfigHistoryUnavailableError("historical DeviceModel pin is invalid")
+        model_entry = parsed.get(("device_model", model_id, model_version))
+        if model_entry is None:
+            raise ConfigHistoryUnavailableError("historical DeviceModel dependency absent")
+        model_document, model_yaml = model_entry
+        table_ref = model_yaml.get("point_table")
+        device_type = model_yaml.get("device_type_id")
+        if (
+            model_yaml.get("template_id") != model_id
+            or not isinstance(table_ref, dict)
+            or not isinstance(device_type, str)
+            or not device_type
+        ):
+            raise ConfigHistoryUnavailableError("historical DeviceModel definition invalid")
+        table_id, table_version = table_ref.get("id"), table_ref.get("version")
+        if not isinstance(table_id, str) or not isinstance(table_version, str):
+            raise ConfigHistoryUnavailableError("historical PointTable pin invalid")
+        table_entry = parsed.get(("point_table", table_id, table_version))
+        if table_entry is None:
+            raise ConfigHistoryUnavailableError("historical PointTable dependency absent")
+        table_document, table_yaml = table_entry
+        full_table_id = f"point_table_{table_id}_v{table_version}"
+        ConfigurationPointTableResolver._require_table_identity(
+            point_table_id=full_table_id,
+            config_id=table_id,
+            document=table_yaml,
+            device_type_id=device_type,
+        )
+        sources = table_yaml.get("config_sources")
+        if not isinstance(sources, list):
+            raise ConfigHistoryUnavailableError("historical PointTable sources unavailable")
+        business_pin: tuple[str, str] | None = None
+        for ref in sources:
+            if not isinstance(ref, dict):
+                raise ConfigHistoryUnavailableError("invalid historical semantic reference")
+            kind, name_ref, version_ref = (
+                ref.get("config_type"), ref.get("config_id"), ref.get("file_version")
+            )
+            if not all(isinstance(item, str) and item for item in (kind, name_ref, version_ref)):
+                raise ConfigHistoryUnavailableError("historical semantic pin incomplete")
+            target = parsed.get((kind, name_ref, version_ref))
+            if target is None:
+                raise ConfigHistoryUnavailableError("historical semantic dependency missing")
+            if kind == "business_points":
+                if business_pin is not None:
+                    raise ConfigHistoryUnavailableError("ambiguous BusinessPoint catalog")
+                business_pin = (name_ref, target[0].version_id)
+        model = DeviceModel(
+            config_id=model_id, version_id=model_document.version_id,
+            file_version=model_version, device_type_id=device_type,
+            point_table_id=full_table_id,
+        )
+        binding = DeviceBinding(
+            wind_farm_id=identity.wind_farm_id,
+            device_id=identity.device_id,
+            device_config_id=name["id"],
+            device_version_id=device_document.version_id,
+            device_file_version=name["version"],
+            site_config_id="",
+            site_file_version="",
+            model=model,
+        )
+        return binding, (table_id, table_document.version_id), business_pin
+
+    async def _fetch_unknown_device(self, identity: WideIdentity | WideRecord) -> None:
+        """Atomically validate and durably pin one previously unseen historical device."""
+        async with self._lock:
+            try:
+                self._wide_binding(identity)
+                return
+            except ConfigHistoryUnavailableError:
+                pass
+            documents = await self._fetcher.fetch_exact_device_closure(
+                device_config_id=identity.device_config_id,
+            )
+            binding, pin, business = self._parse_exact_device_binding(
+                identity, documents
+            )
+            pins = {binding.point_table_id: pin}
+            self.validate_immutable_pins(
+                point_table_versions=pins,
+                business_points_pin=business,
+                device_bindings=(binding,),
+            )
+            if self._persist_historical is None:
+                raise ConfigHistoryUnavailableError(
+                    "Storage has no durable historical pin registration"
+                )
+            await asyncio.to_thread(
+                self._persist_historical, pins, business, binding
+            )
+            self.add_immutable_pins(
+                point_table_versions=pins,
+                business_points_pin=business,
+                device_bindings=(binding,),
+            )
+
     def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
         """Resolve one immutable instance identity without recommendation lookup."""
         matches = {
@@ -503,10 +642,13 @@ class ConfigurationPointTableResolver:
         try:
             binding = self._wide_binding(record)
         except ConfigHistoryUnavailableError:
-            if self._refresh_hook is None:
-                raise
-            await self._refresh_hook()
-            binding = self._wide_binding(record)
+            if self._refresh_hook is not None:
+                await self._refresh_hook()
+            try:
+                binding = self._wide_binding(record)
+            except ConfigHistoryUnavailableError:
+                await self._fetch_unknown_device(record)
+                binding = self._wide_binding(record)
         pin = self._pins.get(binding.point_table_id)
         if pin is None:
             raise ConfigHistoryUnavailableError("PointTable lacks an immutable pin")
