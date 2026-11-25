@@ -103,6 +103,11 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         self.reliable_write_operations_total = 0
         self.reliable_source_ack_seconds_total = 0.0
         self.reliable_source_ack_operations_total = 0
+        self.kafka_lock_seconds_total = 0.0
+        self.kafka_metadata_seconds_total = 0.0
+        self.kafka_submit_seconds_total = 0.0
+        self.kafka_confirm_seconds_total = 0.0
+        self.kafka_timed_writes_total = 0
         self.latency_window = LatencyWindow(
             window_ms=snapshot.service["metrics"]["metrics_window_ms"]
         )
@@ -190,6 +195,11 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             "reliable_source_ack_operations_total": float(
                 self.reliable_source_ack_operations_total
             ),
+            "kafka_lock_seconds_total": self.kafka_lock_seconds_total,
+            "kafka_metadata_seconds_total": self.kafka_metadata_seconds_total,
+            "kafka_submit_seconds_total": self.kafka_submit_seconds_total,
+            "kafka_confirm_seconds_total": self.kafka_confirm_seconds_total,
+            "kafka_timed_writes_total": float(self.kafka_timed_writes_total),
             "io_inflight": float(self.io_inflight),
         }
         if self._backlog is not None and self._client is not None and self._client.is_connected:
