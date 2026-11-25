@@ -27,6 +27,9 @@ class PublisherEvidence(Protocol):
         device_type: str,
         point_table_id: str,
         task_id: str,
+        device_config_id: str,
+        sample_time: datetime,
+        expected_point_ids: tuple[str, ...],
     ) -> None: ...
 
 
@@ -191,6 +194,9 @@ class CollectorDiagnostics:
                                     device_type=worker.plan.device_type,
                                     point_table_id=worker.plan.point_table_id,
                                     task_id=worker.plan.task_id,
+                                    device_config_id=worker.plan.device_config_id,
+                                    sample_time=datetime.now(UTC),
+                                    expected_point_ids=tuple(worker.plan.point_table.points),
                                 )
                             except (ValueError, TypeError) as exc:
                                 encoding_failed = True
