@@ -92,13 +92,19 @@ def write_wide_stmt2(
     """
     if not records:
         return
-    if not table_name.startswith("wh_") or "." not in table_name:
-        raise ValueError("expected fully qualified generated TDengine table")
-    database, subtable = table_name.split(".", 1)
-    if not database.replace("_", "").isalnum() or not subtable.replace("_", "").isalnum():
-        raise ValueError("unsafe TDengine table identifier")
-    if not subtable.startswith("tb_"):
-        raise ValueError("wide insert must target a device subtable")
+    first = records[0]
+    expected = (
+        f"{schema.database_name(first.wind_farm_id)}."
+        f"{schema.subtable_name(first.device_id)}"
+    )
+    if table_name != expected:
+        raise ValueError("wide insert target differs from exact device schema identity")
+    if any(
+        row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
+        for row in records
+    ):
+        raise ValueError("wide STMT2 batch cannot mix device identities")
+    database, subtable = expected.split(".", 1)
     columns = bind_wide_columns(schema, records, driver)
     statement = connection.stmt2_statement()
     try:
