@@ -13,10 +13,10 @@ from aiokafka.errors import KafkaError
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import (
     IngestionBlockedError,
-    IngestionService,
     KafkaRecord,
     WriteUnconfirmedError,
 )
+from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
@@ -54,7 +54,7 @@ class KafkaStorageConsumer:
         *,
         configuration: StorageConfig,
         bootstrap_servers: str,
-        ingestion: IngestionService,
+        ingestion: WideIngestionService,
         metadata: MetadataStore,
         metrics: StorageRuntimeMetrics,
     ) -> None:
