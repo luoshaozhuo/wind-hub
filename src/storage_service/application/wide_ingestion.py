@@ -164,9 +164,18 @@ class WideIngestionService:
                 device_id=first.row.device_id,
                 device_type=first.device_type,
             )
+            # If a device overwrites the same timestamp in this Kafka batch,
+            # bind only its latest complete row, ordered by final offset.
+            latest_by_time = {
+                entry.row.sample_time_us: (position, entry.row)
+                for position, entry in enumerate(group)
+            }
+            ordered_rows = tuple(
+                row for _position, row in sorted(latest_by_time.values())
+            )
             try:
                 await self._storage.insert_wide_batch(
-                    first.schema, tuple(entry.row for entry in group)
+                    first.schema, ordered_rows
                 )
             except TimeoutError:
                 self._metrics.record_unknown()
@@ -175,7 +184,7 @@ class WideIngestionService:
                 self._block(first.source, "TDENGINE_WIDE_IO_UNKNOWN")
             for item in group:
                 offsets.confirm(generation=generation, offset=item.source.offset)
-            self._metrics.record_persisted(len(group))
+            self._metrics.record_persisted(len(ordered_rows))
             index = end
         return len(pending)
 
