@@ -51,14 +51,15 @@ def test_stmt2_binds_complete_rows_and_2bit_quality_column() -> None:
     connection.stmt2_statement.return_value.execute.return_value = 2
     write_wide_stmt2(
         connection, driver,
-        table_name="wh_farm.tb_device",
+        table_name=f"{schema.database_name('farm')}.{schema.subtable_name('wtg_001')}",
         schema=schema, records=rows,
     )
     driver.varbinary_to_column.assert_called_once_with([b"\x01", b"\x01"])
     driver.ints_to_column.assert_called_once_with([None, None])
     statement = connection.stmt2_statement.return_value
     statement.prepare.assert_called_once_with(
-        "INSERT INTO wh_farm.tb_device VALUES (?, ?, ?, ?)"
+        f"INSERT INTO {schema.database_name('farm')}.{schema.subtable_name('wtg_001')} "
+        "VALUES (?, ?, ?, ?)"
     )
     assert statement.bind.call_count == 1
     statement.close.assert_called_once()
@@ -78,7 +79,7 @@ def test_negative_affected_row_count_fails_and_closes_statement() -> None:
 
 
 def test_refuses_unsafe_table_name() -> None:
-    with pytest.raises(ValueError, match="generated|unsafe"):
+    with pytest.raises(ValueError, match="exact device schema identity"):
         write_wide_stmt2(
             Mock(), Mock(), table_name="wh_x;DROP.tb_a",
             schema=_schema(), records=(_record(_schema(), 0),),
