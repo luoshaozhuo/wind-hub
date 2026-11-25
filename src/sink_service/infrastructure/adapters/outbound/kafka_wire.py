@@ -171,8 +171,12 @@ def encode_kafka_wide(
         value: object = item.value
         if data_level == "raw":
             raw_hex = item.raw_payload_hex
-            if item.quality == "not_collected":
-                if item.value is not None or raw_hex is not None:
+            if item.quality == "not_collected" or (
+                item.quality == "bad" and item.value is None and raw_hex is None
+            ):
+                if item.quality == "not_collected" and (
+                    item.value is not None or raw_hex is not None
+                ):
                     raise ValueError("not_collected RAW point must be NULL")
                 value = None
             elif raw_hex is None:
