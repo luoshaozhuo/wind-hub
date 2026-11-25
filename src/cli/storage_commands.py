@@ -126,6 +126,55 @@ def query_samples(
     )
 
 
+@storage.command("wide-aggregates")
+def query_wide_aggregates(
+    wind_farm_id: str,
+    device_id: str,
+    device_config_id: str,
+    start_time: str,
+    end_time: str,
+    level: str = typer.Option(..., "--level"),
+    operation: str = typer.Option("avg", "--operation"),
+    window_ms: int = typer.Option(60000, min=1),
+    point_ids: list[str] | None = typer.Option(None, "--point-id"),
+    page_size: int = typer.Option(200, min=1, max=1000),
+    page_token: str = "",
+) -> None:
+    """Aggregate one immutable wide device/schema family with precise integer results."""
+    levels = {
+        "raw": "STORAGE_DATA_LEVEL_RAW",
+        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
+        "business": "STORAGE_DATA_LEVEL_BUSINESS",
+    }
+    operations = {
+        "count": "STORAGE_AGGREGATION_COUNT",
+        "min": "STORAGE_AGGREGATION_MIN",
+        "max": "STORAGE_AGGREGATION_MAX",
+        "avg": "STORAGE_AGGREGATION_AVG",
+    }
+    if level not in levels or operation not in operations:
+        raise typer.BadParameter("invalid data_level or aggregation operation")
+    _invoke(
+        "QueryAggregates",
+        {
+            "wide_filter": {
+                "wind_farm_id": wind_farm_id,
+                "device_id": device_id,
+                "device_config_id": device_config_id,
+                "data_level": levels[level],
+                "start_time": start_time,
+                "end_time": end_time,
+                "point_ids": point_ids or [],
+                "page_size": min(page_size, 200),
+            },
+            "aggregation": operations[operation],
+            "window_ms": window_ms,
+            "page_size": page_size,
+            "page_token": page_token,
+        },
+    )
+
+
 @storage.command("aggregates")
 def query_aggregates(
     wind_farm_id: str,
