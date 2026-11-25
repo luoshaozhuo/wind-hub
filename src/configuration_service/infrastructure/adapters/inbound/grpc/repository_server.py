@@ -410,15 +410,32 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         self, request: pb.GetConfigBundleRequest, context: grpc.ServicerContext
     ) -> pb.GetConfigBundleResponse:
         self._actor(context, "query")
-        if not request.HasField("revision_id"):
-            raise ValueError("revision_id required")
-        result = self.app.get_bundle(
-            tuple(_identity(root) for root in request.roots),
-            request.revision_id,
-            include_dependencies=(
-                request.include_dependencies if request.HasField("include_dependencies") else True
-            ),
+        exact = tuple(request.exact_roots)
+        dependencies = (
+            request.include_dependencies if request.HasField("include_dependencies") else True
         )
+        if exact:
+            if request.roots or request.HasField("revision_id"):
+                raise ValueError("exact_roots cannot be combined with roots/revision_id")
+            if any(
+                not root.version_id or root.file_version or root.content_sha256
+                for root in exact
+            ):
+                raise ValueError("exact_roots require only config_id and version_id")
+            result = self.app.get_exact_bundle(
+                tuple((_identity(root.config_id), root.version_id) for root in exact),
+                include_dependencies=dependencies,
+            )
+            revision_id = 0
+        else:
+            if not request.roots or not request.HasField("revision_id"):
+                raise ValueError("roots and revision_id are required together")
+            result = self.app.get_bundle(
+                tuple(_identity(root) for root in request.roots),
+                request.revision_id,
+                include_dependencies=dependencies,
+            )
+            revision_id = request.revision_id
         digest = hashlib.sha256()
         for item in result:
             # The manifest authenticates the exact path, immutable version
@@ -428,7 +445,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 digest.update(len(encoded).to_bytes(4, "big"))
                 digest.update(encoded)
         return pb.GetConfigBundleResponse(
-            revision_id=request.revision_id,
+            revision_id=revision_id,
             files=[_yaml_output(item) for item in result],
             manifest_sha256=digest.hexdigest(),
             total_bytes=sum(len(item.yaml_bytes) for item in result),
