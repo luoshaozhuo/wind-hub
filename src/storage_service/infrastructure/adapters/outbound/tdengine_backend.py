@@ -945,7 +945,7 @@ class TDengineBackend:
         query: WideHistoryFilter,
     ) -> tuple[WideHistoryRow, ...]:
         """Fetch exact physical fields without merging versions or filling gaps."""
-        query.validate(schema, maximum=self._config.query.max_page_size)
+        query.validate(schema, maximum=self._config.query.max_page_size + 1)
         return await self._run_bounded(
             self._fetch_wide_history_sync, schema=schema, query=query
         )
