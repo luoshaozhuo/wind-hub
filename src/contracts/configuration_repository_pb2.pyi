@@ -714,20 +714,24 @@ class GetConfigBundleRequest(_message.Message):
     ROOTS_FIELD_NUMBER: _builtins.int
     REVISION_ID_FIELD_NUMBER: _builtins.int
     INCLUDE_DEPENDENCIES_FIELD_NUMBER: _builtins.int
+    EXACT_ROOTS_FIELD_NUMBER: _builtins.int
     revision_id: _builtins.int
     include_dependencies: _builtins.bool
     @_builtins.property
     def roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigId]: ...
+    @_builtins.property
+    def exact_roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigVersionRef]: ...
     def __init__(
         self,
         *,
         roots: _abc.Iterable[Global___ConfigId] | None = ...,
         revision_id: _builtins.int | None = ...,
         include_dependencies: _builtins.bool | None = ...,
+        exact_roots: _abc.Iterable[Global___ConfigVersionRef] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_include_dependencies", b"_include_dependencies", "_revision_id", b"_revision_id", "include_dependencies", b"include_dependencies", "revision_id", b"revision_id"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_include_dependencies", b"_include_dependencies", "_revision_id", b"_revision_id", "include_dependencies", b"include_dependencies", "revision_id", b"revision_id", "roots", b"roots"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_include_dependencies", b"_include_dependencies", "_revision_id", b"_revision_id", "exact_roots", b"exact_roots", "include_dependencies", b"include_dependencies", "revision_id", b"revision_id", "roots", b"roots"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__include_dependencies: _TypeAlias = _typing.Literal["include_dependencies"]  # noqa: Y015
     _WhichOneofArgType__include_dependencies: _TypeAlias = _typing.Literal["_include_dependencies", b"_include_dependencies"]  # noqa: Y015
