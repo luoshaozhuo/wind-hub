@@ -34,6 +34,11 @@ class StorageServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.QueryWideRows = channel.unary_unary(
+                '/windhub.storage.v1.StorageService/QueryWideRows',
+                request_serializer=contracts_dot_storage__service__pb2.QueryWideRowsRequest.SerializeToString,
+                response_deserializer=contracts_dot_storage__service__pb2.QueryWideRowsResponse.FromString,
+                _registered_method=True)
         self.QuerySamples = channel.unary_unary(
                 '/windhub.storage.v1.StorageService/QuerySamples',
                 request_serializer=contracts_dot_storage__service__pb2.QuerySamplesRequest.SerializeToString,
@@ -83,6 +88,12 @@ class StorageServiceStub:
 
 class StorageServiceServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def QueryWideRows(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def QuerySamples(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -141,6 +152,11 @@ class StorageServiceServicer:
 
 def add_StorageServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'QueryWideRows': grpc.unary_unary_rpc_method_handler(
+                    servicer.QueryWideRows,
+                    request_deserializer=contracts_dot_storage__service__pb2.QueryWideRowsRequest.FromString,
+                    response_serializer=contracts_dot_storage__service__pb2.QueryWideRowsResponse.SerializeToString,
+            ),
             'QuerySamples': grpc.unary_unary_rpc_method_handler(
                     servicer.QuerySamples,
                     request_deserializer=contracts_dot_storage__service__pb2.QuerySamplesRequest.FromString,
@@ -196,6 +212,33 @@ def add_StorageServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class StorageService:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def QueryWideRows(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.storage.v1.StorageService/QueryWideRows',
+            contracts_dot_storage__service__pb2.QueryWideRowsRequest.SerializeToString,
+            contracts_dot_storage__service__pb2.QueryWideRowsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def QuerySamples(request,
