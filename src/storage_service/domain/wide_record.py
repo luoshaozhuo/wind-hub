@@ -47,6 +47,51 @@ def _sample_time_us(text: object) -> int:
 
 
 @dataclass(frozen=True, slots=True)
+class WideIdentity:
+    wind_farm_id: str
+    device_config_id: str
+    device_id: str
+    data_level: WideDataLevel
+
+
+def peek_wide_identity(raw: bytes) -> WideIdentity:
+    """Read only strict v3 routing metadata before resolving the physical schema."""
+    if len(raw) > 16 * 1024 * 1024:
+        raise ValueError("Kafka wide record exceeds 16 MiB")
+    try:
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_constant,
+        )
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid Kafka JSON v3") from exc
+    if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+        raise ValueError("Kafka JSON v3 envelope required")
+    required = {
+        "schema_version", "wind_farm_id", "device_config_id",
+        "device_id", "data_level", "sample_time", "points",
+    }
+    if set(data) != required or data["schema_version"] != 3:
+        raise ValueError("Kafka JSON v3 envelope mismatch")
+    identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+    if any(
+        not isinstance(item, str) or not item
+        or len(item.encode("utf-8")) > 256 or ":" in item
+        for item in identity
+    ):
+        raise ValueError("wide device identity is invalid or contains key delimiter")
+    try:
+        level = WideDataLevel(data["data_level"])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("unsupported device-wide data level") from exc
+    _sample_time_us(data["sample_time"])
+    if not isinstance(data["points"], dict):
+        raise ValueError("Kafka v3 points must be an object")
+    return WideIdentity(identity[0], identity[1], identity[2], level)
+
+
+@dataclass(frozen=True, slots=True)
 class WideRecord:
     """One complete logical device sample at a single data level and timestamp."""
 
