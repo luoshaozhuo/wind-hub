@@ -118,6 +118,12 @@ class WideCursorCodec:
         last_us: int,
         horizon_us: int,
     ) -> str:
+        if (
+            type(last_us) is not int
+            or type(horizon_us) is not int
+            or not filter_.start_time_us <= last_us < horizon_us <= filter_.end_time_us
+        ):
+            raise ValueError("wide pagination cursor requires last < frozen horizon")
         raw = json.dumps(
             {
                 "v": 1,
@@ -153,7 +159,7 @@ class WideCursorCodec:
                 or type(payload.get("horizon")) is not int
                 or type(payload.get("expires")) is not int
                 or payload["expires"] < int(time.time())
-                or not filter_.start_time_us <= payload["last"] < filter_.end_time_us
+                or not filter_.start_time_us <= payload["last"] < payload["horizon"]
                 or not filter_.start_time_us < payload["horizon"] <= filter_.end_time_us
             ):
                 raise ValueError("wide pagination token expired or belongs to another query")
