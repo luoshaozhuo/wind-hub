@@ -369,6 +369,7 @@ class TestR14SustainedCapacity:
                             stage: metrics.get(f"quota_{stage}_seconds_total")
                             for stage in QUOTA_STAGES
                         },
+                        "kafka_successful_subbatches_total": metrics.get("write_success_total"),
                         "kafka_timed_writes_total": metrics.get("kafka_timed_writes_total"),
                         "kafka_stages": {
                             stage: metrics.get(f"kafka_{stage}_seconds_total")
@@ -527,6 +528,21 @@ class TestR14SustainedCapacity:
                         if writes
                         else None,
                     }
+                subbatch_samples = [
+                    (
+                        sample["kafka_successful_subbatches_total"],
+                        sample["kafka_timed_writes_total"],
+                    )
+                    for sample in samples
+                    if sample["kafka_successful_subbatches_total"] is not None
+                    and sample["kafka_timed_writes_total"] is not None
+                ]
+                confirmed_subbatches_per_write = None
+                if len(subbatch_samples) >= 2:
+                    a, b = subbatch_samples[0], subbatch_samples[-1]
+                    writes = b[1] - a[1]
+                    if writes > 0:
+                        confirmed_subbatches_per_write = round((b[0] - a[0]) / writes, 3)
                 cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
                 metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
@@ -587,6 +603,7 @@ class TestR14SustainedCapacity:
                     "reliable_stage_diagnostics": stage_diagnostics,
                     "kafka_stage_diagnostics": kafka_diagnostics,
                     "quota_stage_diagnostics": quota_diagnostics,
+                    "confirmed_subbatches_per_write": confirmed_subbatches_per_write,
                     "kafka_capacity_profile": {
                         "max_safe_inflight": KAFKA_MAX_SAFE_INFLIGHT,
                         "max_batch_size": KAFKA_MAX_BATCH_SIZE,
