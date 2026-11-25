@@ -716,10 +716,11 @@ class TDengineBackend:
         database_name = schema.database_name(wind_farm_id)
         stable_name = schema.supertable_name()
         table_name = schema.subtable_name(device_id)
+        qualified_name = f"{database_name}.{table_name}"
         if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
             raise ValueError("device TAG exceeds physical width")
         with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
-            if table_name in self._verified_tables:
+            if qualified_name in self._verified_tables:
                 return
             pinned = self._metadata.list_semantic_pins().get(schema.point_table_id)
             if pinned is None:
@@ -799,7 +800,7 @@ class TDengineBackend:
             )
             for registration in registrations:
                 self._metadata.mark_ready(registration, verified=True)
-            self._verified_tables.add(table_name)
+            self._verified_tables.add(qualified_name)
 
     @staticmethod
     def _verify_wide_table(
@@ -861,7 +862,10 @@ class TDengineBackend:
             for row in records
         ):
             raise ValueError("wide STMT2 batches must contain exactly one device")
-        name = schema.subtable_name(first.device_id)
+        name = (
+            f"{schema.database_name(first.wind_farm_id)}."
+            f"{schema.subtable_name(first.device_id)}"
+        )
         with self._lock:
             if name not in self._verified_tables:
                 raise TDengineSchemaConflictError("wide target has not been verified")
