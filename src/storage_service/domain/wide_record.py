@@ -127,7 +127,8 @@ class WideRecord:
             raise ValueError("Kafka JSON v3 envelope mismatch")
         identities = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
         if any(
-            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256
+            not isinstance(item, str) or not item or ":" in item
+            or len(item.encode("utf-8")) > 256
             for item in identities
         ):
             raise ValueError("device-wide record identities must be nonempty UTF-8")
