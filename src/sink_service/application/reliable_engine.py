@@ -207,6 +207,8 @@ class ReliableDeliveryEngine:
         # point cannot create an accepted prefix or an infinite redelivery loop.
         if self._kafka_target and self._data_level == "raw":
             for item in selected:
+                if item.quality == "not_collected":
+                    continue
                 raw = item.raw_payload_hex
                 if (
                     not isinstance(raw, str)
@@ -223,7 +225,8 @@ class ReliableDeliveryEngine:
         self.received_total += count
         assert self._adapter is not None
         unresolved = False
-        for start in range(0, count, 500):
+        batch_step = count if self._kafka_target else 500
+        for start in range(0, count, batch_step):
             if start:
                 try:
                     await message.extend()
@@ -234,14 +237,14 @@ class ReliableDeliveryEngine:
             payloads: tuple[bytes, ...] = ()
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
-                chunk_items = selected[start : start + 500]
+                chunk_items = selected[start : start + batch_step]
                 encode_started = time.monotonic()
                 try:
                     payloads = await self._encode_with_heartbeat(message, batch, chunk_items)
                 finally:
                     self.reliable_encode_seconds_total += time.monotonic() - encode_started
                     self.reliable_encode_operations_total += 1
-                chunk_length = len(chunk_items)
+                chunk_length = len(payloads)
             else:
                 chunk = samples[start : start + 500]
                 chunk_length = len(chunk)
@@ -275,7 +278,7 @@ class ReliableDeliveryEngine:
             # Preserve only target-confirmed identities. Publish to diagnostics
             # after the corresponding source ACK, never on an uncertain write.
             for index in outcome.delivered:
-                item = chunk_items[index] if self._kafka_target else cast(SampleItem, chunk[index])
+                item = selected[0] if self._kafka_target else cast(SampleItem, chunk[index])
                 self._pending_confirmed_samples.append(
                     {
                         "device_id": batch.device_id,
