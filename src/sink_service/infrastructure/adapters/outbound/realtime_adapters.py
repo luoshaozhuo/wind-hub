@@ -452,12 +452,12 @@ class KafkaOutput:
                 except Exception as exc:
                     failed_attempts += 1
                     failures.append(f"Kafka batch [{begin}, {end}) not confirmed: {exc}")
-                finally:
-                    confirm_seconds += time.perf_counter() - confirm_started
-                if confirmation.done() and not confirmation.cancelled() and confirmation.exception() is None:
+                else:
                     delivered.extend(range(begin, end))
                     latency = (time.perf_counter() - queued_at) * 1000
                     latency_weights.append((latency, end - begin))
+                finally:
+                    confirm_seconds += time.perf_counter() - confirm_started
             indexes = tuple(delivered)
             return BatchOutcome(
                 delivered=indexes,
