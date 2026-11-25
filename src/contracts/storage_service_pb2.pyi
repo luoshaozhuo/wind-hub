@@ -410,20 +410,24 @@ class CreateExportRequest(_message.Message):
     REQUEST_ID_FIELD_NUMBER: _builtins.int
     FILTER_FIELD_NUMBER: _builtins.int
     EXPORT_FORMAT_FIELD_NUMBER: _builtins.int
+    WIDE_FILTER_FIELD_NUMBER: _builtins.int
     request_id: _builtins.str
     export_format: _builtins.str
     @_builtins.property
     def filter(self) -> Global___StorageFilter: ...
+    @_builtins.property
+    def wide_filter(self) -> Global___QueryWideRowsRequest: ...
     def __init__(
         self,
         *,
         request_id: _builtins.str = ...,
         filter: Global___StorageFilter | None = ...,
         export_format: _builtins.str = ...,
+        wide_filter: Global___QueryWideRowsRequest | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter", "wide_filter", b"wide_filter"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["export_format", b"export_format", "filter", b"filter", "request_id", b"request_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["export_format", b"export_format", "filter", b"filter", "request_id", b"request_id", "wide_filter", b"wide_filter"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
