@@ -220,6 +220,13 @@ async def assemble_collector(
         repository.active_revision() or "",
     )
     messaging = service["messaging"]
+    if messaging.get("delivery", "realtime") == "reliable" and any(
+        plan.mode != "poll" for plan in shared.acquisition.devices
+    ):
+        raise ValueError(
+            "reliable Collector requires synchronized polling; "
+            "asynchronous subscribe/listen must use realtime"
+        )
     telemetry = CollectorTelemetry(
         event_limit=service.get("metrics", {}).get("event_capacity", 1000),
         windows_seconds=tuple(service.get("metrics", {}).get("windows", [60, 300, 3600])),
