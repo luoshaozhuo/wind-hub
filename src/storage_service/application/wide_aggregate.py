@@ -15,10 +15,6 @@ from storage_service.application.wide_query import WideHistoryFilter, WideHistor
 from storage_service.domain.quality_bitmap import PointQuality
 from storage_service.domain.wide_schema import WideSchema
 
-_INTEGER = {
-    "TINYINT", "SMALLINT", "INT", "BIGINT",
-    "TINYINT UNSIGNED", "SMALLINT UNSIGNED", "INT UNSIGNED", "BIGINT UNSIGNED",
-}
 _FLOAT = {"FLOAT", "DOUBLE"}
 
 _INTEGER_BOUNDS = {
@@ -32,6 +28,8 @@ _INTEGER_BOUNDS = {
     "BIGINT UNSIGNED": (0, 2**64 - 1),
 }
 
+_INTEGER = frozenset(_INTEGER_BOUNDS)
+
 
 def _numeric_value(value: object, sql_type: str) -> int | float:
     """Reject corrupted TDengine values before producing typed aggregates."""
@@ -41,12 +39,13 @@ def _numeric_value(value: object, sql_type: str) -> int | float:
             raise ValueError("wide integer aggregate exceeds declared SQL type")
         return value
     if sql_type in _FLOAT and type(value) in (int, float):
-        result = float(value)
+        try:
+            result = float(value)
+        except OverflowError as exc:
+            raise ValueError("wide floating-point aggregate overflow") from exc
         if isfinite(result):
             return result
     raise ValueError("wide numeric aggregate encountered invalid physical value")
-
-
 
 
 @dataclass(frozen=True, slots=True)
