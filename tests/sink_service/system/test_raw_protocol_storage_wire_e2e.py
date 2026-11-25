@@ -115,6 +115,93 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
         await sink_harness.stop()
 
 
+
+async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
+    sink_harness: SinkSystemHarness,
+) -> None:
+    """Read an actual FC03 response, then verify unchanged bytes at storage input."""
+    import struct
+
+    from tests.core.protocol.conftest import modbus_driver
+    from tests.fixtures.servers.modbus_server import ModbusMockServer
+    from tests.sink_service.system.conftest import free_port
+
+    sink_harness.write_dual_channel_root()
+    template = sink_harness.root / template_path("reliable_history")
+    document = yaml.safe_load(template.read_text(encoding="utf-8"))
+    document["output"]["data_level"] = "raw"
+    template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    await sink_harness.provision_streams()
+    await sink_harness.start()
+    server = ModbusMockServer(port=free_port())
+    await server.start()
+    try:
+        driver = modbus_driver(server.port)
+        await driver.connect()
+        try:
+            # The server encodes 1200.5 into two FC03 register words.
+            # This is the protocol data field, not a synthesized engineering value.
+            sample = await driver.read_one("speed")
+        finally:
+            await driver.close()
+        assert sample.value == pytest.approx(1200.5)
+        assert sample.raw_payload == struct.pack(">f", 1200.5)
+
+        publisher = CollectorPublisher(
+            servers=[sink_harness.stack.nats],
+            site_id=WIND_FARM_ID,
+            collector_id=COLLECTOR_ID,
+            delivery="reliable",
+        )
+        await publisher.start()
+        try:
+            await publisher.publish(
+                DEVICE_ID,
+                (sample,),
+                device_type="wtg",
+                point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                task_id="modbus-fc03-source",
+            )
+            deadline = asyncio.get_running_loop().time() + 30
+            while publisher.pubacked < 1 and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.1)
+            assert publisher.pubacked == 1, publisher.last_error
+        finally:
+            await publisher.stop()
+
+        markers = [item["sample_id"] for item in publisher.last_sample_evidence]
+        assert len(markers) == 1
+        records = await sink_harness.wait_kafka_messages(
+            min_messages=1,
+            timeout=60,
+            match=lambda message: markers[0].encode() in message.value,
+        )
+        matching = [
+            json.loads(record.value)
+            for record in records
+            if json.loads(record.value).get("sample_id") == markers[0]
+        ]
+        assert len(matching) == 1
+        record = matching[0]
+        assert record["data_level"] == "raw"
+        assert record["point_id"] == "speed"
+        assert record["task_id"] == "modbus-fc03-source"
+        assert record["value"] == struct.pack(">f", 1200.5).hex()
+        stored = StorageSample.from_kafka_json(
+            next(
+                message.value
+                for message in records
+                if json.loads(message.value).get("sample_id") == markers[0]
+            )
+        )
+        assert stored.data_level is StorageLevel.RAW
+        assert stored.value == sample.raw_payload
+        assert stored.sample_id == markers[0]
+    finally:
+        await server.stop()
+        await sink_harness.stop()
+
+
 async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write(
     sink_harness: SinkSystemHarness,
 ) -> None:
