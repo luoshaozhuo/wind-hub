@@ -455,6 +455,44 @@ class MetadataStore:
             )
             return [(str(a), int(b), int(c), str(d)) for a, b, c, d in rows]
 
+    def list_ready_wide_tables(self, *, database: str) -> tuple[ObjectRegistration, ...]:
+        """Return only exact-hash-verified wide subtable ownership for one farm."""
+        if not isinstance(database, str) or re.fullmatch(
+            r"wh_[a-z0-9_]+_[0-9a-f]{16}", database
+        ) is None:
+            raise ValueError("invalid wide database identity")
+        with self._mutex:
+            rows = self._db().execute(
+                """SELECT name, full_sha256, identity_json, schema_fingerprint, state,
+                          physical_database, table_name
+                   FROM storage_objects
+                   WHERE physical_database = ? AND table_name <> ''
+                         AND state = 'READY' ORDER BY name""",
+                (database,),
+            ).fetchall()
+        result: list[ObjectRegistration] = []
+        for name, digest, identity_json, schema, state, db_name, table_name in rows:
+            if (
+                not isinstance(name, str) or not isinstance(digest, str)
+                or not isinstance(identity_json, str)
+                or hashlib.sha256(identity_json.encode("utf-8")).hexdigest() != digest
+                or not name == f"{database}.{table_name}"
+                or db_name != database
+                or re.fullmatch(r"tb_[a-z0-9_]+_[0-9a-f]{16}", table_name) is None
+            ):
+                raise MetadataConflictError("wide subtable registry ownership is corrupt")
+            try:
+                parts = json.loads(identity_json)
+            except (TypeError, ValueError) as exc:
+                raise MetadataConflictError("wide subtable identity is malformed") from exc
+            if (
+                not isinstance(parts, list) or len(parts) != 6
+                or any(not isinstance(item, str) or not item for item in parts)
+            ):
+                raise MetadataConflictError("wide subtable full identity is incomplete")
+            result.append(ObjectRegistration(name, digest, identity_json, schema, state))
+        return tuple(result)
+
     def list_tables(
         self,
         *,
