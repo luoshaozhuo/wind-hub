@@ -189,6 +189,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     config=bundle.configuration,
                     metadata=metadata,
                     history=history,
+                    wide_history=wide_history,
                     units=point_tables,
                     backup=NativeTDengineBackup(
                         config=bundle.configuration,
