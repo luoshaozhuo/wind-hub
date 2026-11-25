@@ -52,7 +52,12 @@ class WideAggregationService:
         max_scan_rows: int = 10000,
         max_groups: int = 10000,
     ) -> None:
-        if len(secret) < 32 or not 1 <= max_page_size <= 1000:
+        if (
+            len(secret) < 32
+            or type(max_page_size) is not int or not 1 <= max_page_size <= 1000
+            or type(max_scan_rows) is not int or max_scan_rows < 1
+            or type(max_groups) is not int or max_groups < 1
+        ):
             raise ValueError("wide aggregate requires a strong signing key and bounded pages")
         self._history = history
         self._key = secret
@@ -69,13 +74,14 @@ class WideAggregationService:
         filter_: WideHistoryFilter,
         operation: str,
         window_ms: int,
+        page_size: int,
     ) -> str:
         payload = json.dumps(
             [
                 schema.fingerprint, filter_.wind_farm_id, filter_.device_id,
                 filter_.device_config_id, filter_.data_level.value,
                 filter_.start_time_us, filter_.end_time_us, filter_.point_ids,
-                filter_.qualities, operation, window_ms,
+                filter_.qualities, operation, window_ms, page_size,
             ],
             separators=(",", ":"), ensure_ascii=False,
         ).encode()
@@ -116,7 +122,7 @@ class WideAggregationService:
         by_point = {col.point_id: col for col in schema.columns}
         if operation not in {"count", "min", "max", "avg"}:
             raise ValueError("wide aggregate operation must be count/min/max/avg")
-        if not 1 <= window_ms <= 31 * 86_400_000:
+        if type(window_ms) is not int or not 1 <= window_ms <= 31 * 86_400_000:
             raise ValueError("wide aggregate window is invalid")
         if operation != "count" and any(
             by_point[point_id].sql_type not in _INTEGER | _FLOAT
@@ -146,9 +152,9 @@ class WideAggregationService:
                     if key not in counts and len(counts) >= self._max_groups:
                         raise RuntimeError("wide aggregate group budget exceeded")
                     good, missing = counts.get(key, (0, 0))
-                    if quality is PointQuality.NOT_COLLECTED or value is None:
+                    if int(quality) == PointQuality.NOT_COLLECTED or value is None:
                         missing += 1
-                    elif quality is PointQuality.GOOD:
+                    elif int(quality) == PointQuality.GOOD:
                         if operation != "count":
                             if type(value) not in (float, int) or (
                                 type(value) is float and not isfinite(value)
@@ -207,9 +213,16 @@ class WideAggregationService:
         page_size: int,
         page_token: str = "",
     ) -> WideAggregatePage:
-        if not 1 <= page_size <= self._page_size:
+        if type(page_size) is not int or not 1 <= page_size <= self._page_size:
             raise ValueError("wide aggregate page size exceeds configured limit")
-        identity = self._fingerprint(schema, filter_, operation, window_ms)
+        filter_.validate(schema, maximum=self._page_size)
+        if filter_.after_time_us is not None:
+            raise ValueError("wide aggregate requires signed pagination only")
+        if not self._history.read_available():
+            raise RuntimeError("wide aggregate unavailable during Kafka replay")
+        identity = self._fingerprint(
+            schema, filter_, operation, window_ms, page_size
+        )
         now = int(time.time())
         self._snapshots = {
             key: entry for key, entry in self._snapshots.items()
@@ -240,4 +253,6 @@ class WideAggregationService:
         token = "" if complete else self._encode(
             name, identity, next_index, self._snapshots[name][0],
         )
+        if not self._history.read_available():
+            raise RuntimeError("wide aggregate replay changed during pagination")
         return WideAggregatePage(segment, token, complete)
