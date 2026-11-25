@@ -45,11 +45,11 @@ async def test_wide_history_query_pages_without_duplicate_timestamps() -> None:
         (WideHistoryRow(30, (("power", 3, 1),)),),
     ]
     service = WideHistoryQueryService(backend=backend, codec=codec)
-    first = await service.query(schema=schema, filter_=_filter())
+    first = await service.query(schema=schema, filter_=_filter(), device_type="wind")
     assert not first.complete
     assert tuple(row.sample_time_us for row in first.rows) == (10, 20)
     second = await service.query(
-        schema=schema, filter_=_filter(), page_token=first.next_page_token
+        schema=schema, filter_=_filter(), device_type="wind", page_token=first.next_page_token
     )
     assert second.complete
     assert tuple(row.sample_time_us for row in second.rows) == (30,)
@@ -75,4 +75,4 @@ async def test_backend_out_of_order_fails_closed() -> None:
         backend=backend, codec=WideCursorCodec(b"x" * 32)
     )
     with pytest.raises(RuntimeError, match="ordered timestamp"):
-        await service.query(schema=_schema(), filter_=_filter())
+        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
