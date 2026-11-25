@@ -19,6 +19,8 @@ def test_sink_storage_wide_contract() -> None:
         device_type="wind",
         device_id="wtg_001",
         point_table_id="point_table_wind_v1.0.0",
+        device_config_id="device_prod-a_v1.0.1",
+        sample_time=now,
         publish_time=now,
         samples=(
             SampleItem(
