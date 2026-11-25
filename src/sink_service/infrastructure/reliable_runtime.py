@@ -30,7 +30,7 @@ from sink_service.infrastructure.adapters.inbound.reliable_message import JetStr
 from sink_service.infrastructure.adapters.outbound.historical_point_table import (
     HistoricalPointTableClient,
 )
-from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel, encode_kafka_points
+from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel, encode_kafka_wide
 from sink_service.infrastructure.realtime_runtime import SinkOutputPool
 
 logger = logging.getLogger(__name__)
@@ -423,15 +423,36 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
     async def _encode_kafka_points(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
+        """Publish exactly one complete wide record per reliable device cycle."""
+        if len(items) != len(batch.samples) or items != batch.samples:
+            raise ConfigurationError("reliable Kafka delivery cannot filter or split device rows")
         if self._data_level == "business":
             if self._history is None:
                 raise ConfigurationError("BUSINESS requires historical repository configuration")
             table = await self._history.get(batch.point_table_id, batch.device_type)
-            values = {item.sample_id: table.project(item.point_id, item.value) for item in items}
-            return encode_kafka_points(
-                batch, items, data_level=self._data_level, business_values=values
+            values = {
+                item.sample_id: table.project(item.point_id, item.value)
+                for item in items
+            }
+            point_ids = tuple(sorted(
+                (value.business_point_id for value in values.values()),
+                key=lambda token: token.encode("utf-8"),
+            ))
+            payload = encode_kafka_wide(
+                batch, items, device_config_id=batch.device_config_id,
+                physical_points=point_ids, data_level=self._data_level,
+                business_values=values,
             )
-        return encode_kafka_points(batch, items, data_level=self._data_level)
+        else:
+            point_ids = tuple(sorted(
+                (item.point_id for item in items),
+                key=lambda token: token.encode("utf-8"),
+            ))
+            payload = encode_kafka_wide(
+                batch, items, device_config_id=batch.device_config_id,
+                physical_points=point_ids, data_level=self._data_level,
+            )
+        return (payload,)
 
     async def _dead_letter(
         self,
