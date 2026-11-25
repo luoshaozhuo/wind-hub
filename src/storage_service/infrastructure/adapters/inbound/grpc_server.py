@@ -455,7 +455,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             limit=request.page_size or 200,
         )
         page = await self._wide_query.query(
-            schema=schema, filter_=filter_, page_token=request.page_token
+            schema=schema,
+            filter_=filter_,
+            device_type=self._point_tables.wide_device_type(identity),
+            page_token=request.page_token,
         )
         if self._consumer.recovering:
             await context.abort(
