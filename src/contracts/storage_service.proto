@@ -108,6 +108,8 @@ message CreateExportRequest {
   string request_id = 1;
   StorageFilter filter = 2;
   string export_format = 3;
+  // Exact-version device-wide selection. Never combine with legacy filter.
+  QueryWideRowsRequest wide_filter = 4;
 }
 message CreateBackupRequest {
   string request_id = 1;
