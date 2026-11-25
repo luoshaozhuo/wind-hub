@@ -470,28 +470,6 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         if sample is not None:
             sample_id = sample.sample_id
         payload = native.data
-        if sample is not None:
-            payload = SampleBatch(
-                batch_id=(batch_id if isinstance(batch_id, str) and batch_id else sample.sample_id),
-                mode="reliable",
-                wind_farm_id=sample.wind_farm_id,
-                collector_id=sample.collector_id,
-                task_id=sample.task_id,
-                device_type=sample.device_type,
-                device_id=sample.device_id,
-                point_table_id=sample.point_table_id,
-                publish_time=sample.publish_time,
-                samples=(
-                    SampleItem(
-                        point_id=sample.point_id,
-                        sample_id=sample.sample_id,
-                        value=sample.value,
-                        quality=sample.quality,
-                        sample_time=sample.sample_time,
-                        receive_time=sample.receive_time,
-                    ),
-                ),
-            ).encode()
         observed_at = datetime.now(UTC).isoformat()
         # Invalid source batches can approach NATS MaxPayload. Split into
         # independently acknowledged DLQ records; source ACK follows ALL parts.
