@@ -21,6 +21,33 @@ _INTEGER = {
 }
 _FLOAT = {"FLOAT", "DOUBLE"}
 
+_INTEGER_BOUNDS = {
+    "TINYINT": (-(2**7), 2**7 - 1),
+    "TINYINT UNSIGNED": (0, 2**8 - 1),
+    "SMALLINT": (-(2**15), 2**15 - 1),
+    "SMALLINT UNSIGNED": (0, 2**16 - 1),
+    "INT": (-(2**31), 2**31 - 1),
+    "INT UNSIGNED": (0, 2**32 - 1),
+    "BIGINT": (-(2**63), 2**63 - 1),
+    "BIGINT UNSIGNED": (0, 2**64 - 1),
+}
+
+
+def _numeric_value(value: object, sql_type: str) -> int | float:
+    """Reject corrupted TDengine values before producing typed aggregates."""
+    if sql_type in _INTEGER_BOUNDS:
+        minimum, maximum = _INTEGER_BOUNDS[sql_type]
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError("wide integer aggregate exceeds declared SQL type")
+        return value
+    if sql_type in _FLOAT and type(value) in (int, float):
+        result = float(value)
+        if isfinite(result):
+            return result
+    raise ValueError("wide numeric aggregate encountered invalid physical value")
+
+
+
 
 @dataclass(frozen=True, slots=True)
 class WideAggregateRow:
@@ -156,11 +183,9 @@ class WideAggregationService:
                         missing += 1
                     elif int(quality) == PointQuality.GOOD:
                         if operation != "count":
-                            if type(value) not in (float, int) or (
-                                type(value) is float and not isfinite(value)
-                            ):
-                                raise ValueError("wide numeric aggregate encountered nonnumeric data")
-                            values.setdefault(key, []).append(value)
+                            values.setdefault(key, []).append(
+                                _numeric_value(value, by_point[point_id].sql_type)
+                            )
                         good += 1
                     counts[key] = (good, missing)
             if page.complete:
@@ -189,6 +214,8 @@ class WideAggregationService:
                     ):
                         raise ValueError("AVG would silently lose integer precision")
                     actual = sum(float(value) for value in entries) / len(entries)
+                    if not isfinite(actual):
+                        raise ValueError("wide AVG result is not finite")
                 kind = (
                     3 if operation == "avg" or physical in _FLOAT
                     else 2 if physical.endswith(" UNSIGNED")
