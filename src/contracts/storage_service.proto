@@ -166,7 +166,55 @@ message RetryBlockedPartitionResponse {
   bool accepted = 1;
   string result = 2;
 }
+// Device-wide physical history; no per-point sample_id or synthetic publish_time.
+message QueryWideRowsRequest {
+  string wind_farm_id = 1;
+  string device_id = 2;
+  string device_config_id = 3;
+  StorageDataLevel data_level = 4;
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp end_time = 6;
+  repeated string point_ids = 7;
+  uint32 page_size = 8;
+  string page_token = 9;
+}
+message WidePointColumn {
+  string point_id = 1;
+  string physical_column_name = 2;
+  string sql_type = 3;
+  uint32 quality_ordinal = 4;
+}
+message WidePointValue {
+  string point_id = 1;
+  uint32 quality = 2;
+  oneof value {
+    sint64 signed_value = 3;
+    uint64 unsigned_value = 4;
+    double float_value = 5;
+    bool bool_value = 6;
+    string string_value = 7;
+    bytes bytes_value = 8;
+  }
+}
+message WideDeviceRow {
+  google.protobuf.Timestamp sample_time = 1;
+  repeated WidePointValue points = 2;
+}
+message QueryWideRowsResponse {
+  string wind_farm_id = 1;
+  string device_id = 2;
+  string device_config_id = 3;
+  string point_table_id = 4;
+  string point_table_version = 5;
+  StorageDataLevel data_level = 6;
+  string schema_fingerprint = 7;
+  repeated WidePointColumn columns = 8;
+  repeated WideDeviceRow rows = 9;
+  string next_page_token = 10;
+  bool complete = 11;
+}
 service StorageService {
+  rpc QueryWideRows(QueryWideRowsRequest) returns (QueryWideRowsResponse);
   rpc QuerySamples(QuerySamplesRequest) returns (QuerySamplesResponse);
   rpc QueryAggregates(QueryAggregatesRequest) returns (QueryAggregatesResponse);
   rpc CreateExport(CreateExportRequest) returns (StorageTask);
