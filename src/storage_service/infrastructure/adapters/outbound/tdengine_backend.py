@@ -854,16 +854,32 @@ class TDengineBackend:
                 if int(row[2]) != int(match.group(2)):
                     raise TDengineSchemaConflictError(f"wide-table width mismatch: {name}")
         tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
-        tags = {str(row[3]): str(row[5]) for row in tag_rows}
-        wanted_tags = {
-            "device_id": device_id,
-            "device_type": device_type,
-            "point_table_id": schema.point_table_id,
-            "data_level": str(_LEVEL[DataLevel(schema.data_level.value)]),
-            "schema_fingerprint": schema.fingerprint,
-        }
-        if len(tags) != len(wanted_tags) or tags != wanted_tags:
-            raise TDengineSchemaConflictError("wide-table immutable TAG identity differs")
+        expected_tags = (
+            ("device_id", "VARCHAR(128)", device_id),
+            ("device_type", "VARCHAR(64)", device_type),
+            ("point_table_id", "VARCHAR(192)", schema.point_table_id),
+            ("data_level", "TINYINT", str(_LEVEL[DataLevel(schema.data_level.value)])),
+            ("schema_fingerprint", "VARCHAR(64)", schema.fingerprint),
+        )
+        if len(tag_rows) != len(expected_tags):
+            raise TDengineSchemaConflictError("wide-table immutable TAG count differs")
+        for row, (tag_name, tag_type, tag_value) in zip(
+            tag_rows, expected_tags, strict=True
+        ):
+            if len(row) < 6:
+                raise TDengineSchemaConflictError("wide-table TAG metadata is incomplete")
+            table, database, stable = (str(item) for item in row[:3])
+            if (
+                table != names.table
+                or database != names.database
+                or stable != names.stable
+                or str(row[3]).lower() != tag_name
+                or str(row[4]).upper() != tag_type
+                or str(row[5]) != tag_value
+            ):
+                raise TDengineSchemaConflictError(
+                    f"wide-table TAG/parent ownership mismatch: {tag_name}"
+                )
 
     async def insert_wide_batch(
         self,
