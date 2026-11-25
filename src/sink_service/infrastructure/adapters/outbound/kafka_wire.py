@@ -138,17 +138,21 @@ def encode_kafka_wide(
         raise ValueError("exact Device Instance version identity required")
     if not items or not physical_points or len(set(physical_points)) != len(physical_points):
         raise ValueError("complete physical point set required")
-    by_point = {item.point_id: item for item in items}
-    if len(by_point) != len(items) or set(by_point) != set(physical_points):
-        raise ValueError("incomplete device-wide sample")
-    timestamps = {item.sample_time for item in items}
-    if len(timestamps) != 1:
-        raise ValueError("device-wide points do not share one logical sample_time")
     if data_level == "business":
         if business_values is None or set(business_values) != {item.sample_id for item in items}:
             raise ValueError("BUSINESS requires complete historical projection")
-    elif business_values is not None:
-        raise ValueError("RAW/PROTOCOL cannot contain BUSINESS projections")
+        by_point = {
+            business_values[item.sample_id].business_point_id: item for item in items
+        }
+    else:
+        if business_values is not None:
+            raise ValueError("RAW/PROTOCOL cannot contain BUSINESS projection")
+        by_point = {item.point_id: item for item in items}
+    if len(by_point) != len(items) or set(by_point) != set(physical_points):
+        raise ValueError("incomplete or non-unique device-wide physical point set")
+    timestamps = {item.sample_time for item in items}
+    if len(timestamps) != 1:
+        raise ValueError("device-wide points do not share one logical sample_time")
     points: dict[str, list[object]] = {}
     for point_id in physical_points:
         item = by_point[point_id]
