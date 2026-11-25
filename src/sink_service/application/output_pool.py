@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from dataclasses import replace
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -106,6 +108,7 @@ class _QuotaWriter:
         self._timeout = timeout_ms / 1000
         self._output = output
         self._pending: asyncio.Task[BatchOutcome] | None = None
+        self._pending_timings: tuple[float, float, float] | None = None
 
     def _finish(self, task: asyncio.Task[BatchOutcome]) -> None:
         if task.cancelled():
@@ -141,16 +144,20 @@ class _QuotaWriter:
         pending = self._pending
         if pending is not None and not pending.done():
             return BatchOutcome((), (), "previous Sink I/O remains unsettled")
+        global_started = time.monotonic()
         try:
             await asyncio.wait_for(self._global_quota.acquire(), timeout=self._timeout)
         except TimeoutError:
             return BatchOutcome((), (), "global I/O quota exhausted")
+        global_seconds = time.monotonic() - global_started
+        physical_started = time.monotonic()
         try:
             await asyncio.wait_for(self._sink_quota.acquire(), timeout=self._timeout)
         except BaseException:
             self._global_quota.release()
             raise
 
+        physical_seconds = time.monotonic() - physical_started
         # A competing operation can quarantine this physical target while we
         # wait for the semaphore. Recheck *after* ownership is acquired.
         if self._output.unsafe:
@@ -161,6 +168,7 @@ class _QuotaWriter:
         async def run_operation() -> BatchOutcome:
             return await operation()
 
+        native_started = time.monotonic()
         try:
             task = asyncio.create_task(run_operation())
         except BaseException:
@@ -168,10 +176,19 @@ class _QuotaWriter:
             self._global_quota.release()
             raise
         self._pending = task
+        self._pending_timings = (global_seconds, physical_seconds, native_started)
         self._output.physical.tasks.add(task)
         task.add_done_callback(self._finish)
         try:
-            return await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout)
+            result = await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout)
+            return replace(
+                result,
+                quota_stage_seconds=(
+                    global_seconds,
+                    physical_seconds,
+                    time.monotonic() - native_started,
+                ),
+            )
         except TimeoutError:
             return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")
 
@@ -181,9 +198,21 @@ class _QuotaWriter:
         if task is None:
             return None
         try:
-            return await asyncio.shield(task)
+            result = await asyncio.shield(task)
         except Exception as exc:
-            return BatchOutcome((), (), f"underlying I/O failed: {exc}")
+            result = BatchOutcome((), (), f"underlying I/O failed: {exc}")
+        timings = self._pending_timings
+        if timings is None:
+            return result
+        global_seconds, physical_seconds, native_started = timings
+        return replace(
+            result,
+            quota_stage_seconds=(
+                global_seconds,
+                physical_seconds,
+                time.monotonic() - native_started,
+            ),
+        )
 
 
 def template_capabilities(snapshot: ValidatedSnapshot, sink_id: str) -> dict[str, Any]:
