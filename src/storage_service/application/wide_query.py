@@ -181,6 +181,8 @@ class WideHistoryQueryService:
         page_token: str = "",
     ) -> WideHistoryPage:
         filter_.validate(schema, maximum=self._max_page_size)
+        if filter_.after_time_us is not None:
+            raise ValueError("wide query cursor must be a signed page token")
         if not 0 <= filter_.start_time_us < filter_.end_time_us:
             raise ValueError("wide query requires positive UTC microsecond timestamps")
         if filter_.end_time_us - filter_.start_time_us > (
