@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from storage_service.domain.quality_bitmap import PointQuality
-from storage_service.domain.wide_record import WideDataLevel, WideIdentity
+from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import WideSchema
 
 
@@ -73,18 +73,6 @@ class WideQueryBackend(Protocol):
     ) -> Sequence[WideHistoryRow]: ...
 
 
-class WideQuerySchemaResolver(Protocol):
-    async def resolve_wide_schema(
-        self,
-        record: WideIdentity,
-        *,
-        type_mapping: object,
-        max_row_bytes: int,
-    ) -> WideSchema: ...
-
-    def wide_device_type(self, identity: WideIdentity) -> str: ...
-
-
 class WideCursorCodec:
     """Version and filter-bound, 15-minute HMAC pagination token."""
 
@@ -100,7 +88,7 @@ class WideCursorCodec:
             filter_.wind_farm_id, filter_.device_id,
             filter_.device_config_id, filter_.data_level.value,
             filter_.start_time_us, filter_.end_time_us,
-            filter_.point_ids, schema.fingerprint,
+            filter_.point_ids, filter_.limit, schema.fingerprint,
         )
         return hashlib.sha256(
             json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
