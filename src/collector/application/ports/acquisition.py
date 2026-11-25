@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from core.application import ProtocolSample
@@ -20,6 +21,9 @@ class SampleSink(Protocol):
         device_type: str,
         point_table_id: str,
         task_id: str,
+        device_config_id: str,
+        sample_time: datetime,
+        expected_point_ids: tuple[str, ...],
     ) -> None: ...
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
