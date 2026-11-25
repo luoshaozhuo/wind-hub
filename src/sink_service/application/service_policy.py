@@ -15,7 +15,7 @@ from sink_service.domain.config import (
 
 
 def validate_service(service: dict[str, Any]) -> None:
-    if type(service.get("schema_version")) is not int or service["schema_version"] != 2:
+    if type(service.get("schema_version")) is not int or service["schema_version"] != 6:
         raise ConfigurationError("Sink Service requires the token-security service schema")
     for field in ("service_id", "wind_farm_id", "deployment_id"):
         expect_nonempty_str(service.get(field), f"service.{field}")
@@ -91,5 +91,5 @@ def validate_service(service: dict[str, Any]) -> None:
         raise ConfigurationError("reliable.transient_retry_policy must be continuous")
     if reliable.get("permanent_error_action") != "dlq":
         raise ConfigurationError("reliable.permanent_error_action must be dlq")
-    if reliable.get("dedup_key") != "sample_id":
-        raise ConfigurationError("reliable.dedup_key must be sample_id")
+    if reliable.get("dedup_key") != "batch_id":
+        raise ConfigurationError("reliable.dedup_key must be batch_id")

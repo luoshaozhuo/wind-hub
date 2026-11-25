@@ -139,8 +139,11 @@ def validate_service_settings(document: Mapping[str, object]) -> None:
         raise ConfigError("messaging.servers must list valid NATS endpoints")
     if messaging.get("delivery", "realtime") not in ("realtime", "reliable"):
         raise ConfigError("messaging.delivery must be realtime or reliable")
-    if "max_staleness_ms" in messaging:
-        _positive(messaging["max_staleness_ms"], "messaging.max_staleness_ms")
+    if messaging.get("delivery", "realtime") == "reliable":
+        if "max_staleness_ms" in messaging:
+            raise ConfigError("Reliable messaging forbids max_staleness_ms")
+    else:
+        _positive(messaging.get("max_staleness_ms"), "messaging.max_staleness_ms")
     for name in ("max_samples_per_batch", "max_batch_bytes", "queue_capacity"):
         if name in messaging:
             value = messaging[name]
@@ -229,7 +232,7 @@ def _validate_all_templates(root: Path) -> None:
 def validate_collector_snapshot(paths: SnapshotPaths, *, source_root: Path | None = None) -> None:
     """Validate all common references and the Collector-owned service document."""
     service = read_yaml(paths.service)
-    validate_document_version(service, paths.service)
+    validate_document_version(service, paths.service, supported_schema=6)
     if not isinstance(service, dict):
         raise ConfigError("Collector service configuration must be a mapping")
     allowed = {

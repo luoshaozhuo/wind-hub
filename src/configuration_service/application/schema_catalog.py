@@ -367,3 +367,76 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                 },
                 header=successor_header,
             )
+
+
+            # Keep published V1–V3 definitions immutable for historical retrieval.
+            # New service envelopes share the repository category, not a runtime model.
+            wide = deepcopy(successor)
+            wide_header = deepcopy(successor_header)
+            wide["security"]["properties"]["callers"]["items"]["properties"]["token_env"] = {
+                "type": "string",
+                "pattern": r"env:[A-Z_][A-Z0-9_]*",
+            }
+            wide_header["schema_version"] = _field(
+                "配置结构版本 6（宽表 Storage / Collector / Sink）",
+                "integer",
+                required=True,
+            )
+            yield SchemaSpec(
+                config_type="service",
+                schema_version=6,
+                fields={
+                    "properties": wide,
+                    "required": ["schema_version", "file_version", "service_id"],
+                    "additionalProperties": False,
+                },
+                header=wide_header,
+            )
+        elif config_type == "sink":
+            from copy import deepcopy
+
+            wide = deepcopy(properties)
+            wide_header = deepcopy(header)
+            wide["kind"]["enum"] = ["kafka"]
+            wide["output"] = {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "minLength": 1},
+                    "key_field": {"type": "string", "enum": ["wind_farm_device"]},
+                    "business_duplicate_policy": {
+                        "type": "string",
+                        "enum": ["allow_at_least_once"],
+                    },
+                    "dedup_identity_fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["wind_farm_id", "device_id", "data_level", "sample_time"],
+                        },
+                    },
+                    "enable_idempotence": {"type": "boolean", "enum": [True]},
+                    "acks": {"type": "string", "enum": ["all"]},
+                    "write_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 30000},
+                },
+                "required": [
+                    "topic", "key_field", "business_duplicate_policy", "dedup_identity_fields",
+                    "enable_idempotence", "acks", "write_timeout_ms",
+                ],
+                "additionalProperties": False,
+            }
+            wide_header["schema_version"] = _field(
+                "Kafka 宽表输出结构版本 2", "integer", required=True
+            )
+            yield SchemaSpec(
+                config_type="sink",
+                schema_version=2,
+                fields={
+                    "properties": wide,
+                    "required": [
+                        "schema_version", "file_version", "template_id", "kind",
+                        "capabilities", "connection", "output",
+                    ],
+                    "additionalProperties": False,
+                },
+                header=wide_header,
+            )

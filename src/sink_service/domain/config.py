@@ -102,8 +102,8 @@ def expect_nonempty_str(value: object, location: str) -> str:
     return value
 
 
-def require_version(doc: dict[str, Any], location: str) -> None:
-    if type(doc.get("schema_version")) is not int or doc["schema_version"] != 1:
+def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+    if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
         raise ConfigurationError(f"{location}: unsupported schema_version")
     version = expect_nonempty_str(doc.get("file_version"), f"{location}.file_version")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:

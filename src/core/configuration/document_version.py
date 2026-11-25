@@ -26,10 +26,12 @@ class DocumentVersion:
 def validate_document_version(
     document: Mapping[str, Any],
     path: str | Path,
+    *,
+    supported_schema: int = 1,
 ) -> DocumentVersion:
     """Reject unsupported schemas and missing or malformed file versions."""
     schema_version = document.get("schema_version")
-    if type(schema_version) is not int or schema_version != 1:
+    if type(schema_version) is not int or schema_version != supported_schema:
         raise ConfigError(f"{path}: unsupported schema_version {schema_version!r}")
     file_version = document.get("file_version")
     if not isinstance(file_version, str) or not _FILE_VERSION.fullmatch(file_version):

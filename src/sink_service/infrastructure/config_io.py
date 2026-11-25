@@ -37,10 +37,13 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
         raise ConfigurationError(f"{item.path}: invalid YAML") from exc
     doc = expect_mapping(raw, item.path)
     if item.path.startswith("configs/services/service_"):
-        if type(doc.get("schema_version")) is not int or doc["schema_version"] != 2:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != 6:
             raise ConfigurationError("Sink Service requires token-security schema")
     else:
-        require_version(doc, item.path)
+        schema_version = 2 if (
+            item.path.startswith("configs/templates/sinks/") and doc.get("kind") == "kafka"
+        ) else 1
+        require_version(doc, item.path, schema_version=schema_version)
     if item.path.startswith("configs/templates/sinks/"):
         require_keys(
             doc,

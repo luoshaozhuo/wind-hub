@@ -1,6 +1,6 @@
 # 与 Sink Kafka Broker/Topic 一致的候选；现场地址和权限待核验。
 # Storage Service v3 wide-row candidate: Deployment-selected instances; operational parameters under service.
-# schema_version: required int 3; file_version: required semantic triple MAJOR.MINOR.PATCH.
+# schema_version: required int 6; file_version: required semantic triple MAJOR.MINOR.PATCH.
 # service_id: required nonempty string <= 256 bytes.
 # allowed_wind_farms: required nonempty unique list of authorized farm IDs;
 #   all Kafka records outside this list are blocked before SQL/DDL.
@@ -46,7 +46,7 @@
 # reconciliation.auto_alter and allow_retention_shrink: boolean, default false.
 #   KEEP shrink additionally requires independent one-use authorization evidence.
 #   owner_instance_id: required, equals service_id; v1 is single-instance only.
-schema_version: 3
+schema_version: 6
 file_version: "2.0.0"
 service_id: storage-main
 config_sources:

@@ -4,7 +4,7 @@
 # 独立仿真部署的 Service 配置；仅引用仿真 Instance，版本由 sim-a Deployment 选择。
 # Service 仅引用 Instance 逻辑身份；Deployment 统一选定不可变文件版本。
 # Instance 固定引用 Template，Service 不声明 templates.root。
-schema_version: 2
+schema_version: 6
 config_sources:
   instances:
     site: e2e-final
