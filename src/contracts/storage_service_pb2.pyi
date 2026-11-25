@@ -775,10 +775,12 @@ class WidePointColumn(_message.Message):
     PHYSICAL_COLUMN_NAME_FIELD_NUMBER: _builtins.int
     SQL_TYPE_FIELD_NUMBER: _builtins.int
     QUALITY_ORDINAL_FIELD_NUMBER: _builtins.int
+    UNIT_FIELD_NUMBER: _builtins.int
     point_id: _builtins.str
     physical_column_name: _builtins.str
     sql_type: _builtins.str
     quality_ordinal: _builtins.int
+    unit: _builtins.str
     def __init__(
         self,
         *,
@@ -786,6 +788,7 @@ class WidePointColumn(_message.Message):
         physical_column_name: _builtins.str = ...,
         sql_type: _builtins.str = ...,
         quality_ordinal: _builtins.int = ...,
+        unit: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
