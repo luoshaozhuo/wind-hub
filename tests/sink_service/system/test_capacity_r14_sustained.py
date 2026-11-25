@@ -32,7 +32,7 @@ from typing import Any
 
 import nats
 import pytest
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, TopicPartition
 
 from contracts import common_pb2, common_pb2_grpc
 from tests.sink_service.system.conftest import (
@@ -87,6 +87,20 @@ KAFKA_STAGES = ("lock", "metadata", "submit", "confirm")
 #   （reliable_runtime 仅要求 limits + 有限 max_bytes/max_age，不限定值）。
 STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(4 * 1024**3)))
 STREAM_MAX_AGE_S = int(os.environ.get("R14_STREAM_MAX_AGE_S", "180"))
+
+
+async def _kafka_partition_offsets(consumer: AIOKafkaConsumer, topic: str) -> dict[int, int]:
+    partitions = consumer.partitions_for_topic(topic)
+    attempts = 0
+    while partitions is None and attempts < 5:
+        await consumer._client.force_metadata_update()  # noqa: SLF001
+        partitions = consumer.partitions_for_topic(topic)
+        attempts += 1
+    if not partitions:
+        return {}
+    tps = [TopicPartition(topic, partition) for partition in sorted(partitions)]
+    ends = await consumer.end_offsets(tps)
+    return {tp.partition: ends[tp] for tp in tps}
 
 
 def _devices(degree: int) -> list[str]:
@@ -211,6 +225,9 @@ class TestR14SustainedCapacity:
             try:
                 await consumer.start()
                 baseline = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
+                baseline_partitions = await _kafka_partition_offsets(
+                    consumer, sink_harness.kafka_topic
+                )
                 js = publisher.jetstream()
                 interval = 1.0 / TARGET_BATCH_RATE if TARGET_BATCH_RATE > 0 else 0.0
                 stop_at = time.monotonic() + DURATION_S
@@ -356,6 +373,9 @@ class TestR14SustainedCapacity:
                     for name in names
                 }
                 final_offset = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
+                final_partitions = await _kafka_partition_offsets(
+                    consumer, sink_harness.kafka_topic
+                )
                 t_end = time.monotonic()
 
                 published_values = published_batches * POINTS_PER_BATCH
@@ -436,9 +456,7 @@ class TestR14SustainedCapacity:
                     kafka_diagnostics[stage] = {
                         "duration_seconds": round(duration, 3),
                         "writes": writes,
-                        "mean_duration_ms": round(duration * 1000 / writes, 3)
-                        if writes
-                        else None,
+                        "mean_duration_ms": round(duration * 1000 / writes, 3) if writes else None,
                     }
                 cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
@@ -477,6 +495,12 @@ class TestR14SustainedCapacity:
                     "published_batches": published_batches,
                     "published_values": published_values,
                     "confirmed_values": confirmed_values,
+                    "kafka_partition_count": len(final_partitions),
+                    "kafka_confirmed_by_partition": {
+                        str(partition): final_partitions.get(partition, 0)
+                        - baseline_partitions.get(partition, 0)
+                        for partition in sorted(final_partitions)
+                    },
                     "zero_loss": confirmed_values == published_values,
                     "publish_wall_seconds": round(wall_pub, 3),
                     "achieved_publish_batches_per_s": round(published_batches / wall_pub, 2),

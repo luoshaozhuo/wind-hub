@@ -1,0 +1,42 @@
+{
+  "120": {
+    "result_file": "docs/audit/c6_round2_20261125_evidence/r14_capacity_d30_r120_7fc24e9c08d9.json",
+    "counters_nonnegative_monotonic": {
+      "lock": true,
+      "metadata": true,
+      "submit": true,
+      "confirm": true,
+      "timed_writes": true
+    },
+    "initial_metadata_seconds": 0.49280570904375054,
+    "timed_write_coverage_vs_reliable_write": [
+      5877,
+      5877
+    ],
+    "kafka_four_stage_seconds_sum": 225.522,
+    "reliable_write_seconds": 1684.832,
+    "unattributed_write_seconds": 1459.31,
+    "kafka_stage_mean_sum_ms": 38.374,
+    "unattributed_mean_ms": 248.308
+  },
+  "300": {
+    "result_file": "docs/audit/c6_round2_20261125_evidence/r14_capacity_d30_r300_3c27a630110c.json",
+    "counters_nonnegative_monotonic": {
+      "lock": true,
+      "metadata": true,
+      "submit": true,
+      "confirm": true,
+      "timed_writes": true
+    },
+    "initial_metadata_seconds": 0.7033372079313267,
+    "timed_write_coverage_vs_reliable_write": [
+      5504,
+      5504
+    ],
+    "kafka_four_stage_seconds_sum": 229.534,
+    "reliable_write_seconds": 1713.57,
+    "unattributed_write_seconds": 1484.036,
+    "kafka_stage_mean_sum_ms": 41.702,
+    "unattributed_mean_ms": 269.63
+  }
+}

@@ -1,0 +1,62 @@
+.......................................................ssssssssss....... [ 65%]
+...........................F..........                                   [100%]
+=================================== FAILURES ===================================
+____________________ test_modbus_fc04_reads_input_registers ____________________
+
+    @pytest.mark.asyncio
+    async def test_modbus_fc04_reads_input_registers() -> None:
+        """FC04 与 FC03 数据区隔离；输入寄存器使用独立的点表。"""
+        from core.domain import ConnectionEndpoint, PointAccess
+        from core.infrastructure.protocol.modbus import ModbusDriver
+        from tests.core.protocol.conftest import make_point, make_table
+        from tests.fixtures.servers.modbus_server import ModbusMockServer
+        from tests.support.process import free_port
+    
+        inputs = [0] * 256
+        inputs[40] = 321
+        server = ModbusMockServer(port=free_port(), inputs=inputs)
+        driver = ModbusDriver(
+            ConnectionEndpoint("127.0.0.1", server.port),
+            make_table(
+                "modbus",
+                make_point(
+                    "input",
+                    access=PointAccess.READ,
+                    register_type="input",
+                    address=40,
+                    data_type="uint16",
+                ),
+            ),
+            {},
+        )
+        await server.start()
+        try:
+            await driver.connect()
+            sample = await driver.read_one("input")
+            assert sample.value == 321
+            assert sample.quality is Quality.GOOD
+            # FC04 returns the two-byte register data field, never a fabricated ADU.
+>           assert sample.raw_payload == b"\\x01\\x41"
+E           AssertionError: assert b'\x01A' == b'\\x01\\x41'
+E             
+E             At index 0 diff: b'\x01' != b'\\'
+E             Use -v to get more diff
+
+tests/core/protocol/modbus/test_integration.py:76: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:35
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:35: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/core/protocol/modbus/test_integration.py::test_modbus_fc04_reads_input_registers
+1 failed, 99 passed, 10 skipped, 1 warning in 49.87s

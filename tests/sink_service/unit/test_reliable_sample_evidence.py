@@ -274,9 +274,7 @@ async def test_kafka_stage_timings_are_attributed_to_the_owning_delivery() -> No
         )
     )
     port = _port(adapter)
-    terminal = await port._deliver_batch(
-        _FakeMessage(), _batch([("active_power", "timed-1")])
-    )
+    terminal = await port._deliver_batch(_FakeMessage(), _batch([("active_power", "timed-1")]))
     assert terminal
     assert port.kafka_timed_writes_total == 1
     assert port.kafka_lock_seconds_total == pytest.approx(0.01)

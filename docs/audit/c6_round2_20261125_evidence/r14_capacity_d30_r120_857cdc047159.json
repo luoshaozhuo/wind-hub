@@ -1,0 +1,110 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 60.0,
+  "degree": 30,
+  "target_batch_rate_global": 120.0,
+  "points_per_batch": 500,
+  "published_batches": 7017,
+  "published_values": 3508500,
+  "confirmed_values": 3508500,
+  "zero_loss": true,
+  "publish_wall_seconds": 60.659,
+  "achieved_publish_batches_per_s": 115.68,
+  "confirmed_values_per_s_steady": 58867.37,
+  "confirmed_batches_per_s_steady": 117.73,
+  "backlog_slope_batches_per_s_steady": -0.762,
+  "final_pending": {
+    "WH_SINK_9bf1d2d547c8caaf3ef64052": 0,
+    "WH_SINK_2e064d80da07b0e467c2a72d": 0,
+    "WH_SINK_62f5d898809b62921324f3a2": 0,
+    "WH_SINK_5d53f60849e8cd066074f9f3": 0,
+    "WH_SINK_314f128f5b2f31b453e04296": 0,
+    "WH_SINK_5fe28bf3216322254ea3258a": 0,
+    "WH_SINK_6c8736fff444c52428aa1496": 0,
+    "WH_SINK_188e3a1d519f361619f94896": 0,
+    "WH_SINK_676ed0697cfb1ced560aed85": 0,
+    "WH_SINK_195eb001101160cfa5689e47": 0,
+    "WH_SINK_c065f1384a39086076d3afc6": 0,
+    "WH_SINK_299defb6c6e58d396e386175": 0,
+    "WH_SINK_774b7f2c0059e4376450e59f": 0,
+    "WH_SINK_0228feb937d42ffa44283fb4": 0,
+    "WH_SINK_b1fc622abd6f306e4415df70": 0,
+    "WH_SINK_8158ef54535d785c534a0eb4": 0,
+    "WH_SINK_4bbdcc38eee7b067a78a27d6": 0,
+    "WH_SINK_0fed7f0f5d188f36db9f08aa": 0,
+    "WH_SINK_0672fe4969ccf830f8074d2d": 0,
+    "WH_SINK_077f1ad00f9604003ea7c6bb": 0,
+    "WH_SINK_00573c0a58c73807bde2e917": 0,
+    "WH_SINK_3868fff839964136c3859ab1": 0,
+    "WH_SINK_b5a7bbfb7b28bc5b18053680": 0,
+    "WH_SINK_97389fcfcbc3e15e0a28c189": 0,
+    "WH_SINK_b1e9572902e599690ae4ef77": 0,
+    "WH_SINK_38167fc9ecabe28342c5009b": 0,
+    "WH_SINK_d00a72db656b7e2cbfb1b6c3": 0,
+    "WH_SINK_21bbb16061ec00b9a025ce95": 0,
+    "WH_SINK_f84ebe5cbc7a681c956a2a88": 0,
+    "WH_SINK_5a3e22110667001a36fa339c": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 59,
+  "grpc_max_latency_ms": 8.3,
+  "event_loop_lag_p99_max_ms": 32.76515498873778,
+  "write_latency_p99_max_ms": 162.133583658624,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 1061.375,
+      "operations": 6790,
+      "mean_duration_ms": 156.314
+    },
+    "reliable_encode": {
+      "duration_seconds": 29.397,
+      "operations": 6790,
+      "mean_duration_ms": 4.329
+    },
+    "reliable_write": {
+      "duration_seconds": 611.509,
+      "operations": 6806,
+      "mean_duration_ms": 89.848
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 14.188,
+      "operations": 6807,
+      "mean_duration_ms": 2.084
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.011,
+      "writes": 6806,
+      "mean_duration_ms": 0.002
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 6806,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 130.197,
+      "writes": 6806,
+      "mean_duration_ms": 19.13
+    },
+    "confirm": {
+      "duration_seconds": 28.891,
+      "writes": 6806,
+      "mean_duration_ms": 4.245
+    }
+  },
+  "cpu_percent_of_one_core": 103.0,
+  "rss_max_mib": 254.8,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luosh/wind-hub/docs/audit/c6_round2_20261125_evidence/r14_capacity_d30_r120_857cdc047159_samples.jsonl",
+  "samples_sha256": "dbe75e8ab405f1335bc41fe47a0ec7e9ed2d6affad6959b3572b379660447f6d",
+  "result_path": "/home/luosh/wind-hub/docs/audit/c6_round2_20261125_evidence/r14_capacity_d30_r120_857cdc047159.json"
+}
