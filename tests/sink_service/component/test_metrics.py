@@ -52,6 +52,12 @@ R04_METRICS = {
     "routed_values_total",
     "retry_total",
     "dead_letter_invalid_batches_total",
+    "reliable_encode_seconds_total",
+    "reliable_encode_operations_total",
+    "reliable_write_seconds_total",
+    "reliable_write_operations_total",
+    "reliable_source_ack_seconds_total",
+    "reliable_source_ack_operations_total",
 }
 
 
