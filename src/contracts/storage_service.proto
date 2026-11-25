@@ -190,6 +190,7 @@ message WidePointColumn {
   string physical_column_name = 2;
   string sql_type = 3;
   uint32 quality_ordinal = 4;
+  string unit = 5;
 }
 message WidePointValue {
   string point_id = 1;
