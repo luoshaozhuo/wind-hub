@@ -1,7 +1,7 @@
 """R14（v1_48）单实例 600s 持续容量验收（S4 长稳口径）。
 
 与 R13 同环境、同权威口径对齐：
-- 不使用 cProfile、不加任何生产插桩；证据全部来自进程边界之外——
+- 不使用 cProfile；证据全部来自已有生产指标及进程边界之外——
   Kafka 端 offset（Broker 确认真值）、JetStream ConsumerInfo（服务端
   积压/重投真值）、/proc（CPU/RSS）、gRPC GetMetrics（事件环 P99、
   写延迟 P99）与 gRPC 可用性探针；
@@ -70,7 +70,12 @@ MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.9
 MAX_BACKLOG_SLOPE_FRACTION = float(os.environ.get("R14_MAX_BACKLOG_SLOPE_FRACTION", "0.02"))
 DRAIN_TIMEOUT_S = 120.0
 SAMPLE_INTERVAL_S = 1.0
-RELIABLE_STAGES = ("reliable_encode", "reliable_write", "reliable_source_ack")
+RELIABLE_STAGES = (
+    "reliable_source_fetch",
+    "reliable_encode",
+    "reliable_write",
+    "reliable_source_ack",
+)
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
 # JetStream Limits 保留策略下 ACK 只推进消费者位置、不删除流消息，600s 持续
 # 压测累积约 7 万批会按 max_bytes 撑爆（与消费快慢无关）。长稳专用：
