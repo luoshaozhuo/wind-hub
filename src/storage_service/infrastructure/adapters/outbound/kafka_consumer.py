@@ -77,6 +77,14 @@ class KafkaStorageConsumer:
         self._retry_failures: dict[TopicPartition, int] = {}
         self._generation = 0
         self._stop = asyncio.Event()
+        self._assignment_ready = False
+        # Snapshot each assigned partition's broker end before serving queries.
+        self._replay_targets: dict[TopicPartition, int] = {}
+
+    @property
+    def recovering(self) -> bool:
+        """Suspend user-facing reads until every assigned replay prefix is committed."""
+        return not self._assignment_ready or bool(self._replay_targets)
 
     async def start(self) -> None:
         self._consumer.subscribe(
@@ -89,9 +97,12 @@ class KafkaStorageConsumer:
         self._generation += 1
         for tp in revoked:
             self._retry_failures.pop(tp, None)
+            self._replay_targets.pop(tp, None)
             previous = self._assignments.pop(tp, None)
             if previous is not None:
                 previous.offsets.revoke(generation=previous.generation)
+        if not self._assignments:
+            self._assignment_ready = False
 
     async def assign(self, assigned: set[TopicPartition]) -> None:
         for tp in assigned:
@@ -132,6 +143,9 @@ class KafkaStorageConsumer:
                 current.blocked = True
                 self._consumer.pause(tp)
             self._assignments[tp] = current
+            if committed < end[tp]:
+                self._replay_targets[tp] = end[tp]
+        self._assignment_ready = True
 
     async def _retry_unconfirmed(
         self,
@@ -291,6 +305,9 @@ class KafkaStorageConsumer:
             ):
                 return
             self._retry_failures.pop(tp, None)
+            target = self._replay_targets.get(tp)
+            if target is not None and state.offsets.next_commit_offset >= target:
+                self._replay_targets.pop(tp, None)
             if not state.blocked:
                 # getmany has already advanced the fetch position. Seeking a
                 # fully confirmed batch discards useful prefetched records.
