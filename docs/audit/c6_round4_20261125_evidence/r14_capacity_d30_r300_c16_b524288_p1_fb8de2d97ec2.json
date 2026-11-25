@@ -1,0 +1,244 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 60.0,
+  "degree": 30,
+  "target_batch_rate_global": 300.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 18000,
+  "scheduled_batches": 18000,
+  "published_batches": 18000,
+  "published_values": 9000000,
+  "confirmed_values": 9000000,
+  "physical_builder_count": 4350.0,
+  "confirmed_points_per_physical_builder": 2068.966,
+  "cross_device_coalescing_observed": true,
+  "kafka_partition_count": 1,
+  "kafka_confirmed_by_partition": {
+    "0": 9000000
+  },
+  "device_order_audit": {
+    "scanned_records": 46384,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT001": [
+        0
+      ],
+      "WT002": [
+        0
+      ],
+      "WT005": [
+        0
+      ],
+      "WT003": [
+        0
+      ],
+      "WT004": [
+        0
+      ],
+      "WT007": [
+        0
+      ],
+      "WT006": [
+        0
+      ],
+      "WT009": [
+        0
+      ],
+      "WT008": [
+        0
+      ],
+      "WT010": [
+        0
+      ],
+      "WT012": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT016": [
+        0
+      ],
+      "WT017": [
+        0
+      ],
+      "WT014": [
+        0
+      ],
+      "WT021": [
+        0
+      ],
+      "WT015": [
+        0
+      ],
+      "WT018": [
+        0
+      ],
+      "WT020": [
+        0
+      ],
+      "WT019": [
+        0
+      ],
+      "WT023": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT013": [
+        0
+      ],
+      "WT025": [
+        0
+      ],
+      "WT026": [
+        0
+      ],
+      "WT024": [
+        0
+      ],
+      "WT027": [
+        0
+      ],
+      "WT029": [
+        0
+      ],
+      "WT028": [
+        0
+      ],
+      "WT030": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 60.001,
+  "achieved_publish_batches_per_s": 299.99,
+  "publisher_puback_batches_per_s_steady": 299.84,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 0.687,
+  "confirmed_values_per_s_steady": 65254.45,
+  "confirmed_batches_per_s_steady": 130.51,
+  "backlog_slope_batches_per_s_steady": 169.418,
+  "final_pending": {
+    "WH_SINK_fb743738b3634691d06c9373": 0,
+    "WH_SINK_775bb933934206087ed8c519": 0,
+    "WH_SINK_1930ad2d36ad231c7c611493": 0,
+    "WH_SINK_6de3b001d0ae34eaad430011": 0,
+    "WH_SINK_7e1d9a4c27f5c9fed119e84f": 0,
+    "WH_SINK_6b2a2ebfde2cb7fcce312521": 0,
+    "WH_SINK_ead9161f111105658b0ea697": 0,
+    "WH_SINK_9886acefeb2548970fb41971": 0,
+    "WH_SINK_798cf30d0b70832efec3c153": 0,
+    "WH_SINK_772901ec417182cc2e8356ca": 0,
+    "WH_SINK_fa1ee854edf3936829b07669": 0,
+    "WH_SINK_b84fe831a85136b07ad9ac24": 0,
+    "WH_SINK_8e4cfc7d249f6372b0867408": 0,
+    "WH_SINK_08b17a9687a357df433239f0": 0,
+    "WH_SINK_10908365c4a0186ccd45358a": 0,
+    "WH_SINK_bedcec926171a9308ddb0e57": 0,
+    "WH_SINK_006ae9e512e4e66e15c6a1d7": 0,
+    "WH_SINK_ae32ea91cff48bd08b85b134": 0,
+    "WH_SINK_c9a3e58e7d7bcc1036a1366f": 0,
+    "WH_SINK_f93aea01a67c3b1202b4c717": 0,
+    "WH_SINK_cacb8c5a3c2048fcd8c805fe": 0,
+    "WH_SINK_7e6df304cd5aa1a3127244ec": 0,
+    "WH_SINK_3c1a86dd7f72867bf8f1e640": 0,
+    "WH_SINK_ca8740ea1fc8e0f8016a7cf9": 0,
+    "WH_SINK_d5b62f9eb2ea9156a86c04a0": 0,
+    "WH_SINK_9fa7fe3a0fe4d2e354d52007": 0,
+    "WH_SINK_c6c8b92b17d9bda4d56f3f16": 0,
+    "WH_SINK_89c0aff0869916aa3a215c16": 0,
+    "WH_SINK_fc37e4bdc61de5543fa1c729": 0,
+    "WH_SINK_e1d5bcafa32b93427475dc72": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 59,
+  "grpc_max_latency_ms": 6.3,
+  "event_loop_lag_p99_max_ms": 81.75514699541964,
+  "write_latency_p99_max_ms": 190.28695646797615,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 185.391,
+      "operations": 7716,
+      "mean_duration_ms": 24.027
+    },
+    "reliable_encode": {
+      "duration_seconds": 218.117,
+      "operations": 7717,
+      "mean_duration_ms": 28.264
+    },
+    "reliable_write": {
+      "duration_seconds": 1309.139,
+      "operations": 7712,
+      "mean_duration_ms": 169.754
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 26.384,
+      "operations": 7712,
+      "mean_duration_ms": 3.421
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.004,
+      "writes": 7712,
+      "mean_duration_ms": 0.001
+    },
+    "metadata": {
+      "duration_seconds": 0.014,
+      "writes": 7712,
+      "mean_duration_ms": 0.002
+    },
+    "submit": {
+      "duration_seconds": 566.969,
+      "writes": 7712,
+      "mean_duration_ms": 73.518
+    },
+    "confirm": {
+      "duration_seconds": 314.192,
+      "writes": 7712,
+      "mean_duration_ms": 40.741
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 34.757,
+      "writes": 7712,
+      "mean_duration_ms": 4.507
+    },
+    "physical": {
+      "duration_seconds": 310.654,
+      "writes": 7712,
+      "mean_duration_ms": 40.282
+    },
+    "native": {
+      "duration_seconds": 939.161,
+      "writes": 7712,
+      "mean_duration_ms": 121.779
+    }
+  },
+  "confirmed_subbatches_per_write": 0.562,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 16,
+    "max_batch_size": 524288,
+    "partitions": 1
+  },
+  "cpu_percent_of_one_core": 47.2,
+  "rss_max_mib": 257.4,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luosh/wind-hub/docs/audit/c6_round4_20261125_evidence/r14_capacity_d30_r300_c16_b524288_p1_fb8de2d97ec2_samples.jsonl",
+  "samples_sha256": "a3a885818edd5dbe1f58d8082b9b63768427a6df52aa72360cce74501e7bca26",
+  "result_path": "/home/luosh/wind-hub/docs/audit/c6_round4_20261125_evidence/r14_capacity_d30_r300_c16_b524288_p1_fb8de2d97ec2.json"
+}

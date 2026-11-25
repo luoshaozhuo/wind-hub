@@ -1,0 +1,4 @@
+{
+  "message.max.bytes": "1048588",
+  "socket.request.max.bytes": "104857600"
+}

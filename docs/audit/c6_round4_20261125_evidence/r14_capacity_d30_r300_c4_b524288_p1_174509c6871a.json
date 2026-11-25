@@ -1,0 +1,244 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 60.0,
+  "degree": 30,
+  "target_batch_rate_global": 300.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 18000,
+  "scheduled_batches": 18000,
+  "published_batches": 18000,
+  "published_values": 9000000,
+  "confirmed_values": 9000000,
+  "physical_builder_count": 7634.0,
+  "confirmed_points_per_physical_builder": 1178.936,
+  "cross_device_coalescing_observed": true,
+  "kafka_partition_count": 1,
+  "kafka_confirmed_by_partition": {
+    "0": 9000000
+  },
+  "device_order_audit": {
+    "scanned_records": 51000,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT002": [
+        0
+      ],
+      "WT001": [
+        0
+      ],
+      "WT003": [
+        0
+      ],
+      "WT004": [
+        0
+      ],
+      "WT005": [
+        0
+      ],
+      "WT006": [
+        0
+      ],
+      "WT007": [
+        0
+      ],
+      "WT008": [
+        0
+      ],
+      "WT009": [
+        0
+      ],
+      "WT010": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT012": [
+        0
+      ],
+      "WT013": [
+        0
+      ],
+      "WT014": [
+        0
+      ],
+      "WT015": [
+        0
+      ],
+      "WT016": [
+        0
+      ],
+      "WT017": [
+        0
+      ],
+      "WT018": [
+        0
+      ],
+      "WT019": [
+        0
+      ],
+      "WT020": [
+        0
+      ],
+      "WT021": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT023": [
+        0
+      ],
+      "WT024": [
+        0
+      ],
+      "WT025": [
+        0
+      ],
+      "WT026": [
+        0
+      ],
+      "WT027": [
+        0
+      ],
+      "WT028": [
+        0
+      ],
+      "WT029": [
+        0
+      ],
+      "WT030": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 60.001,
+  "achieved_publish_batches_per_s": 300.0,
+  "publisher_puback_batches_per_s_steady": 299.99,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 0.657,
+  "confirmed_values_per_s_steady": 64324.59,
+  "confirmed_batches_per_s_steady": 128.65,
+  "backlog_slope_batches_per_s_steady": 171.305,
+  "final_pending": {
+    "WH_SINK_b3e1cd75e8168cc0c5e6e2a6": 0,
+    "WH_SINK_a069bdaca6aff4a9cb3df7ec": 0,
+    "WH_SINK_0127b50c4278a5f2ceb04ed7": 0,
+    "WH_SINK_24aed2a67e69327a45bb76ce": 0,
+    "WH_SINK_1bbd6524a94ab6192f1fac0e": 0,
+    "WH_SINK_df90039528bda3f2b5d1473d": 0,
+    "WH_SINK_db178f01fadbac571fab2d56": 0,
+    "WH_SINK_a90effd29582e643623c0f7e": 0,
+    "WH_SINK_dbd5fba8abeece4e66a5164e": 0,
+    "WH_SINK_c9d114bbc9e018855e83c615": 0,
+    "WH_SINK_db186e443b839a1a7c6141b4": 0,
+    "WH_SINK_a9482c99085dd14d96daebd6": 0,
+    "WH_SINK_6e938d4e72b7b7ffc35b1eac": 0,
+    "WH_SINK_3285b376c1222c920bff8b9f": 0,
+    "WH_SINK_c6f5aa167f403a63f55fae7e": 0,
+    "WH_SINK_f1cd682eb0aee2db0dca4c5e": 0,
+    "WH_SINK_6435ac2f19d354f431fe49a3": 0,
+    "WH_SINK_aa39e8cc7ca7a8522f02c819": 0,
+    "WH_SINK_58443a3b8e722e3923984426": 0,
+    "WH_SINK_8704f6f6304150a7a5d69315": 0,
+    "WH_SINK_a73365786fbf892043ce4d55": 0,
+    "WH_SINK_e57a281a4d30b80cd9922071": 0,
+    "WH_SINK_d9fd53da7f70d0dacfb24246": 0,
+    "WH_SINK_603def252a5a43f9880ea67c": 0,
+    "WH_SINK_6ad6d5b4975815173b893bd7": 0,
+    "WH_SINK_fcb5b6a468759336f389f545": 0,
+    "WH_SINK_22d505a63755dceadb8640f5": 0,
+    "WH_SINK_63eb24d02d6ccccad58fa260": 0,
+    "WH_SINK_af2c206e87862513da011c37": 0,
+    "WH_SINK_8ad6137b67c9b2ebda314949": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 59,
+  "grpc_max_latency_ms": 12.0,
+  "event_loop_lag_p99_max_ms": 41.431202000239864,
+  "write_latency_p99_max_ms": 116.47299515100559,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 30.801,
+      "operations": 7606,
+      "mean_duration_ms": 4.05
+    },
+    "reliable_encode": {
+      "duration_seconds": 51.615,
+      "operations": 7606,
+      "mean_duration_ms": 6.786
+    },
+    "reliable_write": {
+      "duration_seconds": 1614.535,
+      "operations": 7606,
+      "mean_duration_ms": 212.271
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 43.37,
+      "operations": 7606,
+      "mean_duration_ms": 5.702
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.006,
+      "writes": 7606,
+      "mean_duration_ms": 0.001
+    },
+    "metadata": {
+      "duration_seconds": 0.001,
+      "writes": 7606,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 77.894,
+      "writes": 7606,
+      "mean_duration_ms": 10.241
+    },
+    "confirm": {
+      "duration_seconds": 122.39,
+      "writes": 7606,
+      "mean_duration_ms": 16.091
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 6.944,
+      "writes": 7606,
+      "mean_duration_ms": 0.913
+    },
+    "physical": {
+      "duration_seconds": 1344.213,
+      "writes": 7606,
+      "mean_duration_ms": 176.731
+    },
+    "native": {
+      "duration_seconds": 233.366,
+      "writes": 7606,
+      "mean_duration_ms": 30.682
+    }
+  },
+  "confirmed_subbatches_per_write": 1.0,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 4,
+    "max_batch_size": 524288,
+    "partitions": 1
+  },
+  "cpu_percent_of_one_core": 46.6,
+  "rss_max_mib": 254.4,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luosh/wind-hub/docs/audit/c6_round4_20261125_evidence/r14_capacity_d30_r300_c4_b524288_p1_174509c6871a_samples.jsonl",
+  "samples_sha256": "772375d911664737c5f1e4527e7c72d9a2bf3d3da6385344937a4bbfd78864fb",
+  "result_path": "/home/luosh/wind-hub/docs/audit/c6_round4_20261125_evidence/r14_capacity_d30_r300_c4_b524288_p1_174509c6871a.json"
+}

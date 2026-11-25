@@ -1,0 +1,12 @@
+{
+  "target_values_per_second": 60000,
+  "scheduled_batches": 3600,
+  "published_builder_batches": 3600,
+  "published_values": 1800000,
+  "publish_seconds": 30.000829656986753,
+  "publish_batches_per_second": 119.99668146382788,
+  "tdengine_rows": 1283000,
+  "drain_seconds": 180.57028547598748,
+  "confirmed_values_per_second_end_to_end": 6092.953438508383,
+  "fully_persisted": false
+}

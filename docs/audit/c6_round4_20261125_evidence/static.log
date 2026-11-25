@@ -1,0 +1,28 @@
+All checks passed!
+RUFF=0
+Would reformat: tests/sink_service/unit/test_kafka_encoded_batch.py
+2 files would be reformatted, 1072 files already formatted
+FMT=0
+Success: no issues found in 483 source files
+MYPY=0
+Writing mypy to contracts/common_pb2.pyi
+Writing mypy to contracts/collector_pb2.pyi
+Writing mypy to contracts/commander_pb2.pyi
+Writing mypy to contracts/sink_service_pb2.pyi
+Writing mypy to contracts/industrial_gateway_pb2.pyi
+Writing mypy to contracts/data_generator_pb2.pyi
+Writing mypy to contracts/configuration_repository_pb2.pyi
+Writing mypy to contracts/storage_service_pb2.pyi
+Writing mypy to contracts/common_pb2_grpc.pyi
+Writing mypy to contracts/collector_pb2_grpc.pyi
+Writing mypy to contracts/commander_pb2_grpc.pyi
+Writing mypy to contracts/sink_service_pb2_grpc.pyi
+Writing mypy to contracts/industrial_gateway_pb2_grpc.pyi
+Writing mypy to contracts/data_generator_pb2_grpc.pyi
+Writing mypy to contracts/configuration_repository_pb2_grpc.pyi
+Writing mypy to contracts/storage_service_pb2_grpc.pyi
+RPC=0
+[22m[0m
+[22mContracts: 22 kept, 0 broken.[0m
+IL=0
+4095 tests collected in 2.31s

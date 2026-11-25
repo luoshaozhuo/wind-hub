@@ -1,0 +1,45 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_storage_single_instance_capacity_60000_values_per_second _________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-248/test_storage_single_instance_c0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_storage_single_instance_capacity_60000_values_per_second(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+>       physical = _tdengine_row_count(harness)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:24: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+harness = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-248/test_storage_single_instance_c0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def _tdengine_row_count(harness: EightServiceHarness) -> dict[str, object]:
+        databases = harness.stack.tdengine_sql("SHOW DATABASES")["data"]
+        selected = None
+        tables: list[list[object]] = []
+        for row in databases:
+            name = str(row[0])
+            if name in {"information_schema", "performance_schema", "log"} or name.startswith(
+                "wind_hub_r5"
+            ):
+                continue
+            probe = harness.stack.tdengine_sql(f"SHOW `{name}`.STABLES", database=name)["data"]
+            if probe and any(str(item[0]).startswith("st_") for item in probe):
+                selected = name
+                tables = probe
+                break
+>       assert selected is not None, f"no Storage TDengine database in {databases!r}"
+E       AssertionError: no Storage TDengine database in [['information_schema'], ['performance_schema'], ['log'], ['wind_hub_r5'], ['wind_hub_r5b']]
+E       assert None is not None
+
+tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py:86: AssertionError
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:17
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:17: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 failed, 1 warning in 30.04s

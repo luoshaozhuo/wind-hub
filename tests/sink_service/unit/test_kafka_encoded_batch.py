@@ -204,9 +204,7 @@ async def test_same_stripe_serializes_while_distinct_partitions_overlap(
             output.write_encoded_batch(_payloads(1), key=KEY, stripe=STRIPE)
         )
         other = asyncio.create_task(
-            output.write_encoded_batch(
-                _payloads(1), key=other_key, stripe=other_stripe
-            )
+            output.write_encoded_batch(_payloads(1), key=other_key, stripe=other_stripe)
         )
         for _ in range(40):
             await asyncio.sleep(0.005)
@@ -332,14 +330,10 @@ async def test_partition_dispatch_does_not_wait_for_prior_broker_confirmation(
         tasks.extend(
             [
                 asyncio.create_task(
-                    output.write_encoded_batch(
-                        _payloads(1), key=b"WT002", stripe=STRIPE + 1
-                    )
+                    output.write_encoded_batch(_payloads(1), key=b"WT002", stripe=STRIPE + 1)
                 ),
                 asyncio.create_task(
-                    output.write_encoded_batch(
-                        _payloads(1), key=b"WT003", stripe=STRIPE + 2
-                    )
+                    output.write_encoded_batch(_payloads(1), key=b"WT003", stripe=STRIPE + 2)
                 ),
             ]
         )
@@ -366,9 +360,7 @@ async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
     output = _output()
     await output.open()
     producer: _FakeProducer = producer_env["producer"]
-    first = asyncio.create_task(
-        output.write_encoded_batch(_payloads(1), key=KEY, stripe=STRIPE)
-    )
+    first = asyncio.create_task(output.write_encoded_batch(_payloads(1), key=KEY, stripe=STRIPE))
     second = asyncio.create_task(
         output.write_encoded_batch(_payloads(2), key=b"WT002", stripe=STRIPE + 1)
     )
@@ -386,9 +378,7 @@ async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
 
         closing = asyncio.create_task(output.close())
         await asyncio.sleep(0)
-        rejected = await output.write_encoded_batch(
-            _payloads(1), key=b"WT003", stripe=STRIPE + 2
-        )
+        rejected = await output.write_encoded_batch(_payloads(1), key=b"WT003", stripe=STRIPE + 2)
         assert "not connected" in rejected.error
         assert not closing.done() and not producer.stopped
         gate.set()

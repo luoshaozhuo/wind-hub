@@ -1,0 +1,151 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_fc04_raw_reaches_storage_and_tdengine __________________
+
+raw_started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-244/test_fc04_raw_reaches_storage_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness) -> None:
+        harness = raw_started
+        result = harness.cli("sink", "start", "e2e_kafka_protocol", "--yes", timeout=90)
+        assert result["status"] == "SUCCESS", result
+        started_at = datetime.now(UTC)
+        start = (started_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = (started_at + timedelta(minutes=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+        async def collect() -> tuple[list[dict[str, Any]], str]:
+            consumer = AIOKafkaConsumer(
+                TOPIC,
+                bootstrap_servers=harness.stack.kafka,
+                group_id=None,
+                auto_offset_reset="latest",
+                enable_auto_commit=False,
+            )
+            await consumer.start()
+            try:
+                deadline = asyncio.get_running_loop().time() + 15
+                while not consumer.assignment():
+                    await consumer.getmany(timeout_ms=250)
+                    assert asyncio.get_running_loop().time() < deadline
+                drain_deadline = asyncio.get_running_loop().time() + 2
+                while asyncio.get_running_loop().time() < drain_deadline:
+                    if not await consumer.getmany(timeout_ms=250, max_records=1000):
+                        break
+                created = harness.cli(
+                    "data-generator", "start", "e2e-plant-physical", "--yes", timeout=90
+                )
+                assert created["status"] == "SUCCESS", created
+                selected: dict[str, dict[str, Any]] = {}
+                observed: list[dict[str, Any]] = []
+                deadline = asyncio.get_running_loop().time() + 90
+                while len(selected) < 3 and asyncio.get_running_loop().time() < deadline:
+                    messages = await consumer.getmany(timeout_ms=1000, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("data_level") == "raw"
+                                and row.get("collector_id") == "collector-e2e-reliable"
+                                and row.get("device_id") == DEVICE
+                                and row.get("point_id") == POINT
+                            ):
+                                if len(observed) < 3:
+                                    observed.append(row)
+                                if _truth_matches(
+                                    harness, row["sample_time"], bytes.fromhex(row["value"])
+                                ):
+                                    selected[row["sample_id"]] = row
+                                    if len(selected) == 3:
+                                        return list(selected.values()), str(
+                                            created["data"]["generation_id"]
+                                        )
+                expected = [
+                    {
+                        "source_time": point["source_time"],
+                        "raw": _expected_fc04_bytes(point["value"]).hex(),
+                    }
+                    for point in _truth(harness.root)[:3]
+                ]
+                raise AssertionError(
+                    f"only {len(selected)} independently matched FC04 RAW samples; "
+                    f"observed={observed}; expected={expected}"
+                )
+            finally:
+                await consumer.stop()
+    
+>       wires, generation_id = asyncio.run(collect())
+                               ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def collect() -> tuple[list[dict[str, Any]], str]:
+        consumer = AIOKafkaConsumer(
+            TOPIC,
+            bootstrap_servers=harness.stack.kafka,
+            group_id=None,
+            auto_offset_reset="latest",
+            enable_auto_commit=False,
+        )
+        await consumer.start()
+        try:
+            deadline = asyncio.get_running_loop().time() + 15
+            while not consumer.assignment():
+                await consumer.getmany(timeout_ms=250)
+                assert asyncio.get_running_loop().time() < deadline
+            drain_deadline = asyncio.get_running_loop().time() + 2
+            while asyncio.get_running_loop().time() < drain_deadline:
+                if not await consumer.getmany(timeout_ms=250, max_records=1000):
+                    break
+            created = harness.cli(
+                "data-generator", "start", "e2e-plant-physical", "--yes", timeout=90
+            )
+            assert created["status"] == "SUCCESS", created
+            selected: dict[str, dict[str, Any]] = {}
+            observed: list[dict[str, Any]] = []
+            deadline = asyncio.get_running_loop().time() + 90
+            while len(selected) < 3 and asyncio.get_running_loop().time() < deadline:
+                messages = await consumer.getmany(timeout_ms=1000, max_records=500)
+                for records in messages.values():
+                    for record in records:
+                        row = json.loads(record.value)
+                        if (
+                            row.get("data_level") == "raw"
+                            and row.get("collector_id") == "collector-e2e-reliable"
+                            and row.get("device_id") == DEVICE
+                            and row.get("point_id") == POINT
+                        ):
+                            if len(observed) < 3:
+                                observed.append(row)
+                            if _truth_matches(
+                                harness, row["sample_time"], bytes.fromhex(row["value"])
+                            ):
+                                selected[row["sample_id"]] = row
+                                if len(selected) == 3:
+                                    return list(selected.values()), str(
+                                        created["data"]["generation_id"]
+                                    )
+            expected = [
+                {
+                    "source_time": point["source_time"],
+                    "raw": _expected_fc04_bytes(point["value"]).hex(),
+                }
+                for point in _truth(harness.root)[:3]
+            ]
+>           raise AssertionError(
+                f"only {len(selected)} independently matched FC04 RAW samples; "
+                f"observed={observed}; expected={expected}"
+            )
+E           AssertionError: only 0 independently matched FC04 RAW samples; observed=[]; expected=[{'source_time': '2026-11-25T08:39:50.277886+00:00', 'raw': '838a429f'}, {'source_time': '2026-11-25T08:39:50.328351+00:00', 'raw': 'dd74431a'}, {'source_time': '2026-11-25T08:39:50.378511+00:00', 'raw': '94574361'}]
+
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:130: AssertionError
+1 failed in 123.22s (0:02:03)

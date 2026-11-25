@@ -345,6 +345,15 @@ def harness(tmp_path: Path, stack: r5_stack.R5Stack) -> Iterator[EightServiceHar
     for folder in ("deployments", "instances", "services", "templates"):
         shutil.copytree(E2E_ROOT / folder, configs / folder)
     _rewrite_endpoints(configs, stack)
+    data_level = os.environ.get("EIGHT_SERVICE_SINK_DATA_LEVEL", "protocol")
+    if data_level not in {"protocol", "raw"}:
+        raise ValueError("EIGHT_SERVICE_SINK_DATA_LEVEL must be protocol or raw")
+    history_template = (
+        configs / "templates" / "deliveries" / "delivery_reliable_history_v1.1.0.yaml"
+    )
+    document = yaml.safe_load(history_template.read_text(encoding="utf-8"))
+    document["output"]["data_level"] = data_level
+    history_template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     configuration_bootstrap = _write_configuration_bootstrap(root, stack)
     storage_bootstrap = _write_storage_bootstrap(root, stack)
     cli_config = _write_cli_config(root, configuration_bootstrap, storage_bootstrap)

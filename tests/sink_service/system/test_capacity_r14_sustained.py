@@ -105,9 +105,7 @@ def _encode_r14_batch(
     token: str, seq: int, device: str, points: int, now: datetime
 ) -> tuple[str, bytes]:
     """Build and encode a strict fixture outside the publisher's GIL."""
-    batch = make_system_batch(
-        "reliable", seq, points, token=token, device_id=device, now=now
-    )
+    batch = make_system_batch("reliable", seq, points, token=token, device_id=device, now=now)
     return batch.subject(), batch.encode()
 
 
@@ -713,6 +711,17 @@ class TestR14SustainedCapacity:
                     "published_batches": published_batches,
                     "published_values": published_values,
                     "confirmed_values": confirmed_values,
+                    "physical_builder_count": last["kafka_successful_subbatches_total"],
+                    "confirmed_points_per_physical_builder": round(
+                        confirmed_values / last["kafka_successful_subbatches_total"], 3
+                    )
+                    if last["kafka_successful_subbatches_total"]
+                    else None,
+                    "cross_device_coalescing_observed": bool(
+                        last["kafka_successful_subbatches_total"]
+                        and confirmed_values / last["kafka_successful_subbatches_total"]
+                        > POINTS_PER_BATCH
+                    ),
                     "kafka_partition_count": len(final_partitions),
                     "kafka_confirmed_by_partition": {
                         str(partition): final_partitions.get(partition, 0)
@@ -800,9 +809,7 @@ class TestR14SustainedCapacity:
                     pub_task.cancel()
                     await asyncio.gather(pub_task, return_exceptions=True)
                 if encoder_pool is not None:
-                    await asyncio.to_thread(
-                        encoder_pool.shutdown, wait=True, cancel_futures=True
-                    )
+                    await asyncio.to_thread(encoder_pool.shutdown, wait=True, cancel_futures=True)
                 await consumer.stop()
                 await publisher.drain()
         finally:
