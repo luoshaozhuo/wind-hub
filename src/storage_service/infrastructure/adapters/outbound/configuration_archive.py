@@ -26,7 +26,7 @@ from storage_service.application.config import DeviceBinding, DeviceClosurePins,
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from core.domain.protocol_types import normalize_protocol_scalar_type
 from storage_service.domain.sample import DataLevel, StorageSample
-from storage_service.domain.wide_record import WideDataLevel, WideRecord
+from storage_service.domain.wide_record import WideDataLevel, WideIdentity, WideRecord
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -458,7 +458,7 @@ class ConfigurationPointTableResolver:
 
     async def resolve_wide_schema(
         self,
-        record: WideRecord,
+        record: WideRecord | WideIdentity,
         *,
         type_mapping: TypeMapping,
         max_row_bytes: int,
