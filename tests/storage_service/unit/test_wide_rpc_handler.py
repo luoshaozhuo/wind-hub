@@ -35,6 +35,7 @@ async def test_exact_wide_rpc_binds_auth_schema_quality_and_unsigned_value() -> 
     service._point_tables = Mock()
     service._point_tables.resolve_wide_schema = AsyncMock(return_value=schema)
     service._point_tables.wide_device_type.return_value = "turbine"
+    service._point_tables.get_wide_unit = AsyncMock(return_value="kilowatt")
     service._wide_query = Mock()
     service._wide_query.query = AsyncMock(return_value=WideHistoryPage(
         rows=(WideHistoryRow(
