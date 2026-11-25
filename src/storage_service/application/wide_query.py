@@ -8,7 +8,7 @@ import hashlib
 import hmac
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -163,6 +163,7 @@ class WideHistoryQueryService:
         max_range_days: int = 31,
         max_concurrent: int = 4,
         timeout_ms: int = 30000,
+        read_available: Callable[[], bool] | None = None,
     ) -> None:
         if (
             not 1 <= max_page_size <= 1000
@@ -177,6 +178,7 @@ class WideHistoryQueryService:
         self._max_range_days = max_range_days
         self._timeout = timeout_ms / 1000
         self._limiter = asyncio.Semaphore(max_concurrent)
+        self._read_available = read_available or (lambda: True)
 
     async def query(
         self,
@@ -186,6 +188,8 @@ class WideHistoryQueryService:
         device_type: str,
         page_token: str = "",
     ) -> WideHistoryPage:
+        if not self._read_available():
+            raise RuntimeError("wide history is unavailable during Kafka replay")
         filter_.validate(schema, maximum=self._max_page_size)
         if filter_.after_time_us is not None:
             raise ValueError("wide query cursor must be a signed page token")
@@ -223,6 +227,8 @@ class WideHistoryQueryService:
                 rows = tuple(
                     await self._backend.fetch_wide_history(schema, request)
                 )
+        if not self._read_available():
+            raise RuntimeError("Kafka replay changed while reading device-wide history")
         if len(rows) > request.limit:
             raise RuntimeError("wide backend returned rows beyond requested bound")
         if any(
