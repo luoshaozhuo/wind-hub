@@ -323,6 +323,11 @@ class CommonServiceServer(common_pb2_grpc.CommonServiceServicer):
             "reliable_write_operations_total": "operations",
             "reliable_source_ack_seconds_total": "s",
             "reliable_source_ack_operations_total": "operations",
+            "kafka_lock_seconds_total": "s",
+            "kafka_metadata_seconds_total": "s",
+            "kafka_submit_seconds_total": "s",
+            "kafka_confirm_seconds_total": "s",
+            "kafka_timed_writes_total": "operations",
         }
         return common_pb2.GetMetricsResponse(
             metrics=[
