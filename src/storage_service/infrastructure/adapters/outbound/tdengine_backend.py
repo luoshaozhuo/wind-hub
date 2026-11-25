@@ -615,8 +615,8 @@ class TDengineBackend:
                 # TDengine can push the time predicate to partition pruning.
                 # Keep each IN list short and distinct to bound statement size.
                 unique = list({entry.logical_key: entry for entry in entries}.values())
-                for begin in range(0, len(unique), 128):
-                    chunk = unique[begin : begin + 128]
+                for begin in range(0, len(unique), 512):
+                    chunk = unique[begin : begin + 512]
                     first_us = min(entry.sample_time_us for entry in chunk)
                     last_us = max(entry.sample_time_us for entry in chunk)
                     keys = ", ".join(f"'{entry.logical_key}'" for entry in chunk)

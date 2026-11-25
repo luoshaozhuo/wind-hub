@@ -292,13 +292,16 @@ class KafkaStorageConsumer:
                 return
             self._retry_failures.pop(tp, None)
             if not state.blocked:
-                # Replay any unconfirmed tail. The domain deduplicates content.
-                self._consumer.seek(tp, state.offsets.next_commit_offset)
-                state.offsets = PartitionOffsets(
-                    partition=tp.partition,
-                    generation=generation,
-                    next_commit_offset=state.offsets.next_commit_offset,
-                )
+                # getmany has already advanced the fetch position. Seeking a
+                # fully confirmed batch discards useful prefetched records.
+                next_offset = state.offsets.next_commit_offset
+                if next_offset != messages[-1].offset + 1:
+                    self._consumer.seek(tp, next_offset)
+                    state.offsets = PartitionOffsets(
+                        partition=tp.partition,
+                        generation=generation,
+                        next_commit_offset=next_offset,
+                    )
 
     async def run(self) -> None:
         """Parallelize partitions, while each partition remains strictly FIFO."""

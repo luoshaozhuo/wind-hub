@@ -41,7 +41,7 @@
 #   KEEP shrink additionally requires independent one-use authorization evidence.
 #   owner_instance_id: required, equals service_id; v1 is single-instance only.
 schema_version: 2
-file_version: "1.0.0"
+file_version: "1.1.0"
 service_id: storage-e2e
 config_sources:
   instances:
@@ -64,7 +64,7 @@ service:
     bootstrap_servers: 127.0.0.1:9092
     topic: windhub.e2e.history
     group_id: storage-e2e
-    max_poll_records: 500
+    max_poll_records: 5000
     max_partition_workers: 4
     max_buffer_records: 20000
     max_buffer_bytes: 67108864
@@ -81,8 +81,8 @@ service:
     max_connections: 8
     max_inflight_sql: 4
     max_concurrent_ddl: 2
-    batch_max_records: 1000
-    batch_max_bytes: 1048576
+    batch_max_records: 5000
+    batch_max_bytes: 4194304
     batch_wait_ms: 20
     write_timeout_ms: 10000
   configuration:

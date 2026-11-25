@@ -27,6 +27,9 @@ def test_storage_single_instance_capacity_60000_values_per_second(
     token = uuid4().hex[:12]
     topic = "windhub.e2e.history"
     batches = int(os.environ.get("STORAGE_CAPACITY_BATCHES", "3600"))
+    rate = float(os.environ.get("STORAGE_CAPACITY_BATCH_RATE", "120"))
+    if batches <= 0 or rate <= 0:
+        raise ValueError("positive capacity load required")
     points_per_batch = 500
 
     async def exercise() -> dict[str, object]:
@@ -83,12 +86,14 @@ def test_storage_single_instance_capacity_60000_values_per_second(
                 if len(pending) >= 32:
                     done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                     for task in done:
-                        await task
+                        confirmation = await task
+                        await confirmation
                     published += len(done)
-                next_send += 1 / 120
+                next_send += 1 / rate
                 await asyncio.sleep(max(0.0, next_send - time.monotonic()))
             if pending:
-                await asyncio.gather(*pending)
+                confirmations = await asyncio.gather(*pending)
+                await asyncio.gather(*confirmations)
                 published += len(pending)
             publish_end = time.monotonic()
             diagnostics = harness.status("storage")
@@ -123,7 +128,7 @@ def test_storage_single_instance_capacity_60000_values_per_second(
                 await asyncio.sleep(2)
             drained_at = time.monotonic()
             return {
-                "target_values_per_second": 60000,
+                "target_values_per_second": rate * points_per_batch,
                 "scheduled_batches": batches,
                 "published_builder_batches": published,
                 "published_values": published * points_per_batch,
@@ -138,8 +143,9 @@ def test_storage_single_instance_capacity_60000_values_per_second(
             await producer.stop()
 
     result = asyncio.run(exercise())
-    Path("docs/audit/c6_round4_20261125_evidence/storage_capacity_result.json").write_text(
+    Path(os.environ.get("STORAGE_CAPACITY_RESULT", "/tmp/storage_capacity_result.json")).write_text(
         json.dumps(result, indent=2), encoding="utf-8"
     )
     assert result["published_builder_batches"] == batches, result
+    assert result["publish_batches_per_second"] >= rate * 0.95, result
     assert result["fully_persisted"], result

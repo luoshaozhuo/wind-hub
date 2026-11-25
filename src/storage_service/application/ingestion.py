@@ -143,9 +143,26 @@ class IngestionService:
                 self._block(entry.record, "SAMPLE_CONFLICT_IN_BATCH")
 
         samples = tuple(item.sample for item in batch)
+        # Semantic validation depends only on these immutable identities and unit.
+        # Cache successful checks within this flush, never failures or values.
+        validated: set[tuple[str, ...]] = set()
         for index, entry in enumerate(batch):
+            sample = entry.sample
+            identity = (
+                sample.wind_farm_id,
+                sample.device_id,
+                sample.device_type,
+                sample.point_table_id,
+                sample.point_id,
+                sample.data_level.value,
+                sample.business_point_id,
+                sample.unit,
+            )
+            if identity in validated:
+                continue
             try:
-                await self._point_tables.require_exact_versions((entry.sample,))
+                await self._point_tables.require_exact_versions((sample,))
+                validated.add(identity)
             except ConfigHistoryUnavailableError as exc:
                 if index:
                     await self._flush(batch[:index], offsets=offsets, generation=generation)
@@ -180,10 +197,14 @@ class IngestionService:
                 self._metrics.record_unknown()
                 failed = exc
 
-        try:
-            confirmed = await self._storage.fetch_content_hashes(samples)
-        except Exception as exc:
-            raise WriteUnconfirmedError("cannot verify TDengine batch readback") from exc
+        if not missing:
+            # The preflight query already proved every replayed logical key.
+            confirmed = existing
+        else:
+            try:
+                confirmed = await self._storage.fetch_content_hashes(samples)
+            except Exception as exc:
+                raise WriteUnconfirmedError("cannot verify TDengine batch readback") from exc
 
         for entry in batch:
             sample = entry.sample

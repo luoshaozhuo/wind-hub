@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_45 · 20261125 · 同步 Sink 批次合并设计基线</p>
+<p class="subtitle">v0_46 · 20261125 · 同步 Storage 批量持久化设计</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -194,7 +194,7 @@ $$
 | Contracts / Configuration | `Contracts_软件设计_v1_45.md`、`Configuration_Service_软件设计_v1_23.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
 | Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_63.md`、`industrial_gateway_软件设计_v1_53.md` | 仿真、变量身份、目标写入与端口权限 |
 | Collector / Commander | `Collector_软件设计_v1_44.md`、`Commander_软件设计_v1_60.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_77.md`、`Storage_Service_软件设计_v1_10.md` | Kafka JSON v2、数据等级、持久入库及查询 |
+| Sink / Storage | `Sink_Service_软件设计_v1_77.md`、`Storage_Service_软件设计_v1_11.md` | Kafka JSON v2、数据等级、持久入库及查询 |
 | CLI | `CLI_软件设计_v1_56.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
@@ -395,7 +395,7 @@ sequenceDiagram
 | Collector | `service_collector-e2e-realtime_v1.0.0.yaml`、`service_collector-e2e-reliable_v1.0.0.yaml`；独立身份和 100 ms Task |
 | Gateway | `service_gateway-e2e-source_v1.1.0.yaml`、`service_gateway-e2e-target_v1.1.0.yaml`；令牌鉴权、5 个源协议 Server 和独立 WTG_SINK01 输出目标 |
 | 模型/控制 | `service_data-generator-e2e_v1.1.0.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、可配置 TI=0/固定种子、开启真值记录和 PPC 控制映射 |
-| 派发/入库 | `service_sink-e2e_v1.0.0.yaml`、`service_storage-e2e_v1.0.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
+| 派发/入库 | `service_sink-e2e_v1.0.0.yaml`、`service_storage-e2e_v1.1.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
 | CLI | `service_cli-e2e_v1.1.0.yaml`；删除 mTLS Profile，所有业务服务通过 process manager 启动，不依赖生产 CLI 容器状态 |
 | Instance | `site_e2e-final_v1.0.0.yaml`、`device_e2e-final_v1.0.0.yaml`、`collector_tasks_e2e-final_v1.0.0.yaml`、`scenarios_e2e-final_v1.0.0.yaml`、`sinks_e2e-final_v1.0.1.yaml`、`deliveries_e2e-final_v1.0.1.yaml` |
 | 本地引导 | `deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml`、`deploy/e2e/storage_bootstrap_e2e_v1.0.0.yaml`；不参与 Configuration Repository 业务文件发布 |

@@ -38,6 +38,7 @@ class _Storage:
     mode: Literal["before_write", "partial_unknown", "ack_lost"]
     rows: dict[str, str]
     insert_calls: int = 0
+    read_calls: int = 0
 
     async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
         assert samples
@@ -45,6 +46,7 @@ class _Storage:
     async def fetch_content_hashes(
         self, samples: Sequence[StorageSample]
     ) -> Mapping[str, frozenset[str]]:
+        self.read_calls += 1
         return {
             sample.logical_key: (
                 frozenset((self.rows[sample.logical_key],))
@@ -159,4 +161,5 @@ async def test_lost_success_ack_recovers_and_replay_is_not_new_success() -> None
     assert replay.accepted_records == 2
     assert replay.replayed_records == 2
     assert storage.insert_calls == 1
+    assert storage.read_calls == 3
     assert metrics.snapshot().persisted_points == 2

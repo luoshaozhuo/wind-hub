@@ -1,6 +1,6 @@
 <h1 class="title">Storage Service 软件设计</h1>
 
-<p class="subtitle">v1_10 · 20261123 · 设计冲突与配置冻结整改</p>
+<p class="subtitle">v1_11 · 20261125 · 批量持久化性能整改</p>
 
 <style>
 body {font-family:"Microsoft YaHei";font-size:16px;line-height:1.75;color:#24292f}
@@ -2117,6 +2117,9 @@ content_sha256 摘要输入严格为 [value_kind,typed_value_or_payload_bytes,qu
 ## 16.4 Consumer 与批写状态机
 
 单 Consumer 管理分配和 Commit；每 Partition 一个有效代际和 FIFO 处理链、最多一个在途写批；跨 Partition 有界合批。批量限额取 batch_max_records、batch_max_bytes、batch_wait_ms 中最早触发者。不可同时超过最大缓存条数与字节数。批 SQL 明确 SUCCESS 才标记参加的 Record 成功；UNKNOWN 或部分写入无可信逐条证明则全部待核验，按稳定主键逐条回读后才恢复。任何分区只能提交从已提交下一 Offset 开始的连续成功前缀；Commit 使用 next offset 语义。Rebalance 撤销旧代际后旧 Worker 可以完成 DML，但无权 Commit、Resume 或修改新代际水位。
+
+正常完整批次提交后保持 Kafka 已推进的消费位置，不重新 seek；仅在分配、异常重试或存在未确认尾部时回退。每个落库批次内复用已成功验证的完整设备、点表、测点、数据级别、业务点和单位组合，仍逐条校验报文与内容冲突。哈希回读按物理表分组，每条查询最多 512 个不同逻辑键；新写入仍执行写前冲突检测及写后完整回读，纯重放可复用写前已证明的结果。E2E 容量候选采用 max_poll_records=5000、batch_max_records=5000、batch_max_bytes=4194304；生产配置不变，容量收益待真实复测。
+
 
 确定性非法输入首版停在该 Offset，记录原始 Kafka topic/partition/offset/内容摘要及错误原因，不自动 DLQ、不跳过。故障恢复通过修复配置或上游数据再调用 RetryBlockedPartition（由 Contracts 定义）重新处理；首版不提供人工跳 Offset。Kafka retention 耗尽明确进入 OFFSET_GAP，不能自动 seek latest/earliest 宣称完整。
 

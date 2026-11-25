@@ -255,7 +255,7 @@ async def test_unlimited_retry_is_bounded_and_success_resets_failures(
     await consumer._process_partition(tp, [_record(tp, 0)], asyncio.Semaphore(1))
     assert consumer._retry_failures == {}
     assert broker.commits == [{tp: 1}]
-    assert broker.seeks[-1] == (tp, 1)
+    assert broker.seeks == [(tp, 0)] * 40
 
 
 async def test_commit_failure_replays_original_cursor_then_recovers(
@@ -278,7 +278,7 @@ async def test_commit_failure_replays_original_cursor_then_recovers(
     await consumer._process_partition(tp, [_record(tp, 4)], asyncio.Semaphore(1))
 
     assert broker.commits == [{tp: 5}, {tp: 5}]
-    assert broker.seeks == [(tp, 4), (tp, 5)]
+    assert broker.seeks == [(tp, 4)]
     assert consumer._retry_failures == {}
 
 
@@ -652,3 +652,20 @@ async def test_ingestion_block_does_not_pause_other_partition(
     assert failed_state.blocked
     assert broker.paused == [failed]
     assert broker.commits == [{healthy: 1}]
+
+
+async def test_successive_full_batches_keep_prefetched_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tp = TopicPartition(TOPIC, 0)
+    broker = _Consumer([tp])
+    consumer = _build(monkeypatch, broker, _Ingestion())
+    state = _own(consumer, tp)
+    semaphore = asyncio.Semaphore(1)
+    for start in (0, 3):
+        await consumer._process_partition(
+            tp, [_record(tp, offset) for offset in range(start, start + 3)], semaphore
+        )
+    assert broker.seeks == []
+    assert broker.commits == [{tp: 3}, {tp: 6}]
+    assert state.offsets.next_commit_offset == 6
