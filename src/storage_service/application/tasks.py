@@ -185,6 +185,7 @@ class AsyncStorageTasks:
             filter_.start_time_us,
             filter_.end_time_us,
             filter_.point_ids,
+            filter_.qualities,
             schema.fingerprint,
             export_format,
         ])
