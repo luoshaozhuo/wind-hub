@@ -877,9 +877,9 @@ class TDengineBackend:
             await self._run_bounded(
                 self._insert_wide_batch_sync, schema=schema, records=tuple(records)
             )
-        except (TimeoutError, asyncio.CancelledError):
-            # The driver may still own a worker thread and its connection.
-            # Never retry the same device in this process after UNKNOWN.
+        except BaseException:
+            # A connector exception is not proof that no rows were persisted.
+            # Preserve the device fence until the old process/I/O is isolated.
             with self._lock:
                 self._wide_unknown_tables.add(name)
             raise
