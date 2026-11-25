@@ -104,3 +104,25 @@ def test_invalid_quality_predicates_are_rejected(
     )
     with pytest.raises(ValueError):
         requested.validate(_schema(), maximum=1000)
+
+
+@pytest.mark.asyncio
+async def test_filtered_query_rejects_corrupt_null_good_row() -> None:
+    backend = AsyncMock()
+    backend.fetch_wide_history.return_value = (
+        WideHistoryRow(10, (("wind_speed", None, PointQuality.GOOD),)),
+    )
+    service = WideHistoryQueryService(
+        backend=backend, codec=WideCursorCodec(b"k" * 32)
+    )
+    with pytest.raises(RuntimeError, match="NULL and quality"):
+        await service.query(
+            schema=_schema(), filter_=_filter(), device_type="wind"
+        )
+
+
+def test_cursor_cannot_advance_to_or_beyond_frozen_horizon() -> None:
+    codec = WideCursorCodec(b"k" * 32)
+    for last, horizon in ((100, 100), (101, 100), (100, 1_001)):
+        with pytest.raises(ValueError, match="last < frozen horizon"):
+            codec.encode(_filter(), _schema(), last_us=last, horizon_us=horizon)
