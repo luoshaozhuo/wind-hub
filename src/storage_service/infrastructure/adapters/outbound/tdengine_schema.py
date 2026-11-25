@@ -39,7 +39,7 @@ SCHEMA_FINGERPRINT = hashlib.sha256(
     json.dumps([_COLUMNS, _TAGS, "sample-key-with-content-v1"], separators=(",", ":")).encode()
 ).hexdigest()
 
-_IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\\Z")
+_IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\Z")
 _DURATION = re.compile(r"[1-9][0-9]*d\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
