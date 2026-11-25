@@ -76,6 +76,7 @@ RELIABLE_STAGES = (
     "reliable_write",
     "reliable_source_ack",
 )
+KAFKA_STAGES = ("lock", "metadata", "submit", "confirm")
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
 # JetStream Limits 保留策略下 ACK 只推进消费者位置、不删除流消息，600s 持续
 # 压测累积约 7 万批会按 max_bytes 撑爆（与消费快慢无关）。长稳专用：
@@ -307,6 +308,11 @@ class TestR14SustainedCapacity:
                         "metrics_ok": bool(metrics),
                         "lag_p99_ms": metrics.get("reliable_event_loop_lag_ms_p99"),
                         "write_latency_p99_ms": metrics.get("write_latency_ms_max_delivery_p99"),
+                        "kafka_timed_writes_total": metrics.get("kafka_timed_writes_total"),
+                        "kafka_stages": {
+                            stage: metrics.get(f"kafka_{stage}_seconds_total")
+                            for stage in KAFKA_STAGES
+                        },
                         "reliable_stages": {
                             stage: {
                                 "seconds_total": metrics.get(f"{stage}_seconds_total"),
@@ -409,6 +415,31 @@ class TestR14SustainedCapacity:
                         if operations
                         else None,
                     }
+                kafka_diagnostics: dict[str, dict[str, float | int | None]] = {}
+                for stage in KAFKA_STAGES:
+                    valid = [
+                        (sample["kafka_stages"][stage], sample["kafka_timed_writes_total"])
+                        for sample in samples
+                        if sample["kafka_stages"][stage] is not None
+                        and sample["kafka_timed_writes_total"] is not None
+                    ]
+                    if len(valid) < 2:
+                        kafka_diagnostics[stage] = {
+                            "duration_seconds": None,
+                            "writes": None,
+                            "mean_duration_ms": None,
+                        }
+                        continue
+                    before, after = valid[0], valid[-1]
+                    duration = max(0.0, after[0] - before[0])
+                    writes = max(0, int(after[1] - before[1]))
+                    kafka_diagnostics[stage] = {
+                        "duration_seconds": round(duration, 3),
+                        "writes": writes,
+                        "mean_duration_ms": round(duration * 1000 / writes, 3)
+                        if writes
+                        else None,
+                    }
                 cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
                 metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
@@ -461,6 +492,7 @@ class TestR14SustainedCapacity:
                     "event_loop_lag_p99_max_ms": lag_p99_max,
                     "write_latency_p99_max_ms": write_p99_max,
                     "reliable_stage_diagnostics": stage_diagnostics,
+                    "kafka_stage_diagnostics": kafka_diagnostics,
                     "cpu_percent_of_one_core": round(100 * cpu_seconds / (t_end - t0), 1),
                     "rss_max_mib": round(rss_max_mib, 1),
                     "redeliver_peak": redeliver_peak,
