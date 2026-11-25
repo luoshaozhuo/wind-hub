@@ -47,14 +47,9 @@ def _row(timestamp: int, quality: PointQuality) -> WideHistoryRow:
 async def test_filtered_pages_do_not_skip_first_qualifying_lookahead() -> None:
     backend = AsyncMock()
     backend.fetch_wide_history.side_effect = [
-        (
-            _row(10, PointQuality.BAD),
-            _row(20, PointQuality.GOOD),
-            _row(30, PointQuality.GOOD),
-        ),
-        (
-            _row(40, PointQuality.GOOD),
-        ),
+        (_row(10, PointQuality.BAD), _row(20, PointQuality.GOOD)),
+        (_row(30, PointQuality.GOOD), _row(40, PointQuality.GOOD)),
+        (_row(30, PointQuality.GOOD),),
     ]
     service = WideHistoryQueryService(
         backend=backend, codec=WideCursorCodec(b"k" * 32)
@@ -69,9 +64,9 @@ async def test_filtered_pages_do_not_skip_first_qualifying_lookahead() -> None:
         schema=_schema(), filter_=original, device_type="wind",
         page_token=first.next_page_token,
     )
-    assert [row.sample_time_us for row in second.rows] == [40]
+    assert [row.sample_time_us for row in second.rows] == [30]
     # A cursor must advance past the last *consumed* record, not the lookahead.
-    assert backend.fetch_wide_history.await_args.kwargs["query"].after_time_us == 20
+    assert backend.fetch_wide_history.await_args.args[1].after_time_us == 20
 
 
 def test_cursor_rejects_rebound_quality_predicate() -> None:
