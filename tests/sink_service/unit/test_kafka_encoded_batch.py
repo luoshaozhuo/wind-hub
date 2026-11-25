@@ -52,6 +52,9 @@ async def test_encoded_bytes_go_on_wire_unchanged_with_explicit_key_and_stripe(
         producer: _FakeProducer = producer_env["producer"]
         assert outcome.error == ""
         assert outcome.delivered == (0, 1, 2, 3, 4)
+        assert outcome.kafka_stage_seconds is not None
+        assert len(outcome.kafka_stage_seconds) == 4
+        assert all(seconds >= 0 for seconds in outcome.kafka_stage_seconds)
         # 首条 miss：一次 metadata 等待 + 一次 partitioner，之后缓存短路。
         assert producer.metadata_waits == 1
         assert producer.partition_calls == 1
@@ -160,6 +163,8 @@ async def test_rejected_confirmation_is_not_delivered_but_future_awaited(
         producer: _FakeProducer = producer_env["producer"]
         assert outcome.delivered == ()
         assert "not confirmed" in outcome.error
+        assert outcome.kafka_stage_seconds is not None
+        assert outcome.kafka_stage_seconds[3] >= 0
         # B2 下两点同属一个 Builder，唯一 Future 仍被 await 到终局
         assert len(producer.futures) == 1
         assert all(future.awaited == 1 for future in producer.futures)
