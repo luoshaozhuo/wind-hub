@@ -24,6 +24,8 @@ from typing import Any, Protocol, TypeVar, cast
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryRow
+from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
+from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.naming import StorageObjectNames, get_object_names
 from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
 from storage_service.domain.wide_record import WideRecord
@@ -901,6 +903,71 @@ class TDengineBackend:
             write_wide_stmt2(
                 connection, driver, table_name=name, schema=schema, records=records
             )
+
+    async def fetch_wide_history(
+        self,
+        schema: WideSchema,
+        query: WideHistoryFilter,
+    ) -> tuple[WideHistoryRow, ...]:
+        """Fetch exact physical fields without merging versions or filling gaps."""
+        query.validate(schema, maximum=self._config.query.max_page_size)
+        return await self._run_bounded(
+            self._fetch_wide_history_sync, schema=schema, query=query
+        )
+
+    def _fetch_wide_history_sync(
+        self,
+        *,
+        schema: WideSchema,
+        query: WideHistoryFilter,
+        lease: _OperationLease,
+    ) -> tuple[WideHistoryRow, ...]:
+        name = (
+            f"{schema.database_name(query.wind_farm_id)}."
+            f"{schema.subtable_name(query.device_id)}"
+        )
+        with self._lock:
+            if name not in self._verified_tables or name in self._wide_unknown_tables:
+                raise TDengineSchemaConflictError(
+                    "historical wide table is unverified or has unresolved writes"
+                )
+        by_id = {column.point_id: column for column in schema.columns}
+        projected = tuple(by_id[point_id] for point_id in query.point_ids)
+        column_sql = ", ".join(column.column_name for column in projected)
+        filters = [
+            f"ts >= {query.start_time_us}",
+            f"ts < {query.end_time_us}",
+        ]
+        if query.after_time_us is not None:
+            filters.append(f"ts > {query.after_time_us}")
+        sql = (
+            f"SELECT ts, {column_sql}, quality FROM {name} "
+            f"WHERE {' AND '.join(filters)} ORDER BY ts ASC LIMIT {query.limit}"
+        )
+        indexes = {
+            column.point_id: index for index, column in enumerate(schema.columns)
+        }
+        with self._borrow_connection(lease=lease) as (connection, _driver):
+            lease.remaining()
+            records = list(connection.query(sql))
+        result: list[WideHistoryRow] = []
+        for raw in records:
+            if len(raw) != len(projected) + 2:
+                raise TDengineSchemaConflictError("wide query returned unexpected row width")
+            timestamp = self._datetime_us(raw[0])
+            bits = raw[-1]
+            if not isinstance(bits, bytes | bytearray | memoryview):
+                raise TDengineSchemaConflictError("wide quality bitmap is not binary")
+            try:
+                qualities = unpack_quality_bitmap(bytes(bits), len(schema.columns))
+            except ValueError as exc:
+                raise TDengineSchemaConflictError("corrupt wide quality bitmap") from exc
+            fields = tuple(
+                (column.point_id, raw[i + 1], qualities[indexes[column.point_id]])
+                for i, column in enumerate(projected)
+            )
+            result.append(WideHistoryRow(timestamp, fields))
+        return tuple(result)
 
     async def fetch_history(
         self,
