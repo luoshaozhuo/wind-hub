@@ -72,6 +72,8 @@ async def test_modbus_fc04_reads_input_registers() -> None:
         sample = await driver.read_one("input")
         assert sample.value == 321
         assert sample.quality is Quality.GOOD
+        # FC04 returns the two-byte register data field, never a fabricated ADU.
+        assert sample.raw_payload == b"\\x01\\x41"
     finally:
         await driver.close()
         await server.stop()
