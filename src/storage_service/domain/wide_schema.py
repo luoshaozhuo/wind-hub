@@ -15,7 +15,7 @@ from storage_service.domain.wide_record import WideDataLevel
 
 _SQL_TYPE = re.compile(
     r"(?:BOOL|FLOAT|DOUBLE|(?:TINYINT|SMALLINT|INT|BIGINT)(?: UNSIGNED)?)"
-    r"|(?:VARCHAR|VARBINARY)\\([1-9][0-9]*\\)"
+    r"|(?:VARCHAR|VARBINARY)\([1-9][0-9]*\)"
 )
 _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 _SAFE = re.compile(r"[^a-z0-9_]+")
