@@ -15,6 +15,7 @@ from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import CursorCodec, HistoryQueryService
 from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
+from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.application.tasks import AsyncStorageTasks
 from storage_service.infrastructure.adapters.inbound.grpc_server import (
     build_storage_grpc_server,
@@ -185,6 +186,11 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     timeout_ms=bundle.configuration.query.timeout_ms,
                     read_available=lambda: not consumer.recovering,
                 )
+                wide_aggregation = WideAggregationService(
+                    history=wide_history,
+                    secret=cursor_secret,
+                    max_page_size=bundle.configuration.query.max_page_size,
+                )
                 jobs = AsyncStorageTasks(
                     config=bundle.configuration,
                     metadata=metadata,
@@ -214,6 +220,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     metadata=metadata,
                     query=history,
                     wide_query=wide_history,
+                    wide_aggregation=wide_aggregation,
                     jobs=jobs,
                     point_tables=point_tables,
                     consumer=consumer,
