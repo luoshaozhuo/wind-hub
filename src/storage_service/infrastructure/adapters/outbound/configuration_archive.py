@@ -837,6 +837,43 @@ class ConfigurationPointTableResolver:
                         "business point unit does not match catalog"
                     )
 
+    async def get_wide_unit(
+        self,
+        *,
+        point_table_id: str,
+        point_id: str,
+        data_level: WideDataLevel,
+    ) -> str:
+        """Resolve a physical wide column's exact historical unit."""
+        if data_level is WideDataLevel.RAW:
+            return ""
+        if data_level is WideDataLevel.PROTOCOL:
+            return await self.get_unit(
+                point_table_id=point_table_id,
+                point_id=point_id,
+                business_point_id="",
+                data_level=DataLevel.PROTOCOL,
+            )
+        pin = self._business_pins.get(point_table_id)
+        if pin is None:
+            raise ConfigHistoryUnavailableError(
+                "BUSINESS wide column lacks an immutable semantic catalog"
+            )
+        document = await self._load(
+            config_type="business_points",
+            config_id=pin[0], version_id=pin[1],
+        )
+        catalog = document.get("business_points")
+        if not isinstance(catalog, dict):
+            raise ConfigHistoryUnavailableError("pinned BusinessPoint catalog is malformed")
+        definition = catalog.get(point_id)
+        if not isinstance(definition, dict):
+            raise ConfigHistoryUnavailableError("wide BusinessPoint unit is unavailable")
+        unit = definition.get("unit")
+        if not isinstance(unit, str) or not unit:
+            raise ConfigHistoryUnavailableError("wide BusinessPoint unit must be nonempty")
+        return unit
+
     async def get_unit(
         self,
         *,
