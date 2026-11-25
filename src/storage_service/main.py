@@ -11,7 +11,7 @@ from pathlib import Path
 
 import grpc
 
-from storage_service.application.ingestion import IngestionService
+from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import CursorCodec, HistoryQueryService
 from storage_service.application.tasks import AsyncStorageTasks
@@ -139,13 +139,14 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
             storage = TDengineBackend(config=bundle.configuration, metadata=metadata)
             await storage.open()
             try:
-                ingestion = IngestionService(
+                ingestion = WideIngestionService(
                     storage=storage,
-                    point_tables=point_tables,
+                    resolver=point_tables,
                     evidence=metadata,
                     metrics=metrics,
                     allowed_wind_farms=frozenset(bundle.configuration.allowed_wind_farms),
-                    max_batch_records=bundle.configuration.tdengine.ingestion.batch_max_rows,
+                    type_mapping=bundle.configuration.tdengine.type_mapping,
+                    max_batch_rows=bundle.configuration.tdengine.ingestion.batch_max_rows,
                     max_batch_bytes=bundle.configuration.tdengine.ingestion.batch_max_bytes,
                 )
                 consumer = KafkaStorageConsumer(
