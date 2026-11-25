@@ -22,9 +22,12 @@ from typing import Any, Protocol
 import grpc
 import yaml
 
-from storage_service.application.config import DeviceBinding, DeviceClosurePins
+from storage_service.application.config import DeviceBinding, DeviceClosurePins, TypeMapping
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from core.domain.protocol_types import normalize_protocol_scalar_type
 from storage_service.domain.sample import DataLevel, StorageSample
+from storage_service.domain.wide_record import WideDataLevel, WideRecord
+from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -452,6 +455,137 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailableError(
                 "PointTable device_type disagrees with authoritative DeviceModel"
             )
+
+    async def resolve_wide_schema(
+        self,
+        record: WideRecord,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -> WideSchema:
+        """Resolve an exact Device Instance → Model → PointTable → BusinessPoint schema.
+
+        No Kafka value or current recommendation determines the physical columns.
+        """
+        matches = [
+            binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == record.wind_farm_id and device == record.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == record.device_config_id
+            )
+        ]
+        if not matches and self._refresh_hook is not None:
+            await self._refresh_hook()
+            matches = [
+                binding
+                for (farm, device, _), entries in self._device_bindings.items()
+                if farm == record.wind_farm_id and device == record.device_id
+                for binding in entries
+                if (
+                    f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                    == record.device_config_id
+                )
+            ]
+        identities = {(b.device_version_id, b.point_table_id): b for b in matches}
+        if len(identities) != 1:
+            raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+        binding = next(iter(identities.values()))
+        pin = self._pins.get(binding.point_table_id)
+        if pin is None:
+            raise ConfigHistoryUnavailableError("PointTable lacks an immutable pin")
+        document = await self._load(
+            config_type="point_table", config_id=pin[0],
+            version_id=pin[1], point_table_id=binding.point_table_id,
+        )
+        self._require_table_identity(
+            point_table_id=binding.point_table_id,
+            config_id=pin[0], document=document,
+            device_type_id=binding.device_type_id,
+        )
+        points = document.get("points")
+        protocol = document.get("protocol")
+        if not isinstance(points, dict) or not points or not isinstance(protocol, str):
+            raise ConfigHistoryUnavailableError("PointTable definitions are incomplete")
+        mapping = type_mapping.model_dump()
+        business: Mapping[str, Any] = {}
+        if record.data_level is WideDataLevel.BUSINESS:
+            catalog_pin = self._business_pins.get(binding.point_table_id)
+            if catalog_pin is None:
+                raise ConfigHistoryUnavailableError("BUSINESS lacks historical catalog pin")
+            catalog = await self._load(
+                config_type="business_points",
+                config_id=catalog_pin[0], version_id=catalog_pin[1],
+            )
+            entries = catalog.get("business_points")
+            if not isinstance(entries, dict):
+                raise ConfigHistoryUnavailableError("BusinessPoint catalog is malformed")
+            business = entries
+
+        physical: list[PhysicalPoint] = []
+        seen_business: set[str] = set()
+        for point_id, raw in points.items():
+            if not isinstance(point_id, str) or not isinstance(raw, dict):
+                raise ConfigHistoryUnavailableError("invalid source point definition")
+            logical_id = point_id
+            if record.data_level is WideDataLevel.BUSINESS:
+                business_id = raw.get("business_point_id")
+                if not isinstance(business_id, str) or not business_id:
+                    raise ConfigHistoryUnavailableError("source point lacks BusinessPoint")
+                if business_id in seen_business:
+                    raise ConfigHistoryUnavailableError("BusinessPoint mapping is not one-to-one")
+                seen_business.add(business_id)
+                definition = business.get(business_id)
+                if not isinstance(definition, dict):
+                    raise ConfigHistoryUnavailableError("BusinessPoint definition missing")
+                raw_type = definition.get("data_type")
+                logical_id = business_id
+            else:
+                raw_type = raw.get("data_type")
+            if not isinstance(raw_type, str):
+                raise ConfigHistoryUnavailableError("point declared type is absent")
+            standard = normalize_protocol_scalar_type(
+                protocol if record.data_level is not WideDataLevel.BUSINESS else "modbus",
+                raw_type,
+            )
+            key = "string" if standard.value == "str" else standard.value
+            sql_type = str(mapping[key])
+            address = raw.get("address")
+            if record.data_level is WideDataLevel.RAW:
+                if not isinstance(address, dict):
+                    raise ConfigHistoryUnavailableError("RAW requires protocol address")
+                if protocol == "ads":
+                    raw_width = address.get("size")
+                elif protocol == "modbus":
+                    count = address.get("count")
+                    raw_width = count * 2 if type(count) is int and count > 0 else None
+                else:
+                    raw_width = address.get("raw_max_bytes")
+                if type(raw_width) is not int or not 0 < raw_width <= 16374:
+                    raise ConfigHistoryUnavailableError("RAW width is not trustworthy")
+                sql_type = f"VARBINARY({raw_width})"
+            elif sql_type in ("VARCHAR", "VARBINARY"):
+                if not isinstance(address, dict):
+                    raise ConfigHistoryUnavailableError("variable-width point lacks address")
+                raw_width = address.get("size", address.get("max_length"))
+                if type(raw_width) is not int or not 0 < raw_width <= 16374:
+                    raise ConfigHistoryUnavailableError("physical string width unavailable")
+                sql_type = f"{sql_type}({raw_width})"
+            physical.append(PhysicalPoint(logical_id, sql_type))
+        try:
+            return WideSchema.build(
+                point_table_id=binding.point_table_id,
+                point_table_version=document["file_version"],
+                data_level=record.data_level,
+                points=tuple(physical),
+                max_row_bytes=max_row_bytes,
+            )
+        except (KeyError, ValueError) as exc:
+            raise ConfigHistoryUnavailableError("historical wide schema is invalid") from exc
 
     async def require_exact_versions(self, samples: Sequence[StorageSample]) -> None:
         for sample in samples:
