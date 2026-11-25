@@ -2,10 +2,12 @@
 
 from unittest.mock import Mock
 
+import pytest
+
 from cli import storage_commands
 
 
-def test_wide_query_quality_is_top_level(monkeypatch: object) -> None:
+def test_wide_query_quality_is_top_level(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.query_wide_rows(
@@ -20,7 +22,7 @@ def test_wide_query_quality_is_top_level(monkeypatch: object) -> None:
     assert "wide_filter" not in fields
 
 
-def test_wide_aggregate_quality_is_nested_only(monkeypatch: object) -> None:
+def test_wide_aggregate_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.query_wide_aggregates(
@@ -36,7 +38,7 @@ def test_wide_aggregate_quality_is_nested_only(monkeypatch: object) -> None:
     assert "qualities" not in fields
 
 
-def test_wide_export_quality_is_nested_only(monkeypatch: object) -> None:
+def test_wide_export_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.create_wide_export(
