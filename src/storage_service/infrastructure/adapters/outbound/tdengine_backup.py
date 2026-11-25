@@ -141,6 +141,12 @@ class NativeTDengineBackup:
             }
             for item in registrations
         ]
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         manifest_file = path / "storage_manifest.json"
         with manifest_file.open("x", encoding="utf-8") as stream:
             os.fchmod(stream.fileno(), 0o600)
