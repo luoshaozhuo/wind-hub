@@ -264,6 +264,53 @@ def get(
     _run("configuration get", invoke())
 
 
+def _export_config_bundle(
+    response: pb.GetConfigBundleResponse, output: Path
+) -> dict[str, Any]:
+    """Verify immutable bundle bytes and atomically write a private directory."""
+    manifest = hashlib.sha256()
+    names: set[str] = set()
+    files: list[tuple[str, bytes]] = []
+    for item in response.files:
+        name = item.relative_path
+        validate_relative_path(name)
+        if name in names:
+            raise ValueError("duplicate configuration path")
+        data = item.yaml_bytes
+        if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
+            raise RuntimeError("bundle contains incorrect YAML checksum")
+        for value in (item.relative_path, item.version_id, item.yaml_sha256):
+            encoded = value.encode("utf-8")
+            manifest.update(len(encoded).to_bytes(4, "big"))
+            manifest.update(encoded)
+        names.add(name)
+        files.append((name, data))
+    if (
+        manifest.hexdigest() != response.manifest_sha256
+        or sum(len(data) for _name, data in files) != response.total_bytes
+    ):
+        raise RuntimeError("bundle manifest hash or total size mismatch")
+    if output.exists() or output.is_symlink():
+        raise FileExistsError("bundle output directory must not already exist")
+    parent = output.absolute().parent
+    with tempfile.TemporaryDirectory(prefix=".configuration-bundle-", dir=parent) as directory:
+        staging = Path(directory)
+        for name, data in files:
+            path = staging / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+        os.rename(staging, output)
+    return {
+        "directory": str(output),
+        "revision_id": response.revision_id,
+        "files": len(files),
+        "total_bytes": response.total_bytes,
+        "manifest_sha256": response.manifest_sha256,
+    }
+
+
 @configuration.command("bundle")
 def bundle(
     config_type: str,
@@ -288,51 +335,48 @@ def bundle(
             timeout=runtime().target(service).timeout,
             metadata=runtime().get_rpc_metadata(service, "GetConfigBundle"),
         )
-        manifest = hashlib.sha256()
-        names: set[str] = set()
-        files: list[tuple[str, bytes]] = []
-        for item in response.files:
-            name = item.relative_path
-            validate_relative_path(name)
-            if name in names:
-                raise ValueError("duplicate configuration path")
-            data = item.yaml_bytes
-            if hashlib.sha256(data).hexdigest() != item.yaml_sha256:
-                raise RuntimeError("bundle contains incorrect YAML checksum")
-            for value in (item.relative_path, item.version_id, item.yaml_sha256):
-                encoded = value.encode("utf-8")
-                manifest.update(len(encoded).to_bytes(4, "big"))
-                manifest.update(encoded)
-            names.add(name)
-            files.append((name, data))
-        if (
-            manifest.hexdigest() != response.manifest_sha256
-            or sum(len(data) for _name, data in files) != response.total_bytes
-        ):
-            raise RuntimeError("bundle manifest hash or total size mismatch")
-        if output.exists() or output.is_symlink():
-            raise FileExistsError("bundle output directory must not already exist")
-        parent = output.absolute().parent
-        with tempfile.TemporaryDirectory(prefix=".configuration-bundle-", dir=parent) as directory:
-            staging = Path(directory)
-            for name, data in files:
-                path = staging / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, "wb") as stream:
-                    stream.write(data)
-            os.rename(staging, output)
-        return {
-            "directory": str(output),
-            "revision_id": response.revision_id,
-            "files": len(files),
-            "total_bytes": response.total_bytes,
-            "manifest_sha256": response.manifest_sha256,
-        }
+        return _export_config_bundle(response, output)
 
     from cli.main import _run
 
     _run("configuration bundle", invoke())
+
+
+@configuration.command("bundle-exact")
+def bundle_exact(
+    config_type: str,
+    config_id: str,
+    version_id: str,
+    output: Path,
+    service: str = "configuration",
+    dependencies: bool = True,
+) -> None:
+    """Export an immutable historical configuration closure by repository version."""
+    if not version_id:
+        raise typer.BadParameter("exact repository version_id is required")
+
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
+
+        client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
+        result = await client.GetConfigBundle(
+            pb.GetConfigBundleRequest(
+                exact_roots=[
+                    pb.ConfigVersionRef(
+                        config_id=_identity(config_type, config_id),
+                        version_id=version_id,
+                    )
+                ],
+                include_dependencies=dependencies,
+            ),
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetConfigBundle"),
+        )
+        return _export_config_bundle(result, output)
+
+    from cli.main import _run
+
+    _run("configuration bundle-exact", invoke())
 
 
 @configuration.command("revision")
