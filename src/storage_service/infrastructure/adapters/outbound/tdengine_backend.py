@@ -31,6 +31,7 @@ from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataStore,
 )
+from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
 from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
 from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
     SCHEMA_FINGERPRINT,
@@ -685,6 +686,163 @@ class TDengineBackend:
                 finally:
                     statement.close()
 
+    async def ensure_wide_table(
+        self,
+        schema: WideSchema,
+        *,
+        wind_farm_id: str,
+        device_id: str,
+        device_type: str,
+    ) -> None:
+        """Create/verify a complete immutable wide-table family on first use."""
+        await self._run_bounded(
+            self._ensure_wide_table_sync,
+            schema=schema,
+            wind_farm_id=wind_farm_id,
+            device_id=device_id,
+            device_type=device_type,
+        )
+
+    def _ensure_wide_table_sync(
+        self,
+        *,
+        schema: WideSchema,
+        wind_farm_id: str,
+        device_id: str,
+        device_type: str,
+        lease: _OperationLease,
+    ) -> None:
+        database_name = schema.database_name(wind_farm_id)
+        stable_name = schema.supertable_name()
+        table_name = schema.subtable_name(device_id)
+        if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
+            raise ValueError("device TAG exceeds physical width")
+        with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
+            if table_name in self._verified_tables:
+                return
+            pinned = self._metadata.list_semantic_pins().get(schema.point_table_id)
+            if pinned is None:
+                raise TDengineSchemaConflictError(
+                    "wide table lacks an immutable historical PointTable closure"
+                )
+            if pinned[0][1] != schema.point_table_version:
+                raise TDengineSchemaConflictError(
+                    "wide table PointTable version differs from authorized closure"
+                )
+
+            def identity(*parts: str) -> tuple[str, str]:
+                content = self._identity_json(parts)
+                return content, hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+            db_json, db_hash = identity(wind_farm_id)
+            stable_json, stable_hash = identity(
+                wind_farm_id, schema.point_table_id, schema.point_table_version,
+                schema.data_level.value, schema.fingerprint
+            )
+            table_json, table_hash = identity(
+                wind_farm_id, device_id, schema.point_table_id,
+                schema.point_table_version, schema.data_level.value, schema.fingerprint
+            )
+            registrations = [
+                self._metadata.reserve_object(
+                    name, digest, description, schema.fingerprint,
+                    physical_database=database_name,
+                    stable_name=stable_name if name != database_name else "",
+                    table_name=table_name if name == table_name else "",
+                    closure_hash=db_hash if name == database_name else stable_hash,
+                )
+                for name, digest, description in (
+                    (database_name, db_hash, db_json),
+                    (stable_name, stable_hash, stable_json),
+                    (table_name, table_hash, table_json),
+                )
+            ]
+            names = StorageObjectNames(
+                database=database_name,
+                stable=stable_name,
+                table=table_name,
+                database_identity_sha256=db_hash,
+                stable_identity_sha256=stable_hash,
+                table_identity_sha256=table_hash,
+            )
+            retention = DatabaseRetention.parse(
+                duration=self._config.tdengine.database.duration,
+                keep=self._config.tdengine.database.keep,
+            )
+            lease.remaining()
+            connection.execute(
+                create_database_sql(
+                    names,
+                    retention,
+                    cachemodel=self._config.tdengine.database.cachemodel,
+                    vgroups=self._config.tdengine.database.vgroups,
+                    buffer_mb=self._config.tdengine.database.buffer_mb,
+                    replica=self._config.tdengine.database.replica,
+                    comp=self._config.tdengine.database.comp,
+                    wal_level=self._config.tdengine.database.wal_level,
+                    wal_fsync_period_ms=self._config.tdengine.database.wal_fsync_period_ms,
+                )
+            )
+            self._reconcile_database_retention(connection, names, retention)
+            lease.remaining()
+            connection.execute(stable_ddl(schema, database=database_name))
+            lease.remaining()
+            connection.execute(
+                subtable_ddl(
+                    schema, database=database_name,
+                    device_id=device_id, device_type=device_type,
+                )
+            )
+            self._verify_wide_table(
+                connection,
+                names=names,
+                schema=schema,
+                device_id=device_id,
+                device_type=device_type,
+            )
+            for registration in registrations:
+                self._metadata.mark_ready(registration, verified=True)
+            self._verified_tables.add(table_name)
+
+    @staticmethod
+    def _verify_wide_table(
+        connection: _TaosConnection,
+        *,
+        names: StorageObjectNames,
+        schema: WideSchema,
+        device_id: str,
+        device_type: str,
+    ) -> None:
+        """CREATE IF NOT EXISTS is not proof of type, length, or table ownership."""
+        observed = list(connection.query(f"DESCRIBE {names.database}.{names.table}"))
+        wanted = [
+            ("ts", "TIMESTAMP"),
+            *((column.column_name, column.sql_type) for column in schema.columns),
+            ("quality", f"VARBINARY({schema.quality_bytes})"),
+        ]
+        if len(observed) != len(wanted) + 5:
+            raise TDengineSchemaConflictError("wide-table column/tag count differs")
+        for row, (name, sql_type) in zip(observed, wanted, strict=False):
+            if str(row[0]).lower() != name:
+                raise TDengineSchemaConflictError("wide-table column order differs")
+            match = re.fullmatch(r"(.+?)\\(([0-9]+)\\)", sql_type)
+            expected_type = sql_type if match is None else match.group(1)
+            if str(row[1]).upper() != expected_type:
+                raise TDengineSchemaConflictError(f"wide-table type mismatch: {name}")
+            if match is not None and int(row[2]) != int(match.group(2)):
+                raise TDengineSchemaConflictError(f"wide-table width mismatch: {name}")
+        tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
+        tags = {str(row[3]): str(row[5]) for row in tag_rows}
+        wanted_tags = {
+            "device_id": device_id,
+            "device_type": device_type,
+            "point_table_id": schema.point_table_id,
+            "data_level": str(_LEVEL[DataLevel(schema.data_level.value)]),
+            "schema_fingerprint": schema.fingerprint,
+        }
+        if len(tags) != len(wanted_tags) or tags != wanted_tags:
+            raise TDengineSchemaConflictError("wide-table immutable TAG identity differs")
+
     async def insert_wide_batch(
         self,
         schema: WideSchema,
@@ -703,6 +861,10 @@ class TDengineBackend:
             for row in records
         ):
             raise ValueError("wide STMT2 batches must contain exactly one device")
+        name = schema.subtable_name(first.device_id)
+        with self._lock:
+            if name not in self._verified_tables:
+                raise TDengineSchemaConflictError("wide target has not been verified")
         await self._run_bounded(
             self._insert_wide_batch_sync, schema=schema, records=tuple(records)
         )
