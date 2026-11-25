@@ -75,7 +75,7 @@ class WideAggregationService:
                 schema.fingerprint, filter_.wind_farm_id, filter_.device_id,
                 filter_.device_config_id, filter_.data_level.value,
                 filter_.start_time_us, filter_.end_time_us, filter_.point_ids,
-                operation, window_ms,
+                filter_.qualities, operation, window_ms,
             ],
             separators=(",", ":"), ensure_ascii=False,
         ).encode()
