@@ -269,6 +269,10 @@ class HistoryQueryService:
                     raise RuntimeError("Storage historical query exceeded deadline") from exc
             finally:
                 self._active_queries -= 1
+        if not self._read_available():
+            raise HistoryReplayUnavailableError(
+                "Kafka replay began while the historical query was executing"
+            )
         if len(rows) > page_size + 1:
             raise RuntimeError("backend violated bounded page contract")
         selected = rows[:page_size]
