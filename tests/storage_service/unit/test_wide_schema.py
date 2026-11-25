@@ -29,7 +29,7 @@ def test_column_order_uses_utf8_identity_not_input_order() -> None:
     assert left == right
     assert tuple(c.point_id for c in left.columns) == ("active_power", "wind_speed")
     assert left.quality_bytes == 1
-    assert "1_2_0" not in left.columns[0].column_name
+    assert left.columns[0].column_name.endswith("_v1_2_0")
     assert left.fingerprint == right.fingerprint
 
 
