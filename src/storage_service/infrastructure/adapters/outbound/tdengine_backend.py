@@ -939,6 +939,72 @@ class TDengineBackend:
                 connection, driver, table_name=name, schema=schema, records=records
             )
 
+    async def verify_existing_wide_table(
+        self,
+        schema: WideSchema,
+        *,
+        wind_farm_id: str,
+        device_id: str,
+        device_type: str,
+    ) -> None:
+        """Rebuild safe read cache only from persisted ownership and live schema."""
+        name = (
+            f"{schema.database_name(wind_farm_id)}."
+            f"{schema.subtable_name(device_id)}"
+        )
+        with self._lock:
+            if name in self._wide_unknown_tables:
+                raise TDengineSchemaConflictError("wide table has unresolved writes")
+            if name in self._verified_tables:
+                return
+        await self._run_bounded(
+            self._verify_existing_wide_table_sync,
+            schema=schema, wind_farm_id=wind_farm_id,
+            device_id=device_id, device_type=device_type,
+        )
+
+    def _verify_existing_wide_table_sync(
+        self,
+        *,
+        schema: WideSchema,
+        wind_farm_id: str,
+        device_id: str,
+        device_type: str,
+        lease: _OperationLease,
+    ) -> None:
+        database = schema.database_name(wind_farm_id)
+        stable = schema.supertable_name()
+        table = schema.subtable_name(device_id)
+        full_name = f"{database}.{table}"
+        description = self._identity_json(
+            (
+                wind_farm_id, device_id, schema.point_table_id,
+                schema.point_table_version, schema.data_level.value,
+                schema.fingerprint,
+            )
+        )
+        digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
+        self._metadata.require_ready_wide_table(
+            name=full_name, fingerprint=schema.fingerprint,
+            identity_sha256=digest,
+        )
+        names = StorageObjectNames(
+            database=database, stable=stable, table=table,
+            database_identity_sha256="",
+            stable_identity_sha256="",
+            table_identity_sha256=digest,
+        )
+        with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
+            lease.remaining()
+            self._verify_wide_table(
+                connection, names=names, schema=schema,
+                device_id=device_id, device_type=device_type,
+            )
+            with self._lock:
+                if full_name in self._wide_unknown_tables:
+                    raise TDengineSchemaConflictError("wide table became uncertain")
+                self._verified_tables.add(full_name)
+
     async def fetch_wide_history(
         self,
         schema: WideSchema,
