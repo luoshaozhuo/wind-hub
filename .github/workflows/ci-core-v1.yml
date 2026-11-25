@@ -2,7 +2,7 @@ name: Core and Configuration Static Gate
 
 on:
   push:
-    branches: [refactor/core-v1, design/architecture-dfd-alignment-20261113, feat/storage-wide-table-completion-20261125]
+    branches: [refactor/core-v1, design/architecture-dfd-alignment-20261113]
 
 permissions:
   contents: read
