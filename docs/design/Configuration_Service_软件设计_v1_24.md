@@ -1,6 +1,6 @@
 <h1 class="title">Configuration Service 软件设计</h1>
 
-<p class="subtitle">v1_23 · 20261123 · 设计冻结语义与配置闭包整改</p>
+<p class="subtitle">v1_24 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -748,6 +748,8 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
 **main 集成基线（2026-11-23）**：Configuration Repository 已进入 main，依赖闭包与 Deployment 精确选择按当前 15 项 Repository RPC 及事务实现；发布全量目录、按闭包查询、广播通知由不同责任边界承担。 旧分支的开发状态及历史适配方案不得替代已集成代码与当前协议。
@@ -1345,6 +1347,11 @@ flowchart TB
 数据库主文件、WAL、SHM 及备份根目录放置在可持久化卷；生产进程持有唯一数据库写权限，禁止多个独立 Configuration 实例同时作应用层写者。本服务内部 gRPC 无证书配置，监听地址与访问令牌由启动配置和部署环境限定；CLI 仍负责启动/停止与模块配置协调。单节点服务宕机时其他模块可使用已验证本地快照运行；无快照且无服务端则启动失败。
 
 # 9. gRPC 接口实现与调用方适配
+
+**精确根版本闭包（目标）**：扩展现有 GetConfigBundle，新增与 roots/revision_id 选择模式互斥的 exact_roots（重复 ConfigVersionRef，必填 config_type/config_id 及 file_version 或不可变 version_id）。同时提供多个选择字段必须一致；include_dependencies=true，按一致读取事务递归解析不可变固定依赖，返回完整 YAML、Manifest 和 total_bytes；不使用推荐版填补、不改变活动配置。不存在、权限不足、冲突、超限明确失败。Device Instance 完整身份是新遥测解析入口；GetPointTableBundle 仅在其他合法调用仍需要时保留，不新增 Storage 专用接口。正式字段号、错误码及全部调用方须在 Proto 冻结前确定。
+
+历史 Device Instance→DeviceModel→PointTable→BusinessPoint/Units 固定闭包是遥测权威；未知设备主动查询精确历史闭包。运行归档在数据/重放/备份依赖期间保留；删除仓库 YAML 不删除归档。Storage 新 database/ingestion/type_mapping 配置须白名单校验、无损类型、KEEP/DURATION 关系及 WAL 可靠性。Service 只依赖 Instance，Instance 固定依赖模板。清理覆盖全部有效 Deployment、测试/Fixture/脚本引用。
+
 
 ## 9.1 唯一接口契约来源
 

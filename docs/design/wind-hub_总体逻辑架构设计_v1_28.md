@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_27 · 20261123 · main 集成后设计归并</p>
+<p class="subtitle">v1_28 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -179,6 +179,8 @@ $$
 ---
 
 # 3. 系统边界与模块职责
+
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **main 集成基线（2026-11-23）**：总体系统链路为 Collector→NATS/JetStream→Sink→Kafka→Storage。Sink 对外数据等级统一为 RAW/PROTOCOL/BUSINESS，协议解码与业务标准化的边界必须区分；Service→Instances→Templates 与 Deployment 是配置依赖权威。 旧分支的开发状态及历史适配方案不得替代已集成代码与当前协议。
 
@@ -483,9 +485,9 @@ cache:
 
 该示例是**目标引导 Schema**，不是现有源码可直接加载的配置；实现时须同步启动器、CLI、各模块和测试。新业务配置更新从 Configuration 拉取，不将 `configs/` 的全量根目录复制到每个业务模块；冷启动无权威库/无合法缓存不应报告 READY。接口使用标准无 TLS gRPC，访问令牌仅在可信隔离网络内传输，不能暴露公网。配置权限仅限本服务授权范围，不能读取其他模块敏感配置。
 
-## 5.3.1 配置生效修订与遥测 PointTable 身份
+## 5.3.1 配置生效修订与遥测配置身份
 
-全局 Configuration `revision_id` 只用于配置发布、通知、运行生效及审计；**不放入 Collector/Sink 数据包**。Collector 在 Task 装配阶段按已生效设备实例/型号解析 `point_table_id` 并固定在不可变采集计划；每个源 SampleBatch 标识唯一不可变 PointTable。PointTable ID 规范为 `point_table_<template_id>_v<file_version>`（不带 `.yaml`），由点表逻辑 ID/版本唯一生成并验证；该字符串含完整模板版本。PointTable ID 及其版本化依赖闭包必须共同确定每个测点的类型、工程转换、标准单位和 BusinessPoint 语义。上述解释规则改变时换新 `point_table_id`，不能就地覆盖旧 ID。Sink/Storage 以该 ID 解释历史记录，不得查询最新推荐点表替代旧版。
+全局 revision_id 仅配置事件游标，target/active 为服务闭包摘要。Collector 固定 Device Instance 完整版本身份 device_config_id + device_id，配合场站身份定位设备；DeviceModel、device_type、协议、PointTable、BusinessPoint/Units 从固定依赖解析，不重复传输。Sink/Storage 缓存未命中主动查精确根版本闭包；不使用推荐版代替历史。物理 Schema 按 PointTable 固定版本/等级/物理指纹区分，IP 或 Device Instance 版本本身不必新建表。
 
 ## 5.3.2 安全认证与性能边界
 
@@ -501,21 +503,17 @@ cache:
 
 | 等级 | 配置值 | 表达、处理范围 | 典型用途 |
 |---|---|---|---|
-| L1 | `raw` | 工业驱动从协议帧提取的原始标量（寄存器/字段已按协议编码解出，但尚未按点表比例、偏移换算）；保留源 `point_id` | 原始值对账、定位设备及协议异常 |
+| L1 | `raw` | 工业驱动保留的真实协议解码前字节或字段载荷；保留源 `point_id` | 原始值对账、定位设备及协议异常 |
 | L2 | `protocol` | 协议解码后的来源测点值，保留实际点身份，不预先假定业务单位或标准化 | 协议数据消费与工程诊断 |
 | L3 | `business` | L2 + 固定历史 PointTable/BusinessPoint/Units 映射、单位标准化、质量保留 | 统一业务消费及历史存储 |
 
 三级数据按来源能力与验证后的解释过程严格区分：RAW 表示有证据的协议解码前载荷，PROTOCOL 表示已完成协议解码的来源值，BUSINESS 表示依固定历史 PointTable/BusinessPoint/Units 进行标准化后的值。不得将缺失 RAW 源载荷伪造为 RAW，禁止旧 ENGINEERING 名称自动等价 PROTOCOL；`output.data_level` 显式选择且无默认等级。
 
-RAW 不是工业链路上的原始字节报文。若未来需要完整帧留存，须另立协议诊断捕获能力，不得将既有 `value` 当成字节帧。
+RAW 是真实协议解码前载荷，不必等于完整 ADU；禁止将已解码 value 当原始字节。
 
-## 5.3.5 Collector 与 Sink 的唯一数据契约
+## 5.3.5 Collector、Sink 与 Storage 的唯一数据契约
 
-Contracts §11.6 统一规定 Collector→NATS→Sink 的 SampleBatch v3 输入字段、JSON 示例、严格校验及 Realtime/Reliable 的差异；Contracts §11.9 规定 Sink→Kafka/Redis 的单点 JSON v2 以及 Modbus TCP/Gateway 的受限映射输出。Collector 与 Sink 设计只引用 Contracts，不再另行定义第二套 Schema。
-
-`schema_version` 保留，用于线格式变更（NATS v3 和 Kafka/Redis JSON v2 分别独立），不承担设备点表版本职责。数据包携带 `device_type`、`device_id`、`point_table_id`；**不再增加 `config_revision_id`、`data_version`**。Storage 依据设备和不可变 PointTable 标识确定数据存储及语义归属，具体库表自动创建逻辑由 Storage 设计约束。
-
-受控编码迁移前，现有生产 Source Batch v2 与 Kafka JSON v1 不符合目标格式，不得把目标契约称为已实施。
+目标 NATS 同步设备批 v4、Kafka JSON v3 由 Contracts §11.6/§11.9 规定，现行 v3/v2 为迁移基线。一设备、一时刻、固定配置、一个等级对应 Kafka 一条 Record 和 TDengine 一行；允许 NULL，不拆分、不异步对齐。Key 场站:设备，同分区有序。Storage 按配置闭包生成宽表，每场站 DB 启动建立，每 PointTable 固定版本/等级/物理指纹 SuperTable，每设备 SubTable，测点列版本化；ts 主键、后到覆盖、Quality 2 bit/点单列。异步有界缓冲、STMT2 多表绑定、连续 Offset；取消常态逐点哈希回读。DURATION 30d、KEEP 1095d；DB 参数及类型映射由 Storage 配置，服务端资源由部署管理。历史 Schema 保留，删除废弃 YAML 前证明运行归档可用。详见 Storage v1_12。
 
 ## 5.4 配置文件命名规则
 

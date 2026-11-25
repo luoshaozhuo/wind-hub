@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_45 · 20261123 · 设计冲突与配置冻结整改</p>
+<p class="subtitle">v1_46 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -746,6 +746,8 @@ System Test 必须遵守以下规定：
 追溯链为 **UR → UC／用例场景 → System Test → 执行结果与证据**，技术契约作为补充依据进入相应测试。第 4 章负责编制完整 UC 和场景，第 14 章依据本规范给出实际测试矩阵及验收安排，两章必须双向核对。
 
 # 3. 软件需求
+
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
@@ -1495,7 +1497,7 @@ flowchart TB
 | 多文件配置提交、候选快照 CAS 和热更新 | `core.configuration` 共享协调机制及具体业务 Service | Core 通用 `save_yaml` 仅确保单文件原子写入，不承诺全局事务 |
 | 端到端设备—NATS—Sink 诊断 | CLI、Web Server 与各业务服务的编排层 | Core 只提供网络、工业协议的局部诊断证据；Web Admin 经 Web Server 展示 |
 
-**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以冻结的 `wind-hub_总体逻辑架构设计_v1_27.md` 为上位依据。
+**冻结边界：**修改 Core（含 `core.configuration`）的公开类型、接口、配置契约时，须同步核查全部调用方及测试；基础层设计优先消除真实缺口与逻辑冲突，不因目录美观或分层形式引入额外代理、复制模型及长期兼容层。Web Admin 仅通过 Web Server 的 HTTP/OpenAPI 契约间接访问服务，不直接依赖 Core（含 `core.configuration`）或 Contracts 的 Python 实现；Web Server 通过正式 RPC 及必要的公共能力装配访问业务服务。总体运行时关系以冻结的 `wind-hub_总体逻辑架构设计_v1_28.md` 为上位依据。
 
 
 # 6. 通用配置数据处理设计
@@ -3021,6 +3023,11 @@ flowchart TD
 Core 自身负责 Python 通用领域数值与校验，Contracts 负责将这些值编码为正式线协议。各业务模块的 `infrastructure/grpc/` 负责业务适配、鉴权与 gRPC Status；Contracts 不提供业务 Servicer。相关验证必须覆盖 `false/0/""/bytes`、未设置的 `oneof`、NaN/Infinity、符号与 64 位整数上下界，并更新全部受影响测试，不保留旧路径的转发代理。
 
 # 10. 共享领域对象设计
+
+## 10.0 Storage 宽表协同边界
+
+Core 继续作为统一标准标量类型及协议类型规范化的权威，复用 ADS REAL/LREAL、Modbus、IEC104 等类型及长度约束；不在 Core 引入 TDengine 类型或 Storage 依赖。Storage Service YAML 承担标准类型至 TDengine 无损映射。Device Instance 固定版本→DeviceModel→PointTable→BusinessPoint/Units 闭包须可精确解析，供采样/历史 Schema 使用；未知 RAW/字符串最大长度不得猜测。同步设备采样事件时间属于 Collector/Contracts，Core 协议读取保留真实来源值、字节、质量和时间，不执行业务转换；不宣称多次协议读取在物理上同时发生。新增公共能力仅在现有 API 不足且经调用方审查后实施。
+
 
 ## 10.1 收录范围与建模原则
 

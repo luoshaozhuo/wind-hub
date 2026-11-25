@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_45 · 20261123 · 设计冲突与配置冻结整改</p>
+<p class="subtitle">v1_46 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body {
@@ -748,6 +748,8 @@ System Test 必须遵守以下规定：
 
 # 3. 范围、现行基线及接口总览
 
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
 ## 3.1 契约权威与目标状态
@@ -910,6 +912,9 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 `ModelVariable` 包含 `point_id,business_point_id,data_type,unit,role,writable,optional minimum/maximum,description,source`。`source=POINT_TABLE` 对设备点表生效；独立 `WEATHER_INPUT` 的 `business_point_id` 可为空，不能错误继承点表版本。`point_table_version` 表示设备当前点表版本而非天气 Schema 版本。`UpdateVariables` 必须拒绝非输入、不可写、重复、越界及非法值；合法输入依 `effective_step` 在模拟时间步生效，`GetInputExecution` 返回 PENDING/APPLIED/UNKNOWN 证据；不通过响应确认替代实际物理步执行。
 
 # 10. Configuration Repository 现行接口契约
+
+**精确根版本闭包（目标）**：扩展现有 GetConfigBundle，新增与 roots/revision_id 选择模式互斥的 exact_roots（重复 ConfigVersionRef，必填 config_type/config_id 及 file_version 或不可变 version_id）。同时提供多个选择字段必须一致；include_dependencies=true，按一致读取事务递归解析不可变固定依赖，返回完整 YAML、Manifest 和 total_bytes；不使用推荐版填补、不改变活动配置。不存在、权限不足、冲突、超限明确失败。Device Instance 完整身份是新遥测解析入口；GetPointTableBundle 仅在其他合法调用仍需要时保留，不新增 Storage 专用接口。正式字段号、错误码及全部调用方须在 Proto 冻结前确定。
+
 
 ### 现行配置闭包与部署选择（合并基线）
 - 配置依赖链：**Service → Instances → Templates**。Service 只引用 Instance 逻辑身份；Instance 固定引用 Template ID 与不可变版本，禁止直接从 Service 引用 Template。
@@ -1204,75 +1209,23 @@ Configuration Repository 负责版本发布和 Deployment 目标选择；各业�
 
 Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯一权威**。NATS Realtime 与 JetStream Reliable 使用同一种 Envelope 和 SampleItem Schema，由 `mode` 区分，并分别使用 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>`、`wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` Subject。跨模块源格式以 §11.6 为准；Sink 对外输出以 §11.9 为准。各模块设计只引用这些唯一字段契约，不得再另定义字段含义或格式版本。
 
-生产链路以当前 `SampleBatch` v3 与 Kafka 单点 JSON v2 的实现及测试为准；两种线格式版本互相独立，不允许沿用旧 Schema 2/v1 的现行状态描述。
+现行 NATS v3/Kafka v2 为迁移基线；目标 NATS v4/Kafka v3 分别见 §11.6、§11.9。
 
 ## 11.5 Proto 兼容规则
 
 允许添加新字段号（保持现有号、类型、oneof presence）；不允许同包同号改语义、改变 scalar 类型、误用隐式缺省或移除现行 RPC。确需不兼容变更，应新包版本并同时完成生产端、调用方、CLI、配置及测试迁移；不保留无故兼容层。用户可见 `file_version` 并非 Proto 包版本，不能互相替代。
 
-## 11.6 Collector→Sink：SampleBatch v3 目标线格式
+## 11.6 Collector→Sink：同步设备采样批次目标线格式
 
-**传输**：NATS/JetStream 消息体为 UTF-8 JSON 对象；单条消息为同一设备、同一采集任务、同一 PointTable 的采样批。下表规定全部字段的名称、层级和校验要求；除注明可选的字段外，均必须存在。消息按固定 Schema 严格解析，拒绝未知字段和重复 JSON 键。
+现行 SampleBatch v3 是迁移基线；不兼容目标版本建议 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
 
-| 层级 | 字段 | 类型 | 规则 |
-|---|---|---|---|
-| Batch | `schema_version` | integer | 固定 3；仅表示当前 JSON 契约结构版本 |
-| Batch | `batch_id` | string | 必填，稳定批次身份；重发不更改 |
-| Batch | `mode` | enum | `realtime` / `reliable`，必须与 NATS 通道一致 |
-| Batch | `wind_farm_id`、`collector_id`、`task_id` | string | 非空来源身份；Subject 中设备/站/Collector 与包头一致 |
-| Batch | `device_type`、`device_id` | string | 必填，稳定设备类型与实例身份，由生效采集计划确定 |
-| Batch | `point_table_id` | string | **必填，全局唯一且不可变的完整 PointTable 语义标识**，由采集计划固定 |
-| Batch | `publish_time` | RFC 3339/ISO 8601 | 带时区的 UTC 时间，批发布时刻 |
-| Batch | `samples` | array | 1～500 条，每条均属于该点表；禁止重复 `point_id` / `sample_id` |
-| Item | `point_id` | string | 必填，原始 PointTable 测点身份，不预先变为 BusinessPoint |
-| Item | `sample_id` | string | 必填，采样幂等身份；同次消息重发保持不变 |
-| Item | `value` | float/int/bool/string/null | 必须显式出现；原协议字段解码后的标量，未做比例、偏移及标准单位换算；不允许 NaN/Inf |
-| Item | `quality` | enum | `good` / `bad` / `uncertain` |
-| Item | `sample_time` | RFC 3339/ISO 8601 | 必填，带时区 UTC 时间 |
-| Item | `receive_time` | RFC 3339/ISO 8601 | 可选，Collector 接收时间 |
-| Item | `max_staleness_ms` | positive integer | **Realtime 必填；Reliable 必须省略** |
-
-**完整示例（Realtime，v3 目标）**：
-
-```json
-{
-  "schema_version": 3,
-  "batch_id": "batch-0001",
-  "mode": "realtime",
-  "wind_farm_id": "farm-a",
-  "collector_id": "collector-1",
-  "task_id": "task-wtg-1",
-  "device_type": "wtg",
-  "device_id": "WTG001",
-  "point_table_id": "point_table_modbus_wtg_v1.0.0",
-  "publish_time": "2026-11-18T00:00:00Z",
-  "samples": [
-    {
-      "point_id": "P001",
-      "sample_id": "sample-0001",
-      "value": 15234,
-      "quality": "good",
-      "sample_time": "2026-11-18T00:00:00Z",
-      "receive_time": "2026-11-18T00:00:00Z",
-      "max_staleness_ms": 500
-    }
-  ]
-}
-```
-
-Reliable 包结构相同，但 `mode="reliable"`，各 Item **不出现** `max_staleness_ms`。默认完整 UTF-8 消息 ≤ 1,048,576 字节，单批默认 ≤ 500 条，部署参数允许更严格限制；超限应按采集事件安全拆批，不允许把不同点表的数据合并。UTF-8 JSON、UTC 时区、显式 null 和完整来源身份保持旧契约的严格验证。
-
-**PointTable 身份约定**：数据包的 `point_table_id` 取 `point_table_<template_id>_v<file_version>`（不带 `.yaml`），例如现有点表 `template_id: modbus_wtg_sim`、`file_version: 1.0.0` 对应 `point_table_modbus_wtg_sim_v1.0.0`；这**一个字符串已包含不可变模板版本**，不在数据包另传版本字段。该身份由配置装配阶段从已发布点表的逻辑 ID 和版本生成并核验，禁止使用无版本的 `template_id` 代替。
-
-**PointTable 不变性**：`point_table_id` 必须能在 Configuration 解析到确定且不可变的 Point 集合、比例/偏移、类型/源工程单位及**精确固定的 BusinessPoint/Units 依赖闭包**。如果任何改变影响样本解释或 BusinessPoint 输出语义，必须发布新的 `point_table_id`；不能沿用同一 ID 指向可变的最新依赖版本。若仅变更采集间隔或服务连接参数、不影响解释规则，可继续使用原 PointTable ID。不同全局配置修订可以共享同一 PointTable ID。
-
-**迁移要求**：正式 Collector/Sink 采用 SampleBatch v3 严格字段，历史 v2 消费者不能与 v3 生产者兼容解析；应以受控生产者/消费者协同切换，必要时采用新的 Subject 与 Consumer 配置隔离迁移期，不提供静默字段缺省回退。
+拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。v4 具体字段、版本及对其他输出的影响待编码冻结审查。
 
 ## 11.7 数据三级语义与映射不变量
 
-**规范性裁决**：RAW=Driver 可核验的协议解码前字节或帧；PROTOCOL=协议解码后的标量（尚无点表工程换算）；BUSINESS=依据 SampleBatch 所携带完整历史 PointTable ID 及锁定标准目录依赖闭包得到的标准业务值。现有 Collector 仅产生 PROTOCOL 输入，未采集解码前载荷时不得标 RAW。不存在 ENGINEERING 等级或默认 BUSINESS；转换责任只在 Sink 的业务层。冻结总体 v1_27 §5.3.4 中将 RAW 称为“解出的标量”“不是原始字节”的历史叙述在本受控更正规则下失效，原文保持审计冻结而不再用作实现依据。
+**规范性裁决**：RAW=Driver 可核验的协议解码前字节或帧；PROTOCOL=协议解码后的标量（尚无点表工程换算）；BUSINESS=依据 SampleBatch 所携带固定 Device Instance 身份解析的历史 PointTable ID 及锁定标准目录依赖闭包得到的标准业务值。现有 Collector 仅产生 PROTOCOL 输入，未采集解码前载荷时不得标 RAW。不存在 ENGINEERING 等级或默认 BUSINESS；转换责任只在 Sink 的业务层。
 
-Storage §6.5 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
+Storage v1_12 §10 和 Sink §12.1.5 共同冻结 `RAW / PROTOCOL / BUSINESS`，Kafka JSON 的 `data_level` 是**逐 Record 必填**的 `raw`、`protocol` 或 `business`，**没有隐式默认值**。
 
 - **RAW**：协议解码前的真实原始帧或字节载荷，需要 Driver 可证明的采集边界与显式编码。现有 `ProtocolSample.value` 已经解码，绝不能冒充 RAW。
 - **PROTOCOL**：已完成协议数据类型、字序等解码的标量，尚未执行 PointTable scale/offset、BusinessPoint 语义映射及单位转换。
@@ -1286,56 +1239,39 @@ PointTable 必须固定关联历史 BusinessPoint、Units 版本，并保持源 
 
 内部通信使用受控内网与按角色/资源的轻量操作授权；模块之间不启用 TLS/mTLS。Configuration 在发布提交后发送 NATS Core `wh.config.changed` 修订提示；业务模块各自主动拉取完整配置包并独立生效，通知不进入 SampleBatch 采样报文。控制与管理权限不因数据格式变化而放宽。
 
-## 11.9 Sink→下游：Kafka JSON v2 与三等级输出
+## 11.9 Sink→Kafka：设备级 JSON v3 与三等级输出
 
-每个 Delivery 的 `output.data_level` 必须为显式 `raw`、`protocol` 或 `business`，不提供默认值。Sink 按固定来源身份和历史依赖闭包生成转换后的逻辑样本，Adapter 仅做明确的目的协议编码。PROTOCOL 使用有证据的协议解码来源值；BUSINESS 使用精确历史 PointTable/BusinessPoint/Units 闭包转换，但仅当该点表被现场核查、配置中显式批准了与 Repository 一致的 Manifest SHA-256 后才允许输出。缺少来源证据时拒绝。RAW 的协议解码前字节来源仍未实现，必须拒绝该等级直到生产链路和测试齐备。
+一个设备、采样时刻、固定设备配置身份、数据等级对应一条完整 Kafka Record；不拆逐点消息。严格 UTF-8 JSON，拒绝未知/重复键、非法类型和时间、NaN/Inf、未知测点、超限。每个 Delivery 显式选择 raw/protocol/business。PROTOCOL 为协议解码值，BUSINESS 由 Sink 按可信历史 PointTable/BusinessPoint/Units 闭包及批准 manifest 做一次转换；RAW 非空值为真实原始字节的规范小写偶数长度 hex，不得伪造或以降级等级掩盖缺失。RAW 缺失仍按可靠链路 fail-closed。 
 
-| 逻辑字段 | 类型 | 规则 |
-|---|---|---|
-| `schema_version` | integer | Kafka JSON 固定为 2；与 NATS v3 独立 |
-| `data_level` | enum | 必填，仅 `raw` / `protocol` / `business` |
-| `wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id` | string | 必填，从 NATS SampleBatch v3 完整保留 |
-| `batch_id`、`point_id`、`sample_id` | string | 必填；`point_id` 永远是源测点 |
-| `business_point_id` | string/null | BUSINESS 必须有已核验稳定 ID；RAW/PROTOCOL 为 null |
-| `unit` | string/null | BUSINESS 必须使用标准单位；RAW/PROTOCOL 为 null |
-| `value` | typed scalar/null | PROTOCOL 为协议解码标量，BUSINESS 为换算值；RAW 二进制需要另行冻结编码 |
-| `quality` | enum | 不修改源质量 |
-| `sample_time`、`publish_time` | RFC 3339 | 必填 |
-| `receive_time` | RFC 3339/null | 不存在为 null |
-| `max_staleness_ms` | positive integer/null | Realtime 原 TTL，Reliable 为 null |
+<p class="table-caption">表 11-9 Kafka 设备级记录</p>
 
-BUSINESS 交付前要求 `GetPointTableBundle(point_table_id,expected_manifest_sha256)` 通过校验：校验每份不可变 YAML 的 SHA-256、语义摘要、完整 Manifest 与来源 `device_type`；按历史标准类型进行 scale/offset、工程单位到标准单位转换。批准 Manifest 不能替代现场 PLC 点位语义审核，GW2MW 未获审核的映射仍禁止列入。历史配置不可用或冲突时必须保持 Reliable 源批未确认，不得降级到 PROTOCOL 或采用最新推荐版。
-
-Kafka Reliable 每个 `SampleItem` 形成一条 Record，Record Key 保持 `wind_farm_id:collector_id:device_id`，JetStream 原始 ACK 与 Kafka Producer ACK 不得合并。Storage 只接受严格的 schema_version=2、合法 data_level 和数据类型；数据库编码固定 RAW=1、PROTOCOL=2、BUSINESS=3。不得添加 `data_version` 或 `config_revision_id` 作为错误的解释依据。
-
-**PROTOCOL 完整示例**：
+| 字段 | 类型及规则 |
+|---|---|
+| schema_version | 整数 3，独立于 NATS 版本 |
+| wind_farm_id | 非空授权场站 |
+| device_config_id | 完整固定身份 device_<config_id>_v<file_version>，无 .yaml |
+| device_id | 该配置内唯一设备 |
+| data_level | raw/protocol/business 必填 |
+| sample_time | UTC RFC3339，微秒精度，不允许截断导致冲突 |
+| points | 源 point_id 对应 [value,quality]，非空 |
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
+  "wind_farm_id": "farm_a",
+  "device_config_id": "device_prod-a_v1.0.1",
+  "device_id": "wtg_001",
   "data_level": "protocol",
-  "wind_farm_id": "farm-a",
-  "collector_id": "collector-1",
-  "task_id": "task-wtg-1",
-  "device_type": "wtg",
-  "device_id": "WTG001",
-  "point_table_id": "point_table_modbus_wtg_v1.0.0",
-  "batch_id": "batch-0001",
-  "point_id": "P001",
-  "business_point_id": null,
-  "sample_id": "sample-0001",
-  "value": 15234,
-  "unit": null,
-  "quality": "good",
-  "sample_time": "2026-11-18T00:00:00Z",
-  "publish_time": "2026-11-18T00:00:00Z",
-  "receive_time": "2026-11-18T00:00:00Z",
-  "max_staleness_ms": null
+  "sample_time": "2026-11-25T12:00:00.100000Z",
+  "points": {
+    "wind_speed": [8.2, 1],
+    "rotor_speed": [12.3, 1],
+    "active_power": [null, 2]
+  }
 }
 ```
 
-Redis 的元数据能力和等级隔离属于对应 Sink Adapter 设计；Modbus TCP、Industrial Gateway 无法通过单个寄存器或 UpdateVariables 自动传递上述完整 JSON，需要在 Delivery 显式配置目标映射和身份约束。历史回放严格使用原 `point_table_id` 的不可变依赖闭包。
-
+Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value 允许 NULL，质量不从值推断；完整点表中未采集点填 NULL/0。三个等级统一用源 point_id，Storage 由配置解析 BUSINESS 物理列。device_type、point_table_id、business_point_id、unit、data_type 等不重复传输；sample_id、batch_id、collector_id、task_id、逐点 receive/publish_time、TTL 和逻辑哈希不属于 Kafka 历史记录，上游必要追踪仍保留。Record Key 为 UTF-8 wind_farm_id:device_id，禁止组件冒用分隔符；同 Topic 分区数和算法稳定。同设备较大 offset 的数据优先。真实 broker ACK 与 JetStream ACK 独立；Builder 可合并同分区完整 Record，不能拆 Record。producer/broker/topic/consumer 消息上限及封装余量须一致；超限阻断。迁移停源、排空旧流、确认归档后切换新契约，不混合 v2/v3。Redis/Modbus/Gateway 表达不擅自改变。
 
 # 12. 测试、生成与验收
 
@@ -1390,238 +1326,21 @@ Redis 的元数据能力和等级隔离属于对应 Sink Adapter 设计；Modbus
 
 ---
 
-# 14. Storage Service RPC 契约
+# 14. Storage Service RPC 契约（宽表目标）
 
-## 14.1 职责、作用域与交付
+现行 storage_service.proto v1 为迁移基线。不兼容宽表结构使用新包版本，同时迁移生成代码、CLI、权限、测试及调用方，不复用旧字段号改义。正式 Proto 字段号待编码冻结。
 
-本章是 Storage Service 所有对外接口的**唯一权威**。正式代码存放 src/contracts/storage_service.proto，包名 windhub.storage.v1，生成 pb2、pb2_grpc、pyi 并纳入项目统一生成校验；Storage 实现 gRPC Server，CLI 调用生成 Stub。Storage 内不能自定义并行的 RPC 请求/响应类型。配置拉取仍使用现有 Configuration Repository RPC，不扩展该服务接口；不引入 mTLS，继承受控隔离内网与应用令牌授权。
+<p class="table-caption">表 14-1 Storage 目标接口</p>
 
-Storage Service 的可执行契约现已位于 `src/contracts/storage_service.proto`；已集成主分支的 Server 与 CLI 以该文件为权威。数据等级为 `raw` / `protocol` / `business`，禁止旧 `engineering` 别名。
-
-## 14.2 标准 Proto 定义（字段号冻结）
-
-~~~proto
-syntax = "proto3";
-package windhub.storage.v1;
-import "google/protobuf/timestamp.proto";
-
-enum StorageDataLevel {
-  STORAGE_DATA_LEVEL_UNSPECIFIED = 0;
-  STORAGE_DATA_LEVEL_RAW = 1;
-  STORAGE_DATA_LEVEL_PROTOCOL = 2;
-  STORAGE_DATA_LEVEL_BUSINESS = 3;
-}
-enum StorageValueKind {
-  STORAGE_VALUE_KIND_UNSPECIFIED = 0;
-  STORAGE_VALUE_KIND_MISSING = 1;
-  STORAGE_VALUE_KIND_INT64 = 2;
-  STORAGE_VALUE_KIND_UINT64 = 3;
-  STORAGE_VALUE_KIND_DOUBLE = 4;
-  STORAGE_VALUE_KIND_BOOL = 5;
-  STORAGE_VALUE_KIND_TEXT = 6;
-  STORAGE_VALUE_KIND_BYTES = 7;
-}
-enum StorageTaskState {
-  STORAGE_TASK_STATE_UNSPECIFIED = 0;
-  STORAGE_TASK_STATE_QUEUED = 1;
-  STORAGE_TASK_STATE_RUNNING = 2;
-  STORAGE_TASK_STATE_SUCCEEDED = 3;
-  STORAGE_TASK_STATE_FAILED = 4;
-  STORAGE_TASK_STATE_INTERRUPTED = 5;
-}
-message StorageSample {
-  string wind_farm_id = 1;
-  string device_type = 2;
-  string device_id = 3;
-  string point_table_id = 4;
-  string point_id = 5;
-  string business_point_id = 6;
-  string sample_id = 7;
-  StorageDataLevel data_level = 8;
-  StorageValueKind value_kind = 9;
-  oneof value {
-    sint64 value_i64 = 10;
-    uint64 value_u64 = 11;
-    double value_f64 = 12;
-    bool value_bool = 13;
-    string value_text = 14;
-    bytes payload_bytes = 15;
-  }
-  string quality = 16;
-  google.protobuf.Timestamp sample_time = 17;
-  google.protobuf.Timestamp publish_time = 18;
-  google.protobuf.Timestamp receive_time = 19;
-  string unit = 20;
-  string logical_key = 21;
-  string content_sha256 = 22;
-}
-message StorageFilter {
-  string wind_farm_id = 1;
-  string device_type = 2;
-  string device_id = 3;
-  string point_table_id = 4;
-  StorageDataLevel data_level = 5;
-  string point_id = 6;
-  string business_point_id = 7;
-  google.protobuf.Timestamp start_time = 8;
-  google.protobuf.Timestamp end_time = 9;
-  repeated string qualities = 10;
-}
-message QuerySamplesRequest {
-  StorageFilter filter = 1;
-  uint32 page_size = 2;
-  string page_token = 3;
-}
-message QuerySamplesResponse {
-  repeated StorageSample items = 1;
-  string next_page_token = 2;
-  bool complete = 3;
-}
-enum StorageAggregation {
-  STORAGE_AGGREGATION_UNSPECIFIED = 0;
-  STORAGE_AGGREGATION_COUNT = 1;
-  STORAGE_AGGREGATION_MIN = 2;
-  STORAGE_AGGREGATION_MAX = 3;
-  STORAGE_AGGREGATION_AVG = 4;
-}
-message QueryAggregatesRequest {
-  StorageFilter filter = 1;
-  StorageAggregation aggregation = 2;
-  uint64 window_ms = 3;
-  uint32 page_size = 4;
-  string page_token = 5;
-}
-message StorageAggregate {
-  google.protobuf.Timestamp window_start = 1;
-  google.protobuf.Timestamp window_end = 2;
-  string point_id = 3;
-  string business_point_id = 4;
-  string point_table_id = 5;
-  StorageDataLevel data_level = 6;
-  string unit = 7;
-  uint64 good_count = 8;
-  uint64 missing_count = 9;
-  optional double result = 10;
-}
-message QueryAggregatesResponse {
-  repeated StorageAggregate items = 1;
-  string next_page_token = 2;
-}
-message CreateExportRequest {
-  string request_id = 1;
-  StorageFilter filter = 2;
-  string export_format = 3;
-}
-message CreateBackupRequest {
-  string request_id = 1;
-  string wind_farm_id = 2;
-}
-message StorageTask {
-  string task_id = 1;
-  StorageTaskState state = 2;
-  google.protobuf.Timestamp created_at = 3;
-  google.protobuf.Timestamp finished_at = 4;
-  string artifact_id = 5;
-  uint64 size_bytes = 6;
-  string sha256 = 7;
-  string error_code = 8;
-  string message = 9;
-}
-message GetStorageTaskRequest {
-  string task_id = 1;
-}
-message GetStorageStatsRequest {
-  string wind_farm_id = 1;
-}
-message PartitionProgress {
-  string topic = 1;
-  int32 partition = 2;
-  int64 committed_next_offset = 3;
-  int64 last_confirmed_offset = 4;
-  uint64 lag = 5;
-  string block_reason = 6;
-}
-message GetStorageStatsResponse {
-  repeated PartitionProgress partitions = 1;
-  uint64 persisted_points_total = 2;
-  uint64 write_unknown_total = 3;
-  uint64 schema_conflicts_total = 4;
-  uint32 active_queries = 5;
-  uint32 active_exports = 6;
-  uint32 active_backups = 7;
-  string service_state = 8;
-}
-message ListBlockedPartitionsRequest {
-  uint32 page_size = 1;
-  string page_token = 2;
-}
-message ListBlockedPartitionsResponse {
-  repeated PartitionProgress items = 1;
-  string next_page_token = 2;
-}
-message RetryBlockedPartitionRequest {
-  string request_id = 1;
-  string topic = 2;
-  int32 partition = 3;
-  int64 expected_blocked_offset = 4;
-}
-message RetryBlockedPartitionResponse {
-  bool accepted = 1;
-  string result = 2;
-}
-service StorageService {
-  rpc QuerySamples(QuerySamplesRequest) returns (QuerySamplesResponse);
-  rpc QueryAggregates(QueryAggregatesRequest) returns (QueryAggregatesResponse);
-  rpc CreateExport(CreateExportRequest) returns (StorageTask);
-  rpc GetExportTask(GetStorageTaskRequest) returns (StorageTask);
-  rpc CreateBackup(CreateBackupRequest) returns (StorageTask);
-  rpc GetBackupTask(GetStorageTaskRequest) returns (StorageTask);
-  rpc GetStorageStats(GetStorageStatsRequest) returns (GetStorageStatsResponse);
-  rpc ListBlockedPartitions(ListBlockedPartitionsRequest) returns (ListBlockedPartitionsResponse);
-  rpc RetryBlockedPartition(RetryBlockedPartitionRequest) returns (RetryBlockedPartitionResponse);
-}
-~~~
-
-字段号、枚举数值和语义为首版冻结目标，禁止 Storage/CLI 各自重新设计。Timestamp 非 UTC、时间跨度倒置、未指定 data_level、value_kind 与 oneof 不一致、数值超域均 INVALID_ARGUMENT。StorageDataLevel UNSPECIFIED 不是 BUSINESS 默认值，业务等级不可在查询时静默替换。
-
-## 14.3 RPC 语义、权限与时限
-
-| RPC | 关键入参/限制 | 响应 | 权限与默认 deadline |
-|---|---|---|---|
-| QuerySamples | 场站、单级别、[start,end)、最多 31 日，page_size 默认 200 上限 1000 | 样本列表、续页游标 | storage.read，30s |
-| QueryAggregates | 同上，窗口 1ms..31日；只允许数值 GOOD、非 NULL，同单位/语义/版本 | 分窗口聚合及 good/missing 数、分页 | storage.read，30s |
-| CreateExport | request_id、Filter、export_format 固定 csv | 持久任务 ID | storage.export，10s |
-| GetExportTask | task_id | 任务状态、授权 artifact_id 和 SHA256 | storage.export，10s |
-| CreateBackup | request_id、场站 | 持久备份任务 | storage.backup，10s |
-| GetBackupTask | task_id | 任务状态、Manifest 摘要 | storage.backup，10s |
-| GetStorageStats | 可选场站 | 分区水位、诊断及资源指标 | storage.inspect，10s |
-| ListBlockedPartitions | page_size 默认100、最多1000 | 分区及阻断原因 | storage.operate，10s |
-| RetryBlockedPartition | request_id、Topic/Partition、expected_blocked_offset | 确认已接受重试或前置条件失败 | storage.operate，10s |
-
-授权范围还须与请求场站匹配；权限拒绝不能泄露其他场站资源是否存在。查询分页采用不透明签名游标，绑定过滤条件、排序位置、初始查询时间上界与 15 分钟有效期。并发历史补写不承诺跨页 MVCC 一致快照；分页遍历采用 (ts,logical_key,content_sha256) 稳定顺序，同参数连续请求无遗漏已可见的键，晚到历史数据仅在新查询可见。
-
-quality 只能为 Core Quality 已发布的 good/bad/uncertain；不可定义与 Core 不同的整数枚举或静默映射。StorageSample 的 value_kind=MISSING 时 oneof 未设置，其他类别 oneof 恰好包含对应值；bytes 只能用于正式 RAW 载荷。Aggregate 没有合法数值时 result 字段 absent，不能以 0 冒充均值。跨等级、跨不兼容单位、跨语义版本聚合一律拒绝。
-
-CreateExport/CreateBackup 的 request_id 在持久任务仓库中幂等：同 ID 同参数返回相同任务，异参 ALREADY_EXISTS。执行期以 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED 表示，重启后必须核查在途任务并确定恢复状态。导出只在服务端固定授权目录生成 CSV，返回 artifact_id，不支持客户端任意服务器路径；首版下载可由运维 CLI 访问同机受控结果目录，远端文件流下载不在接口承诺内。备份依赖 TDengine 官方支持的可恢复备份机制，不能用 CSV 充当数据库备份。
-
-RetryBlockedPartition **只重试相同未处理 Offset**，不提供跳过、重置、删除、强行 Commit 或绕过坏消息的能力；expected_blocked_offset 不匹配则 FAILED_PRECONDITION。
-
-## 14.4 错误码与兼容性
-
-| gRPC Status | 适用场景 |
+| RPC | 输入、输出 |
 |---|---|
-| INVALID_ARGUMENT | 字段、时间、级别、分页或枚举非法 |
-| PERMISSION_DENIED | 令牌或场站权限不足 |
-| NOT_FOUND | 不存在或不可见的任务/授权对象 |
-| ALREADY_EXISTS | request_id 复用但请求内容不同 |
-| FAILED_PRECONDITION | 历史闭包不可得、Schema/样本冲突、阻断 Offset 已变化、游标过期 |
-| RESOURCE_EXHAUSTED | 查询/导出/备份/队列超配额 |
-| UNAVAILABLE | TDengine、Kafka 或必要依赖暂时不可用 |
-| DEADLINE_EXCEEDED | 外部 I/O 超过有界 deadline |
-| INTERNAL | 未预期内部错误；禁止向客户端透露 SQL、令牌、内部绝对路径 |
+| QuerySamples | filter、page_size、page_token；按场站/设备/PointTable/等级/物理 Schema 分组的列描述及宽表行（时间、值、质量）、next_page_token/complete |
+| QueryAggregates | filter、aggregation、window_ms、page_size、page_token；窗口起止、版本/列/单位、good_count、missing_count、可选结果 |
+| CreateExport / GetExportTask | request_id、filter、format / task_id；异步任务、受控 artifact/path、大小、SHA-256、错误 |
+| CreateBackup / GetBackupTask | request_id、wind_farm_id / task_id；任务与恢复证据，包含 Schema 元数据/历史配置 |
+| GetStorageStats | wind_farm_id；点/行、确认、lag、UNKNOWN、缓冲与服务状态 |
+| ListBlockedPartitions | page_size、page_token；topic/partition/offset、阻断原因 |
+| RetryBlockedPartition | request_id、topic、partition、expected_blocked_offset；accepted/result，不跳 offset |
 
-公共服务状态优先复用已发布 Common 模型；Storage 专属内部诊断原因不另建与 Common 冲突的公共服务生命周期枚举。不可在客户端返回未知状态后宣称操作未执行。
+过滤器含场站、设备、可选设备类型、显式等级、可选 PointTable 完整版本、测点 ID 集合、UTC 半开时间区间、Quality。列描述恢复源 point_id、business_point_id、单位、原生类型和物理列身份；值使用有类型 oneof 或等价结构，明确 NULL；质量 0..3。删除未持久化 sample_id、logical_key、content_sha256、逐点 receive/publish_time。签名游标绑定过滤条件、初始上界、版本表族及 ts 排序，15 分钟有效期，不承诺 MVCC。跨版本默认分别返回，仅语义兼容时显式聚合。任务状态 QUEUED/RUNNING/SUCCEEDED/FAILED/INTERRUPTED，request_id 幂等；保持 Bearer 场站权限 storage.read/export/backup/inspect/operate/admin。错误 INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、NOT_FOUND、FAILED_PRECONDITION、RESOURCE_EXHAUSTED、UNAVAILABLE、DEADLINE_EXCEEDED、INTERNAL。详细存储/查询/恢复见 Storage v1_12。不得伪造旧字段或保留窄表兼容 RPC。
 
-## 14.5 编码与独立验收门禁
-
-编写正式 storage_service.proto 时同步生成 Python 代码和类型 Stub、登记接口生成一致性检查；Storage Server、CLI 命令、权限映射、错误码、任务幂等、分页稳定性和跨重启状态必须统一测试。测试必须检查枚举数值、字段号、oneof、Timestamp 存在性、请求上限、超时和 Token 作用域。未生成 Proto/未执行测试时只能标 NOT_RUN，不得将本设计更新当作生产 RPC 已实现。

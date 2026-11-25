@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_46 · 20261125 · 同步 Storage 批量持久化设计</p>
+<p class="subtitle">v0_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -165,6 +165,8 @@ $$
 
 # 3. 测试目标、范围与总体要求
 
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
 **main 集成基线（2026-11-23）**：按当前集成的 Storage、Contracts、Configuration、CLI 及 SampleBatch v3/Kafka v2 设计真实完整链路；中间件和数据库由测试单独启动，其他服务经 CLI 启动，操作经 CLI 发出，覆盖全部现行接口。 旧分支的开发状态及历史适配方案不得替代已集成代码与当前协议。
@@ -190,12 +192,12 @@ $$
 
 | 领域 | main 归并后唯一设计文件 | 验收重点 |
 |---|---|---|
-| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_27.md`、`Core_软件设计_v1_45.md` | DFD 归属、共享配置归 Core |
-| Contracts / Configuration | `Contracts_软件设计_v1_45.md`、`Configuration_Service_软件设计_v1_23.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
+| 总体 / Core | `wind-hub_总体逻辑架构设计_v1_28.md`、`Core_软件设计_v1_46.md` | DFD 归属、共享配置归 Core |
+| Contracts / Configuration | `Contracts_软件设计_v1_46.md`、`Configuration_Service_软件设计_v1_24.md` | 现行 Proto、Deployment 闭包、版本发布与查询 |
 | Data Generator / Industrial Gateway | `Data_Generator_软件设计_v1_63.md`、`industrial_gateway_软件设计_v1_53.md` | 仿真、变量身份、目标写入与端口权限 |
-| Collector / Commander | `Collector_软件设计_v1_44.md`、`Commander_软件设计_v1_60.md` | SampleBatch v3、控制安全、运行状态 |
-| Sink / Storage | `Sink_Service_软件设计_v1_77.md`、`Storage_Service_软件设计_v1_11.md` | Kafka JSON v2、数据等级、持久入库及查询 |
-| CLI | `CLI_软件设计_v1_56.md` | CLI 命令树、进程启动和全量发布 |
+| Collector / Commander | `Collector_软件设计_v1_45.md`、`Commander_软件设计_v1_60.md` | 目标同步 SampleBatch、控制安全、运行状态 |
+| Sink / Storage | `Sink_Service_软件设计_v1_78.md`、`Storage_Service_软件设计_v1_12.md` | Kafka JSON v3、设备宽表及查询 |
+| CLI | `CLI_软件设计_v1_57.md` | CLI 命令树、进程启动和全量发布 |
 
 架构一致性单列检查：共享配置不得以顶级 `src/configuration/` 长期并行存在，业务配置不能机械移入 Core，`typings/grpc-stubs/` 的退出须经正式类型依赖和 Mypy 实测；目录迁移不能只检测 imports 而忽视代码重复及所有者。
 
@@ -421,7 +423,7 @@ sequenceDiagram
 | I-07 Gateway Realtime | Sink Gateway 模板/映射 + 独立目标 Gateway；两进程 | 受控令牌 ACQUIRE → UpdateVariables → ReadVariables → RELEASE/过期 | 值与映射正确，租约及回环隔离 |
 | I-08 配置治理 | CLI 全量根目录、Configuration、各业务 Service | 修改完整 configs 根目录并通过 CLI publish，注入版本冲突、无效路径、旧结构和非法实例键 | 完整候选拒绝且原目录视图不变；正确候选只广播修订，各模块独立拉取生效 |
 | I-09 全 RPC | 当前全部 Proto 和服务，含 Storage | 实际枚举 Descriptor，调用真实 RPC 与拒绝路径 | 逐方法生成分母，Storage 9 项专属 RPC 不可遗漏；旧 51/51 不再作为固定分母 |
-| I-10 Storage 真正落地 | CLI 启动 Storage，Kafka JSON v2 和真实 TDengine | 逐等级注入真实 Record、等确认后查询 Storage RPC/SQL | 三等级数据、身份、时间、质量、类型、值一致，Offset 安全 |
+| I-10 Storage 真正落地 | CLI 启动 Storage，Kafka JSON v3 和真实 TDengine | 逐等级注入真实 Record、等确认后查询 Storage RPC/SQL | 三等级数据、身份、时间、质量、类型、值一致，Offset 安全 |
 | I-11 Storage 恢复 | 同上，多个历史点表与 Kafka Partition | 重复消费、冲突、TDengine 故障、重启 Storage | 不丢不重、旧版保真、未知写不提前 Commit |
 
 I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 Generator→Collector→Sink 路径，才能确认全链路结果。
@@ -505,7 +507,7 @@ Storage 是完整链路的持久化终点，不是 Sink 的第五个适配器。
 | ST-E2E-01 首次落库 | CLI 启 Storage，Kafka 首次收到合法业务 Record | 库、超级表、子表按配置创建；Storage QuerySamples 与 SQL 值、类型、身份、时间一致 |
 | ST-E2E-02 三级数据 | 同一源事件按三个独立 Delivery 选择 raw/protocol/business | 逐等级验证值、身份、质量、时间；同来源同时间三个等级不互相覆盖；无真实 RAW 来源不可伪造 PASS |
 | ST-E2E-03 类型精度 | INT64/UINT64/DOUBLE/BOOL/TEXT/BYTES、缺失值及非法值 | value_kind 与 oneof/payload 保真；缺失不当零，浮点以有效量化误差为准 |
-| ST-E2E-04 重放和冲突 | 同 logical_key 重投同内容，再投相同 logical_key 但不同内容 | 重投幂等且无重复成功计数；内容冲突阻断，不覆盖旧值、不提前提交 Offset |
+| ST-E2E-04 重放和冲突 | 同设备/Schema/ts 重投同内容，再按更大 offset 投不同内容 | 同内容不增行；后到完整覆盖（含 NULL），不提前提交 Offset |
 | ST-E2E-05 故障收敛 | TDengine 写前/写后断连、Kafka Commit 丢确认、Storage 重启、Consumer Rebalance | UNKNOWN 回读核验，只有连续已确认 Offset 提交，新旧 Consumer 代际隔离 |
 | ST-E2E-06 历史版本 | PointTable v1/v2 切换后重放 v1、Configuration 暂时离线 | v1 历史闭包和 BUSINESS 值不漂移；缺可信闭包时阻断而非使用最新版本 |
 | ST-E2E-07 查询聚合 | UTC [start,end)、分页、设备/点表/等级查询、COUNT/MIN/MAX/AVG | 逐页读全量、不跨等级/单位/版本自动聚合；返回样本与 SQL 一致 |
@@ -606,33 +608,21 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 | 验收项 | 激励及配置 | 独立观察与断言 |
 |---|---|---|
-| Collector Realtime | 固定设备实例/PointTable，CLI 启动采集；包含多个 Point 的采集事件 | 实际 NATS Subject 与模式、来源身份一致；批头携带 `device_type`、`device_id`、`point_table_id`；原始标量未做 scale/offset；批次合法 |
+| Collector Realtime | 固定设备实例及点表，CLI 启动多测点采集 | NATS Subject 与模式、场站、device_config_id、device_id 一致，公共采样时间，原始协议标量未做 scale/offset，严格契约 |
 | Collector Reliable | 同上，JetStream Durable 消费 | JSON 字段集、`schema_version=3`、样本质量/时间不变；无 `max_staleness_ms`；重放 `sample_id` 保持稳定 |
 | RAW/PROTOCOL/BUSINESS | 三个 Delivery 分别显式设置 `output.data_level`，使用相同来源样本及固定历史闭包 | PROTOCOL 保留协议解码来源值，BUSINESS 严格按历史 PointTable/BusinessPoint/Units 标准化；RAW 必须提供可验证的真实来源载荷，来源不具备时显式标记 NOT_SUPPORTED/NOT_RUN；遗漏等级必须拒绝，不存在默认 BUSINESS |
-| Kafka/Redis | 启动真实目标，以独立 Client 读取输出 | 固定 JSON v2 字段、等级、`point_table_id`、`batch_id`、`sample_id`、`business_point_id`、`unit`、值/质量/时间；Kafka Key、Topic 与重复语义正确 |
+| Kafka/Redis | 启动真实目标，独立 Client 读取 | Kafka JSON v3 设备批、固定设备配置身份、等级、统一时间、源测点 value/quality、Key/Topic 与 ACK；Redis 独立按自身契约检查 |
 | Modbus/Gateway | 单独启用 Realtime Delivery，读取实际镜像/变量 | 输出地址编码和点位映射正确；不要求目标寄存器传输 JSON 元数据；保留 Gateway 租约和目标隔离 |
 | 格式拒绝 | 注入未知 `schema_version`、缺 `point_table_id`、重复键/测点、非法时间、NaN、Realtime 缺 TTL、Reliable 带 TTL | 严格拒绝，不能自动补全或静默降级 |
 | 历史版本 | 先按 PointTable A 采样，发布与之业务解释不同的 PointTable B，然后重放旧消息 | A 的 `point_table_id` 和输出值不改变；不查询最新 B 代替；缓存冷启动及 Configuration 断联路径可复验 |
 | 标准点表 | 真实/仿真同类设备与两种型号，共享 BusinessPoint，配置重复映射作为负例 | 逐点业务身份一致，重复/未知 BusinessPoint 被拒绝，单位换算不二次应用 |
-| Storage 三级落地 | 将真实 Kafka RAW/PROTOCOL/BUSINESS v2 Record 交给 CLI 启动的 Storage Consumer | 三等级分别按 Storage 枚举查询及 SQL 核对；保留设备、点表、样本身份；不创建伪 `data_version` 或 `config_revision_id` 解释依据 |
+| Storage 三级落地 | 将真实 Kafka RAW/PROTOCOL/BUSINESS v3 设备 Record 交给 CLI 启动的 Storage Consumer | 三等级分别按 Storage 枚举查询及 SQL 核对；恢复设备、固定点表、时间、值和质量；不创建伪 `data_version` 或 `config_revision_id` 解释依据 |
 
 各场景均遵守第5章真实进程/CLI 启动方式，消息中间件及数据库由测试代码单独启动；完整 CLI 与 RPC 覆盖不因新增线格式测试而减少。非正常消息与下游失败必须保留单 Delivery ACK/重试/死信证据；高吞吐条件下分别统计输入、转换与 Adapter 发送阶段。
 
 ## 9.6 三等级数据与 TDengine Golden Data 对账
 
-**匹配键。** 按真实记录绑定 wind_farm_id、device_type、device_id、point_table_id、point_id、sample_id、sample_time、data_level；BUSINESS 额外绑定 business_point_id 和 unit。Storage logical_key 按 Storage 设计包含这些业务身份；content_sha256 区分相同逻辑键的不同值与质量。collector_id/task_id 用于来源审计，不替代逻辑去重身份。记录 Kafka topic/partition/offset 以复核确认边界。
-
-| 等级 | 期望值来源 | 最终落地验证 |
-|---|---|---|
-| RAW | 有来源证据的原始数据，不允许虚构协议解码前载荷 | 原值/bytes、类型、时间、质量无损；缺 RAW 上游时标 NOT_SUPPORTED |
-| PROTOCOL | Collector SampleBatch v3 的协议解码测点标量 | 不多做 PointTable 的比例/偏移或标准单位转换，point_id/值/质量/时间一致 |
-| BUSINESS | 固定历史 PointTable、BusinessPoint、Units 的独立转换结果 | 正确比例/偏移、类型与单位、business_point_id；不能双重转换或使用当前推荐点表 |
-
-**数值规则。** 整数、布尔、字符串、字节和身份精确比较。浮点按协议量化、scale/offset 与单位转换传播误差给每个点设置明确绝对或相对容差，不因失败放宽阈值。以 UTC 时间及采样窗口匹配 Generator 真值、Collector Batch 和入库记录；Golden Data 不一定自带采集质量或时间，不能假定每个生成步均被采集。Storage 查询采用左闭右开时间区间，遍历全部页并验证稳定顺序。
-
-**可靠账目。** 以真实 JetStream 接受且满足 Delivery 路由条件的样本为基础确定 Kafka 应投递集合，再与 QuerySamples/SQL 的 (logical_key,content_sha256) 集合匹配。分别统计 source_count、broker_count、persisted_unique_count、missing_count、unexpected_count、conflict_count、value_mismatch_count、identity_mismatch_count、quality_time_mismatch_count 及 Offset/Lag。三个等级各自成表；合法过滤、重复投递与 RAW 不支持单列，禁止靠总计数抵消缺失。
-
-**PASS 标准。** 所选等级的应持久化记录全部可查且内容一致；missing/unexpected/conflict/value_mismatch/identity_mismatch/quality_time_mismatch 均为零；重复同内容只记一次逻辑样本，同键异内容不计成功且不得覆盖。TDengine 短故障、Storage 重启、历史闭包缺失时严禁跳 Offset、seek latest 或用最新配置替换旧语义。
+按场站、设备、固定 PointTable 版本、物理 Schema、等级、统一 sample_time 匹配完整行。独立 oracle 解析 Device Instance 历史闭包及列版本、类型、单位、Quality 位序。同目标键按同 Partition 较大 offset 确定最终值；同内容重放不增行、异内容覆盖（含 NULL）。独立读取 SQL 与 Storage RPC，RAW 对照真实载荷，PROTOCOL 对照解码值，BUSINESS 对照独立计算标准值。逐值、质量、时间核对；整数/布尔/文本/bytes 精确、浮点预先声明容差。统计 source、device_records、broker_confirmed、rows、points、offset、lag；missing/unexpected/value/quality/identity mismatch 均为零。确认不等于 producer submission。实际列与表身份直接读回核验。
 
 ## 9.7 安全认证复用与负载边界
 
@@ -668,9 +658,11 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 
 ## 10.4 Storage 性能、故障与落地容量
 
-单等级理想能力为 30 台 × 10 Hz × 500 点 = 150,000 逻辑点/s；三等级同时真实入库为 450,000 Record/s 的独立极限口径，并不意味着所有来源天然支持 RAW。分别开展 10 分钟持续负载、60 分钟长稳与 100000/75000/50000 点/s 阶梯回退，记录真实稳定吞吐、CPU/RSS、TDengine IO、Kafka Lag、Offset、写入延迟及查询 P99。容量不足必须报告实测上限，不得修改验收分母。
+按 Storage v1_12 §14 执行 F01–F22、TD01–TD12。单等级 P1 10×500×10=50000 点/s、100 行/s；P2 12×500×10=60000 点/s、120 行/s；P3 30×500×10=150000 点/s、300 行/s；三等级完整同时写入为450000点/s、900行/s。每工况至少60s，最高满足工况至少600s；保留10分钟及60分钟长稳目标。单实例，不做多实例容量。裸库、Kafka→Storage、Sink→Kafka、全链路分段；实际发布≥目标95%，lag 不持续增长，最终无缺值、错值；记录CPU/RSS、IO、压缩、延迟、批大小、broker ACK、数据库确认/commit。真实500不同点及变化值，不重复同点。
 
-在 Kafka 可用但 TDengine 断连、写后确认丢失、Commit 失败、DDL 并发、Storage 进程崩溃、历史版本切换的条件下复测最终数据集合。任何 UNKNOWN 无法回读收敛、Offset 间隙或历史值漂移均不允许 FULL_CHAIN_PASS。测试只能操作独立测试库，禁止 DROP/ALTER 非测试库。
+TD01 裸库/taosBenchmark、TD02 STMT2 多表、TD03 Statement 复用、TD04 vgroups 2/4/8、TD05 buffer 128/256/512 MB、TD06 批量阈值、TD07 WAL/故障恢复、TD08 NULL覆盖、TD09真实压缩、TD10查询并发、TD11 500点列/行宽与 VARBINARY、TD12参数回读。WAL_LEVEL=2/WAL_FSYNC_PERIOD=0 可靠基线，不允许关闭 WAL 取得性能；只保留显著收益调优，不擅自降额认定 READY。
+
+覆盖首次/新设备/升级建表、未知设备精确拉取、历史回放、物理类型映射边界、后到覆盖、部分成功/UNKNOWN底层 I/O、重平衡、commit ACK 丢失、重启、背压。实际表/列/行及连续 Offset 独立核对；不操作非测试库。真实服务 CLI 启停，中间件由测试启动；三级数据独立证据，未执行 NOT_RUN。
 
 # 11. 测试执行、目录、Marker 与报告
 
@@ -804,7 +796,7 @@ reason: "template only; not executed"
 - 根据上一轮 `design_config_freeze_retest_20261123.md` 的 D-01～D-28 逐项确认具体正文冲突是否删除或由经授权的冻结勘误正式替代；不能仅靠前置“旧条款失效”文字让历史错误自动 PASS。
 - 优先验证 RAW=解码前真实帧/字节、PROTOCOL=协议类型解码但未缩放标量、BUSINESS=不可变点表和业务单位转换；Collector 禁止工程换算，Sink 仅换算一次；对 `engineering`、默认等级及伪 RAW 必须报错。
 - 使用当前 `src/contracts/*.proto` 的静态 RPC 名称与字段号作为对照（只读）；Configuration `GetServiceConfigBundleRequest` 的 `revision_id=0` 按自身 Proto 表示当前 published revision。不要用其它 RPC 的默认值语义误判。
-- 检查 CLI 仅 `config publish --root` 为配置发布权威；Common Push/Apply 历史描述不得赋予业务配置双写权；Device/Gateway 变量身份、SampleBatch v3、Sink Delivery 意图和 Storage 单实例/幂等身份在正文一致。
+- 检查 CLI 仅 `config publish --root` 为配置发布权威；Common Push/Apply 历史描述不得赋予业务配置双写权；Device/Gateway 变量身份、目标同步 SampleBatch、Sink Delivery 意图和 Storage 单实例/幂等身份在正文一致。
 - 检查最新模块设计内部版本引用和章节链接，不允许规范性引用指向已删除旧版本文档。历史审计中的旧链接须显式说明其非现行基线。
 
 ### 15.2.2 候选版本闭包矩阵

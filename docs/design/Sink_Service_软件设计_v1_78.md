@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_77 · 20261125 · Kafka 同分区批次合并与独立容量验收</p>
+<p class="subtitle">v1_78 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -753,6 +753,8 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
 **main 集成基线（2026-11-23）**：本模块按已集成的 Collector SampleBatch v3、Kafka JSON v2、Storage 与 Configuration Deployment 闭包解释数据。`output.data_level` 必须显式选用 `raw`、`protocol` 或 `business`，不能隐式默认 business；RAW 无真实协议载荷时必须拒绝。三进程结构与可靠 ACK 语义保持。历史 R0/R1/旧 Schema 小节仅为非规范性迁移记录，不得覆盖当前实现。
@@ -816,7 +818,7 @@ System Test 必须遵守以下规定：
 |---|---|
 | 请求方（Requester） | NATS Core 消息生产者（Collector）；周期定时器非外部请求方 |
 | 触发方式（Trigger） | 消息：实时样本到达；周期：按 Delivery 输出/保底周期；状态：目标恢复后重试未过期最新值 |
-| 输入（Input） | 批量实时样本（现行 Contracts §11.6 SampleBatch v3）、来源规则、逐测点有效期、Delivery 输出策略 |
+| 输入（Input） | 批量实时样本（Contracts §11.6 目标同步 SampleBatch）、来源规则、逐测点有效期、Delivery 输出策略 |
 | 反馈（Response） | 不逐条应答 Core 消息；通过状态、指标与事件查询派发结果 |
 | 目标方（Destination） | 已绑定的 Redis、Modbus TCP Server 或 Industrial Gateway（Realtime）；Kafka 不属于本实时用例 |
 | 业务输出（Output） | 未过期的最新值及原始质量、时间、测点身份 |
@@ -986,7 +988,7 @@ flowchart TD
 
 **R03-02 共享资源所有权。** 共享 Sink 以稳定身份键管理引用；最后一个 Delivery 引用释放且 I/O 已安全收敛后才可关闭目标连接；正在进行的操作不能因上层取消失去所有权。
 
-`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。当前 Kafka JSON v2 与 Redis Value 由各自 Outbound Adapter 实现，遵循 Contracts §11.9 与 Golden Data 验收，不要求新格式字节等同旧格式；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
+`DeliveryPoint` 是 Application 的业务值对象，不包含 Kafka/Redis 的目标协议 JSON 字段构造和序列化。目标 Kafka JSON v3 与 Redis Value 由各自 Outbound Adapter 实现，Kafka 遵循 Contracts §11.9，Redis 遵循自身契约及 Golden Data 验收，不要求新格式字节等同旧格式；Reliable 与 Realtime 的序列化均不得回流到 Domain/Application。
 
 **物理目标隔离竞态。** 物理目标隔离状态必须在等待全局/目标额度后、开始原生写入之前重新核对；目标在等待期间变为 unsafe 时不得提交原生 I/O。关闭 Adapter 为异步过程，关闭期间或关闭完成前若发生未决 I/O 取消，必须保留物理隔离与引用占有，不能删除池条目或重建目标绕过 fencing。
 
@@ -2718,52 +2720,22 @@ sequenceDiagram
 
 | 策略 | 准入 |
 |---|---|
-| `require_dedup` | 需要可验证的跨重启持久身份和下游幂等契约；当前 Kafka JSON v2 不含 delivery_id，未建立可靠跨重启去重证明前该模式不能宣称支持 |
+| `require_dedup` | 需要可验证的跨重启持久身份和下游幂等契约；目标 Kafka JSON v3 不含 delivery_id，未建立可靠跨重启去重证明前该模式不能宣称支持 |
 | `allow_at_least_once` | 下游明确接受重复写入 |
 
 目标还必须能明确确认交付。Kafka Producer 会话幂等不等于跨 Broker exactly-once；ACK 丢失或进程崩溃时允许重投。重放消息头不构成交付归属的可信证据；消息仅按已校验的配置来源筛选，不能因为消息头指定了其他 Delivery 就直接 ACK。
 
 ## 10.7 Kafka 高吞吐批量交付
 
-### 10.7.1 Kafka JSON v2 批内编码
+目标 Kafka JSON v3 见 Contracts §11.9，一设备同步采样事件、一等级、一条完整 Record。解析 device_config_id + device_id 固定历史闭包，按 Delivery 做 RAW/PROTOCOL/BUSINESS 处理并保持源点及质量；缺真实 RAW 或批准业务闭包时可靠源不确认。删除逐点 Kafka 编码。
 
-Kafka Reliable 的输出线格式以 Contracts §11.9 和现行 `src/sink_service/` 编码实现为准，逐 Record 包含明确 `data_level` 和固定 `point_table_id`。先校验 SampleBatch v3 的来源身份和历史解释闭包，再按显式等级转换与编码；不得复用已退役的 Kafka JSON v1 公共前缀拼接算法。批量分组与 Future 确认的性能优化不允许丢失 Record 级样本身份、质量、时间与数据等级。具体每批大小、在途限制和 ACK/UNKNOWN 处理仍遵循 §10.7.2。
+### 10.7.1 设备批编码
+
+一次编码完整设备，统一采样时间；源点 value/quality 二元组，未采集 NULL/0，不拆部分行。检查 Record 大小及 producer/broker/topic/consumer 上限，超限拒绝。实时 TTL 与其他目标遵守各自契约。
 
 ### 10.7.2 Kafka Builder 与 Future 索引
 
-```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true}}}%%
-flowchart TD
-    A["可信源子批：最多 500 点"] --> B["保留源身份与逐点编码"]
-    B --> C["设备有序准入与分区归属"]
-    C --> D["同分区就绪请求有界合并"]
-    D --> E["按容量装入目标写入批"]
-    E --> F{"目标批能容纳下一条记录？"}
-    F -->|能| G["继续装入；最后提交非空批"]
-    F -->|不能且批非空| H["提交当前批；新批重试该记录"]
-    F -->|不能且批为空| X["拒绝超大记录并保留失败归属"]
-    G --> I["登记原始请求与局部索引区间"]
-    H --> I
-    I --> J["等待目标确认；继续调度已就绪请求"]
-    J --> K["可信确认结果分配至原始请求"]
-    K --> L["各来源独立裁定源批确认"]
-```
-
-<p class="figure-caption">图 10-6 Kafka 同分区批次合并与确认结果映射</p>
-
-| 技术条件 | 约束 |
-|---|---|
-| 准入边界 | 每逻辑写入仍受全局与物理目标额度约束；设备 stripe 保持至本请求结果终局 |
-| 合并范围 | 同一 Producer、Topic、Partition 内的就绪请求；保留各 Record 的原始 Key 与 bytes，不合并不同分区 |
-| 容量 | 500 点是源子批限制，不是物理 Builder 点数限制；实际容量以 `append` 返回值为准；非空批装不下时提交并重试该记录 |
-| 调度 | 单事件循环、每活跃 Partition 一个提交任务，FIFO 取就绪请求；提交与确认分离，不等待先前 Broker 确认才开始下一组提交；无新增定时 linger 或独立准入额度 |
-| Future 索引 | 每次 `send_batch` 登记原始请求及其局部零基半开区间、Future 和提交时刻 |
-| 确认 | Broker Future 成功后才确认其覆盖的各请求索引；共享 Future 拒绝时各成员分别获知失败，不得将其他请求的确认视为自身成功 |
-| 资源所有权 | 调用取消不取消共享确认；未决请求仍持有 stripe；STOP/Reload 先停止准入，再收敛提交与确认；异常取消继续服从物理输出隔离约束 |
-| Producer | `acks=all`、`enable_idempotence=true`、`linger_ms=0`，`max_batch_size` 默认 131072 byte；实验配置不等于生产冻结配置 |
-| 观测 | 物理 Builder 尝试只计一次，归属首个源片段；确认延迟按每个原始请求实际成功 Record 数加权，服务级合计不得重复计数 |
-
-共享提交不承诺 Kafka ProduceRequest 数与 Builder 数一一对应。合并后的性能收益及安全性必须经独立真实容量复测确认。
+同 Producer、Topic、Partition 有界合并完整 Record，保留 Key/bytes；非空 Builder 容纳不了下一 Record 时提交后重试该 Record，空 Builder 仍装不下则拒绝。原始请求及局部索引、Future 与源 JetStream ACK 独立结算；真实 broker ACK 才确认。设备 stripe 持有到真实终局；取消/超时/STOP/Reload 不提前释放未结束 I/O。acks=all、enable_idempotence=true；不承诺跨系统 exactly-once。Key 为场站:设备，同 Topic 分区算法/数稳定，不同设备并行。记录 points、device records、builder、broker confirms，单实例 30×500×10 为目标。
 
 ## 10.8 设备顺序与有界写入并发
 
@@ -2788,7 +2760,7 @@ flowchart TB
 | 设备 Durable | 显式单设备来源使用精确 Subject；多设备或未限定设备的 Delivery 使用范围 Subject 再过滤；`max_ack_pending=1`、`fetch(batch=1)`；前批未终局不处理后批 |
 | 不同设备 | 并发受第 6 章资源预算、模板 `supports_concurrent_write/max_safe_inflight` 限制；同分区可合并就绪请求，不同分区可独立提交 |
 | 来源交叉 | 同物理目标同设备重叠拒绝，不能以新 Sink ID 绕过共享额度 |
-| 设备 Key | UTF-8 `wind_farm_id:collector_id:device_id`；128 stripe 锁保证同设备写入及确认顺序 |
+| 设备 Key | UTF-8 `wind_farm_id:device_id`；128 stripe 锁保证同设备写入及确认顺序 |
 | Topic 分区 | 缓存命中显式指定；失效时用 `_wait_on_metadata` 有界解析并使用 Producer 分区算法；不明则 fail-closed |
 | 未决 I/O | 取消、超时、STOP/Reload 不提前释放锁和 Future 所有权 |
 
@@ -3417,16 +3389,16 @@ Sink 在正式业务派发前必须取得 Configuration `GetPointTableBundle` �
 
 **并发能力契约**：每个 Delivery 默认仅允许一个在途操作；共享 Sink 可以允许不同 Delivery 并发，但须满足 Adapter 的 `supports_concurrent_write`、`max_safe_inflight`、Sink 配置上限、进程上限和目标顺序约束的交集。未声明安全并发的 Adapter 上限固定为 1。跨进程共享目标资源时，不能把两个进程的本地计数误认为全局协调；需要独立连接/端口/客户端配额或明示无法提供严格隔离的部署限制。
 
-**输出批次契约**：上游 NATS 使用批量 `SampleBatch`；Sink 按 Delivery 独立维护点映射、最新值和输出策略，采集触发不等于目标输出触发。10 Hz 周期调度时从有效最新值缓存提取本周期待输出点，按稳定 `(device_id, point_id)` 排序打包，**一次批次最多 500 个值**；更多测点须依固定顺序切分为多个批次并分别计入交付负载。每个值与原始 `quality`、`sample_time`、`sample_id` 对应；Modbus 映射为寄存器镜像的原子更新，Redis/Kafka 按第 12.1.1 节的Contracts §11.9 的目标 JSON v2 编码/序列化定义确认；Gateway 按逐变量 RPC 结果确认。若目标不具备实际批写能力，其写入时延与 I/O 次数须按单点或分块操作真实计量，不得用调用 1 次的抽象层统计掩盖多个网络请求。
+**输出批次契约**：上游 NATS 使用同步设备级 SampleBatch。Reliable Kafka 保留源设备采样事件边界，一设备/时刻/等级一条完整 Record，禁止按点数或字节拆分同一历史行；缺省未采集点填 NULL/0。Realtime Redis/Modbus/Gateway 仍按各自 Delivery 最新值、TTL、地址映射及确认规则组织调度批，不能将实时合并缓存冒充历史完整采样事件。所有目标记录真实 I/O 和确认次数，Kafka 见 Contracts §11.9。
 
 **重复策略**：Kafka Reliable 按 `output.business_duplicate_policy` 验证；`require_dedup` 必须提供可核验的去重方，`allow_at_least_once` 明确不承诺去重。Redis、Modbus TCP Server 与 Gateway 首版模板均须 `reliable: false`，Kafka 首版模板须 `realtime: false`；违反通道矩阵的候选配置直接拒绝。Modbus 业务成功边界只到内存镜像。
 
 ### 12.1.1 四类输出的可编码映射契约
 
-当前可靠派发输出采用 Kafka JSON v2，以 `point_table_id` 锁定样本解释语义；先由 Delivery 确定数据等级并进行必要转换，再由 Adapter 执行目的协议编码。
+目标可靠 Kafka 输出采用设备级 JSON v3，通过固定 device_config_id 解析历史点表，先转换等级再完整批次编码。
 
 1. **Redis**：业务 Key 由 `namespace:wind_farm_id:collector_id:device_id:point_id` 组成，禁止使用 `sample_id` 作为 Key 的一部分。Value 为 UTF-8 JSON 对象，固定包含 `sample_id`、`value`、`quality`、`sample_time`、`publish_time`、`collector_id`、`device_id`、`point_id`、`wind_farm_id`；时间统一为 UTC ISO 8601，数值与布尔使用原始 JSON 类型，`null` 不改写为数字零。单个 Adapter 批次的成功要求所有属于该批的 Key 更新均获得可信确认；部分成功不得宣称整批已成功，已成功测点的确认按具体操作记录。
-2. **Kafka**：输出 Topic 使用模板 `output.topic`；Message Key 使用 `wind_farm_id:collector_id:device_id` 的 UTF-8 字节；Value 按独立输出的测点条目规范 JSON 编码（含 `sample_id`、质量和原始采样时间，必要时保留源批次身份）；不得将整个 `SampleBatch` 强行当作旧单点消息或无依据假称输出格式已验收。同一设备使用稳定 Key，但不承诺跨设备、跨分区的顺序。Broker 确认数按真实 Producer 操作记录，多个上游样本合成的调度批次不假装为 Kafka 原生单条消息。
+2. **Kafka**：目标 Topic 由模板配置，Key 为 wind_farm_id:device_id，Value 为 Contracts §11.9 完整设备级 JSON v3；真实 broker 确认与源 ACK 分离。
 3. **Modbus TCP Server**：同一 `unit_id` 的点映射按 `(wind_farm_id, collector_id, device_id, point_id)` 字典序固定排序，序号从 0 开始。第 $i$ 个点的浮点值起始 Holding Register 为 `register_start` 加 $2i$，质量寄存器为 `quality_register_start` 加 $i$。寄存器地址为零基偏移，编码固定为 IEEE-754 binary32，高字在前且每字节高字节在前。质量码 `good=0`、`bad=1`、`uncertain=2`。每个配置代内映射固定；映射变更需先完成旧版本的安全切换。对 `null` 或不可编码为有限 `float32` 的值，拒绝该点更新并记录明确错误，不将其改写为 0；不影响同批其他有效点的编码结果。读取端必须通过同一版本的点位映射清单解释寄存器，不能仅凭点值自行恢复身份。
 4. **Industrial Gateway**：按 `gateway_id` 批量调用 `ClaimTargets` 和 `UpdateVariables`，仅在有效租约和逐项结果 `success` 下确认对应点；请求级超时视为 UNKNOWN。Gateway 的变量 ID 与共享点表精确映射，不重复生成设备/点表定义；该 RPC 只更新 Gateway 变量存储，绝不提交 Commander。源批时间、质量、`sample_id` 不属于现有 Gateway UpdateVariables wire 字段，不得宣称 Gateway 原样持久保存这些元数据。
 5. **批次与计数**：一个调度批次可以拆成多个网络 I/O 操作；`failed_total` 按真实明确失败 I/O 尝试计数。`delivered_total` 按获得明确成功确认的逻辑样本交付计数，同批 500 条样本均已确认时增量为 500，而不是 1；仅当各样本明确完成时分别计入。批次大小、样本数和 I/O 尝试数须分别在测试中核验，不互相代替。
@@ -3469,17 +3441,17 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 
 ## 12.1.5 三级转换和对外数据包格式
 
-**唯一权威**：Collector→Sink 的 NATS SampleBatch v3 见 Contracts §11.6；Sink→Kafka 的单点 JSON v2 见 Contracts §11.9，并与 Storage §6.5 对齐。两条线格式分别演进；配置的 `file_version` 和报文的 `schema_version` 不可混用。
+**唯一权威**：目标 Collector→Sink NATS v4、Sink→Kafka 设备级 JSON v3 以 Contracts §11.6/§11.9 为准，Storage v1_12 定义宽表。
 
 每个 Delivery 的 `output.data_level` **必须显式配置**，仅允许 `raw`、`protocol`、`business`，不得默认 `business` 或把旧 `engineering` 静默重命名为 `protocol`。
 
 | 等级 | 数据语义 | 依赖条件 | 输出身份 |
 |---|---|---|---|
 | RAW | 协议解码之前取得的原始帧/字节载荷，非已解码数值 | Driver 必须提供经来源和长度核实的原始载荷及其受控编码，现阶段不具备 | 源设备/帧或点定位；业务点和标准单位无值 |
-| PROTOCOL | Driver 完成协议字节序、数据类型等解码后的标量；尚未应用 PointTable scale/offset、工程或标准单位换算 | SampleBatch v3 来源身份与标量验证 | 源 `point_id`，`business_point_id=null`，`unit=null` |
+| PROTOCOL | Driver 完成协议字节序、数据类型等解码后的标量；尚未应用 PointTable scale/offset、工程或标准单位换算 | 目标同步 SampleBatch 来源身份与标量验证 | 源 `point_id`，`business_point_id=null`，`unit=null` |
 | BUSINESS | PROTOCOL 经历史 PointTable scale/offset、BusinessPoint 映射及 Units 标准换算的结果 | 必须有 `point_table_id` 对应的不可变完整依赖闭包；无法验证时不交付 | 同时保留来源 `point_id` 与标准 `business_point_id`、`unit` |
 
-**当前代码能力边界（开发中）**：Collector 停止发布前的工程值换算，SampleBatch 严格 v3，Kafka 输出 JSON v2。PROTOCOL 可直接派发；BUSINESS 已具备基于 `GetPointTableBundle` 历史闭包的运行时转换代码，但**必须**在受控 Sink Service 配置中声明 `config_sync.repository_endpoint`、`repository_token_ref`（仅 `env:` Secret 引用）及 `approved_point_table_manifests`（完整点表 ID 到精确 64 位 SHA-256 映射），并由实际现场映射审查批准。未获批准的 `point_table_id` 一律拒绝，历史闭包失效、网络失败和哈希冲突不得改用推荐版本或自动降级；Reliable 采用原 JetStream 失败重投。业务换算复用 Core 标准类型、工程值及 Units 换算，整型保留 64 位精度，无法无损转换时拒绝。RAW 由于尚无 Driver 原始报文字节来源，依然禁止发布；完整准入仍需 RAW 生产链路和独立测试完成。
+**迁移基线与目标**：当前代码使用 NATS v3/Kafka v2；目标为 Contracts §11.6/§11.9 同步设备批。BUSINESS 仍需按可信历史配置闭包及受控 approved_point_table_manifests 验证现场语义批准，缺失、网络失败或摘要冲突不得降级或回退推荐版；复用 Core 类型及单位换算，64 位整数无损。RAW 仅使用真实原始载荷；实际 ADS/IEC104/Modbus 各功能码的可用性由独立实测裁定，未验收不得宣称支持。
 
 每条 Kafka Record 必须携带 `data_level`；Storage 按 `raw=1`、`protocol=2`、`business=3` 存储且不进行二次解码。原始身份、质量、时间、`sample_id`、`point_table_id` 在转换中不得覆盖。Reliable 源 ACK 只在目标持久确认后进行；未知结果保持 JetStream 重投语义。历史重放必须使用随消息固定的 `point_table_id`，不得切换至 Configuration 当前推荐版本。
 
@@ -3498,7 +3470,7 @@ config_sync:
 
 上述内容是**格式示意，不是可直接部署的批准配置**。正式业务数据须替换为已验证的精确哈希，未核验的 GW2MW 点表不能填入。主运行配置不应因为尚无有效现场证据而设置虚构哈希。
 
-Kafka Reliable 按单点 Record 组织 JSON v2；Redis Value 使用统一的投影后 JSON 字段，Adapter 自行决定 Key/TTL/CAS；Modbus 寄存器镜像与 Gateway `UpdateVariables` 无法直接传输 JSON 来源元数据，必须由 Delivery 的目标映射和配置版本切换保证正确解释。输入、转换和发送阶段各自可观测；原消息不可被修改，同批次不同 Delivery 可用不同等级输出。
+Kafka Reliable 按完整设备级 Record 组织 JSON v3；Redis Value 使用统一的投影后 JSON 字段，Adapter 自行决定 Key/TTL/CAS；Modbus 寄存器镜像与 Gateway `UpdateVariables` 无法直接传输 JSON 来源元数据，必须由 Delivery 的目标映射和配置版本切换保证正确解释。输入、转换和发送阶段各自可观测；原消息不可被修改，同批次不同 Delivery 可用不同等级输出。
 
 **失败条件**：缺失/冲突的业务映射、单位量纲不匹配、非法值/类型、未知 `point_table_id`、PointTable 内容哈希与已知身份冲突均拒绝解释和交付；`sample_id`、质量、时间戳、幂等及可靠重试语义不得改变。
 
@@ -3857,8 +3829,8 @@ System 测试以真实进程与真实消息基础设施运行，受控测试目�
 
 | 标识 | 层级 Marker | 验收要求 | 与基线比较 |
 |---|---|---|---|
-| B3-01 | unit、contract | 当前 v1 固定 13 字段目标 Record 字节夹具 + 目标 JSON v2 新字段完整 Golden Data（以 Contracts §11.9 为准）、§10.7.1 两测点示例、浮点、Unicode、时间偏移、null、布尔和大整数；验证逐点独立输出且公共身份字段编码一次；不得依赖已移除的单点 NATS 消息类 | 独立编码参考夹具 |
-| B3-02 | component、reliability | 500 点默认输入、显式 1024 点合法配置下的源批拆分、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | SampleBatch v3 |
+| B3-01 | unit、contract | 独立 JSON v3 设备批夹具；公共字段一次、测点 value/quality、同步时间、NULL、RAW、Unicode、浮点/大整数及类型边界；拒绝旧线格式、未知设备/点/重复键、超限 | Contracts §11.9 独立编码参考夹具 |
+| B3-02 | component、reliability | 500 点默认输入、显式 1024 点容量校验（不得拆完整历史设备行）、超上限拒绝、过滤空子集、Reload、Builder 多批失败、Future 所有权不退化 | 目标同步 SampleBatch |
 | B3-03 | system、performance | 真实 JetStream/Kafka 三进程 A/B 至少三轮，报告编码 CPU/批、Reliable CPU/批、CPU 栈、event-loop lag P99、Broker ACK、吞吐、backlog、RSS | R11 稳定容量 |
 | B3-04 | system、reliability | 30 Durable、Realtime/可靠双通道共载、断连恢复、超限 Record、无提前 ACK；全量字节、记录顺序和重复数审计 | R10/R11 |
 | B3-05 | system、performance | Reliable 独立与双通道各至少 600 秒稳定性复核；如实际环境不可达，明确 NOT_RUN，不虚称达标 | R11 |
@@ -3911,7 +3883,7 @@ lint-imports
 |---|---|---|
 | 部署 | 单容器 Main、Realtime、Reliable 三进程，两个 Worker 独立事件循环 | Sink 当前代码、R11/R12 |
 | 源数据 | main `SampleBatch` Schema 3 与 `SampleItem`；精确设备 Subject 使用 `wh.rt.batch.<farm>.<collector>.<device>` / `wh.hist.batch.<farm>.<collector>.<device>`；Sink 私有 `DeliveryPoint` 只承担输出上下文 | main `src/contracts/sample_batch.py`、Sink `application/delivery_point.py` |
-| 高吞吐实现 | Reliable Kafka 每源子批最多 500 点；`encode_kafka_points` 复用公共字段并逐点拼接差异字段；一测点一 Kafka Record；同分区就绪请求合并、Future 与 ACK 规则见 §10.7 | `kafka_wire.py`、`reliable_runtime.py`、`realtime_adapters.py` |
+| 高吞吐实现 | Reliable Kafka 每源子批最多 500 点；设备级 JSON v3 编码（目标）；一设备同步采样批次一 Kafka Record（目标）；同分区就绪请求合并、Future 与 ACK 规则见 §10.7 | `kafka_wire.py`、`reliable_runtime.py`、`realtime_adapters.py` |
 | B3 正确性 | 历史 234 项 parity、新增 307 项逐字节测试；Sink 525、Contracts 91、R10/R11 系统回归 5 项 PASS | `docs/sink-service-r12-final-optimization-acceptance.md` |
 | R12 饱和吞吐 | Reliable-only 三轮 120s A/B 中位数 B2 **72281** → B3 **85937** 确认值/s（+18.89%），JSON 编码 CPU −33.1%；不等于 600s 稳定容量 | R12 §3 |
 | Reliable 长稳 | B3 **125 批/s × 500 点 = 62500 值/s**，600s 无持续积压；150 批/s 在 600s 出现积压，不能认定稳定 | R12 §4 |

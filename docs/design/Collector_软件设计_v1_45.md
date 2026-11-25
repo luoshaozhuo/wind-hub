@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_44 · 20261123 · 设计冲突与配置冻结整改</p>
+<p class="subtitle">v1_45 · 20261125 · 宽表重构协同设计（待技术验证）</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC；由 Configuration 广播 revision 提示，Collector 独立对账。
 
@@ -751,6 +751,8 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
+**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_12 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
 **main 集成基线（2026-11-23）**：Collector 的采样输出以当前 `SampleBatch` v3 代码与共享协议契约为准；历史配置点表身份必须固定，Realtime 与 Reliable 使用一致的样本身份；不再以旧 Schema 2 为当前格式。 历史章节如与此基线、当前 Proto 或已集成源码冲突，以可执行契约为准，不将开发阶段的待办状态视为当前事实。
@@ -1169,7 +1171,7 @@ flowchart TD
 
   目标方（Destination）               NATS / JetStream
 
-  业务输出（Output）                  按 Contracts SampleBatch v3 编码的采样批量消息
+  业务输出（Output）                  按 Contracts 目标同步 SampleBatch 编码的采样批量消息
   -----------------------------------------------------------------------------
 
 ### 3.5.2 业务流程
@@ -3060,6 +3062,11 @@ Collector 的 Server 实现责任。实现中如发现 `common.proto`
 
 # 10. 核心技术与数据契约
 
+## 10.0 宽表目标采样契约
+
+固定活动 Device Instance 完整版本身份及 device_id，目标 SampleBatch v4 见 Contracts §11.6，派生字段由闭包解析。历史设备采样事件统一 sample_time，允许 NULL；不得让多个 Task/点组同设备同一时刻提交不同部分行。核验现行调度、point_groups、采样事件及消息大小；超限或不满足同步约束时阻断，不拆完整历史行。协议响应可分次读取，不宣称物理同时测量，统一采样事件时间语义由采集计划定义。保留真实原始载荷、质量、必要追踪、实时 TTL。配置切换在途批固定旧身份。
+
+
 ## 10.1 单设备唯一任务与采集机制
 
 每设备一个采集实例。**采集触发策略与 Sink 的下游输出策略分离**；各采集模式统一调用批量回调 `tuple[ProtocolSample, ...]`，一次来源采集完成或一次原生通知形成一个逻辑批次。
@@ -3093,7 +3100,7 @@ I/O
 
 ## 10.3.1 原始标量、PointTable ID 与采集计划绑定
 
-Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不在发布前应用 PointTable 比例/偏移、BusinessPoint 映射或标准单位换算。**Collector 对 NATS 的唯一正式源数据格式是 Contracts §11.6 定义的 SampleBatch v3；此处不重复定义字段或编码。**
+Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不在发布前应用 PointTable 比例/偏移、BusinessPoint 映射或标准单位换算。**Collector 对 NATS 的唯一正式源数据格式是 Contracts §11.6 定义的目标同步 SampleBatch；此处不重复定义字段或编码。**
 
 Collector Task Instance 用 `group` 选择 Device Instance 中属于该组的设备集合；再逐台依据固定 DeviceModel/PointTable 解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
 
@@ -3101,9 +3108,9 @@ Collector Task Instance 用 `group` 选择 Device Instance 中属于该组的设
 
 ## 10.4 NATS 投递及可靠性边界
 
-正式来源载荷为 SampleBatch v3。历史 Schema v2 仅是迁移审计，不可据此重新构造当前消息；`config_revision_id` 不进入 SampleBatch。采集计划依据 Deployment→Service→Instance→Template 精确闭包，所有历史 PointTable 身份不可从“当前最新”推断。
+目标正式来源载荷为同步 SampleBatch，现行 v3 是迁移基线。历史 Schema v2 仅是迁移审计，不可据此重新构造当前消息；`config_revision_id` 不进入 SampleBatch。采集计划依据 Deployment→Service→Instance→Template 精确闭包，所有历史 PointTable 身份不可从“当前最新”推断。
 
-Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现行三种采集模式发送携带不可变 `point_table_id` 的 `SampleBatch(schema_version=3)`，每次来源事件独立成批，超限只拆本事件，不跨周期/回调合并。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责下游输出策略与目标确认，Collector 不将 PubAck 解释为目标入库成功。
+Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现行 v3 为迁移基线；目标按 Contracts §11.6 携带固定 device_config_id 和统一 sample_time，每个同步设备采样事件独立成批，历史完整行超限不得拆分。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责目标确认，Collector 不将 PubAck 解释为目标入库成功。
 
 ## 10.5 指标时间和历史职责
 
