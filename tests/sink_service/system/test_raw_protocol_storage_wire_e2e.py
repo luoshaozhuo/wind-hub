@@ -115,7 +115,6 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
         await sink_harness.stop()
 
 
-
 async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
     sink_harness: SinkSystemHarness,
 ) -> None:

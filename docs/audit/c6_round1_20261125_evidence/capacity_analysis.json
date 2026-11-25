@@ -1,0 +1,70 @@
+{
+  "120": {
+    "result_file": "docs/audit/c6_round1_20261125_evidence/r14_capacity_d30_r120_f1992e39bbc9.json",
+    "stage_counters_monotonic": {
+      "reliable_source_fetch": true,
+      "reliable_encode": true,
+      "reliable_write": true,
+      "reliable_source_ack": true
+    },
+    "final_pending_nonzero": {},
+    "peak_pending_min": 35,
+    "peak_pending_max": 36,
+    "peak_pending_top5": [
+      [
+        "WH_SINK_8d777024bab099f0b87f5716",
+        36
+      ],
+      [
+        "WH_SINK_336707703194a8518a714f6a",
+        36
+      ],
+      [
+        "WH_SINK_c37599408d76730b93387add",
+        36
+      ],
+      [
+        "WH_SINK_8ee584c2f947d631cfb5c9b1",
+        36
+      ],
+      [
+        "WH_SINK_46759566259c78e039889b13",
+        36
+      ]
+    ]
+  },
+  "300": {
+    "result_file": "docs/audit/c6_round1_20261125_evidence/r14_capacity_d30_r300_6c8bdecca78b.json",
+    "stage_counters_monotonic": {
+      "reliable_source_fetch": true,
+      "reliable_encode": true,
+      "reliable_write": true,
+      "reliable_source_ack": true
+    },
+    "final_pending_nonzero": {},
+    "peak_pending_min": 307,
+    "peak_pending_max": 309,
+    "peak_pending_top5": [
+      [
+        "WH_SINK_35f855c6b5ab5af87d1ef218",
+        309
+      ],
+      [
+        "WH_SINK_3d5eb3c7c699ea323384518e",
+        309
+      ],
+      [
+        "WH_SINK_78f664a403b38d78a2db5ccf",
+        309
+      ],
+      [
+        "WH_SINK_cf9d8f2529575efb7e53569d",
+        309
+      ],
+      [
+        "WH_SINK_f1ace17342a2c0ab5209d8d5",
+        309
+      ]
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+........................................................................ [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 15%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+........................................................................ [ 31%]
+........................................................................ [ 37%]
+........................................................................ [ 42%]
+........................s....................s.......................... [ 47%]
+........................................................................ [ 52%]
+........................................................................ [ 58%]
+........................................................................ [ 63%]
+........................................................................ [ 68%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 84%]
+........................................................................ [ 90%]
+........................................................................ [ 95%]
+..ssssssssss....................................................         [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:35
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:35: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/collector/system/test_collector_acquisition_system.py:98: NOT_RUN: no ADS/TwinCAT environment for native SUBSCRIBE
+SKIPPED [1] tests/collector/system/test_collector_device_system.py:75: NOT_RUN: no TwinCAT ADS router provided (set WIND_HUB_TEST_ADS_ROUTER)
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:400: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:462: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:503: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:546: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:591: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:635: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:674: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:705: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:749: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+SKIPPED [1] tests/sink_service/integration/test_reliable_durable_ack_real_nats.py:794: WINDHUB_NATS_SERVER_BIN not set; real JetStream verification NOT_RUN
+1348 passed, 12 skipped, 1 warning in 239.52s (0:03:59)

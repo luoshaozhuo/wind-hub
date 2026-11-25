@@ -158,7 +158,7 @@ def _write_storage_bootstrap(root: Path, stack: r5_stack.R5Stack) -> Path:
 def _write_cli_config(root: Path, configuration_bootstrap: Path, storage_bootstrap: Path) -> Path:
     """Adapt the shipped CLI process map to this isolated root and interpreter."""
     document = yaml.safe_load(
-        (E2E_ROOT / "services" / "service_cli-e2e_v1.1.7.yaml").read_text(encoding="utf-8")
+        (E2E_ROOT / "services" / "service_cli-e2e_v1.1.8.yaml").read_text(encoding="utf-8")
     )
     services = document["services"]
     for name, entry in services.items():

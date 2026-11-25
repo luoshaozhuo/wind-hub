@@ -316,6 +316,10 @@ class TestR14SustainedCapacity:
                         },
                     }
                     samples.append(sample)
+                    if len(samples) == 1:
+                        (evidence_root / f"{stem}_metric_names.json").write_text(
+                            json.dumps(sorted(metrics), indent=2), encoding="utf-8"
+                        )
                     with samples_path.open("a", encoding="utf-8") as stream:
                         stream.write(json.dumps(sample, separators=(",", ":")) + "\n")
                         stream.flush()
@@ -380,19 +384,22 @@ class TestR14SustainedCapacity:
                 first, last = samples[0], samples[-1]
                 stage_diagnostics: dict[str, dict[str, float | int | None]] = {}
                 for stage in RELIABLE_STAGES:
-                    before = first["reliable_stages"][stage]
-                    after = last["reliable_stages"][stage]
-                    if any(
-                        entry[field] is None
-                        for entry in (before, after)
-                        for field in ("seconds_total", "operations_total")
-                    ):
+                    valid = [
+                        sample["reliable_stages"][stage]
+                        for sample in samples
+                        if all(
+                            sample["reliable_stages"][stage][field] is not None
+                            for field in ("seconds_total", "operations_total")
+                        )
+                    ]
+                    if len(valid) < 2:
                         stage_diagnostics[stage] = {
                             "duration_seconds": None,
                             "operations": None,
                             "mean_duration_ms": None,
                         }
                         continue
+                    before, after = valid[0], valid[-1]
                     duration = max(0.0, after["seconds_total"] - before["seconds_total"])
                     operations = max(0, int(after["operations_total"] - before["operations_total"]))
                     stage_diagnostics[stage] = {

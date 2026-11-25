@@ -132,8 +132,18 @@ def test_eight_service_provenance_and_restart_readback(
         )
         await consumer.start()
         try:
-            # Force Kafka partition assignment before starting the source.
-            await consumer.getmany(timeout_ms=100)
+            # Wait for a concrete latest-offset assignment and drain all
+            # pre-existing records before starting the source.
+            assignment_deadline = asyncio.get_running_loop().time() + 15
+            while not consumer.assignment():
+                await consumer.getmany(timeout_ms=250)
+                if asyncio.get_running_loop().time() >= assignment_deadline:
+                    raise AssertionError("Kafka consumer never received partition assignment")
+            drain_deadline = asyncio.get_running_loop().time() + 2.0
+            while asyncio.get_running_loop().time() < drain_deadline:
+                backlog = await consumer.getmany(timeout_ms=250, max_records=5000)
+                if not backlog:
+                    break
             created = harness.cli(
                 "data-generator",
                 "start",
@@ -143,14 +153,29 @@ def test_eight_service_provenance_and_restart_readback(
             )
             assert created["status"] == "SUCCESS", created
             deadline = asyncio.get_running_loop().time() + 120
+            # Collector may sample the Gateway's initial zero-valued store
+            # before the first physical step is delivered. Select only samples
+            # at or after the independent source watermark.
+            truth_start: datetime | None = None
             selected: dict[str, dict[str, Any]] = {}
             while asyncio.get_running_loop().time() < deadline:
+                if truth_start is None:
+                    points = _truth_points(harness)
+                    if points:
+                        truth_start = min(
+                            datetime.fromisoformat(point["source_time"]) for point in points
+                        )
                 messages = await consumer.getmany(timeout_ms=1500, max_records=500)
                 for records in messages.values():
                     for record in records:
                         row = json.loads(record.value)
+                        sampled_at = datetime.fromisoformat(
+                            row["sample_time"].replace("Z", "+00:00")
+                        )
                         if (
-                            row.get("data_level") == "protocol"
+                            truth_start is not None
+                            and sampled_at >= truth_start
+                            and row.get("data_level") == "protocol"
                             and row.get("wind_farm_id") == "e2e-final"
                             and row.get("collector_id") == "collector-e2e-reliable"
                             and row.get("device_id") == DEVICE
@@ -180,7 +205,8 @@ def test_eight_service_provenance_and_restart_readback(
     ):
         if time.monotonic() >= truth_deadline:
             raise AssertionError(
-                "Kafka data not time/value-aligned with independent Generator truth"
+                "Kafka data not time/value-aligned with independent Generator truth: "
+                f"{[(row['sample_id'], row['sample_time'], row['value']) for row in wire_records]}"
             )
         time.sleep(0.5)
 
@@ -268,8 +294,20 @@ def test_eight_service_commander_gateway_generator_applied(
                 break
             time.sleep(0.5)
         if settled.get("state") != "SUCCEEDED":
+            token = harness.env["WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN"]
+            with grpc.insecure_channel("127.0.0.1:52061") as channel:
+                execution = generator_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
+                    generator_pb.GetInputExecutionRequest(
+                        generation_id=generation_id, request_id=command_id
+                    ),
+                    timeout=10,
+                    metadata=(("authorization", f"Bearer {token}"),),
+                )
             diag = harness.cli("commander", "events", check=False, timeout=30)
-            raise AssertionError(f"command {command_id} settled={settled}; commander_events={diag}")
+            raise AssertionError(
+                f"command {command_id} settled={settled}; "
+                f"generator_execution={execution}; commander_events={diag}"
+            )
         assert settled.get("state") == "SUCCEEDED", settled
         assert settled.get("outcome") == "CONFIRMED_SUCCESS", settled
         assert settled.get("io_settled") is True, settled

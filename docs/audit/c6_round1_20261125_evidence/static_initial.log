@@ -1,0 +1,55 @@
+RUFF
+src/sink_service/infrastructure/reliable_runtime.py:182:101: E501 Line too long (105 > 100)
+    |
+180 |             "retry_total": float(self.retry_total),
+181 |             "reliable_source_fetch_seconds_total": self.reliable_source_fetch_seconds_total,
+182 |             "reliable_source_fetch_operations_total": float(self.reliable_source_fetch_operations_total),
+    |                                                                                                     ^^^^^ E501
+183 |             "reliable_encode_seconds_total": self.reliable_encode_seconds_total,
+184 |             "reliable_encode_operations_total": float(self.reliable_encode_operations_total),
+    |
+
+src/sink_service/infrastructure/reliable_runtime.py:188:101: E501 Line too long (101 > 100)
+    |
+186 |             "reliable_write_operations_total": float(self.reliable_write_operations_total),
+187 |             "reliable_source_ack_seconds_total": self.reliable_source_ack_seconds_total,
+188 |             "reliable_source_ack_operations_total": float(self.reliable_source_ack_operations_total),
+    |                                                                                                     ^ E501
+189 |             "io_inflight": float(self.io_inflight),
+190 |         }
+    |
+
+Found 2 errors.
+EXIT=1
+FMT
+Would reformat: tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py
+2 files would be reformatted, 1072 files already formatted
+EXIT=0
+MYPY
+Success: no issues found in 483 source files
+EXIT=0
+RPC
+Writing mypy to contracts/common_pb2.pyi
+Writing mypy to contracts/collector_pb2.pyi
+Writing mypy to contracts/commander_pb2.pyi
+Writing mypy to contracts/sink_service_pb2.pyi
+Writing mypy to contracts/industrial_gateway_pb2.pyi
+Writing mypy to contracts/data_generator_pb2.pyi
+Writing mypy to contracts/configuration_repository_pb2.pyi
+Writing mypy to contracts/storage_service_pb2.pyi
+Writing mypy to contracts/common_pb2_grpc.pyi
+Writing mypy to contracts/collector_pb2_grpc.pyi
+Writing mypy to contracts/commander_pb2_grpc.pyi
+Writing mypy to contracts/sink_service_pb2_grpc.pyi
+Writing mypy to contracts/industrial_gateway_pb2_grpc.pyi
+Writing mypy to contracts/data_generator_pb2_grpc.pyi
+Writing mypy to contracts/configuration_repository_pb2_grpc.pyi
+Writing mypy to contracts/storage_service_pb2_grpc.pyi
+EXIT=0
+IL
+[22m[0m
+[22mContracts: 22 kept, 0 broken.[0m
+EXIT=0
+COLLECT
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4084 tests collected in 2.33s

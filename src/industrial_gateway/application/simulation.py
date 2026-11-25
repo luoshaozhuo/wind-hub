@@ -181,6 +181,11 @@ class SimulationController:
                         receipt.message,
                     )
                 if receipt.effective_step <= 0:
+                    logger.warning(
+                        "simulation submit for %s returned no effective step: %s",
+                        command.request_id,
+                        receipt,
+                    )
                     return SimulationOutcome(
                         command.request_id,
                         True,
@@ -206,6 +211,11 @@ class SimulationController:
                 )
             except Exception as exc:
                 # The transport may have delivered the input before failing.
+                logger.warning(
+                    "simulation submit failed for %s: %s",
+                    command.request_id,
+                    type(exc).__name__,
+                )
                 return SimulationOutcome(
                     command.request_id,
                     True,
