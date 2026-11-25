@@ -31,6 +31,7 @@ from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
 from storage_service.domain.wide_record import WideRecord
 from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
+    MetadataConflictError,
     MetadataStore,
 )
 from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
@@ -984,10 +985,15 @@ class TDengineBackend:
             )
         )
         digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
-        self._metadata.require_ready_wide_table(
-            name=full_name, fingerprint=schema.fingerprint,
-            identity_sha256=digest,
-        )
+        try:
+            self._metadata.require_ready_wide_table(
+                name=full_name, fingerprint=schema.fingerprint,
+                identity_sha256=digest,
+            )
+        except MetadataConflictError as exc:
+            raise TDengineSchemaConflictError(
+                "historical wide table ownership cannot be proven"
+            ) from exc
         names = StorageObjectNames(
             database=database, stable=stable, table=table,
             database_identity_sha256="",
