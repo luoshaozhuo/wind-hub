@@ -28,6 +28,7 @@ class WideHistoryFilter:
     point_ids: tuple[str, ...]
     limit: int
     after_time_us: int | None = None
+    qualities: tuple[int, ...] = ()
 
     def validate(self, schema: WideSchema, *, maximum: int) -> None:
         if (
@@ -47,6 +48,16 @@ class WideHistoryFilter:
             and (type(self.after_time_us) is not int or self.after_time_us < self.start_time_us)
         ):
             raise ValueError("wide query pagination cursor is invalid")
+        if self.qualities:
+            if len(self.point_ids) != 1:
+                raise ValueError(
+                    "quality filtering requires exactly one selected physical point"
+                )
+            if (
+                len(set(self.qualities)) != len(self.qualities)
+                or any(type(q) is not int or not 0 <= q <= 3 for q in self.qualities)
+            ):
+                raise ValueError("quality filter contains invalid two-bit states")
         actual = {column.point_id for column in schema.columns}
         if not self.point_ids or len(set(self.point_ids)) != len(self.point_ids):
             raise ValueError("wide query field set must be unique and nonempty")
@@ -93,7 +104,7 @@ class WideCursorCodec:
             filter_.wind_farm_id, filter_.device_id,
             filter_.device_config_id, filter_.data_level.value,
             filter_.start_time_us, filter_.end_time_us,
-            filter_.point_ids, filter_.limit, schema.fingerprint,
+            filter_.point_ids, filter_.qualities, filter_.limit, schema.fingerprint,
         )
         return hashlib.sha256(
             json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
