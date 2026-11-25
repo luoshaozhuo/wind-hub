@@ -26,9 +26,12 @@ from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryRow
 from storage_service.domain.naming import StorageObjectNames, get_object_names
 from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
+from storage_service.domain.wide_record import WideRecord
+from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataStore,
 )
+from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
 from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
     SCHEMA_FINGERPRINT,
     DatabaseRetention,
@@ -681,6 +684,46 @@ class TDengineBackend:
                         raise RuntimeError("TDengine reported a negative affected count")
                 finally:
                     statement.close()
+
+    async def insert_wide_batch(
+        self,
+        schema: WideSchema,
+        records: Sequence[WideRecord],
+    ) -> None:
+        """Perform a device-wide STMT2 write under the existing bounded I/O lease.
+
+        The caller must first create and verify the target physical table and
+        immutable ownership metadata. This method never issues per-point SELECT.
+        """
+        if not records:
+            return
+        first = records[0]
+        if any(
+            row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
+            for row in records
+        ):
+            raise ValueError("wide STMT2 batches must contain exactly one device")
+        await self._run_bounded(
+            self._insert_wide_batch_sync, schema=schema, records=tuple(records)
+        )
+
+    def _insert_wide_batch_sync(
+        self,
+        *,
+        schema: WideSchema,
+        records: Sequence[WideRecord],
+        lease: _OperationLease,
+    ) -> None:
+        first = records[0]
+        name = (
+            f"{schema.database_name(first.wind_farm_id)}."
+            f"{schema.subtable_name(first.device_id)}"
+        )
+        with self._borrow_connection(lease=lease) as (connection, driver):
+            lease.remaining()
+            write_wide_stmt2(
+                connection, driver, table_name=name, schema=schema, records=records
+            )
 
     async def fetch_history(
         self,
