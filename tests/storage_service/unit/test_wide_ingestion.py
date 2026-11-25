@@ -73,7 +73,7 @@ async def test_duplicate_timestamp_last_kafka_offset_wins() -> None:
     rows = backend.insert_wide_batch.await_args.args[1]
     assert tuple(row.values[0] for row in rows) == (2, 3)
     assert backend.insert_wide_batch.await_count == 1
-    metrics.record_persisted.assert_called_once_with(2)
+    metrics.record_wide_persisted.assert_called_once_with(rows=2, points_per_row=2)
     evidence.block_partition.assert_not_called()
 
 
