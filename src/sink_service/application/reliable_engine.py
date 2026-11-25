@@ -54,6 +54,12 @@ class ReliableDeliveryEngine:
     _pending_confirmed_samples: list[dict[str, str]]
     _confirmed_samples: deque[dict[str, str]]
     latency_window: LatencyWindow
+    reliable_encode_seconds_total: float
+    reliable_encode_operations_total: int
+    reliable_write_seconds_total: float
+    reliable_write_operations_total: int
+    reliable_source_ack_seconds_total: float
+    reliable_source_ack_operations_total: int
     last_error: str
 
     async def _fetch_messages(self) -> list[ReliableMessagePort]:
@@ -218,12 +224,18 @@ class ReliableDeliveryEngine:
             chunk: tuple[DeliveryPoint, ...] = ()
             if self._kafka_target:
                 chunk_items = selected[start : start + 500]
-                payloads = await self._encode_with_heartbeat(message, batch, chunk_items)
+                encode_started = time.monotonic()
+                try:
+                    payloads = await self._encode_with_heartbeat(message, batch, chunk_items)
+                finally:
+                    self.reliable_encode_seconds_total += time.monotonic() - encode_started
+                    self.reliable_encode_operations_total += 1
                 chunk_length = len(chunk_items)
             else:
                 chunk = samples[start : start + 500]
                 chunk_length = len(chunk)
             self._active_io = True
+            write_started = time.monotonic()
             try:
                 if self._kafka_target:
                     outcome = await self._write_with_heartbeat(
@@ -233,6 +245,8 @@ class ReliableDeliveryEngine:
                     outcome = await self._write_with_heartbeat(message, chunk)
             finally:
                 self._active_io = False
+                self.reliable_write_seconds_total += time.monotonic() - write_started
+                self.reliable_write_operations_total += 1
             decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
             # Preserve only target-confirmed identities. Publish to diagnostics
             # after the corresponding source ACK, never on an uncertain write.
@@ -343,7 +357,12 @@ class ReliableDeliveryEngine:
                     terminal = await self._deliver_batch(message, batch)
                     if not terminal:
                         raise RuntimeError("source batch contains unconfirmed points")
-                    await message.ack(timeout=5)
+                    ack_started = time.monotonic()
+                    try:
+                        await message.ack(timeout=5)
+                    finally:
+                        self.reliable_source_ack_seconds_total += time.monotonic() - ack_started
+                        self.reliable_source_ack_operations_total += 1
                     self.acknowledged_batches_total += 1
                     self._confirmed_samples.extend(self._pending_confirmed_samples[-4:])
                     self._pending_confirmed_samples.clear()
