@@ -182,7 +182,9 @@ class WideIngestionService:
                 self._block(first.source, f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}")
             for item in group:
                 offsets.confirm(generation=generation, offset=item.source.offset)
-            self._metrics.record_persisted(len(ordered_rows))
+            self._metrics.record_wide_persisted(
+                rows=len(ordered_rows), points_per_row=len(first.schema.columns)
+            )
             index = end
         return len(pending)
 
