@@ -39,13 +39,14 @@ class BatchBuilder:
     def update_site(self, site_id: str) -> None:
         self._site_id = validate_subject_token(site_id)
 
-    def _item(self, sample: ProtocolSample) -> SampleItem:
+    def _item(self, sample: ProtocolSample, sample_time: datetime) -> SampleItem:
         return SampleItem(
             point_id=sample.point_id,
             sample_id=uuid4().hex,
             value=sample.value,
             quality=sample.quality.value,
-            sample_time=sample.timestamp,
+            sample_time=sample_time,
+            source_time=sample.timestamp,
             receive_time=sample.receive_time,
             raw_payload_hex=sample.raw_payload.hex() if sample.raw_payload is not None else None,
             max_staleness_ms=self._staleness if self._delivery == "realtime" else None,
@@ -57,6 +58,8 @@ class BatchBuilder:
         task_id: str,
         device_type: str,
         point_table_id: str,
+        device_config_id: str,
+        sample_time: datetime,
         samples: tuple[SampleItem, ...],
     ) -> SampleBatch:
         return SampleBatch(
@@ -68,6 +71,8 @@ class BatchBuilder:
             device_type=device_type,
             device_id=device_id,
             point_table_id=point_table_id,
+            device_config_id=device_config_id,
+            sample_time=sample_time,
             publish_time=datetime.now(UTC),
             samples=samples,
         )
@@ -80,6 +85,9 @@ class BatchBuilder:
         device_type: str,
         point_table_id: str,
         task_id: str,
+        device_config_id: str,
+        sample_time: datetime,
+        expected_point_ids: tuple[str, ...],
     ) -> list[SampleBatch]:
         if not samples:
             return []
@@ -90,13 +98,33 @@ class BatchBuilder:
         task_id = validate_subject_token(task_id)
         if not point_table_id.startswith("point_table_") or "_v" not in point_table_id:
             raise ValueError("immutable point_table_id required")
-        items = tuple(self._item(sample) for sample in samples)
+        if not expected_point_ids or len(set(expected_point_ids)) != len(expected_point_ids):
+            raise ValueError("complete physical PointTable point set required")
+        if any(sample.point_id not in expected_point_ids for sample in samples):
+            raise ValueError("acquired point is not in the immutable PointTable")
+        by_point = {sample.point_id: self._item(sample, sample_time) for sample in samples}
+        if self._delivery == "reliable":
+            for point_id in expected_point_ids:
+                if point_id not in by_point:
+                    by_point[point_id] = SampleItem(
+                        point_id=point_id,
+                        sample_id=uuid4().hex,
+                        value=None,
+                        quality="not_collected",
+                        sample_time=sample_time,
+                    )
+            items = tuple(by_point[point_id] for point_id in expected_point_ids)
+        else:
+            items = tuple(by_point[point_id] for point_id in by_point)
         batches: list[SampleBatch] = []
+        if self._delivery == "reliable" and len(items) > self._max_samples:
+            raise ValueError("reliable full device sample exceeds max_samples")
         start = 0
         while start < len(items):
             count = min(self._max_samples, len(items) - start)
             candidate = self._batch(
-                device_id, task_id, device_type, point_table_id, items[start : start + count]
+                device_id, task_id, device_type, point_table_id,
+                device_config_id, sample_time, items[start : start + count],
             )
             while count:
                 try:
@@ -106,11 +134,17 @@ class BatchBuilder:
                     if count == 1:
                         raise
                     count //= 2
+                    if self._delivery == "reliable":
+                        raise ValueError(
+                            "reliable device sample exceeds transport bound; splitting forbidden"
+                        )
                     candidate = self._batch(
                         device_id,
                         task_id,
                         device_type,
                         point_table_id,
+                        device_config_id,
+                        sample_time,
                         items[start : start + count],
                     )
             batches.append(candidate)
