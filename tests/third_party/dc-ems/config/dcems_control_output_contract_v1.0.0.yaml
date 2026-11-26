@@ -1,0 +1,80 @@
+# DCEMS Modbus 控制出口证据；供下一阶段隔离联测，非生产启用配置。
+# 源码：luoshaozhuo/dc-ems/main，DataGetterModbusImpl.control；
+# 地址：1.reg.offset；offset 为零基 PDU 地址。
+schema_version: 1
+file_version: "1.0.0"
+source:
+  repository: luoshaozhuo/dc-ems
+  protocol: modbus_tcp
+  device_type: "0"
+  slave_id: 1
+  byte_order: big_endian
+  word_order: little_endian
+outputs:
+  ctrlActPow:
+    address: 41557
+    register_type: holding
+    data_type: float32
+    register_count: 2
+    dcems_unit: kilowatt
+    proposed_generator_point: active_power_setpoint
+    proposed_generator_unit: watt
+    conversion_factor: 1000
+    status: PROPOSED_UNVERIFIED
+  ctrlReActPow:
+    address: 41555
+    register_type: holding
+    data_type: float32
+    register_count: 2
+    dcems_unit: kilovar
+    proposed_generator_point: reactive_power_setpoint
+    proposed_generator_unit: var
+    conversion_factor: 1000
+    status: PROPOSED_UNVERIFIED
+  emsActPowerSetInertia:
+    address: 41559
+    register_type: holding
+    data_type: float32
+    register_count: 2
+    status: NOT_MAPPED
+  emsReactPowerSetStatusWrite:
+    address: 41561
+    register_type: holding
+    data_type: int32
+    register_count: 2
+    status: NOT_MAPPED
+  emsActPowerChangeRate:
+    address: 41563
+    register_type: holding
+    data_type: float32
+    register_count: 2
+    status: NOT_MAPPED
+  emsActCtrlMode:
+    address: 41565
+    register_type: holding
+    data_type: int32
+    register_count: 2
+    status: NOT_MAPPED
+  ctrlStart:
+    address: 12808
+    register_type: coil
+    data_type: bool
+    register_count: 1
+    status: NOT_MAPPED
+  ctrlStop:
+    address: 12809
+    register_type: coil
+    data_type: bool
+    register_count: 1
+    status: NOT_MAPPED
+  ctrlReset:
+    address: 12810
+    register_type: coil
+    data_type: bool
+    register_count: 1
+    status: NOT_MAPPED
+unproven_factory_inputs:
+  - emsGridDispatchAct
+  - emsGridDispatchReact
+  - emsFreDst
+  - emsDeltapValue
