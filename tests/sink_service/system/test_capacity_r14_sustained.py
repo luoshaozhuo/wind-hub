@@ -41,6 +41,7 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 from contracts import common_pb2, common_pb2_grpc
 from contracts.sample_batch import SampleBatch
+from storage_service.domain.wide_record import WideRecord
 from tests.sink_service.system.conftest import (
     SinkSystemHarness,
     make_system_batch,
@@ -166,8 +167,15 @@ def _proc_cpu_rss(pids: set[int]) -> tuple[int, int]:
     return ticks, rss_kb
 
 
+def _decode_capacity_row(payload: bytes) -> WideRecord:
+    """Reject partial/legacy records before using offsets as wide-row evidence."""
+    return WideRecord.from_kafka_json(
+        payload, physical_points=tuple(f"p{i:03d}" for i in range(POINTS_PER_BATCH))
+    )
+
+
 async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> dict[str, Any]:
-    """全量读 topic，按 (device, sample_id) 审计重复身份（S4 同口径）。"""
+    """全量读 topic，按设备、等级、采样时间审计完整设备行重复身份。"""
     audit = AIOKafkaConsumer(
         harness.kafka_topic,
         bootstrap_servers=harness.stack.kafka,
@@ -179,16 +187,18 @@ async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> di
     try:
         records: list[Any] = []
         deadline = time.monotonic() + 90
-        while time.monotonic() < deadline and len(records) < total_values + 10000:
+        while (
+            time.monotonic() < deadline and len(records) < total_values // POINTS_PER_BATCH + 10000
+        ):
             batch = await audit.getmany(timeout_ms=2000, max_records=1000)
             for messages in batch.values():
                 records.extend(messages)
             if not batch:
                 break
-        identities: dict[tuple[str, str], int] = {}
+        identities: dict[tuple[str, str, int], int] = {}
         for record in records:
-            payload = json.loads(record.value.decode("utf-8"))
-            key = (payload["device_id"], payload["sample_id"])
+            row = _decode_capacity_row(record.value)
+            key = (row.device_id, row.data_level.value, row.sample_time_us)
             identities[key] = identities.get(key, 0) + 1
         dupes = {key: count for key, count in identities.items() if count > 1}
         return {
@@ -223,11 +233,11 @@ async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, An
             for messages in batch.values():
                 for record in messages:
                     scanned += 1
-                    payload = json.loads(record.value.decode("utf-8"))
-                    if payload.get("point_id") != "p000":
-                        continue
-                    seq = int(payload["sample_id"].split("-")[2])
-                    observed.setdefault(payload["device_id"], []).append((seq, record.partition))
+                    row = _decode_capacity_row(record.value)
+                    seq = int(row.values[0])
+                    assert row.values == tuple(float(seq + i) for i in range(POINTS_PER_BATCH))
+                    assert row.quality_bitmap == bytes([0x55] * ((POINTS_PER_BATCH + 3) // 4))
+                    observed.setdefault(row.device_id, []).append((seq, record.partition))
             if len(observed) == DEGREE and all(len(items) >= 3 for items in observed.values()):
                 break
         violations = {
@@ -541,12 +551,12 @@ class TestR14SustainedCapacity:
                 t_end = time.monotonic()
 
                 published_values = published_batches * POINTS_PER_BATCH
-                confirmed_values = final_offset - baseline
+                confirmed_values = (final_offset - baseline) * POINTS_PER_BATCH
                 wall_pub = max(t_pub_end - t0, 1e-6)
 
                 # 稳态窗口：持续期 10%→90%，排除预热与排空。
                 offsets = [
-                    (s["t"], s["kafka_offset"] - baseline)
+                    (s["t"], (s["kafka_offset"] - baseline) * POINTS_PER_BATCH)
                     for s in samples
                     if t0 + 0.1 * DURATION_S <= s["t"] <= t0 + 0.9 * DURATION_S
                 ]
