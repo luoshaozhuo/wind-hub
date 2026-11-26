@@ -1,0 +1,127 @@
+"""生成隔离的 DCEMS 单风机测试数据库种子；不修改第三方发布包。"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+
+REQUIRED_COLUMNS = frozenset({"dcems_var_path", "business_point_id", "modbus_addr"})
+
+
+def load_mapping(path: Path) -> dict[str, dict[str, str]]:
+    """读取显式的 DCEMS→Gateway BusinessPoint 映射并拒绝重复。"""
+    with path.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if not reader.fieldnames or not REQUIRED_COLUMNS <= set(reader.fieldnames):
+            raise ValueError("mapping needs dcems_var_path,business_point_id,modbus_addr")
+        mappings: dict[str, dict[str, str]] = {}
+        for row in reader:
+            name = row["dcems_var_path"].strip()
+            business = row["business_point_id"].strip()
+            address = row["modbus_addr"].strip()
+            if not name or not business or not address or name in mappings:
+                raise ValueError(f"empty or duplicate mapping: {name!r}")
+            mappings[name] = {
+                "business_point_id": business,
+                "modbus_addr": address,
+            }
+    return mappings
+
+
+def build_seed(
+    original: dict[str, Any],
+    mapping: dict[str, dict[str, str]],
+    host: str,
+    port: int,
+) -> dict[str, Any]:
+    """从历史种子派生单机测试数据，保持原业务变量身份。"""
+    if not host or not 1 <= port <= 65535:
+        raise ValueError("invalid gateway endpoint")
+    seed = json.loads(json.dumps(original))
+    if not seed.get("devices") or not seed.get("edgeServers"):
+        raise ValueError("missing DCEMS devices or channels")
+
+    points = seed["edgeaddrset"]
+    point_names = {str(point["varPath"]) for point in points}
+    if point_names != set(mapping):
+        missing = sorted(point_names - set(mapping))
+        extra = sorted(set(mapping) - point_names)
+        raise ValueError(f"business mapping not closed: missing={missing}, extra={extra}")
+
+    business_ids = [row["business_point_id"] for row in mapping.values()]
+    if len(set(business_ids)) != len(business_ids):
+        raise ValueError("BusinessPoint identifiers must be one-to-one")
+
+    # 禁止以同址重叠点默默覆盖。DCEMS 的读/写同址变量有意保留，
+    # 需要在 Gateway PointTable 中显式共享地址；映射文件需逐项校对。
+    for point in points:
+        name = str(point["varPath"])
+        actual = mapping[name]["modbus_addr"]
+        if actual != point["addr"]:
+            raise ValueError(f"address mismatch for {name}: {actual} != {point['addr']}")
+
+    device = seed["devices"][0]
+    device["deviceId"] = "dcems-wtg-01"
+    device["deviceName"] = "DCEMS WTG 01"
+    device["serverId"] = 1
+    device["addrSet"] = points[0]["setId"]
+    device["lineNo"] = 1
+    seed["devices"] = [device]
+
+    server = seed["edgeServers"][0]
+    server.update(
+        serverName="wind-hub-gateway-business",
+        serverIp1=host,
+        port1=port,
+        serverIp2=None,
+        port2=None,
+        serverType="MODBUSTCP",
+        interval=500,
+    )
+    seed["edgeServers"] = [server]
+    seed["syncdata"] = []
+    seed["sysconfig"] = [
+        row
+        for row in seed["sysconfig"]
+        if not (row["groupName"] in {"sync", "watch"} and "redis" in str(row["itemName"]).lower())
+    ]
+    for row in seed["emsConfig"]:
+        if row["varPath"] in {"iWTUnits", "iLineCount"}:
+            row["val"] = "1"
+        if row["varPath"] == "license":
+            row["val"] = ""
+    return seed
+
+
+def main() -> None:
+    """仅输出到调用方指定的隔离路径，绝不改写发布包内 data.json。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=Path, required=True)
+    parser.add_argument("--mapping", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--gateway-host", required=True)
+    parser.add_argument("--gateway-port", type=int, required=True)
+    args = parser.parse_args()
+    original = json.loads(args.seed.read_text(encoding="utf-8"))
+    derived = build_seed(
+        original,
+        load_mapping(args.mapping),
+        args.gateway_host,
+        args.gateway_port,
+    )
+    if args.output.resolve() == args.seed.resolve():
+        raise ValueError("refuse to overwrite packaged data.json")
+    if args.output.exists():
+        raise FileExistsError(args.output)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("x", encoding="utf-8") as stream:
+        json.dump(derived, stream, ensure_ascii=False, indent=2)
+    args.output.chmod(0o600)
+
+
+if __name__ == "__main__":
+    main()
