@@ -26,7 +26,6 @@ from storage_service.application.config import DeviceBinding, DeviceClosurePins,
 from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from core.domain.protocol_types import normalize_protocol_scalar_type
 from core.domain.value_objects import DataType
-from storage_service.domain.sample import DataLevel, StorageSample
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity, WideRecord
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
@@ -828,97 +827,6 @@ class ConfigurationPointTableResolver:
         except (KeyError, ValueError) as exc:
             raise ConfigHistoryUnavailableError("historical wide schema is invalid") from exc
 
-    async def require_exact_versions(self, samples: Sequence[StorageSample]) -> None:
-        for sample in samples:
-            pin = self._pins.get(sample.point_table_id)
-            device_key = (sample.wind_farm_id, sample.device_id, sample.point_table_id)
-            bindings = self._device_bindings.get(device_key, ())
-            if (not pin or not bindings) and self._refresh_hook is not None:
-                # Unknown tables *and* new device instances both require one whole
-                # authoritative closure refresh; Kafka fields are only candidates.
-                try:
-                    await self._refresh_hook()
-                except Exception as exc:
-                    raise ConfigHistoryUnavailableError(
-                        "authoritative Configuration refresh failed for unknown PointTable/device"
-                    ) from exc
-                pin = self._pins.get(sample.point_table_id)
-                bindings = self._device_bindings.get(device_key, ())
-            if not pin:
-                raise ConfigHistoryUnavailableError(
-                    f"no pinned immutable version for {sample.point_table_id}"
-                )
-            if not bindings:
-                raise ConfigHistoryUnavailableError(
-                    "no fixed device instance/DeviceModel binding for "
-                    f"{sample.wind_farm_id}:{sample.device_id}:{sample.point_table_id}"
-                )
-            if {binding.device_type_id for binding in bindings} != {sample.device_type}:
-                raise ConfigHistoryUnavailableError(
-                    "Kafka device_type disagrees with authoritative DeviceModel device_type_id"
-                )
-            config_id, version_id = pin
-            document = await self._load(
-                config_type="point_table",
-                config_id=config_id,
-                version_id=version_id,
-                point_table_id=sample.point_table_id,
-            )
-            self._require_table_identity(
-                point_table_id=sample.point_table_id,
-                config_id=config_id,
-                document=document,
-                device_type_id=sample.device_type,
-            )
-            points = document.get("points")
-            if not isinstance(points, dict) or sample.point_id not in points:
-                raise ConfigHistoryUnavailableError("sample point not defined by pinned PointTable")
-            point = points[sample.point_id]
-            if not isinstance(point, dict):
-                raise ConfigHistoryUnavailableError("source point has invalid semantic definition")
-            if sample.data_level == DataLevel.PROTOCOL:
-                expected_unit = point.get("unit")
-                # Sink's Kafka v2 PROTOCOL record may omit the source unit:
-                # it preserves the decoded scalar without asserting engineering
-                # semantics. Verify the original unit from the pinned PointTable.
-                # An explicitly supplied incompatible unit must still fail.
-                if not isinstance(expected_unit, str) or (
-                    sample.unit and sample.unit != expected_unit
-                ):
-                    raise ConfigHistoryUnavailableError(
-                        "PROTOCOL point unit disagrees with pinned PointTable"
-                    )
-            if sample.data_level == DataLevel.BUSINESS:
-                source_business_id = point.get("business_point_id", sample.point_id)
-                if source_business_id != sample.business_point_id:
-                    # A one-to-many mapping must be explicitly represented by an
-                    # immutable mapping closure; no implicit guessing is allowed.
-                    raise ConfigHistoryUnavailableError(
-                        "business point is not bound by this pinned source point"
-                    )
-                catalog_pin = self._business_pins.get(sample.point_table_id)
-                if catalog_pin is None:
-                    raise ConfigHistoryUnavailableError("business point catalog is not pinned")
-                business_id, business_version = catalog_pin
-                business_document = await self._load(
-                    config_type="business_points",
-                    config_id=business_id,
-                    version_id=business_version,
-                )
-                business_points = business_document.get("business_points")
-                if (
-                    not isinstance(business_points, dict)
-                    or sample.business_point_id not in business_points
-                ):
-                    raise ConfigHistoryUnavailableError(
-                        "business point missing from pinned catalog"
-                    )
-                entry = business_points[sample.business_point_id]
-                if not isinstance(entry, dict) or entry.get("unit") != sample.unit:
-                    raise ConfigHistoryUnavailableError(
-                        "business point unit does not match catalog"
-                    )
-
     async def get_wide_unit(
         self,
         *,
@@ -930,12 +838,33 @@ class ConfigurationPointTableResolver:
         if data_level is WideDataLevel.RAW:
             return ""
         if data_level is WideDataLevel.PROTOCOL:
-            return await self.get_unit(
+            pin = self._pins.get(point_table_id)
+            if pin is None:
+                raise ConfigHistoryUnavailableError(
+                    "PROTOCOL column lacks an immutable PointTable version"
+                )
+            config_id, version_id = pin
+            document = await self._load(
+                config_type="point_table",
+                config_id=config_id,
+                version_id=version_id,
                 point_table_id=point_table_id,
-                point_id=point_id,
-                business_point_id="",
-                data_level=DataLevel.PROTOCOL,
             )
+            self._require_table_identity(
+                point_table_id=point_table_id,
+                config_id=config_id,
+                document=document,
+            )
+            points = document.get("points")
+            if not isinstance(points, dict):
+                raise ConfigHistoryUnavailableError("pinned PointTable points are malformed")
+            point = points.get(point_id)
+            if not isinstance(point, dict):
+                raise ConfigHistoryUnavailableError("PROTOCOL column has no pinned definition")
+            unit = point.get("unit")
+            if not isinstance(unit, str) or not unit:
+                raise ConfigHistoryUnavailableError("PROTOCOL unit is not pinned")
+            return unit
         pin = self._business_pins.get(point_table_id)
         if pin is None:
             raise ConfigHistoryUnavailableError(
@@ -956,59 +885,3 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailableError("wide BusinessPoint unit must be nonempty")
         return unit
 
-    async def get_unit(
-        self,
-        *,
-        point_table_id: str,
-        point_id: str,
-        business_point_id: str,
-        data_level: DataLevel,
-    ) -> str:
-        """Resolve original or standardized units from immutable configuration history."""
-        if data_level == DataLevel.RAW:
-            return ""
-        pin = self._pins.get(point_table_id)
-        if pin is None:
-            raise ConfigHistoryUnavailableError("query PointTable has no pinned version")
-        config_id, version_id = pin
-        document = await self._load(
-            config_type="point_table",
-            config_id=config_id,
-            version_id=version_id,
-            point_table_id=point_table_id,
-        )
-        self._require_table_identity(
-            point_table_id=point_table_id, config_id=config_id, document=document
-        )
-        points = document.get("points")
-        if not isinstance(points, dict):
-            raise ConfigHistoryUnavailableError("PointTable has no immutable points mapping")
-        point = points.get(point_id)
-        if not isinstance(point, dict):
-            raise ConfigHistoryUnavailableError("historical point was removed or malformed")
-        if data_level == DataLevel.PROTOCOL:
-            unit = point.get("unit")
-            if not isinstance(unit, str) or not unit:
-                raise ConfigHistoryUnavailableError("source point unit unavailable")
-            return unit
-        catalog_pin = self._business_pins.get(point_table_id)
-        if catalog_pin is None:
-            raise ConfigHistoryUnavailableError("business semantic catalog not pinned")
-        if point.get("business_point_id", point_id) != business_point_id:
-            raise ConfigHistoryUnavailableError("historical source point mapping disagrees")
-        catalog_id, catalog_version = catalog_pin
-        catalog = await self._load(
-            config_type="business_points",
-            config_id=catalog_id,
-            version_id=catalog_version,
-        )
-        entries = catalog.get("business_points")
-        if not isinstance(entries, dict):
-            raise ConfigHistoryUnavailableError("business catalog malformed")
-        definition = entries.get(business_point_id)
-        if not isinstance(definition, dict):
-            raise ConfigHistoryUnavailableError("business semantic point is unknown")
-        unit = definition.get("unit")
-        if not isinstance(unit, str) or not unit:
-            raise ConfigHistoryUnavailableError("standard business unit unavailable")
-        return unit
