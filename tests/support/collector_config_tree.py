@@ -12,9 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIPPED = REPO_ROOT / "configs"
 SYSTEM_ADMIN_TOKEN = "system-test-admin-token"
 
-SERVICE_NAME = "service_collector-realtime_v1.1.0.yaml"
+SERVICE_NAME = "service_collector-realtime_v2.0.0.yaml"
 SERVICE_ID = "collector-realtime"
-SERVICE_VERSION = "1.1.0"
+SERVICE_VERSION = "2.0.0"
 DEVICE_INSTANCE_ID = "system"
 TASK_INSTANCE_ID = "system"
 INSTANCE_VERSION = "1.0.0"

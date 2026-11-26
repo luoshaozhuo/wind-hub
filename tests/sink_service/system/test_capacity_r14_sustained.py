@@ -76,6 +76,7 @@ TARGET_BATCH_RATE = float(os.environ.get("R14_TARGET_BATCH_RATE", "120"))
 POINTS_PER_BATCH = int(os.environ.get("R14_POINTS", "500"))
 KAFKA_MAX_SAFE_INFLIGHT = int(os.environ.get("R14_KAFKA_MAX_SAFE_INFLIGHT", "4"))
 KAFKA_MAX_BATCH_SIZE = int(os.environ.get("R14_KAFKA_MAX_BATCH_SIZE", "131072"))
+KAFKA_LINGER_MS = int(os.environ.get("R14_KAFKA_LINGER_MS", "0"))
 KAFKA_PARTITIONS = int(os.environ.get("R14_KAFKA_PARTITIONS", "1"))
 PUBLISH_ENCODERS = int(os.environ.get("R14_PUBLISH_ENCODERS", "4"))
 MIN_SUSTAINED_FRACTION = float(os.environ.get("R14_MIN_SUSTAINED_FRACTION", "0.95"))
@@ -93,13 +94,14 @@ QUOTA_STAGES = ("global", "physical", "native")
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
 # JetStream Limits 保留策略下 ACK 只推进消费者位置、不删除流消息，600s 持续
 # 压测累积约 7 万批会按 max_bytes 撑爆（与消费快慢无关）。长稳专用：
-# - 放大 max_bytes 到 R14_STREAM_MAX_BYTES（默认 4GiB）；
-# - 加滚动 max_age=R14_STREAM_MAX_AGE_S（默认 180s），让已消费的老消息到期
+# - 放大 max_bytes 到 R14_STREAM_MAX_BYTES（默认 8GiB）；
+# - 加滚动 max_age=R14_STREAM_MAX_AGE_S（默认 900s），覆盖 600s 发布、120s
+#   排空及审计余量，让已消费的老消息到期
 #   回收，使流占用与运行时长解耦。消费者跟得上时（积压斜率≈0）到期消息早已
 #   安全交付；name/subject/存储/retention/discard 均不变，仍满足生产启动守卫
 #   （reliable_runtime 仅要求 limits + 有限 max_bytes/max_age，不限定值）。
-STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(4 * 1024**3)))
-STREAM_MAX_AGE_S = int(os.environ.get("R14_STREAM_MAX_AGE_S", "180"))
+STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(8 * 1024**3)))
+STREAM_MAX_AGE_S = int(os.environ.get("R14_STREAM_MAX_AGE_S", "900"))
 
 
 def _encode_r14_batch(
@@ -186,7 +188,7 @@ async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> di
     await audit.start()
     try:
         records: list[Any] = []
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + 300
         while (
             time.monotonic() < deadline and len(records) < total_values // POINTS_PER_BATCH + 10000
         ):
@@ -195,13 +197,16 @@ async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> di
                 records.extend(messages)
             if not batch:
                 break
-        identities: dict[tuple[str, str, int], int] = {}
+        identities: dict[tuple[str, str, str, int], int] = {}
+        payload_bytes = 0
         for record in records:
+            payload_bytes += len(record.value)
             row = _decode_capacity_row(record.value)
-            key = (row.device_id, row.data_level.value, row.sample_time_us)
+            key = (row.wind_farm_id, row.device_id, row.data_level.value, row.sample_time_us)
             identities[key] = identities.get(key, 0) + 1
         dupes = {key: count for key, count in identities.items() if count > 1}
         return {
+            "audit_payload_bytes": payload_bytes,
             "audit_total_records": len(records),
             "audit_distinct_identities": len(identities),
             "audit_duplicate_identities": len(dupes),
@@ -272,12 +277,13 @@ class TestR14SustainedCapacity:
         if not 0 <= MAX_BACKLOG_SLOPE_FRACTION < 1:
             raise ValueError("R14_MAX_BACKLOG_SLOPE_FRACTION must be in [0, 1)")
         if (
-            not 1 <= DEGREE <= 100
+            not 1 <= DEGREE <= 1000
             or POINTS_PER_BATCH < 1
             or TARGET_BATCH_RATE <= 0
             or not 30 <= DURATION_S <= 86400
             or not 1 <= KAFKA_MAX_SAFE_INFLIGHT <= 128
             or not 1 <= KAFKA_MAX_BATCH_SIZE <= 1048576
+            or not 0 <= KAFKA_LINGER_MS <= 10
             or not 1 <= KAFKA_PARTITIONS <= 32
             or not 1 <= PUBLISH_ENCODERS <= 16
         ):
@@ -290,6 +296,7 @@ class TestR14SustainedCapacity:
             delivery_ids=delivery_ids,
             kafka_max_safe_inflight=KAFKA_MAX_SAFE_INFLIGHT,
             kafka_max_batch_size=KAFKA_MAX_BATCH_SIZE,
+            kafka_linger_ms=KAFKA_LINGER_MS,
         )
         await sink_harness.provision_streams()
         # Explicitly create even the single-partition baseline so metadata
@@ -317,7 +324,7 @@ class TestR14SustainedCapacity:
         stem = (
             f"r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}_"
             f"c{KAFKA_MAX_SAFE_INFLIGHT}_b{KAFKA_MAX_BATCH_SIZE}_"
-            f"p{KAFKA_PARTITIONS}_{sink_harness.token}"
+            f"l{KAFKA_LINGER_MS}_p{KAFKA_PARTITIONS}_{sink_harness.token}"
         )
         result_path = evidence_root / f"{stem}.json"
         samples_path = evidence_root / f"{stem}_samples.jsonl"
@@ -685,6 +692,9 @@ class TestR14SustainedCapacity:
                 grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
                 metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
                 grpc_max_ms = max(s["grpc_ms"] for s in samples)
+                grpc_ordered = sorted(s["grpc_ms"] for s in samples)
+                grpc_p95_ms = grpc_ordered[int((len(grpc_ordered) - 1) * 0.95)]
+                grpc_p99_ms = grpc_ordered[int((len(grpc_ordered) - 1) * 0.99)]
                 lag_p99_max = max(
                     (s["lag_p99_ms"] for s in samples if s["lag_p99_ms"] is not None),
                     default=None,
@@ -759,6 +769,8 @@ class TestR14SustainedCapacity:
                     "metrics_failures": metrics_failures,
                     "grpc_probes": len(samples),
                     "grpc_max_latency_ms": round(grpc_max_ms, 1),
+                    "grpc_probe_p95_ms": round(grpc_p95_ms, 3),
+                    "grpc_probe_p99_ms": round(grpc_p99_ms, 3),
                     "event_loop_lag_p99_max_ms": lag_p99_max,
                     "write_latency_p99_max_ms": write_p99_max,
                     "reliable_stage_diagnostics": stage_diagnostics,
@@ -768,6 +780,7 @@ class TestR14SustainedCapacity:
                     "kafka_capacity_profile": {
                         "max_safe_inflight": KAFKA_MAX_SAFE_INFLIGHT,
                         "max_batch_size": KAFKA_MAX_BATCH_SIZE,
+                        "linger_ms": KAFKA_LINGER_MS,
                         "partitions": KAFKA_PARTITIONS,
                     },
                     "cpu_percent_of_one_core": round(100 * cpu_seconds / (t_end - t0), 1),
@@ -778,11 +791,23 @@ class TestR14SustainedCapacity:
                     "maximum_backlog_slope_fraction": MAX_BACKLOG_SLOPE_FRACTION,
                 }
 
-                # 仅当出现超额（重投重复）时做全量审计，零丢失常态下省一轮读盘。
-                if confirmed_values > published_values:
-                    result["duplicate_audit"] = await _audit_duplicates(
-                        sink_harness, published_values
-                    )
+                # Offset 总数无法暴露“缺失 + 重复”的抵消；每个工况都按
+                # farm/device/level/sample_time 身份做全量计数闭合。
+                result["duplicate_audit"] = await _audit_duplicates(sink_harness, confirmed_values)
+                result["zero_loss"] = (
+                    result["duplicate_audit"]["audit_distinct_identities"] == published_batches
+                )
+                result["identity_closed"] = (
+                    result["duplicate_audit"]["audit_total_records"]
+                    == confirmed_values // POINTS_PER_BATCH
+                    and result["zero_loss"]
+                )
+                result["confirmed_payload_mb_total"] = round(
+                    result["duplicate_audit"]["audit_payload_bytes"] / 1e6, 3
+                )
+                result["confirmed_payload_mb_per_s_end_to_end"] = round(
+                    result["duplicate_audit"]["audit_payload_bytes"] / 1e6 / (t_end - t0), 3
+                )
 
                 samples_bytes = samples_path.read_bytes()
                 result["samples_path"] = str(samples_path)
@@ -810,10 +835,10 @@ class TestR14SustainedCapacity:
                 assert not order_audit["order_or_partition_violations"], result
                 assert result["drained"], result
                 assert confirmed_values >= published_values, result
-                if confirmed_values > published_values:
-                    audit = result["duplicate_audit"]
-                    # 允许 at-least-once 重投，但不得有第三次投递（无未知重复）。
-                    assert audit["audit_max_occurrence"] == 2, result
+                audit = result["duplicate_audit"]
+                assert result["identity_closed"], result
+                # 允许 at-least-once 重投，但不得有第三次投递或身份缺失。
+                assert audit["audit_max_occurrence"] <= 2, result
             finally:
                 if pub_task is not None and not pub_task.done():
                     pub_task.cancel()

@@ -86,7 +86,7 @@ async def test_backend_out_of_order_fails_closed() -> None:
     "points, expected",
     [
         ((("power", 1, 0),), "NULL and quality"),
-        ((("power", None, 1),), "NULL and quality"),
+        ((("power", None, 5),), "invalid column"),
         ((("different", 1, 1),), "invalid column"),
         ((("power", 1, 4),), "invalid column"),
         ((), "incomplete physical"),

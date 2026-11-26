@@ -1,7 +1,7 @@
 """Build complete, schema-valid Collector configuration trees for real processes.
 
-Every YAML document carries ``file_version``, including the shipped
-``configs/services/service_collector-realtime_v1.0.0.yaml``. This fixture uses isolated versions.
+Every YAML document carries ``file_version`` and the Service uses messaging
+schema 6. This fixture uses isolated versions.
 The §11 Template/Service/Instance tree is consumed by a real
 ``collector.main`` process, never by in-process fakes.
 """
@@ -52,6 +52,7 @@ def write_config_tree(
     service_id = f"collector-{delivery}"
     service = {
         **_HEADER,
+        "schema_version": 6,
         "service_id": service_id,
         "config_sources": {
             "instances": {"site": site_ref, "devices": devices_ref, "tasks": "farm-a"},

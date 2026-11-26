@@ -326,9 +326,7 @@ class KafkaStorageConsumer:
             ):
                 return
             self._retry_failures.pop(tp, None)
-            self._metrics.record_confirmed_records(
-                state.offsets.next_commit_offset - retry_cursor
-            )
+            self._metrics.record_confirmed_records(state.offsets.next_commit_offset - retry_cursor)
             target = self._replay_targets.get(tp)
             if target is not None and state.offsets.next_commit_offset >= target:
                 self._replay_targets.pop(tp, None)

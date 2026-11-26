@@ -97,12 +97,15 @@ async def export_grouped_wide_history(
                 json_file.write('{"groups":[')
             try:
                 while True:
-                    page = await history.query(
-                        selector=selector, page_size=100, page_token=token
-                    )
+                    page = await history.query(selector=selector, page_size=100, page_token=token)
                     for group in page.groups:
                         identity = group.identity
                         schema = group.schema
+                        if (
+                            selector.schema_fingerprint
+                            and schema.fingerprint != selector.schema_fingerprint
+                        ):
+                            raise RuntimeError("grouped export schema fingerprint mismatch")
                         key = (
                             identity.wind_farm_id,
                             identity.device_id,
@@ -181,12 +184,10 @@ async def export_grouped_wide_history(
                         for row in group.rows:
                             if (
                                 type(row.sample_time_us) is not int
-                                or not selector.start_time_us <= row.sample_time_us
+                                or not selector.start_time_us
+                                <= row.sample_time_us
                                 < selector.end_time_us
-                                or (
-                                    last_sample is not None
-                                    and row.sample_time_us <= last_sample
-                                )
+                                or (last_sample is not None and row.sample_time_us <= last_sample)
                             ):
                                 raise RuntimeError("grouped export has invalid timestamp order")
                             last_sample = row.sample_time_us

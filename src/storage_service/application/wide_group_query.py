@@ -70,8 +70,7 @@ class GroupedWideSelector:
         ):
             raise ValueError("grouped history has duplicate or empty points")
         if len(set(self.qualities)) != len(self.qualities) or any(
-            type(quality) is not int or not 0 <= quality <= 3
-            for quality in self.qualities
+            type(quality) is not int or not 0 <= quality <= 3 for quality in self.qualities
         ):
             raise ValueError("grouped history contains invalid quality values")
 
@@ -142,16 +141,14 @@ class WideGroupedHistoryService:
         """Expose the same Kafka replay visibility fence to grouped exports."""
         return self._history.read_available()
 
-    def _encode_cursor(
-        self, *, digest: str, index: int, inner: str, horizon: int
-    ) -> str:
+    def _encode_cursor(self, *, digest: str, index: int, inner: str, horizon: int) -> str:
         payload = json.dumps(
             [digest, index, inner, horizon, int(time.time()) + 900],
             separators=(",", ":"),
         ).encode("utf-8")
-        return base64.urlsafe_b64encode(
-            hmac.digest(self._key, payload, "sha256") + payload
-        ).decode("ascii")
+        return base64.urlsafe_b64encode(hmac.digest(self._key, payload, "sha256") + payload).decode(
+            "ascii"
+        )
 
     def _decode_cursor(
         self, token: str, *, digest: str, total: int, selector: GroupedWideSelector

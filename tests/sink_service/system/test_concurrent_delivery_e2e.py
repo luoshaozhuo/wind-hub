@@ -77,9 +77,12 @@ def _write_concurrent_root(
     ack_wait_seconds: int | None = None,
     kafka_max_safe_inflight: int = 4,
     kafka_max_batch_size: int | None = None,
+    kafka_linger_ms: int = 0,
 ) -> None:
     if not 1 <= kafka_max_safe_inflight <= 128:
         raise ValueError("Kafka safe in-flight limit must be in [1, 128]")
+    if type(kafka_linger_ms) is not int or not 0 <= kafka_linger_ms <= 10:
+        raise ValueError("Kafka linger must be in [0, 10] ms")
     if kafka_max_batch_size is not None and not 1 <= kafka_max_batch_size <= 1048576:
         raise ValueError("Kafka batch capacity must be in [1, 1048576] bytes")
     version = "1.1.0" if concurrent else "1.0.0"
@@ -108,6 +111,7 @@ def _write_concurrent_root(
     kafka_template["file_version"] = version
     kafka_template["connection"]["bootstrap_servers"] = [harness.stack.kafka]
     kafka_template["output"]["topic"] = harness.kafka_topic
+    kafka_template["output"]["linger_ms"] = kafka_linger_ms
     if concurrent:
         kafka_template["capabilities"]["supports_concurrent_write"] = True
         kafka_template["capabilities"]["max_safe_inflight"] = kafka_max_safe_inflight

@@ -447,6 +447,8 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             service_path = root / "services" / SERVICE_NAME
             document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
             document["messaging"]["delivery"] = delivery
+            if delivery == "reliable":
+                document["messaging"].pop("max_staleness_ms", None)
             _dump(service_path, document)
             collector_roots[name] = root
 
@@ -780,13 +782,25 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
 
         records = await sink.wait_kafka_messages(min_messages=4, timeout=75)
         payloads = [json.loads(record.value.decode("utf-8")) for record in records]
-        matching = [item for item in payloads if item.get("point_id") == point]
+        matching = [
+            item
+            for item in payloads
+            if isinstance(item.get("points"), dict) and point in item["points"]
+        ]
         assert len(matching) >= 1, payloads
-        assert {item["collector_id"] for item in matching} == {reliable_collector}
+        # power_history 是此 Reliable Collector 的唯一 Kafka 输出；v3 行契约
+        # 不再携带逐点 sample_id 或冗余 collector_id。
+        assert all(item["schema_version"] == 3 for item in matching)
         assert {item["wind_farm_id"] for item in matching} == {farm}
         assert {item["device_id"] for item in matching} == {device}
-        assert any(item["value"] == pytest.approx(value) for item in matching)
-        assert len({item["sample_id"] for item in matching}) == len(matching)
+        assert {item["device_config_id"] for item in matching} == {"device_system_v1.0.0"}
+        assert any(
+            item["points"][point][0] == pytest.approx(value) and item["points"][point][1] == 1
+            for item in matching
+        )
+        assert len({(item["device_config_id"], item["sample_time"]) for item in matching}) == len(
+            matching
+        )
         assert (await sink.stream_pending())["consumer_pending"] == 0
 
         await harness.poll_cli(

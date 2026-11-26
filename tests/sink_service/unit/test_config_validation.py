@@ -267,11 +267,18 @@ def test_kafka_producer_settings_default_when_absent() -> None:
     validate_snapshot(snapshot_files(docs))
 
 
-@pytest.mark.parametrize("bad_linger", [1, 5, -1, True, False, 0.0, "0", None])
-def test_kafka_linger_ms_must_be_integer_zero(bad_linger: object) -> None:
+@pytest.mark.parametrize("good_linger", [0, 1, 5, 10])
+def test_kafka_linger_ms_accepts_bounded_coalescing_delays(good_linger: int) -> None:
+    docs = snapshot_docs()
+    docs[_KAFKA_TEMPLATE_KEY]["output"]["linger_ms"] = good_linger
+    validate_snapshot(snapshot_files(docs))
+
+
+@pytest.mark.parametrize("bad_linger", [-1, 11, True, False, 0.0, "0", None])
+def test_kafka_linger_ms_must_be_integer_in_coalescing_range(bad_linger: object) -> None:
     docs = snapshot_docs()
     docs[_KAFKA_TEMPLATE_KEY]["output"]["linger_ms"] = bad_linger
-    with pytest.raises(ConfigurationError, match="linger_ms must be 0"):
+    with pytest.raises(ConfigurationError, match=r"linger_ms must be 0\.\.10"):
         validate_snapshot(snapshot_files(docs))
 
 

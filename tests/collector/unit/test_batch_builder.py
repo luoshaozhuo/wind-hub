@@ -12,7 +12,7 @@ from core.application import ProtocolSample
 
 
 def _builder(
-    delivery: Literal["realtime", "reliable"] = "reliable", **overrides: int
+    delivery: Literal["realtime", "reliable"] = "realtime", **overrides: int
 ) -> BatchBuilder:
     options = {
         "max_staleness_ms": 500,
@@ -31,9 +31,32 @@ DEVICE_TYPE = "wind_turbine"
 POINT_TABLE = "point_table_modbus_wtg_sim_v1.0.0"
 
 
+def _pack(
+    builder: BatchBuilder,
+    device_id: str,
+    samples: tuple[ProtocolSample, ...],
+    *,
+    device_type: str,
+    point_table_id: str,
+    task_id: str,
+):
+    return builder.pack(
+        device_id,
+        samples,
+        device_type=device_type,
+        point_table_id=point_table_id,
+        task_id=task_id,
+        device_config_id="device_farm-a_v1.0.0",
+        sample_time=datetime.now(UTC),
+        expected_point_ids=tuple(dict.fromkeys(sample.point_id for sample in samples))
+        or ("empty",),
+    )
+
+
 def test_split_order_unique_identities_and_update_site() -> None:
     builder = _builder()
-    batches = builder.pack(
+    batches = _pack(
+        builder,
         "wtg-01",
         tuple(_sample(f"p{i}") for i in range(5)),
         device_type=DEVICE_TYPE,
@@ -49,7 +72,8 @@ def test_split_order_unique_identities_and_update_site() -> None:
     assert len({batch.batch_id for batch in batches}) == 3
     original = batches[0]
     builder.update_site("farm-b")
-    following = builder.pack(
+    following = _pack(
+        builder,
         "wtg-01",
         (_sample("next"),),
         device_type=DEVICE_TYPE,
@@ -63,7 +87,8 @@ def test_split_order_unique_identities_and_update_site() -> None:
 def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
     builder = _builder(max_samples_per_batch=100, max_batch_bytes=256)
     assert (
-        builder.pack(
+        _pack(
+            builder,
             "wtg-01",
             (),
             device_type=DEVICE_TYPE,
@@ -73,7 +98,8 @@ def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
         == []
     )
     with pytest.raises(ValueError, match="duplicate point_id"):
-        builder.pack(
+        _pack(
+            builder,
             "wtg-01",
             (_sample("same"), _sample("same")),
             device_type=DEVICE_TYPE,
@@ -81,7 +107,8 @@ def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
             task_id="task-wtg-01",
         )
     with pytest.raises(ValueError):
-        builder.pack(
+        _pack(
+            builder,
             "wtg-01",
             (_sample("small"), _sample("large", "x" * 1024)),
             device_type=DEVICE_TYPE,
@@ -102,14 +129,16 @@ def test_nonpositive_byte_limit_is_rejected() -> None:
 
 
 def test_realtime_staleness_and_reliable_identity_fields() -> None:
-    realtime = _builder("realtime").pack(
+    realtime = _pack(
+        _builder("realtime"),
         "wtg-01",
         (_sample("p"),),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
         task_id="task-wtg-01",
     )[0]
-    reliable = _builder("reliable").pack(
+    reliable = _pack(
+        _builder("reliable"),
         "wtg-01",
         (_sample("p"),),
         device_type=DEVICE_TYPE,
@@ -124,14 +153,16 @@ def test_realtime_staleness_and_reliable_identity_fields() -> None:
 
 def test_task_identity_is_not_derived_from_device_identity() -> None:
     builder = _builder()
-    first = builder.pack(
+    first = _pack(
+        builder,
         "wtg-01",
         (_sample("p"),),
         device_type=DEVICE_TYPE,
         point_table_id=POINT_TABLE,
         task_id="task-wind-speed",
     )[0]
-    second = builder.pack(
+    second = _pack(
+        builder,
         "wtg-01",
         (_sample("p"),),
         device_type=DEVICE_TYPE,
@@ -147,7 +178,8 @@ def test_task_identity_is_not_derived_from_device_identity() -> None:
 
 def test_invalid_task_identity_fails_closed() -> None:
     with pytest.raises(ValueError):
-        _builder().pack(
+        _pack(
+            _builder(),
             "wtg-01",
             (_sample("p"),),
             device_type=DEVICE_TYPE,

@@ -39,32 +39,45 @@ STORAGE_DATA_LEVEL_PROTOCOL: StorageDataLevel.ValueType  # 2
 STORAGE_DATA_LEVEL_BUSINESS: StorageDataLevel.ValueType  # 3
 Global___StorageDataLevel: _TypeAlias = StorageDataLevel  # noqa: Y015
 
-class _StorageValueKind:
+class _StorageQuality:
     ValueType = _typing.NewType("ValueType", _builtins.int)
     V: _TypeAlias = ValueType  # noqa: Y015
 
-class _StorageValueKindEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_StorageValueKind.ValueType], _builtins.type):
+class _StorageQualityEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_StorageQuality.ValueType], _builtins.type):
     DESCRIPTOR: _descriptor.EnumDescriptor
-    STORAGE_VALUE_KIND_UNSPECIFIED: _StorageValueKind.ValueType  # 0
-    STORAGE_VALUE_KIND_MISSING: _StorageValueKind.ValueType  # 1
-    STORAGE_VALUE_KIND_INT64: _StorageValueKind.ValueType  # 2
-    STORAGE_VALUE_KIND_UINT64: _StorageValueKind.ValueType  # 3
-    STORAGE_VALUE_KIND_DOUBLE: _StorageValueKind.ValueType  # 4
-    STORAGE_VALUE_KIND_BOOL: _StorageValueKind.ValueType  # 5
-    STORAGE_VALUE_KIND_TEXT: _StorageValueKind.ValueType  # 6
-    STORAGE_VALUE_KIND_BYTES: _StorageValueKind.ValueType  # 7
+    STORAGE_QUALITY_NOT_COLLECTED: _StorageQuality.ValueType  # 0
+    STORAGE_QUALITY_GOOD: _StorageQuality.ValueType  # 1
+    STORAGE_QUALITY_BAD: _StorageQuality.ValueType  # 2
+    STORAGE_QUALITY_UNCERTAIN: _StorageQuality.ValueType  # 3
 
-class StorageValueKind(_StorageValueKind, metaclass=_StorageValueKindEnumTypeWrapper): ...
+class StorageQuality(_StorageQuality, metaclass=_StorageQualityEnumTypeWrapper): ...
 
-STORAGE_VALUE_KIND_UNSPECIFIED: StorageValueKind.ValueType  # 0
-STORAGE_VALUE_KIND_MISSING: StorageValueKind.ValueType  # 1
-STORAGE_VALUE_KIND_INT64: StorageValueKind.ValueType  # 2
-STORAGE_VALUE_KIND_UINT64: StorageValueKind.ValueType  # 3
-STORAGE_VALUE_KIND_DOUBLE: StorageValueKind.ValueType  # 4
-STORAGE_VALUE_KIND_BOOL: StorageValueKind.ValueType  # 5
-STORAGE_VALUE_KIND_TEXT: StorageValueKind.ValueType  # 6
-STORAGE_VALUE_KIND_BYTES: StorageValueKind.ValueType  # 7
-Global___StorageValueKind: _TypeAlias = StorageValueKind  # noqa: Y015
+STORAGE_QUALITY_NOT_COLLECTED: StorageQuality.ValueType  # 0
+STORAGE_QUALITY_GOOD: StorageQuality.ValueType  # 1
+STORAGE_QUALITY_BAD: StorageQuality.ValueType  # 2
+STORAGE_QUALITY_UNCERTAIN: StorageQuality.ValueType  # 3
+Global___StorageQuality: _TypeAlias = StorageQuality  # noqa: Y015
+
+class _StorageAggregation:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _StorageAggregationEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_StorageAggregation.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    STORAGE_AGGREGATION_UNSPECIFIED: _StorageAggregation.ValueType  # 0
+    STORAGE_AGGREGATION_COUNT: _StorageAggregation.ValueType  # 1
+    STORAGE_AGGREGATION_MIN: _StorageAggregation.ValueType  # 2
+    STORAGE_AGGREGATION_MAX: _StorageAggregation.ValueType  # 3
+    STORAGE_AGGREGATION_AVG: _StorageAggregation.ValueType  # 4
+
+class StorageAggregation(_StorageAggregation, metaclass=_StorageAggregationEnumTypeWrapper): ...
+
+STORAGE_AGGREGATION_UNSPECIFIED: StorageAggregation.ValueType  # 0
+STORAGE_AGGREGATION_COUNT: StorageAggregation.ValueType  # 1
+STORAGE_AGGREGATION_MIN: StorageAggregation.ValueType  # 2
+STORAGE_AGGREGATION_MAX: StorageAggregation.ValueType  # 3
+STORAGE_AGGREGATION_AVG: StorageAggregation.ValueType  # 4
+Global___StorageAggregation: _TypeAlias = StorageAggregation  # noqa: Y015
 
 class _StorageTaskState:
     ValueType = _typing.NewType("ValueType", _builtins.int)
@@ -89,113 +102,41 @@ STORAGE_TASK_STATE_FAILED: StorageTaskState.ValueType  # 4
 STORAGE_TASK_STATE_INTERRUPTED: StorageTaskState.ValueType  # 5
 Global___StorageTaskState: _TypeAlias = StorageTaskState  # noqa: Y015
 
-class _StorageAggregation:
-    ValueType = _typing.NewType("ValueType", _builtins.int)
-    V: _TypeAlias = ValueType  # noqa: Y015
-
-class _StorageAggregationEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_StorageAggregation.ValueType], _builtins.type):
-    DESCRIPTOR: _descriptor.EnumDescriptor
-    STORAGE_AGGREGATION_UNSPECIFIED: _StorageAggregation.ValueType  # 0
-    STORAGE_AGGREGATION_COUNT: _StorageAggregation.ValueType  # 1
-    STORAGE_AGGREGATION_MIN: _StorageAggregation.ValueType  # 2
-    STORAGE_AGGREGATION_MAX: _StorageAggregation.ValueType  # 3
-    STORAGE_AGGREGATION_AVG: _StorageAggregation.ValueType  # 4
-
-class StorageAggregation(_StorageAggregation, metaclass=_StorageAggregationEnumTypeWrapper): ...
-
-STORAGE_AGGREGATION_UNSPECIFIED: StorageAggregation.ValueType  # 0
-STORAGE_AGGREGATION_COUNT: StorageAggregation.ValueType  # 1
-STORAGE_AGGREGATION_MIN: StorageAggregation.ValueType  # 2
-STORAGE_AGGREGATION_MAX: StorageAggregation.ValueType  # 3
-STORAGE_AGGREGATION_AVG: StorageAggregation.ValueType  # 4
-Global___StorageAggregation: _TypeAlias = StorageAggregation  # noqa: Y015
-
 @_typing.final
-class StorageSample(_message.Message):
+class StorageValue(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    WIND_FARM_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_TYPE_FIELD_NUMBER: _builtins.int
-    DEVICE_ID_FIELD_NUMBER: _builtins.int
-    POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
-    POINT_ID_FIELD_NUMBER: _builtins.int
-    BUSINESS_POINT_ID_FIELD_NUMBER: _builtins.int
-    SAMPLE_ID_FIELD_NUMBER: _builtins.int
-    DATA_LEVEL_FIELD_NUMBER: _builtins.int
-    VALUE_KIND_FIELD_NUMBER: _builtins.int
     VALUE_I64_FIELD_NUMBER: _builtins.int
     VALUE_U64_FIELD_NUMBER: _builtins.int
     VALUE_F64_FIELD_NUMBER: _builtins.int
     VALUE_BOOL_FIELD_NUMBER: _builtins.int
     VALUE_TEXT_FIELD_NUMBER: _builtins.int
     PAYLOAD_BYTES_FIELD_NUMBER: _builtins.int
-    QUALITY_FIELD_NUMBER: _builtins.int
-    SAMPLE_TIME_FIELD_NUMBER: _builtins.int
-    PUBLISH_TIME_FIELD_NUMBER: _builtins.int
-    RECEIVE_TIME_FIELD_NUMBER: _builtins.int
-    UNIT_FIELD_NUMBER: _builtins.int
-    LOGICAL_KEY_FIELD_NUMBER: _builtins.int
-    CONTENT_SHA256_FIELD_NUMBER: _builtins.int
-    wind_farm_id: _builtins.str
-    device_type: _builtins.str
-    device_id: _builtins.str
-    point_table_id: _builtins.str
-    point_id: _builtins.str
-    business_point_id: _builtins.str
-    sample_id: _builtins.str
-    data_level: Global___StorageDataLevel.ValueType
-    value_kind: Global___StorageValueKind.ValueType
     value_i64: _builtins.int
     value_u64: _builtins.int
     value_f64: _builtins.float
     value_bool: _builtins.bool
     value_text: _builtins.str
     payload_bytes: _builtins.bytes
-    quality: _builtins.str
-    unit: _builtins.str
-    logical_key: _builtins.str
-    content_sha256: _builtins.str
-    @_builtins.property
-    def sample_time(self) -> _timestamp_pb2.Timestamp: ...
-    @_builtins.property
-    def publish_time(self) -> _timestamp_pb2.Timestamp: ...
-    @_builtins.property
-    def receive_time(self) -> _timestamp_pb2.Timestamp: ...
     def __init__(
         self,
         *,
-        wind_farm_id: _builtins.str = ...,
-        device_type: _builtins.str = ...,
-        device_id: _builtins.str = ...,
-        point_table_id: _builtins.str = ...,
-        point_id: _builtins.str = ...,
-        business_point_id: _builtins.str = ...,
-        sample_id: _builtins.str = ...,
-        data_level: Global___StorageDataLevel.ValueType = ...,
-        value_kind: Global___StorageValueKind.ValueType = ...,
         value_i64: _builtins.int = ...,
         value_u64: _builtins.int = ...,
         value_f64: _builtins.float = ...,
         value_bool: _builtins.bool = ...,
         value_text: _builtins.str = ...,
         payload_bytes: _builtins.bytes = ...,
-        quality: _builtins.str = ...,
-        sample_time: _timestamp_pb2.Timestamp | None = ...,
-        publish_time: _timestamp_pb2.Timestamp | None = ...,
-        receive_time: _timestamp_pb2.Timestamp | None = ...,
-        unit: _builtins.str = ...,
-        logical_key: _builtins.str = ...,
-        content_sha256: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["payload_bytes", b"payload_bytes", "publish_time", b"publish_time", "receive_time", b"receive_time", "sample_time", b"sample_time", "value", b"value", "value_bool", b"value_bool", "value_f64", b"value_f64", "value_i64", b"value_i64", "value_text", b"value_text", "value_u64", b"value_u64"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["payload_bytes", b"payload_bytes", "value", b"value", "value_bool", b"value_bool", "value_f64", b"value_f64", "value_i64", b"value_i64", "value_text", b"value_text", "value_u64", b"value_u64"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["business_point_id", b"business_point_id", "content_sha256", b"content_sha256", "data_level", b"data_level", "device_id", b"device_id", "device_type", b"device_type", "logical_key", b"logical_key", "payload_bytes", b"payload_bytes", "point_id", b"point_id", "point_table_id", b"point_table_id", "publish_time", b"publish_time", "quality", b"quality", "receive_time", b"receive_time", "sample_id", b"sample_id", "sample_time", b"sample_time", "unit", b"unit", "value", b"value", "value_bool", b"value_bool", "value_f64", b"value_f64", "value_i64", b"value_i64", "value_kind", b"value_kind", "value_text", b"value_text", "value_u64", b"value_u64", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["payload_bytes", b"payload_bytes", "value", b"value", "value_bool", b"value_bool", "value_f64", b"value_f64", "value_i64", b"value_i64", "value_text", b"value_text", "value_u64", b"value_u64"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType_value: _TypeAlias = _typing.Literal["value_i64", "value_u64", "value_f64", "value_bool", "value_text", "payload_bytes"]  # noqa: Y015
     _WhichOneofArgType_value: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_value) -> _WhichOneofReturnType_value | None: ...
 
-Global___StorageSample: _TypeAlias = StorageSample  # noqa: Y015
+Global___StorageValue: _TypeAlias = StorageValue  # noqa: Y015
 
 @_typing.final
 class StorageFilter(_message.Message):
@@ -203,48 +144,152 @@ class StorageFilter(_message.Message):
 
     WIND_FARM_ID_FIELD_NUMBER: _builtins.int
     DEVICE_TYPE_FIELD_NUMBER: _builtins.int
-    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_IDS_FIELD_NUMBER: _builtins.int
     POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
     DATA_LEVEL_FIELD_NUMBER: _builtins.int
-    POINT_ID_FIELD_NUMBER: _builtins.int
-    BUSINESS_POINT_ID_FIELD_NUMBER: _builtins.int
+    POINT_IDS_FIELD_NUMBER: _builtins.int
     START_TIME_FIELD_NUMBER: _builtins.int
     END_TIME_FIELD_NUMBER: _builtins.int
     QUALITIES_FIELD_NUMBER: _builtins.int
+    SCHEMA_FINGERPRINT_FIELD_NUMBER: _builtins.int
     wind_farm_id: _builtins.str
     device_type: _builtins.str
-    device_id: _builtins.str
     point_table_id: _builtins.str
     data_level: Global___StorageDataLevel.ValueType
-    point_id: _builtins.str
-    business_point_id: _builtins.str
+    schema_fingerprint: _builtins.str
+    @_builtins.property
+    def device_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    @_builtins.property
+    def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
     @_builtins.property
     def start_time(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
     def end_time(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
-    def qualities(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def qualities(self) -> _containers.RepeatedScalarFieldContainer[Global___StorageQuality.ValueType]: ...
     def __init__(
         self,
         *,
         wind_farm_id: _builtins.str = ...,
         device_type: _builtins.str = ...,
-        device_id: _builtins.str = ...,
+        device_ids: _abc.Iterable[_builtins.str] | None = ...,
         point_table_id: _builtins.str = ...,
         data_level: Global___StorageDataLevel.ValueType = ...,
-        point_id: _builtins.str = ...,
-        business_point_id: _builtins.str = ...,
+        point_ids: _abc.Iterable[_builtins.str] | None = ...,
         start_time: _timestamp_pb2.Timestamp | None = ...,
         end_time: _timestamp_pb2.Timestamp | None = ...,
-        qualities: _abc.Iterable[_builtins.str] | None = ...,
+        qualities: _abc.Iterable[Global___StorageQuality.ValueType] | None = ...,
+        schema_fingerprint: _builtins.str | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["end_time", b"end_time", "start_time", b"start_time"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_schema_fingerprint", b"_schema_fingerprint", "end_time", b"end_time", "schema_fingerprint", b"schema_fingerprint", "start_time", b"start_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["business_point_id", b"business_point_id", "data_level", b"data_level", "device_id", b"device_id", "device_type", b"device_type", "end_time", b"end_time", "point_id", b"point_id", "point_table_id", b"point_table_id", "qualities", b"qualities", "start_time", b"start_time", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_schema_fingerprint", b"_schema_fingerprint", "data_level", b"data_level", "device_ids", b"device_ids", "device_type", b"device_type", "end_time", b"end_time", "point_ids", b"point_ids", "point_table_id", b"point_table_id", "qualities", b"qualities", "schema_fingerprint", b"schema_fingerprint", "start_time", b"start_time", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__schema_fingerprint: _TypeAlias = _typing.Literal["schema_fingerprint"]  # noqa: Y015
+    _WhichOneofArgType__schema_fingerprint: _TypeAlias = _typing.Literal["_schema_fingerprint", b"_schema_fingerprint"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__schema_fingerprint) -> _WhichOneofReturnType__schema_fingerprint | None: ...
+
+Global___StorageFilter: _TypeAlias = StorageFilter  # noqa: Y015
+
+@_typing.final
+class StorageColumn(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    BUSINESS_POINT_ID_FIELD_NUMBER: _builtins.int
+    UNIT_FIELD_NUMBER: _builtins.int
+    DATA_TYPE_FIELD_NUMBER: _builtins.int
+    PHYSICAL_NAME_FIELD_NUMBER: _builtins.int
+    point_id: _builtins.str
+    business_point_id: _builtins.str
+    unit: _builtins.str
+    data_type: _builtins.str
+    physical_name: _builtins.str
+    def __init__(
+        self,
+        *,
+        point_id: _builtins.str = ...,
+        business_point_id: _builtins.str = ...,
+        unit: _builtins.str = ...,
+        data_type: _builtins.str = ...,
+        physical_name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["business_point_id", b"business_point_id", "data_type", b"data_type", "physical_name", b"physical_name", "point_id", b"point_id", "unit", b"unit"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___StorageFilter: _TypeAlias = StorageFilter  # noqa: Y015
+Global___StorageColumn: _TypeAlias = StorageColumn  # noqa: Y015
+
+@_typing.final
+class StorageWideRow(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SAMPLE_TIME_FIELD_NUMBER: _builtins.int
+    VALUES_FIELD_NUMBER: _builtins.int
+    QUALITY_FIELD_NUMBER: _builtins.int
+    quality: _builtins.bytes
+    @_builtins.property
+    def sample_time(self) -> _timestamp_pb2.Timestamp: ...
+    @_builtins.property
+    def values(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageValue]: ...
+    def __init__(
+        self,
+        *,
+        sample_time: _timestamp_pb2.Timestamp | None = ...,
+        values: _abc.Iterable[Global___StorageValue] | None = ...,
+        quality: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["sample_time", b"sample_time"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["quality", b"quality", "sample_time", b"sample_time", "values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___StorageWideRow: _TypeAlias = StorageWideRow  # noqa: Y015
+
+@_typing.final
+class StorageGroup(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    WIND_FARM_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_TYPE_FIELD_NUMBER: _builtins.int
+    POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
+    DATA_LEVEL_FIELD_NUMBER: _builtins.int
+    SCHEMA_FINGERPRINT_FIELD_NUMBER: _builtins.int
+    COLUMNS_FIELD_NUMBER: _builtins.int
+    ROWS_FIELD_NUMBER: _builtins.int
+    wind_farm_id: _builtins.str
+    device_id: _builtins.str
+    device_type: _builtins.str
+    point_table_id: _builtins.str
+    data_level: Global___StorageDataLevel.ValueType
+    schema_fingerprint: _builtins.str
+    @_builtins.property
+    def columns(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageColumn]: ...
+    @_builtins.property
+    def rows(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageWideRow]: ...
+    def __init__(
+        self,
+        *,
+        wind_farm_id: _builtins.str = ...,
+        device_id: _builtins.str = ...,
+        device_type: _builtins.str = ...,
+        point_table_id: _builtins.str = ...,
+        data_level: Global___StorageDataLevel.ValueType = ...,
+        schema_fingerprint: _builtins.str = ...,
+        columns: _abc.Iterable[Global___StorageColumn] | None = ...,
+        rows: _abc.Iterable[Global___StorageWideRow] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["columns", b"columns", "data_level", b"data_level", "device_id", b"device_id", "device_type", b"device_type", "point_table_id", b"point_table_id", "rows", b"rows", "schema_fingerprint", b"schema_fingerprint", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___StorageGroup: _TypeAlias = StorageGroup  # noqa: Y015
 
 @_typing.final
 class QuerySamplesRequest(_message.Message):
@@ -276,23 +321,23 @@ Global___QuerySamplesRequest: _TypeAlias = QuerySamplesRequest  # noqa: Y015
 class QuerySamplesResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    ITEMS_FIELD_NUMBER: _builtins.int
+    GROUPS_FIELD_NUMBER: _builtins.int
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _builtins.int
     COMPLETE_FIELD_NUMBER: _builtins.int
     next_page_token: _builtins.str
     complete: _builtins.bool
     @_builtins.property
-    def items(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageSample]: ...
+    def groups(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageGroup]: ...
     def __init__(
         self,
         *,
-        items: _abc.Iterable[Global___StorageSample] | None = ...,
+        groups: _abc.Iterable[Global___StorageGroup] | None = ...,
         next_page_token: _builtins.str = ...,
         complete: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["complete", b"complete", "items", b"items", "next_page_token", b"next_page_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["complete", b"complete", "groups", b"groups", "next_page_token", b"next_page_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -307,15 +352,12 @@ class QueryAggregatesRequest(_message.Message):
     WINDOW_MS_FIELD_NUMBER: _builtins.int
     PAGE_SIZE_FIELD_NUMBER: _builtins.int
     PAGE_TOKEN_FIELD_NUMBER: _builtins.int
-    WIDE_FILTER_FIELD_NUMBER: _builtins.int
     aggregation: Global___StorageAggregation.ValueType
     window_ms: _builtins.int
     page_size: _builtins.int
     page_token: _builtins.str
     @_builtins.property
     def filter(self) -> Global___StorageFilter: ...
-    @_builtins.property
-    def wide_filter(self) -> Global___QueryWideRowsRequest: ...
     def __init__(
         self,
         *,
@@ -324,11 +366,10 @@ class QueryAggregatesRequest(_message.Message):
         window_ms: _builtins.int = ...,
         page_size: _builtins.int = ...,
         page_token: _builtins.str = ...,
-        wide_filter: Global___QueryWideRowsRequest | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter", "wide_filter", b"wide_filter"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["aggregation", b"aggregation", "filter", b"filter", "page_size", b"page_size", "page_token", b"page_token", "wide_filter", b"wide_filter", "window_ms", b"window_ms"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["aggregation", b"aggregation", "filter", b"filter", "page_size", b"page_size", "page_token", b"page_token", "window_ms", b"window_ms"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -340,57 +381,53 @@ class StorageAggregate(_message.Message):
 
     WINDOW_START_FIELD_NUMBER: _builtins.int
     WINDOW_END_FIELD_NUMBER: _builtins.int
-    POINT_ID_FIELD_NUMBER: _builtins.int
-    BUSINESS_POINT_ID_FIELD_NUMBER: _builtins.int
+    WIND_FARM_ID_FIELD_NUMBER: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
     POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
     DATA_LEVEL_FIELD_NUMBER: _builtins.int
-    UNIT_FIELD_NUMBER: _builtins.int
+    SCHEMA_FINGERPRINT_FIELD_NUMBER: _builtins.int
+    COLUMN_FIELD_NUMBER: _builtins.int
     GOOD_COUNT_FIELD_NUMBER: _builtins.int
     MISSING_COUNT_FIELD_NUMBER: _builtins.int
+    VALID_COUNT_FIELD_NUMBER: _builtins.int
     RESULT_FIELD_NUMBER: _builtins.int
-    RESULT_I64_FIELD_NUMBER: _builtins.int
-    RESULT_U64_FIELD_NUMBER: _builtins.int
-    RESULT_VALUE_KIND_FIELD_NUMBER: _builtins.int
-    point_id: _builtins.str
-    business_point_id: _builtins.str
+    wind_farm_id: _builtins.str
+    device_id: _builtins.str
     point_table_id: _builtins.str
     data_level: Global___StorageDataLevel.ValueType
-    unit: _builtins.str
+    schema_fingerprint: _builtins.str
     good_count: _builtins.int
     missing_count: _builtins.int
-    result: _builtins.float
-    result_i64: _builtins.int
-    result_u64: _builtins.int
-    result_value_kind: _builtins.int
-    """1=signed, 2=unsigned, 3=double; distinguishes valid zero from unset."""
+    valid_count: _builtins.int
     @_builtins.property
     def window_start(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
     def window_end(self) -> _timestamp_pb2.Timestamp: ...
+    @_builtins.property
+    def column(self) -> Global___StorageColumn: ...
+    @_builtins.property
+    def result(self) -> Global___StorageValue: ...
     def __init__(
         self,
         *,
         window_start: _timestamp_pb2.Timestamp | None = ...,
         window_end: _timestamp_pb2.Timestamp | None = ...,
-        point_id: _builtins.str = ...,
-        business_point_id: _builtins.str = ...,
+        wind_farm_id: _builtins.str = ...,
+        device_id: _builtins.str = ...,
         point_table_id: _builtins.str = ...,
         data_level: Global___StorageDataLevel.ValueType = ...,
-        unit: _builtins.str = ...,
+        schema_fingerprint: _builtins.str = ...,
+        column: Global___StorageColumn | None = ...,
         good_count: _builtins.int = ...,
         missing_count: _builtins.int = ...,
-        result: _builtins.float | None = ...,
-        result_i64: _builtins.int = ...,
-        result_u64: _builtins.int = ...,
-        result_value_kind: _builtins.int = ...,
+        valid_count: _builtins.int = ...,
+        result: Global___StorageValue | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_result", b"_result", "result", b"result", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["column", b"column", "result", b"result", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_result", b"_result", "business_point_id", b"business_point_id", "data_level", b"data_level", "good_count", b"good_count", "missing_count", b"missing_count", "point_id", b"point_id", "point_table_id", b"point_table_id", "result", b"result", "result_i64", b"result_i64", "result_u64", b"result_u64", "result_value_kind", b"result_value_kind", "unit", b"unit", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["column", b"column", "data_level", b"data_level", "device_id", b"device_id", "good_count", b"good_count", "missing_count", b"missing_count", "point_table_id", b"point_table_id", "result", b"result", "schema_fingerprint", b"schema_fingerprint", "valid_count", b"valid_count", "wind_farm_id", b"wind_farm_id", "window_end", b"window_end", "window_start", b"window_start"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType__result: _TypeAlias = _typing.Literal["result"]  # noqa: Y015
-    _WhichOneofArgType__result: _TypeAlias = _typing.Literal["_result", b"_result"]  # noqa: Y015
-    def WhichOneof(self, oneof_group: _WhichOneofArgType__result) -> _WhichOneofReturnType__result | None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StorageAggregate: _TypeAlias = StorageAggregate  # noqa: Y015
 
@@ -400,7 +437,9 @@ class QueryAggregatesResponse(_message.Message):
 
     ITEMS_FIELD_NUMBER: _builtins.int
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+    COMPLETE_FIELD_NUMBER: _builtins.int
     next_page_token: _builtins.str
+    complete: _builtins.bool
     @_builtins.property
     def items(self) -> _containers.RepeatedCompositeFieldContainer[Global___StorageAggregate]: ...
     def __init__(
@@ -408,10 +447,11 @@ class QueryAggregatesResponse(_message.Message):
         *,
         items: _abc.Iterable[Global___StorageAggregate] | None = ...,
         next_page_token: _builtins.str = ...,
+        complete: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["items", b"items", "next_page_token", b"next_page_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["complete", b"complete", "items", b"items", "next_page_token", b"next_page_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -424,26 +464,20 @@ class CreateExportRequest(_message.Message):
     REQUEST_ID_FIELD_NUMBER: _builtins.int
     FILTER_FIELD_NUMBER: _builtins.int
     EXPORT_FORMAT_FIELD_NUMBER: _builtins.int
-    WIDE_FILTER_FIELD_NUMBER: _builtins.int
     request_id: _builtins.str
     export_format: _builtins.str
     @_builtins.property
     def filter(self) -> Global___StorageFilter: ...
-    @_builtins.property
-    def wide_filter(self) -> Global___QueryWideRowsRequest:
-        """Exact-version device-wide selection. Never combine with legacy filter."""
-
     def __init__(
         self,
         *,
         request_id: _builtins.str = ...,
         filter: Global___StorageFilter | None = ...,
         export_format: _builtins.str = ...,
-        wide_filter: Global___QueryWideRowsRequest | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter", "wide_filter", b"wide_filter"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["filter", b"filter"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["export_format", b"export_format", "filter", b"filter", "request_id", b"request_id", "wide_filter", b"wide_filter"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["export_format", b"export_format", "filter", b"filter", "request_id", b"request_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -484,6 +518,8 @@ class StorageTask(_message.Message):
     SHA256_FIELD_NUMBER: _builtins.int
     ERROR_CODE_FIELD_NUMBER: _builtins.int
     MESSAGE_FIELD_NUMBER: _builtins.int
+    ARTIFACT_PATH_FIELD_NUMBER: _builtins.int
+    INTEGRITY_VERIFIED_FIELD_NUMBER: _builtins.int
     task_id: _builtins.str
     state: Global___StorageTaskState.ValueType
     artifact_id: _builtins.str
@@ -491,6 +527,8 @@ class StorageTask(_message.Message):
     sha256: _builtins.str
     error_code: _builtins.str
     message: _builtins.str
+    artifact_path: _builtins.str
+    integrity_verified: _builtins.bool
     @_builtins.property
     def created_at(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
@@ -507,10 +545,12 @@ class StorageTask(_message.Message):
         sha256: _builtins.str = ...,
         error_code: _builtins.str = ...,
         message: _builtins.str = ...,
+        artifact_path: _builtins.str = ...,
+        integrity_verified: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "finished_at", b"finished_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["artifact_id", b"artifact_id", "created_at", b"created_at", "error_code", b"error_code", "finished_at", b"finished_at", "message", b"message", "sha256", b"sha256", "size_bytes", b"size_bytes", "state", b"state", "task_id", b"task_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["artifact_id", b"artifact_id", "artifact_path", b"artifact_path", "created_at", b"created_at", "error_code", b"error_code", "finished_at", b"finished_at", "integrity_verified", b"integrity_verified", "message", b"message", "sha256", b"sha256", "size_bytes", b"size_bytes", "state", b"state", "task_id", b"task_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -564,12 +604,16 @@ class PartitionProgress(_message.Message):
     LAST_CONFIRMED_OFFSET_FIELD_NUMBER: _builtins.int
     LAG_FIELD_NUMBER: _builtins.int
     BLOCK_REASON_FIELD_NUMBER: _builtins.int
+    BLOCKED_OFFSET_FIELD_NUMBER: _builtins.int
+    ASSIGNMENT_EPOCH_FIELD_NUMBER: _builtins.int
     topic: _builtins.str
     partition: _builtins.int
     committed_next_offset: _builtins.int
     last_confirmed_offset: _builtins.int
     lag: _builtins.int
     block_reason: _builtins.str
+    blocked_offset: _builtins.int
+    assignment_epoch: _builtins.str
     def __init__(
         self,
         *,
@@ -579,12 +623,16 @@ class PartitionProgress(_message.Message):
         last_confirmed_offset: _builtins.int = ...,
         lag: _builtins.int = ...,
         block_reason: _builtins.str = ...,
+        blocked_offset: _builtins.int | None = ...,
+        assignment_epoch: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_blocked_offset", b"_blocked_offset", "blocked_offset", b"blocked_offset"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["block_reason", b"block_reason", "committed_next_offset", b"committed_next_offset", "lag", b"lag", "last_confirmed_offset", b"last_confirmed_offset", "partition", b"partition", "topic", b"topic"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_blocked_offset", b"_blocked_offset", "assignment_epoch", b"assignment_epoch", "block_reason", b"block_reason", "blocked_offset", b"blocked_offset", "committed_next_offset", b"committed_next_offset", "lag", b"lag", "last_confirmed_offset", b"last_confirmed_offset", "partition", b"partition", "topic", b"topic"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
+    _WhichOneofReturnType__blocked_offset: _TypeAlias = _typing.Literal["blocked_offset"]  # noqa: Y015
+    _WhichOneofArgType__blocked_offset: _TypeAlias = _typing.Literal["_blocked_offset", b"_blocked_offset"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__blocked_offset) -> _WhichOneofReturnType__blocked_offset | None: ...
 
 Global___PartitionProgress: _TypeAlias = PartitionProgress  # noqa: Y015
 
@@ -600,6 +648,11 @@ class GetStorageStatsResponse(_message.Message):
     ACTIVE_EXPORTS_FIELD_NUMBER: _builtins.int
     ACTIVE_BACKUPS_FIELD_NUMBER: _builtins.int
     SERVICE_STATE_FIELD_NUMBER: _builtins.int
+    PERSISTED_ROWS_TOTAL_FIELD_NUMBER: _builtins.int
+    CONFIRMED_RECORDS_TOTAL_FIELD_NUMBER: _builtins.int
+    BUFFER_ROWS_FIELD_NUMBER: _builtins.int
+    BUFFER_BYTES_FIELD_NUMBER: _builtins.int
+    REPLAY_IN_PROGRESS_FIELD_NUMBER: _builtins.int
     persisted_points_total: _builtins.int
     write_unknown_total: _builtins.int
     schema_conflicts_total: _builtins.int
@@ -607,6 +660,11 @@ class GetStorageStatsResponse(_message.Message):
     active_exports: _builtins.int
     active_backups: _builtins.int
     service_state: _builtins.str
+    persisted_rows_total: _builtins.int
+    confirmed_records_total: _builtins.int
+    buffer_rows: _builtins.int
+    buffer_bytes: _builtins.int
+    replay_in_progress: _builtins.bool
     @_builtins.property
     def partitions(self) -> _containers.RepeatedCompositeFieldContainer[Global___PartitionProgress]: ...
     def __init__(
@@ -620,10 +678,15 @@ class GetStorageStatsResponse(_message.Message):
         active_exports: _builtins.int = ...,
         active_backups: _builtins.int = ...,
         service_state: _builtins.str = ...,
+        persisted_rows_total: _builtins.int = ...,
+        confirmed_records_total: _builtins.int = ...,
+        buffer_rows: _builtins.int = ...,
+        buffer_bytes: _builtins.int = ...,
+        replay_in_progress: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_backups", b"active_backups", "active_exports", b"active_exports", "active_queries", b"active_queries", "partitions", b"partitions", "persisted_points_total", b"persisted_points_total", "schema_conflicts_total", b"schema_conflicts_total", "service_state", b"service_state", "write_unknown_total", b"write_unknown_total"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_backups", b"active_backups", "active_exports", b"active_exports", "active_queries", b"active_queries", "buffer_bytes", b"buffer_bytes", "buffer_rows", b"buffer_rows", "confirmed_records_total", b"confirmed_records_total", "partitions", b"partitions", "persisted_points_total", b"persisted_points_total", "persisted_rows_total", b"persisted_rows_total", "replay_in_progress", b"replay_in_progress", "schema_conflicts_total", b"schema_conflicts_total", "service_state", b"service_state", "write_unknown_total", b"write_unknown_total"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -657,7 +720,9 @@ class ListBlockedPartitionsResponse(_message.Message):
 
     ITEMS_FIELD_NUMBER: _builtins.int
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _builtins.int
+    COMPLETE_FIELD_NUMBER: _builtins.int
     next_page_token: _builtins.str
+    complete: _builtins.bool
     @_builtins.property
     def items(self) -> _containers.RepeatedCompositeFieldContainer[Global___PartitionProgress]: ...
     def __init__(
@@ -665,10 +730,11 @@ class ListBlockedPartitionsResponse(_message.Message):
         *,
         items: _abc.Iterable[Global___PartitionProgress] | None = ...,
         next_page_token: _builtins.str = ...,
+        complete: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["items", b"items", "next_page_token", b"next_page_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["complete", b"complete", "items", b"items", "next_page_token", b"next_page_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -723,205 +789,3 @@ class RetryBlockedPartitionResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___RetryBlockedPartitionResponse: _TypeAlias = RetryBlockedPartitionResponse  # noqa: Y015
-
-@_typing.final
-class QueryWideRowsRequest(_message.Message):
-    """Device-wide physical history; no per-point sample_id or synthetic publish_time."""
-
-    DESCRIPTOR: _descriptor.Descriptor
-
-    WIND_FARM_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_CONFIG_ID_FIELD_NUMBER: _builtins.int
-    DATA_LEVEL_FIELD_NUMBER: _builtins.int
-    START_TIME_FIELD_NUMBER: _builtins.int
-    END_TIME_FIELD_NUMBER: _builtins.int
-    POINT_IDS_FIELD_NUMBER: _builtins.int
-    PAGE_SIZE_FIELD_NUMBER: _builtins.int
-    PAGE_TOKEN_FIELD_NUMBER: _builtins.int
-    QUALITIES_FIELD_NUMBER: _builtins.int
-    wind_farm_id: _builtins.str
-    device_id: _builtins.str
-    device_config_id: _builtins.str
-    data_level: Global___StorageDataLevel.ValueType
-    page_size: _builtins.int
-    page_token: _builtins.str
-    @_builtins.property
-    def start_time(self) -> _timestamp_pb2.Timestamp: ...
-    @_builtins.property
-    def end_time(self) -> _timestamp_pb2.Timestamp: ...
-    @_builtins.property
-    def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    @_builtins.property
-    def qualities(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
-        """Exact point quality filter; valid only for one selected physical point."""
-
-    def __init__(
-        self,
-        *,
-        wind_farm_id: _builtins.str = ...,
-        device_id: _builtins.str = ...,
-        device_config_id: _builtins.str = ...,
-        data_level: Global___StorageDataLevel.ValueType = ...,
-        start_time: _timestamp_pb2.Timestamp | None = ...,
-        end_time: _timestamp_pb2.Timestamp | None = ...,
-        point_ids: _abc.Iterable[_builtins.str] | None = ...,
-        page_size: _builtins.int = ...,
-        page_token: _builtins.str = ...,
-        qualities: _abc.Iterable[_builtins.int] | None = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["end_time", b"end_time", "start_time", b"start_time"]  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["data_level", b"data_level", "device_config_id", b"device_config_id", "device_id", b"device_id", "end_time", b"end_time", "page_size", b"page_size", "page_token", b"page_token", "point_ids", b"point_ids", "qualities", b"qualities", "start_time", b"start_time", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___QueryWideRowsRequest: _TypeAlias = QueryWideRowsRequest  # noqa: Y015
-
-@_typing.final
-class WidePointColumn(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    POINT_ID_FIELD_NUMBER: _builtins.int
-    PHYSICAL_COLUMN_NAME_FIELD_NUMBER: _builtins.int
-    SQL_TYPE_FIELD_NUMBER: _builtins.int
-    QUALITY_ORDINAL_FIELD_NUMBER: _builtins.int
-    UNIT_FIELD_NUMBER: _builtins.int
-    point_id: _builtins.str
-    physical_column_name: _builtins.str
-    sql_type: _builtins.str
-    quality_ordinal: _builtins.int
-    unit: _builtins.str
-    def __init__(
-        self,
-        *,
-        point_id: _builtins.str = ...,
-        physical_column_name: _builtins.str = ...,
-        sql_type: _builtins.str = ...,
-        quality_ordinal: _builtins.int = ...,
-        unit: _builtins.str = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["physical_column_name", b"physical_column_name", "point_id", b"point_id", "quality_ordinal", b"quality_ordinal", "sql_type", b"sql_type", "unit", b"unit"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___WidePointColumn: _TypeAlias = WidePointColumn  # noqa: Y015
-
-@_typing.final
-class WidePointValue(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    POINT_ID_FIELD_NUMBER: _builtins.int
-    QUALITY_FIELD_NUMBER: _builtins.int
-    SIGNED_VALUE_FIELD_NUMBER: _builtins.int
-    UNSIGNED_VALUE_FIELD_NUMBER: _builtins.int
-    FLOAT_VALUE_FIELD_NUMBER: _builtins.int
-    BOOL_VALUE_FIELD_NUMBER: _builtins.int
-    STRING_VALUE_FIELD_NUMBER: _builtins.int
-    BYTES_VALUE_FIELD_NUMBER: _builtins.int
-    point_id: _builtins.str
-    quality: _builtins.int
-    signed_value: _builtins.int
-    unsigned_value: _builtins.int
-    float_value: _builtins.float
-    bool_value: _builtins.bool
-    string_value: _builtins.str
-    bytes_value: _builtins.bytes
-    def __init__(
-        self,
-        *,
-        point_id: _builtins.str = ...,
-        quality: _builtins.int = ...,
-        signed_value: _builtins.int = ...,
-        unsigned_value: _builtins.int = ...,
-        float_value: _builtins.float = ...,
-        bool_value: _builtins.bool = ...,
-        string_value: _builtins.str = ...,
-        bytes_value: _builtins.bytes = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "float_value", b"float_value", "signed_value", b"signed_value", "string_value", b"string_value", "unsigned_value", b"unsigned_value", "value", b"value"]  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "float_value", b"float_value", "point_id", b"point_id", "quality", b"quality", "signed_value", b"signed_value", "string_value", b"string_value", "unsigned_value", b"unsigned_value", "value", b"value"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_value: _TypeAlias = _typing.Literal["signed_value", "unsigned_value", "float_value", "bool_value", "string_value", "bytes_value"]  # noqa: Y015
-    _WhichOneofArgType_value: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
-    def WhichOneof(self, oneof_group: _WhichOneofArgType_value) -> _WhichOneofReturnType_value | None: ...
-
-Global___WidePointValue: _TypeAlias = WidePointValue  # noqa: Y015
-
-@_typing.final
-class WideDeviceRow(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    SAMPLE_TIME_FIELD_NUMBER: _builtins.int
-    POINTS_FIELD_NUMBER: _builtins.int
-    @_builtins.property
-    def sample_time(self) -> _timestamp_pb2.Timestamp: ...
-    @_builtins.property
-    def points(self) -> _containers.RepeatedCompositeFieldContainer[Global___WidePointValue]: ...
-    def __init__(
-        self,
-        *,
-        sample_time: _timestamp_pb2.Timestamp | None = ...,
-        points: _abc.Iterable[Global___WidePointValue] | None = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["sample_time", b"sample_time"]  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["points", b"points", "sample_time", b"sample_time"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___WideDeviceRow: _TypeAlias = WideDeviceRow  # noqa: Y015
-
-@_typing.final
-class QueryWideRowsResponse(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    WIND_FARM_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_ID_FIELD_NUMBER: _builtins.int
-    DEVICE_CONFIG_ID_FIELD_NUMBER: _builtins.int
-    POINT_TABLE_ID_FIELD_NUMBER: _builtins.int
-    POINT_TABLE_VERSION_FIELD_NUMBER: _builtins.int
-    DATA_LEVEL_FIELD_NUMBER: _builtins.int
-    SCHEMA_FINGERPRINT_FIELD_NUMBER: _builtins.int
-    COLUMNS_FIELD_NUMBER: _builtins.int
-    ROWS_FIELD_NUMBER: _builtins.int
-    NEXT_PAGE_TOKEN_FIELD_NUMBER: _builtins.int
-    COMPLETE_FIELD_NUMBER: _builtins.int
-    wind_farm_id: _builtins.str
-    device_id: _builtins.str
-    device_config_id: _builtins.str
-    point_table_id: _builtins.str
-    point_table_version: _builtins.str
-    data_level: Global___StorageDataLevel.ValueType
-    schema_fingerprint: _builtins.str
-    next_page_token: _builtins.str
-    complete: _builtins.bool
-    @_builtins.property
-    def columns(self) -> _containers.RepeatedCompositeFieldContainer[Global___WidePointColumn]: ...
-    @_builtins.property
-    def rows(self) -> _containers.RepeatedCompositeFieldContainer[Global___WideDeviceRow]: ...
-    def __init__(
-        self,
-        *,
-        wind_farm_id: _builtins.str = ...,
-        device_id: _builtins.str = ...,
-        device_config_id: _builtins.str = ...,
-        point_table_id: _builtins.str = ...,
-        point_table_version: _builtins.str = ...,
-        data_level: Global___StorageDataLevel.ValueType = ...,
-        schema_fingerprint: _builtins.str = ...,
-        columns: _abc.Iterable[Global___WidePointColumn] | None = ...,
-        rows: _abc.Iterable[Global___WideDeviceRow] | None = ...,
-        next_page_token: _builtins.str = ...,
-        complete: _builtins.bool = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["columns", b"columns", "complete", b"complete", "data_level", b"data_level", "device_config_id", b"device_config_id", "device_id", b"device_id", "next_page_token", b"next_page_token", "point_table_id", b"point_table_id", "point_table_version", b"point_table_version", "rows", b"rows", "schema_fingerprint", b"schema_fingerprint", "wind_farm_id", b"wind_farm_id"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___QueryWideRowsResponse: _TypeAlias = QueryWideRowsResponse  # noqa: Y015

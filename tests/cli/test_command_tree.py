@@ -91,9 +91,9 @@ def test_command_tree_covers_design_leaf_commands() -> None:
         "diagnose gateway",
         "diagnose data-generator",
         "diagnose pipeline",
-        "storage wide-rows",
-        "storage wide-aggregates",
-        "storage wide-export",
+        "storage samples",
+        "storage aggregates",
+        "storage export",
         "storage export-status",
         "storage backup",
         "storage backup-status",
@@ -105,7 +105,7 @@ def test_command_tree_covers_design_leaf_commands() -> None:
     }
     missing = expected - words
     assert not missing, f"设计命令缺失: {sorted(missing)}"
-    assert not {"storage samples", "storage aggregates", "storage export"} & words
+    assert not {"storage wide-rows", "storage wide-aggregates", "storage wide-export"} & words
 
 
 def test_help_lists_all_leaf_commands() -> None:

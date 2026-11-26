@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import hashlib
-import re
 import hmac
 import json
 import logging
 import math
 import os
+import re
 import time
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
@@ -40,8 +40,8 @@ from storage_service.domain.errors import (
     QueryRejectedError,
     TDengineSchemaConflictError,
 )
-from storage_service.domain.tasks import TaskRecord
 from storage_service.domain.quality_bitmap import pack_quality_bitmap
+from storage_service.domain.tasks import TaskRecord
 from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
@@ -50,11 +50,11 @@ from storage_service.infrastructure.adapters.outbound.configuration_archive impo
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
-from storage_service.infrastructure.adapters.outbound.tdengine_backup import NativeTDengineBackup
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflictError,
     MetadataStore,
 )
+from storage_service.infrastructure.adapters.outbound.tdengine_backup import NativeTDengineBackup
 
 T = TypeVar("T")
 _LOG = logging.getLogger(__name__)
@@ -211,11 +211,7 @@ def _wide_selector(source: pb.StorageFilter) -> GroupedWideSelector:
         pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
     }
     level = levels.get(source.data_level)
-    if (
-        level is None
-        or not source.HasField("start_time")
-        or not source.HasField("end_time")
-    ):
+    if level is None or not source.HasField("start_time") or not source.HasField("end_time"):
         raise QueryRejectedError("Storage query requires level and UTC time range")
     return GroupedWideSelector(
         wind_farm_id=source.wind_farm_id,
@@ -247,22 +243,20 @@ def _set_wide_value(target: pb.StorageValue, value: object, sql_type: str) -> No
             raise TDengineSchemaConflictError("wide signed integer is outside its type")
         target.value_i64 = value
     elif sql_type.endswith(" UNSIGNED"):
-        bits = {
+        unsigned_bits = {
             "TINYINT UNSIGNED": 8,
             "SMALLINT UNSIGNED": 16,
             "INT UNSIGNED": 32,
             "BIGINT UNSIGNED": 64,
         }.get(sql_type)
-        if bits is None or type(value) is not int or not 0 <= value < (1 << bits):
+        if unsigned_bits is None or type(value) is not int or not 0 <= value < (1 << unsigned_bits):
             raise TDengineSchemaConflictError("wide unsigned integer is outside its type")
         target.value_u64 = value
     elif sql_type in {"FLOAT", "DOUBLE"}:
-        if type(value) not in (int, float) or (
-            type(value) is int and abs(value) > 2**53
-        ):
+        if type(value) not in (int, float) or (type(value) is int and abs(value) > 2**53):
             raise TDengineSchemaConflictError("wide floating-point value is invalid")
         try:
-            numeric = float(value)
+            numeric = float(cast(int | float, value))
         except OverflowError as exc:
             raise TDengineSchemaConflictError("wide floating-point value overflow") from exc
         if not math.isfinite(numeric) or (
@@ -378,17 +372,13 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
     async def _export_task_response(self, record: TaskRecord) -> pb.StorageTask:
         if record.state != "SUCCEEDED":
             return _task(record)
-        path = await asyncio.to_thread(
-            _verify_export_file, self._config.export.root, record
-        )
+        path = await asyncio.to_thread(_verify_export_file, self._config.export.root, record)
         return _task(record, artifact_path=path, integrity_verified=True)
 
     async def _backup_task_response(self, record: TaskRecord) -> pb.StorageTask:
         if record.state != "SUCCEEDED":
             return _task(record)
-        path = await asyncio.to_thread(
-            _verify_backup_directory, self._config.backup.root, record
-        )
+        path = await asyncio.to_thread(_verify_backup_directory, self._config.backup.root, record)
         return _task(record, artifact_path=path, integrity_verified=True)
 
     @guarded
@@ -404,7 +394,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             service_id=self._config.service_id,
             process_role="storage",
             software_version="0.1.0",
-            contract_version="windhub.storage.v1",
+            contract_version="windhub.storage.v2",
         )
         response.started_at.FromDatetime(self._started_at)
         return response
@@ -529,10 +519,14 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QuerySamplesResponse:
         """Return pinned device-wide schema groups without legacy narrow samples."""
+        source = request.filter
+        self._auth.require(
+            context,
+            permission="storage.read",
+            farm=source.wind_farm_id if request.HasField("filter") else None,
+        )
         if not request.HasField("filter"):
             raise QueryRejectedError("Storage query filter is required")
-        source = request.filter
-        self._auth.require(context, permission="storage.read", farm=source.wind_farm_id)
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Storage Kafka replay is not settled")
         selector = _wide_selector(source)
@@ -548,6 +542,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             next_page_token=page.next_page_token, complete=page.complete
         )
         for family in page.groups:
+            if (
+                selector.schema_fingerprint
+                and family.schema.fingerprint != selector.schema_fingerprint
+            ):
+                raise TDengineSchemaConflictError("grouped query schema fingerprint mismatch")
             group = response.groups.add(
                 wind_farm_id=family.identity.wind_farm_id,
                 device_id=family.identity.device_id,
@@ -559,12 +558,15 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             columns = {column.point_id: column for column in family.schema.columns}
             for point_id in family.point_ids:
                 column = columns[point_id]
-                source_id, business_id, native_type, unit = (
-                    await self._point_tables.get_wide_column_metadata(
-                        point_table_id=family.schema.point_table_id,
-                        physical_point_id=point_id,
-                        data_level=level,
-                    )
+                (
+                    source_id,
+                    business_id,
+                    native_type,
+                    unit,
+                ) = await self._point_tables.get_wide_column_metadata(
+                    point_table_id=family.schema.point_table_id,
+                    physical_point_id=point_id,
+                    data_level=level,
                 )
                 group.columns.add(
                     point_id=source_id,
@@ -603,10 +605,14 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
         """Aggregate each pinned version independently with explicit Quality counts."""
+        source = request.filter
+        self._auth.require(
+            context,
+            permission="storage.read",
+            farm=source.wind_farm_id if request.HasField("filter") else None,
+        )
         if not request.HasField("filter"):
             raise QueryRejectedError("Storage aggregation filter is required")
-        source = request.filter
-        self._auth.require(context, permission="storage.read", farm=source.wind_farm_id)
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Storage Kafka replay is not settled")
         selector = _wide_selector(source)
@@ -635,12 +641,15 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             physical = {column.point_id: column for column in family.schema.columns}
             for row in family.rows:
                 column = physical[row.point_id]
-                source_id, business_id, native_type, unit = (
-                    await self._point_tables.get_wide_column_metadata(
-                        point_table_id=family.schema.point_table_id,
-                        physical_point_id=row.point_id,
-                        data_level=selector.data_level,
-                    )
+                (
+                    source_id,
+                    business_id,
+                    native_type,
+                    unit,
+                ) = await self._point_tables.get_wide_column_metadata(
+                    point_table_id=family.schema.point_table_id,
+                    physical_point_id=row.point_id,
+                    data_level=selector.data_level,
                 )
                 item = response.items.add(
                     wind_farm_id=family.identity.wind_farm_id,
@@ -684,12 +693,15 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.StorageTask:
         """Create one idempotent export spanning pinned physical schema families."""
+        source = request.filter
+        owner = self._auth.require(
+            context,
+            permission="storage.export",
+            farm=source.wind_farm_id if request.HasField("filter") else None,
+        )
         if not request.HasField("filter"):
             raise QueryRejectedError("Storage export filter is required")
-        selector = _wide_selector(request.filter)
-        owner = self._auth.require(
-            context, permission="storage.export", farm=selector.wind_farm_id
-        )
+        selector = _wide_selector(source)
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Storage history is unavailable during replay")
         record = await self._jobs.create_grouped_export(

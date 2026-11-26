@@ -17,8 +17,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 from contracts import storage_service_pb2 as storage_pb
 from contracts import storage_service_pb2_grpc as storage_rpc
-from storage_service.domain.wide_record import WideDataLevel
-from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
+from storage_service.domain.wide_schema import WideSchema
 from tests.system.e2e.eight_service.conftest import EightServiceHarness
 from tests.system.e2e.eight_service.test_e2e_eight_service_smoke import _storage_port
 
@@ -80,6 +79,55 @@ def _physical_bytes(value: object) -> bytes:
     if isinstance(value, bytes | bytearray | memoryview):
         return bytes(value)
     raise AssertionError(f"TDengine returned unsupported RAW representation: {type(value)}")
+
+
+def _query_groups(
+    stub: Any,
+    request: storage_pb.QuerySamplesRequest,
+    metadata: tuple[tuple[str, str], ...],
+) -> list[storage_pb.StorageGroup]:
+    groups: list[storage_pb.StorageGroup] = []
+    page_token = ""
+    seen_tokens: set[str] = set()
+    for _ in range(1000):
+        reply = stub.QuerySamples(
+            storage_pb.QuerySamplesRequest(
+                filter=request.filter,
+                page_size=request.page_size,
+                page_token=page_token,
+            ),
+            timeout=15,
+            metadata=metadata,
+        )
+        groups.extend(reply.groups)
+        if not reply.next_page_token:
+            assert reply.complete
+            return groups
+        assert not reply.complete and reply.next_page_token not in seen_tokens
+        seen_tokens.add(reply.next_page_token)
+        page_token = reply.next_page_token
+    raise AssertionError("Storage grouped RAW query exceeded 1000 pages")
+
+
+def _physical_table(
+    harness: EightServiceHarness,
+    database: str,
+    group: storage_pb.StorageGroup,
+) -> str:
+    """按服务端完整点表与 Schema 标签定位子表，不重建废弃版本字段。"""
+    stables = harness.stack.tdengine_sql(f"SHOW `{database}`.STABLES", database=database)["data"]
+    matches: list[str] = []
+    for stable, *_ in stables:
+        rows = harness.stack.tdengine_sql(
+            f"SELECT TBNAME FROM `{database}`.`{stable}` "
+            f"WHERE device_id = '{DEVICE}' "
+            f"AND point_table_id = '{group.point_table_id}' "
+            f"AND schema_fingerprint = '{group.schema_fingerprint}' LIMIT 1",
+            database=database,
+        )["data"]
+        matches.extend(str(row[0]) for row in rows)
+    assert len(matches) == 1, (group.point_table_id, group.schema_fingerprint, matches)
+    return matches[0]
 
 
 def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness) -> None:
@@ -154,8 +202,7 @@ def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness)
     wires, generation_id = asyncio.run(collect())
     assert len(wires) == 3
     config_ids = {row["device_config_id"] for row in wires}
-    assert len(config_ids) == 1
-    config_id = next(iter(config_ids))
+    assert config_ids == {"device_e2e-final_v1.0.1"}
     expected = {
         (_unix_us(_sample_time(row["sample_time"])), bytes.fromhex(row["points"][POINT][0]))
         for row in wires
@@ -168,54 +215,54 @@ def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness)
     metadata = (("authorization", f"Bearer {token}"),)
     deadline = time.monotonic() + 90
     observed: set[tuple[int, bytes]] = set()
-    last_reply: storage_pb.QueryWideRowsResponse | None = None
+    last_groups: list[storage_pb.StorageGroup] = []
+    request = storage_pb.QuerySamplesRequest(
+        filter=storage_pb.StorageFilter(
+            wind_farm_id="e2e-final",
+            device_ids=(DEVICE,),
+            data_level=storage_pb.STORAGE_DATA_LEVEL_RAW,
+            point_ids=(POINT,),
+            start_time=start_ts,
+            end_time=end_ts,
+        ),
+        page_size=1000,
+    )
     with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
         stub = storage_rpc.StorageServiceStub(channel)
         while time.monotonic() < deadline:
-            reply = stub.QueryWideRows(
-                storage_pb.QueryWideRowsRequest(
-                    wind_farm_id="e2e-final",
-                    device_config_id=config_id,
-                    device_id=DEVICE,
-                    data_level=storage_pb.STORAGE_DATA_LEVEL_RAW,
-                    start_time=start_ts,
-                    end_time=end_ts,
-                    page_size=1000,
-                ),
-                timeout=15,
-                metadata=metadata,
-            )
-            last_reply = reply
-            for row in reply.rows:
-                timestamp = _unix_us(row.sample_time.ToDatetime(tzinfo=UTC))
-                for point in row.points:
-                    if point.point_id == POINT and point.WhichOneof("value") == "bytes_value":
-                        observed.add((timestamp, bytes(point.bytes_value)))
+            last_groups = _query_groups(stub, request, metadata)
+            for group in last_groups:
+                columns = tuple(column.point_id for column in group.columns)
+                if POINT not in columns:
+                    continue
+                point_index = columns.index(POINT)
+                for row in group.rows:
+                    assert len(row.values) == len(columns)
+                    value = row.values[point_index]
+                    if value.WhichOneof("value") == "payload_bytes":
+                        timestamp = _unix_us(row.sample_time.ToDatetime(tzinfo=UTC))
+                        observed.add((timestamp, bytes(value.payload_bytes)))
             if expected <= observed:
                 break
             time.sleep(1)
     assert (
         expected <= observed
-    ), f"Storage wide RPC did not return RAW points: {expected - observed}"
-    assert last_reply is not None
-    assert last_reply.schema_fingerprint
-    assert last_reply.point_table_version
-
-    columns = tuple(PhysicalPoint(item.point_id, item.sql_type) for item in last_reply.columns)
-    schema = WideSchema.build(
-        point_table_id=last_reply.point_table_id,
-        point_table_version=last_reply.point_table_version,
-        data_level=WideDataLevel.RAW,
-        points=columns,
-        max_row_bytes=65536,
+    ), f"Storage grouped RPC did not return RAW points: {expected - observed}"
+    selected_group = next(
+        group
+        for group in last_groups
+        if group.schema_fingerprint and any(column.point_id == POINT for column in group.columns)
     )
-    assert schema.fingerprint == last_reply.schema_fingerprint
-    point_column = next(col.column_name for col in schema.columns if col.point_id == POINT)
-    database = schema.database_name("e2e-final")
-    table = schema.subtable_name(DEVICE)
+    assert selected_group.point_table_id == "point_table_modbus_wtg_sim_v1.2.0"
+    point_column = next(
+        column.physical_name for column in selected_group.columns if column.point_id == POINT
+    )
+    assert point_column
+    database = WideSchema.database_name("e2e-final")
+    table = _physical_table(harness, database, selected_group)
     for timestamp, raw in expected:
         rows = harness.stack.tdengine_sql(
-            f"SELECT `{point_column}` FROM `{database}`.`{table}` " f"WHERE ts = {timestamp}",
+            f"SELECT `{point_column}` FROM `{database}`.`{table}` WHERE ts = {timestamp}",
             database=database,
         )["data"]
         assert len(rows) == 1, (timestamp, rows)

@@ -251,15 +251,21 @@ def _output(*, linger_ms: int = 0, max_batch_size: int = 131072) -> KafkaOutput:
 # ---- 构造参数边界 -------------------------------------------------------
 
 
-@pytest.mark.parametrize("bad_linger", [1, -1, 10, True, False, 0.0, "0", None])
-def test_linger_ms_rejects_anything_but_integer_zero(bad_linger: Any) -> None:
-    with pytest.raises(ConfigurationError, match="linger_ms must be 0"):
+@pytest.mark.parametrize("bad_linger", [-1, 11, True, False, 0.0, "0", None])
+def test_linger_ms_rejects_values_outside_coalescing_range(bad_linger: Any) -> None:
+    with pytest.raises(ConfigurationError, match=r"linger_ms must be 0\.\.10"):
         KafkaOutput(
             servers=["127.0.0.1:9092"],
             topic=TOPIC,
             timeout_ms=10000,
             linger_ms=bad_linger,  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize("good_linger", [0, 1, 5, 10])
+def test_linger_ms_accepts_bounded_coalescing_delays(good_linger: int) -> None:
+    output = _output(linger_ms=good_linger)
+    assert output._linger_ms == good_linger  # noqa: SLF001
 
 
 @pytest.mark.parametrize("bad_batch", [0, -1, True, False, 1.5, "16384", None])

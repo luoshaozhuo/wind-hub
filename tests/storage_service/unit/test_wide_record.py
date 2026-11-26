@@ -91,7 +91,7 @@ def test_not_collected_requires_null_value() -> None:
 def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
     payload = _payload()
     payload["schema_version"] = version
-    with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+    with pytest.raises(ValueError, match="Kafka JSON v3 envelope"):
         _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
 
 
@@ -99,5 +99,5 @@ def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
 def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
     payload = _payload()
     payload["data_level"] = level
-    with pytest.raises(ValueError, match="invalid data_level"):
+    with pytest.raises(ValueError, match="unsupported device-wide data level"):
         _decode(payload, ("active_power", "wind_speed", "rotor_speed"))

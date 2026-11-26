@@ -45,9 +45,9 @@ def _history_filter(
         raise typer.BadParameter("level must be raw, protocol, or business")
     if not all((wind_farm_id, start_time, end_time)):
         raise typer.BadParameter("history requires farm and UTC time boundaries")
-    if qualities and (len(set(qualities)) != len(qualities) or any(
-        not 0 <= quality <= 3 for quality in qualities
-    )):
+    if qualities and (
+        len(set(qualities)) != len(qualities) or any(not 0 <= quality <= 3 for quality in qualities)
+    ):
         raise typer.BadParameter("quality must be one of 0, 1, 2, 3 without duplicates")
     fields: dict[str, Any] = {
         "wind_farm_id": wind_farm_id,

@@ -1,5 +1,5 @@
 syntax = "proto3";
-package windhub.storage.v1;
+package windhub.storage.v2;
 import "google/protobuf/timestamp.proto";
 
 enum StorageDataLevel {
@@ -8,15 +8,18 @@ enum StorageDataLevel {
   STORAGE_DATA_LEVEL_PROTOCOL = 2;
   STORAGE_DATA_LEVEL_BUSINESS = 3;
 }
-enum StorageValueKind {
-  STORAGE_VALUE_KIND_UNSPECIFIED = 0;
-  STORAGE_VALUE_KIND_MISSING = 1;
-  STORAGE_VALUE_KIND_INT64 = 2;
-  STORAGE_VALUE_KIND_UINT64 = 3;
-  STORAGE_VALUE_KIND_DOUBLE = 4;
-  STORAGE_VALUE_KIND_BOOL = 5;
-  STORAGE_VALUE_KIND_TEXT = 6;
-  STORAGE_VALUE_KIND_BYTES = 7;
+enum StorageQuality {
+  STORAGE_QUALITY_NOT_COLLECTED = 0;
+  STORAGE_QUALITY_GOOD = 1;
+  STORAGE_QUALITY_BAD = 2;
+  STORAGE_QUALITY_UNCERTAIN = 3;
+}
+enum StorageAggregation {
+  STORAGE_AGGREGATION_UNSPECIFIED = 0;
+  STORAGE_AGGREGATION_COUNT = 1;
+  STORAGE_AGGREGATION_MIN = 2;
+  STORAGE_AGGREGATION_MAX = 3;
+  STORAGE_AGGREGATION_AVG = 4;
 }
 enum StorageTaskState {
   STORAGE_TASK_STATE_UNSPECIFIED = 0;
@@ -26,43 +29,49 @@ enum StorageTaskState {
   STORAGE_TASK_STATE_FAILED = 4;
   STORAGE_TASK_STATE_INTERRUPTED = 5;
 }
-message StorageSample {
-  string wind_farm_id = 1;
-  string device_type = 2;
-  string device_id = 3;
-  string point_table_id = 4;
-  string point_id = 5;
-  string business_point_id = 6;
-  string sample_id = 7;
-  StorageDataLevel data_level = 8;
-  StorageValueKind value_kind = 9;
+message StorageValue {
   oneof value {
-    sint64 value_i64 = 10;
-    uint64 value_u64 = 11;
-    double value_f64 = 12;
-    bool value_bool = 13;
-    string value_text = 14;
-    bytes payload_bytes = 15;
+    sint64 value_i64 = 1;
+    uint64 value_u64 = 2;
+    double value_f64 = 3;
+    bool value_bool = 4;
+    string value_text = 5;
+    bytes payload_bytes = 6;
   }
-  string quality = 16;
-  google.protobuf.Timestamp sample_time = 17;
-  google.protobuf.Timestamp publish_time = 18;
-  google.protobuf.Timestamp receive_time = 19;
-  string unit = 20;
-  string logical_key = 21;
-  string content_sha256 = 22;
 }
 message StorageFilter {
   string wind_farm_id = 1;
   string device_type = 2;
-  string device_id = 3;
+  repeated string device_ids = 3;
   string point_table_id = 4;
   StorageDataLevel data_level = 5;
-  string point_id = 6;
-  string business_point_id = 7;
-  google.protobuf.Timestamp start_time = 8;
-  google.protobuf.Timestamp end_time = 9;
-  repeated string qualities = 10;
+  repeated string point_ids = 6;
+  google.protobuf.Timestamp start_time = 7;
+  google.protobuf.Timestamp end_time = 8;
+  repeated StorageQuality qualities = 9;
+  optional string schema_fingerprint = 10;
+}
+message StorageColumn {
+  string point_id = 1;
+  string business_point_id = 2;
+  string unit = 3;
+  string data_type = 4;
+  string physical_name = 5;
+}
+message StorageWideRow {
+  google.protobuf.Timestamp sample_time = 1;
+  repeated StorageValue values = 2;
+  bytes quality = 3;
+}
+message StorageGroup {
+  string wind_farm_id = 1;
+  string device_id = 2;
+  string device_type = 3;
+  string point_table_id = 4;
+  StorageDataLevel data_level = 5;
+  string schema_fingerprint = 6;
+  repeated StorageColumn columns = 7;
+  repeated StorageWideRow rows = 8;
 }
 message QuerySamplesRequest {
   StorageFilter filter = 1;
@@ -70,16 +79,9 @@ message QuerySamplesRequest {
   string page_token = 3;
 }
 message QuerySamplesResponse {
-  repeated StorageSample items = 1;
+  repeated StorageGroup groups = 1;
   string next_page_token = 2;
   bool complete = 3;
-}
-enum StorageAggregation {
-  STORAGE_AGGREGATION_UNSPECIFIED = 0;
-  STORAGE_AGGREGATION_COUNT = 1;
-  STORAGE_AGGREGATION_MIN = 2;
-  STORAGE_AGGREGATION_MAX = 3;
-  STORAGE_AGGREGATION_AVG = 4;
 }
 message QueryAggregatesRequest {
   StorageFilter filter = 1;
@@ -87,34 +89,30 @@ message QueryAggregatesRequest {
   uint64 window_ms = 3;
   uint32 page_size = 4;
   string page_token = 5;
-  QueryWideRowsRequest wide_filter = 6;
 }
 message StorageAggregate {
   google.protobuf.Timestamp window_start = 1;
   google.protobuf.Timestamp window_end = 2;
-  string point_id = 3;
-  string business_point_id = 4;
+  string wind_farm_id = 3;
+  string device_id = 4;
   string point_table_id = 5;
   StorageDataLevel data_level = 6;
-  string unit = 7;
-  uint64 good_count = 8;
-  uint64 missing_count = 9;
-  optional double result = 10;
-  sint64 result_i64 = 11;
-  uint64 result_u64 = 12;
-  // 1=signed, 2=unsigned, 3=double; distinguishes valid zero from unset.
-  uint32 result_value_kind = 13;
+  string schema_fingerprint = 7;
+  StorageColumn column = 8;
+  uint64 good_count = 9;
+  uint64 missing_count = 10;
+  uint64 valid_count = 11;
+  StorageValue result = 12;
 }
 message QueryAggregatesResponse {
   repeated StorageAggregate items = 1;
   string next_page_token = 2;
+  bool complete = 3;
 }
 message CreateExportRequest {
   string request_id = 1;
   StorageFilter filter = 2;
   string export_format = 3;
-  // Exact-version device-wide selection. Never combine with legacy filter.
-  QueryWideRowsRequest wide_filter = 4;
 }
 message CreateBackupRequest {
   string request_id = 1;
@@ -130,6 +128,8 @@ message StorageTask {
   string sha256 = 7;
   string error_code = 8;
   string message = 9;
+  string artifact_path = 10;
+  bool integrity_verified = 11;
 }
 message GetStorageTaskRequest {
   string task_id = 1;
@@ -144,6 +144,8 @@ message PartitionProgress {
   int64 last_confirmed_offset = 4;
   uint64 lag = 5;
   string block_reason = 6;
+  optional int64 blocked_offset = 7;
+  string assignment_epoch = 8;
 }
 message GetStorageStatsResponse {
   repeated PartitionProgress partitions = 1;
@@ -154,6 +156,11 @@ message GetStorageStatsResponse {
   uint32 active_exports = 6;
   uint32 active_backups = 7;
   string service_state = 8;
+  uint64 persisted_rows_total = 9;
+  uint64 confirmed_records_total = 10;
+  uint64 buffer_rows = 11;
+  uint64 buffer_bytes = 12;
+  bool replay_in_progress = 13;
 }
 message ListBlockedPartitionsRequest {
   uint32 page_size = 1;
@@ -162,6 +169,7 @@ message ListBlockedPartitionsRequest {
 message ListBlockedPartitionsResponse {
   repeated PartitionProgress items = 1;
   string next_page_token = 2;
+  bool complete = 3;
 }
 message RetryBlockedPartitionRequest {
   string request_id = 1;
@@ -173,58 +181,7 @@ message RetryBlockedPartitionResponse {
   bool accepted = 1;
   string result = 2;
 }
-// Device-wide physical history; no per-point sample_id or synthetic publish_time.
-message QueryWideRowsRequest {
-  string wind_farm_id = 1;
-  string device_id = 2;
-  string device_config_id = 3;
-  StorageDataLevel data_level = 4;
-  google.protobuf.Timestamp start_time = 5;
-  google.protobuf.Timestamp end_time = 6;
-  repeated string point_ids = 7;
-  uint32 page_size = 8;
-  string page_token = 9;
-  // Exact point quality filter; valid only for one selected physical point.
-  repeated uint32 qualities = 10;
-}
-message WidePointColumn {
-  string point_id = 1;
-  string physical_column_name = 2;
-  string sql_type = 3;
-  uint32 quality_ordinal = 4;
-  string unit = 5;
-}
-message WidePointValue {
-  string point_id = 1;
-  uint32 quality = 2;
-  oneof value {
-    sint64 signed_value = 3;
-    uint64 unsigned_value = 4;
-    double float_value = 5;
-    bool bool_value = 6;
-    string string_value = 7;
-    bytes bytes_value = 8;
-  }
-}
-message WideDeviceRow {
-  google.protobuf.Timestamp sample_time = 1;
-  repeated WidePointValue points = 2;
-}
-message QueryWideRowsResponse {
-  string wind_farm_id = 1;
-  string device_id = 2;
-  string device_config_id = 3;
-  string point_table_id = 4;
-  string point_table_version = 5;
-  StorageDataLevel data_level = 6;
-  string schema_fingerprint = 7;
-  repeated WidePointColumn columns = 8;
-  repeated WideDeviceRow rows = 9;
-  string next_page_token = 10;
-  bool complete = 11;
-}
 service StorageService {
-  rpc QueryWideRows(QueryWideRowsRequest) returns (QueryWideRowsResponse);
   rpc QuerySamples(QuerySamplesRequest) returns (QuerySamplesResponse);
   rpc QueryAggregates(QueryAggregatesRequest) returns (QueryAggregatesResponse);
   rpc CreateExport(CreateExportRequest) returns (StorageTask);

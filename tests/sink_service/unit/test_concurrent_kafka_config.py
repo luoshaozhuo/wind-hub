@@ -44,7 +44,7 @@ DELIVERY_TEMPLATE_PATH = template_path("reliable_history")
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "file_version": version,
         "template_id": "kafka_history",
         "kind": "kafka",
@@ -58,9 +58,9 @@ def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[st
         "connection": {"bootstrap_servers": ["192.168.1.20:9092"]},
         "output": {
             "topic": "windhub.samples",
-            "key_field": "device_id",
+            "key_field": "wind_farm_device",
             "business_duplicate_policy": "allow_at_least_once",
-            "dedup_identity_fields": ["delivery_id", "sample_id"],
+            "dedup_identity_fields": ["wind_farm_id", "device_id", "data_level", "sample_time"],
             "enable_idempotence": True,
             "acks": "all",
             "write_timeout_ms": 2000,
@@ -158,6 +158,7 @@ def _two_device_docs() -> dict[str, dict[str, Any]]:
 def test_shipped_kafka_110_template_declares_device_concurrency() -> None:
     document = yaml.safe_load(SHIPPED_110.read_bytes())
     assert document["template_id"] == "kafka_history"
+    assert document["schema_version"] == 2
     assert document["file_version"] == "1.1.0"
     caps = document["capabilities"]
     assert caps["supports_concurrent_write"] is True

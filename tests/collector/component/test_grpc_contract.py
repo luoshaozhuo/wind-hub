@@ -27,7 +27,7 @@ async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.Mo
     # Service file; deployment_prod-a is the sole selector of collector-realtime.
     for folder in ("services", "instances", "templates", "deployments"):
         shutil.copytree(CONFIG_ROOT / folder, tmp_path / folder)
-    service_path = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
+    service_path = tmp_path / "services" / "service_collector-realtime_v2.0.0.yaml"
     app = await assemble_collector(
         service_path,
         state_directory=tmp_path / "state",

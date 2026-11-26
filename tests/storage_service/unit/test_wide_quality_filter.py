@@ -104,14 +104,14 @@ def test_invalid_quality_predicates_are_rejected(
 
 
 @pytest.mark.asyncio
-async def test_filtered_query_rejects_corrupt_null_good_row() -> None:
+async def test_filtered_query_preserves_null_with_independent_good_quality() -> None:
     backend = AsyncMock()
     backend.fetch_wide_history.return_value = (
         WideHistoryRow(10, (("wind_speed", None, PointQuality.GOOD),)),
     )
     service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"k" * 32))
-    with pytest.raises(RuntimeError, match="NULL and quality"):
-        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+    page = await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+    assert page.rows[0].points == (("wind_speed", None, PointQuality.GOOD),)
 
 
 def test_cursor_cannot_advance_to_or_beyond_frozen_horizon() -> None:

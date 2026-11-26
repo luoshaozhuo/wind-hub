@@ -34,53 +34,48 @@ class StorageServiceStub:
         Args:
             channel: A grpc.Channel.
         """
-        self.QueryWideRows = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/QueryWideRows',
-                request_serializer=contracts_dot_storage__service__pb2.QueryWideRowsRequest.SerializeToString,
-                response_deserializer=contracts_dot_storage__service__pb2.QueryWideRowsResponse.FromString,
-                _registered_method=True)
         self.QuerySamples = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/QuerySamples',
+                '/windhub.storage.v2.StorageService/QuerySamples',
                 request_serializer=contracts_dot_storage__service__pb2.QuerySamplesRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.QuerySamplesResponse.FromString,
                 _registered_method=True)
         self.QueryAggregates = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/QueryAggregates',
+                '/windhub.storage.v2.StorageService/QueryAggregates',
                 request_serializer=contracts_dot_storage__service__pb2.QueryAggregatesRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.QueryAggregatesResponse.FromString,
                 _registered_method=True)
         self.CreateExport = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/CreateExport',
+                '/windhub.storage.v2.StorageService/CreateExport',
                 request_serializer=contracts_dot_storage__service__pb2.CreateExportRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.StorageTask.FromString,
                 _registered_method=True)
         self.GetExportTask = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/GetExportTask',
+                '/windhub.storage.v2.StorageService/GetExportTask',
                 request_serializer=contracts_dot_storage__service__pb2.GetStorageTaskRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.StorageTask.FromString,
                 _registered_method=True)
         self.CreateBackup = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/CreateBackup',
+                '/windhub.storage.v2.StorageService/CreateBackup',
                 request_serializer=contracts_dot_storage__service__pb2.CreateBackupRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.StorageTask.FromString,
                 _registered_method=True)
         self.GetBackupTask = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/GetBackupTask',
+                '/windhub.storage.v2.StorageService/GetBackupTask',
                 request_serializer=contracts_dot_storage__service__pb2.GetStorageTaskRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.StorageTask.FromString,
                 _registered_method=True)
         self.GetStorageStats = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/GetStorageStats',
+                '/windhub.storage.v2.StorageService/GetStorageStats',
                 request_serializer=contracts_dot_storage__service__pb2.GetStorageStatsRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.GetStorageStatsResponse.FromString,
                 _registered_method=True)
         self.ListBlockedPartitions = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/ListBlockedPartitions',
+                '/windhub.storage.v2.StorageService/ListBlockedPartitions',
                 request_serializer=contracts_dot_storage__service__pb2.ListBlockedPartitionsRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.ListBlockedPartitionsResponse.FromString,
                 _registered_method=True)
         self.RetryBlockedPartition = channel.unary_unary(
-                '/windhub.storage.v1.StorageService/RetryBlockedPartition',
+                '/windhub.storage.v2.StorageService/RetryBlockedPartition',
                 request_serializer=contracts_dot_storage__service__pb2.RetryBlockedPartitionRequest.SerializeToString,
                 response_deserializer=contracts_dot_storage__service__pb2.RetryBlockedPartitionResponse.FromString,
                 _registered_method=True)
@@ -88,12 +83,6 @@ class StorageServiceStub:
 
 class StorageServiceServicer:
     """Missing associated documentation comment in .proto file."""
-
-    def QueryWideRows(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def QuerySamples(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -152,11 +141,6 @@ class StorageServiceServicer:
 
 def add_StorageServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'QueryWideRows': grpc.unary_unary_rpc_method_handler(
-                    servicer.QueryWideRows,
-                    request_deserializer=contracts_dot_storage__service__pb2.QueryWideRowsRequest.FromString,
-                    response_serializer=contracts_dot_storage__service__pb2.QueryWideRowsResponse.SerializeToString,
-            ),
             'QuerySamples': grpc.unary_unary_rpc_method_handler(
                     servicer.QuerySamples,
                     request_deserializer=contracts_dot_storage__service__pb2.QuerySamplesRequest.FromString,
@@ -204,41 +188,14 @@ def add_StorageServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'windhub.storage.v1.StorageService', rpc_method_handlers)
+            'windhub.storage.v2.StorageService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('windhub.storage.v1.StorageService', rpc_method_handlers)
+    server.add_registered_method_handlers('windhub.storage.v2.StorageService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
 class StorageService:
     """Missing associated documentation comment in .proto file."""
-
-    @staticmethod
-    def QueryWideRows(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.storage.v1.StorageService/QueryWideRows',
-            contracts_dot_storage__service__pb2.QueryWideRowsRequest.SerializeToString,
-            contracts_dot_storage__service__pb2.QueryWideRowsResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def QuerySamples(request,
@@ -254,7 +211,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/QuerySamples',
+            '/windhub.storage.v2.StorageService/QuerySamples',
             contracts_dot_storage__service__pb2.QuerySamplesRequest.SerializeToString,
             contracts_dot_storage__service__pb2.QuerySamplesResponse.FromString,
             options,
@@ -281,7 +238,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/QueryAggregates',
+            '/windhub.storage.v2.StorageService/QueryAggregates',
             contracts_dot_storage__service__pb2.QueryAggregatesRequest.SerializeToString,
             contracts_dot_storage__service__pb2.QueryAggregatesResponse.FromString,
             options,
@@ -308,7 +265,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/CreateExport',
+            '/windhub.storage.v2.StorageService/CreateExport',
             contracts_dot_storage__service__pb2.CreateExportRequest.SerializeToString,
             contracts_dot_storage__service__pb2.StorageTask.FromString,
             options,
@@ -335,7 +292,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/GetExportTask',
+            '/windhub.storage.v2.StorageService/GetExportTask',
             contracts_dot_storage__service__pb2.GetStorageTaskRequest.SerializeToString,
             contracts_dot_storage__service__pb2.StorageTask.FromString,
             options,
@@ -362,7 +319,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/CreateBackup',
+            '/windhub.storage.v2.StorageService/CreateBackup',
             contracts_dot_storage__service__pb2.CreateBackupRequest.SerializeToString,
             contracts_dot_storage__service__pb2.StorageTask.FromString,
             options,
@@ -389,7 +346,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/GetBackupTask',
+            '/windhub.storage.v2.StorageService/GetBackupTask',
             contracts_dot_storage__service__pb2.GetStorageTaskRequest.SerializeToString,
             contracts_dot_storage__service__pb2.StorageTask.FromString,
             options,
@@ -416,7 +373,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/GetStorageStats',
+            '/windhub.storage.v2.StorageService/GetStorageStats',
             contracts_dot_storage__service__pb2.GetStorageStatsRequest.SerializeToString,
             contracts_dot_storage__service__pb2.GetStorageStatsResponse.FromString,
             options,
@@ -443,7 +400,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/ListBlockedPartitions',
+            '/windhub.storage.v2.StorageService/ListBlockedPartitions',
             contracts_dot_storage__service__pb2.ListBlockedPartitionsRequest.SerializeToString,
             contracts_dot_storage__service__pb2.ListBlockedPartitionsResponse.FromString,
             options,
@@ -470,7 +427,7 @@ class StorageService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/windhub.storage.v1.StorageService/RetryBlockedPartition',
+            '/windhub.storage.v2.StorageService/RetryBlockedPartition',
             contracts_dot_storage__service__pb2.RetryBlockedPartitionRequest.SerializeToString,
             contracts_dot_storage__service__pb2.RetryBlockedPartitionResponse.FromString,
             options,

@@ -29,7 +29,7 @@ async def invoke(
     method: str,
     values: dict[str, Any],
 ) -> dict[str, Any]:
-    """Invoke only methods declared in the frozen v1 service descriptor."""
+    """Invoke only methods declared in the selected service's frozen descriptor."""
     try:
         module_name, service_name = SERVICE_MODULES[service]
     except KeyError as exc:

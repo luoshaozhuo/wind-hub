@@ -941,8 +941,7 @@ class ConfigurationPointTableResolver:
             sources = [
                 (point_id, point)
                 for point_id, point in points.items()
-                if isinstance(point, dict)
-                and point.get("business_point_id") == physical_point_id
+                if isinstance(point, dict) and point.get("business_point_id") == physical_point_id
             ]
             if len(sources) != 1:
                 raise ConfigHistoryUnavailableError("BusinessPoint has no unique source point")

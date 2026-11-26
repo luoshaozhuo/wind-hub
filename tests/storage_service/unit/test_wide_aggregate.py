@@ -325,7 +325,7 @@ async def test_bad_uncertain_and_not_collected_are_excluded_from_good_count() ->
 
 
 @pytest.mark.asyncio
-async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -> None:
+async def test_quality_aggregate_keeps_diagnostic_rows_and_binds_cursor() -> None:
     schema = WideSchema.build(
         point_table_id="point_table_wtg_v1.0.0",
         point_table_version="1.0.0",
@@ -367,7 +367,10 @@ async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() ->
         page_size=1,
     )
     assert first.rows[0].result == 10
-    assert history.query.await_args.kwargs["filter_"].qualities == (PointQuality.GOOD,)
+    assert first.rows[0].valid_count == 1
+    # Aggregation needs unfiltered rows for GOOD/NULL diagnostic counters and
+    # applies the explicit quality predicate only to the valid-result subset.
+    assert history.query.await_args_list[0].kwargs["filter_"].qualities == ()
     changed = WideHistoryFilter(
         wind_farm_id=request.wind_farm_id,
         device_id=request.device_id,

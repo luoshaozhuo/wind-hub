@@ -610,6 +610,7 @@ class KafkaOutput:
                 if not request.result.done():
                     request.result.cancel()
 
+
 class _RegisterImage:
     """Single event-loop-owned register image, atomically replaced per batch."""
 

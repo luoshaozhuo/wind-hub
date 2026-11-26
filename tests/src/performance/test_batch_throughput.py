@@ -20,6 +20,8 @@ from collector.infrastructure.adapters.outbound import publisher as publisher_mo
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from contracts.sample_batch import SampleBatch
 from core.application import ProtocolSample
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
+from storage_service.domain.wide_record import WideRecord
 
 pytestmark = [pytest.mark.performance, pytest.mark.load]
 
@@ -123,6 +125,71 @@ def test_batch_encode_decode_throughput_baseline(
     print(f"\n[throughput-baseline] {baseline}")
     # 只断言可重复的正确性与有界性，不虚构 SLA 阈值。
     assert total_samples > 0 and all(len(p) > 0 for p in encoded)
+
+
+def test_kafka_v3_encode_and_storage_validation_baseline(record_property: Any) -> None:
+    """Isolate actual 500-point Sink JSON encoding and Storage validation."""
+    points = 500
+    batches = 600
+    samples = _samples(points)
+    batch = BatchBuilder(
+        site_id="farm-a",
+        collector_id="collector-1",
+        delivery="reliable",
+        max_staleness_ms=500,
+        max_samples_per_batch=points,
+        max_batch_bytes=1024 * 1024,
+    ).pack(
+        "wtg-01",
+        samples,
+        device_type="wtg",
+        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+        task_id="task-load",
+        device_config_id="device_wtg_sim_v1.0.0",
+        sample_time=samples[0].timestamp,
+        expected_point_ids=tuple(sample.point_id for sample in samples),
+    )[0]
+    physical_points = tuple(sample.point_id for sample in batch.samples)
+    encode_latency_ms: list[float] = []
+    decode_latency_ms: list[float] = []
+    payload = b""
+    encode_started = time.perf_counter()
+    for _ in range(batches):
+        started = time.perf_counter()
+        payload = encode_kafka_wide(
+            batch,
+            batch.samples,
+            device_config_id=batch.device_config_id,
+            physical_points=physical_points,
+            data_level="protocol",
+        )
+        encode_latency_ms.append((time.perf_counter() - started) * 1000)
+    encode_elapsed = time.perf_counter() - encode_started
+    decode_started = time.perf_counter()
+    for _ in range(batches):
+        started = time.perf_counter()
+        decoded = WideRecord.from_kafka_json(payload, physical_points=physical_points)
+        decode_latency_ms.append((time.perf_counter() - started) * 1000)
+        assert decoded.values == tuple(sample.value for sample in batch.samples)
+    decode_elapsed = time.perf_counter() - decode_started
+    for name, elapsed, latencies in (
+        ("sink_json_v3_encode", encode_elapsed, encode_latency_ms),
+        ("storage_json_v3_validation", decode_elapsed, decode_latency_ms),
+    ):
+        baseline = {
+            "stage": name,
+            "rows": batches,
+            "points_per_row": points,
+            "rows_per_second": round(batches / elapsed, 2),
+            "points_per_second": round(batches * points / elapsed, 2),
+            "payload_mb_per_second": round(len(payload) * batches / elapsed / 1e6, 3),
+            "payload_bytes_per_row": len(payload),
+            "latency_ms": {k: round(v, 4) for k, v in _percentiles(latencies).items()},
+            "environment": "in-process only; no broker or TDengine I/O",
+        }
+        record_property(f"{name}_rows_per_second", baseline["rows_per_second"])
+        record_property(f"{name}_points_per_second", baseline["points_per_second"])
+        print(f"\n[kafka-v3-baseline] {baseline}")
 
 
 @pytest.mark.asyncio

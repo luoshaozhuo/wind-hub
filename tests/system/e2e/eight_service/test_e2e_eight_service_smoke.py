@@ -68,6 +68,33 @@ async def _kafka_offsets(bootstrap: str, topic: str) -> dict[str, int]:
         await consumer.stop()
 
 
+def _query_all_groups(harness: EightServiceHarness, *arguments: str) -> list[dict[str, object]]:
+    """累积签名游标的全部页面，不以第一页代替完整历史响应。"""
+    groups: list[dict[str, object]] = []
+    page_token = ""
+    seen_tokens: set[str] = set()
+    for _ in range(1000):
+        page_arguments = list(arguments)
+        if page_token:
+            page_arguments.extend(("--page-token", page_token))
+        response = harness.cli(*page_arguments, check=False, timeout=60)
+        assert response.get("status") == "SUCCESS", response
+        data = response.get("data") or {}
+        page_groups = data.get("groups")
+        assert isinstance(page_groups, list), response
+        groups.extend(page_groups)
+        next_token = data.get("next_page_token") or ""
+        complete = data.get("complete")
+        assert isinstance(complete, bool), response
+        if not next_token:
+            assert complete, response
+            return groups
+        assert not complete and next_token not in seen_tokens, response
+        seen_tokens.add(next_token)
+        page_token = next_token
+    raise AssertionError("Storage grouped query exceeded 1000 pages")
+
+
 def _tdengine_row_count(harness: EightServiceHarness) -> dict[str, object]:
     databases = harness.stack.tdengine_sql("SHOW DATABASES")["data"]
     selected = None
@@ -141,22 +168,24 @@ def test_eight_service_chain_is_cli_managed_and_persisted(
         window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "--level",
         "protocol",
+        "--device-id",
+        "WTG_SIM01",
         "--page-size",
         "200",
     )
     deadline = time.monotonic() + 90
     sample_count = 0
     last: dict[str, object] = {}
+    groups: list[dict[str, object]] = []
     while time.monotonic() < deadline:
-        payload = harness.cli(*proto_args, check=False, timeout=60)
-        last = payload
-        data = payload.get("data") or {}
-        items = data.get("samples") or data.get("items") or []
-        sample_count = len(items)
+        try:
+            groups = _query_all_groups(harness, *proto_args)
+            sample_count = sum(len(group.get("rows") or []) for group in groups)
+        except AssertionError as error:
+            last = {"query_error": str(error)}
         if sample_count:
             break
-        await_time = 1.0
-        time.sleep(await_time)
+        time.sleep(1.0)
     if not sample_count:
         diagnostics = {
             name: harness.status(name)
@@ -216,19 +245,30 @@ def test_eight_service_chain_is_cli_managed_and_persisted(
     # 7) Restart Storage through CLI and re-query the same historical window.
     harness.cli("service", "restart", "storage", "--yes", timeout=120)
     harness.wait_targets("storage")
-    replay = harness.cli(*proto_args, check=False, timeout=60)
-    replay_items = (
-        (replay.get("data") or {}).get("samples") or (replay.get("data") or {}).get("items") or []
+    replay_deadline = time.monotonic() + 90
+    replay_count = 0
+    replay_error: AssertionError | None = None
+    while time.monotonic() < replay_deadline:
+        try:
+            replay_groups = _query_all_groups(harness, *proto_args)
+            replay_count = sum(len(group.get("rows") or []) for group in replay_groups)
+            if replay_count:
+                break
+        except AssertionError as error:
+            replay_error = error
+        time.sleep(1)
+    assert replay_count, (
+        "historical PROTOCOL grouped query did not recover after Storage restart: "
+        f"{replay_error}"
     )
-    assert replay_items, f"historical PROTOCOL query failed after Storage restart: {replay}"
 
     evidence = {
         "services": list(SERVICES),
-        "protocol_samples": len(items),
+        "protocol_samples": sample_count,
         "kafka_offsets": offsets,
         "tdengine": tdengine,
         "generator_truth_files": [str(path.relative_to(harness.root)) for path in truth_files],
-        "replay_after_restart": len(replay_items),
+        "replay_after_restart": replay_count,
     }
     (harness.root / "evidence.json").write_text(
         json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"

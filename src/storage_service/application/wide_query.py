@@ -52,11 +52,11 @@ class WideHistoryFilter:
             type(self.after_time_us) is not int or self.after_time_us < self.start_time_us
         ):
             raise ValueError("wide query pagination cursor is invalid")
-        if self.qualities:
-            if len(set(self.qualities)) != len(self.qualities) or any(
-                type(q) is not int or not 0 <= q <= 3 for q in self.qualities
-            ):
-                raise ValueError("quality filter contains invalid two-bit states")
+        if self.qualities and (
+            len(set(self.qualities)) != len(self.qualities)
+            or any(type(q) is not int or not 0 <= q <= 3 for q in self.qualities)
+        ):
+            raise ValueError("quality filter contains invalid two-bit states")
         actual = {column.point_id for column in schema.columns}
         if not self.point_ids or len(set(self.point_ids)) != len(self.point_ids):
             raise ValueError("wide query field set must be unique and nonempty")

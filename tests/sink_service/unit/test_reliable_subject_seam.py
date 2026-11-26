@@ -40,7 +40,7 @@ DELIVERY_TEMPLATE = f"{TEMPLATE_ROOT}/deliveries/delivery_reliable_history_v1.0.
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "file_version": version,
         "template_id": "kafka_history",
         "kind": "kafka",
@@ -54,9 +54,9 @@ def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[st
         "connection": {"bootstrap_servers": ["192.168.1.20:9092"]},
         "output": {
             "topic": "windhub.samples",
-            "key_field": "device_id",
+            "key_field": "wind_farm_device",
             "business_duplicate_policy": "allow_at_least_once",
-            "dedup_identity_fields": ["delivery_id", "sample_id"],
+            "dedup_identity_fields": ["wind_farm_id", "device_id", "data_level", "sample_time"],
             "enable_idempotence": True,
             "acks": "all",
             "write_timeout_ms": 2000,

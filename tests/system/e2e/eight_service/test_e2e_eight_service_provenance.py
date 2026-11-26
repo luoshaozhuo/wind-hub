@@ -8,6 +8,7 @@ substituted for the running process.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import math
 import struct
@@ -23,6 +24,7 @@ from contracts import data_generator_pb2 as generator_pb
 from contracts import data_generator_pb2_grpc as generator_rpc
 from contracts import industrial_gateway_pb2 as gateway_pb
 from contracts import industrial_gateway_pb2_grpc as gateway_rpc
+from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from tests.system.e2e.eight_service.conftest import SERVICES, EightServiceHarness
 
 pytestmark = [
@@ -42,34 +44,93 @@ DELIVERIES = (
 TOPIC = "windhub.e2e.history"
 DEVICE = "WTG_SIM01"
 POINT = "active_power"
-TASK = "e2e_source_all"
 
 
-def _items(response: dict[str, Any]) -> list[dict[str, Any]]:
-    data = response.get("data") or {}
-    items = data.get("samples") or data.get("items") or []
-    assert isinstance(items, list), response
-    return items
+def _query(harness: EightServiceHarness, start: str, end: str) -> list[dict[str, Any]]:
+    """读取全部游标页面，并保留每个物理 Schema 的列与质量位图。"""
+    groups: list[dict[str, Any]] = []
+    page_token = ""
+    seen_tokens: set[str] = set()
+    for _ in range(1000):
+        arguments = [
+            "storage",
+            "samples",
+            "e2e-final",
+            start,
+            end,
+            "--level",
+            "protocol",
+            "--device-id",
+            DEVICE,
+            "--point-id",
+            POINT,
+            "--page-size",
+            "1000",
+        ]
+        if page_token:
+            arguments.extend(("--page-token", page_token))
+        response = harness.cli(*arguments, check=False, timeout=60)
+        assert response.get("status") == "SUCCESS", response
+        data = response.get("data") or {}
+        page_groups = data.get("groups")
+        assert isinstance(page_groups, list), response
+        groups.extend(page_groups)
+        next_token = data.get("next_page_token") or ""
+        complete = data.get("complete")
+        assert isinstance(complete, bool), response
+        if not next_token:
+            assert complete, response
+            return groups
+        assert not complete and next_token not in seen_tokens, response
+        seen_tokens.add(next_token)
+        page_token = next_token
+    raise AssertionError("Storage grouped query exceeded 1000 pages")
 
 
-def _query(harness: EightServiceHarness, start: str, end: str) -> dict[str, Any]:
-    return harness.cli(
-        "storage",
-        "samples",
-        "e2e-final",
-        start,
-        end,
-        "--level",
-        "protocol",
-        "--device-id",
-        DEVICE,
-        "--point-id",
-        POINT,
-        "--page-size",
-        "1000",
-        check=False,
-        timeout=60,
-    )
+def _time_us(text: str) -> int:
+    sampled = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    elapsed = sampled.astimezone(UTC) - epoch
+    return (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+
+
+def _wire_point(record: dict[str, Any]) -> tuple[float, int]:
+    assert record.get("schema_version") == 3, record
+    points = record.get("points")
+    assert isinstance(points, dict) and POINT in points, record
+    entry = points[POINT]
+    assert isinstance(entry, list) and len(entry) == 2, record
+    value, quality = entry
+    assert type(value) in (int, float) and type(quality) is int, record
+    return float(value), quality
+
+
+def _stored_points(groups: list[dict[str, Any]]) -> dict[int, tuple[float, int]]:
+    """以完整设备行的 sample_time 定位，并核对列对齐的值与两位质量。"""
+    result: dict[int, tuple[float, int]] = {}
+    for group in groups:
+        assert group.get("device_id") == DEVICE, group
+        columns = group.get("columns") or []
+        point_indexes = [
+            index for index, column in enumerate(columns) if column.get("point_id") == POINT
+        ]
+        assert len(point_indexes) == 1, group
+        point_index = point_indexes[0]
+        for row in group.get("rows") or []:
+            values = row.get("values") or []
+            assert len(values) == len(columns), (group, row)
+            quality_bitmap = base64.b64decode(row["quality"], validate=True)
+            qualities = unpack_quality_bitmap(quality_bitmap, len(columns))
+            stored_value = values[point_index]
+            assert set(stored_value) == {"value_f64"}, stored_value
+            identity = (
+                float(stored_value["value_f64"]),
+                int(qualities[point_index]),
+            )
+            timestamp = _time_us(row["sample_time"])
+            previous = result.setdefault(timestamp, identity)
+            assert previous == identity, (timestamp, previous, identity)
+    return result
 
 
 def _truth_points(harness: EightServiceHarness) -> list[dict[str, Any]]:
@@ -157,7 +218,7 @@ def test_eight_service_provenance_and_restart_readback(
             # before the first physical step is delivered. Select only samples
             # at or after the independent source watermark.
             truth_start: datetime | None = None
-            selected: dict[str, dict[str, Any]] = {}
+            selected: dict[int, dict[str, Any]] = {}
             while asyncio.get_running_loop().time() < deadline:
                 if truth_start is None:
                     points = _truth_points(harness)
@@ -169,90 +230,88 @@ def test_eight_service_provenance_and_restart_readback(
                 for records in messages.values():
                     for record in records:
                         row = json.loads(record.value)
+                        if (
+                            row.get("schema_version") != 3
+                            or row.get("data_level") != "protocol"
+                            or row.get("wind_farm_id") != "e2e-final"
+                            or row.get("device_id") != DEVICE
+                        ):
+                            continue
                         sampled_at = datetime.fromisoformat(
                             row["sample_time"].replace("Z", "+00:00")
                         )
+                        points = row.get("points")
                         if (
                             truth_start is not None
                             and sampled_at >= truth_start
-                            and row.get("data_level") == "protocol"
-                            and row.get("wind_farm_id") == "e2e-final"
-                            and row.get("collector_id") == "collector-e2e-reliable"
-                            and row.get("device_id") == DEVICE
-                            and row.get("point_id") == POINT
+                            and isinstance(points, dict)
+                            and POINT in points
                         ):
-                            selected[row["sample_id"]] = row
+                            _wire_point(row)
+                            selected[_time_us(row["sample_time"])] = row
                             if len(selected) >= 5:
                                 return list(selected.values())
-            raise AssertionError(f"expected five distinct live Kafka samples, got {len(selected)}")
+            raise AssertionError(
+                f"expected five distinct live Kafka device rows, got {len(selected)}"
+            )
         finally:
             await consumer.stop()
 
     wire_records = asyncio.run(_exercise())
     assert len(wire_records) == 5
-    source_ids = {row["sample_id"] for row in wire_records}
-    assert len(source_ids) == 5
+    source_times = {_time_us(row["sample_time"]) for row in wire_records}
+    assert len(source_times) == 5
+    assert len({row["device_config_id"] for row in wire_records}) == 1
     for wire in wire_records:
-        assert wire["task_id"] == TASK, "task identity must come from Task Instance"
-        assert wire["sample_id"] and wire["batch_id"] and wire["point_table_id"]
-        assert wire["quality"] == "good"
-        assert type(wire["value"]) in (int, float)
+        _value, quality = _wire_point(wire)
+        assert quality == 1
 
     truth_deadline = time.monotonic() + 30
     while not all(
-        _source_truth_matches(harness, row["sample_time"], float(row["value"]))
+        _source_truth_matches(harness, row["sample_time"], _wire_point(row)[0])
         for row in wire_records
     ):
         if time.monotonic() >= truth_deadline:
             raise AssertionError(
                 "Kafka data not time/value-aligned with independent Generator truth: "
-                f"{[(row['sample_id'], row['sample_time'], row['value']) for row in wire_records]}"
+                f"{[(row['sample_time'], row['points'][POINT]) for row in wire_records]}"
             )
         time.sleep(0.5)
 
-    # Exactly the five independently observed source identities must exist in
-    # Storage with matching scalar values. No count-based substitution.
+    # Exactly the five observed timestamps must exist with matching values and
+    # quality. Each timestamp addresses one complete device row.
+    expected = {_time_us(wire["sample_time"]): _wire_point(wire) for wire in wire_records}
     deadline = time.monotonic() + 120
-    last: dict[str, Any] = {}
-    persisted: dict[str, dict[str, Any]] = {}
+    last_groups: list[dict[str, Any]] = []
+    persisted: dict[int, tuple[float, int]] = {}
     while time.monotonic() < deadline:
-        last = _query(harness, start, end)
-        if last.get("status") == "SUCCESS":
-            persisted = {
-                row["sample_id"]: row
-                for row in _items(last)
-                if row.get("sample_id") in source_ids
-                and row.get("point_id") == POINT
-                and row.get("device_id") == DEVICE
-            }
-            if len(persisted) == len(source_ids):
+        try:
+            last_groups = _query(harness, start, end)
+            stored = _stored_points(last_groups)
+            persisted = {timestamp: stored[timestamp] for timestamp in source_times & stored.keys()}
+            if len(persisted) == len(source_times):
                 break
+        except (AssertionError, KeyError, ValueError):
+            persisted = {}
         time.sleep(1)
-    assert set(persisted) == source_ids, {
-        "missing_count": len(source_ids - set(persisted)),
-        "missing_ids": sorted(source_ids - set(persisted)),
-        "last_query": last,
+    assert set(persisted) == source_times, {
+        "missing_count": len(source_times - set(persisted)),
+        "missing_times": sorted(source_times - set(persisted)),
+        "last_groups": last_groups,
     }
-    for wire in wire_records:
-        stored = persisted[wire["sample_id"]]
-        assert float(stored["value_f64"]) == pytest.approx(float(wire["value"]), rel=1e-6, abs=1e-5)
-        assert stored["quality"] == wire["quality"]
-        assert stored["logical_key"] and stored["content_sha256"]
+    for timestamp, (wire_value, wire_quality) in expected.items():
+        stored_value, stored_quality = persisted[timestamp]
+        assert stored_value == pytest.approx(wire_value, rel=1e-6, abs=1e-5)
+        assert stored_quality == wire_quality
 
-    # Restart Storage using the official CLI, then reconcile the same five
-    # identities and content hashes. No lost or silently rewritten rows.
+    # Restart Storage using the official CLI, then reconcile every persisted
+    # value and quality bit at the same five complete-row identities.
     restarted = harness.cli("service", "restart", "storage", "--yes", timeout=120)
     assert restarted["status"] == "SUCCESS", restarted
     harness.wait_targets("storage")
-    replay = _query(harness, start, end)
-    assert replay["status"] == "SUCCESS", replay
-    recovered = {
-        row["sample_id"]: row for row in _items(replay) if row.get("sample_id") in source_ids
-    }
-    assert set(recovered) == source_ids
-    for sample_id in source_ids:
-        assert recovered[sample_id]["content_sha256"] == persisted[sample_id]["content_sha256"]
-        assert recovered[sample_id]["logical_key"] == persisted[sample_id]["logical_key"]
+    recovered = _stored_points(_query(harness, start, end))
+    replayed = {timestamp: recovered[timestamp] for timestamp in source_times}
+    assert replayed == persisted
 
 
 @pytest.mark.parametrize(
@@ -383,10 +442,13 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
                     for records in messages.values():
                         for record in records:
                             row = json.loads(record.value)
+                            points = row.get("points")
                             if (
-                                row.get("data_level") == "protocol"
+                                row.get("schema_version") == 3
+                                and row.get("data_level") == "protocol"
                                 and row.get("device_id") == DEVICE
-                                and row.get("point_id") == POINT
+                                and isinstance(points, dict)
+                                and POINT in points
                             ):
                                 kafka = row
                                 break
@@ -429,7 +491,8 @@ def test_eight_service_four_sink_outputs_are_independently_readable(
 
     try:
         kafka, modbus_value, quality, cache_value = asyncio.run(_check())
-        assert kafka["task_id"] == TASK
+        kafka_value, kafka_quality = _wire_point(kafka)
+        assert math.isfinite(kafka_value) and kafka_quality == 1
         assert quality == 0
         assert math.isfinite(modbus_value)
         assert math.isfinite(float(cache_value["value"]))

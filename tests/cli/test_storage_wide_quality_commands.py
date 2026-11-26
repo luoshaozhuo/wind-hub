@@ -1,4 +1,4 @@
-"""Storage CLI forwards one quality selector inside each exact wide filter."""
+"""Storage CLI forwards one quality selector inside each grouped v2 filter."""
 
 from unittest.mock import Mock
 
@@ -7,39 +7,42 @@ import pytest
 from cli import storage_commands
 
 
-def test_wide_query_quality_is_top_level(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grouped_query_quality_is_inside_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
-    storage_commands.query_wide_rows(
+    storage_commands.query_samples(
         "farm",
-        "wtg001",
-        "device_farm_v1.0.0",
         "2026-11-25T00:00:00Z",
         "2026-11-26T00:00:00Z",
         level="protocol",
+        device_ids=["wtg001"],
+        point_table_id="point_table_wtg_v1.0.0",
         point_ids=["wind_speed"],
         qualities=[1, 2],
         page_size=20,
         page_token="",
     )
     method, fields = receiver.call_args.args
-    assert method == "QueryWideRows"
-    assert fields["qualities"] == [1, 2]
+    assert method == "QuerySamples"
+    assert fields["filter"]["qualities"] == [1, 2]
+    assert fields["filter"]["device_ids"] == ["wtg001"]
+    assert fields["filter"]["point_table_id"] == "point_table_wtg_v1.0.0"
+    assert "qualities" not in fields
     assert "wide_filter" not in fields
 
 
-def test_wide_aggregate_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grouped_aggregate_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
-    storage_commands.query_wide_aggregates(
+    storage_commands.query_aggregates(
         "farm",
-        "wtg001",
-        "device_farm_v1.0.0",
         "2026-11-25T00:00:00Z",
         "2026-11-26T00:00:00Z",
         level="protocol",
         operation="count",
         window_ms=60_000,
+        device_ids=["wtg001"],
+        point_table_id="point_table_wtg_v1.0.0",
         point_ids=["wind_speed"],
         qualities=[0, 2],
         page_size=50,
@@ -47,27 +50,31 @@ def test_wide_aggregate_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) 
     )
     method, fields = receiver.call_args.args
     assert method == "QueryAggregates"
-    assert fields["wide_filter"]["qualities"] == [0, 2]
+    assert fields["filter"]["qualities"] == [0, 2]
+    assert fields["aggregation"] == "STORAGE_AGGREGATION_COUNT"
     assert "qualities" not in fields
+    assert "wide_filter" not in fields
 
 
-def test_wide_export_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grouped_export_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> None:
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
-    storage_commands.create_wide_export(
+    storage_commands.create_export(
         "export-1",
         "farm",
-        "wtg001",
-        "device_farm_v1.0.0",
         "2026-11-25T00:00:00Z",
         "2026-11-26T00:00:00Z",
         level="business",
         export_format="json",
+        device_ids=["wtg001"],
+        point_table_id="point_table_wtg_v1.0.0",
         point_ids=["active_power"],
         qualities=[1],
-        page_size=100,
     )
     method, fields = receiver.call_args.args
     assert method == "CreateExport"
-    assert fields["wide_filter"]["qualities"] == [1]
+    assert fields["filter"]["qualities"] == [1]
+    assert fields["request_id"] == "export-1"
+    assert fields["export_format"] == "json"
     assert "qualities" not in fields
+    assert "wide_filter" not in fields

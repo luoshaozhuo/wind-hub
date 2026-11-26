@@ -52,6 +52,7 @@ def _server(
         metadata=cast(Any, object()),
         wide_query=cast(Any, object()),
         wide_aggregation=cast(Any, object()),
+        grouped_query=cast(Any, object()),
         jobs=cast(Any, object()),
         point_tables=cast(Any, object()),
         consumer=cast(Any, object()),
@@ -83,8 +84,8 @@ async def test_common_service_uses_bearer_and_reports_only_real_capabilities(
         status = await stub.GetServiceStatus(common.Empty(), metadata=metadata)
         assert status.health == "HEALTHY"
         capabilities = await stub.GetCapabilities(common.Empty(), metadata=metadata)
-        assert "QueryWideRows" in capabilities.rpc_names
-        assert "QuerySamples" not in capabilities.rpc_names
+        assert "QuerySamples" in capabilities.rpc_names
+        assert "QueryWideRows" not in capabilities.rpc_names
         assert "PushConfigSnapshot" not in capabilities.rpc_names
 
         with pytest.raises(grpc.aio.AioRpcError) as unsupported:
@@ -215,6 +216,7 @@ async def test_retry_blocked_partition_stale_offset_returns_failed_precondition(
         metadata=cast(Any, object()),
         wide_query=cast(Any, object()),
         wide_aggregation=cast(Any, object()),
+        grouped_query=cast(Any, object()),
         jobs=cast(Any, object()),
         point_tables=cast(Any, object()),
         consumer=_RejectingConsumer(),
@@ -262,6 +264,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
     try:
         info = await common_stub.GetServiceInfo(common.Empty())
         assert info.process_role == "storage"
+        assert info.contract_version == "windhub.storage.v2"
         status = await common_stub.GetServiceStatus(common.Empty())
         assert status.health == "DEGRADED"
         assert all(not dependency.detail for dependency in status.dependencies)
@@ -274,8 +277,8 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         assert authenticated_status.target_revision == "a" * 64
         assert authenticated_status.active_revision == "b" * 64
         capabilities = await common_stub.GetCapabilities(common.Empty())
-        assert "QueryWideRows" in capabilities.rpc_names
-        assert "QuerySamples" not in capabilities.rpc_names
+        assert "QuerySamples" in capabilities.rpc_names
+        assert "QueryWideRows" not in capabilities.rpc_names
 
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
             await common_stub.GetServiceInfo(
@@ -288,7 +291,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
         with pytest.raises(grpc.aio.AioRpcError) as denied_query:
-            await storage_stub.QueryWideRows(storage_pb.QueryWideRowsRequest())
+            await storage_stub.QuerySamples(storage_pb.QuerySamplesRequest())
         assert denied_query.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()

@@ -367,6 +367,87 @@ def _read_while_writing(probe: Probe, stop: Event, ready: Event) -> int:
     return count
 
 
+def _run_single_table_writer(
+    probe: Probe,
+    devices: list[int],
+    *,
+    start_us: int,
+    cycles: int,
+    batch_cycles: int,
+) -> list[float]:
+    """Measure the supported per-table statement path without claiming multi-table reuse."""
+    connection = probe.driver.connect(**probe.connection_options)
+    local = Probe(probe.driver, connection, probe.database, probe.connection_options)
+    timings: list[float] = []
+    try:
+        for device in devices:
+            for first in range(0, cycles, batch_cycles):
+                end = min(first + batch_cycles, cycles)
+                statement = _single_statement(local, f"protocol_d{device}")
+                try:
+                    started = time.perf_counter()
+                    statement.bind(
+                        [
+                            _bind(
+                                local,
+                                table=None,
+                                timestamps=[start_us + i * 100_000 for i in range(first, end)],
+                                base=device * 1_000_000 + first,
+                            )
+                        ]
+                    )
+                    assert statement.execute() >= 0
+                    timings.append(time.perf_counter() - started)
+                finally:
+                    statement.close()
+    finally:
+        connection.close()
+    return timings
+
+
+@pytest.mark.performance
+@pytest.mark.slow
+def test_td01_single_table_native_baseline(wide_probe: Probe, record_property: Any) -> None:
+    """Measure real per-table STMT2 writes; this is not the multi-table TD02 target."""
+    if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY") != "1":
+        pytest.skip("enable D2 capacity matrix explicitly")
+    probe = wide_probe
+    devices = 30
+    workers = 4
+    cycles = int(os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CYCLES", "600"))
+    batch_cycles = 10
+    assert 600 <= cycles <= 36_000
+    _create_family(probe, "protocol", "BIGINT", devices=devices)
+    start_us = time.time_ns() // 1000 - cycles * 100_000
+    stripes = [list(range(worker, devices, workers)) for worker in range(workers)]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        started = time.perf_counter()
+        futures = [
+            pool.submit(
+                _run_single_table_writer,
+                probe,
+                stripe,
+                start_us=start_us,
+                cycles=cycles,
+                batch_cycles=batch_cycles,
+            )
+            for stripe in stripes
+        ]
+        timings = [duration for future in futures for duration in future.result()]
+        elapsed = time.perf_counter() - started
+    _verify_workload(probe, devices, cycles, start_us)
+    rows = devices * cycles
+    ordered = sorted(timings)
+    record_property("rows", rows)
+    record_property("elapsed_seconds", elapsed)
+    record_property("rows_per_second", rows / elapsed)
+    record_property("points_per_second", rows * _POINT_COUNT / elapsed)
+    record_property("payload_mb_per_second", rows * (_POINT_COUNT * 8 + 125) / elapsed / 1e6)
+    record_property("batch_seconds_p95", ordered[int((len(ordered) - 1) * 0.95)])
+    record_property("batch_seconds_p99", ordered[int((len(ordered) - 1) * 0.99)])
+    record_property("statement_path", "per-table prepare/bind/execute/close; not multi-table")
+
+
 @pytest.mark.performance
 @pytest.mark.slow
 @pytest.mark.parametrize(

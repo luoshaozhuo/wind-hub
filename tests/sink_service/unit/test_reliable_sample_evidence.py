@@ -119,9 +119,7 @@ def _batch(samples: list[tuple[str, str]], *, device: str = _DEVICE) -> SampleBa
 
 
 async def test_confirmed_samples_remain_pending_until_source_ack() -> None:
-    adapter = _FakeKafkaAdapter(
-        BatchOutcome(delivered=(0, 1, 2), settled=(0, 1, 2), successful_attempts=1)
-    )
+    adapter = _FakeKafkaAdapter(BatchOutcome(delivered=(0,), settled=(0,), successful_attempts=1))
     port = _port(adapter, ["p1", "p2", "p3"])
     message = _FakeMessage()
     terminal = await port._deliver_batch(
@@ -129,7 +127,8 @@ async def test_confirmed_samples_remain_pending_until_source_ack() -> None:
     )
 
     assert terminal is True
-    assert len(port._pending_confirmed_samples) == 3
+    assert len(port._pending_confirmed_samples) == 1
+    # One confirmed Kafka row represents the complete three-point device cycle.
     # Promotion to the diagnostic surface happens only after source ACK in _run.
     assert len(port._confirmed_samples) == 0
     assert message.acks == 0
@@ -143,7 +142,7 @@ async def test_confirmed_samples_remain_pending_until_source_ack() -> None:
 
 async def test_failed_target_write_produces_no_confirmed_samples() -> None:
     adapter = _FakeKafkaAdapter(
-        BatchOutcome(delivered=(), settled=(0, 1), error="target outage", failed_attempts=1)
+        BatchOutcome(delivered=(), settled=(0,), error="target outage", failed_attempts=1)
     )
     port = _port(adapter, ["p1", "p2"])
     terminal = await port._deliver_batch(_FakeMessage(), _batch([("p1", "s1"), ("p2", "s2")]))
@@ -154,14 +153,14 @@ async def test_failed_target_write_produces_no_confirmed_samples() -> None:
     assert port.delivered_total == 0
 
 
-async def test_partial_settlement_confirms_only_delivered_indices() -> None:
-    # Index 1 is neither delivered nor permanently classified: it must not be
-    # observable as target-confirmed evidence, and the batch stays unresolved.
+async def test_confirmed_row_with_error_keeps_complete_device_batch_unresolved() -> None:
+    # Kafka row zero covers every source point. A confirmed row may expose its
+    # representative sample, but any row-level error keeps the source batch unresolved.
     adapter = _FakeKafkaAdapter(
         BatchOutcome(
             delivered=(0,),
-            settled=(0, 1),
-            error="partial write uncertainty",
+            settled=(0,),
+            error="row write uncertainty",
             successful_attempts=1,
             failed_attempts=1,
         )
@@ -174,20 +173,16 @@ async def test_partial_settlement_confirms_only_delivered_indices() -> None:
     assert len(port._confirmed_samples) == 0
 
 
-async def test_pending_evidence_is_capped_at_four_and_keeps_newest() -> None:
-    adapter = _FakeKafkaAdapter(
-        BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
-    )
+async def test_pending_evidence_uses_one_identity_per_complete_device_row() -> None:
+    adapter = _FakeKafkaAdapter(BatchOutcome(delivered=(0,), settled=(0,), successful_attempts=1))
     port = _port(adapter, [f"p{i}" for i in range(6)])
-    await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
+    terminal = await port._deliver_batch(
+        _FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)])
+    )
 
-    assert len(port._pending_confirmed_samples) == 4
-    assert [item["sample_id"] for item in port._pending_confirmed_samples] == [
-        "s2",
-        "s3",
-        "s4",
-        "s5",
-    ]
+    assert terminal is True
+    assert len(port._pending_confirmed_samples) == 1
+    assert [item["sample_id"] for item in port._pending_confirmed_samples] == ["s0"]
 
 
 async def test_pending_evidence_resets_for_each_source_batch() -> None:
@@ -204,20 +199,22 @@ async def test_pending_evidence_resets_for_each_source_batch() -> None:
 async def test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe() -> None:
     import json
 
-    adapter = _FakeKafkaAdapter(
-        BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
-    )
-    port = _port(adapter, [f"p{i}" for i in range(6)])
-    await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
-    # Mirror the exact production promotion performed after message.ack().
-    port._confirmed_samples.extend(port._pending_confirmed_samples[-4:])
-    port._pending_confirmed_samples.clear()
+    adapter = _FakeKafkaAdapter(BatchOutcome(delivered=(0,), settled=(0,), successful_attempts=1))
+    port = _port(adapter)
+    for index in range(6):
+        terminal = await port._deliver_batch(
+            _FakeMessage(), _batch([("active_power", f"s{index}")])
+        )
+        assert terminal is True
+        # Mirror the exact production promotion performed after message.ack().
+        port._confirmed_samples.extend(port._pending_confirmed_samples[-4:])
+        port._pending_confirmed_samples.clear()
 
     assert len(port._confirmed_samples) == 4
     encoded = port.inspect()["sample_evidence"]
     assert len(encoded.encode()) < 2048
     decoded = json.loads(encoded)
-    assert len(decoded) == 4
+    assert [item["sample_id"] for item in decoded] == ["s2", "s3", "s4", "s5"]
     assert all(item["delivery_id"] == _DELIVERY for item in decoded)
 
 

@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from sink_service.application.realtime import BatchOutcome
+from sink_service.application.reliable_policy import classify_settlement
 from sink_service.domain.config import ValidatedSnapshot
 from sink_service.infrastructure import realtime_runtime
 from sink_service.infrastructure.config_io import validate_snapshot
@@ -39,7 +40,7 @@ KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "file_version": version,
         "template_id": "kafka_history",
         "kind": "kafka",
@@ -53,9 +54,9 @@ def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[st
         "connection": {"bootstrap_servers": ["192.168.1.20:9092"]},
         "output": {
             "topic": "windhub.samples",
-            "key_field": "device_id",
+            "key_field": "wind_farm_device",
             "business_duplicate_policy": "allow_at_least_once",
-            "dedup_identity_fields": ["delivery_id", "sample_id"],
+            "dedup_identity_fields": ["wind_farm_id", "device_id", "data_level", "sample_time"],
             "enable_idempotence": True,
             "acks": "all",
             "write_timeout_ms": 2000,
@@ -153,6 +154,14 @@ class FakeKafkaAdapter:
         return None
 
 
+async def _write(writer: Any, token: str) -> BatchOutcome:
+    return await writer.write_encoded_batch(
+        (f'{{"sample_id":"{token}"}}'.encode(),),
+        key=f"farm-a:{token}".encode(),
+        stripe=0,
+    )
+
+
 @pytest.fixture
 def fake_kafka(monkeypatch: pytest.MonkeyPatch):
     FakeKafkaAdapter.instances = []
@@ -212,8 +221,8 @@ async def test_dynamic_minimum_physical_quota_shrinks_and_restores(
     writer_a2 = await pool.acquire("history_kafka", snapshot)
     adapter_a = fake_kafka.instances[0]
     gate = adapter_a.block_next_write()
-    first = asyncio.create_task(writer_a1.write_batch(("a1",)))
-    second = asyncio.create_task(writer_a2.write_batch(("a2",)))
+    first = asyncio.create_task(_write(writer_a1, "a1"))
+    second = asyncio.create_task(_write(writer_a2, "a2"))
     while adapter_a.inflight < 2:
         await asyncio.sleep(0.005)
 
@@ -227,7 +236,7 @@ async def test_dynamic_minimum_physical_quota_shrinks_and_restores(
     assert physical.limit == physical.quota.limit == 1
     assert physical.quota.inflight == 2
 
-    waiting = asyncio.create_task(writer_c.write_batch(("c",)))
+    waiting = asyncio.create_task(_write(writer_c, "c"))
     await asyncio.sleep(0.05)
     assert not waiting.done()
     assert fake_kafka.instances[-1].writes == 0
@@ -284,18 +293,18 @@ async def test_distinct_writers_overlap_while_reentry_is_rejected(
     adapter = fake_kafka.instances[0]
     gate = adapter.block_next_write()
     try:
-        first = asyncio.create_task(writer_a.write_batch(("s1",)))
+        first = asyncio.create_task(_write(writer_a, "s1"))
         # 等待首个写入进入门控区。
         while adapter.inflight == 0:
             await asyncio.sleep(0.005)
-        second = asyncio.create_task(writer_b.write_batch(("s2",)))
+        second = asyncio.create_task(_write(writer_b, "s2"))
         for _ in range(20):
             await asyncio.sleep(0.005)
             if adapter.max_inflight == 2:
                 break
         assert adapter.max_inflight == 2  # 不同设备（不同 Writer）真正并行
         # 同一 Writer 在途时重入必须被拒绝，不能占用第二份额度。
-        reentry = await writer_a.write_batch(("s3",))
+        reentry = await _write(writer_a, "s3")
         assert reentry.delivered == ()
         assert "previous Sink I/O remains unsettled" in reentry.error
         gate.set()
@@ -317,10 +326,10 @@ async def test_global_quota_serializes_when_set_to_one(
     adapter = fake_kafka.instances[0]
     gate = adapter.block_next_write()
     try:
-        first = asyncio.create_task(writer_a.write_batch(("s1",)))
+        first = asyncio.create_task(_write(writer_a, "s1"))
         while adapter.inflight == 0:
             await asyncio.sleep(0.005)
-        second = asyncio.create_task(writer_b.write_batch(("s2",)))
+        second = asyncio.create_task(_write(writer_b, "s2"))
         await asyncio.sleep(0.05)
         assert adapter.max_inflight == 1  # 全局额度 1：第二个写入在信号量外等待
         gate.set()
@@ -331,6 +340,37 @@ async def test_global_quota_serializes_when_set_to_one(
         assert second_result.quota_stage_seconds[0] >= 0.03
         assert all(value >= 0 for value in second_result.quota_stage_seconds)
     finally:
+        await pool.release("history_kafka")
+        await pool.release("history_kafka")
+
+
+async def test_physical_quota_saturation_is_retryable(
+    fake_kafka: type[FakeKafkaAdapter],
+) -> None:
+    snapshot = _snapshot(global_quota=2, per_sink=1)
+    pool = SinkOutputPool()
+    writer_a = await pool.acquire("history_kafka", snapshot)
+    # The competing writer observes saturation quickly; the owner retains the
+    # normal I/O timeout so this test isolates retryability from native UNKNOWN.
+    snapshot.service["runtime"]["io_wait_timeout_ms"] = 1
+    writer_b = await pool.acquire("history_kafka", snapshot)
+    adapter = fake_kafka.instances[0]
+    gate = adapter.block_next_write()
+    first = asyncio.create_task(_write(writer_a, "s1"))
+    try:
+        while adapter.inflight == 0:
+            await asyncio.sleep(0.005)
+        saturated = await _write(writer_b, "s2")
+        assert saturated.delivered == saturated.settled == ()
+        assert saturated.error == "physical Sink I/O quota exhausted"
+        decision = classify_settlement(saturated, 1, kafka=True)
+        assert decision.unresolved is True
+        assert decision.delivered == 0 and decision.permanent == ()
+        gate.set()
+        assert (await first).delivered == (0,)
+    finally:
+        gate.set()
+        await asyncio.gather(first, return_exceptions=True)
         await pool.release("history_kafka")
         await pool.release("history_kafka")
 
@@ -346,7 +386,7 @@ async def test_quota_released_after_uncertain_timeout_and_settlement(
     adapter = fake_kafka.instances[0]
     gate = adapter.block_next_write()
     try:
-        outcome = await writer.write_batch(("s1",))
+        outcome = await _write(writer, "s1")
         assert outcome.delivered == ()
         assert "uncertain" in outcome.error
         entry = pool._entries["history_kafka"]  # noqa: SLF001

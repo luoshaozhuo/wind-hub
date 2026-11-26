@@ -102,6 +102,8 @@ def _mapping() -> TypeMapping:
 async def test_unknown_historical_device_is_persisted_before_wide_schema_use() -> None:
     resolver = object.__new__(ConfigurationPointTableResolver)
     resolver._device_bindings = {}
+    resolver._exact_binding_cache = {}
+    resolver._wide_schema_cache = {}
     resolver._pins = {}
     resolver._business_pins = {}
     resolver._loaded = {}

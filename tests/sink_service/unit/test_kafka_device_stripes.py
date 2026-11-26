@@ -16,11 +16,11 @@ import asyncio
 from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
+from zlib import crc32
 
 import aiokafka
 import pytest
 
-import sink_service.infrastructure.adapters.outbound.realtime_adapters as adapters
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.infrastructure.adapters.outbound.kafka_wire import (
     encode_kafka_wide,
@@ -193,7 +193,7 @@ def _encoded(device: str, count: int = 1) -> tuple[bytes, ...]:
 
 def _route(device: str) -> tuple[bytes, int]:
     key = encode_kafka_wide_key(FARM, device)
-    return key, adapters.crc32(key) % STRIPES
+    return key, crc32(key) % STRIPES
 
 
 def test_device_locks_are_bounded_stripes() -> None:
@@ -239,7 +239,7 @@ async def test_distinct_partitions_overlap_and_each_fully_settles(
 async def test_stripe_hash_collision_serializes_without_corruption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(adapters, "crc32", lambda _key: 0, raising=False)
+    monkeypatch.setattr("tests.sink_service.unit.test_kafka_device_stripes.crc32", lambda _key: 0)
     gate = asyncio.Event()
     producer = _BatchProducer(gate=gate)
     _patch_producer(monkeypatch, producer)
