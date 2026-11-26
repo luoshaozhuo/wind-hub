@@ -111,3 +111,16 @@ def test_stage_root_has_single_selected_deployment(tmp_path: Path) -> None:
     ).is_file()
     with pytest.raises(FileExistsError):
         stage(root)
+
+
+def test_dcems_released_web_device_id_contract() -> None:
+    """Legacy DCEMS fullFilePage splits the device ID at the first underscore."""
+    devices = _read("device_dcems-smoke_v1.0.0.yaml")["devices"]
+    gateway = _read("service_gateway-dcems-smoke_v1.0.0.yaml")
+    scenario = _read("scenarios_dcems-smoke_v1.0.0.yaml")["scenarios"][0]
+    expected = {f"WTG{index:02d}" for index in range(1, 11)}
+    assert set(devices) == expected
+    assert {item["device_id"] for item in gateway["servers"]} == expected
+    assert {item["device_id"] for item in scenario["devices"]} == expected
+    assert {item["device_id"] for item in scenario["gateways"]} == expected
+    assert all("_" not in device_id for device_id in expected)
