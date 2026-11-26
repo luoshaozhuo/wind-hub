@@ -134,7 +134,7 @@ class DatabaseConfig(_StrictModel):
 
 
 class IngestionConfig(_StrictModel):
-    batch_max_rows: int = Field(default=1000, strict=True, ge=1, le=10000)
+    batch_max_rows: int = Field(default=1000, strict=True, ge=1, le=1000)
     batch_max_bytes: int = Field(default=8388608, strict=True, ge=4096, le=8388608)
     batch_wait_ms: int = Field(default=60000, strict=True, ge=0, le=60000)
     buffer_max_rows: int = Field(default=10000, strict=True, ge=100, le=100000)
