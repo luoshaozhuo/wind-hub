@@ -542,25 +542,20 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             raise AssertionError("abort must terminate RPC") from None
         return response
 
-    async def _query_wide_aggregates(
+    @guarded
+    async def QueryAggregates(
         self,
         request: pb.QueryAggregatesRequest,
+        context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
-        """Aggregate one exact device/schema with integer-preserving output."""
-        source = request.wide_filter
-        levels = {
-            pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
-            pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
-            pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
-        }
-        level = levels.get(source.data_level)
-        if (
-            level is None
-            or not source.HasField("start_time")
-            or not source.HasField("end_time")
-            or source.page_token
-        ):
-            raise QueryRejectedError("invalid wide aggregation source")
+        """Aggregate each pinned version independently with explicit Quality counts."""
+        if not request.HasField("filter"):
+            raise QueryRejectedError("Storage aggregation filter is required")
+        source = request.filter
+        self._auth.require(context, permission="storage.read", farm=source.wind_farm_id)
+        if self._consumer.recovering:
+            raise HistoryReplayUnavailableError("Storage Kafka replay is not settled")
+        selector = _wide_selector(source)
         operations = {
             pb.STORAGE_AGGREGATION_COUNT: "count",
             pb.STORAGE_AGGREGATION_MIN: "min",
@@ -569,79 +564,62 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         }
         operation = operations.get(request.aggregation)
         if operation is None:
-            raise QueryRejectedError("wide aggregation requires count/min/max/avg")
-        identity = WideIdentity(
-            wind_farm_id=source.wind_farm_id,
-            device_config_id=source.device_config_id,
-            device_id=source.device_id,
-            data_level=level,
-        )
-        schema = await self._point_tables.resolve_wide_schema(
-            identity,
-            type_mapping=self._config.tdengine.type_mapping,
-            max_row_bytes=65536,
-        )
-        points = tuple(source.point_ids) or tuple(column.point_id for column in schema.columns)
-        filter_ = WideHistoryFilter(
-            wind_farm_id=identity.wind_farm_id,
-            device_id=identity.device_id,
-            device_config_id=identity.device_config_id,
-            data_level=level,
-            start_time_us=_us(source.start_time),
-            end_time_us=_us(source.end_time),
-            point_ids=points,
-            limit=source.page_size or 200,
-            qualities=tuple(source.qualities),
-        )
-        filter_.validate(schema, maximum=self._config.query.max_page_size)
-        page = await self._wide_aggregation.page(
-            schema=schema,
-            filter_=filter_,
-            device_type=self._point_tables.wide_device_type(identity),
+            raise QueryRejectedError("Storage aggregate requires count/min/max/avg")
+        page = await self._grouped_query.aggregate(
+            selector=selector,
             operation=operation,
             window_ms=request.window_ms,
             page_size=request.page_size or 200,
             page_token=request.page_token,
         )
         if self._consumer.recovering:
-            raise HistoryReplayUnavailableError("wide aggregation replay changed")
+            raise HistoryReplayUnavailableError("Storage replay began during aggregation")
         response = pb.QueryAggregatesResponse(next_page_token=page.next_page_token)
-        for row in page.rows:
-            item = response.items.add(
-                point_id=row.point_id,
-                business_point_id=row.point_id if level is WideDataLevel.BUSINESS else "",
-                point_table_id=schema.point_table_id,
-                data_level=source.data_level,
-                good_count=row.good_count,
-                missing_count=row.missing_count,
-                result_value_kind=row.result_kind,
+        for family in page.groups:
+            physical = {column.point_id: column for column in family.schema.columns}
+            for row in family.rows:
+                column = physical[row.point_id]
+                source_id, business_id, native_type, unit = (
+                    await self._point_tables.get_wide_column_metadata(
+                        point_table_id=family.schema.point_table_id,
+                        physical_point_id=row.point_id,
+                        data_level=selector.data_level,
+                    )
+                )
+                item = response.items.add(
+                    wind_farm_id=family.identity.wind_farm_id,
+                    device_id=family.identity.device_id,
+                    point_table_id=family.schema.point_table_id,
+                    data_level=source.data_level,
+                    schema_fingerprint=family.schema.fingerprint,
+                    good_count=row.good_count,
+                    missing_count=row.missing_count,
+                    valid_count=row.valid_count,
+                )
+                item.window_start.CopyFrom(_date(row.start_us))
+                item.window_end.CopyFrom(_date(row.end_us))
+                item.column.CopyFrom(
+                    pb.StorageColumn(
+                        point_id=source_id,
+                        business_point_id=business_id,
+                        unit=unit,
+                        data_type=native_type,
+                        physical_name=column.column_name,
+                    )
+                )
+                if row.result_kind == 1:
+                    item.result.value_i64 = int(cast(int, row.result))
+                elif row.result_kind == 2:
+                    item.result.value_u64 = int(cast(int, row.result))
+                elif row.result_kind == 3:
+                    item.result.value_f64 = float(cast(float, row.result))
+        if response.ByteSize() > 4 * 1024 * 1024:
+            await context.abort(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                "Storage grouped aggregates exceed 4 MiB",
             )
-            item.window_start.CopyFrom(_date(row.start_us))
-            item.window_end.CopyFrom(_date(row.end_us))
-            if row.result_kind == 1:
-                item.result_i64 = int(cast(int, row.result))
-            elif row.result_kind == 2:
-                item.result_u64 = int(cast(int, row.result))
-            elif row.result_kind == 3:
-                item.result = float(cast(float, row.result))
+            raise AssertionError("abort must terminate RPC") from None
         return response
-
-    @guarded
-    async def QueryAggregates(
-        self,
-        request: pb.QueryAggregatesRequest,
-        context: grpc.aio.ServicerContext[Any, Any],
-    ) -> pb.QueryAggregatesResponse:
-        if request.HasField("filter") or not request.HasField("wide_filter"):
-            raise QueryRejectedError("wide aggregate requires the exact device filter")
-        self._auth.require(
-            context,
-            permission="storage.read",
-            farm=request.wide_filter.wind_farm_id,
-        )
-        if self._consumer.recovering:
-            raise HistoryReplayUnavailableError("Kafka history replay is not settled")
-        return await self._query_wide_aggregates(request)
 
     @guarded
     async def CreateExport(
