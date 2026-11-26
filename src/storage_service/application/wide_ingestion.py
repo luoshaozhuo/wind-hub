@@ -7,6 +7,7 @@ No per-point reads, merges, or time-alignment take place here.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import NoReturn, Protocol
@@ -88,12 +89,15 @@ class WideIngestionService:
         max_batch_rows: int,
         max_batch_bytes: int,
         max_row_bytes: int = 65536,
+        writer_count: int = 1,
     ) -> None:
         if (
             not allowed_wind_farms
             or not 1 <= max_batch_rows <= 1000
             or not 4096 <= max_batch_bytes <= 8388608
             or max_row_bytes < 1024
+            or type(writer_count) is not int
+            or not 1 <= writer_count <= 32
         ):
             raise ValueError("wide ingestion requires bounded authorized resources")
         self._storage = storage
@@ -105,6 +109,7 @@ class WideIngestionService:
         self._max_rows = max_batch_rows
         self._max_bytes = max_batch_bytes
         self._max_row_bytes = max_row_bytes
+        self._write_permits = asyncio.Semaphore(writer_count)
 
     def _block(self, record: KafkaRecord, reason: str) -> NoReturn:
         self._evidence.block_partition(
@@ -158,15 +163,18 @@ class WideIngestionService:
             )
             groups.setdefault(key, []).append(entry)
 
-        for group in groups.values():
-            first = group[0]
-            # The largest Kafka offset wins for duplicate device timestamps.
-            latest_by_time = {
-                entry.row.sample_time_us: (position, entry.row)
-                for position, entry in enumerate(group)
-            }
-            ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
-            try:
+        async def persist_group(group: list[_Validated]) -> tuple[int, int]:
+            # Each physical device group is one ordered STMT2 writer; groups
+            # for different devices may run concurrently within one process.
+            async with self._write_permits:
+                first = group[0]
+                latest_by_time = {
+                    entry.row.sample_time_us: (position, entry.row)
+                    for position, entry in enumerate(group)
+                }
+                ordered_rows = tuple(
+                    row for _position, row in sorted(latest_by_time.values())
+                )
                 await self._storage.ensure_wide_table(
                     first.schema,
                     wind_farm_id=first.row.wind_farm_id,
@@ -174,23 +182,35 @@ class WideIngestionService:
                     device_type=first.device_type,
                 )
                 await self._storage.insert_wide_batch(first.schema, ordered_rows)
-            except TDengineSchemaConflictError:
-                raise
-            except (RuntimeError, TimeoutError, OSError) as exc:
+                return len(ordered_rows), len(first.schema.columns)
+
+        # Await every in-flight physical write even if one fails. Canceling
+        # sibling STMT2 operations would create additional UNKNOWN outcomes.
+        results = await asyncio.gather(
+            *(persist_group(group) for group in groups.values()),
+            return_exceptions=True,
+        )
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if errors:
+            error = errors[0]
+            if isinstance(error, TDengineSchemaConflictError):
+                raise error
+            if isinstance(error, (RuntimeError, TimeoutError, OSError)):
                 self._metrics.record_unknown()
-                # Prior groups may be durable, but none may advance the Kafka
-                # commit prefix. Replay is safe under timestamp-keyed writes.
                 self._block(
                     pending[0].source,
-                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}",
+                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(error).__name__}",
                 )
-            self._metrics.record_wide_persisted(
-                rows=len(ordered_rows), points_per_row=len(first.schema.columns)
-            )
+            raise error
 
-        # Retain the original Kafka ordering when advancing the durable prefix.
+        # Commit no source offset until ALL physical groups have persisted.
         for entry in pending:
             offsets.confirm(generation=generation, offset=entry.source.offset)
+        for result in results:
+            if not isinstance(result, tuple):
+                raise RuntimeError("wide batch returned an invalid physical result")
+            rows, width = result
+            self._metrics.record_wide_persisted(rows=rows, points_per_row=width)
         return len(pending)
 
     async def process(
