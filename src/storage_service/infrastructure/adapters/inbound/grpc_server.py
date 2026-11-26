@@ -22,7 +22,7 @@ from contracts import common_pb2_grpc as common_rpc
 from contracts import storage_service_pb2 as pb
 from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
