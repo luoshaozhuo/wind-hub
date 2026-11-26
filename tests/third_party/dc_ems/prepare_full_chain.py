@@ -156,6 +156,14 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:4222") -> Path:
     sink["deployment_id"] = DEPLOYMENT
     sink["wind_farm_id"] = "dcems-smoke"
     sink["config_root"] = str(root)
+    # 专项不运行 wind-hub Web，Sink 只开放 CLI 最小授权。
+    sink["security"]["callers"] = [
+        {
+            "caller_id": "cli",
+            "token_env": "env:WIND_HUB_SINK_CLI_TOKEN",
+            "permissions": ["query", "control", "config"],
+        }
+    ]
     sink["config_sources"]["instances"] = {
         "sinks": "dcems-measurement",
         "deliveries": "dcems-measurement",
