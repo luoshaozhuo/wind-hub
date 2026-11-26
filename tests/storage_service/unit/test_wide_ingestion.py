@@ -148,3 +148,77 @@ def test_ingestion_rejects_out_of_contract_stmt2_batch_limits(
             max_batch_rows=rows,
             max_batch_bytes=bytes_limit,
         )
+
+
+@pytest.mark.asyncio
+async def test_physical_byte_budget_splits_rows_even_when_json_is_small() -> None:
+    _default, backend, evidence, metrics = _service()
+    resolver = Mock()
+    schema = WideSchema.build(
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        points=(
+            PhysicalPoint("power", "INT"),
+            PhysicalPoint("wind_speed", "VARBINARY(3000)"),
+        ),
+        max_row_bytes=65536,
+    )
+    assert schema.declared_row_bytes > 2000
+    resolver.resolve_wide_schema = AsyncMock(return_value=schema)
+    resolver.wide_device_type.return_value = "wind"
+    service = WideIngestionService(
+        storage=backend, resolver=resolver, evidence=evidence,
+        metrics=metrics, allowed_wind_farms=frozenset({"farm"}),
+        type_mapping=_mapping(), max_batch_rows=1000, max_batch_bytes=4096,
+    )
+    offsets = PartitionOffsets(partition=2, generation=9, next_commit_offset=0)
+    result = await service.process(
+        generation=9, offsets=offsets,
+        records=[
+            _record(0, value=1),
+            _record(1, value=2, second=1),
+            _record(2, value=3, second=2),
+        ],
+    )
+    assert result.next_commit_offset == 3
+    assert backend.insert_wide_batch.await_count == 3
+    assert all(
+        len(call.args[1]) == 1
+        for call in backend.insert_wide_batch.await_args_list
+    )
+    evidence.block_partition.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_single_physical_row_exceeding_batch_limit_blocks_offset() -> None:
+    _default, backend, evidence, metrics = _service()
+    resolver = Mock()
+    schema = WideSchema.build(
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        points=(
+            PhysicalPoint("power", "INT"),
+            PhysicalPoint("wind_speed", "VARBINARY(5000)"),
+        ),
+        max_row_bytes=65536,
+    )
+    resolver.resolve_wide_schema = AsyncMock(return_value=schema)
+    resolver.wide_device_type.return_value = "wind"
+    service = WideIngestionService(
+        storage=backend, resolver=resolver, evidence=evidence,
+        metrics=metrics, allowed_wind_farms=frozenset({"farm"}),
+        type_mapping=_mapping(), max_batch_rows=1000, max_batch_bytes=4096,
+    )
+    offsets = PartitionOffsets(partition=2, generation=10, next_commit_offset=0)
+    with pytest.raises(IngestionBlockedError):
+        await service.process(
+            generation=10, offsets=offsets,
+            records=[_record(0, value=1)],
+        )
+    assert offsets.next_commit_offset == 0
+    backend.insert_wide_batch.assert_not_awaited()
+    assert evidence.block_partition.call_args.args[3] == (
+        "TDENGINE_WIDE_ROW_EXCEEDS_BATCH_BUDGET"
+    )
