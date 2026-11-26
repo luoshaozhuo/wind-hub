@@ -115,7 +115,7 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
         "gateway-target": ("industrial_gateway.main", "gateway-dcems-control-ingress", INGRESS_GRPC,
                            ["--project-root", str(config)], "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"),
         "commander": ("commander", "commander-dcems-control", COMMANDER_GRPC, [],
-                      "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN"),
+                      "WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN"),
         "data-generator": ("data_generator.main", "data-generator-dcems-control", GENERATOR_GRPC, [],
                            "WIND_HUB_E2E_GENERATOR_CLI_TOKEN"),
     }
