@@ -8,7 +8,10 @@ import pytest
 from storage_service.domain.wide_record import WideRecord
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 from storage_service.domain.wide_record import WideDataLevel
-from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
+from storage_service.infrastructure.adapters.outbound.wide_stmt2 import (
+    bind_wide_columns,
+    write_wide_stmt2,
+)
 
 
 def _record(schema: WideSchema, second: int) -> WideRecord:
@@ -84,3 +87,13 @@ def test_refuses_unsafe_table_name() -> None:
             Mock(), Mock(), table_name="wh_x;DROP.tb_a",
             schema=_schema(), records=(_record(_schema(), 0),),
         )
+
+
+def test_stmt2_rejects_more_than_1000_rows_before_driver_allocation() -> None:
+    schema = _schema()
+    row = _record(schema, 0)
+    driver = Mock()
+    with pytest.raises(ValueError, match="1000 physical rows"):
+        bind_wide_columns(schema, (row,) * 1001, driver)
+    driver.micros_timestamps_to_column.assert_not_called()
+    driver.doubles_to_column.assert_not_called()
