@@ -1,0 +1,485 @@
+"""Admin API v1 单元测试。
+
+验证阶段：unit。Service 使用 AsyncMock/真实 OperationRegistry，验证 wire 契约、
+分页、404/409 和 Task 级启停映射；不启动真实 Runtime 或网络监听。
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
+from core.application.protocol_contract import WriteOutcome
+from core.domain.sample_value import Quality
+from web_server.adapter.inbound.webapi.app import build_api
+from web_server.application.app_context import AppContext
+from web_server.application.device.command import DeviceCommandResult
+from web_server.application.device.data import DeviceDataItem, TrendSeries
+from web_server.application.device.query import DeviceSnapshot
+from web_server.application.device.sample import PointValue
+from web_server.application.monitoring.overview import OverviewSnapshot
+from web_server.application.operation.registry import OperationRegistry
+from web_server.application.sink.service import SinkSnapshot
+from web_server.application.task.model import TaskSummary
+
+pytestmark = pytest.mark.unit
+
+
+def _client(ctx: AppContext) -> TestClient:
+    """创建注入指定上下文的 in-process FastAPI 客户端。"""
+    return TestClient(build_api(ctx))
+
+
+def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:
+    """构造 V1 Task 聚合快照。"""
+    return TaskSummary(
+        task_id=task_id,
+        assigned_worker_id="collector-a",
+        placement_state="assigned",
+        device="d1",
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        enabled=enabled,
+        runtime_state="stopped",
+        instance_count=1,
+        running_instances=0,
+        stopped_instances=1,
+        failed_instances=0,
+    )
+
+
+def test_v1_overview_returns_aggregate_snapshot() -> None:
+    """Overview V1 应直接暴露聚合 Read Model。"""
+    overview = MagicMock()
+    overview.snapshot.return_value = OverviewSnapshot(
+        site_id="farm-a",
+        site_name="Farm A",
+        runtime_running=True,
+        runtime_state="running",
+        workers_unavailable=[],
+        device_count=48,
+        devices_connected=47,
+        devices_offline=1,
+        sink_count=2,
+        sinks_healthy=2,
+        task_count=3,
+        task_instances=48,
+        task_instances_running=47,
+        task_instances_failed=1,
+        points_collected=1000,
+        points_routed=990,
+        points_dropped=10,
+    )
+    client = _client(AppContext(overview=overview))
+
+    response = client.get("/api/v1/overview")
+
+    assert response.status_code == 200
+    assert response.json()["devices_offline"] == 1
+    assert response.json()["task_instances_failed"] == 1
+
+
+def test_v1_devices_search_then_paginate() -> None:
+    """设备搜索应先作用完整结果集，再执行分页。"""
+    devices = MagicMock()
+    devices.list_devices.return_value = [
+        DeviceSnapshot(
+            device_id="wtg-001",
+            protocol="ads",
+            host="192.168.151.1",
+            port=801,
+            point_table="wtg",
+            enabled=True,
+            connected=True,
+        ),
+        DeviceSnapshot(
+            device_id="wtg-002",
+            protocol="ads",
+            host="192.168.151.2",
+            port=801,
+            point_table="wtg",
+            enabled=True,
+            connected=False,
+        ),
+    ]
+    client = _client(AppContext(devices=devices))
+
+    response = client.get("/api/v1/devices?page=1&page_size=1&search=wtg")
+
+    assert response.status_code == 200
+    assert response.json()["page"] == {"page": 1, "page_size": 1, "total": 2}
+    assert len(response.json()["items"]) == 1
+    devices.list_devices.assert_called_once_with("wtg")
+
+
+def test_v1_task_start_and_disabled_conflict() -> None:
+    """Task 级启停返回聚合状态；禁用冲突映射为 409。"""
+    tasks = AsyncMock()
+    tasks.start_task.return_value = _task_summary("t1")
+    client = _client(AppContext(tasks=tasks))
+
+    response = client.post("/api/v1/tasks/t1/start")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == "t1"
+
+    tasks.start_task.side_effect = ValueError("task 't2' is disabled")
+    response = client.post("/api/v1/tasks/t2/start")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "TASK_DISABLED"
+
+
+def test_v1_operation_query() -> None:
+    """Operation 查询应返回统一生命周期状态。"""
+    operations = OperationRegistry()
+    created = operations.create("devices.verify_all", total=48)
+    operations.mark_running(created.operation_id)
+    client = _client(AppContext(operations=operations))
+
+    response = client.get(f"/api/v1/operations/{created.operation_id}")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "running"
+
+
+def test_v1_unknown_operation_returns_404() -> None:
+    """未知 Operation 必须返回稳定 NOT_FOUND。"""
+    client = _client(AppContext(operations=OperationRegistry()))
+
+    response = client.get("/api/v1/operations/missing")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_v1_device_data_is_paginated_cache_view() -> None:
+    data = AsyncMock()
+    data.list_data.return_value = [
+        DeviceDataItem(
+            point_id="p1",
+            point_groups=["fast"],
+            data_type="float32",
+            unit="none",
+            unit_symbol="",
+            value=1.5,
+            quality=Quality.GOOD,
+        )
+    ]
+    client = _client(AppContext(device_data=data))
+
+    response = client.get("/api/v1/devices/d1/data?page_size=100")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["quality"] == "good"
+    assert response.json()["items"][0]["value"] == 1.5
+
+
+def test_v1_device_trend_returns_samples() -> None:
+    data = AsyncMock()
+    data.trend.return_value = [
+        TrendSeries(
+            point_id="p1",
+            unit="none",
+            unit_symbol="",
+            samples=[
+                PointValue(
+                    device_id="d1",
+                    point_id="p1",
+                    value=2.5,
+                    quality=Quality.GOOD,
+                    timestamp=datetime.now(UTC),
+                )
+            ],
+        )
+    ]
+    client = _client(AppContext(device_data=data))
+
+    response = client.get("/api/v1/devices/d1/trend?point_id=p1")
+
+    assert response.status_code == 200
+    assert response.json()[0]["samples"][0]["value"] == 2.5
+
+
+def test_v1_device_command_returns_readback_contract() -> None:
+    control = AsyncMock()
+    now = datetime.now(UTC)
+    control.send.return_value = DeviceCommandResult(
+        command_id="c1",
+        requested=80.0,
+        outcome=WriteOutcome.CONFIRMED_SUCCESS,
+        success=True,
+        sent_at=now,
+        finished_at=now,
+        latency_ms=12.0,
+        readback=79.8,
+        readback_quality="good",
+    )
+    client = _client(AppContext(device_control=control))
+
+    response = client.post(
+        "/api/v1/devices/d1/commands",
+        json={"point_id": "limit", "value": 80.0, "command_id": "c1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["readback"] == 79.8
+    control.send.assert_awaited_once_with("d1", "limit", 80.0, timeout=5.0, command_id="c1")
+
+
+def test_v1_phase5_quality_endpoint() -> None:
+    quality = AsyncMock()  # QualityService.snapshot 是 async
+    from datetime import UTC, datetime
+
+    from web_server.application.monitoring.quality import QualitySnapshot
+
+    now = datetime.now(UTC)
+    quality.snapshot.return_value = QualitySnapshot(
+        window="24h",
+        sampled_from=now,
+        sampled_to=now,
+        acquisition_channels=[],
+        delivery_channels=[],
+        channel_summary=[],
+        data_metrics=[],
+        dimensions=[],
+        issues=[],
+        events=[],
+    )
+    client = _client(AppContext(quality=quality))
+
+    response = client.get("/api/v1/quality?window=24h")
+
+    assert response.status_code == 200
+    assert response.json()["window"] == "24h"
+
+
+def test_v1_phase5_logs_endpoint() -> None:
+    logs = MagicMock()
+    from web_server.application.monitoring.logs import LogPage
+
+    logs.list_logs.return_value = LogPage(items=[], page=1, page_size=20, total=0)
+    client = _client(AppContext(logs=logs))
+
+    response = client.get("/api/v1/logs")
+
+    assert response.status_code == 200
+    assert response.json()["page"]["total"] == 0
+
+
+def test_v1_phase5_system_health_endpoint() -> None:
+    health = MagicMock()
+    from datetime import UTC, datetime
+
+    from web_server.application.monitoring.health import (
+        ResourceSeries,
+        SystemHealthSnapshot,
+    )
+
+    now = datetime.now(UTC)
+    health.snapshot.return_value = SystemHealthSnapshot(
+        range="24h",
+        sampled_at=now,
+        uptime_seconds=1.0,
+        cpu_count=4,
+        load_average=None,
+        risks=[],
+        mounts=[],
+        series=ResourceSeries(
+            timestamps=[],
+            memory_host_gb=[],
+            memory_rss_gb=[],
+            cpu_host_pct=[],
+            cpu_process_pct=[],
+            cpu_temp_c=[],
+            disk_free_gb=[],
+        ),
+        current={},
+    )
+    client = _client(AppContext(system_health=health))
+
+    response = client.get("/api/v1/system-health?range=24h")
+
+    assert response.status_code == 200
+    assert response.json()["cpu_count"] == 4
+
+
+def test_v1_sinks_exposes_unified_connection_without_sink_points() -> None:
+    """新契约：点属于 Task outputs，/sinks 不再暴露 sink 级 points。"""
+    sinks = MagicMock()
+    sinks.list_sinks.return_value = [
+        SinkSnapshot(
+            name="modbus_scada",
+            type="modbus",
+            enabled=False,
+            connection={"host": "0.0.0.0", "port": 1502},
+            healthy=False,
+            message="disabled",
+            queue_depth=0,
+        )
+    ]
+    client = _client(AppContext(sinks=sinks))
+
+    response = client.get("/api/v1/sinks")
+
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["type"] == "modbus"
+    assert row["connection"] == {"host": "0.0.0.0", "port": 1502}
+    assert "points" not in row
+    assert "point_count" not in row
+    assert "params" not in row
+
+
+def test_v1_admin_state_atomic_apply() -> None:
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=True,
+        revision=9,
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 9
+    admin_state.replace_all.assert_awaited_once()
+
+
+def _empty_admin_state_payload() -> dict[str, object]:
+    return {
+        "devices": [],
+        "tasks": [],
+        "sinks": [],
+        "definitions": {
+            "units": {},
+            "device_types": {},
+            "device_models": {},
+            "point_tables": {},
+        },
+    }
+
+
+def test_v1_admin_state_validation_failure_maps_to_422() -> None:
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False, errors=["task references unknown sink"]
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+
+
+def test_v1_admin_state_rollback_failure_stays_200() -> None:
+    """写盘后 reload 失败且已回滚：live 未变，保留 200 + success=false 语义。"""
+    from web_server.application.config.files import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=False,
+        errors=["worker rejected config"],
+        rollback_performed=True,
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put("/api/v1/admin-state", json=_empty_admin_state_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["rollback_performed"] is True
+
+
+def test_v1_request_validation_uses_422_envelope() -> None:
+    client = _client(AppContext())
+
+    response = client.post(
+        "/api/v1/diagnostics/ports",
+        json={"host": "127.0.0.1", "ports": [0]},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_v1_admin_tasks_reject_legacy_device_scope_as_422() -> None:
+    """旧 device 直绑 Task 是死路径：请求边界 422，不允许穿透成 500。"""
+    client = _client(AppContext())
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "point_group": "fast",
+                    "interval": 1.0,
+                    "sinks": ["s1"],
+                }
+            ],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_v1_admin_tasks_reject_ambiguous_selector() -> None:
+    client = _client(AppContext())
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "device_group": "g1",
+                    "point_group": "fast",
+                }
+            ],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
