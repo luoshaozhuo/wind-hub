@@ -832,7 +832,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             persisted_points_total=counters.persisted_points,
             write_unknown_total=counters.write_unknown,
             schema_conflicts_total=counters.schema_conflicts,
-            active_queries=self._query.active_queries,
+            active_queries=self._wide_query.active_queries,
             active_exports=self._jobs.active_exports,
             active_backups=self._jobs.active_backups,
         )
