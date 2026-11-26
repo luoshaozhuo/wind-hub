@@ -214,6 +214,8 @@ async def test_retry_blocked_partition_stale_offset_returns_failed_precondition(
         config=config,
         metadata=cast(Any, object()),
         query=cast(Any, object()),
+        wide_query=cast(Any, object()),
+        wide_aggregation=cast(Any, object()),
         jobs=cast(Any, object()),
         point_tables=cast(Any, object()),
         consumer=_RejectingConsumer(),
