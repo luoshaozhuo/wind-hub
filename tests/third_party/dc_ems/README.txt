@@ -50,6 +50,10 @@ Web 登录所需账户数据来自本地隔离种子，不得把种子、令牌�
 ------------------------
 确保本地 image、数据库连接配置、有效授权、JKS 都存在。
 无需把大型镜像上传 GitHub。
+# 发布包前端 WebSocket 地址在 localhost 下写死旧内网地址；只修隔离运行副本。
+python -m tests.third_party.dc_ems.prepare_web \
+    --output run/dcems-smoke/web
+export DCEMS_TEST_WEB="$(pwd)/run/dcems-smoke/web"
 export DCEMS_ALLOW_LOCAL_SMOKE=1
 export DCEMS_TEST_SEED="$(pwd)/run/dcems-smoke/data.json"
 bash tests/third_party/dc_ems/run_local.sh --check
@@ -66,13 +70,17 @@ Server 默认为 HTTPS 443；测试 Web 由 Nginx 在 18080 代理。
 ------------
 PYTHONPATH=src python -m pytest \
     tests/third_party/dc_ems/test_seed_contract.py \
-    tests/third_party/dc_ems/test_prepare_seed.py -q
+    tests/third_party/dc_ems/test_prepare_seed.py \
+    tests/third_party/dc_ems/test_auxiliary_signals.py \
+    tests/third_party/dc_ems/test_external_signals.py \
+    tests/third_party/dc_ems/test_config_smoke.py \
+    tests/third_party/dc_ems/test_prepare_web.py -q
 
 DCEMS_LIVE=1 python -m pytest \
     tests/third_party/dc_ems/test_live_smoke.py -q
 
 当前动态协议测试覆盖 10 台风机的风速读数，页面测试仅验证 Web 静态页与
-API 代理未返回 502/504。尚未实现浏览器登录后 10 台实时点逐点比对、
+API 代理未返回 502/504，并验证 WebSocket 101 握手。尚未实现浏览器登录后 10 台实时点逐点比对、
 DCEMS Web 控制按钮 -> Modbus 写请求 -> Commander -> DG 的执行闭环。
 因此当前状态为 IMPLEMENTATION_IN_PROGRESS，不能声称全部指令收发 PASS。
 
