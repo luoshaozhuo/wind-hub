@@ -145,7 +145,8 @@ class KafkaStorageConsumer:
             self._assignments[tp] = current
             if committed < end[tp]:
                 self._replay_targets[tp] = end[tp]
-        self._assignment_ready = True
+        # Empty assignment must never advertise settled Kafka history.
+        self._assignment_ready = bool(self._assignments)
 
     async def _retry_unconfirmed(
         self,
