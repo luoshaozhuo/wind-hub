@@ -15,9 +15,9 @@ Gateway2 :52173 -> DG :52161。
 
 - ctrlActPow 1.4.41557，F32/CDAB，kW；Gateway 转为 W 乘 1000。
 - ctrlReActPow 1.4.41555，F32/CDAB，kvar；Gateway 转为 var 乘 1000。
-- emsWinSpd 1.4.41503，F32/CDAB，仅作为 DCEMS 实际 Modbus
-  FC03 成功通信条件的最小可读点。当前 Gateway1 未接收真实 DG
-  测量同步，不得以该点默认值冒充可信风速。
+- 最小种子仅保留两个相邻可回读的 Holding 控制点，DCEMS
+  可通过 FC03 读回验证 Modbus 通道连接；未配置风速测量点。
+  Gateway1 不含真实风速/有功测量回传，本专项不能用于自动算法验收。
 - 其余 7 个 DCEMS 原始控制点未接入，所有自动 AGC/AVC/PFR 算法
   在隔离种子中保持禁用。
 
