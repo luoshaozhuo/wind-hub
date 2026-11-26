@@ -94,13 +94,13 @@ QUOTA_STAGES = ("global", "physical", "native")
 # 系统夹具默认 history stream 仅 256MiB、max_age=7200s（供有界 S4 工况）。
 # JetStream Limits 保留策略下 ACK 只推进消费者位置、不删除流消息，600s 持续
 # 压测累积约 7 万批会按 max_bytes 撑爆（与消费快慢无关）。长稳专用：
-# - 放大 max_bytes 到 R14_STREAM_MAX_BYTES（默认 8GiB）；
+# - 放大 max_bytes 到 R14_STREAM_MAX_BYTES（默认 32GiB）；
 # - 加滚动 max_age=R14_STREAM_MAX_AGE_S（默认 900s），覆盖 600s 发布、120s
 #   排空及审计余量，让已消费的老消息到期
 #   回收，使流占用与运行时长解耦。消费者跟得上时（积压斜率≈0）到期消息早已
 #   安全交付；name/subject/存储/retention/discard 均不变，仍满足生产启动守卫
 #   （reliable_runtime 仅要求 limits + 有限 max_bytes/max_age，不限定值）。
-STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(8 * 1024**3)))
+STREAM_MAX_BYTES = int(os.environ.get("R14_STREAM_MAX_BYTES", str(32 * 1024**3)))
 STREAM_MAX_AGE_S = int(os.environ.get("R14_STREAM_MAX_AGE_S", "900"))
 
 
