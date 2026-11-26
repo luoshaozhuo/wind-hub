@@ -57,6 +57,8 @@ def bind_wide_columns(
     """Build timestamp, complete values, and 2-bit quality column vectors."""
     if not records:
         raise ValueError("STMT2 wide batch cannot be empty")
+    if len(records) > 1000:
+        raise ValueError("STMT2 device-wide batch exceeds 1000 physical rows")
     bound = tuple(bind_wide_row(record, schema) for record in records)
     values: list[object] = []
     kinds = ("TIMESTAMP", *(column.sql_type for column in schema.columns), "VARBINARY")
