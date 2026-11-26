@@ -99,10 +99,15 @@ async def export_wide_device_history(
             csv_writer = csv.writer(file) if export_format == "csv" else None
             if csv_writer is not None:
                 csv_writer.writerow(
-                    ["sample_time_us", *(
-                        name for column in selected
-                        for name in (column.column_name, f"{column.column_name}__quality")
-                    )]
+                    [
+                        "wind_farm_id", "device_id", "device_config_id",
+                        "point_table_id", "point_table_version",
+                        "data_level", "schema_fingerprint", "sample_time_us",
+                        *(
+                            name for column in selected
+                            for name in (column.column_name, f"{column.column_name}__quality")
+                        ),
+                    ]
                 )
             else:
                 header = {
@@ -161,7 +166,16 @@ async def export_wide_device_history(
                         ):
                             raise RuntimeError("wide export NULL/quality mismatch")
                     if csv_writer is not None:
-                        cells: list[object] = [row.sample_time_us]
+                        cells: list[object] = [
+                            filter_.wind_farm_id,
+                            filter_.device_id,
+                            filter_.device_config_id,
+                            schema.point_table_id,
+                            schema.point_table_version,
+                            filter_.data_level.value,
+                            schema.fingerprint,
+                            row.sample_time_us,
+                        ]
                         for column, item in zip(selected, row.points, strict=True):
                             if column.point_id != item[0]:
                                 raise RuntimeError("wide export column mismatch")
