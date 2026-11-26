@@ -414,7 +414,7 @@ class ConfigurationGrpcClient:
             timeout=self._timeout,
             metadata=self._metadata(),
         )
-        if response.revision_id != 0 or not response.files:
+        if response.revision_id < 1 or not response.files:
             raise ConfigHistoryUnavailableError("exact historical bundle is malformed")
         digest = hashlib.sha256()
         documents: list[RepositoryDocument] = []
