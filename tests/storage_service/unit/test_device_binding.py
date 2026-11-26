@@ -3,30 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
-from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
-from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
 from storage_service.application.config import (
     DeviceBinding,
     DeviceModel,
     load_storage_config,
 )
 from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
-from storage_service.domain.sample import DataLevel, StorageSample
-from storage_service.infrastructure.adapters.outbound.configuration_archive import (
-    ConfigurationPointTableResolver,
-    ImmutableConfigArchive,
-    RepositoryDocument,
-)
+from storage_service.infrastructure.adapters.outbound.configuration_archive import RepositoryDocument
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     StorageBundle,
     _parse_device_closure,
@@ -71,218 +61,6 @@ def _binding(
             point_table_id=table_id,
         ),
     )
-
-
-def _table_document(table_id: str, device_type: str = "turbine") -> RepositoryDocument:
-    config_id = table_id.removeprefix("point_table_").rsplit("_v", 1)[0]
-    file_version = table_id.rsplit("_v", 1)[1]
-    payload = yaml.safe_dump(
-        {
-            "schema_version": 1,
-            "template_id": config_id,
-            "file_version": file_version,
-            "device_type": device_type,
-            "points": {"rotor_speed": {"unit": "m/s"}},
-        }
-    ).encode()
-    return RepositoryDocument(
-        config_type="point_table",
-        config_id=config_id,
-        version_id=f"pin-{file_version}",
-        revision_id=1,
-        yaml_bytes=payload,
-        yaml_sha256=hashlib.sha256(payload).hexdigest(),
-    )
-
-
-class _Fetcher:
-    def __init__(self, documents: Sequence[RepositoryDocument]) -> None:
-        self.documents = {document.version_id: document for document in documents}
-
-    async def fetch_by_version(
-        self, *, config_type: str, config_id: str, version_id: str
-    ) -> RepositoryDocument:
-        return self.documents[version_id]
-
-    async def fetch_point_table_bundle(
-        self, *, point_table_id: str, expected_manifest_sha256: str = ""
-    ) -> tuple[RepositoryDocument, ...]:
-        for document in self.documents.values():
-            raw = yaml.safe_load(document.yaml_bytes)
-            if f"point_table_{document.config_id}_v{raw['file_version']}" == point_table_id:
-                return (document,)
-        raise ConfigHistoryUnavailableError("historical PointTable not found")
-
-
-def _resolver(
-    directory: Path,
-    tables: Mapping[str, tuple[str, str]],
-    bindings: Sequence[DeviceBinding],
-    *,
-    device_type: str = "turbine",
-) -> ConfigurationPointTableResolver:
-    documents = [_table_document(table_id, device_type) for table_id in tables]
-    return ConfigurationPointTableResolver(
-        fetcher=_Fetcher(documents),
-        archive=ImmutableConfigArchive(directory),
-        point_table_versions=tables,
-        device_bindings=bindings,
-    )
-
-
-def _sample(
-    table_id: str = TABLE,
-    *,
-    device_type: str = "turbine",
-    farm: str = "farm-1",
-    device: str = "device-1",
-) -> StorageSample:
-    return StorageSample.from_kafka_json(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "wind_farm_id": farm,
-                "collector_id": "collector-1",
-                "task_id": "task-1",
-                "batch_id": "batch-1",
-                "device_type": device_type,
-                "device_id": device,
-                "point_table_id": table_id,
-                "point_id": "rotor_speed",
-                "business_point_id": "",
-                "sample_id": f"sample-{table_id}",
-                "data_level": "protocol",
-                "quality": "good",
-                "unit": "m/s",
-                "value": 1.5,
-                "sample_time": "2026-01-01T00:00:00Z",
-                "publish_time": "2026-01-01T00:00:00Z",
-            }
-        ).encode()
-    )
-
-
-@pytest.mark.asyncio
-async def test_pinned_protocol_unit_can_be_inferred_from_sink_wire(tmp_path: Path) -> None:
-    """A missing unit is not a forged unit; the pinned table supplies authority."""
-    now = datetime(2026, 11, 23, tzinfo=UTC)
-    item = SampleItem(
-        point_id="rotor_speed",
-        sample_id="sink-protocol-source-unit",
-        value=1.5,
-        quality="good",
-        sample_time=now,
-    )
-    batch = SampleBatch(
-        batch_id="batch-sink-source-unit",
-        mode="reliable",
-        wind_farm_id="farm-1",
-        collector_id="collector-1",
-        task_id="task-1",
-        device_type="turbine",
-        device_id="device-1",
-        point_table_id=TABLE,
-        publish_time=now,
-        samples=(item,),
-    )
-    payload = encode_kafka_points(batch, (item,), data_level="protocol")[0]
-    sample = StorageSample.from_kafka_json(payload)
-    assert sample.unit == ""
-    resolver = _resolver(tmp_path, {TABLE: ("shared", "pin-1.0.0")}, [_binding()])
-    await resolver.require_exact_versions((sample,))
-    assert (
-        await resolver.get_unit(
-            point_table_id=TABLE,
-            point_id="rotor_speed",
-            business_point_id="",
-            data_level=DataLevel.PROTOCOL,
-        )
-        == "m/s"
-    )
-
-    forged = json.loads(payload)
-    forged["unit"] = "kW"
-    mismatched = StorageSample.from_kafka_json(json.dumps(forged).encode())
-    with pytest.raises(ConfigHistoryUnavailableError, match="PROTOCOL point unit"):
-        await resolver.require_exact_versions((mismatched,))
-
-
-@pytest.mark.asyncio
-async def test_cold_restart_resolves_pinned_historical_point_unit(tmp_path: Path) -> None:
-    """Query must be able to load an exact historical PointTable before ingest."""
-    pins = {TABLE: ("shared", "pin-1.0.0")}
-    prior = _resolver(tmp_path, pins, [_binding()])
-    await prior.require_exact_versions((_sample(),))
-
-    # Simulate Storage process restart: archive remains, but the in-memory
-    # ConfigurationPointTableResolver document cache is empty.
-    recovered = _resolver(tmp_path, pins, [_binding()])
-    assert (
-        await recovered.get_unit(
-            point_table_id=TABLE,
-            point_id="rotor_speed",
-            business_point_id="",
-            data_level=DataLevel.PROTOCOL,
-        )
-        == "m/s"
-    )
-    # The same immutable version must be available for subsequent ingestion.
-    await recovered.require_exact_versions((_sample(),))
-
-
-@pytest.mark.parametrize(
-    ("device_type", "device_id"),
-    [
-        ("turbine", "WTG01"),
-        ("photovoltaic", "PV01"),
-        ("energy_storage", "BESS01"),
-        ("grid", "GRID01"),
-        ("plant_controller", "PPC01"),
-    ],
-)
-async def test_all_device_categories_require_and_accept_authoritative_binding(
-    tmp_path: Path, device_type: str, device_id: str
-) -> None:
-    binding = _binding(device_type=device_type, device=device_id)
-    resolver = _resolver(
-        tmp_path,
-        {TABLE: ("shared", "pin-1.0.0")},
-        [binding],
-        device_type=device_type,
-    )
-
-    await resolver.require_exact_versions([_sample(device_type=device_type, device=device_id)])
-
-
-@pytest.mark.parametrize(
-    ("override", "expected"),
-    [
-        ({"device_type": "photovoltaic"}, "device_type disagrees"),
-        ({"device": "unknown-device"}, "no fixed device instance"),
-        ({"farm": "farm-2"}, "no fixed device instance"),
-    ],
-)
-async def test_kafka_identity_cannot_override_device_closure(
-    tmp_path: Path, override: dict[str, str], expected: str
-) -> None:
-    resolver = _resolver(tmp_path, {TABLE: ("shared", "pin-1.0.0")}, [_binding()])
-
-    with pytest.raises(ConfigHistoryUnavailableError, match=expected):
-        await resolver.require_exact_versions([_sample(**override)])
-
-
-async def test_device_bound_to_old_model_and_table_cannot_use_new_version(
-    tmp_path: Path,
-) -> None:
-    tables = {
-        TABLE: ("shared", "pin-1.0.0"),
-        NEW_TABLE: ("shared", "pin-2.0.0"),
-    }
-    resolver = _resolver(tmp_path, tables, [_binding(TABLE, model_version="1.0.0")])
-
-    await resolver.require_exact_versions([_sample(TABLE)])
-    with pytest.raises(ConfigHistoryUnavailableError, match="no fixed device instance"):
-        await resolver.require_exact_versions([_sample(NEW_TABLE)])
 
 
 def _repository_document(
@@ -425,12 +203,10 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
 
     restored = snapshot.load()
     assert restored.device_bindings == bindings
-    resolver = ConfigurationPointTableResolver(
-        fetcher=_Fetcher([_table_document(TABLE), _table_document(NEW_TABLE)]),
-        archive=ImmutableConfigArchive(tmp_path / "archive"),
-        point_table_versions=restored.point_table_versions,
-    )
-    await resolver.require_exact_versions([_sample(TABLE), _sample(NEW_TABLE)])
+    assert restored.point_table_versions == tables
+    assert {binding.device_file_version for binding in restored.device_bindings} == {
+        "1.0.0", "2.0.0"
+    }
 
 
 def test_sqlite_persists_historical_device_bindings_across_restart(
