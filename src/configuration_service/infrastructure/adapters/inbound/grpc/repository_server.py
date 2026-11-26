@@ -417,6 +417,8 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
         if exact:
             if request.roots or request.HasField("revision_id"):
                 raise ValueError("exact_roots cannot be combined with roots/revision_id")
+            if not request.HasField("include_dependencies") or not dependencies:
+                raise ValueError("exact_roots require complete dependencies")
             if any(
                 not root.version_id or root.file_version or root.content_sha256
                 for root in exact
@@ -424,7 +426,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 raise ValueError("exact_roots require only config_id and version_id")
             result = self.app.get_exact_bundle(
                 tuple((_identity(root.config_id), root.version_id) for root in exact),
-                include_dependencies=dependencies,
+                include_dependencies=True,
             )
             revision_id = 0
         else:
