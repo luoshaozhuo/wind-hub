@@ -463,6 +463,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             await context.abort(
                 grpc.StatusCode.UNAVAILABLE, "Storage replay began during query"
             )
+        if page.schema_fingerprint != schema.fingerprint:
+            raise TDengineSchemaConflictError("wide query schema fingerprint mismatch")
         response = pb.QueryWideRowsResponse(
             wind_farm_id=identity.wind_farm_id,
             device_id=identity.device_id,
