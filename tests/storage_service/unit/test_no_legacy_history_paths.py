@@ -63,3 +63,9 @@ async def test_export_rejects_narrow_or_ambiguous_filter(
     auth.require.assert_not_called()
     jobs.create_export.assert_not_called()
     jobs.create_wide_export.assert_not_called()
+
+
+def test_servicer_exposes_no_legacy_point_query() -> None:
+    assert "QuerySamples" not in StorageServicer.__dict__
+    assert not hasattr(StorageServicer, "_aggregate_page")
+    assert not hasattr(StorageServicer, "_decode_aggregate_cursor")
