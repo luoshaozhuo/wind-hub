@@ -1,4 +1,4 @@
-"""生成隔离的 DCEMS 单风机测试数据库种子；不修改第三方发布包。"""
+"""生成隔离的 DCEMS 十风机测试数据库种子；不修改第三方发布包。"""
 
 from __future__ import annotations
 
@@ -41,11 +41,14 @@ def build_seed(
     host: str,
     port: int,
     *,
+    device_count: int = 10,
     allow_subset: bool = False,
 ) -> dict[str, Any]:
     """从历史种子派生单机测试数据，保持原业务变量身份。"""
     if not host or not 1 <= port <= 65535:
         raise ValueError("invalid gateway endpoint")
+    if not 1 <= device_count <= 10:
+        raise ValueError("device_count must be in 1..10")
     seed = json.loads(json.dumps(original))
     if not seed.get("devices") or not seed.get("edgeServers"):
         raise ValueError("missing DCEMS devices or channels")
@@ -87,25 +90,34 @@ def build_seed(
         if allow_subset and "high_bit" in mapping[name]:
             point["highBit"] = int(mapping[name]["high_bit"])
 
-    device = seed["devices"][0]
-    device["deviceId"] = "dcems-wtg-01"
-    device["deviceName"] = "DCEMS WTG 01"
-    device["serverId"] = 1
-    device["addrSet"] = points[0]["setId"]
-    device["lineNo"] = 1
-    seed["devices"] = [device]
+    if len(seed["devices"]) < device_count or len(seed["edgeServers"]) < device_count:
+        raise ValueError("historical seed has insufficient devices or channels")
+    devices = []
+    servers = []
+    for index in range(device_count):
+        device = seed["devices"][index]
+        device["deviceId"] = f"dcems-wtg-{index + 1:02d}"
+        device["deviceName"] = f"DCEMS WTG {index + 1:02d}"
+        device["serverId"] = index + 1
+        device["addrSet"] = points[0]["setId"]
+        device["lineNo"] = 1
+        devices.append(device)
 
-    server = seed["edgeServers"][0]
-    server.update(
-        serverName="wind-hub-gateway-business",
-        serverIp1=host,
-        port1=port,
-        serverIp2=None,
-        port2=None,
-        serverType="MODBUSTCP",
-        interval=500,
-    )
-    seed["edgeServers"] = [server]
+        server = seed["edgeServers"][index]
+        server.update(
+            serverName=f"wind-hub-gateway-{index + 1:02d}",
+            serverIp1=host,
+            port1=port + index,
+            serverIp2=None,
+            port2=None,
+            serverType="MODBUSTCP",
+            interval=500,
+        )
+        if port + index > 65535:
+            raise ValueError("Gateway endpoint range exceeds TCP port limit")
+        servers.append(server)
+    seed["devices"] = devices
+    seed["edgeServers"] = servers
     seed["syncdata"] = []
     seed["sysconfig"] = [
         row
@@ -114,7 +126,9 @@ def build_seed(
     ]
     license_code = os.environ.get("DCEMS_LICENSE_CODE", "")
     for row in seed["emsConfig"]:
-        if row["varPath"] in {"iWTUnits", "iLineCount"}:
+        if row["varPath"] == "iWTUnits":
+            row["val"] = str(device_count)
+        if row["varPath"] == "iLineCount":
             row["val"] = "1"
         if row["varPath"] == "license":
             row["val"] = license_code
@@ -129,6 +143,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gateway-host", required=True)
     parser.add_argument("--gateway-port", type=int, required=True)
+    parser.add_argument("--device-count", type=int, default=10)
     parser.add_argument("--smoke-subset", action="store_true")
     parser.add_argument("--gateway-point-table", type=Path, required=True)
     args = parser.parse_args()
@@ -139,6 +154,7 @@ def main() -> None:
         mapping,
         args.gateway_host,
         args.gateway_port,
+        device_count=args.device_count,
         allow_subset=args.smoke_subset,
     )
     import yaml
