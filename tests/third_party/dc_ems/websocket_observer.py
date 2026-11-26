@@ -65,13 +65,13 @@ def observe(
 ) -> dict[str, set[str]]:
     """订阅真实 DCEMS 内存键；默认覆盖十机风速、工作模式及站控/调频。"""
     if keys is None:
-        keys = [f"DCEMS_WTG{index:02d}_emsWinSpd" for index in range(1, 11)]
-        keys.extend(f"DCEMS_WTG{index:02d}_emsWorkMode" for index in range(1, 11))
+        keys = [f"WTG{index:02d}_emsWinSpd" for index in range(1, 11)]
+        keys.extend(f"WTG{index:02d}_emsWorkMode" for index in range(1, 11))
         keys.extend(
             [
-                "DCEMS_SUBSTATION_powAct",
-                "DCEMS_SUBSTATION_powReact",
-                "DCEMS_PFR_isFreMode",
+                "SUBSTATION_powAct",
+                "SUBSTATION_powReact",
+                "PFR_isFreMode",
             ]
         )
     else:
