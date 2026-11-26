@@ -49,10 +49,10 @@ def _document(
 
 def _files() -> list[pb.ConfigYamlDocument]:
     service = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     return [
-        _document("service", "storage-main", "1.1.0", service),
+        _document("service", "storage-main", str(service["file_version"]), service),
         _document(
             "site",
             "example_site",
@@ -275,9 +275,9 @@ async def test_historical_point_table_bundle_requires_exact_manifest(
     assert len(archive.saved) == 3
 
 
-def test_service_v2_rejects_legacy_fixed_template_sources() -> None:
+def test_service_v6_rejects_legacy_fixed_template_sources() -> None:
     document = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     document["config_sources"] = [
         {"config_type": "point_table", "config_id": "shared", "file_version": "1.0.0"}
@@ -286,9 +286,9 @@ def test_service_v2_rejects_legacy_fixed_template_sources() -> None:
         load_storage_config(yaml.safe_dump(document).encode())
 
 
-def test_service_v2_requires_both_selected_instance_roles() -> None:
+def test_service_v6_requires_both_selected_instance_roles() -> None:
     document = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     del document["config_sources"]["instances"]["site"]
     with pytest.raises(ValidationError):
@@ -321,9 +321,9 @@ async def test_service_bundle_rejects_malformed_semantic_documents_before_archiv
     assert archive.saved == []
 
 
-def test_service_v2_only_allows_module_configuration_inside_service() -> None:
+def test_service_v6_only_allows_module_configuration_inside_service() -> None:
     document = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     assert set(document) == {
         "schema_version",
