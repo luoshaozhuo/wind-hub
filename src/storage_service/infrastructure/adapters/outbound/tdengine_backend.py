@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from importlib import import_module
 from typing import Any, Protocol, TypeVar, cast
 
@@ -773,11 +773,14 @@ class TDengineBackend:
         if isinstance(value, int):
             return value
         if isinstance(value, str):
+            with suppress(ValueError):
+                return int(value)
             try:
-                value = datetime.fromisoformat(value)
+                normalized = value.replace(" +", "+").replace(" -", "-").replace(" Z", "Z")
+                value = datetime.fromisoformat(normalized)
             except ValueError as exc:
                 raise TDengineSchemaConflictError(
-                    "TDengine returned an invalid timestamp string"
+                    f"TDengine returned an invalid timestamp string: {value!r}"
                 ) from exc
         if isinstance(value, datetime):
             if value.tzinfo is None:
