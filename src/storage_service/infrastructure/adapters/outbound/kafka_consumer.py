@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -76,6 +77,7 @@ class KafkaStorageConsumer:
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
         self._retry_failures: dict[TopicPartition, int] = {}
         self._generation = 0
+        self._epoch_id = uuid.uuid4().hex
         self._stop = asyncio.Event()
         self._close_lock = asyncio.Lock()
         self._consumer_closed = False
@@ -446,13 +448,15 @@ class KafkaStorageConsumer:
             self._consumer.resume(tp)
         return True
 
-    async def snapshot_progress(self) -> list[tuple[str, int, int, int, int, str]]:
+    async def snapshot_progress(
+        self,
+    ) -> list[tuple[str, int, int, int, int, str, int | None, str]]:
         """Read broker end offsets for observed lag; never silently report zero lag."""
         assignments = list(self._assignments)
         if not assignments:
             return []
         last = await self._consumer.end_offsets(assignments)
-        result: list[tuple[str, int, int, int, int, str]] = []
+        result: list[tuple[str, int, int, int, int, str, int | None, str]] = []
         for tp in assignments:
             entry = self._assignments.get(tp)
             if entry is None:
@@ -468,6 +472,8 @@ class KafkaStorageConsumer:
                     next_offset - 1,
                     max(0, end_offset - next_offset),
                     blocked[1] if blocked else "",
+                    blocked[0] if blocked else None,
+                    f"{self._epoch_id}:{entry.generation}",
                 )
             )
         return sorted(result)
