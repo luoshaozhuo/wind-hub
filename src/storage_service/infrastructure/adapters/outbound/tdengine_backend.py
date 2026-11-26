@@ -26,6 +26,7 @@ from storage_service.application.config import StorageConfig
 from storage_service.application.query import HistoryFilter, HistoryRow
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
 from storage_service.domain.quality_bitmap import unpack_quality_bitmap
+from storage_service.domain.errors import TDengineSchemaConflictError
 from storage_service.domain.naming import StorageObjectNames, get_object_names
 from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
 from storage_service.domain.wide_record import WideRecord
@@ -109,10 +110,6 @@ class _OperationLease:
             self.expire()
             raise TimeoutError("TDengine operation deadline exceeded")
         return remaining
-
-
-class TDengineSchemaConflictError(RuntimeError):
-    """Physical schema/tag/ownership does not match the frozen Storage contract."""
 
 
 def _stored_int(value: object) -> int:
