@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import NoReturn, Protocol
 
 from storage_service.application.config import TypeMapping
-from storage_service.application.ingestion import (
+from storage_service.application.ingestion_contract import (
     ConfigHistoryUnavailableError,
     IngestResult,
     IngestionBlockedError,
