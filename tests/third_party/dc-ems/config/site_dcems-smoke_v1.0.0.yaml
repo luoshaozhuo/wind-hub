@@ -1,0 +1,4 @@
+schema_version: 1
+file_version: "1.0.0"
+site_id: dcems-smoke
+name: "DCEMS 十台风机隔离随机联测"
