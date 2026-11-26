@@ -88,8 +88,11 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     incoming["control"]["target"]["endpoint"] = f"127.0.0.1:{COMMANDER_GRPC}"
     # Gateway1 仅发起受控转发，不具有仿真执行或数据注入权限。
     ingress["security"]["callers"] = [
-        {"caller_id": "operator", "token_env": "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN",
-         "permissions": ["read", "lifecycle", "diagnose"]}
+        {
+            "caller_id": "operator",
+            "token_env": "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN",
+            "permissions": ["read", "lifecycle", "diagnose"],
+        }
     ]
     _write(config / "services" / "service_gateway-dcems-control-ingress_v1.0.0.yaml", ingress)
 
@@ -108,21 +111,46 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     generator["service_id"] = "data-generator-dcems-control"
     generator["file_version"] = VERSION
     generator["service"]["grpc_bind"] = f"127.0.0.1:{GENERATOR_GRPC}"
-    generator["recording"]["directory"] = str(root / "state" / "generator-records")
+    # 正式 Loader 只接受相对配置根父目录（即控制根）的 recording 路径。
+    generator["recording"]["directory"] = "state/generator-records"
+    # 仅供负向鉴权验证：复用维护令牌作为 DG 只读身份，不含 variables_update。
+    generator["security"]["callers"].append(
+        {
+            "caller_id": "readonly",
+            "token_env": "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN",
+            "permissions": ["variables_read"],
+        }
+    )
     _write(config / "services" / "service_data-generator-dcems-control_v1.0.0.yaml", generator)
 
     runtime = root / "state"
     definitions = {
-        "gateway": ("industrial_gateway.main", "gateway-dcems-control-execution", EXECUTION_GRPC,
-                    ["--project-root", str(config)], "WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN"),
-        "gateway-target": (
-            "industrial_gateway.main", "gateway-dcems-control-ingress", INGRESS_GRPC,
-            ["--project-root", str(config)], "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN",
+        "gateway": (
+            "industrial_gateway.main",
+            "gateway-dcems-control-execution",
+            EXECUTION_GRPC,
+            ["--project-root", str(config)],
+            "WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN",
         ),
-        "commander": ("commander", "commander-dcems-control", COMMANDER_GRPC, [],
-                      "WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN"),
+        "gateway-target": (
+            "industrial_gateway.main",
+            "gateway-dcems-control-ingress",
+            INGRESS_GRPC,
+            ["--project-root", str(config)],
+            "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN",
+        ),
+        "commander": (
+            "commander",
+            "commander-dcems-control",
+            COMMANDER_GRPC,
+            [],
+            "WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN",
+        ),
         "data-generator": (
-            "data_generator.main", "data-generator-dcems-control", GENERATOR_GRPC, [],
+            "data_generator.main",
+            "data-generator-dcems-control",
+            GENERATOR_GRPC,
+            [],
             "WIND_HUB_E2E_GENERATOR_CLI_TOKEN",
         ),
     }
@@ -136,8 +164,12 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
             "token_env": token_env,
             "process": {
                 "argv": [
-                    sys.executable, "-m", module, "--config",
-                    str(config / "services" / filename), *extra,
+                    sys.executable,
+                    "-m",
+                    module,
+                    "--config",
+                    str(config / "services" / filename),
+                    *extra,
                 ],
                 "cwd": str(ROOT),
                 "state_dir": str(runtime / "cli-processes"),
@@ -171,26 +203,29 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     _write(config / "services" / "service_cli-dcems-control_v1.0.0.yaml", cli)
     _write(runtime / "cli.yaml", cli)
 
-    _write(config / "deployments" / "deployment_dcems-control_v1.0.0.yaml", {
-        "schema_version": 1,
-        "file_version": VERSION,
-        "deployment_id": DEPLOYMENT,
-        "services": {
-            service_id: {"config_id": service_id, "file_version": VERSION}
-            for service_id in (
-                "gateway-dcems-control-execution",
-                "gateway-dcems-control-ingress",
-                "commander-dcems-control",
-                "data-generator-dcems-control",
-                "cli-dcems-control",
-            )
+    _write(
+        config / "deployments" / "deployment_dcems-control_v1.0.0.yaml",
+        {
+            "schema_version": 1,
+            "file_version": VERSION,
+            "deployment_id": DEPLOYMENT,
+            "services": {
+                service_id: {"config_id": service_id, "file_version": VERSION}
+                for service_id in (
+                    "gateway-dcems-control-execution",
+                    "gateway-dcems-control-ingress",
+                    "commander-dcems-control",
+                    "data-generator-dcems-control",
+                    "cli-dcems-control",
+                )
+            },
+            "instances": {
+                "site": {"e2e-final": {"file_version": "1.0.0"}},
+                "device": {"e2e-final": {"file_version": "1.0.1"}},
+                "scenario": {"e2e-final": {"file_version": "1.0.0"}},
+            },
         },
-        "instances": {
-            "site": {"e2e-final": {"file_version": "1.0.0"}},
-            "device": {"e2e-final": {"file_version": "1.0.1"}},
-            "scenario": {"e2e-final": {"file_version": "1.0.0"}},
-        },
-    })
+    )
     return config
 
 

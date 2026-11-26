@@ -30,18 +30,14 @@ from tests.third_party.dc_ems.prepare_control_chain import (
 
 def _load(config: Path, name: str) -> dict[str, Any]:
     """读取生成的版本化 YAML。"""
-    return cast(
-        dict[str, Any], yaml.safe_load((config / name).read_text(encoding="utf-8"))
-    )
+    return cast(dict[str, Any], yaml.safe_load((config / name).read_text(encoding="utf-8")))
 
 
 def test_control_config_uses_production_loaders(tmp_path: Path) -> None:
     """验证 Deployment 闭包和 Commander/Gateway/DG 正式 Loader。"""
     root = tmp_path / "dcems-control"
     config = prepare(root)
-    deployment = parse_deployment(
-        _load(config, "deployments/deployment_dcems-control_v1.0.0.yaml")
-    )
+    deployment = parse_deployment(_load(config, "deployments/deployment_dcems-control_v1.0.0.yaml"))
     assert deployment.deployment_id == DEPLOYMENT
     assert len(deployment.services) == 5
 
@@ -97,6 +93,25 @@ def test_control_identity_route_and_writable_register(tmp_path: Path) -> None:
     assert set(cli["services"]) == {"gateway", "gateway-target", "commander", "data-generator"}
     assert cli["services"]["commander"]["token_env"] == "WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN"
     assert {item["caller_id"] for item in ingress["security"]["callers"]} == {"operator"}
+    # 授权链闭合：Gateway1 仅读/生命周期，Gateway2 独占 simulation_execute，
+    # DG 仅 gateway 身份可更新，只读身份不得更新。
+    operator = next(
+        item for item in ingress["security"]["callers"] if item["caller_id"] == "operator"
+    )
+    assert "simulation_execute" not in operator["permissions"]
+    commander_route = next(
+        item for item in execution["security"]["callers"] if item["caller_id"] == "commander"
+    )
+    assert "simulation_execute" in commander_route["permissions"]
+    dg_gateway = next(
+        item for item in generator["security"]["callers"] if item["caller_id"] == "gateway"
+    )
+    dg_readonly = next(
+        item for item in generator["security"]["callers"] if item["caller_id"] == "readonly"
+    )
+    assert "variables_update" in dg_gateway["permissions"]
+    assert dg_readonly["permissions"] == ["variables_read"]
+    assert dg_readonly["token_env"] == "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN"
 
 
 def test_control_root_refuses_reuse_and_measurement_is_unchanged(tmp_path: Path) -> None:

@@ -1,0 +1,44 @@
+Commander request admission failed: request_id already belongs to different commands
+TimeoutError exception in shielded future
+future: <Task finished name='Task-27' coro=<GatewaySimulationSession.connect() done, defined at /home/luo/wind-hub/src/commander/infrastructure/adapters/outbound/gateway.py:37> exception=TimeoutError()>
+Traceback (most recent call last):
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/asyncio/tasks.py", line 488, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/grpc/aio/_channel.py", line 518, in channel_ready
+    await self.wait_for_state_change(state)
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/grpc/aio/_channel.py", line 506, in wait_for_state_change
+    resolved = await self._channel.watch_connectivity_state(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        last_observed_state.value[0], None
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "src/python/grpcio/grpc/_cython/_cygrpc/aio/channel.pyx.pxi", line 98, in watch_connectivity_state
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/luo/wind-hub/src/commander/infrastructure/adapters/outbound/gateway.py", line 53, in connect
+    await asyncio.wait_for(channel.channel_ready(), timeout=3.0)
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/asyncio/tasks.py", line 487, in wait_for
+    async with timeouts.timeout(timeout):
+               ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/asyncio/timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices
+commander blocked devices

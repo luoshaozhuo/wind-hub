@@ -1,0 +1,10 @@
+{
+  "request_id": "dcems-control-af106801506e4c019102bf3c8cf54a75",
+  "command_id": "21330bd2-c762-4b49-a43d-7454ea3aa79d",
+  "commander_state": "UNKNOWN",
+  "commander_outcome": "UNKNOWN",
+  "commander_error_code": "CONNECT_TIMEOUT",
+  "io_settled": true,
+  "generator_state": "UNKNOWN",
+  "physical_plant_response_verified": false
+}

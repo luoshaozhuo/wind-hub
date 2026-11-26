@@ -1,0 +1,85 @@
+schema_version: 1
+file_version: 1.0.0
+service_id: cli-dcems-control
+cli:
+  prompt: 'dcems-control> '
+  output_format: json
+  timeout_seconds: 30
+  history: false
+  max_display_rows: 1000
+  poll_interval_ms: 1000
+  poll_reconnect_attempts: 3
+  snapshot_max_bytes: 67108864
+  diff_max_file_bytes: 1048576
+  diff_max_output_lines: 10000
+services:
+  gateway:
+    grpc_endpoint: 127.0.0.1:52173
+    manager: process
+    target: gateway
+    token_env: WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN
+    process:
+      argv:
+      - /home/luo/miniconda3/envs/wind-hub/bin/python
+      - -m
+      - industrial_gateway.main
+      - --config
+      - /home/luo/wind-hub/run/dcems-control/configs/services/service_gateway-dcems-control-execution_v1.0.0.yaml
+      - --project-root
+      - /home/luo/wind-hub/run/dcems-control/configs
+      cwd: /home/luo/wind-hub
+      state_dir: /home/luo/wind-hub/run/dcems-control/state/cli-processes
+      log_file: /home/luo/wind-hub/run/dcems-control/state/gateway.log
+  gateway-target:
+    grpc_endpoint: 127.0.0.1:52174
+    manager: process
+    target: gateway-target
+    token_env: WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN
+    process:
+      argv:
+      - /home/luo/miniconda3/envs/wind-hub/bin/python
+      - -m
+      - industrial_gateway.main
+      - --config
+      - /home/luo/wind-hub/run/dcems-control/configs/services/service_gateway-dcems-control-ingress_v1.0.0.yaml
+      - --project-root
+      - /home/luo/wind-hub/run/dcems-control/configs
+      cwd: /home/luo/wind-hub
+      state_dir: /home/luo/wind-hub/run/dcems-control/state/cli-processes
+      log_file: /home/luo/wind-hub/run/dcems-control/state/gateway-target.log
+  commander:
+    grpc_endpoint: 127.0.0.1:52152
+    manager: process
+    target: commander
+    token_env: WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN
+    process:
+      argv:
+      - /home/luo/miniconda3/envs/wind-hub/bin/python
+      - -m
+      - commander
+      - --config
+      - /home/luo/wind-hub/run/dcems-control/configs/services/service_commander-dcems-control_v1.0.0.yaml
+      cwd: /home/luo/wind-hub
+      state_dir: /home/luo/wind-hub/run/dcems-control/state/cli-processes
+      log_file: /home/luo/wind-hub/run/dcems-control/state/commander.log
+  data-generator:
+    grpc_endpoint: 127.0.0.1:52161
+    manager: process
+    target: data-generator
+    token_env: WIND_HUB_E2E_GENERATOR_CLI_TOKEN
+    process:
+      argv:
+      - /home/luo/miniconda3/envs/wind-hub/bin/python
+      - -m
+      - data_generator.main
+      - --config
+      - /home/luo/wind-hub/run/dcems-control/configs/services/service_data-generator-dcems-control_v1.0.0.yaml
+      cwd: /home/luo/wind-hub
+      state_dir: /home/luo/wind-hub/run/dcems-control/state/cli-processes
+      log_file: /home/luo/wind-hub/run/dcems-control/state/data-generator.log
+network_probe:
+  max_hosts: 1024
+  max_concurrency: 64
+  timeout_seconds: 1
+  industrial_tcp_ports:
+  - 15431

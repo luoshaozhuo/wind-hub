@@ -1,0 +1,14 @@
+{
+  "gateway2-unreachable": {
+    "generation_id": "5d24a981-2633-4b9a-a31b-2a74199887af",
+    "request_id": "9ff4283d-8f01-4a10-9fce-550cf26e11fb",
+    "state": "UNKNOWN",
+    "effective_step": 0
+  },
+  "generator-unreachable": {
+    "generation_id": "5d24a981-2633-4b9a-a31b-2a74199887af",
+    "request_id": "3a00ea82-e92d-4325-8d2e-7f036bc6574e",
+    "state": "UNKNOWN",
+    "effective_step": 0
+  }
+}

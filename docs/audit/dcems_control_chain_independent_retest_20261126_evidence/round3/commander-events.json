@@ -1,0 +1,76 @@
+{
+  "accepted": [
+    {
+      "request_id": "3ed0e4fad8624e388607ab7b44bb6c5c",
+      "command_id": "afaa69b3-377a-4238-8354-c5f065d490c0",
+      "requested_value": "1",
+      "config_reference": "47a5f3390080db33ffc48e8b85269c90bbf1b8bbc6b8190bbe6776983972a806",
+      "occurred_at": "2026-11-26T14:13:41.633442+00:00"
+    },
+    {
+      "request_id": "dcems-control-854fbd0d606b40d9804a3a2a2b92fcc7",
+      "command_id": "5db8dde3-1b9c-4198-b50e-7cdf29fe1b3f",
+      "requested_value": "1",
+      "config_reference": "47a5f3390080db33ffc48e8b85269c90bbf1b8bbc6b8190bbe6776983972a806",
+      "occurred_at": "2026-11-26T14:13:43.577630+00:00"
+    },
+    {
+      "request_id": "dcems-control-11b743ec3e514358bd28f35d0aa5f4d8",
+      "command_id": "9ff4283d-8f01-4a10-9fce-550cf26e11fb",
+      "requested_value": "1",
+      "config_reference": "47a5f3390080db33ffc48e8b85269c90bbf1b8bbc6b8190bbe6776983972a806",
+      "occurred_at": "2026-11-26T14:13:52.114498+00:00"
+    },
+    {
+      "request_id": "dcems-control-ff11cd0bd3e44b88bded6dd454d307a7",
+      "command_id": "3a00ea82-e92d-4325-8d2e-7f036bc6574e",
+      "requested_value": "1",
+      "config_reference": "47a5f3390080db33ffc48e8b85269c90bbf1b8bbc6b8190bbe6776983972a806",
+      "occurred_at": "2026-11-26T14:14:01.790252+00:00"
+    }
+  ],
+  "completed": [
+    {
+      "command_id": "afaa69b3-377a-4238-8354-c5f065d490c0",
+      "state": "SUCCEEDED",
+      "outcome": "CONFIRMED_SUCCESS",
+      "error_code": null,
+      "error_message": null,
+      "duration_ms": null,
+      "occurred_at": "2026-11-26T14:13:41.762971+00:00"
+    },
+    {
+      "command_id": "5db8dde3-1b9c-4198-b50e-7cdf29fe1b3f",
+      "state": "SUCCEEDED",
+      "outcome": "CONFIRMED_SUCCESS",
+      "error_code": null,
+      "error_message": null,
+      "duration_ms": null,
+      "occurred_at": "2026-11-26T14:13:43.702881+00:00"
+    },
+    {
+      "command_id": "9ff4283d-8f01-4a10-9fce-550cf26e11fb",
+      "state": "UNKNOWN",
+      "outcome": "UNKNOWN",
+      "error_code": "CONNECT_TIMEOUT",
+      "error_message": null,
+      "duration_ms": null,
+      "occurred_at": "2026-11-26T14:13:55.179113+00:00"
+    },
+    {
+      "command_id": "3a00ea82-e92d-4325-8d2e-7f036bc6574e",
+      "state": "UNKNOWN",
+      "outcome": "UNKNOWN",
+      "error_code": "WRITE_UNKNOWN",
+      "error_message": null,
+      "duration_ms": null,
+      "occurred_at": "2026-11-26T14:14:01.856297+00:00"
+    }
+  ],
+  "recovery_blocks": [
+    [
+      "PPC_SIM01",
+      "2026-11-26T14:13:55.231327+00:00"
+    ]
+  ]
+}

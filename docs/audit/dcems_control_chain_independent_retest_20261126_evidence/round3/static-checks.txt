@@ -1,0 +1,10 @@
+## config loader tests
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 121 warnings in 0.73s
+## ruff check
+All checks passed!
+## ruff format --check
+29 files already formatted
+## mypy
+Success: no issues found in 4 source files

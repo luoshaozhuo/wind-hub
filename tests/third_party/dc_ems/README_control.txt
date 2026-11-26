@@ -66,3 +66,11 @@ Gateway2 协议回读。APPLIED 证明模型控制输入执行；不等于电厂
 
 初始交付仅为生产配置及联测测试代码。真实进程执行和独立验收
 应由 Claude Code 在线下完整环境复测，不得提前宣称 PASS。
+
+复测轮次约束：
+  1. test_control_chain_live.py 的 UNKNOWN 用例会使 PPC_SIM01 进入恢复阻断；
+     每轮完整主验收必须使用全新隔离根。--prepare 拒绝覆盖既有根。
+  2. Gateway2 连接超时专项 test_control_chain_timeout_live.py 单独使用另一个
+     全新隔离根，并设置 DCEMS_CONTROL_TIMEOUT_ROUND=1；不得与主验收同根顺序执行。
+  3. DG `readonly` 身份复用 WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN，仅提供
+     variables_read，用于负向鉴权；不得据此声明生产令牌权限模型。

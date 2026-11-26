@@ -1,0 +1,11 @@
+{
+  "modbus_ack": true,
+  "request_id": "3ed0e4fad8624e388607ab7b44bb6c5c",
+  "command_id": "afaa69b3-377a-4238-8354-c5f065d490c0",
+  "commander_state": "SUCCEEDED",
+  "commander_outcome": "CONFIRMED_SUCCESS",
+  "generator_state": "APPLIED",
+  "effective_step": 17,
+  "gateway2_register": 1,
+  "physical_plant_response_verified": false
+}
