@@ -1,0 +1,5 @@
+Matrix and final Storage gradient source HEAD: 7083b7c95
+R14: 30 devices, 500 points, 300 rows/s target, 60 seconds per cell, single Kafka partition, full post-stop identity audit.
+Cells: max_safe_inflight 4/8/16/32 x linger 0/1/5/10 ms, sequential isolated stacks.
+Prior pre-freeze matrix was stopped after its first case and is retained under matrix_pre_freeze; it is not used for qualification.
+600-second formal baseline was measured before the audit race fix and remains FAIL independently on steady throughput and backlog slope.

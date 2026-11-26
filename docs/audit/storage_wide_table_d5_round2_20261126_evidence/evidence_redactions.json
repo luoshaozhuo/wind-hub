@@ -1,0 +1,208 @@
+{
+  "bearer": [
+    {
+      "path": "history_operations.log",
+      "replacements": 1
+    },
+    {
+      "path": "history_operations.xml",
+      "replacements": 1
+    }
+  ],
+  "password_assignment": [
+    {
+      "path": "cli_strict_v3.xml",
+      "replacements": 8
+    },
+    {
+      "path": "cli_strict_migrated.log",
+      "replacements": 8
+    },
+    {
+      "path": "cli_strict_isolated.log",
+      "replacements": 8
+    },
+    {
+      "path": "cli.log",
+      "replacements": 8
+    },
+    {
+      "path": "capacity_30_baseline.xml",
+      "replacements": 1
+    },
+    {
+      "path": "eight_service_smoke_final.xml",
+      "replacements": 1
+    },
+    {
+      "path": "cli_strict_v3.log",
+      "replacements": 8
+    },
+    {
+      "path": "eight_service_smoke_final.log",
+      "replacements": 1
+    },
+    {
+      "path": "cli.xml",
+      "replacements": 8
+    },
+    {
+      "path": "capacity_30_baseline.log",
+      "replacements": 1
+    },
+    {
+      "path": "cli_strict_isolated.xml",
+      "replacements": 8
+    },
+    {
+      "path": "cli_strict_migrated.xml",
+      "replacements": 8
+    }
+  ],
+  "password_assignment_final": [
+    {
+      "path": "capacity_30_baseline_32g.xml",
+      "replacements": 1
+    },
+    {
+      "path": "capacity_30_baseline_32g.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix_pre_freeze/c4_l0/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix_pre_freeze/c4_l0/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l5/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l5/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l10/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l10/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l0/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l0/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l0/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l0/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l5/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l5/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l1/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l1/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l1/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l1/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l5/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l5/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l0/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l0/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l10/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l10/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l1/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l1/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l10/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c16_l10/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l0/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c32_l0/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l1/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l1/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l5/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c8_l5/capacity.log",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l10/capacity.xml",
+      "replacements": 1
+    },
+    {
+      "path": "matrix/c4_l10/capacity.log",
+      "replacements": 1
+    }
+  ]
+}

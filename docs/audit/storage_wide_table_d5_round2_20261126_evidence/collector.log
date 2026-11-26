@@ -1,0 +1,368 @@
+..FF...FFF.....................................FFF...................... [ 60%]
+............F......F........................F...                         [100%]
+=================================== FAILURES ===================================
+______________ test_split_order_unique_identities_and_update_site ______________
+
+    def test_split_order_unique_identities_and_update_site() -> None:
+        builder = _builder()
+>       batches = builder.pack(
+            "wtg-01",
+            tuple(_sample(f"p{i}") for i in range(5)),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wtg-01",
+        )
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:36: TypeError
+_________ test_empty_duplicate_and_oversized_single_sample_are_bounded _________
+
+    def test_empty_duplicate_and_oversized_single_sample_are_bounded() -> None:
+        builder = _builder(max_samples_per_batch=100, max_batch_bytes=256)
+        assert (
+>           builder.pack(
+                "wtg-01",
+                (),
+                device_type=DEVICE_TYPE,
+                point_table_id=POINT_TABLE,
+                task_id="task-wtg-01",
+            )
+            == []
+        )
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:66: TypeError
+_____________ test_realtime_staleness_and_reliable_identity_fields _____________
+
+    def test_realtime_staleness_and_reliable_identity_fields() -> None:
+>       realtime = _builder("realtime").pack(
+            "wtg-01",
+            (_sample("p"),),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wtg-01",
+        )[0]
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:105: TypeError
+____________ test_task_identity_is_not_derived_from_device_identity ____________
+
+    def test_task_identity_is_not_derived_from_device_identity() -> None:
+        builder = _builder()
+>       first = builder.pack(
+            "wtg-01",
+            (_sample("p"),),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wind-speed",
+        )[0]
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:127: TypeError
+___________________ test_invalid_task_identity_fails_closed ____________________
+
+    def test_invalid_task_identity_fails_closed() -> None:
+        with pytest.raises(ValueError):
+>           _builder().pack(
+                "wtg-01",
+                (_sample("p"),),
+                device_type=DEVICE_TYPE,
+                point_table_id=POINT_TABLE,
+                task_id="task with space",
+            )
+E           TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:150: TypeError
+____________ test_evidence_keeps_latest_sample_per_device_and_point ____________
+
+    async def test_evidence_keeps_latest_sample_per_device_and_point() -> None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+    
+>       await publisher._send(_pack(publisher._builder, "WTG_SIM01", (_sample("wind_speed"),))[0])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/collector/unit/test_publisher_sample_evidence.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = <collector.application.batch_builder.BatchBuilder object at 0x715deb981c90>
+device_id = 'WTG_SIM01'
+samples = (ProtocolSample(point_id='wind_speed', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 215, tzinfo=dat...026, 11, 26, 8, 32, 26, 223, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+>       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError
+__________ test_evidence_is_bounded_and_diagnostics_filter_by_device ___________
+
+    async def test_evidence_is_bounded_and_diagnostics_filter_by_device() -> None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+    
+        for device in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01"):
+            for index in range(120):
+                await publisher._send(
+>                   _pack(publisher._builder, device, (_sample(f"point_{index}"),))[0]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                )
+
+tests/collector/unit/test_publisher_sample_evidence.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = <collector.application.batch_builder.BatchBuilder object at 0x715deb9a7850>
+device_id = 'WTG_SIM01'
+samples = (ProtocolSample(point_id='point_0', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 3189, tzinfo=datet...26, 11, 26, 8, 32, 26, 3193, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+>       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError
+___________ test_evidence_starts_empty_and_ignores_unrelated_devices ___________
+
+    async def test_evidence_starts_empty_and_ignores_unrelated_devices() -> None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+        assert publisher.last_sample_evidence == ()
+    
+>       await publisher._send(_pack(publisher._builder, "OTHER_DEVICE", (_sample("wind_speed"),))[0])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/collector/unit/test_publisher_sample_evidence.py:139: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = <collector.application.batch_builder.BatchBuilder object at 0x715deb983190>
+device_id = 'OTHER_DEVICE'
+samples = (ProtocolSample(point_id='wind_speed', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 6035, tzinfo=da...26, 11, 26, 8, 32, 26, 6039, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+>       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError
+_______________________ test_all_services_and_inventory ________________________
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -> SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+>           selected = select_local_service(config_file)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/collector/infrastructure/config/validation.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/configuration/local_selection.py:82: in select_local_service
+    service_path = _safe_file(root, Path("services") / service_path.name)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0')
+relative = PosixPath('services/service_collector-realtime_v1.1.0.yaml')
+
+    def _safe_file(root: Path, relative: Path) -> Path:
+        """Reject missing, escaping, and symlinked configuration selections."""
+        path = root / relative
+        if not path.is_relative_to(root):
+            raise ValueError("selected configuration escapes its root")
+        current = path
+        while current != root:
+            if current.is_symlink():
+                raise ValueError("symbolic-link configuration references are forbidden")
+            current = current.parent
+        if not path.is_file():
+>           raise ValueError(f"selected configuration is missing: {relative}")
+E           ValueError: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/core/configuration/local_selection.py:55: ValueError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x715deb0c2cd0>
+
+    @pytest.mark.asyncio
+    async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+        # The real process bootstraps through Deployment-based exact version
+        # selection: copy the complete shipped tree and address the versioned
+        # Service file; deployment_prod-a is the sole selector of collector-realtime.
+        for folder in ("services", "instances", "templates", "deployments"):
+            shutil.copytree(CONFIG_ROOT / folder, tmp_path / folder)
+        service_path = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
+>       app = await assemble_collector(
+            service_path,
+            state_directory=tmp_path / "state",
+            grpc_port=0,
+            collector_id="collector-test",
+        )
+
+tests/collector/component/test_grpc_contract.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/assembly.py:203: in assemble_collector
+    source = await asyncio.to_thread(resolve_source_paths, config_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -> SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+            selected = select_local_service(config_file)
+            site_path = selected.instances["site"]
+            devices_path = selected.instances["devices"]
+            tasks_path = selected.instances["tasks"]
+        except (KeyError, ValueError, OSError) as exc:
+>           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E           core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/collector/infrastructure/config/validation.py:42: ConfigError
+______________________ test_full_snapshot_grpc_roundtrip _______________________
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -> SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+>           selected = select_local_service(config_file)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/collector/infrastructure/config/validation.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/configuration/local_selection.py:82: in select_local_service
+    service_path = _safe_file(root, Path("services") / service_path.name)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0')
+relative = PosixPath('services/service_collector-realtime_v1.1.0.yaml')
+
+    def _safe_file(root: Path, relative: Path) -> Path:
+        """Reject missing, escaping, and symlinked configuration selections."""
+        path = root / relative
+        if not path.is_relative_to(root):
+            raise ValueError("selected configuration escapes its root")
+        current = path
+        while current != root:
+            if current.is_symlink():
+                raise ValueError("symbolic-link configuration references are forbidden")
+            current = current.parent
+        if not path.is_file():
+>           raise ValueError(f"selected configuration is missing: {relative}")
+E           ValueError: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/core/configuration/local_selection.py:55: ValueError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x715deb9a8a90>
+
+    @pytest.mark.asyncio
+    async def test_full_snapshot_grpc_roundtrip(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+        for folder in ("services", "instances", "templates", "deployments"):
+            shutil.copytree(ROOT / "deploy" / "config_roots" / "prod-a" / folder, tmp_path / folder)
+        service_file = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
+    
+>       app = await assemble_collector(
+            service_file,
+            state_directory=tmp_path / "state",
+            grpc_port=0,
+        )
+
+tests/collector/component/test_snapshot_grpc.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/assembly.py:203: in assemble_collector
+    source = await asyncio.to_thread(resolve_source_paths, config_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -> SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+            selected = select_local_service(config_file)
+            site_path = selected.instances["site"]
+            devices_path = selected.instances["devices"]
+            tasks_path = selected.instances["tasks"]
+        except (KeyError, ValueError, OSError) as exc:
+>           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E           core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/collector/infrastructure/config/validation.py:42: ConfigError
+___________ test_nondefault_source_files_are_used_by_full_validation ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0')
+
+    def test_nondefault_source_files_are_used_by_full_validation(tmp_path: Path) -> None:
+        service = _tree(tmp_path)
+        paths = resolve_source_paths(service)
+        assert paths.site == tmp_path / "instances/site_site-A_v1.0.0.yaml"
+        assert paths.devices == tmp_path / "instances/device_devices-A_v1.0.0.yaml"
+>       validate_collector_snapshot(paths)
+
+tests/collector/integration/test_declared_source_validation.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/infrastructure/config/validation.py:235: in validate_collector_snapshot
+    validate_document_version(service, paths.service, supported_schema=6)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+document = {'config_sources': {'instances': {'devices': 'devices-A', 'site': 'site-A', 'tasks': 'farm-a'}}, 'file_version': '1.0....4222']}, 'metrics': {'enabled': True, 'event_capacity': 1000, 'max_staleness': 300, 'pending_capacity': 256, ...}, ...}
+path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0/services/service_collector-realtime_v1.0.0.yaml')
+
+    def validate_document_version(
+        document: Mapping[str, Any],
+        path: str | Path,
+        *,
+        supported_schema: int = 1,
+    ) -> DocumentVersion:
+        """Reject unsupported schemas and missing or malformed file versions."""
+        schema_version = document.get("schema_version")
+        if type(schema_version) is not int or schema_version != supported_schema:
+>           raise ConfigError(f"{path}: unsupported schema_version {schema_version!r}")
+E           core.application.errors.ConfigError: /tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0/services/service_collector-realtime_v1.0.0.yaml: unsupported schema_version 1
+
+src/core/configuration/document_version.py:35: ConfigError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/collector.xml -
+=========================== short test summary info ============================
+FAILED tests/collector/unit/test_batch_builder.py::test_split_order_unique_identities_and_update_site
+FAILED tests/collector/unit/test_batch_builder.py::test_empty_duplicate_and_oversized_single_sample_are_bounded
+FAILED tests/collector/unit/test_batch_builder.py::test_realtime_staleness_and_reliable_identity_fields
+FAILED tests/collector/unit/test_batch_builder.py::test_task_identity_is_not_derived_from_device_identity
+FAILED tests/collector/unit/test_batch_builder.py::test_invalid_task_identity_fails_closed
+FAILED tests/collector/unit/test_publisher_sample_evidence.py::test_evidence_keeps_latest_sample_per_device_and_point
+FAILED tests/collector/unit/test_publisher_sample_evidence.py::test_evidence_is_bounded_and_diagnostics_filter_by_device
+FAILED tests/collector/unit/test_publisher_sample_evidence.py::test_evidence_starts_empty_and_ignores_unrelated_devices
+FAILED tests/collector/component/test_grpc_contract.py::test_all_services_and_inventory
+FAILED tests/collector/component/test_snapshot_grpc.py::test_full_snapshot_grpc_roundtrip
+FAILED tests/collector/integration/test_declared_source_validation.py::test_nondefault_source_files_are_used_by_full_validation
+11 failed, 109 passed in 8.38s

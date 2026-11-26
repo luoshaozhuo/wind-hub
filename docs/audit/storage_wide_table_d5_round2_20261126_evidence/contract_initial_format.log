@@ -1,0 +1,8 @@
+Would reformat: src/cli/storage_commands.py
+Would reformat: src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
+Would reformat: src/storage_service/application/wide_group_export.py
+Would reformat: src/storage_service/application/wide_group_query.py
+Would reformat: src/storage_service/infrastructure/adapters/inbound/grpc_server.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/configuration_archive.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py
+7 files would be reformatted, 1122 files already formatted

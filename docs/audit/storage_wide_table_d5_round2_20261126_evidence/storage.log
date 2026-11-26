@@ -1,0 +1,781 @@
+........................................F............................... [ 28%]
+..........................................................F............. [ 57%]
+..................F........F................FFFFF....................... [ 86%]
+.................................                                        [100%]
+=================================== FAILURES ===================================
+______ test_unknown_historical_device_is_persisted_before_wide_schema_use ______
+
+    @pytest.mark.asyncio
+    async def test_unknown_historical_device_is_persisted_before_wide_schema_use() -> None:
+        resolver = object.__new__(ConfigurationPointTableResolver)
+        resolver._device_bindings = {}
+        resolver._pins = {}
+        resolver._business_pins = {}
+        resolver._loaded = {}
+        resolver._lock = asyncio.Lock()
+        resolver._refresh_hook = None
+        resolver._persist_historical = Mock()
+        resolver._fetcher = Mock()
+        resolver._fetcher.fetch_exact_device_closure = AsyncMock(return_value=_closure())
+        resolver._load = AsyncMock(
+            return_value={
+                "schema_version": 1,
+                "template_id": "wind",
+                "file_version": "1.0.0",
+                "protocol": "modbus",
+                "points": {"wind_speed": {"data_type": "float32", "address": {"count": 2}}},
+            }
+        )
+        identity = WideIdentity(
+            wind_farm_id="farm_a",
+            device_config_id="device_farm-a_v1.0.1",
+            device_id="GW01",
+            data_level=WideDataLevel.PROTOCOL,
+        )
+>       schema = await resolver.resolve_wide_schema(
+            identity, type_mapping=_mapping(), max_row_bytes=65536
+        )
+
+tests/storage_service/unit/test_historical_device_closure.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:792: in resolve_wide_schema
+    binding = self._wide_binding(record)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x7716e80dacd0>
+identity = WideIdentity(wind_farm_id='farm_a', device_config_id='device_farm-a_v1.0.1', device_id='GW01', data_level=<WideDataLevel.PROTOCOL: 'protocol'>)
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        cache_key = (identity.wind_farm_id, identity.device_id, identity.device_config_id)
+>       cached = self._exact_binding_cache.get(cache_key)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_exact_binding_cache'
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:720: AttributeError
+______ test_quality_predicate_reaches_history_and_binds_aggregate_cursor _______
+
+    @pytest.mark.asyncio
+    async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -> None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        request = WideHistoryFilter(
+            wind_farm_id="farm",
+            device_id="wtg001",
+            device_config_id="device_farm_v1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            start_time_us=1,
+            end_time_us=100_000_000,
+            point_ids=("power",),
+            limit=50,
+            qualities=(int(PointQuality.GOOD),),
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(
+                    WideHistoryRow(1_000_000, (("power", 10, PointQuality.GOOD),)),
+                    WideHistoryRow(62_000_000, (("power", 15, PointQuality.GOOD),)),
+                ),
+                complete=True,
+                next_page_token="",
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        first = await service.page(
+            schema=schema,
+            filter_=request,
+            device_type="wind",
+            operation="min",
+            window_ms=60000,
+            page_size=1,
+        )
+        assert first.rows[0].result == 10
+>       assert history.query.await_args.kwargs["filter_"].qualities == (PointQuality.GOOD,)
+E       assert () == (<PointQuality.GOOD: 1>,)
+E         
+E         Right contains one more item: <PointQuality.GOOD: 1>
+E         Use -v to get more diff
+
+tests/storage_service/unit/test_wide_aggregate.py:370: AssertionError
+______________ test_filtered_query_rejects_corrupt_null_good_row _______________
+
+    @pytest.mark.asyncio
+    async def test_filtered_query_rejects_corrupt_null_good_row() -> None:
+        backend = AsyncMock()
+        backend.fetch_wide_history.return_value = (
+            WideHistoryRow(10, (("wind_speed", None, PointQuality.GOOD),)),
+        )
+        service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"k" * 32))
+>       with pytest.raises(RuntimeError, match="NULL and quality"):
+E       Failed: DID NOT RAISE <class 'RuntimeError'>
+
+tests/storage_service/unit/test_wide_quality_filter.py:113: Failed
+__ test_wide_query_rejects_malformed_physical_rows[points1-NULL and quality] ___
+
+points = (('power', None, 1),), expected = 'NULL and quality'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "points, expected",
+        [
+            ((("power", 1, 0),), "NULL and quality"),
+            ((("power", None, 1),), "NULL and quality"),
+            ((("different", 1, 1),), "invalid column"),
+            ((("power", 1, 4),), "invalid column"),
+            ((), "incomplete physical"),
+        ],
+    )
+    async def test_wide_query_rejects_malformed_physical_rows(
+        points: tuple[tuple[str, object, int], ...], expected: str
+    ) -> None:
+        backend = AsyncMock()
+        backend.fetch_wide_history.return_value = (WideHistoryRow(10, points),)
+        service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
+>       with pytest.raises(RuntimeError, match=expected):
+E       Failed: DID NOT RAISE <class 'RuntimeError'>
+
+tests/storage_service/unit/test_wide_query_service.py:101: Failed
+____________ test_legacy_point_json_versions_are_never_upgraded[3] _____________
+
+version = '3'
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
+        payload = _payload()
+        payload["schema_version"] = version
+        with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+>           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": "3", "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001"...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+>           raise ValueError("Kafka JSON v3 envelope required")
+E           ValueError: Kafka JSON v3 envelope required
+
+src/storage_service/domain/wide_record.py:79: ValueError
+
+During handling of the above exception, another exception occurred:
+
+version = '3'
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
+        payload = _payload()
+        payload["schema_version"] = version
+>       with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'Kafka JSON v3 envelope mismatch'
+E        Input: 'Kafka JSON v3 envelope required'
+
+tests/storage_service/unit/test_wide_record.py:94: AssertionError
+___________ test_legacy_point_json_versions_are_never_upgraded[None] ___________
+
+version = None
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
+        payload = _payload()
+        payload["schema_version"] = version
+        with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+>           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": null, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+>           raise ValueError("Kafka JSON v3 envelope required")
+E           ValueError: Kafka JSON v3 envelope required
+
+src/storage_service/domain/wide_record.py:79: ValueError
+
+During handling of the above exception, another exception occurred:
+
+version = None
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -> None:
+        payload = _payload()
+        payload["schema_version"] = version
+>       with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'Kafka JSON v3 envelope mismatch'
+E        Input: 'Kafka JSON v3 envelope required'
+
+tests/storage_service/unit/test_wide_record.py:94: AssertionError
+__________ test_wide_device_level_rejects_legacy_aliases[engineering] __________
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+>           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <enum 'WideDataLevel'>, value = 'engineering'
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+>                   raise ve_exc
+E                   ValueError: 'engineering' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = 'engineering'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+>           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+>           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = 'engineering'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+>       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError
+___________ test_wide_device_level_rejects_legacy_aliases[PROTOCOL] ____________
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+>           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <enum 'WideDataLevel'>, value = 'PROTOCOL'
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+>                   raise ve_exc
+E                   ValueError: 'PROTOCOL' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = 'PROTOCOL'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+>           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+>           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = 'PROTOCOL'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+>       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError
+_______________ test_wide_device_level_rejects_legacy_aliases[] ________________
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+>           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <enum 'WideDataLevel'>, value = ''
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+>                   raise ve_exc
+E                   ValueError: '' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = ''
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+>           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+>           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = ''
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -> None:
+        payload = _payload()
+        payload["data_level"] = level
+>       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/unit/test_historical_device_closure.py::test_unknown_historical_device_is_persisted_before_wide_schema_use
+FAILED tests/storage_service/unit/test_wide_aggregate.py::test_quality_predicate_reaches_history_and_binds_aggregate_cursor
+FAILED tests/storage_service/unit/test_wide_quality_filter.py::test_filtered_query_rejects_corrupt_null_good_row
+FAILED tests/storage_service/unit/test_wide_query_service.py::test_wide_query_rejects_malformed_physical_rows[points1-NULL and quality]
+FAILED tests/storage_service/unit/test_wide_record.py::test_legacy_point_json_versions_are_never_upgraded[3]
+FAILED tests/storage_service/unit/test_wide_record.py::test_legacy_point_json_versions_are_never_upgraded[None]
+FAILED tests/storage_service/unit/test_wide_record.py::test_wide_device_level_rejects_legacy_aliases[engineering]
+FAILED tests/storage_service/unit/test_wide_record.py::test_wide_device_level_rejects_legacy_aliases[PROTOCOL]
+FAILED tests/storage_service/unit/test_wide_record.py::test_wide_device_level_rejects_legacy_aliases[]
+9 failed, 240 passed in 2.53s

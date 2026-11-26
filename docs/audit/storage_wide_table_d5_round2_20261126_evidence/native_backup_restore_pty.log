@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "<stdin>", line 29, in <module>
+AssertionError: the input device is not a TTY
+

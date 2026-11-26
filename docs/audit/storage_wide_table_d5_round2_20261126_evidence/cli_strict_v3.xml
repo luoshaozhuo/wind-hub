@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="27.064" timestamp="2026-11-26T16:41:45.717169+08:00" hostname="boss"><testcase classname="tests.cli.test_r1f3_strict_cli_e2e" name="test_strict_cli_five_service_data_command_restart_e2e" time="26.879"><failure message="KeyError: 'collector_id'">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-68/test_strict_cli_five_service_d0')
+
+    @pytest.mark.asyncio
+    async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -&gt; None:
+        """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
+        token = [REDACTED_TEST_CREDENTIAL]
+        farm = "farm-a"
+        rt_collector = f"collector-rt-{token}"
+        reliable_collector = f"collector-hist-{token}"
+        device = "modbus-1"
+        point = "rotor_speed"
+        scenario = f"strict-cli-{token}"
+        value = 42.25
+        stack: r5_stack.R5Stack | None = None
+        # 采集链源头寄存器预置本用例期望值：rotor_speed=42.25（modbus-1）。
+        modbus = ModbusMockServer(port=reserve_port(), holding=_holding_registers(value, 800.0))
+        harness = StrictCliE2E(tmp_path)
+        sink: SinkSystemHarness | None = None
+        generation_id: str | None = None
+    
+        try:
+            stack = await asyncio.to_thread(r5_stack.up_stack)
+            await modbus.start()
+    
+            ports = {name: reserve_port() for name in SERVICES}
+            endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
+    
+            gateway_root = tmp_path / "gateway"
+            pki = write_mtls_pki(gateway_root, ("cli", "generator", "sink"))
+            # D01 的上游是本用例的真实 ModbusMockServer；Gateway 自身的下游
+            # Modbus 侦听必须独立端口，否则与设备端口冲突（启动 fail-closed）。
+            gateway_listen_port = reserve_port()
+            gateway_service = write_config_tree(
+                gateway_root,
+                [
+                    ServerSpec(
+                        server_id="gw-strict",
+                        device_id="D01",
+                        modbus_port=modbus.port,
+                        listen_port=gateway_listen_port,
+                        control_enabled=False,
+                    )
+                ],
+                commander_endpoint="127.0.0.1:1",
+                grpc_port=ports["gateway"],
+                permissions={
+                    "cli": ["read", "lifecycle", "inject", "diagnose"],
+                    "generator": ["read", "inject"],
+                },
+                point_table={
+                    "fb_float": {
+                        "data_type": "float32",
+                        "address": {
+                            "register_type": "holding",
+                            "address": 100,
+                            "word_order": "big_endian",
+                        },
+                    },
+                    "sink_value": {
+                        "data_type": "float32",
+                        "address": {
+                            "register_type": "holding",
+                            "address": 102,
+                            "word_order": "big_endian",
+                        },
+                    },
+                },
+                mtls_enabled=False,
+            )
+    
+            dg_root = tmp_path / "dg-config"
+            _real_tree(dg_root)
+            _dump(
+                dg_root / "instances" / "device_farm-a_v1.6.0.yaml",
+                {
+                    "schema_version": 1,
+                    "file_version": "1.6.0",
+                    "devices": {
+                        "D01": {
+                            "enabled": True,
+                            "model": {"id": "wtg_tz2mw", "version": "1.4.0"},
+                            "endpoint": {"host": "127.0.0.1", "port": modbus.port},
+                            "overrides": {},
+                        }
+                    },
+                },
+            )
+            point_table_path = (
+                dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.2.0.yaml"
+            )
+            point_table_doc = yaml.safe_load(point_table_path.read_text(encoding="utf-8"))
+            point_table_doc["points"]["generator_speed"]["data_type"] = "float32"
+            _dump(point_table_path, point_table_doc)
+            business_path = dg_root / "templates" / "business_points_standard_v1.5.0.yaml"
+            business_doc = yaml.safe_load(business_path.read_text(encoding="utf-8"))
+            business_doc["business_points"]["tz2mw_generator_speed_raw"]["data_type"] = "float32"
+            _dump(business_path, business_doc)
+            scenario_doc = simulation_document(
+                {"gw-strict": endpoints["gateway"]},
+                [
+                    (
+                        "D01",
+                        "generator_speed",
+                        {
+                            "kind": "random",
+                            "distribution": "uniform",
+                            "minimum": value,
+                            "maximum": value,
+                        },
+                        [("gw-strict", "fb_float")],
+                    )
+                ],
+                scenario_id=scenario,
+                interval=0.2,
+            )
+            dg_service = write_service_yaml(
+                dg_root,
+                bind=endpoints["data-generator"],
+                scenarios=scenario_doc["scenarios"],
+            )
+            dg_doc = yaml.safe_load(dg_service.read_text(encoding="utf-8"))
+            # Service YAML already carries the current Bearer security contract.
+            # Generator output uses WIND_HUB_TEST_DG_GATEWAY_TOKEN.
+            assert dg_doc["output"]["gateway_token_env"] == "WIND_HUB_TEST_DG_GATEWAY_TOKEN"
+            _dump(dg_service, dg_doc)
+    
+            collector_roots: dict[str, Path] = {}
+            for name, delivery in (
+                ("collector_realtime", "realtime"),
+                ("collector_reliable", "reliable"),
+            ):
+                root = write_collector_modbus_tree(
+                    tmp_path / name,
+                    modbus.port,
+                    device_id=device,
+                    site_id=farm,
+                    nats_url=stack.nats,
+                )
+                protocol_source = root / "templates" / "protocols" / "protocol_modbus_tcp_v1.1.0.yaml"
+                protocol_doc = yaml.safe_load(protocol_source.read_text(encoding="utf-8"))
+                protocol_doc["file_version"] = "1.0.0"
+                _dump(protocol_source.with_name("protocol_modbus_tcp_v1.0.0.yaml"), protocol_doc)
+                service_path = root / "services" / SERVICE_NAME
+                document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
+                document["messaging"]["delivery"] = delivery
+                if delivery == "reliable":
+                    document["messaging"].pop("max_staleness_ms", None)
+                _dump(service_path, document)
+                collector_roots[name] = root
+    
+            (tmp_path / "commander-pki").mkdir(parents=True)
+            commander_pki = build_pki(tmp_path / "commander-pki")
+            commander_tree = write_collector_modbus_tree(
+                tmp_path / "commander" / "config-tree",
+                modbus.port,
+                device_id="WT01",
+                site_id=farm,
+                nats_url=stack.nats,
+            )
+            commander_protocol = (
+                commander_tree / "templates" / "protocols" / "protocol_modbus_tcp_v1.1.0.yaml"
+            )
+            commander_protocol_doc = yaml.safe_load(commander_protocol.read_text(encoding="utf-8"))
+            commander_protocol_doc["file_version"] = "1.0.0"
+            _dump(
+                commander_protocol.with_name("protocol_modbus_tcp_v1.0.0.yaml"),
+                commander_protocol_doc,
+            )
+            commander_service = write_commander_service(
+                tmp_path / "commander",
+                commander_tree,
+                commander_pki,
+                grpc_port=ports["commander"],
+            )
+            commander_doc = yaml.safe_load(commander_service.read_text(encoding="utf-8"))
+            audit_stream = f"CMD_STRICT_{token.upper()}"
+            audit_subject = f"commander.strict.{token}"
+            commander_doc["audit"]["nats_servers"] = [stack.nats]
+            commander_doc["audit"]["stream"] = audit_stream
+            commander_doc["audit"]["subject"] = audit_subject
+            _dump(commander_service, commander_doc)
+            await _provision_commander_audit(stack.nats, audit_stream, audit_subject)
+    
+            gateway_sink_port = reserve_port()
+            gateway_sink_token = [REDACTED_TEST_CREDENTIAL]
+            gateway_service_doc = yaml.safe_load(gateway_service.read_text(encoding="utf-8"))
+            gateway_service_doc["grpc"]["sink_listener_port"] = gateway_sink_port
+            gateway_service_doc["security"]["callers"].append(
+                {
+                    "caller_id": "sink",
+                    "token_env": "WIND_HUB_GATEWAY_SINK_TOKEN",
+                    "permissions": ["inject"],
+                }
+            )
+            _dump(gateway_service, gateway_service_doc)
+            sink = SinkSystemHarness(
+                root=tmp_path / "sink",
+                stack=stack,
+                grpc_port=ports["sink"],
+                namespace=f"strict-cli-{token}",
+                kafka_topic=f"strict-cli-{token}",
+                history_stream=f"WH_HISTORY_STRICT_{token.upper()}",
+                dlq_stream=f"WH_DLQ_STRICT_{token.upper()}",
+                dlq_subject=f"wh.strict.dlq.{token}",
+                token=token,
+            )
+            sink.write_dual_channel_root()
+            harness.sink_token = [REDACTED_TEST_CREDENTIAL]"admin"]
+            deliveries_path = sink.root / DELIVERIES_INSTANCE
+            deliveries_doc = yaml.safe_load(deliveries_path.read_text(encoding="utf-8"))
+            deliveries_doc["deliveries"]["ems_power"]["source"]["collector_id"] = rt_collector
+            deliveries_doc["deliveries"]["power_history"]["source"]["collector_id"] = reliable_collector
+            bounded_source = {
+                "wind_farm_id": farm,
+                "collector_id": rt_collector,
+                "devices": [device],
+                "points": [point],
+            }
+            deliveries_doc["deliveries"]["gateway_output"] = {
+                "template_id": "realtime_power",
+                "template_version": "1.0.0",
+                "sink_id": "gateway_sink",
+                "desired_state": "START",
+                "source": bounded_source,
+                "target_mappings": [
+                    {
+                        "source_device_id": device,
+                        "source_point_id": point,
+                        "variable_id": "sink_value",
+                    }
+                ],
+                "overrides": {},
+            }
+            deliveries_doc["deliveries"]["modbus_output"] = {
+                "template_id": "realtime_power",
+                "template_version": "1.0.0",
+                "sink_id": "modbus_sink",
+                "desired_state": "START",
+                "source": bounded_source,
+                "overrides": {},
+            }
+            _dump(deliveries_path, deliveries_doc)
+    
+            sinks_path = sink.root / SINKS_INSTANCE
+            sinks_doc = yaml.safe_load(sinks_path.read_text(encoding="utf-8"))
+            sink_modbus_port = reserve_port()
+            sinks_doc["sinks"]["gateway_sink"] = {
+                "template_id": "gateway_realtime",
+                "template_version": "1.1.0",
+                "connection": {
+                    "endpoint": f"127.0.0.1:{gateway_sink_port}",
+                    "gateway_id": "gw-strict",
+                },
+                "overrides": {},
+            }
+            sinks_doc["sinks"]["modbus_sink"] = {
+                "template_id": "modbus_registers",
+                "template_version": "1.0.0",
+                "connection": {"listen_host": "127.0.0.1", "port": sink_modbus_port},
+                "overrides": {},
+            }
+            _dump(sinks_path, sinks_doc)
+            for template_name, version in (
+                ("gateway_realtime", "1.1.0"),
+                ("modbus_registers", "1.0.0"),
+            ):
+                relative = Path("configs/templates/sinks") / f"sink_{template_name}_v{version}.yaml"
+                source = SRC.parent / relative
+                target = sink.root / relative
+                _dump(target, yaml.safe_load(source.read_text(encoding="utf-8")))
+            await sink.provision_streams()
+    
+            python = sys.executable
+            common_env = {
+                "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
+                "WIND_HUB_COLLECTOR_TLS_KEY": str(pki["server_key"]),
+                "WIND_HUB_COLLECTOR_TLS_CA": str(pki["ca"]),
+                # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
+                "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
+            }
+            gateway_cli_token = [REDACTED_TEST_CREDENTIAL]
+            generator_gateway_token = [REDACTED_TEST_CREDENTIAL]
+            gateway_sink_management_token = [REDACTED_TEST_CREDENTIAL]
+            dg_cli_token = [REDACTED_TEST_CREDENTIAL]
+            commander_ops_token = [REDACTED_TEST_CREDENTIAL]
+            harness.auth_tokens = {
+                "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+                "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                "WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token,
+            }
+            harness.register_process(
+                "gateway",
+                [
+                    python,
+                    "-m",
+                    "industrial_gateway.main",
+                    "--config",
+                    str(gateway_service),
+                    "--project-root",
+                    str(gateway_root),
+                ],
+                cwd=SRC,
+                env={
+                    "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                    "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN": os.urandom(32).hex(),
+                    "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+                    "WIND_HUB_TEST_GATEWAY_GENERATOR_TOKEN": generator_gateway_token,
+                    "WIND_HUB_TEST_GATEWAY_SINK_TOKEN": gateway_sink_management_token,
+                },
+            )
+            harness.register_process(
+                "data-generator",
+                [python, "-m", "data_generator.main", "--config", str(dg_service)],
+                cwd=SRC,
+                env={
+                    "WIND_HUB_TEST_DG_GATEWAY_TOKEN": generator_gateway_token,
+                    "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                    "WIND_HUB_TEST_DG_CALLER_TOKEN": os.urandom(32).hex(),
+                },
+            )
+            for name, collector_id in (
+                ("collector_realtime", rt_collector),
+                ("collector_reliable", reliable_collector),
+            ):
+                harness.register_process(
+                    name,
+                    [
+                        python,
+                        "-m",
+                        "collector.main",
+                        "--config",
+                        str(collector_roots[name] / "services" / SERVICE_NAME),
+                        "--state-directory",
+                        str(tmp_path / name / "state"),
+                        "--collector-id",
+                        collector_id,
+                        "--grpc-host",
+                        "127.0.0.1",
+                        "--grpc-port",
+                        str(ports[name]),
+                        "--shutdown-timeout",
+                        "10",
+                    ],
+                    cwd=SRC,
+                    env=common_env,
+                )
+            harness.register_process(
+                "sink",
+                [
+                    python,
+                    "-m",
+                    "sink_service.main",
+                    "--config-root",
+                    str(sink.root),
+                    "--service-file",
+                    SINK_SERVICE_FILE,
+                ],
+                cwd=sink.root,
+                env={
+                    "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                    "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
+                },
+            )
+            harness.register_process(
+                "commander",
+                [python, "-m", "commander", "--config", str(commander_service)],
+                cwd=SRC,
+                env={"WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token},
+            )
+            _write_cli(
+                harness.cli_realtime,
+                collector="collector_realtime",
+                endpoints=endpoints,
+                processes=harness.processes,
+                collector_pki=pki,
+            )
+            _write_cli(
+                harness.cli_reliable,
+                collector="collector_reliable",
+                endpoints=endpoints,
+                processes=harness.processes,
+                collector_pki=pki,
+            )
+    
+            for name in SERVICES:
+                await harness.service(harness.cli_realtime, "start", name)
+    
+            await harness.poll_cli(
+                harness.cli_realtime,
+                "gateway",
+                "list",
+                predicate=lambda data: any(
+                    item.get("gateway_id") == "gw-strict" for item in data.get("gateways", [])
+                ),
+            )
+            for config in (harness.cli_realtime, harness.cli_reliable):
+                tasks = await harness.poll_cli(
+                    config,
+                    "collector",
+                    "tasks",
+                    predicate=lambda data: any(
+                        item.get("task_id") == "turbine_all" for item in data.get("tasks", [])
+                    ),
+                )
+                assert len(tasks["tasks"]) == 1
+                # N-CLI-1：错误令牌与缺失令牌必须被拒绝，且令牌不出现在输出。
+                wrong = await harness.cli(
+                    config,
+                    "collector",
+                    "start",
+                    "turbine_all",
+                    "--yes",
+                    check=False,
+                    token="wrong-token",
+                )
+                assert wrong["status"] == "FAILURE", wrong
+                assert "denied" in (wrong.get("message") or "").lower(), wrong
+                missing = await harness.cli(
+                    config, "collector", "start", "turbine_all", "--yes", check=False, token=None
+                )
+                assert missing["status"] == "FAILURE", missing
+                assert "admin credentials" in (missing.get("message") or ""), missing
+                assert ADMIN_TOKEN not in json.dumps(wrong) + json.dumps(missing)
+                await harness.cli(config, "collector", "start", "turbine_all", "--yes")
+            await harness.poll_cli(
+                harness.cli_realtime,
+                "sink",
+                "deliveries",
+                predicate=lambda data: bool(data.get("deliveries"))
+                and all(item.get("actual_state") == "RUNNING" for item in data["deliveries"]),
+                timeout=90,
+            )
+    
+            started = await harness.cli(
+                harness.cli_realtime,
+                "data-generator",
+                "start",
+                scenario,
+                "--scenario-version",
+                "1.0.0",
+                "--yes",
+            )
+            generation_id = started["data"]["generation_id"]
+            assert started["data"]["accepted"] is True
+    
+            gateway_value = await harness.poll_cli(
+                harness.cli_realtime,
+                "gateway",
+                "read",
+                "gw-strict",
+                "fb_float",
+                predicate=lambda data: data.get("values")
+                and _scalar_number(data["values"][0].get("value")) == value,
+            )
+            assert gateway_value["values"][0]["quality"] == "GOOD"
+            for config in (harness.cli_realtime, harness.cli_reliable):
+                latest = await harness.poll_cli(
+                    config,
+                    "collector",
+                    "latest",
+                    device,
+                    point,
+                    predicate=lambda data: any(
+                        sample.get("point_id") == point and _scalar_number(sample.get("value")) == value
+                        for sample in data.get("samples", [])
+                    ),
+                )
+                assert latest["device_id"] == device
+    
+            redis_key = ":".join((sink.namespace, farm, rt_collector, device, point))
+            first_redis = await sink.wait_redis_value(redis_key, timeout=60)
+            assert first_redis["value"] == pytest.approx(value)
+            assert first_redis["wind_farm_id"] == farm
+            assert first_redis["collector_id"] == rt_collector
+            assert first_redis["device_id"] == device
+            assert first_redis["point_id"] == point
+            assert await sink.redis_ttl(redis_key) &gt; 0
+    
+            records = await sink.wait_kafka_messages(min_messages=4, timeout=75)
+            payloads = [json.loads(record.value.decode("utf-8")) for record in records]
+            matching = [
+                item
+                for item in payloads
+                if isinstance(item.get("points"), dict) and point in item["points"]
+            ]
+            assert len(matching) &gt;= 1, payloads
+&gt;           assert {item["collector_id"] for item in matching} == {reliable_collector}
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/cli/test_r1f3_strict_cli_e2e.py:791: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = &lt;list_iterator object at 0x7ec0f07b7f10&gt;
+
+&gt;   assert {item["collector_id"] for item in matching} == {reliable_collector}
+            ^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'collector_id'
+
+tests/cli/test_r1f3_strict_cli_e2e.py:791: KeyError</failure></testcase></testsuite></testsuites>

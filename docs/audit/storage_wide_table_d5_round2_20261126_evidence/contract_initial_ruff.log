@@ -1,0 +1,83 @@
+src/storage_service/application/wide_query.py:55:9: SIM102 Use a single `if` statement instead of nested `if` statements
+   |
+53 |           ):
+54 |               raise ValueError("wide query pagination cursor is invalid")
+55 |           if self.qualities:
+   |  _________^
+56 | |             if len(set(self.qualities)) != len(self.qualities) or any(
+57 | |                 type(q) is not int or not 0 <= q <= 3 for q in self.qualities
+58 | |             ):
+   | |______________^ SIM102
+59 |                   raise ValueError("quality filter contains invalid two-bit states")
+60 |           actual = {column.point_id for column in schema.columns}
+   |
+   = help: Combine `if` statements using `and`
+
+src/storage_service/infrastructure/adapters/inbound/grpc_server.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """StorageService gRPC handlers: typed Contracts RPC and scoped token authority."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import base64
+ 6 | | import asyncio
+ 7 | | import hashlib
+ 8 | | import re
+ 9 | | import hmac
+10 | | import json
+11 | | import logging
+12 | | import math
+13 | | import os
+14 | | import time
+15 | | from collections.abc import Callable, Coroutine
+16 | | from datetime import UTC, datetime, timedelta
+17 | | from functools import wraps
+18 | | from pathlib import Path
+19 | | from typing import Any, NoReturn, TypeVar, cast
+20 | | 
+21 | | import grpc
+22 | | from google.protobuf.timestamp_pb2 import Timestamp
+23 | | 
+24 | | from contracts import common_pb2 as common
+25 | | from contracts import common_pb2_grpc as common_rpc
+26 | | from contracts import storage_service_pb2 as pb
+27 | | from contracts import storage_service_pb2_grpc as rpc
+28 | | from storage_service.application.config import StorageConfig
+29 | | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+30 | | from storage_service.application.metrics import StorageRuntimeMetrics
+31 | | from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
+32 | | from storage_service.application.wide_aggregate import WideAggregationService
+33 | | from storage_service.application.wide_group_query import (
+34 | |     GroupedWideSelector,
+35 | |     WideGroupedHistoryService,
+36 | | )
+37 | | from storage_service.application.wide_query import WideHistoryQueryService
+38 | | from storage_service.domain.errors import (
+39 | |     HistoryReplayUnavailableError,
+40 | |     QueryRejectedError,
+41 | |     TDengineSchemaConflictError,
+42 | | )
+43 | | from storage_service.domain.tasks import TaskRecord
+44 | | from storage_service.domain.quality_bitmap import pack_quality_bitmap
+45 | | from storage_service.domain.wide_record import WideDataLevel
+46 | | from storage_service.domain.wide_schema import WideSchema
+47 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+48 | |     ConfigurationPointTableResolver,
+49 | | )
+50 | | from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
+51 | |     KafkaStorageConsumer,
+52 | | )
+53 | | from storage_service.infrastructure.adapters.outbound.tdengine_backup import NativeTDengineBackup
+54 | | from storage_service.infrastructure.adapters.outbound.metadata_store import (
+55 | |     MetadataConflictError,
+56 | |     MetadataStore,
+57 | | )
+58 | | 
+59 | | T = TypeVar("T")
+   | |_^ I001
+60 |   _LOG = logging.getLogger(__name__)
+   |
+   = help: Organize imports
+
+Found 2 errors.
+[*] 1 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).

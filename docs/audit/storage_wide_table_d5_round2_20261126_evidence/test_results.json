@@ -1,0 +1,160 @@
+{
+  "contracts_core_final": {
+    "tests": 666,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 29.714,
+    "junit": "contracts_core_final.xml"
+  },
+  "configuration": {
+    "tests": 487,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 315.616,
+    "junit": "configuration.xml"
+  },
+  "collector_final": {
+    "tests": 120,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 14.623,
+    "junit": "collector_final.xml"
+  },
+  "sink_final": {
+    "tests": 425,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 7.047,
+    "junit": "sink_final.xml"
+  },
+  "storage_final": {
+    "tests": 249,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.266,
+    "junit": "storage_final.xml"
+  },
+  "cli_final": {
+    "tests": 287,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 104.45,
+    "junit": "cli_final.xml"
+  },
+  "performance": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.525,
+    "junit": "performance.xml"
+  },
+  "real_kafka": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 19.632,
+    "junit": "real_kafka.xml"
+  },
+  "real_storage_cli": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 23.434,
+    "junit": "real_storage_cli.xml"
+  },
+  "wire_acceptance": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 23.475,
+    "junit": "wire_acceptance.xml"
+  },
+  "cli_strict_final": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 44.448,
+    "junit": "cli_strict_final.xml"
+  },
+  "eight_service": {
+    "tests": 6,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 261.335,
+    "junit": "eight_service.xml"
+  },
+  "eight_service_smoke_replay": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 36.713,
+    "junit": "eight_service_smoke_replay.xml"
+  },
+  "history_operations_final": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 39.372,
+    "junit": "history_operations_final.xml"
+  },
+  "native_tdengine": {
+    "tests": 57,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 31,
+    "seconds": 163.35,
+    "junit": "native_tdengine.xml"
+  },
+  "native_single_table_baseline": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 14.705,
+    "junit": "native_single_table_baseline.xml"
+  },
+  "full_descriptor_contract": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.024,
+    "junit": "full_descriptor_contract.xml"
+  },
+  "versionless": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.055,
+    "junit": "versionless.xml"
+  },
+  "contracts_core_delivery": {
+    "tests": 667,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit": "contracts_core_delivery.xml"
+  },
+  "storage_after_timestamp": {
+    "tests": 251,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit": "storage_after_timestamp.xml"
+  }
+}

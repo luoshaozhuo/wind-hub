@@ -1,0 +1,238 @@
+{
+  "configuration": [
+    {
+      "class": "tests.configuration_service.integration.test_revision_notification",
+      "name": "test_committed_revision_is_broadcast_over_real_nats",
+      "message": "real NATS not reachable for revision broadcast: nats: no servers available for connection"
+    },
+    {
+      "class": "tests.configuration_service.integration.test_storage_deployment_flow",
+      "name": "test_real_nats_broadcast_after_configuration_publication",
+      "message": "real NATS not reachable for revision broadcast: nats: no servers available for connection"
+    }
+  ],
+  "cli_final": [
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s01_status_real_running",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s01_stop_graceful_sigterm",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s01_restart_null_io_confirmed",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s02_start_already_running_is_idempotent",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s02_start_created_task_confirmed",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s03_unreachable_socket_exit3",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s03_permission_denied_socket_exit3",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s03_stop_sigterm_timeout_no_sigkill",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s03_restart_missing_fifo_fails_preflight",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_s03_restart_real_fifo_task_refuses_before_delete",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_runtime_e2e",
+      "name": "test_service_status_reports_stopped_container_as_degraded",
+      "message": "NOT_RUN: \u672c\u673a\u65e0\u53ef\u7528 containerd\uff08socket=/tmp/wh-run/containerd.sock\uff09\uff0cUC-02 \u4e5d\u5bab\u683c\u672a\u6267\u884c\uff1b\u51c6\u5907\u547d\u4ee4\uff1adocker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind \u5e76\u5728\u5176\u4e2d\u4ee5 state=/tmp/wh-run \u542f\u52a8 containerd + ctr image pull busybox:1.36"
+    },
+    {
+      "class": "tests.cli.test_system_real",
+      "name": "test_containerd_native_grpc_or_not_run",
+      "message": "NOT_RUN: \u672c\u673a\u65e0 containerd socket/CLI\uff0cUC-02 containerd 9 \u5bab\u683c\u672a\u6267\u884c"
+    },
+    {
+      "class": "tests.cli.test_system_real",
+      "name": "test_isulad_or_not_run",
+      "message": "NOT_RUN: \u672c\u673a\u65e0 iSulad\uff0cUC-02 isulad 9 \u5bab\u683c\u672a\u6267\u884c"
+    }
+  ],
+  "native_tdengine": [
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-1-1-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-1-1-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-1-1-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-1-1-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-1-1-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-1-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-1-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-1-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-1-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-1-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-4-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-4-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-4-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-4-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[False-10-4-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-1-1-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-1-1-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-1-1-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-1-1-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-1-1-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-1-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-1-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-1-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-1-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-1-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-4-wide_probe0]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-4-wide_probe1]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-4-wide_probe2]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-4-wide_probe3]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td01_td04_td05_td06_td10_capacity_matrix[True-10-4-wide_probe4]",
+      "message": "enable D2 capacity matrix explicitly"
+    },
+    {
+      "class": "tests.storage_service.integration.test_tdengine_wide_probe",
+      "name": "test_td09_compression_measurement",
+      "message": "enable D2 capacity and compression experiments explicitly"
+    }
+  ]
+}

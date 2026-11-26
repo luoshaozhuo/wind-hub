@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "<stdin>", line 29, in <module>
+AssertionError: Cannot get the attribution of the terminal: Inappropriate ioctl for device
+Cannot get the attribution of the terminal: Inappropriate ioctl for device
+[31mERROR: /tmp/whbkp_d76e07db4c03416ebfb04af4f126b7a3/ is not exist!
+[0m

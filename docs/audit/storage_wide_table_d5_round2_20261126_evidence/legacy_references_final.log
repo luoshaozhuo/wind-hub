@@ -1,0 +1,14 @@
+tests/storage_service/unit/test_no_legacy_history_paths.py:85:    assert "QueryWideRows" not in StorageServicer.__dict__
+tests/storage_service/unit/test_no_legacy_history_paths.py:91:    assert "QueryWideRows" not in service.methods_by_name
+tests/storage_service/unit/test_no_legacy_history_paths.py:92:    assert not hasattr(pb, "StorageSample")
+tests/storage_service/unit/test_no_legacy_history_paths.py:93:    assert not hasattr(pb, "QueryWideRowsRequest")
+tests/storage_service/unit/test_no_legacy_history_paths.py:94:    assert not hasattr(pb, "QueryWideRowsResponse")
+tests/storage_service/unit/test_no_legacy_history_paths.py:129:        re.compile(r"\bStorageSample\b"),
+tests/storage_service/unit/test_no_legacy_history_paths.py:131:        re.compile(r"\bQueryWideRows\b"),
+tests/storage_service/unit/test_wide_rpc_contract.py:13:    assert "QueryWideRows" not in service.methods_by_name
+tests/storage_service/component/test_grpc_common.py:88:        assert "QueryWideRows" not in capabilities.rpc_names
+tests/storage_service/component/test_grpc_common.py:281:        assert "QueryWideRows" not in capabilities.rpc_names
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:30:def test_wide_filter_types_and_versions_are_explicit() -> None:
+tests/cli/test_storage_wide_quality_commands.py:31:    assert "wide_filter" not in fields
+tests/cli/test_storage_wide_quality_commands.py:56:    assert "wide_filter" not in fields
+tests/cli/test_storage_wide_quality_commands.py:80:    assert "wide_filter" not in fields

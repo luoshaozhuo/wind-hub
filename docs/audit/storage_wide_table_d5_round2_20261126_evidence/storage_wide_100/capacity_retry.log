@@ -1,0 +1,92 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_storage_single_instance_500_point_device_row_capacity _
+
+harness = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-106/test_storage_single_instance_50/e2e'), stack=R5Sta...t-106/test_storage_single_instance_50/e2e/logs'), _started=['configuration', 'gateway', 'gateway-target', 'commander'])
+
+    @pytest.fixture
+    def started(harness: EightServiceHarness) -> EightServiceHarness:
+        """Configuration first, publish the active root, then every business process."""
+        harness.start("configuration")
+        harness.wait_healthy("configuration")
+        publish = harness.cli(
+            "config",
+            "publish",
+            "--root",
+            str(harness.root / "configs"),
+            timeout=180,
+        )
+        assert publish["status"] == "SUCCESS", publish
+        harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(int(publish["data"]["revision_id"]))
+        asyncio.run(_ensure_topic(harness.stack.kafka, "windhub.e2e.history"))
+        asyncio.run(_ensure_streams(harness.stack.nats))
+        for name in SERVICES:
+            # Collectors may report UNKNOWN briefly before their snapshot converges;
+            # readiness is asserted below with a bounded wait instead of the CLI probe.
+>           payload = harness.start(
+                name, check=name not in {"collector-realtime", "collector-reliable", "sink"}
+            )
+
+tests/system/e2e/eight_service/conftest.py:399: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/system/e2e/eight_service/conftest.py:250: in start
+    return self.cli("service", "start", name, "--yes", check=check, timeout=120)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-106/test_storage_single_instance_50/e2e'), stack=R5Sta...t-106/test_storage_single_instance_50/e2e/logs'), _started=['configuration', 'gateway', 'gateway-target', 'commander'])
+check = True, timeout = 120
+arguments = ('service', 'start', 'commander', '--yes')
+completed = CompletedProcess(args=['/home/luosh/miniconda3/envs/wind-hub/bin/python3', '-m', 'cli.main', '--config', '/tmp/pytest-..."data": null, "error_code": "RuntimeError", "message": "managed service does not own its gRPC listener"}\n', stderr='')
+
+    def cli(
+        self,
+        *arguments: str,
+        check: bool = True,
+        timeout: float = 60.0,
+    ) -> dict[str, Any]:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "cli.main",
+                "--config",
+                str(self.cli_config),
+                "--format",
+                "json",
+                *arguments,
+            ],
+            cwd=SRC,
+            env={**os.environ, **self.env, "PYTHONPATH": f"{SRC}:{REPO_ROOT}"},
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        lines = [line for line in completed.stdout.splitlines() if line.startswith("{")]
+        payload = json.loads(lines[-1]) if lines else {}
+        payload.setdefault("exit_code", completed.returncode)
+        payload.setdefault("stderr", completed.stderr)
+        if check:
+>           assert completed.returncode == 0, (
+                arguments,
+                completed.returncode,
+                completed.stdout[-2000:],
+                completed.stderr[-2000:],
+            )
+E           AssertionError: (('service', 'start', 'commander', '--yes'), 1, '{"schema_version": 1, "command": "service start", "status": "FAILURE"... null, "data": null, "error_code": "RuntimeError", "message": "managed service does not own its gRPC listener"}
+E             ', '')
+E           assert 1 == 0
+E            +  where 1 = CompletedProcess(args=['/home/luosh/miniconda3/envs/wind-hub/bin/python3', '-m', 'cli.main', '--config', '/tmp/pytest-..."data": null, "error_code": "RuntimeError", "message": "managed service does not own its gRPC listener"}\n', stderr='').returncode
+
+tests/system/e2e/eight_service/conftest.py:239: AssertionError
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:30
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:30: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage_wide_100/capacity_retry.xml -
+=========================== short test summary info ============================
+ERROR tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+1 warning, 1 error in 48.02s

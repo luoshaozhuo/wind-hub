@@ -1,0 +1,36 @@
+Traceback (most recent call last):
+  File "<stdin>", line 36, in <module>
+AssertionError: [redacted-test-password]
+[redacted-test-password]
+Enter password: 
+Connect mode is : WebSocket
+
+==============================
+========== arguments config =========
+TDengine Community Edition
+taosdump version: 3.3.6.13
+git: 1a3a182ba16ee188c0677fb6cd637b34c52f6bd7
+build: Linux-x64 2025-06-28 22:48:07 +0800
+host: 127.0.0.1
+user: root
+port: 6041
+outpath: /tmp/whbkp_1726d4ae310d4840baeb148d801a6126/
+inpath: 
+resultFile: ./dump_result.txt
+all_databases: false
+databases: true
+databasesSeq: whbkp_1726d4ae310d4840baeb148d801a6126
+schemaonly: false
+with_property: true
+avro codec: snappy
+data_batch: 16383
+thread_num: 8
+allow_sys: false
+escape_char: true
+loose_mode: false
+isDumpIn: false
+arg_list_len: 0
+start time: 2026-11-26 08:50:56
+[31mERROR: /tmp/whbkp_1726d4ae310d4840baeb148d801a6126/ is not exist!
+[0mend time: 2026-11-26 08:50:56
+

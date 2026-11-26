@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="29.798" timestamp="2026-11-26T16:53:39.997463+08:00" hostname="boss"><testcase classname="tests.system.e2e.eight_service.test_e2e_storage_history_operations" name="test_real_history_aggregate_and_export_operations" time="29.722"><failure message="AssertionError: Storage rejected injected rows: [topic: &quot;windhub.e2e.history&quot;&#10;committed_next_offset: 2&#10;last_confirmed_offset: 1&#10;block_reason: &quot;WIDE_RECORD_INVALID: wide record must contain the complete physical point set&quot;&#10;blocked_offset: 2&#10;]">started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-74/test_real_history_aggregate_an0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_real_history_aggregate_and_export_operations(started: EightServiceHarness) -&gt; None:
+        harness = started
+        base = datetime.now(UTC)
+        rows = [
+            _row(harness, device=WTG, level="protocol", sample_time=base),
+            _row(harness, device=BESS, level="protocol", sample_time=base + timedelta(microseconds=1)),
+            _row(harness, device=WTG, level="raw", sample_time=base + timedelta(microseconds=2)),
+            _row(harness, device=WTG, level="business", sample_time=base + timedelta(microseconds=3)),
+        ]
+        asyncio.run(_publish(rows, harness.stack.kafka))
+        start = base - timedelta(seconds=1)
+        end = base + timedelta(seconds=2)
+        metadata = (("authorization", f"Bearer {harness.env['WIND_HUB_STORAGE_OPERATOR_TOKEN']}"),)
+    
+        with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
+            stub = storage_rpc.StorageServiceStub(channel)
+            protocol_request = storage_pb.QuerySamplesRequest(
+                filter=_filter(
+                    level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
+                    start=start,
+                    end=end,
+                    devices=(WTG, BESS),
+                ),
+                page_size=1,
+            )
+            blocked_deadline = time.monotonic() + 10
+            while time.monotonic() &lt; blocked_deadline:
+                blocked = stub.ListBlockedPartitions(
+                    storage_pb.ListBlockedPartitionsRequest(page_size=100),
+                    metadata=metadata,
+                    timeout=10,
+                )
+                if blocked.items:
+&gt;                   raise AssertionError(f"Storage rejected injected rows: {blocked.items}")
+E                   AssertionError: Storage rejected injected rows: [topic: "windhub.e2e.history"
+E                   committed_next_offset: 2
+E                   last_confirmed_offset: 1
+E                   block_reason: "WIDE_RECORD_INVALID: wide record must contain the complete physical point set"
+E                   blocked_offset: 2
+E                   ]
+
+tests/system/e2e/eight_service/test_e2e_storage_history_operations.py:310: AssertionError</failure></testcase></testsuite></testsuites>

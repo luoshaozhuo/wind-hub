@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="38.889" timestamp="2026-11-26T16:55:56.559792+08:00" hostname="boss"><testcase classname="tests.system.e2e.eight_service.test_e2e_storage_history_operations" name="test_real_history_aggregate_and_export_operations" time="38.814"><failure message="assert 0 == 1&#10; +  where 0 = window_start {\n  seconds: 1795683382\n  nanos: 807000000\n}\nwindow_end {\n  seconds: 1795683382\n  nanos: 808000000\n}\nwind...a_type: &quot;float32&quot;\n  physical_name: &quot;p_wind_speed_3a27aad990906f2d_v1_2_0&quot;\n}\nmissing_count: 1\nresult {\n  value_u64: 0\n}\n.good_count">started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-75/test_real_history_aggregate_an0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_real_history_aggregate_and_export_operations(started: EightServiceHarness) -&gt; None:
+        harness = started
+        base = datetime.now(UTC)
+        rows = [
+            _row(harness, device=WTG, level="protocol", sample_time=base),
+            _row(harness, device=BESS, level="protocol", sample_time=base + timedelta(microseconds=1)),
+            _row(harness, device=WTG, level="raw", sample_time=base + timedelta(microseconds=2)),
+            _row(harness, device=WTG, level="business", sample_time=base + timedelta(microseconds=3)),
+        ]
+        asyncio.run(_publish(rows, harness.stack.kafka))
+        start = base - timedelta(seconds=1)
+        end = base + timedelta(seconds=2)
+        metadata = (("authorization", f"Bearer {harness.env['WIND_HUB_STORAGE_OPERATOR_TOKEN']}"),)
+    
+        with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
+            stub = storage_rpc.StorageServiceStub(channel)
+            protocol_request = storage_pb.QuerySamplesRequest(
+                filter=_filter(
+                    level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
+                    start=start,
+                    end=end,
+                    devices=(WTG, BESS),
+                ),
+                page_size=1,
+            )
+            blocked_deadline = time.monotonic() + 10
+            while time.monotonic() &lt; blocked_deadline:
+                blocked = stub.ListBlockedPartitions(
+                    storage_pb.ListBlockedPartitionsRequest(page_size=100),
+                    metadata=metadata,
+                    timeout=10,
+                )
+                if blocked.items:
+                    raise AssertionError(f"Storage rejected injected rows: {blocked.items}")
+                time.sleep(0.2)
+            groups, pages = _wait_protocol_groups(stub, protocol_request, metadata)
+            assert pages &gt;= 2
+            assert {group.device_id for group in groups} == {WTG, BESS}
+            assert len({group.schema_fingerprint for group in groups}) == 2
+            for group in groups:
+                assert len(group.rows) == 1
+                row = group.rows[0]
+                assert len(row.values) == len(group.columns)
+                assert len(unpack_quality_bitmap(row.quality, len(group.columns))) == len(group.columns)
+            wtg = next(group for group in groups if group.device_id == WTG)
+            wtg_columns = [column.point_id for column in wtg.columns]
+            wtg_row = wtg.rows[0]
+            power = wtg_row.values[wtg_columns.index("active_power")]
+            wind = wtg_row.values[wtg_columns.index("wind_speed")]
+            assert power.WhichOneof("value") == "value_f64" and power.value_f64 == 123.25
+            assert wind.WhichOneof("value") is None
+            assert (
+                unpack_quality_bitmap(wtg_row.quality, len(wtg_columns))[
+                    wtg_columns.index("wind_speed")
+                ]
+                == 1
+            )
+    
+            for level, field, expected in (
+                (storage_pb.STORAGE_DATA_LEVEL_RAW, "payload_bytes", b"\x00"),
+                (storage_pb.STORAGE_DATA_LEVEL_BUSINESS, "value_f64", 456.5),
+            ):
+                level_groups, _ = _query_all(
+                    stub,
+                    storage_pb.QuerySamplesRequest(
+                        filter=_filter(level=level, start=start, end=end, devices=(WTG,)),
+                        page_size=10,
+                    ),
+                    metadata,
+                )
+                assert len(level_groups) == 1 and len(level_groups[0].rows) == 1
+                group = level_groups[0]
+                columns = [column.point_id for column in group.columns]
+                value = group.rows[0].values[columns.index("active_power")]
+                assert value.WhichOneof("value") == field
+                assert getattr(value, field) == expected
+    
+            for name, operation in _OPERATIONS.items():
+                item = _aggregate_one(
+                    stub,
+                    operation=operation,
+                    filter_=_filter(
+                        level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
+                        start=start,
+                        end=end,
+                        devices=(WTG,),
+                        points=("active_power",),
+                    ),
+                    metadata=metadata,
+                )
+                assert item.good_count == 1
+                assert item.missing_count == 0
+                assert item.valid_count == 1
+                if name == "count":
+                    assert item.result.WhichOneof("value") == "value_u64"
+                    assert item.result.value_u64 == 1
+                else:
+                    assert item.result.WhichOneof("value") == "value_f64"
+                    assert item.result.value_f64 == pytest.approx(123.25)
+    
+                null_item = _aggregate_one(
+                    stub,
+                    operation=operation,
+                    filter_=_filter(
+                        level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
+                        start=start,
+                        end=end,
+                        devices=(WTG,),
+                        points=("wind_speed",),
+                    ),
+                    metadata=metadata,
+                )
+&gt;               assert null_item.good_count == 1
+E               assert 0 == 1
+E                +  where 0 = window_start {\n  seconds: 1795683382\n  nanos: 807000000\n}\nwindow_end {\n  seconds: 1795683382\n  nanos: 808000000\n}\nwind...a_type: "float32"\n  physical_name: "p_wind_speed_3a27aad990906f2d_v1_2_0"\n}\nmissing_count: 1\nresult {\n  value_u64: 0\n}\n.good_count
+
+tests/system/e2e/eight_service/test_e2e_storage_history_operations.py:407: AssertionError</failure></testcase></testsuite></testsuites>

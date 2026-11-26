@@ -1,0 +1,41 @@
+........................................................................ [ 10%]
+......................................F................................. [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 43%]
+........................................................................ [ 54%]
+........................................................................ [ 64%]
+........................................................................ [ 75%]
+........................................................................ [ 86%]
+........................................................................ [ 97%]
+..................                                                       [100%]
+=================================== FAILURES ===================================
+_______________ test_wide_filter_types_and_versions_are_explicit _______________
+
+    def test_wide_filter_types_and_versions_are_explicit() -> None:
+        query = storage_pb.QuerySamplesRequest.DESCRIPTOR.fields_by_name
+        assert query["filter"].number == 1
+        assert query["filter"].message_type is storage_pb.StorageFilter.DESCRIPTOR
+    
+        request = storage_pb.StorageFilter.DESCRIPTOR.fields_by_name
+        assert request["device_ids"].number == 3
+        assert request["device_ids"].is_repeated
+        assert request["data_level"].enum_type.name == "StorageDataLevel"
+        assert request["point_ids"].is_repeated
+        assert request["qualities"].is_repeated
+        assert request["qualities"].type == FieldDescriptor.TYPE_ENUM
+        assert request["qualities"].enum_type.name == "StorageQuality"
+        assert request["qualities"].number == 9
+        assert request["schema_fingerprint"].number == 10
+        assert request["schema_fingerprint"].has_presence
+    
+        for parent in (storage_pb.QueryAggregatesRequest, storage_pb.CreateExportRequest):
+            field = parent.DESCRIPTOR.fields_by_name["filter"]
+>           assert field.number == 2
+E           assert 1 == 2
+E            +  where 1 = <google._upb._message.FieldDescriptor object at 0x7a16476751f0>.number
+
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:49: AssertionError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/contracts_core.xml -
+=========================== short test summary info ============================
+FAILED tests/contracts/test_wide_rpc_v2_binding_consistency.py::test_wide_filter_types_and_versions_are_explicit
+1 failed, 665 passed in 29.41s

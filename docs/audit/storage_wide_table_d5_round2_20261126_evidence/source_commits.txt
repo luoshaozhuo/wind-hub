@@ -1,0 +1,10 @@
+d10c5fc19eefaa85c9b40cba36f25baed92454bc  remote/local baseline confirmed after fetch
+be4cf510d  feat(storage): migrate history contracts to windhub.storage.v2
+f47f68c3992937b43ee0947c3fb68e8b20a849f2  test(storage): add 500-point real capacity acceptance
+1ff9f30c4  test(contracts): pin every Storage v2 descriptor field
+6a88dd991  test(sink): retain full 600-second capacity stream
+8f8de1afb  test(sink): scope identity audit to capacity offsets
+e9fcd55b91dda027ec33f17a67bfadb77e838fd3  fix(storage): decode TDengine millisecond timestamps
+7083b7c95  test(sink): freeze writes before capacity identity audit
+76ed5edff1a03858a1b6427e6a09e1babcc4a14c  test(storage): isolate direct capacity services and enforce drain rate
+Remote push succeeded through 76ed5edff after transient TLS retries and timeout recovery.

@@ -1,0 +1,85 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_real_history_aggregate_and_export_operations _______________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-73/test_real_history_aggregate_an0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_real_history_aggregate_and_export_operations(started: EightServiceHarness) -> None:
+        harness = started
+        base = datetime.now(UTC)
+        rows = [
+            _row(harness, device=WTG, level="protocol", sample_time=base),
+            _row(harness, device=BESS, level="protocol", sample_time=base + timedelta(microseconds=1)),
+            _row(harness, device=WTG, level="raw", sample_time=base + timedelta(microseconds=2)),
+            _row(harness, device=WTG, level="business", sample_time=base + timedelta(microseconds=3)),
+        ]
+        asyncio.run(_publish(rows, harness.stack.kafka))
+        start = base - timedelta(seconds=1)
+        end = base + timedelta(seconds=2)
+        metadata = (("authorization", f"Bearer {harness.env['WIND_HUB_STORAGE_OPERATOR_TOKEN']}"),)
+    
+        with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
+            stub = storage_rpc.StorageServiceStub(channel)
+            protocol_request = storage_pb.QuerySamplesRequest(
+                filter=_filter(level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL, start=start, end=end),
+                page_size=1,
+            )
+>           groups, pages = _wait_protocol_groups(stub, protocol_request, metadata)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_storage_history_operations.py:297: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+stub = <contracts.storage_service_pb2_grpc.StorageServiceStub object at 0x7c7b998c1690>
+request = filter {
+  wind_farm_id: "e2e-final"
+  data_level: STORAGE_DATA_LEVEL_PROTOCOL
+  start_time {
+    seconds: 1795683015
+    nanos: 700185000
+  }
+  end_time {
+    seconds: 1795683018
+    nanos: 700185000
+  }
+}
+page_size: 1
+
+metadata = (('authorization', 'Bearer [REDACTED_TEST_TOKEN]'),)
+
+    def _wait_protocol_groups(
+        stub: storage_rpc.StorageServiceStub,
+        request: storage_pb.QuerySamplesRequest,
+        metadata: tuple[tuple[str, str], ...],
+    ) -> tuple[list[storage_pb.StorageGroup], int]:
+        deadline = time.monotonic() + 120
+        latest: Any = None
+        while time.monotonic() < deadline:
+            try:
+                groups, pages = _query_all(stub, request, metadata)
+                devices = {group.device_id for group in groups}
+                schemas = {group.schema_fingerprint for group in groups}
+                if {WTG, BESS} <= devices and len(schemas) >= 2:
+                    return groups, pages
+                latest = (devices, schemas)
+            except grpc.RpcError as exc:
+                latest = exc
+            time.sleep(1)
+>       raise AssertionError(f"timed out waiting for two real schema groups: {latest}")
+E       AssertionError: timed out waiting for two real schema groups: <_InactiveRpcError of RPC that terminated with:
+E       	status = StatusCode.FAILED_PRECONDITION
+E       	details = "Storage physical schema or historical conflict is invalid"
+E       	debug_error_string = "FAILED_PRECONDITION:Storage physical schema or historical conflict is invalid"
+E       >
+
+tests/system/e2e/eight_service/test_e2e_storage_history_operations.py:187: AssertionError
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:20
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:20: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/history_operations.xml -
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_storage_history_operations.py::test_real_history_aggregate_and_export_operations
+1 failed, 1 warning in 148.31s (0:02:28)

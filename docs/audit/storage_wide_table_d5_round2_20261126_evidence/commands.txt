@@ -1,0 +1,47 @@
+python3 scripts/dev.py env
+git fetch origin --prune
+git rev-parse HEAD
+git rev-parse origin/feat/storage-wide-table-completion-20261125
+python3 scripts/generate_rpc.py
+python3 scripts/generate_rpc.py --check
+python3 -m ruff check src tests scripts
+python3 -m ruff format --check src tests scripts
+python3 -m mypy src
+lint-imports
+python3 -m pytest --collect-only -q
+python3 -m pytest -q tests/contracts tests/core --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/contracts_core_final.xml
+python3 -m pytest -q tests/configuration_service --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/configuration.xml
+python3 -m pytest -q tests/collector/unit tests/collector/component tests/collector/integration --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/collector_final.xml
+python3 -m pytest -q tests/sink_service/unit tests/sink_service/component --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/sink_final.xml
+python3 -m pytest -q tests/storage_service/unit tests/storage_service/component --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage_final.xml
+python3 -m pytest -q tests/cli --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/cli_final.xml
+python3 -m pytest -q tests/storage_service/integration/test_kafka_real.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/real_kafka.xml
+python3 -m pytest -q tests/storage_service/integration/test_cli_restart_activation.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/real_storage_cli.xml
+python3 -m pytest -q tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/wire_acceptance.xml
+python3 -m pytest -q tests/cli/test_r1f3_strict_cli_e2e.py::test_strict_cli_five_service_data_command_restart_e2e --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/cli_strict_final.xml
+python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_eight_service_raw.py tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/eight_service.xml
+python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/eight_service_smoke_final.xml
+python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_history_operations.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/history_operations_final.xml
+python3 -m pytest -q tests/tooling/test_versionless_python_filenames.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/versionless.xml
+
+# Dedicated disposable TDengine 3.3.6.13; loopback-only dynamic port; label windhub.d2.disposable=true.
+# Environment set from /tmp/windhub-d5-r2-tdengine.json (container/endpoint, no production credentials).
+WIND_HUB_TEST_TDENGINE_WIDE_PROBE=1 WIND_HUB_TEST_TDENGINE_WIDE_RESTART=1 WIND_HUB_TEST_TDENGINE_PASSWORD=<test-only> WIND_HUB_TEST_TDENGINE_ENDPOINT=<loopback> WIND_HUB_TEST_TDENGINE_CONTAINER=<disposable> python3 -m pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/native_tdengine.xml
+WIND_HUB_TEST_TDENGINE_WIDE_PROBE=1 WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY=1 WIND_HUB_TEST_TDENGINE_PASSWORD=<test-only> WIND_HUB_TEST_TDENGINE_ENDPOINT=<loopback> python3 -m pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py::test_td01_single_table_native_baseline --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/native_single_table_baseline.xml
+python3 -m pytest -q tests/src/performance/test_batch_throughput.py::test_kafka_v3_encode_and_storage_validation_baseline --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/json_v3_microbenchmark.xml
+python3 scripts/dev.py python scripts/ci_gate.py performance --output docs/audit/storage_wide_table_d5_round2_20261126_evidence/performance.xml
+
+# Native backup used the dedicated container and host+container PTY; it did not execute production Storage RPC.
+# Exact argv: taosdump -Z 1 -h 127.0.0.1 -P 6041 -u root -p -D <disposable-db> -o <disposable-path>
+# Restore argv: taosdump -Z 1 -h 127.0.0.1 -P 6041 -u root -p -i <disposable-path>
+# Full 500-point row was independently read back after DROP DATABASE and restore.
+
+R14_DURATION_S=600 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_RESULT_DIR=docs/audit/storage_wide_table_d5_round2_20261126_evidence python3 -m pytest -q tests/sink_service/system/test_capacity_r14_sustained.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/capacity_30_baseline.xml
+R14_DURATION_S=600 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_STREAM_MAX_BYTES=34359738368 R14_RESULT_DIR=docs/audit/storage_wide_table_d5_round2_20261126_evidence python3 -m pytest -q tests/sink_service/system/test_capacity_r14_sustained.py --junitxml=docs/audit/storage_wide_table_d5_round2_20261126_evidence/capacity_30_baseline_32g.xml
+python3 docs/audit/storage_wide_table_d5_round2_20261126_evidence/run_capacity_matrix.py
+# Bounded matrix (each cell sequential and isolated): R14_DURATION_S=60, DEGREE=30, TARGET=300,
+# R14_KAFKA_MAX_SAFE_INFLIGHT=4/8/16/32 and R14_KAFKA_LINGER_MS=0/1/5/10.
+# Capacity degrees 100 and 300 use the same 500-point rows and full identity audit; 1000 is conditional.
+STORAGE_WIDE_DEVICES=30 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_RESULT_DIR=docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage_wide_30/full python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=100 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_RESULT_DIR=docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage_wide_100 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=300 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_RESULT_DIR=docs/audit/storage_wide_table_d5_round2_20261126_evidence/storage_wide_300 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity

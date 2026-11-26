@@ -1,0 +1,3 @@
+src/storage_service/infrastructure/adapters/inbound/grpc_server.py:250: error: Incompatible types in assignment (expression has type "int | None", variable has type "int")  [assignment]
+src/storage_service/infrastructure/adapters/inbound/grpc_server.py:265: error: Argument 1 to "float" has incompatible type "object"; expected "str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
+Found 2 errors in 1 file (checked 494 source files)

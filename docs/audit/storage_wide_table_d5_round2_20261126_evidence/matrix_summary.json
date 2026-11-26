@@ -1,0 +1,210 @@
+[
+  {
+    "case": "c4_l0",
+    "concurrency": 4,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 115.08,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/r14_capacity_d30_r300_c4_b131072_l0_p1_fa9857291463_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/r14_capacity_d30_r300_c4_b131072_l0_p1_fa9857291463.json"
+    ]
+  },
+  {
+    "case": "c4_l1",
+    "concurrency": 4,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 105.012,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l1/r14_capacity_d30_r300_c4_b131072_l1_p1_998937fcbfa2_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l1/r14_capacity_d30_r300_c4_b131072_l1_p1_998937fcbfa2.json"
+    ]
+  },
+  {
+    "case": "c4_l5",
+    "concurrency": 4,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 109.769,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l5/r14_capacity_d30_r300_c4_b131072_l5_p1_369916d6ea37_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l5/r14_capacity_d30_r300_c4_b131072_l5_p1_369916d6ea37.json"
+    ]
+  },
+  {
+    "case": "c4_l10",
+    "concurrency": 4,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 106.604,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l10/r14_capacity_d30_r300_c4_b131072_l10_p1_806f48742f0e_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l10/r14_capacity_d30_r300_c4_b131072_l10_p1_806f48742f0e.json"
+    ]
+  },
+  {
+    "case": "c8_l0",
+    "concurrency": 8,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 105.611,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l0/r14_capacity_d30_r300_c8_b131072_l0_p1_aafeeb7591ed.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l0/r14_capacity_d30_r300_c8_b131072_l0_p1_aafeeb7591ed_metric_names.json"
+    ]
+  },
+  {
+    "case": "c8_l1",
+    "concurrency": 8,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 102.902,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l1/r14_capacity_d30_r300_c8_b131072_l1_p1_d733a2e710f8.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l1/r14_capacity_d30_r300_c8_b131072_l1_p1_d733a2e710f8_metric_names.json"
+    ]
+  },
+  {
+    "case": "c8_l5",
+    "concurrency": 8,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 103.055,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l5/r14_capacity_d30_r300_c8_b131072_l5_p1_9f7c95b9728b.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l5/r14_capacity_d30_r300_c8_b131072_l5_p1_9f7c95b9728b_metric_names.json"
+    ]
+  },
+  {
+    "case": "c8_l10",
+    "concurrency": 8,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 103.802,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l10/r14_capacity_d30_r300_c8_b131072_l10_p1_6d49c8d4db27_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c8_l10/r14_capacity_d30_r300_c8_b131072_l10_p1_6d49c8d4db27.json"
+    ]
+  },
+  {
+    "case": "c16_l0",
+    "concurrency": 16,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 103.556,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l0/r14_capacity_d30_r300_c16_b131072_l0_p1_e7c265755398.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l0/r14_capacity_d30_r300_c16_b131072_l0_p1_e7c265755398_metric_names.json"
+    ]
+  },
+  {
+    "case": "c16_l1",
+    "concurrency": 16,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 101.461,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l1/r14_capacity_d30_r300_c16_b131072_l1_p1_c0ac0cbd3ffe.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l1/r14_capacity_d30_r300_c16_b131072_l1_p1_c0ac0cbd3ffe_metric_names.json"
+    ]
+  },
+  {
+    "case": "c16_l5",
+    "concurrency": 16,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 102.103,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l5/r14_capacity_d30_r300_c16_b131072_l5_p1_a82a25b89ab9.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l5/r14_capacity_d30_r300_c16_b131072_l5_p1_a82a25b89ab9_metric_names.json"
+    ]
+  },
+  {
+    "case": "c16_l10",
+    "concurrency": 16,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 102.305,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l10/r14_capacity_d30_r300_c16_b131072_l10_p1_55edc7fe1328_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c16_l10/r14_capacity_d30_r300_c16_b131072_l10_p1_55edc7fe1328.json"
+    ]
+  },
+  {
+    "case": "c32_l0",
+    "concurrency": 32,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 102.75,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l0/r14_capacity_d30_r300_c32_b131072_l0_p1_93afe10e341d.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l0/r14_capacity_d30_r300_c32_b131072_l0_p1_93afe10e341d_metric_names.json"
+    ]
+  },
+  {
+    "case": "c32_l1",
+    "concurrency": 32,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 100.61,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l1/r14_capacity_d30_r300_c32_b131072_l1_p1_83b72f09215e.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l1/r14_capacity_d30_r300_c32_b131072_l1_p1_83b72f09215e_metric_names.json"
+    ]
+  },
+  {
+    "case": "c32_l5",
+    "concurrency": 32,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 101.749,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l5/r14_capacity_d30_r300_c32_b131072_l5_p1_08c0f3eb8c59_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l5/r14_capacity_d30_r300_c32_b131072_l5_p1_08c0f3eb8c59.json"
+    ]
+  },
+  {
+    "case": "c32_l10",
+    "concurrency": 32,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 104.565,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l10/r14_capacity_d30_r300_c32_b131072_l10_p1_e24498bfc021.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c32_l10/r14_capacity_d30_r300_c32_b131072_l10_p1_e24498bfc021_metric_names.json"
+    ]
+  }
+]

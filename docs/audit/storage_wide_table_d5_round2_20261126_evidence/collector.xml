@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="11" skipped="0" tests="120" time="8.378" timestamp="2026-11-26T16:32:25.794205+08:00" hostname="boss"><testcase classname="tests.collector.unit.test_apply_result_isolation" name="test_other_device_apply_error_does_not_contaminate_success" time="0.001" /><testcase classname="tests.collector.unit.test_apply_result_isolation" name="test_requested_device_apply_error_is_returned" time="0.000" /><testcase classname="tests.collector.unit.test_batch_builder" name="test_split_order_unique_identities_and_update_site" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">def test_split_order_unique_identities_and_update_site() -&gt; None:
+        builder = _builder()
+&gt;       batches = builder.pack(
+            "wtg-01",
+            tuple(_sample(f"p{i}") for i in range(5)),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wtg-01",
+        )
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:36: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_batch_builder" name="test_empty_duplicate_and_oversized_single_sample_are_bounded" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">def test_empty_duplicate_and_oversized_single_sample_are_bounded() -&gt; None:
+        builder = _builder(max_samples_per_batch=100, max_batch_bytes=256)
+        assert (
+&gt;           builder.pack(
+                "wtg-01",
+                (),
+                device_type=DEVICE_TYPE,
+                point_table_id=POINT_TABLE,
+                task_id="task-wtg-01",
+            )
+            == []
+        )
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:66: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_batch_builder" name="test_nonpositive_sample_limit_is_rejected[0]" time="0.000" /><testcase classname="tests.collector.unit.test_batch_builder" name="test_nonpositive_sample_limit_is_rejected[-1]" time="0.000" /><testcase classname="tests.collector.unit.test_batch_builder" name="test_nonpositive_byte_limit_is_rejected" time="0.000" /><testcase classname="tests.collector.unit.test_batch_builder" name="test_realtime_staleness_and_reliable_identity_fields" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">def test_realtime_staleness_and_reliable_identity_fields() -&gt; None:
+&gt;       realtime = _builder("realtime").pack(
+            "wtg-01",
+            (_sample("p"),),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wtg-01",
+        )[0]
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:105: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_batch_builder" name="test_task_identity_is_not_derived_from_device_identity" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">def test_task_identity_is_not_derived_from_device_identity() -&gt; None:
+        builder = _builder()
+&gt;       first = builder.pack(
+            "wtg-01",
+            (_sample("p"),),
+            device_type=DEVICE_TYPE,
+            point_table_id=POINT_TABLE,
+            task_id="task-wind-speed",
+        )[0]
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:127: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_batch_builder" name="test_invalid_task_identity_fails_closed" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">def test_invalid_task_identity_fails_closed() -&gt; None:
+        with pytest.raises(ValueError):
+&gt;           _builder().pack(
+                "wtg-01",
+                (_sample("p"),),
+                device_type=DEVICE_TYPE,
+                point_table_id=POINT_TABLE,
+                task_id="task with space",
+            )
+E           TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_batch_builder.py:150: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_batch_builder_wide" name="test_reliable_full_cycle_preserves_original_timestamp_and_missing_points" time="0.001" /><testcase classname="tests.collector.unit.test_batch_builder_wide" name="test_empty_reliable_cycle_is_complete_not_collected_batch" time="0.000" /><testcase classname="tests.collector.unit.test_batch_builder_wide" name="test_reliable_device_cycle_never_splits" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_valid_service_settings" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_v2_batch_messaging_limits_accepted" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_unknown_messaging_key_rejected" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[runtime-connect_timeout-0]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[runtime-read_timeout-nan]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[runtime-shutdown_timeout-True]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[watchdog-interval--1]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-delivery-no-such-mode]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-servers-bad5]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-max_staleness_ms-0]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-max_samples_per_batch-0]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-max_samples_per_batch-True]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-max_batch_bytes--1]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-queue_capacity-1.5]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[messaging-enqueue_timeout_s-0]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[metrics-publish_interval-0]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[metrics-windows-bad13]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[metrics-pending_capacity--1]" time="0.000" /><testcase classname="tests.collector.unit.test_config_service_validation" name="test_invalid_service_settings_rejected[metrics-enabled-true]" time="0.000" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_resolves_exact_selected_instance_files" time="0.003" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_missing_selected_instance_fails_closed" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_deployment_version_does_not_guess_latest" time="0.003" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_path_references_are_not_logical_instance_ids[instances/device_farm-a_v1.0.0.yaml]" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_path_references_are_not_logical_instance_ids[../escape]" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_path_references_are_not_logical_instance_ids[]" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_path_references_are_not_logical_instance_ids[/absolute]" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_service_must_not_reference_templates_directly" time="0.002" /><testcase classname="tests.collector.unit.test_configuration_source_paths" name="test_symlinked_selected_instance_is_rejected" time="0.002" /><testcase classname="tests.collector.unit.test_lifecycle" name="test_lifecycle_start_update_stop" time="0.001" /><testcase classname="tests.collector.unit.test_lifecycle" name="test_failed_reconfiguration_keeps_previous_model" time="0.002" /><testcase classname="tests.collector.unit.test_lifecycle" name="test_startup_failure_is_not_reported_as_running" time="0.001" /><testcase classname="tests.collector.unit.test_metrics_emitter" name="test_emits_only_observed_utc_fixed_window_counts" time="0.000" /><testcase classname="tests.collector.unit.test_metrics_emitter" name="test_pending_fixed_window_capacity_drops_oldest" time="0.000" /><testcase classname="tests.collector.unit.test_metrics_emitter" name="test_invalid_metrics_emitter_limits" time="0.000" /><testcase classname="tests.collector.unit.test_publisher_sample_evidence" name="test_evidence_keeps_latest_sample_per_device_and_point" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">async def test_evidence_keeps_latest_sample_per_device_and_point() -&gt; None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+    
+&gt;       await publisher._send(_pack(publisher._builder, "WTG_SIM01", (_sample("wind_speed"),))[0])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/collector/unit/test_publisher_sample_evidence.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = &lt;collector.application.batch_builder.BatchBuilder object at 0x715deb981c90&gt;
+device_id = 'WTG_SIM01'
+samples = (ProtocolSample(point_id='wind_speed', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 215, tzinfo=dat...026, 11, 26, 8, 32, 26, 223, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+&gt;       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_publisher_sample_evidence" name="test_evidence_is_bounded_and_diagnostics_filter_by_device" time="0.000"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">async def test_evidence_is_bounded_and_diagnostics_filter_by_device() -&gt; None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+    
+        for device in ("WTG_SIM01", "PV_SIM01", "BESS_SIM01"):
+            for index in range(120):
+                await publisher._send(
+&gt;                   _pack(publisher._builder, device, (_sample(f"point_{index}"),))[0]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                )
+
+tests/collector/unit/test_publisher_sample_evidence.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = &lt;collector.application.batch_builder.BatchBuilder object at 0x715deb9a7850&gt;
+device_id = 'WTG_SIM01'
+samples = (ProtocolSample(point_id='point_0', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 3189, tzinfo=datet...26, 11, 26, 8, 32, 26, 3193, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+&gt;       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_publisher_sample_evidence" name="test_evidence_starts_empty_and_ignores_unrelated_devices" time="0.001"><failure message="TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'">async def test_evidence_starts_empty_and_ignores_unrelated_devices() -&gt; None:
+        publisher = _publisher()
+        publisher._connection = _FakeConnection()
+        assert publisher.last_sample_evidence == ()
+    
+&gt;       await publisher._send(_pack(publisher._builder, "OTHER_DEVICE", (_sample("wind_speed"),))[0])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/collector/unit/test_publisher_sample_evidence.py:139: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+builder = &lt;collector.application.batch_builder.BatchBuilder object at 0x715deb983190&gt;
+device_id = 'OTHER_DEVICE'
+samples = (ProtocolSample(point_id='wind_speed', value=1.0, timestamp=datetime.datetime(2026, 11, 26, 8, 32, 26, 6035, tzinfo=da...26, 11, 26, 8, 32, 26, 6039, tzinfo=datetime.timezone.utc), device_time=None, protocol_metadata=(), raw_payload=None),)
+
+    def _pack(builder, device_id: str, samples: tuple[ProtocolSample, ...]):
+&gt;       return builder.pack(device_id, samples, task_id=f"{device_id}-task", **_identity(device_id))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: BatchBuilder.pack() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/collector/unit/test_publisher_sample_evidence.py:66: TypeError</failure></testcase><testcase classname="tests.collector.unit.test_task_intents" name="test_intent_upsert_and_version_scoped_read" time="0.002" /><testcase classname="tests.collector.unit.test_task_intents" name="test_intent_validation_rejects_illegal_input" time="0.001" /><testcase classname="tests.collector.unit.test_task_intents" name="test_intent_store_rejects_symlink_path" time="0.000" /><testcase classname="tests.collector.unit.test_task_intents" name="test_reader_and_writer_share_identical_instance_key" time="0.001" /><testcase classname="tests.collector.unit.test_task_intents" name="test_legacy_device_scoped_intents_are_not_applied_to_task_groups" time="0.001" /><testcase classname="tests.collector.unit.test_telemetry" name="test_cumulative_and_observed_window_are_distinct" time="0.000" /><testcase classname="tests.collector.unit.test_telemetry" name="test_empty_window_omits_unobserved_metrics" time="0.000" /><testcase classname="tests.collector.unit.test_telemetry" name="test_event_capacity_and_time_filter" time="0.000" /><testcase classname="tests.collector.unit.test_telemetry" name="test_rejects_negative_counter_and_invalid_capacity" time="0.000" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_poll_starts_and_stops_with_owned_session" time="0.441" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_stale_callback_during_recovery_never_promotes_running[True-RECOVERING]" time="0.350" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_stale_callback_during_recovery_never_promotes_running[False-STOPPING]" time="0.337" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_stale_callback_during_recovery_never_promotes_running[True-ISOLATED]" time="0.328" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_transient_isolation_with_healthy_io_still_promotes_running" time="0.340" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_stop_intent_does_not_start_protocol_session" time="0.377" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_unsettled_read_is_not_overlapped_by_reconnect" time="0.453" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_device_reconfigure_replaces_only_changed_worker" time="0.337" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_subscribe_mode_owns_remote_notification_handle" time="0.440" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_listen_mode_owns_local_listener_handle" time="0.446" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_active_read_falls_back_to_serial_read_one" time="0.374" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_interrogation_requires_protocol_capability" time="0.398" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_health_timeout_never_reopens_unsettled_session" time="0.709" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_one_device_factory_failure_does_not_disrupt_other_devices" time="0.390" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_blocked_device_does_not_block_other_incremental_updates" time="0.626" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_timed_out_active_rpc_keeps_device_session_owned" time="0.507" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_failed_device_close_preserves_old_worker_for_retry" time="0.371" /><testcase classname="tests.collector.component.test_acquisition_runtime" name="test_connection_failure_publishes_bad_cycle_without_crashing_supervisor" time="0.359" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_push_is_inert_and_apply_activates" time="0.005" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_failed_runtime_convergence_is_reported" time="0.004" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_restart_required_does_not_claim_runtime_activation" time="0.007" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_stale_apply_rejected_without_overwrite" time="0.005" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_repeated_apply_reuses_original_result" time="0.003" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_failed_apply_converges_later_without_recommitting" time="0.004" /><testcase classname="tests.collector.component.test_configuration_manager" name="test_service_source_change_waits_for_restart" time="0.008" /><testcase classname="tests.collector.component.test_grpc_contract" name="test_all_services_and_inventory" time="0.002"><failure message="core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml">config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -&gt; SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+&gt;           selected = select_local_service(config_file)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/collector/infrastructure/config/validation.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/configuration/local_selection.py:82: in select_local_service
+    service_path = _safe_file(root, Path("services") / service_path.name)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0')
+relative = PosixPath('services/service_collector-realtime_v1.1.0.yaml')
+
+    def _safe_file(root: Path, relative: Path) -&gt; Path:
+        """Reject missing, escaping, and symlinked configuration selections."""
+        path = root / relative
+        if not path.is_relative_to(root):
+            raise ValueError("selected configuration escapes its root")
+        current = path
+        while current != root:
+            if current.is_symlink():
+                raise ValueError("symbolic-link configuration references are forbidden")
+            current = current.parent
+        if not path.is_file():
+&gt;           raise ValueError(f"selected configuration is missing: {relative}")
+E           ValueError: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/core/configuration/local_selection.py:55: ValueError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x715deb0c2cd0&gt;
+
+    @pytest.mark.asyncio
+    async def test_all_services_and_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -&gt; None:
+        monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+        # The real process bootstraps through Deployment-based exact version
+        # selection: copy the complete shipped tree and address the versioned
+        # Service file; deployment_prod-a is the sole selector of collector-realtime.
+        for folder in ("services", "instances", "templates", "deployments"):
+            shutil.copytree(CONFIG_ROOT / folder, tmp_path / folder)
+        service_path = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
+&gt;       app = await assemble_collector(
+            service_path,
+            state_directory=tmp_path / "state",
+            grpc_port=0,
+            collector_id="collector-test",
+        )
+
+tests/collector/component/test_grpc_contract.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/assembly.py:203: in assemble_collector
+    source = await asyncio.to_thread(resolve_source_paths, config_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_all_services_and_inventor0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -&gt; SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+            selected = select_local_service(config_file)
+            site_path = selected.instances["site"]
+            devices_path = selected.instances["devices"]
+            tasks_path = selected.instances["tasks"]
+        except (KeyError, ValueError, OSError) as exc:
+&gt;           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E           core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/collector/infrastructure/config/validation.py:42: ConfigError</failure></testcase><testcase classname="tests.collector.component.test_grpc_contract" name="test_configuration_redaction_handles_nested_credentials" time="0.001" /><testcase classname="tests.collector.component.test_grpc_contract" name="test_non_secret_snapshot_is_byte_identical" time="0.000" /><testcase classname="tests.collector.component.test_grpc_contract" name="test_empty_secret_placeholder_is_byte_identical" time="0.000" /><testcase classname="tests.collector.component.test_rpc_bounds" name="test_interrogate_timeout_ms_zero_uses_server_bound" time="0.201" /><testcase classname="tests.collector.component.test_rpc_bounds" name="test_interrogate_explicit_timeout_is_capped_at_server_bound" time="0.201" /><testcase classname="tests.collector.component.test_rpc_bounds" name="test_protocol_error_maps_to_declared_grpc_status" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_grpc" name="test_full_snapshot_grpc_roundtrip" time="0.002"><failure message="core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml">config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -&gt; SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+&gt;           selected = select_local_service(config_file)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/collector/infrastructure/config/validation.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/core/configuration/local_selection.py:82: in select_local_service
+    service_path = _safe_file(root, Path("services") / service_path.name)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0')
+relative = PosixPath('services/service_collector-realtime_v1.1.0.yaml')
+
+    def _safe_file(root: Path, relative: Path) -&gt; Path:
+        """Reject missing, escaping, and symlinked configuration selections."""
+        path = root / relative
+        if not path.is_relative_to(root):
+            raise ValueError("selected configuration escapes its root")
+        current = path
+        while current != root:
+            if current.is_symlink():
+                raise ValueError("symbolic-link configuration references are forbidden")
+            current = current.parent
+        if not path.is_file():
+&gt;           raise ValueError(f"selected configuration is missing: {relative}")
+E           ValueError: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/core/configuration/local_selection.py:55: ValueError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x715deb9a8a90&gt;
+
+    @pytest.mark.asyncio
+    async def test_full_snapshot_grpc_roundtrip(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -&gt; None:
+        monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", AUTH[0][1])
+        for folder in ("services", "instances", "templates", "deployments"):
+            shutil.copytree(ROOT / "deploy" / "config_roots" / "prod-a" / folder, tmp_path / folder)
+        service_file = tmp_path / "services" / "service_collector-realtime_v1.1.0.yaml"
+    
+&gt;       app = await assemble_collector(
+            service_file,
+            state_directory=tmp_path / "state",
+            grpc_port=0,
+        )
+
+tests/collector/component/test_snapshot_grpc.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/assembly.py:203: in assemble_collector
+    source = await asyncio.to_thread(resolve_source_paths, config_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+config_file = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_full_snapshot_grpc_roundt0/services/service_collector-realtime_v1.1.0.yaml')
+
+    def resolve_source_paths(config_file: Path) -&gt; SnapshotPaths:
+        """Resolve exactly the Instances selected by the active Deployment."""
+        from core.configuration.local_selection import select_local_service
+    
+        try:
+            selected = select_local_service(config_file)
+            site_path = selected.instances["site"]
+            devices_path = selected.instances["devices"]
+            tasks_path = selected.instances["tasks"]
+        except (KeyError, ValueError, OSError) as exc:
+&gt;           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E           core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-realtime_v1.1.0.yaml
+
+src/collector/infrastructure/config/validation.py:42: ConfigError</failure></testcase><testcase classname="tests.collector.component.test_snapshot_repository" name="test_catalog_version_is_selected_by_snapshot_not_hardcoded" time="0.002" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_catalog_version_upgrade_preserves_original_bytes" time="0.006" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_reject_malformed_standard_catalog_version[templates/business_points_standard_v1.5.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_reject_malformed_standard_catalog_version[templates/units_standard_v1.2.0-extra.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_reject_malformed_standard_catalog_version[templates/business_points_standard_v01.5.0.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_candidate_is_inert_until_commit" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_old_generation_remains_readable_after_switch" time="0.006" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_stale_candidate_does_not_overwrite_active" time="0.004" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[/absolute.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[../services/service_collector-realtime_v1.0.0.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[services/commander.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[instances/deliveries.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[templates/deliveries/a/1.0.0.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[templates/point_tables/point_table_../tasks/1.0.0.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_forbids_paths_outside_collector_ownership[instances\\devices.yaml]" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_core_validation_failure_keeps_current_pointer" time="0.001" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_candidate_size_is_bounded" time="0.000" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_published_template_version_cannot_change" time="0.004" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_commit_receipt_survives_repository_recreation" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_prepared_receipt_recovers_after_pointer_switch" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_slow_disk_commit_does_not_block_event_loop" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_candidate_survives_process_restart" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_gc_preserves_active_and_receipted_generations" time="0.003" /><testcase classname="tests.collector.component.test_snapshot_repository" name="test_stage_reclaims_orphan_generations_from_crash_window" time="0.004" /><testcase classname="tests.collector.integration.test_declared_source_validation" name="test_nondefault_source_files_are_used_by_full_validation" time="0.008"><failure message="core.application.errors.ConfigError: /tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0/services/service_collector-realtime_v1.0.0.yaml: unsupported schema_version 1">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0')
+
+    def test_nondefault_source_files_are_used_by_full_validation(tmp_path: Path) -&gt; None:
+        service = _tree(tmp_path)
+        paths = resolve_source_paths(service)
+        assert paths.site == tmp_path / "instances/site_site-A_v1.0.0.yaml"
+        assert paths.devices == tmp_path / "instances/device_devices-A_v1.0.0.yaml"
+&gt;       validate_collector_snapshot(paths)
+
+tests/collector/integration/test_declared_source_validation.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/collector/infrastructure/config/validation.py:235: in validate_collector_snapshot
+    validate_document_version(service, paths.service, supported_schema=6)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+document = {'config_sources': {'instances': {'devices': 'devices-A', 'site': 'site-A', 'tasks': 'farm-a'}}, 'file_version': '1.0....4222']}, 'metrics': {'enabled': True, 'event_capacity': 1000, 'max_staleness': 300, 'pending_capacity': 256, ...}, ...}
+path = PosixPath('/tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0/services/service_collector-realtime_v1.0.0.yaml')
+
+    def validate_document_version(
+        document: Mapping[str, Any],
+        path: str | Path,
+        *,
+        supported_schema: int = 1,
+    ) -&gt; DocumentVersion:
+        """Reject unsupported schemas and missing or malformed file versions."""
+        schema_version = document.get("schema_version")
+        if type(schema_version) is not int or schema_version != supported_schema:
+&gt;           raise ConfigError(f"{path}: unsupported schema_version {schema_version!r}")
+E           core.application.errors.ConfigError: /tmp/pytest-of-luosh/pytest-51/test_nondefault_source_files_a0/services/service_collector-realtime_v1.0.0.yaml: unsupported schema_version 1
+
+src/core/configuration/document_version.py:35: ConfigError</failure></testcase><testcase classname="tests.collector.integration.test_declared_source_validation" name="test_no_fallback_to_valid_default_when_declared_file_invalid[site_site-A_v1.0.0.yaml]" time="0.006" /><testcase classname="tests.collector.integration.test_declared_source_validation" name="test_no_fallback_to_valid_default_when_declared_file_invalid[device_devices-A_v1.0.0.yaml]" time="0.007" /><testcase classname="tests.collector.integration.test_service_snapshot_source" name="test_service_path_binding_persists_without_source_fallback" time="0.012" /></testsuite></testsuites>

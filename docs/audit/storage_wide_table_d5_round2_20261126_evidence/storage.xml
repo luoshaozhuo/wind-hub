@@ -1,0 +1,738 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="0" tests="249" time="2.521" timestamp="2026-11-26T16:35:22.376785+08:00" hostname="boss"><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_persist_is_idempotent_and_rejects_new_history_beyond_quota" time="0.002" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_set_max_bytes_fails_closed_for_existing_archive_and_duplicate_replay" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_partial_entry_consumes_quota_before_completion" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_fixed_version_cannot_be_rebound_to_different_content" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_same_fixed_version_is_stable_across_bundle_revisions" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_deployment_service_bundle_has_exact_selected_identity" time="0.031" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_wrong_closure_sha" time="0.025" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_historical_point_table_bundle_requires_exact_manifest" time="0.011" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_rejects_legacy_fixed_template_sources" time="0.008" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_requires_both_selected_instance_roles" time="0.007" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[semantic_hash]" time="0.021" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[duplicate_yaml_key]" time="0.024" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[yaml_alias]" time="0.020" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_only_allows_module_configuration_inside_service" time="0.011" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_unknown_point_table_reconciles_then_retries_original_identity" time="0.003" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_configuration_failure_and_missing_target_fail_closed" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_concurrent_partitions_and_periodic_hint_share_one_pull" time="0.016" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_same_name_versions_and_archive_fallback_remain_exact" time="0.003" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_yaml_identity_and_same_revision_mutation_are_rejected" time="0.017" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_restart_required_keeps_verified_old_closure" time="0.016" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_demand_failure_updates_health_without_poisoning_next_refresh" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_unrelated_repository_revision_does_not_rewrite_storage_snapshot" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_rejected_device_model_rebinding_is_not_persisted" time="0.008" /><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-2]" time="0.001" /><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-3]" time="0.001" /><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-2]" time="0.001" /><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-3]" time="0.001" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes0-device references absent fixed DeviceModel]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes1-pinned PointTable is absent]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes2-device_type conflicts]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes3-PointTable document identity]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes4-selected Site identity]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_deployment_missing_selected_instance_rejected" time="0.003" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_retains_multiple_instances_from_one_versioned_device_document" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_snapshot_restores_all_historical_device_bindings_without_main_changes" time="0.005" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_sqlite_persists_historical_device_bindings_across_restart" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_restart_target_is_durable_without_replacing_active_snapshot" time="0.005" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_sqlite_schema_v1_upgrade_creates_historical_device_binding_table" time="0.002" /><testcase classname="tests.storage_service.unit.test_exact_device_bundle_rpc" name="test_historical_device_closure_uses_direct_file_version" time="0.001" /><testcase classname="tests.storage_service.unit.test_exact_device_bundle_rpc" name="test_historical_device_closure_rejects_invalid_file_id" time="0.000" /><testcase classname="tests.storage_service.unit.test_historical_device_closure" name="test_unknown_historical_device_is_persisted_before_wide_schema_use" time="0.002"><failure message="AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_exact_binding_cache'">@pytest.mark.asyncio
+    async def test_unknown_historical_device_is_persisted_before_wide_schema_use() -&gt; None:
+        resolver = object.__new__(ConfigurationPointTableResolver)
+        resolver._device_bindings = {}
+        resolver._pins = {}
+        resolver._business_pins = {}
+        resolver._loaded = {}
+        resolver._lock = asyncio.Lock()
+        resolver._refresh_hook = None
+        resolver._persist_historical = Mock()
+        resolver._fetcher = Mock()
+        resolver._fetcher.fetch_exact_device_closure = AsyncMock(return_value=_closure())
+        resolver._load = AsyncMock(
+            return_value={
+                "schema_version": 1,
+                "template_id": "wind",
+                "file_version": "1.0.0",
+                "protocol": "modbus",
+                "points": {"wind_speed": {"data_type": "float32", "address": {"count": 2}}},
+            }
+        )
+        identity = WideIdentity(
+            wind_farm_id="farm_a",
+            device_config_id="device_farm-a_v1.0.1",
+            device_id="GW01",
+            data_level=WideDataLevel.PROTOCOL,
+        )
+&gt;       schema = await resolver.resolve_wide_schema(
+            identity, type_mapping=_mapping(), max_row_bytes=65536
+        )
+
+tests/storage_service/unit/test_historical_device_closure.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:792: in resolve_wide_schema
+    binding = self._wide_binding(record)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x7716e80dacd0&gt;
+identity = WideIdentity(wind_farm_id='farm_a', device_config_id='device_farm-a_v1.0.1', device_id='GW01', data_level=&lt;WideDataLevel.PROTOCOL: 'protocol'&gt;)
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -&gt; DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        cache_key = (identity.wind_farm_id, identity.device_id, identity.device_config_id)
+&gt;       cached = self._exact_binding_cache.get(cache_key)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_exact_binding_cache'
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:720: AttributeError</failure></testcase><testcase classname="tests.storage_service.unit.test_kafka_replay_gate" name="test_empty_assignment_does_not_expose_history_as_ready" time="0.000" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_uses_backoff_and_honors_max_attempts" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_unlimited_retry_is_bounded_and_success_resets_failures" time="0.008" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_commit_failure_replays_original_cursor_then_recovers" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_commit_timeout_replays_original_cursor" time="0.108" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_rewinds_to_earliest_unconfirmed_not_batch_end" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_rebalance_during_processing_blocks_old_commit_and_seek" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_rebalance_during_commit_blocks_old_seek_and_state_reset" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_old_generation_failure_cannot_restore_retry_counter" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_stop_during_backoff_wakes_without_rewind_after_reassignment" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_assignment_restores_committed_fetch_position" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_assignment_rejects_bootstrap_and_retention_offset_gaps" time="0.011" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_schema_conflict_isolated_and_retry_resumes_contiguous_prefix" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_rejected_by_durable_evidence_does_not_resume" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_partition_fifo_with_cross_partition_parallelism" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_ingestion_block_does_not_pause_other_partition" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_successive_full_batches_keep_prefetched_position" time="0.006" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QuerySamples-QuerySamplesRequest-filter is required]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QuerySamples-QuerySamplesRequest-level and UTC time range0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QuerySamples-QuerySamplesRequest-level and UTC time range1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QueryAggregates-QueryAggregatesRequest-filter is required]" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QueryAggregates-QueryAggregatesRequest-level and UTC time range0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_grouped_queries_reject_invalid_filters_with_authenticated_caller[QueryAggregates-QueryAggregatesRequest-level and UTC time range1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_invalid_filters_with_authenticated_caller[CreateExportRequest-filter is required]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_invalid_filters_with_authenticated_caller[CreateExportRequest-level and UTC time range0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_invalid_filters_with_authenticated_caller[CreateExportRequest-level and UTC time range1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_servicer_exposes_grouped_samples_and_no_legacy_point_query" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_retired_tdengine_methods_are_not_exposed" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_config_resolver_does_not_offer_point_sample_compatibility" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_production_storage_contains_no_point_history_implementation" time="0.021" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_only_contiguous_confirmation_advances_commit_cursor" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_offset_gap_replay_and_out_of_order_delivery_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_revoked_generation_cannot_confirm_or_mutate_replacement" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_invalid_initial_cursor_and_stale_generation_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_low_bit_first_and_cross_byte_boundary" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_five_hundred_fields_occupy_exactly_125_bytes" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values4]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_empty_bitmap_and_unused_padding" time="0.000" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_consumer_starts_without_authorized_history_visibility" time="0.000" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_query_rejected_when_replay_has_not_settled" time="0.001" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_query_discards_result_when_replay_starts_midread" time="0.001" /><testcase classname="tests.storage_service.unit.test_sink_storage_wide_contract" name="test_sink_storage_wide_contract" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_protocol_roundtrip_uses_complete_device_row" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_business_roundtrip_requires_verified_projection" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_raw_roundtrip_preserves_original_bytes" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_missing_raw_source_bytes_cannot_be_fabricated" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_collector_preserves_driver_payload_through_wide_wire" time="0.001" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_old_point_record_and_engineering_level_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_replace_failure_keeps_previous_accepted_snapshot" time="0.008" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_fsync_failure_before_replace_preserves_active_snapshot" time="0.009" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_directory_fsync_failure_never_exposes_partial_bundle" time="0.009" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_sqlite_device_binding_failure_rolls_back_semantic_pin" time="0.002" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_normal_backup_reaps_taosdump" time="0.031" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_overquota_kills_running_taosdump_promptly" time="0.210" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_cancellation_kills_and_reaps_taosdump" time="0.028" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_timeout_kills_and_reaps_taosdump" time="0.209" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_avro_tampering" time="0.025" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_missing_historical_yaml" time="0.024" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_rejects_ownership_registry_change_during_dump" time="0.023" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_metadata_tampering" time="0.028" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_decodes_aware_websocket_timestamp" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_rejects_invalid_websocket_timestamp[2027-01-15 16:00:00.123456]" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_rejects_invalid_websocket_timestamp[not-a-timestamp]" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_timeout_discards_late_connection_and_allows_bounded_replacement" time="0.209" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[prepare]" time="0.108" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[bind]" time="0.108" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[execute]" time="0.108" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[close]" time="0.109" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_connection_error_discards_connection" time="0.007" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_connect_timeout_closes_late_socket" time="0.106" /><testcase classname="tests.storage_service.unit.test_wide_active_query_metrics" name="test_wide_query_reports_inflight_and_releases_slot" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_active_query_metrics" name="test_wide_query_error_releases_active_count" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_exact_uint64_max_preserved_across_window" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_signed_aggregate_cursor_is_stable_and_cannot_be_rebound" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_large_unsigned_avg_rejects_lossy_float_result" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_snapshot_cursor_rejects_changed_page_size" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_cached_aggregate_snapshot_fenced_during_replay" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT UNSIGNED--1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT UNSIGNED-18446744073709551616]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[INT-2147483648]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT--9223372036854775809]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT-12.0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[DOUBLE-nan]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[DOUBLE-inf]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_bad_uncertain_and_not_collected_are_excluded_from_good_count" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_quality_predicate_reaches_history_and_binds_aggregate_cursor" time="0.001"><failure message="assert () == (&lt;PointQuality.GOOD: 1&gt;,)&#10;  &#10;  Right contains one more item: &lt;PointQuality.GOOD: 1&gt;&#10;  Use -v to get more diff">@pytest.mark.asyncio
+    async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        request = WideHistoryFilter(
+            wind_farm_id="farm",
+            device_id="wtg001",
+            device_config_id="device_farm_v1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            start_time_us=1,
+            end_time_us=100_000_000,
+            point_ids=("power",),
+            limit=50,
+            qualities=(int(PointQuality.GOOD),),
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(
+                    WideHistoryRow(1_000_000, (("power", 10, PointQuality.GOOD),)),
+                    WideHistoryRow(62_000_000, (("power", 15, PointQuality.GOOD),)),
+                ),
+                complete=True,
+                next_page_token="",
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        first = await service.page(
+            schema=schema,
+            filter_=request,
+            device_type="wind",
+            operation="min",
+            window_ms=60000,
+            page_size=1,
+        )
+        assert first.rows[0].result == 10
+&gt;       assert history.query.await_args.kwargs["filter_"].qualities == (PointQuality.GOOD,)
+E       assert () == (&lt;PointQuality.GOOD: 1&gt;,)
+E         
+E         Right contains one more item: &lt;PointQuality.GOOD: 1&gt;
+E         Use -v to get more diff
+
+tests/storage_service/unit/test_wide_aggregate.py:370: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_signed_bigint_min_preserves_negative_64_bit_boundary" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_stable_has_one_row_timestamp_complete_columns_and_quality" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[raw-1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[protocol-2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[business-3]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_tag_quote_is_escaped_not_interpolated_as_sql" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_reject_untrusted_database_identifier" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_device_resolution" name="test_business_wide_schema_has_one_column_per_standard_point" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_device_resolution" name="test_unknown_exact_device_version_is_not_upgraded_to_latest" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_atomic_grouped_csv_zip_with_versioned_columns_and_quality" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_atomic_grouped_json_returns_original_quality_and_null" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_grouped_export_quota_failure_cannot_publish_partial_artifact" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_grouped_export_rejects_different_page_schema" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_grouped_export_rejects_duplicate_timestamp_across_pages" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_grouped_export_rejects_inconsistent_quality_value" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_published_artifact_is_rolled_back_if_directory_sync_fails" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_grouped_export_replay_gate_blocks_final_artifact" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_duplicate_timestamp_last_kafka_offset_wins" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_invalid_partial_record_blocks_without_offset_confirmation" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_unknown_write_blocks_and_fences_offset" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_deterministic_schema_conflict_is_not_unknown_io" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_ingestion_rejects_out_of_contract_stmt2_batch_limits[1001-8388608]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_ingestion_rejects_out_of_contract_stmt2_batch_limits[1000-8388609]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_physical_byte_budget_splits_rows_even_when_json_is_small" time="0.004" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_single_physical_row_exceeding_batch_limit_blocks_offset" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_filtered_pages_do_not_skip_first_qualifying_lookahead" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_cursor_rejects_rebound_quality_predicate" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities0-point_ids0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities1-point_ids1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities2-point_ids2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities3-point_ids3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_filtered_query_rejects_corrupt_null_good_row" time="0.002"><failure message="Failed: DID NOT RAISE &lt;class 'RuntimeError'&gt;">@pytest.mark.asyncio
+    async def test_filtered_query_rejects_corrupt_null_good_row() -&gt; None:
+        backend = AsyncMock()
+        backend.fetch_wide_history.return_value = (
+            WideHistoryRow(10, (("wind_speed", None, PointQuality.GOOD),)),
+        )
+        service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"k" * 32))
+&gt;       with pytest.raises(RuntimeError, match="NULL and quality"):
+E       Failed: DID NOT RAISE &lt;class 'RuntimeError'&gt;
+
+tests/storage_service/unit/test_wide_quality_filter.py:113: Failed</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_cursor_cannot_advance_to_or_beyond_frozen_horizon" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_reject_unknown_field_without_querying" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_readback_decodes_quality_by_full_schema_ordinal" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_block_readback_during_unsettled_device_write" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_history_query_pages_without_duplicate_timestamps" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_cursor_must_match_exact_schema_version" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_backend_out_of_order_fails_closed" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points0-NULL and quality]" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points1-NULL and quality]" time="0.035"><failure message="Failed: DID NOT RAISE &lt;class 'RuntimeError'&gt;">points = (('power', None, 1),), expected = 'NULL and quality'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "points, expected",
+        [
+            ((("power", 1, 0),), "NULL and quality"),
+            ((("power", None, 1),), "NULL and quality"),
+            ((("different", 1, 1),), "invalid column"),
+            ((("power", 1, 4),), "invalid column"),
+            ((), "incomplete physical"),
+        ],
+    )
+    async def test_wide_query_rejects_malformed_physical_rows(
+        points: tuple[tuple[str, object, int], ...], expected: str
+    ) -&gt; None:
+        backend = AsyncMock()
+        backend.fetch_wide_history.return_value = (WideHistoryRow(10, points),)
+        service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
+&gt;       with pytest.raises(RuntimeError, match=expected):
+E       Failed: DID NOT RAISE &lt;class 'RuntimeError'&gt;
+
+tests/storage_service/unit/test_wide_query_service.py:101: Failed</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points2-invalid column]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points3-invalid column]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points4-incomplete physical]" time="0.004" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_backend_row_from_other_version_field" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_record_is_one_complete_device_row_in_physical_column_order" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_missing_point_is_not_interpolated[active_power]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_missing_point_is_not_interpolated[wind_speed]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_unknown_point_is_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_duplicate_json_members_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_not_collected_requires_null_value" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[3]" time="0.000"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'Kafka JSON v3 envelope mismatch'&#10; Input: 'Kafka JSON v3 envelope required'">version = '3'
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -&gt; None:
+        payload = _payload()
+        payload["schema_version"] = version
+        with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+&gt;           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": "3", "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001"...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+&gt;           raise ValueError("Kafka JSON v3 envelope required")
+E           ValueError: Kafka JSON v3 envelope required
+
+src/storage_service/domain/wide_record.py:79: ValueError
+
+During handling of the above exception, another exception occurred:
+
+version = '3'
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -&gt; None:
+        payload = _payload()
+        payload["schema_version"] = version
+&gt;       with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'Kafka JSON v3 envelope mismatch'
+E        Input: 'Kafka JSON v3 envelope required'
+
+tests/storage_service/unit/test_wide_record.py:94: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[None]" time="0.000"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'Kafka JSON v3 envelope mismatch'&#10; Input: 'Kafka JSON v3 envelope required'">version = None
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -&gt; None:
+        payload = _payload()
+        payload["schema_version"] = version
+        with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+&gt;           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": null, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+&gt;           raise ValueError("Kafka JSON v3 envelope required")
+E           ValueError: Kafka JSON v3 envelope required
+
+src/storage_service/domain/wide_record.py:79: ValueError
+
+During handling of the above exception, another exception occurred:
+
+version = None
+
+    @pytest.mark.parametrize("version", [1, 2, "3", None])
+    def test_legacy_point_json_versions_are_never_upgraded(version: object) -&gt; None:
+        payload = _payload()
+        payload["schema_version"] = version
+&gt;       with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'Kafka JSON v3 envelope mismatch'
+E        Input: 'Kafka JSON v3 envelope required'
+
+tests/storage_service/unit/test_wide_record.py:94: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[engineering]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid data_level'&#10; Input: 'unsupported device-wide data level'">raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+&gt;           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;enum 'WideDataLevel'&gt;, value = 'engineering'
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+&gt;                   raise ve_exc
+E                   ValueError: 'engineering' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = 'engineering'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+&gt;           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+&gt;           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = 'engineering'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+&gt;       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[PROTOCOL]" time="0.000"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid data_level'&#10; Input: 'unsupported device-wide data level'">raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+&gt;           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;enum 'WideDataLevel'&gt;, value = 'PROTOCOL'
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+&gt;                   raise ve_exc
+E                   ValueError: 'PROTOCOL' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = 'PROTOCOL'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+&gt;           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+&gt;           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = 'PROTOCOL'
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+&gt;       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[]" time="0.000"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid data_level'&#10; Input: 'unsupported device-wide data level'">raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+&gt;           level = WideDataLevel(data["data_level"])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/domain/wide_record.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:714: in __call__
+    return cls.__new__(cls, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;enum 'WideDataLevel'&gt;, value = ''
+
+    def __new__(cls, value):
+        # all enum instances are actually created during class construction
+        # without calling this method; this method is called by the metaclass'
+        # __call__ (i.e. Color(3) ), and by pickle
+        if type(value) is cls:
+            # For lookups like Color(Color.RED)
+            return value
+        # by-value search for a matching enum member
+        # see if it's in the reverse mapping (for hashable values)
+        try:
+            return cls._value2member_map_[value]
+        except KeyError:
+            # Not found, no need to do long O(n) search
+            pass
+        except TypeError:
+            # not there, now do long search -- O(n) behavior
+            for member in cls._member_map_.values():
+                if member._value_ == value:
+                    return member
+        # still not found -- verify that members exist, in-case somebody got here mistakenly
+        # (such as via super when trying to override __new__)
+        if not cls._member_map_:
+            raise TypeError("%r has no members defined" % cls)
+        #
+        # still not found -- try _missing_ hook
+        try:
+            exc = None
+            result = cls._missing_(value)
+        except Exception as e:
+            exc = e
+            result = None
+        try:
+            if isinstance(result, cls):
+                return result
+            elif (
+                    Flag is not None and issubclass(cls, Flag)
+                    and cls._boundary_ is EJECT and isinstance(result, int)
+                ):
+                return result
+            else:
+                ve_exc = ValueError("%r is not a valid %s" % (value, cls.__qualname__))
+                if result is None and exc is None:
+&gt;                   raise ve_exc
+E                   ValueError: '' is not a valid WideDataLevel
+
+../miniconda3/envs/wind-hub/lib/python3.11/enum.py:1137: ValueError
+
+The above exception was the direct cause of the following exception:
+
+level = ''
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+        with pytest.raises(ValueError, match="invalid data_level"):
+&gt;           _decode(payload, ("active_power", "wind_speed", "rotor_speed"))
+
+tests/storage_service/unit/test_wide_record.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/storage_service/unit/test_wide_record.py:28: in _decode
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/storage_service/domain/wide_record.py:132: in from_kafka_json
+    return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = b'{"schema_version": 3, "wind_farm_id": "farm_a", "device_config_id": "device_prod-a_v1.0.1", "device_id": "wtg_001", ...2026-11-25T12:00:00.100000Z", "points": {"wind_speed": [8.2, 1], "rotor_speed": [12.3, 1], "active_power": [null, 2]}}'
+
+    def parse_wide_envelope(raw: bytes) -&gt; ParsedWideEnvelope:
+        """Decode JSON once; validate the complete point set after schema resolution."""
+        if len(raw) &gt; 16 * 1024 * 1024:
+            raise ValueError("Kafka wide record exceeds 16 MiB")
+        try:
+            data = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid Kafka JSON v3") from exc
+        if not isinstance(data, dict) or type(data.get("schema_version")) is not int:
+            raise ValueError("Kafka JSON v3 envelope required")
+        required = {
+            "schema_version",
+            "wind_farm_id",
+            "device_config_id",
+            "device_id",
+            "data_level",
+            "sample_time",
+            "points",
+        }
+        if set(data) != required or data["schema_version"] != 3:
+            raise ValueError("Kafka JSON v3 envelope mismatch")
+        identity = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+        if any(
+            not isinstance(item, str) or not item or len(item.encode("utf-8")) &gt; 256 or ":" in item
+            for item in identity
+        ):
+            raise ValueError("wide device identity is invalid or contains key delimiter")
+        try:
+            level = WideDataLevel(data["data_level"])
+        except (ValueError, TypeError) as exc:
+&gt;           raise ValueError("unsupported device-wide data level") from exc
+E           ValueError: unsupported device-wide data level
+
+src/storage_service/domain/wide_record.py:100: ValueError
+
+During handling of the above exception, another exception occurred:
+
+level = ''
+
+    @pytest.mark.parametrize("level", ["engineering", "PROTOCOL", ""])
+    def test_wide_device_level_rejects_legacy_aliases(level: str) -&gt; None:
+        payload = _payload()
+        payload["data_level"] = level
+&gt;       with pytest.raises(ValueError, match="invalid data_level"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid data_level'
+E        Input: 'unsupported device-wide data level'
+
+tests/storage_service/unit/test_wide_record.py:102: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_row" name="test_complete_protocol_record_binding_including_null" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_raw_hex_is_decoded_into_original_binary" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-TINYINT-128-outside physical type]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-BIGINT UNSIGNED--1-outside physical type]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-FLOAT-1e+100-FLOAT overflow]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-VARCHAR(2)-\u4e2d-width exceeded]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[raw-VARBINARY(2)-010203-width exceeded]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_no_lossy_integer_to_float_conversion[FLOAT-16777217]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_no_lossy_integer_to_float_conversion[DOUBLE-9007199254740993]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_contract" name="test_grouped_history_rpc_registered_with_exact_message_contract" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_contract" name="test_typed_grouped_row_roundtrip_keeps_unsigned_null_and_quality" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_handler" name="test_exact_grouped_rpc_binds_auth_schema_quality_and_unsigned_value" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[TINYINT-128]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[TINYINT--129]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[SMALLINT-32768]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[INT--2147483649]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[BIGINT-9223372036854775808]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[TINYINT UNSIGNED--1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[SMALLINT UNSIGNED-65536]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[INT UNSIGNED-4294967296]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[BIGINT UNSIGNED-18446744073709551616]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[INT-True]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[FLOAT-nan]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[FLOAT-inf]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[FLOAT-1e+100]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[DOUBLE--inf]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[DOUBLE-100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[DOUBLE-9007199254740993]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[VARCHAR(4)-\u4f60\u597d]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_out_of_range_physical_values[VARBINARY(3)-abcd]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[TINYINT--128-value_i64]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[TINYINT-127-value_i64]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[BIGINT--9223372036854775808-value_i64]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[BIGINT UNSIGNED-18446744073709551615-value_u64]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[FLOAT-1.25-value_f64]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[VARCHAR(6)-\u4f60\u597d-value_text]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_preserves_valid_boundary_values[VARBINARY(3)-abc-payload_bytes]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_grouped_rpc_rejects_schema_mismatch_without_partial_success" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_column_order_uses_utf8_identity_not_input_order" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_version_and_type_changes_produce_distinct_table_families" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_wide_schema_500_fields_has_125_quality_bytes" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_oversize_raw_schema_is_rejected_not_split" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[TEXT]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[VARBINARY]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[VARCHAR(-1)]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[BIGINT;DROP]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_stmt2_binds_complete_rows_and_2bit_quality_column" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_negative_affected_row_count_fails_and_closes_statement" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_refuses_unsafe_table_name" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_stmt2_rejects_more_than_1000_rows_before_driver_allocation" time="0.000" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_common_service_uses_bearer_and_reports_only_real_capabilities" time="0.019" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_every_storage_and_common_rpc_rejects_unauthorized_calls" time="0.038" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_requires_admin_and_invalid_token_is_unauthenticated" time="0.005" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_is_permission_denied_for_farm_scoped_operator" time="0.008" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_retry_blocked_partition_stale_offset_returns_failed_precondition" time="0.009" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access" time="0.012" /></testsuite></testsuites>

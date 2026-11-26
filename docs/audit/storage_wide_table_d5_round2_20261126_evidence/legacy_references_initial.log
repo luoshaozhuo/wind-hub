@@ -1,0 +1,46 @@
+tests/cli/test_storage_wide_quality_commands.py:26:    assert method == "QueryWideRows"
+tests/cli/test_storage_wide_quality_commands.py:28:    assert "wide_filter" not in fields
+tests/cli/test_storage_wide_quality_commands.py:50:    assert fields["wide_filter"]["qualities"] == [0, 2]
+tests/cli/test_storage_wide_quality_commands.py:72:    assert fields["wide_filter"]["qualities"] == [1]
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:171:    last_reply: storage_pb.QueryWideRowsResponse | None = None
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:175:            reply = stub.QueryWideRows(
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:176:                storage_pb.QueryWideRowsRequest(
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:20:    method = service.methods_by_name["QueryWideRows"]
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:21:    assert method.input_type.full_name == "windhub.storage.v1.QueryWideRowsRequest"
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:22:    assert method.output_type.full_name == "windhub.storage.v1.QueryWideRowsResponse"
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:27:    assert routes.count("/windhub.storage.v1.StorageService/QueryWideRows") == 1
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:30:def test_wide_filter_types_and_versions_are_explicit() -> None:
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:31:    request = storage_pb.QueryWideRowsRequest.DESCRIPTOR.fields_by_name
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:43:        field = parent.DESCRIPTOR.fields_by_name["wide_filter"]
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:45:        assert field.message_type is storage_pb.QueryWideRowsRequest.DESCRIPTOR
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:49:    columns = storage_pb.WidePointColumn.DESCRIPTOR.fields_by_name
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:51:    values = storage_pb.WidePointValue.DESCRIPTOR.fields_by_name
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:57:    assert aggregates["result_i64"].type == FieldDescriptor.TYPE_SINT64
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:58:    assert aggregates["result_u64"].type == FieldDescriptor.TYPE_UINT64
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:59:    assert aggregates["result_value_kind"].type == FieldDescriptor.TYPE_UINT32
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:62:    encoded = storage_pb.WidePointValue(
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:65:    restored = storage_pb.WidePointValue.FromString(encoded)
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:69:    empty = storage_pb.WidePointValue(point_id="counter", quality=0)
+tests/storage_service/component/test_grpc_common.py:86:        assert "QueryWideRows" in capabilities.rpc_names
+tests/storage_service/component/test_grpc_common.py:277:        assert "QueryWideRows" in capabilities.rpc_names
+tests/storage_service/component/test_grpc_common.py:291:            await storage_stub.QueryWideRows(storage_pb.QueryWideRowsRequest())
+tests/storage_service/unit/test_no_legacy_history_paths.py:21:            wide_filter=pb.QueryWideRowsRequest(wind_farm_id="farm-a"),
+tests/storage_service/unit/test_no_legacy_history_paths.py:47:            wide_filter=pb.QueryWideRowsRequest(wind_farm_id="farm-a"),
+tests/storage_service/unit/test_no_legacy_history_paths.py:102:        re.compile(r"\bStorageSample\b"),
+tests/storage_service/unit/test_wide_rpc_contract.py:1:"""QueryWideRows generated wire contract and typed value fidelity."""
+tests/storage_service/unit/test_wide_rpc_contract.py:10:    method = service.methods_by_name["QueryWideRows"]
+tests/storage_service/unit/test_wide_rpc_contract.py:11:    assert method.input_type.full_name == "windhub.storage.v1.QueryWideRowsRequest"
+tests/storage_service/unit/test_wide_rpc_contract.py:12:    assert method.output_type.full_name == "windhub.storage.v1.QueryWideRowsResponse"
+tests/storage_service/unit/test_wide_rpc_contract.py:17:    original = pb.QueryWideRowsResponse(
+tests/storage_service/unit/test_wide_rpc_contract.py:26:            pb.WidePointColumn(
+tests/storage_service/unit/test_wide_rpc_contract.py:32:            pb.WidePointColumn(
+tests/storage_service/unit/test_wide_rpc_contract.py:40:            pb.WideDeviceRow(
+tests/storage_service/unit/test_wide_rpc_contract.py:43:                    pb.WidePointValue(
+tests/storage_service/unit/test_wide_rpc_contract.py:48:                    pb.WidePointValue(point_id="missing", quality=0),
+tests/storage_service/unit/test_wide_rpc_contract.py:54:    decoded = pb.QueryWideRowsResponse.FromString(original.SerializeToString())
+tests/storage_service/unit/test_wide_rpc_handler.py:1:"""Authenticated Storage QueryWideRows handler exposes exact physical versions."""
+tests/storage_service/unit/test_wide_rpc_handler.py:57:    request = pb.QueryWideRowsRequest(
+tests/storage_service/unit/test_wide_rpc_handler.py:67:    result = await service.QueryWideRows(request, context)
+tests/storage_service/unit/test_wide_rpc_physical_bounds.py:25:) -> pb.QueryWideRowsResponse:
+tests/storage_service/unit/test_wide_rpc_physical_bounds.py:50:    request = pb.QueryWideRowsRequest(
+tests/storage_service/unit/test_wide_rpc_physical_bounds.py:60:    return await StorageServicer.QueryWideRows.__wrapped__(service, request, Mock())

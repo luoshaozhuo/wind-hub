@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="6" time="0.223" timestamp="2026-11-26T16:30:51.394200+08:00" hostname="boss"><testcase classname="tests.storage_service.component.test_grpc_common" name="test_common_service_uses_bearer_and_reports_only_real_capabilities" time="0.027" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_every_storage_and_common_rpc_rejects_unauthorized_calls" time="0.015"><failure message="AssertionError: ('StorageService', 'QuerySamples')&#10;assert &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;&#10; +  where &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; = code()&#10; +    where code = &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt;.code&#10; +      where &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt; tblen=2&gt;.value&#10; +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED&#10; +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc995983c50&gt;
+
+    async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+        """Enumerate the live proto, not a frozen count or hand-written method list."""
+        from google.protobuf.message_factory import GetMessageClass
+    
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        config = _config()
+        server = _server(config)
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        try:
+            services = (
+                (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+                (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+            )
+            observed: set[tuple[str, str]] = set()
+            for file_descriptor, name, stub_cls in services:
+                service = file_descriptor.services_by_name[name]
+                stub = stub_cls(channel)
+                for method in service.methods:
+                    assert not method.client_streaming and not method.server_streaming
+                    request = GetMessageClass(method.input_type)()
+                    for metadata in (
+                        None,
+                        (("authorization", "Bearer invalid-credential"),),
+                    ):
+                        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                            await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+&gt;                       assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                            name,
+                            method.name,
+                        )
+E                       AssertionError: ('StorageService', 'QuerySamples')
+E                       assert &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;
+E                        +  where &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; = code()
+E                        +    where code = &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt;.code
+E                        +      where &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt; tblen=2&gt;.value
+E                        +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED
+E                        +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:128: AssertionError</failure></testcase><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_requires_admin_and_invalid_token_is_unauthenticated" time="0.005" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_is_permission_denied_for_farm_scoped_operator" time="0.006" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_retry_blocked_partition_stale_offset_returns_failed_precondition" time="0.007" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access" time="0.010"><failure message="assert &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;&#10; +  where &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; = code()&#10; +    where code = &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt;.code&#10; +      where &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.INVALID_ARGUMENT\n&#09;details = &quot;invalid Storage request&quot;\n&#09;debug_error_string = &quot;INVALID_ARGUMENT:invalid Storage request&quot;\n&gt; tblen=2&gt;.value&#10; +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED&#10; +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc994030f90&gt;
+
+    async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        base = _config()
+        config = base.model_copy(
+            update={"grpc": base.grpc.model_copy(update={"allow_unauthenticated_status": True})}
+        )
+        server = _server(
+            config,
+            config_status="CONFIG_HISTORY_UNAVAILABLE",
+            revisions=("a" * 64, "b" * 64),
+        )
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        common_stub = common_rpc.CommonServiceStub(channel)
+        storage_stub = storage_rpc.StorageServiceStub(channel)
+        try:
+            info = await common_stub.GetServiceInfo(common.Empty())
+            assert info.process_role == "storage"
+            assert info.contract_version == "windhub.storage.v2"
+            status = await common_stub.GetServiceStatus(common.Empty())
+            assert status.health == "DEGRADED"
+            assert all(not dependency.detail for dependency in status.dependencies)
+            assert not status.target_revision
+            assert not status.active_revision
+            authenticated_status = await common_stub.GetServiceStatus(
+                common.Empty(),
+                metadata=(("authorization", f"Bearer {TOKEN}"),),
+            )
+            assert authenticated_status.target_revision == "a" * 64
+            assert authenticated_status.active_revision == "b" * 64
+            capabilities = await common_stub.GetCapabilities(common.Empty())
+            assert "QuerySamples" in capabilities.rpc_names
+            assert "QueryWideRows" not in capabilities.rpc_names
+    
+            with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                await common_stub.GetServiceInfo(
+                    common.Empty(), metadata=(("authorization", "Bearer invalid"),)
+                )
+            assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+    
+            with pytest.raises(grpc.aio.AioRpcError) as denied:
+                await storage_stub.GetStorageStats(storage_pb.GetStorageStatsRequest())
+            assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
+    
+            with pytest.raises(grpc.aio.AioRpcError) as denied_query:
+                await storage_stub.QuerySamples(storage_pb.QuerySamplesRequest())
+&gt;           assert denied_query.value.code() == grpc.StatusCode.UNAUTHENTICATED
+E           assert &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;
+E            +  where &lt;StatusCode.INVALID_ARGUMENT: (3, 'invalid argument')&gt; = code()
+E            +    where code = &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt;.code
+E            +      where &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.INVALID_ARGUMENT\n	details = "invalid Storage request"\n	debug_error_string = "INVALID_ARGUMENT:invalid Storage request"\n&gt; tblen=2&gt;.value
+E            +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED
+E            +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:295: AssertionError</failure></testcase></testsuite></testsuites>

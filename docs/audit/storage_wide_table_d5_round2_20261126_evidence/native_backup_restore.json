@@ -1,0 +1,15 @@
+{
+  "database": "whbkp_11239e0b9bfa456a922d56ed8f818ec8",
+  "container": "windhub-d5-r2-tdengine-24f8a34903",
+  "production_storage_rpc": false,
+  "auth_channel": "host-and-container-pseudo-tty",
+  "backup_returncode": 0,
+  "backup_stdout_sha256": "79cfdd0b573c08e781f9476dd73d7e4f7c989a93699b1270393ec6bccac07c11",
+  "backup_stderr_tail": "",
+  "backup_stdout_tail": "Start to dump out database: whbkp_11239e0b9bfa456a922d56ed8f818ec8\nINFO: start dump out super table data (protocol_v1_0_0) ...\nINFO: start dump super table meta (protocol_v1_0_0) col:502 tags:1 ...\nINFO: Get super table (protocol_v1_0_0) child tables (2) ok\nINFO: The number of tables of protocol_v1_0_0 is 2!\nINFO: connection: 0x218c0290 is dumping out schema of sub-table(s) of protocol_v1_0_0 \nINFO: connection 0x218c0290 is dumping out schema: 1 from protocol_v1_0_0.protocol_d1\nINFO: connection 0x218c0290 is dumping out schema: 2 from protocol_v1_0_0.protocol_d0\n\u001b[32mOK: total 2 table(s) of stable: protocol_v1_0_0 schema dumped.\n\u001b[0mINFO: create 2 thread(s) to export data ...\n.INFO: whbkp_11239e0b9bfa456a922d56ed8f818ec8.protocol_v1_0_0 [2/2] write avro 100% of protocol_d0\nINFO: super table (protocol_v1_0_0) dump 2 child data ok. close taos connections...\n\u001b[32mOK: Database whbkp_11239e0b9bfa456a922d56ed8f818ec8 dumped\n\u001b[0m\u001b[32mOK: 1 row(s) dumped out!\n\u001b[0mend time: 2026-11-26 08:51:26\n",
+  "restore_returncode": 0,
+  "restore_stdout_sha256": "81c633ef501f8f2e67f193eda3a74d8b2ab20abb09cd422184941651fe6c7796",
+  "restore_stderr_tail": "",
+  "restore_stdout_tail": "b files ...\nINFO: dumpInAvroWorkThreads() dump in avro files ...\nINFO: dumpInWithDbPath(), dump in from /tmp/whbkp_11239e0b9bfa456a922d56ed8f818ec8/taosdump.3591366171542 ...\nINFO: dumpInAvroWorkThreads() dump in avro-tbtags files ...\nINFO: [0]: Restoring from whbkp_11239e0b9bfa456a922d56ed8f818ec8.4F1B0930.avro-tbtags ...\nINFO: stb:protocol_v1_0_0 schema no changed. server col:502 tag:1\n\u001b[32mOK: [0] 2table(s) belong stb from the file(whbkp_11239e0b9bfa456a922d56ed8f818ec8.4F1B0930.avro-tbtags) be successfully dumped in!\n\u001b[0mINFO: [0]:100%\nINFO: dumpInAvroWorkThreads() dump in avro-ntb files ...\nINFO: dumpInAvroWorkThreads() dump in avro files ...\nINFO: dumpInAvroWorkThreads() dump in avro files ...\nINFO: [0]: Restoring from whbkp_11239e0b9bfa456a922d56ed8f818ec8.3591366171835.1.avro ...\n.\u001b[32mOK: [0] 1 row(s) of file(whbkp_11239e0b9bfa456a922d56ed8f818ec8.3591366171835.1.avro) be successfully dumped in!\n\u001b[0mINFO: [0]:100%\n\u001b[32mOK: 1 row(s) dumped in!\n\u001b[0mend time: 2026-11-26 08:51:28\n",
+  "full_500_point_row_verified_after_restore": true
+}

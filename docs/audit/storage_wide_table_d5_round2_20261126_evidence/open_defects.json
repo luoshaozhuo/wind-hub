@@ -1,0 +1,38 @@
+[
+  {
+    "id": "D5R2-01",
+    "severity": "P1",
+    "status": "OPEN_CHATGPT",
+    "area": "Storage grouped query",
+    "evidence": "eight_service.log; history_operations.log; history_operations_final.xml",
+    "summary": "Empty device_ids or an explicit device set containing a never-created table fails the whole grouped query with FAILED_PRECONDITION. The contract requires empty families to be skipped while ownership conflicts remain fail-closed.",
+    "boundary": "Structural distinction between genuinely absent tables and existing tables without durable ownership is handed back to ChatGPT; no local broad catch or compatibility fallback was added."
+  },
+  {
+    "id": "D5R2-02",
+    "severity": "P2",
+    "status": "OPEN_CHATGPT",
+    "area": "Native TDengine STMT2",
+    "evidence": "native_tdengine.log and native_tdengine.xml",
+    "summary": "TDengine 3.3.6.13/taos-ws-py 0.7.1 rejects INSERT INTO ? VALUES (...) during prepare with 0x022B Table does not exist. Multi-table reuse and partial-success probes stop at prepare.",
+    "boundary": "Per-table STMT2 remains a separately measured baseline and is not represented as multi-table TD02/TD03/TD07 success."
+  },
+  {
+    "id": "D5R2-03",
+    "severity": "QUALIFICATION_BLOCKER",
+    "status": "OPEN_CHATGPT",
+    "area": "Production Storage backup",
+    "evidence": "native_backup_restore.log, native_backup_restore_pty.log, native_backup_restore_final.log, native_backup_restore.json",
+    "summary": "Production backup is disabled in the active configuration, the host lacks taosdump, and non-TTY taosdump -p authentication fails. Native backup/restore succeeds only with explicit host+container PTY setup.",
+    "boundary": "Native 500-point restore is evidence of tool capability only; production_storage_rpc=false. No production-ready backup claim."
+  },
+  {
+    "id": "D5R2-04",
+    "severity": "QUALIFICATION_BLOCKER",
+    "status": "OPEN_CHATGPT",
+    "area": "Single-instance capacity",
+    "evidence": "capacity_30_baseline_32g.xml; matrix_summary.json; storage_wide_30/final/capacity.xml; storage_wide_100/capacity_final.xml; storage_wide_300/derived_result.json",
+    "summary": "Sink 600-second steady confirmation is 218.29 rows/s with growing backlog; all 16 matrix cells fail and peak at 271.96 rows/s. Storage final end-to-end rates at 30/100/300 devices are 278.45/292.07/170.80 rows/s, all below 95% targets; 300 devices persists only 166090/180000 rows at the bounded deadline.",
+    "boundary": "Final persistence does not prove steady capacity. Unconfirmed rows are not automatically permanent loss. No 1000-device run and no multi-instance scaling was attempted."
+  }
+]

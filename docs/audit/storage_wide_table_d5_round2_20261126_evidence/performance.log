@@ -1,0 +1,15 @@
+
+==> performance
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/performance -q -m performance and not soak --junitxml docs/audit/storage_wide_table_d5_round2_20261126_evidence/performance.xml
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+tests/src/performance/test_batch_throughput.py::test_kafka_v3_encode_and_storage_validation_baseline
+  tests/src/performance/test_batch_throughput.py:130: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_kafka_v3_encode_and_storage_validation_baseline(record_property: Any) -> None:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/performance.xml -
+7 passed, 1 warning in 22.53s
+[PASS] performance
+
+GATE RESULT: PASS

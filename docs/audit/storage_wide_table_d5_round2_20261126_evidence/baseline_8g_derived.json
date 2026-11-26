@@ -1,0 +1,13 @@
+{
+  "qualification": "ABORTED_INFRASTRUCTURE_JETSTREAM_MAX_BYTES",
+  "samples": 405,
+  "elapsed_seconds": 415.0772129669931,
+  "publisher_puback_batches": 124532,
+  "kafka_confirmed_rows": 88169,
+  "publisher_rows_per_second": 300.0212878703673,
+  "kafka_confirmed_rows_per_second": 212.41590057368722,
+  "pending_rows_at_last_sample": 36365,
+  "grpc_probe_failed_at_last_sample": true,
+  "identity_audit": "NOT_RUN",
+  "note": "Cannot classify unconfirmed rows as permanent loss; 600s publication and drain did not complete."
+}

@@ -1,0 +1,58 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_real_history_aggregate_and_export_operations _______________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-74/test_real_history_aggregate_an0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_real_history_aggregate_and_export_operations(started: EightServiceHarness) -> None:
+        harness = started
+        base = datetime.now(UTC)
+        rows = [
+            _row(harness, device=WTG, level="protocol", sample_time=base),
+            _row(harness, device=BESS, level="protocol", sample_time=base + timedelta(microseconds=1)),
+            _row(harness, device=WTG, level="raw", sample_time=base + timedelta(microseconds=2)),
+            _row(harness, device=WTG, level="business", sample_time=base + timedelta(microseconds=3)),
+        ]
+        asyncio.run(_publish(rows, harness.stack.kafka))
+        start = base - timedelta(seconds=1)
+        end = base + timedelta(seconds=2)
+        metadata = (("authorization", f"Bearer {harness.env['WIND_HUB_STORAGE_OPERATOR_TOKEN']}"),)
+    
+        with grpc.insecure_channel(f"127.0.0.1:{_storage_port(harness)}") as channel:
+            stub = storage_rpc.StorageServiceStub(channel)
+            protocol_request = storage_pb.QuerySamplesRequest(
+                filter=_filter(
+                    level=storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
+                    start=start,
+                    end=end,
+                    devices=(WTG, BESS),
+                ),
+                page_size=1,
+            )
+            blocked_deadline = time.monotonic() + 10
+            while time.monotonic() < blocked_deadline:
+                blocked = stub.ListBlockedPartitions(
+                    storage_pb.ListBlockedPartitionsRequest(page_size=100),
+                    metadata=metadata,
+                    timeout=10,
+                )
+                if blocked.items:
+>                   raise AssertionError(f"Storage rejected injected rows: {blocked.items}")
+E                   AssertionError: Storage rejected injected rows: [topic: "windhub.e2e.history"
+E                   committed_next_offset: 2
+E                   last_confirmed_offset: 1
+E                   block_reason: "WIDE_RECORD_INVALID: wide record must contain the complete physical point set"
+E                   blocked_offset: 2
+E                   ]
+
+tests/system/e2e/eight_service/test_e2e_storage_history_operations.py:310: AssertionError
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:20
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:20: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/history_operations_v2.xml -
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_storage_history_operations.py::test_real_history_aggregate_and_export_operations
+1 failed, 1 warning in 29.80s

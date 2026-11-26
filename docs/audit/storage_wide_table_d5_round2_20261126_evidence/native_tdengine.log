@@ -1,0 +1,54 @@
+.F....ssssssssssssssssssssssssssssss..F.................s                [100%]
+=================================== FAILURES ===================================
+________________ test_td02_td03_multitable_and_statement_reuse _________________
+
+wide_probe = Probe(driver=<module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x616643c2b600>, database='whd2_140e03257d2f4330bccbc15b150e1c92', vgroups=4, buffer_mb=256)
+
+    def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
+        """Probe dynamic table binding and repeated execute on one prepared object.
+    
+        Unsupported syntax/API is a real failure, not a silent single-table fallback.
+        """
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        try:
+>           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:191: ProgrammingError
+_________________ test_td07_partial_success_and_ordered_replay _________________
+
+wide_probe = Probe(driver=<module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x616643be1f70>, database='whd2_8924a4d5679c41eaa523a2bb6f266467', vgroups=4, buffer_mb=256)
+
+    def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
+        """Observe partial native success and prove complete ordered replay restores values."""
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        try:
+>           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:518: ProgrammingError
+=============================== warnings summary ===============================
+tests/storage_service/integration/test_tdengine_wide_probe.py: 30 warnings
+  tests/storage_service/integration/test_tdengine_wide_probe.py:370: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.performance
+
+tests/storage_service/integration/test_tdengine_wide_probe.py::test_td09_compression_measurement
+  tests/storage_service/integration/test_tdengine_wide_probe.py:608: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.performance
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round2_20261126_evidence/native_tdengine.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/integration/test_tdengine_wide_probe.py::test_td02_td03_multitable_and_statement_reuse
+FAILED tests/storage_service/integration/test_tdengine_wide_probe.py::test_td07_partial_success_and_ordered_replay
+2 failed, 24 passed, 31 skipped, 31 warnings in 163.35s (0:02:43)

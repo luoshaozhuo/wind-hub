@@ -1,0 +1,15 @@
+[
+  {
+    "case": "c4_l0",
+    "concurrency": 4,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 110.463,
+    "log": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/r14_capacity_d30_r300_c4_b131072_l0_p1_82433e3f823f_metric_names.json",
+      "docs/audit/storage_wide_table_d5_round2_20261126_evidence/matrix/c4_l0/r14_capacity_d30_r300_c4_b131072_l0_p1_82433e3f823f.json"
+    ]
+  }
+]
