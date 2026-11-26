@@ -61,9 +61,9 @@ def _documents(
         (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     if static_update:
-        service["file_version"] = "1.1.1"
+        service["file_version"] = "2.0.1"
         service["service"]["query"]["max_page_size"] = 999
-    service_version = "1.1.1" if static_update else "1.1.0"
+    service_version = str(service["file_version"])
     # 1.0.2 stays distinct from the static-update 1.0.1: the broadcast closure
     # points at the site 1.0.1 instance, so reusing 1.0.1 would collide with
     # the immutable deployment version published by the restart test.
