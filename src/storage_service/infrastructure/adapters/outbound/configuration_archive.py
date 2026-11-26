@@ -773,7 +773,7 @@ class ConfigurationPointTableResolver:
             binding.point_table_id,
             record.data_level,
             max_row_bytes,
-            tuple(sorted(mapping.items())),
+            tuple(sorted((str(key), str(value)) for key, value in mapping.items())),
         )
         cached_schema = self._wide_schema_cache.get(schema_key)
         if cached_schema is not None:
