@@ -202,6 +202,88 @@ class ImmutableConfigArchive:
             if temp_name is not None:
                 os.unlink(temp_name)
 
+    def snapshot_for_backup(
+        self, *, destination: Path, max_bytes: int
+    ) -> tuple[tuple[str, str, str, str], ...]:
+        """Copy and verify every immutable historical YAML before native backup publication."""
+        if max_bytes < 1 or destination.exists() or destination.is_symlink():
+            raise ValueError("historical backup target must be absent and quota positive")
+        identities: list[tuple[str, str, str, str]] = []
+        with self._lock:
+            if self._directory.is_symlink():
+                raise ConfigHistoryUnavailableError("historical archive root is a symlink")
+            destination.mkdir(mode=0o700)
+            used = 0
+            for item in sorted(self._directory.iterdir()):
+                if (
+                    item.is_symlink() or not item.is_dir()
+                    or _HEX64.fullmatch(item.name) is None
+                    or {entry.name for entry in item.iterdir()}
+                    != {"document.yaml", "manifest.json"}
+                ):
+                    raise ConfigHistoryUnavailableError("historical backup archive is unsafe")
+                if any(
+                    candidate.is_symlink() or not candidate.is_file()
+                    for candidate in item.iterdir()
+                ):
+                    raise ConfigHistoryUnavailableError("historical backup includes unsafe entry")
+                manifest_bytes = (item / "manifest.json").read_bytes()
+                document_bytes = (item / "document.yaml").read_bytes()
+                try:
+                    fields = json.loads(manifest_bytes)
+                except (ValueError, TypeError) as exc:
+                    raise ConfigHistoryUnavailableError(
+                        "historical backup manifest is malformed"
+                    ) from exc
+                if (
+                    not isinstance(fields, list) or len(fields) != 5
+                    or any(not isinstance(value, str) or not value for value in (
+                        fields[0], fields[1], fields[2], fields[4]
+                    ))
+                    or type(fields[3]) is not int or fields[3] < 0
+                    or _HEX64.fullmatch(fields[4]) is None
+                    or hashlib.sha256(document_bytes).hexdigest() != fields[4]
+                ):
+                    raise ConfigHistoryUnavailableError(
+                        "historical backup contains a corrupt immutable document"
+                    )
+                stable_identity = json.dumps(
+                    [fields[0], fields[1], fields[2], fields[4]],
+                    ensure_ascii=False, separators=(",", ":"),
+                ).encode("utf-8")
+                if item.name != hashlib.sha256(stable_identity).hexdigest():
+                    raise ConfigHistoryUnavailableError(
+                        "historical backup archive identity does not match content"
+                    )
+                used += len(manifest_bytes) + len(document_bytes)
+                if used > max_bytes:
+                    raise ConfigHistoryUnavailableError(
+                        "historical backup exceeds configured byte budget"
+                    )
+                target = destination / item.name
+                target.mkdir(mode=0o700)
+                for filename, content in (
+                    ("document.yaml", document_bytes),
+                    ("manifest.json", manifest_bytes),
+                ):
+                    with (target / filename).open("xb") as file:
+                        os.fchmod(file.fileno(), 0o600)
+                        file.write(content)
+                        file.flush()
+                        os.fsync(file.fileno())
+                directory_fd = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                identities.append((fields[0], fields[1], fields[2], fields[4]))
+            directory_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        return tuple(identities)
+
     def load(self, *, config_type: str, config_id: str, version_id: str) -> RepositoryDocument:
         # An archive entry is not trusted merely because it exists on disk.
         matches = self._matching_manifests(
