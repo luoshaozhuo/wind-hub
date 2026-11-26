@@ -15,9 +15,9 @@ import pytest
 from pymodbus.client import ModbusTcpClient
 
 from contracts import common_pb2 as common
+from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from contracts import data_generator_pb2_grpc as dg_rpc
-from contracts import industrial_gateway_pb2_grpc as gateway_rpc
 from tests.third_party.dc_ems.prepare_control_chain import INGRESS_PORT
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -63,7 +63,7 @@ def _events(token: str) -> list[common.Event]:
     """由 Gateway1 的真实受授权接口查询写入事件，不读取私有内存。"""
     channel = grpc.insecure_channel("127.0.0.1:52174")
     try:
-        stub = gateway_rpc.IndustrialGatewayServiceStub(channel)
+        stub = common_rpc.CommonServiceStub(channel)
         result = stub.GetEvents(
             common.GetEventsRequest(page_size=200, filter="protocol write event"),
             metadata=(("authorization", f"Bearer {token}"),),
@@ -123,11 +123,14 @@ def test_modbus_to_commander_to_generator_applied() -> None:
     assert command is not None, "Commander request did not reach terminal state"
     assert command["request_id"] == request_id
     assert command["state"] == "SUCCEEDED", command
-    assert command["outcome"] == "CONFIRMED_SUCCESS", command
     assert command["io_settled"] is True, command
     assert len(command["commands"]) == 1
     command_id = str(command["commands"][0]["command_id"])
     assert command_id
+    completed = _cli("commander", "result", command_id)["data"]
+    assert completed["state"] == "SUCCEEDED", completed
+    assert completed["outcome"] == "CONFIRMED_SUCCESS", completed
+    assert completed["io_settled"] is True, completed
 
     generator_token = os.environ["WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN"]
     channel = grpc.insecure_channel("127.0.0.1:52161")
@@ -161,7 +164,7 @@ def test_modbus_to_commander_to_generator_applied() -> None:
         "request_id": request_id,
         "command_id": command_id,
         "commander_state": command["state"],
-        "commander_outcome": command["outcome"],
+        "commander_outcome": completed["outcome"],
         "generator_state": execution.state,
         "effective_step": execution.effective_step,
         "gateway2_register": 1,
