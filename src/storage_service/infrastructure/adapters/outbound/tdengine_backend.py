@@ -15,7 +15,6 @@ import queue
 import re
 import threading
 import time
-from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
@@ -26,9 +25,8 @@ from storage_service.application.config import StorageConfig
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
 from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.errors import TDengineSchemaConflictError
-from storage_service.domain.naming import StorageObjectNames, get_object_names
-from storage_service.domain.sample import DataLevel, StorageSample, ValueKind
-from storage_service.domain.wide_record import WideRecord
+from storage_service.domain.naming import StorageObjectNames
+from storage_service.domain.wide_record import WideDataLevel, WideRecord
 from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflictError,
@@ -37,13 +35,8 @@ from storage_service.infrastructure.adapters.outbound.metadata_store import (
 from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
 from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
 from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
-    SCHEMA_FINGERPRINT,
     DatabaseRetention,
     create_database_sql,
-    create_stable_sql,
-    create_table_sql,
-    expected_columns,
-    expected_tags,
 )
 
 
@@ -81,10 +74,8 @@ class _TaosModule(Protocol):
 
 
 _HOST_PORT = re.compile(r"(?P<host>[a-zA-Z0-9.-]+):(?P<port>[0-9]{1,5})\Z")
-_HEX = re.compile(r"[0-9a-f]{64}\Z")
 _LOG = logging.getLogger(__name__)
-_QUALITY = {"good": 1, "bad": 2, "uncertain": 3}
-_LEVEL = {DataLevel.RAW: 1, DataLevel.PROTOCOL: 2, DataLevel.BUSINESS: 3}
+_LEVEL = {WideDataLevel.RAW: 1, WideDataLevel.PROTOCOL: 2, WideDataLevel.BUSINESS: 3}
 _Result = TypeVar("_Result")
 
 
@@ -109,57 +100,6 @@ class _OperationLease:
             self.expire()
             raise TimeoutError("TDengine operation deadline exceeded")
         return remaining
-
-
-def _stored_int(value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TDengineSchemaConflictError("stored integer column lost its type")
-    return value
-
-
-def _columns(samples: Sequence[StorageSample], module: _TaosModule) -> list[object]:
-    """Bind all 18 columns in the exact frozen TDengine column order."""
-    for sample in samples:
-        if not _HEX.fullmatch(sample.sample_key):
-            raise ValueError("invalid sample key")
-    return [
-        module.micros_timestamps_to_column([s.sample_time_us for s in samples]),
-        module.varchar_to_column([s.sample_key for s in samples]),
-        module.varchar_to_column([s.logical_key for s in samples]),
-        module.varchar_to_column([s.content_sha256 for s in samples]),
-        module.varchar_to_column([s.sample_id for s in samples]),
-        module.varchar_to_column([s.point_id for s in samples]),
-        module.varchar_to_column([s.business_point_id for s in samples]),
-        module.tiny_ints_to_column([_LEVEL[s.data_level] for s in samples]),
-        module.tiny_ints_to_column([int(s.value_kind) for s in samples]),
-        module.big_ints_to_column(
-            [int(cast(int, s.value)) if s.value_kind == ValueKind.INT64 else None for s in samples]
-        ),
-        module.unsigned_big_ints_to_column(
-            [int(cast(int, s.value)) if s.value_kind == ValueKind.UINT64 else None for s in samples]
-        ),
-        module.doubles_to_column(
-            [
-                float(cast(int | float, s.value)) if s.value_kind == ValueKind.DOUBLE else None
-                for s in samples
-            ]
-        ),
-        module.bools_to_column(
-            [bool(s.value) if s.value_kind == ValueKind.BOOL else None for s in samples]
-        ),
-        module.varchar_to_column(
-            [str(s.value) if s.value_kind == ValueKind.TEXT else None for s in samples]
-        ),
-        module.varbinary_to_column(
-            [
-                bytes(cast(bytes, s.value)) if s.value_kind == ValueKind.BYTES else None
-                for s in samples
-            ]
-        ),
-        module.tiny_ints_to_column([_QUALITY[s.quality.value] for s in samples]),
-        module.micros_timestamps_to_column([s.publish_time_us for s in samples]),
-        module.micros_timestamps_to_column([s.receive_time_us for s in samples]),
-    ]
 
 
 class TDengineBackend:
@@ -375,133 +315,9 @@ class TDengineBackend:
             else:
                 self._discard_connection(connection)
 
-    async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
-        await self._run_bounded(self._ensure_tables_sync, samples=samples)
-
     @staticmethod
     def _identity_json(values: tuple[str, ...]) -> str:
         return json.dumps(values, ensure_ascii=False, separators=(",", ":"))
-
-    def _ensure_tables_sync(
-        self, samples: Sequence[StorageSample], *, lease: _OperationLease
-    ) -> None:
-        with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
-            retention = DatabaseRetention.parse(
-                duration=self._config.tdengine.database.duration,
-                keep=self._config.tdengine.database.keep,
-            )
-            seen: set[str] = set()
-            for sample in samples:
-                names = get_object_names(sample, SCHEMA_FINGERPRINT)
-                if names.table in seen or names.table in self._verified_tables:
-                    continue
-                seen.add(names.table)
-                identities = (
-                    (names.database, names.database_identity_sha256, (sample.wind_farm_id,)),
-                    (
-                        names.stable,
-                        names.stable_identity_sha256,
-                        (
-                            sample.wind_farm_id,
-                            sample.device_type,
-                            sample.point_table_id,
-                            sample.data_level.value,
-                            SCHEMA_FINGERPRINT,
-                        ),
-                    ),
-                    (
-                        names.table,
-                        names.table_identity_sha256,
-                        (
-                            sample.wind_farm_id,
-                            sample.device_type,
-                            sample.device_id,
-                            sample.point_table_id,
-                            sample.data_level.value,
-                            SCHEMA_FINGERPRINT,
-                        ),
-                    ),
-                )
-                registered = self._metadata.list_semantic_pins().get(sample.point_table_id)
-                if registered is None:
-                    raise TDengineSchemaConflictError(
-                        "physical table has no durable semantic closure ownership"
-                    )
-                closure_digest = hashlib.sha256(
-                    self._identity_json(
-                        (
-                            sample.point_table_id,
-                            *registered[0],
-                            *(registered[1] or ("", "")),
-                        )
-                    ).encode("utf-8")
-                ).hexdigest()
-                registrations = [
-                    self._metadata.reserve_object(
-                        name,
-                        digest,
-                        self._identity_json(identity),
-                        SCHEMA_FINGERPRINT,
-                        physical_database=names.database,
-                        stable_name=names.stable if name != names.database else "",
-                        table_name=names.table if name == names.table else "",
-                        closure_hash=(
-                            names.database_identity_sha256
-                            if name == names.database
-                            else closure_digest
-                        ),
-                    )
-                    for name, digest, identity in identities
-                ]
-                connection.execute(
-                    create_database_sql(
-                        names,
-                        retention,
-                        cachemodel=self._config.tdengine.database.cachemodel,
-                        vgroups=self._config.tdengine.database.vgroups,
-                        buffer_mb=self._config.tdengine.database.buffer_mb,
-                        replica=self._config.tdengine.database.replica,
-                        comp=self._config.tdengine.database.comp,
-                        wal_level=self._config.tdengine.database.wal_level,
-                        wal_fsync_period_ms=self._config.tdengine.database.wal_fsync_period_ms,
-                    )
-                )
-                # IF NOT EXISTS cannot mutate existing KEEP. Changes are controlled.
-                self._reconcile_database_retention(connection, names, retention)
-                connection.execute(
-                    create_stable_sql(names).replace(
-                        "value_u64 UBIGINT", "value_u64 BIGINT UNSIGNED"
-                    )
-                )
-                connection.execute(
-                    create_table_sql(
-                        names,
-                        identity_hash=names.table_identity_sha256,
-                        point_table_hash=hashlib.sha256(
-                            sample.point_table_id.encode("utf-8")
-                        ).hexdigest(),
-                        device_hash=hashlib.sha256(sample.device_id.encode("utf-8")).hexdigest(),
-                        level_tag=_LEVEL[sample.data_level],
-                    )
-                )
-                # CREATE IF NOT EXISTS is not verification. A mismatched existing
-                # object is a hard stop; never mark CREATING as READY by guessing.
-                self._verify_table(
-                    connection,
-                    names,
-                    sample,
-                    expected_point_hash=hashlib.sha256(
-                        sample.point_table_id.encode("utf-8")
-                    ).hexdigest(),
-                    expected_device_hash=hashlib.sha256(
-                        sample.device_id.encode("utf-8")
-                    ).hexdigest(),
-                )
-                for registration in registrations:
-                    self._metadata.mark_ready(registration, verified=True)
-                # Single managed process: once readback verified, future batches
-                # must not emit DDL or repeat expensive schema/ownership checks.
-                self._verified_tables.add(names.table)
 
     def _reconcile_database_retention(
         self,
@@ -560,131 +376,6 @@ class TDengineBackend:
         )
         if f"KEEP{retention.keep_days}D" not in checked:
             raise TDengineSchemaConflictError("database KEEP ALTER did not converge")
-
-    @staticmethod
-    def _verify_table(
-        connection: _TaosConnection,
-        names: StorageObjectNames,
-        sample: StorageSample,
-        *,
-        expected_point_hash: str,
-        expected_device_hash: str,
-    ) -> None:
-        columns = list(connection.query(f"DESCRIBE {names.database}.{names.table}"))
-        wanted = expected_columns()
-        if len(columns) < len(wanted):
-            raise TDengineSchemaConflictError("missing TDengine data columns")
-        for observed, (wanted_name, wanted_type) in zip(columns, wanted, strict=False):
-            if str(observed[0]).lower() != wanted_name:
-                raise TDengineSchemaConflictError(f"mismatched TDengine column: {wanted_name}")
-            expected_base = (
-                wanted_type.split("(")[0].split(" ")[0].replace("UBIGINT", "BIGINT UNSIGNED")
-            )
-            if str(observed[1]).upper() != expected_base:
-                raise TDengineSchemaConflictError(f"mismatched TDengine type: {wanted_name}")
-            declared_length = re.search(r"\((\d+)\)", wanted_type)
-            if declared_length is not None:
-                if len(observed) < 3:
-                    raise TDengineSchemaConflictError(
-                        f"TDengine column length unavailable: {wanted_name}"
-                    )
-                try:
-                    actual_length = int(observed[2])
-                except (TypeError, ValueError) as exc:
-                    raise TDengineSchemaConflictError(
-                        f"invalid TDengine column length: {wanted_name}"
-                    ) from exc
-                if actual_length != int(declared_length.group(1)):
-                    raise TDengineSchemaConflictError(
-                        f"mismatched TDengine column length: {wanted_name}"
-                    )
-
-        tag_rows = list(connection.query(f"SHOW TAGS FROM {names.database}.{names.table}"))
-        tag_map = {str(row[3]): str(row[5]) for row in tag_rows}
-        expected = {
-            "identity_hash": names.table_identity_sha256,
-            "point_table_hash": expected_point_hash,
-            "device_hash": expected_device_hash,
-            "level_tag": str(_LEVEL[sample.data_level]),
-        }
-        if any(tag_map.get(name) != value for name, value in expected.items()):
-            raise TDengineSchemaConflictError("TDengine table TAG identity mismatch")
-        if len(tag_map) != len(expected_tags()):
-            raise TDengineSchemaConflictError("TDengine TAG count mismatch")
-
-    async def fetch_content_hashes(
-        self, samples: Sequence[StorageSample]
-    ) -> dict[str, frozenset[str]]:
-        return await self._run_bounded(self._fetch_content_hashes_sync, samples=samples)
-
-    def _fetch_content_hashes_sync(
-        self, samples: Sequence[StorageSample], *, lease: _OperationLease
-    ) -> dict[str, frozenset[str]]:
-        """Batch readback using bounded time ranges and generated SHA-256 keys."""
-        grouped: dict[str, list[StorageSample]] = defaultdict(list)
-        result: dict[str, set[str]] = {}
-        for sample in samples:
-            names = get_object_names(sample, SCHEMA_FINGERPRINT)
-            grouped[f"{names.database}.{names.table}"].append(sample)
-            result.setdefault(sample.logical_key, set())
-        with self._borrow_connection(lease=lease) as (connection, _):
-            for table, entries in grouped.items():
-                # TDengine can push the time predicate to partition pruning.
-                # Keep each IN list short and distinct to bound statement size.
-                unique = list({entry.logical_key: entry for entry in entries}.values())
-                for begin in range(0, len(unique), 512):
-                    chunk = unique[begin : begin + 512]
-                    first_us = min(entry.sample_time_us for entry in chunk)
-                    last_us = max(entry.sample_time_us for entry in chunk)
-                    keys = ", ".join(f"'{entry.logical_key}'" for entry in chunk)
-                    rows = connection.query(
-                        f"SELECT logical_key, content_sha256 FROM {table} "
-                        f"WHERE ts >= {first_us} AND ts <= {last_us} "
-                        f"AND logical_key IN ({keys})"
-                    )
-                    for row in rows:
-                        logical_key = str(row[0])
-                        value_hash = str(row[1])
-                        if logical_key not in result:
-                            raise TDengineSchemaConflictError(
-                                "unexpected logical key from database"
-                            )
-                        if not _HEX.fullmatch(value_hash):
-                            raise TDengineSchemaConflictError("invalid content hash in database")
-                        result[logical_key].add(value_hash)
-        return {key: frozenset(values) for key, values in result.items()}
-
-    async def insert_batch(self, samples: Sequence[StorageSample]) -> None:
-        await self._run_bounded(self._insert_batch_sync, samples=samples)
-
-    def _insert_batch_sync(
-        self, samples: Sequence[StorageSample], *, lease: _OperationLease
-    ) -> None:
-        if not samples:
-            return
-        groups: dict[str, list[StorageSample]] = defaultdict(list)
-        for sample in samples:
-            names = get_object_names(sample, SCHEMA_FINGERPRINT)
-            groups[f"{names.database}.{names.table}"].append(sample)
-        with self._borrow_connection(lease=lease) as (connection, driver):
-            for table_name, batch in groups.items():
-                if len(batch) > self._config.tdengine.ingestion.batch_max_rows:
-                    raise ValueError("TDengine batch record count exceeds configured maximum")
-                statement = connection.stmt2_statement()
-                try:
-                    placeholders = ", ".join("?" for _ in expected_columns())
-                    statement.prepare(f"INSERT INTO {table_name} VALUES ({placeholders})")
-                    binding = driver.stmt2_bind_param_view(
-                        table_name=None, tags=None, columns=_columns(batch, driver)
-                    )
-                    statement.bind([binding])
-                    affected = statement.execute()
-                    # TDengine duplicate-key replay may report a different row count.
-                    # Never infer success from affected rows: caller verifies every key.
-                    if affected < 0:
-                        raise RuntimeError("TDengine reported a negative affected count")
-                finally:
-                    statement.close()
 
     async def ensure_wide_table(
         self,
@@ -855,7 +546,7 @@ class TDengineBackend:
             ("device_id", "VARCHAR(128)", device_id),
             ("device_type", "VARCHAR(64)", device_type),
             ("point_table_id", "VARCHAR(192)", schema.point_table_id),
-            ("data_level", "TINYINT", str(_LEVEL[DataLevel(schema.data_level.value)])),
+            ("data_level", "TINYINT", str(_LEVEL[schema.data_level])),
             ("schema_fingerprint", "VARCHAR(64)", schema.fingerprint),
         )
         if len(tag_rows) != len(expected_tags):
