@@ -191,16 +191,24 @@ class WideIngestionService:
         )
         errors = [result for result in results if isinstance(result, BaseException)]
         if errors:
-            error = errors[0]
-            if isinstance(error, TDengineSchemaConflictError):
-                raise error
-            if isinstance(error, (RuntimeError, TimeoutError, OSError)):
+            # An uncertain write takes precedence over a deterministic schema
+            # failure elsewhere in the same physical batch: no offsets commit.
+            uncertain = next(
+                (
+                    error
+                    for error in errors
+                    if isinstance(error, (RuntimeError, TimeoutError, OSError))
+                    and not isinstance(error, TDengineSchemaConflictError)
+                ),
+                None,
+            )
+            if uncertain is not None:
                 self._metrics.record_unknown()
                 self._block(
                     pending[0].source,
-                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(error).__name__}",
+                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(uncertain).__name__}",
                 )
-            raise error
+            raise errors[0]
 
         # Commit no source offset until ALL physical groups have persisted.
         for entry in pending:
