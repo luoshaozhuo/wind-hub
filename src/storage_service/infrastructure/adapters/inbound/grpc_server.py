@@ -334,6 +334,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
+                "QueryWideRows",
                 "QuerySamples",
                 "QueryAggregates",
                 "CreateExport",
