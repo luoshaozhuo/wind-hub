@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from contracts import configuration_repository_pb2 as pb
 from core.configuration.deployment import closure_sha256
 from storage_service.application.config import load_storage_config
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
 )
