@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
@@ -87,6 +87,9 @@ class GrpcConfig(StrictModel):
 class TargetMapping(StrictModel):
     variable_id: str = Field(min_length=1)
     target_point_id: str = Field(min_length=1)
+    # Convert protocol engineering units into Commander target units on forwarding.
+    # The local Modbus register retains the original wire value.
+    value_scale: FiniteFloat = Field(default=1.0, gt=0)
 
     @model_validator(mode="after")
     def validate_identifiers(self) -> TargetMapping:
