@@ -903,11 +903,19 @@ class ConfigurationApplication:
         *,
         include_dependencies: bool = True,
     ) -> tuple[DocumentOutput, ...]:
-        """Restore immutable historical versions without current-revision selection.
+        """Restore exact immutable roots with all pinned dependencies."""
+        _, documents = self.get_exact_bundle_snapshot(
+            roots, include_dependencies=include_dependencies
+        )
+        return documents
 
-        Identity and version must agree; an exact root cannot silently resolve to
-        the currently recommended document of the same logical identity.
-        """
+    def get_exact_bundle_snapshot(
+        self,
+        roots: tuple[tuple[ConfigIdentity, str], ...],
+        *,
+        include_dependencies: bool = True,
+    ) -> tuple[int, tuple[DocumentOutput, ...]]:
+        """Restore exact roots and the revision captured by their SQLite snapshot."""
         if not roots or len(roots) > self.limits.max_dependencies:
             raise ValueError("exact version roots must be nonempty and bounded")
         version_ids: list[str] = []
@@ -923,15 +931,11 @@ class ConfigurationApplication:
             if self.repository.get_version_identity(version_id) != identity:
                 raise RepositoryConflictError("exact root version and identity disagree")
             version_ids.append(version_id)
-        if include_dependencies:
-            records = self.repository.get_version_closure(
-                version_ids, max_versions=self.limits.max_dependencies
-            )
-        else:
-            records = tuple(
-                self.repository.get_version(identity, version_id=version_id)
-                for identity, version_id in roots
-            )
+        if not include_dependencies:
+            raise ValueError("exact version closure must include dependencies")
+        revision_id, records = self.repository.get_version_closure_snapshot(
+            version_ids, max_versions=self.limits.max_dependencies
+        )
         returned_versions = [str(record["version_id"]) for record in records]
         if (
             len(returned_versions) > self.limits.max_dependencies
@@ -944,7 +948,7 @@ class ConfigurationApplication:
         )
         if sum(len(item.yaml_bytes) for item in result) > self.limits.max_bundle_bytes:
             raise RepositoryCapacityExceededError("configuration bundle exceeds response limit")
-        return result
+        return revision_id, result
 
     def get_service_config_bundle(
         self,
