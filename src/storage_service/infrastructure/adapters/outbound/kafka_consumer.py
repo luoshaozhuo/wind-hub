@@ -343,6 +343,9 @@ class KafkaStorageConsumer:
                         (poll, stop_waiter), return_when=asyncio.FIRST_COMPLETED
                     )
                     if stop_waiter in completed:
+                        if poll.done() and not poll.cancelled():
+                            # Drain a simultaneous poll failure during intentional STOP.
+                            poll.exception()
                         break
                     batches = await poll
                 finally:
