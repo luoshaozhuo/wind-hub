@@ -1,6 +1,6 @@
 """独立 TwinCAT ADS 符号名导出工具。
 
-按优先级依次尝试四种方案，成功即停：
+默认按优先级依次尝试四种方案，成功即停；可指定单一方法：
 1. ADS 整表读取（运行时符号表）
 2. ADS Chunk 分段读取（运行时符号表）
 3. ADS 文件服务读取 PLC 上已有 TPY/TMC（source=file，非运行时表）
@@ -47,7 +47,8 @@ REMOTE_ROUTE_NAME = "ads-symbol-export"
 
 ADS_TIMEOUT_MS = 5000
 RECONNECT_ATTEMPTS = 1  # 连接失效后的最大重连次数；禁止无限重试
-TRY_FULL_TABLE_FIRST = True  # PLC 内存风险：部分机型会溢出；可设 False 禁用
+READ_METHOD = "auto"  # auto/full/chunk/file/ocx；指定方法失败不回退
+TRY_FULL_TABLE_FIRST = True  # auto 模式：部分 PLC 整表读取可能溢出；可设 False 禁用
 CHUNK_SIZES = (4096, 1024, 256)  # 整表失败后按块大小依次尝试
 # 若 PLC 拒绝非零 IndexOffset，所有方案均会失败并报告，而非伪造成功
 MAX_SYMBOL_BYTES = 8 * 1024 * 1024 * 1024  # 仅用于防范异常长度，不会一次性分配
@@ -334,6 +335,7 @@ class _RunContext:
     file_service_factory: Callable[[], Any] | None = None
     ocx_factory: Callable[[], Any] | None = None
     outcomes: list[StrategyOutcome] = field(default_factory=list)
+    read_method: str = "auto"
 
 
 # ==================== ADS 符号表基础读取 ====================
@@ -841,6 +843,7 @@ def _run_strategies(ctx: _RunContext) -> int:
     """按优先级执行方案，成功即停；每个方案独立管理连接与资源。"""
     outcomes = ctx.outcomes
     env = ctx.env
+    method = ctx.read_method
 
     def record(name: str, source: str, run: Callable[[], int], available: str = "") -> int | None:
         if available:
@@ -858,22 +861,25 @@ def _run_strategies(ctx: _RunContext) -> int:
         return count
 
     # 方案 1：ADS 整表
-    if TRY_FULL_TABLE_FIRST:
+    if method == "full" or (method == "auto" and TRY_FULL_TABLE_FIRST):
         _LOG.warning("先尝试读取完整符号表；已知部分 PLC 存在内存溢出风险")
         result = record(
             "full-table", "runtime", lambda: _export_full_table(ctx.conn.current, ctx.output)
         )
         if result is not None:
             return result
-        if not ctx.conn.recover():
+        if method == "auto" and not ctx.conn.recover():
             outcomes.append(
                 StrategyOutcome(
                     "runtime-reconnect", False, reason="连接断开且无法恢复，跳过运行时方案"
                 )
             )
 
+    if method == "full":
+        raise RuntimeError("指定 full 方法读取失败：\n" + "\n".join(o.describe() for o in outcomes))
+
     # 方案 2：ADS Chunk 分段
-    if ctx.conn.usable():
+    if method in ("auto", "chunk") and ctx.conn.usable():
         for chunk_size in CHUNK_SIZES:
             if chunk_size < _SYMBOL_HEADER_SIZE + 3:
                 outcomes.append(StrategyOutcome(f"chunk={chunk_size}", False, reason="配置值过小"))
@@ -893,19 +899,22 @@ def _run_strategies(ctx: _RunContext) -> int:
                     )
                 )
                 break
-    else:
+    elif method in ("auto", "chunk"):
         outcomes.append(StrategyOutcome("chunk", False, reason="连接不可用，跳过分段方案"))
+
+    if method == "chunk":
+        raise RuntimeError("指定 chunk 方法读取失败：\n" + "\n".join(o.describe() for o in outcomes))
 
     # 方案 3：ADS 文件服务（独立 System Service 端口，PLC Runtime 失效也可尝试）
     runtime_count: int | None = None
-    if ctx.conn.usable():
+    if method in ("auto", "file") and ctx.conn.usable():
         try:
             runtime_count, _ = _read_symbol_table_info(ctx.conn.current)
         except Exception:
             runtime_count = None
     factory = ctx.file_service_factory or _default_file_service_factory(ctx.conn.current)
     unavailable = ""
-    if not FILE_SERVICE_ENABLED:
+    if method == "auto" and not FILE_SERVICE_ENABLED:
         unavailable = "文件服务方案已在配置中禁用"
     elif factory is None:
         unavailable = "无法从当前连接推导 System Service 地址"
@@ -914,9 +923,9 @@ def _run_strategies(ctx: _RunContext) -> int:
         reachable, unavailable = _probe_file_service(factory)
         if reachable:
             unavailable = ""
-    if unavailable:
+    if method in ("auto", "file") and unavailable:
         outcomes.append(StrategyOutcome("ads-file", False, "file", reason=unavailable))
-    else:
+    elif method in ("auto", "file"):
         assert factory is not None
 
         def run_file() -> int:
@@ -935,17 +944,24 @@ def _run_strategies(ctx: _RunContext) -> int:
             outcomes.append(StrategyOutcome("ads-file", False, "file", reason=reason))
             _LOG.warning("方案失败：ads-file: %s", reason)
 
+    if method == "file":
+        raise RuntimeError("指定 file 方法读取失败：\n" + "\n".join(o.describe() for o in outcomes))
+
     # 方案 4：ADS OCX（实验性，仅 Windows）
-    ocx_ok, ocx_reason = env.ocx_possible() if OCX_ENABLED else (False, "OCX 方案已在配置中禁用")
-    if not ocx_ok:
+    ocx_ok, ocx_reason = (
+        env.ocx_possible()
+        if method == "ocx" or (method == "auto" and OCX_ENABLED)
+        else (False, "OCX 方案已在配置中禁用")
+    )
+    if method in ("auto", "ocx") and not ocx_ok:
         outcomes.append(StrategyOutcome("ocx", False, "ocx-experimental", reason=ocx_reason))
-    else:
+    elif method in ("auto", "ocx"):
         ocx_factory = ctx.ocx_factory or _ocx_default_factory
         result = record("ocx", "ocx-experimental", lambda: _export_via_ocx(ocx_factory, ctx.output))
         if result is not None:
             return result
 
-    raise RuntimeError("所有已启用的枚举策略均失败：\n" + "\n".join(o.describe() for o in outcomes))
+    raise RuntimeError("所选变量表读取方法失败：\n" + "\n".join(o.describe() for o in outcomes))
 
 
 def export_symbols(
@@ -958,6 +974,7 @@ def export_symbols(
     ocx_factory: Callable[[], Any] | None = None,
     outcomes: list[StrategyOutcome] | None = None,
     owns_connection: bool = False,
+    read_method: str | None = None,
 ) -> int:
     """先整表、后分段、再文件服务、最后 OCX；成功方案的结果必须校验完整。
 
@@ -965,7 +982,12 @@ def export_symbols(
     owns_connection=True 时由本函数负责最终释放当前实际连接。
     reconnect 工厂创建的连接始终归本函数所有并保证释放。
     """
-    if (
+    method = READ_METHOD if read_method is None else read_method
+    if method not in ("auto", "full", "chunk", "file", "ocx"):
+        raise ValueError(f"READ_METHOD 不支持 {method!r}；必须为 auto/full/chunk/file/ocx")
+    if method == "chunk" and not CHUNK_SIZES:
+        raise ValueError("chunk 方法要求 CHUNK_SIZES 非空")
+    if method == "auto" and (
         not TRY_FULL_TABLE_FIRST
         and not CHUNK_SIZES
         and not FILE_SERVICE_ENABLED
@@ -980,6 +1002,7 @@ def export_symbols(
         file_service_factory=file_service_factory,
         ocx_factory=ocx_factory,
         outcomes=outcomes if outcomes is not None else [],
+        read_method=method,
     )
     try:
         return _run_strategies(ctx)
