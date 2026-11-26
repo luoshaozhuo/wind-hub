@@ -43,6 +43,8 @@ def _batch(size: int) -> SampleBatch:
         device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id=POINT_TABLE,
+        device_config_id=DEVICE_CONFIG,
+        sample_time=PUBLISH,
         publish_time=PUBLISH,
         samples=tuple(_item(i) for i in range(size)),
     )
@@ -128,6 +130,8 @@ def test_unicode_is_utf8_not_ascii_escaped() -> None:
         device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id=POINT_TABLE,
+        device_config_id=DEVICE_CONFIG,
+        sample_time=PUBLISH,
         publish_time=PUBLISH,
         samples=(item,),
     )
