@@ -486,3 +486,58 @@ def test_tpy_utf8_symbol_names(exporter: types.ModuleType, tmp_path: Path) -> No
     )
     assert count == 2
     assert output.read_text(encoding="utf-8").splitlines()[-2:] == names
+
+
+# ---------- 显式读取方法：指定模式不允许跨策略回退 ----------
+def test_read_method_full_only(exporter: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    names = ["MAIN.A", "MAIN.B"]
+    plc = FakePLC(b"".join(_entry(name) for name in names), len(names))
+    monkeypatch.setattr(exporter, "_export_in_chunks", MagicMock(side_effect=AssertionError("unexpected chunk")))
+    monkeypatch.setattr(exporter, "_probe_file_service", MagicMock(side_effect=AssertionError("unexpected file")))
+    result = exporter.export_symbols(plc, tmp_path / "symbols.txt", env=_env(exporter), read_method="full")
+    assert result == 2
+    assert (tmp_path / "symbols.txt").read_text(encoding="utf-8").splitlines() == names
+
+
+def test_read_method_chunk_only(exporter: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    names = ["MAIN.A", "MAIN.B"]
+    plc = FakePLC(b"".join(_entry(name) for name in names), len(names))
+    monkeypatch.setattr(exporter, "_export_full_table", MagicMock(side_effect=AssertionError("unexpected full")))
+    monkeypatch.setattr(exporter, "_probe_file_service", MagicMock(side_effect=AssertionError("unexpected file")))
+    exporter.CHUNK_SIZES = (64,)
+    assert exporter.export_symbols(plc, tmp_path / "symbols.txt", env=_env(exporter), read_method="chunk") == 2
+
+
+def test_read_method_invalid_rejected_before_connection(
+    exporter: types.ModuleType, tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="READ_METHOD"):
+        exporter.export_symbols(object(), tmp_path / "symbols.txt", read_method="invalid")
+
+
+def test_read_method_full_failure_does_not_fallback(
+    exporter: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(exporter, "_export_full_table", MagicMock(side_effect=RuntimeError("read error")))
+    chunk = MagicMock()
+    file_probe = MagicMock()
+    monkeypatch.setattr(exporter, "_export_in_chunks", chunk)
+    monkeypatch.setattr(exporter, "_probe_file_service", file_probe)
+    with pytest.raises(RuntimeError, match="指定 full 方法读取失败"):
+        exporter.export_symbols(object(), tmp_path / "symbols.txt", env=_env(exporter), read_method="full")
+    chunk.assert_not_called()
+    file_probe.assert_not_called()
+
+
+def test_read_method_file_only_skips_runtime_exports(
+    exporter: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    full = MagicMock()
+    chunks = MagicMock()
+    monkeypatch.setattr(exporter, "_export_full_table", full)
+    monkeypatch.setattr(exporter, "_export_in_chunks", chunks)
+    monkeypatch.setattr(exporter, "_default_file_service_factory", lambda plc: None)
+    with pytest.raises(RuntimeError, match="指定 file 方法读取失败"):
+        exporter.export_symbols(object(), tmp_path / "symbols.txt", env=_env(exporter), read_method="file")
+    full.assert_not_called()
+    chunks.assert_not_called()
