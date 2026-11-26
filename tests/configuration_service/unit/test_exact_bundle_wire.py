@@ -16,8 +16,6 @@ def test_exact_roots_survive_protobuf_roundtrip() -> None:
     restored = pb.GetConfigBundleRequest.FromString(request.SerializeToString())
     assert not restored.roots
     assert not restored.HasField("revision_id")
-    assert restored.exact_roots[0].version_id == (
-        "sha-of-immutable-repository-version"
-    )
+    assert restored.exact_roots[0].version_id == ("sha-of-immutable-repository-version")
     assert restored.exact_roots[0].config_id.config_type == "device"
     assert restored.include_dependencies

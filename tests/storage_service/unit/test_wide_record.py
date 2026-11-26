@@ -25,9 +25,7 @@ def _payload() -> dict[str, object]:
 
 
 def _decode(value: dict[str, object], columns: tuple[str, ...]) -> WideRecord:
-    return WideRecord.from_kafka_json(
-        json.dumps(value).encode("utf-8"), physical_points=columns
-    )
+    return WideRecord.from_kafka_json(json.dumps(value).encode("utf-8"), physical_points=columns)
 
 
 def test_record_is_one_complete_device_row_in_physical_column_order() -> None:

@@ -37,17 +37,26 @@ async def test_exact_wide_rpc_binds_auth_schema_quality_and_unsigned_value() -> 
     service._point_tables.wide_device_type.return_value = "turbine"
     service._point_tables.get_wide_unit = AsyncMock(return_value="kilowatt")
     service._wide_query = Mock()
-    service._wide_query.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(WideHistoryRow(
-            1795608000000000,
-            (("power", 2**64 - 1, PointQuality.GOOD),
-             ("wind_speed", None, PointQuality.NOT_COLLECTED)),
-        ),),
-        next_page_token="", complete=True, schema_fingerprint=schema.fingerprint,
-    ))
+    service._wide_query.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(
+                    1795608000000000,
+                    (
+                        ("power", 2**64 - 1, PointQuality.GOOD),
+                        ("wind_speed", None, PointQuality.NOT_COLLECTED),
+                    ),
+                ),
+            ),
+            next_page_token="",
+            complete=True,
+            schema_fingerprint=schema.fingerprint,
+        )
+    )
     context = Mock()
     request = pb.QueryWideRowsRequest(
-        wind_farm_id="farm", device_id="wtg1",
+        wind_farm_id="farm",
+        device_id="wtg1",
         device_config_id="device_farm_v1.0.0",
         data_level=pb.STORAGE_DATA_LEVEL_PROTOCOL,
         start_time=Timestamp(seconds=1795607900),

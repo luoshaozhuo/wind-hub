@@ -21,9 +21,24 @@ CONFIG_ID = "device_farm-a_v1.0.0"
 NOW = datetime(2026, 11, 9, 8, 30, 1, 123456, tzinfo=UTC)
 
 VALUES: list[int | float | bool | str | None] = [
-    0, 1, -17, 2**53, 0.0, 1.5, -3.14e-9, 1e308, True, False, None,
-    "中文，标点·测试", 'quote"back\\slash', "tab\there\nnewline\r",
-    "emoji😀unicodeé", "{}[]:,", "", " " * 200,
+    0,
+    1,
+    -17,
+    2**53,
+    0.0,
+    1.5,
+    -3.14e-9,
+    1e308,
+    True,
+    False,
+    None,
+    "中文，标点·测试",
+    'quote"back\\slash',
+    "tab\there\nnewline\r",
+    "emoji😀unicodeé",
+    "{}[]:,",
+    "",
+    " " * 200,
 ]
 TIMES = [
     datetime(2026, 11, 9, 8, 30, tzinfo=UTC),
@@ -56,8 +71,12 @@ def _batch(value: int | float | bool | str | None, sampled: datetime) -> SampleB
     )
 
 
-def _encode(batch: SampleBatch, *, level: str = "protocol",
-            projection: dict[str, BusinessValue] | None = None) -> bytes:
+def _encode(
+    batch: SampleBatch,
+    *,
+    level: str = "protocol",
+    projection: dict[str, BusinessValue] | None = None,
+) -> bytes:
     return encode_kafka_wide(
         batch,
         batch.samples,
@@ -71,7 +90,8 @@ def _encode(batch: SampleBatch, *, level: str = "protocol",
 @pytest.mark.parametrize("value", VALUES)
 @pytest.mark.parametrize("sample_time", TIMES)
 def test_wide_protocol_bytes_match_independent_reference(
-    value: int | float | bool | str | None, sample_time: datetime,
+    value: int | float | bool | str | None,
+    sample_time: datetime,
 ) -> None:
     batch = _batch(value, sample_time)
     decoded = SampleBatch.decode(batch.encode(), "reliable", subject=batch.subject())
@@ -86,7 +106,10 @@ def test_wide_protocol_bytes_match_independent_reference(
         "points": {"p000": [value, 1]},
     }
     reference = json.dumps(
-        expected, ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+        expected,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
     ).encode("utf-8")
     assert wire == reference
     row = WideRecord.from_kafka_json(wire, physical_points=("p000",))
@@ -96,8 +119,13 @@ def test_wide_protocol_bytes_match_independent_reference(
 def test_wide_wire_has_only_seven_authoritative_envelope_fields() -> None:
     payload = json.loads(_encode(_batch(1.5, TIMES[0])))
     assert list(payload) == [
-        "schema_version", "wind_farm_id", "device_config_id", "device_id",
-        "data_level", "sample_time", "points",
+        "schema_version",
+        "wind_farm_id",
+        "device_config_id",
+        "device_id",
+        "data_level",
+        "sample_time",
+        "points",
     ]
     assert payload["points"] == {"p000": [1.5, 1]}
 
@@ -125,7 +153,9 @@ def test_business_projection_uses_business_point_identity() -> None:
     batch = _batch(1.0, TIMES[0])
     projection = {
         "s-parity-0": BusinessValue(
-            business_point_id="bp.p000", unit="kilowatt", value=2.5,
+            business_point_id="bp.p000",
+            unit="kilowatt",
+            value=2.5,
         ),
     }
     raw = _encode(batch, level="business", projection=projection)

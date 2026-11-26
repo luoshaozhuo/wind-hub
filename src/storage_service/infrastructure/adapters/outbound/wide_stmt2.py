@@ -96,8 +96,7 @@ def write_wide_stmt2(
         return
     first = records[0]
     expected = (
-        f"{schema.database_name(first.wind_farm_id)}."
-        f"{schema.subtable_name(first.device_id)}"
+        f"{schema.database_name(first.wind_farm_id)}." f"{schema.subtable_name(first.device_id)}"
     )
     if table_name != expected:
         raise ValueError("wide insert target differs from exact device schema identity")

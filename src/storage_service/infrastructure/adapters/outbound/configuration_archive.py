@@ -14,7 +14,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -22,10 +22,15 @@ from typing import Any, Protocol
 import grpc
 import yaml
 
-from storage_service.application.config import DeviceBinding, DeviceClosurePins, DeviceModel, TypeMapping
-from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from core.domain.protocol_types import normalize_protocol_scalar_type
 from core.domain.value_objects import DataType
+from storage_service.application.config import (
+    DeviceBinding,
+    DeviceClosurePins,
+    DeviceModel,
+    TypeMapping,
+)
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity, WideRecord
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
@@ -215,7 +220,8 @@ class ImmutableConfigArchive:
             used = 0
             for item in sorted(self._directory.iterdir()):
                 if (
-                    item.is_symlink() or not item.is_dir()
+                    item.is_symlink()
+                    or not item.is_dir()
                     or _HEX64.fullmatch(item.name) is None
                     or {entry.name for entry in item.iterdir()}
                     != {"document.yaml", "manifest.json"}
@@ -235,11 +241,14 @@ class ImmutableConfigArchive:
                         "historical backup manifest is malformed"
                     ) from exc
                 if (
-                    not isinstance(fields, list) or len(fields) != 5
-                    or any(not isinstance(value, str) or not value for value in (
-                        fields[0], fields[1], fields[2], fields[4]
-                    ))
-                    or type(fields[3]) is not int or fields[3] < 0
+                    not isinstance(fields, list)
+                    or len(fields) != 5
+                    or any(
+                        not isinstance(value, str) or not value
+                        for value in (fields[0], fields[1], fields[2], fields[4])
+                    )
+                    or type(fields[3]) is not int
+                    or fields[3] < 0
                     or _HEX64.fullmatch(fields[4]) is None
                     or hashlib.sha256(document_bytes).hexdigest() != fields[4]
                 ):
@@ -248,7 +257,8 @@ class ImmutableConfigArchive:
                     )
                 stable_identity = json.dumps(
                     [fields[0], fields[1], fields[2], fields[4]],
-                    ensure_ascii=False, separators=(",", ":"),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
                 ).encode("utf-8")
                 if item.name != hashlib.sha256(stable_identity).hexdigest():
                     raise ConfigHistoryUnavailableError(
@@ -361,7 +371,8 @@ class ConfigurationPointTableResolver:
         persist_historical: Callable[
             [dict[str, tuple[str, str]], tuple[str, str] | None, DeviceBinding],
             None,
-        ] | None = None,
+        ]
+        | None = None,
     ) -> None:
         if not point_table_versions:
             raise ValueError("explicitly pinned point table versions are required")
@@ -553,7 +564,9 @@ class ConfigurationPointTableResolver:
         identity: WideIdentity | WideRecord,
         documents: tuple[RepositoryDocument, ...],
     ) -> tuple[
-        DeviceBinding, tuple[str, str], tuple[str, str] | None,
+        DeviceBinding,
+        tuple[str, str],
+        tuple[str, str] | None,
     ]:
         """Rebuild immutable Device → Model → PointTable semantic pins from YAML."""
         parsed: dict[tuple[str, str, str], tuple[RepositoryDocument, dict[str, Any]]] = {}
@@ -626,9 +639,18 @@ class ConfigurationPointTableResolver:
             if not isinstance(ref, dict):
                 raise ConfigHistoryUnavailableError("invalid historical semantic reference")
             kind, name_ref, version_ref = (
-                ref.get("config_type"), ref.get("config_id"), ref.get("file_version")
+                ref.get("config_type"),
+                ref.get("config_id"),
+                ref.get("file_version"),
             )
-            if not all(isinstance(item, str) and item for item in (kind, name_ref, version_ref)):
+            if (
+                not isinstance(kind, str)
+                or not kind
+                or not isinstance(name_ref, str)
+                or not name_ref
+                or not isinstance(version_ref, str)
+                or not version_ref
+            ):
                 raise ConfigHistoryUnavailableError("historical semantic pin incomplete")
             target = parsed.get((kind, name_ref, version_ref))
             if target is None:
@@ -638,8 +660,10 @@ class ConfigurationPointTableResolver:
                     raise ConfigHistoryUnavailableError("ambiguous BusinessPoint catalog")
                 business_pin = (name_ref, target[0].version_id)
         model = DeviceModel(
-            config_id=model_id, version_id=model_document.version_id,
-            file_version=model_version, device_type_id=device_type,
+            config_id=model_id,
+            version_id=model_document.version_id,
+            file_version=model_version,
+            device_type_id=device_type,
             point_table_id=full_table_id,
         )
         binding = DeviceBinding(
@@ -665,9 +689,7 @@ class ConfigurationPointTableResolver:
             documents = await self._fetcher.fetch_exact_device_closure(
                 device_config_id=identity.device_config_id,
             )
-            binding, pin, business = self._parse_exact_device_binding(
-                identity, documents
-            )
+            binding, pin, business = self._parse_exact_device_binding(identity, documents)
             pins = {binding.point_table_id: pin}
             self.validate_immutable_pins(
                 point_table_versions=pins,
@@ -678,9 +700,7 @@ class ConfigurationPointTableResolver:
                 raise ConfigHistoryUnavailableError(
                     "Storage has no durable historical pin registration"
                 )
-            await asyncio.to_thread(
-                self._persist_historical, pins, business, binding
-            )
+            await asyncio.to_thread(self._persist_historical, pins, business, binding)
             self.add_immutable_pins(
                 point_table_versions=pins,
                 business_points_pin=business,
@@ -734,12 +754,15 @@ class ConfigurationPointTableResolver:
         if pin is None:
             raise ConfigHistoryUnavailableError("PointTable lacks an immutable pin")
         document = await self._load(
-            config_type="point_table", config_id=pin[0],
-            version_id=pin[1], point_table_id=binding.point_table_id,
+            config_type="point_table",
+            config_id=pin[0],
+            version_id=pin[1],
+            point_table_id=binding.point_table_id,
         )
         self._require_table_identity(
             point_table_id=binding.point_table_id,
-            config_id=pin[0], document=document,
+            config_id=pin[0],
+            document=document,
             device_type_id=binding.device_type_id,
         )
         points = document.get("points")
@@ -754,7 +777,8 @@ class ConfigurationPointTableResolver:
                 raise ConfigHistoryUnavailableError("BUSINESS lacks historical catalog pin")
             catalog = await self._load(
                 config_type="business_points",
-                config_id=catalog_pin[0], version_id=catalog_pin[1],
+                config_id=catalog_pin[0],
+                version_id=catalog_pin[1],
             )
             entries = catalog.get("business_points")
             if not isinstance(entries, dict):
@@ -872,7 +896,8 @@ class ConfigurationPointTableResolver:
             )
         document = await self._load(
             config_type="business_points",
-            config_id=pin[0], version_id=pin[1],
+            config_id=pin[0],
+            version_id=pin[1],
         )
         catalog = document.get("business_points")
         if not isinstance(catalog, dict):
@@ -884,4 +909,3 @@ class ConfigurationPointTableResolver:
         if not isinstance(unit, str) or not unit:
             raise ConfigHistoryUnavailableError("wide BusinessPoint unit must be nonempty")
         return unit
-

@@ -38,7 +38,7 @@ def _numeric_value(value: object, sql_type: str) -> int | float:
         if type(value) is not int or not minimum <= value <= maximum:
             raise ValueError("wide integer aggregate exceeds declared SQL type")
         return value
-    if sql_type in _FLOAT and type(value) in (int, float):
+    if sql_type in _FLOAT and (type(value) is int or type(value) is float):
         try:
             result = float(value)
         except OverflowError as exc:
@@ -80,9 +80,12 @@ class WideAggregationService:
     ) -> None:
         if (
             len(secret) < 32
-            or type(max_page_size) is not int or not 1 <= max_page_size <= 1000
-            or type(max_scan_rows) is not int or max_scan_rows < 1
-            or type(max_groups) is not int or max_groups < 1
+            or type(max_page_size) is not int
+            or not 1 <= max_page_size <= 1000
+            or type(max_scan_rows) is not int
+            or max_scan_rows < 1
+            or type(max_groups) is not int
+            or max_groups < 1
         ):
             raise ValueError("wide aggregate requires a strong signing key and bounded pages")
         self._history = history
@@ -90,9 +93,7 @@ class WideAggregationService:
         self._page_size = max_page_size
         self._max_scan = max_scan_rows
         self._max_groups = max_groups
-        self._snapshots: dict[
-            str, tuple[int, str, tuple[WideAggregateRow, ...]]
-        ] = {}
+        self._snapshots: dict[str, tuple[int, str, tuple[WideAggregateRow, ...]]] = {}
 
     @staticmethod
     def _fingerprint(
@@ -104,20 +105,32 @@ class WideAggregationService:
     ) -> str:
         payload = json.dumps(
             [
-                schema.fingerprint, filter_.wind_farm_id, filter_.device_id,
-                filter_.device_config_id, filter_.data_level.value,
-                filter_.start_time_us, filter_.end_time_us, filter_.point_ids,
-                filter_.qualities, operation, window_ms, page_size,
+                schema.fingerprint,
+                filter_.wind_farm_id,
+                filter_.device_id,
+                filter_.device_config_id,
+                filter_.data_level.value,
+                filter_.start_time_us,
+                filter_.end_time_us,
+                filter_.point_ids,
+                filter_.qualities,
+                operation,
+                window_ms,
+                page_size,
             ],
-            separators=(",", ":"), ensure_ascii=False,
+            separators=(",", ":"),
+            ensure_ascii=False,
         ).encode()
         return hashlib.sha256(payload).hexdigest()
 
     def _encode(self, name: str, digest: str, next_index: int, expires: int) -> str:
         payload = json.dumps(
-            [name, digest, next_index, expires], separators=(",", ":"),
+            [name, digest, next_index, expires],
+            separators=(",", ":"),
         ).encode()
-        return base64.urlsafe_b64encode(hmac.digest(self._key, payload, "sha256") + payload).decode()
+        return base64.urlsafe_b64encode(
+            hmac.digest(self._key, payload, "sha256") + payload
+        ).decode()
 
     def _decode(self, token: str, digest: str) -> tuple[str, int]:
         if not token or len(token) > 4096:
@@ -131,9 +144,13 @@ class WideAggregationService:
                 raise ValueError("wide aggregate cursor signature mismatch")
             name, binding, index, expires = json.loads(encoded)
             if (
-                not isinstance(name, str) or not isinstance(binding, str)
-                or binding != digest or type(index) is not int or index < 0
-                or type(expires) is not int or expires < time.time()
+                not isinstance(name, str)
+                or not isinstance(binding, str)
+                or binding != digest
+                or type(index) is not int
+                or index < 0
+                or type(expires) is not int
+                or expires < time.time()
             ):
                 raise ValueError("wide aggregate cursor is expired or rebound")
             return name, index
@@ -141,9 +158,13 @@ class WideAggregationService:
             raise ValueError("wide aggregate cursor is malformed") from exc
 
     async def _compute(
-        self, *,
-        schema: WideSchema, filter_: WideHistoryFilter,
-        device_type: str, operation: str, window_ms: int,
+        self,
+        *,
+        schema: WideSchema,
+        filter_: WideHistoryFilter,
+        device_type: str,
+        operation: str,
+        window_ms: int,
     ) -> tuple[WideAggregateRow, ...]:
         by_point = {col.point_id: col for col in schema.columns}
         if operation not in {"count", "min", "max", "avg"}:
@@ -151,8 +172,7 @@ class WideAggregationService:
         if type(window_ms) is not int or not 1 <= window_ms <= 31 * 86_400_000:
             raise ValueError("wide aggregate window is invalid")
         if operation != "count" and any(
-            by_point[point_id].sql_type not in _INTEGER | _FLOAT
-            for point_id in filter_.point_ids
+            by_point[point_id].sql_type not in _INTEGER | _FLOAT for point_id in filter_.point_ids
         ):
             raise ValueError("wide min/max/avg requires numeric columns")
         # Values are kept per bounded window only; no raw row buffer.
@@ -163,8 +183,10 @@ class WideAggregationService:
         scanned = 0
         while True:
             page = await self._history.query(
-                schema=schema, filter_=filter_,
-                device_type=device_type, page_token=cursor,
+                schema=schema,
+                filter_=filter_,
+                device_type=device_type,
+                page_token=cursor,
             )
             for row in page.rows:
                 scanned += 1
@@ -216,16 +238,23 @@ class WideAggregationService:
                     if not isfinite(actual):
                         raise ValueError("wide AVG result is not finite")
                 kind = (
-                    3 if operation == "avg" or physical in _FLOAT
-                    else 2 if physical.endswith(" UNSIGNED")
+                    3
+                    if operation == "avg" or physical in _FLOAT
+                    else 2
+                    if physical.endswith(" UNSIGNED")
                     else 1
                 )
-            result.append(WideAggregateRow(
-                point_id=point_id, start_us=start,
-                end_us=start + window_ms * 1000,
-                good_count=good, missing_count=missing,
-                result=actual, result_kind=kind,
-            ))
+            result.append(
+                WideAggregateRow(
+                    point_id=point_id,
+                    start_us=start,
+                    end_us=start + window_ms * 1000,
+                    good_count=good,
+                    missing_count=missing,
+                    result=actual,
+                    result_kind=kind,
+                )
+            )
         return tuple(result)
 
     async def page(
@@ -246,14 +275,9 @@ class WideAggregationService:
             raise ValueError("wide aggregate requires signed pagination only")
         if not self._history.read_available():
             raise RuntimeError("wide aggregate unavailable during Kafka replay")
-        identity = self._fingerprint(
-            schema, filter_, operation, window_ms, page_size
-        )
+        identity = self._fingerprint(schema, filter_, operation, window_ms, page_size)
         now = int(time.time())
-        self._snapshots = {
-            key: entry for key, entry in self._snapshots.items()
-            if entry[0] >= now
-        }
+        self._snapshots = {key: entry for key, entry in self._snapshots.items() if entry[0] >= now}
         if page_token:
             name, index = self._decode(page_token, identity)
             stored = self._snapshots.get(name)
@@ -262,8 +286,11 @@ class WideAggregationService:
             records = stored[2]
         else:
             records = await self._compute(
-                schema=schema, filter_=filter_, device_type=device_type,
-                operation=operation, window_ms=window_ms,
+                schema=schema,
+                filter_=filter_,
+                device_type=device_type,
+                operation=operation,
+                window_ms=window_ms,
             )
             name, index = uuid.uuid4().hex, 0
             if len(records) > page_size:
@@ -273,11 +300,18 @@ class WideAggregationService:
                 self._snapshots[name] = (now + 900, identity, records)
         if index > len(records):
             raise ValueError("wide aggregate cursor index out of bounds")
-        segment = records[index:index + page_size]
+        segment = records[index : index + page_size]
         next_index = index + len(segment)
         complete = next_index >= len(records)
-        token = "" if complete else self._encode(
-            name, identity, next_index, self._snapshots[name][0],
+        token = (
+            ""
+            if complete
+            else self._encode(
+                name,
+                identity,
+                next_index,
+                self._snapshots[name][0],
+            )
         )
         if not self._history.read_available():
             raise RuntimeError("wide aggregate replay changed during pagination")

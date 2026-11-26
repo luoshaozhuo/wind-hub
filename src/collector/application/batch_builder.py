@@ -123,8 +123,13 @@ class BatchBuilder:
         while start < len(items):
             count = min(self._max_samples, len(items) - start)
             candidate = self._batch(
-                device_id, task_id, device_type, point_table_id,
-                device_config_id, sample_time, items[start : start + count],
+                device_id,
+                task_id,
+                device_type,
+                point_table_id,
+                device_config_id,
+                sample_time,
+                items[start : start + count],
             )
             while count:
                 try:
@@ -137,7 +142,7 @@ class BatchBuilder:
                     if self._delivery == "reliable":
                         raise ValueError(
                             "reliable device sample exceeds transport bound; splitting forbidden"
-                        )
+                        ) from None
                     candidate = self._batch(
                         device_id,
                         task_id,

@@ -170,9 +170,7 @@ class SampleBatch(BaseModel):
     def _device_version_identity(cls, value: str) -> str:
         if (
             not isinstance(value, str)
-            or re.fullmatch(
-                r"device_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+", value
-            ) is None
+            or re.fullmatch(r"device_[A-Za-z0-9_.-]+_v[0-9]+\.[0-9]+\.[0-9]+", value) is None
         ):
             raise ValueError("exact Device Instance identity required")
         return value

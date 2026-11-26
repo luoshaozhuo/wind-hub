@@ -46,11 +46,15 @@ def _batch() -> SampleBatch:
 
 
 def _wire(
-    batch: SampleBatch, items: tuple[SampleItem, ...], *,
-    level: str, projection: dict[str, BusinessValue] | None = None,
+    batch: SampleBatch,
+    items: tuple[SampleItem, ...],
+    *,
+    level: str,
+    projection: dict[str, BusinessValue] | None = None,
 ) -> bytes:
     return encode_kafka_wide(
-        batch, items,
+        batch,
+        items,
         device_config_id=_DEVICE_VERSION,
         physical_points=(_POINT if level != "business" else "bp.active_power",),
         data_level=level,  # type: ignore[arg-type]
@@ -134,7 +138,9 @@ def test_collector_preserves_driver_payload_through_wide_wire() -> None:
         max_batch_bytes=1048576,
     )
     built = builder.pack(
-        "WTG-f6", (sample,), device_type="WTG",
+        "WTG-f6",
+        (sample,),
+        device_type="WTG",
         point_table_id="point_table_storage-points_v1.0.0",
         task_id="collector-task-f6",
         device_config_id=_DEVICE_VERSION,

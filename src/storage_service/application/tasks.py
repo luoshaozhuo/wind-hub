@@ -15,8 +15,8 @@ from typing import Protocol
 from storage_service.application.config import StorageConfig
 from storage_service.application.wide_export import export_wide_device_history
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
-from storage_service.domain.wide_schema import WideSchema
 from storage_service.domain.tasks import TaskRecord
+from storage_service.domain.wide_schema import WideSchema
 
 _LOG = logging.getLogger(__name__)
 
@@ -123,19 +123,21 @@ class AsyncStorageTasks:
         if filter_.after_time_us is not None:
             raise ValueError("wide export cannot accept an external pagination cursor")
         task_id = uuid.uuid4().hex
-        fingerprint = self._request_digest([
-            "WIDE_EXPORT_V1",
-            filter_.wind_farm_id,
-            filter_.device_id,
-            filter_.device_config_id,
-            filter_.data_level.value,
-            filter_.start_time_us,
-            filter_.end_time_us,
-            filter_.point_ids,
-            filter_.qualities,
-            schema.fingerprint,
-            export_format,
-        ])
+        fingerprint = self._request_digest(
+            [
+                "WIDE_EXPORT_V1",
+                filter_.wind_farm_id,
+                filter_.device_id,
+                filter_.device_config_id,
+                filter_.data_level.value,
+                filter_.start_time_us,
+                filter_.end_time_us,
+                filter_.point_ids,
+                filter_.qualities,
+                schema.fingerprint,
+                export_format,
+            ]
+        )
         existing = await asyncio.to_thread(
             self._metadata.register_task,
             task_id=task_id,
@@ -151,8 +153,11 @@ class AsyncStorageTasks:
         if existing == task_id:
             worker = asyncio.create_task(
                 self._run_wide_export(
-                    task_id=task_id, filter_=filter_, schema=schema,
-                    device_type=device_type, export_format=export_format,
+                    task_id=task_id,
+                    filter_=filter_,
+                    schema=schema,
+                    device_type=device_type,
+                    export_format=export_format,
                 ),
                 name=f"storage-export-{task_id}",
             )
@@ -173,21 +178,29 @@ class AsyncStorageTasks:
             await asyncio.to_thread(self._metadata.set_task_state, task_id, state="RUNNING")
             try:
                 artifact, size, digest = await export_wide_device_history(
-                    history=self._wide_history, schema=schema,
-                    filter_=filter_, device_type=device_type,
-                    artifact_id=task_id, export_format=export_format,
+                    history=self._wide_history,
+                    schema=schema,
+                    filter_=filter_,
+                    device_type=device_type,
+                    artifact_id=task_id,
+                    export_format=export_format,
                     root=self._config.export.root,
                     max_bytes=self._config.export.max_bytes,
                 )
                 await asyncio.to_thread(
                     self._metadata.set_task_state,
-                    task_id, state="SUCCEEDED",
-                    artifact_id=artifact, size_bytes=size, sha256=digest,
+                    task_id,
+                    state="SUCCEEDED",
+                    artifact_id=artifact,
+                    size_bytes=size,
+                    sha256=digest,
                 )
             except BaseException as exc:
                 await asyncio.to_thread(
-                    self._metadata.set_task_state, task_id,
-                    state="FAILED", error_code="WIDE_EXPORT_FAILED",
+                    self._metadata.set_task_state,
+                    task_id,
+                    state="FAILED",
+                    error_code="WIDE_EXPORT_FAILED",
                     message=type(exc).__name__,
                 )
                 raise

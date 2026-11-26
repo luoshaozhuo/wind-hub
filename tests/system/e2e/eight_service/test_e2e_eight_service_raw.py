@@ -146,8 +146,7 @@ def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness)
                                     created["data"]["generation_id"]
                                 )
             raise AssertionError(
-                f"only {len(selected)} FC04 RAW rows independently matched; "
-                f"observed={observed}"
+                f"only {len(selected)} FC04 RAW rows independently matched; " f"observed={observed}"
             )
         finally:
             await consumer.stop()
@@ -195,7 +194,9 @@ def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness)
             if expected <= observed:
                 break
             time.sleep(1)
-    assert expected <= observed, f"Storage wide RPC did not return RAW points: {expected - observed}"
+    assert (
+        expected <= observed
+    ), f"Storage wide RPC did not return RAW points: {expected - observed}"
     assert last_reply is not None
     assert last_reply.schema_fingerprint
     assert last_reply.point_table_version
@@ -209,15 +210,12 @@ def test_fc04_raw_reaches_storage_and_tdengine(raw_started: EightServiceHarness)
         max_row_bytes=65536,
     )
     assert schema.fingerprint == last_reply.schema_fingerprint
-    point_column = next(
-        col.column_name for col in schema.columns if col.point_id == POINT
-    )
+    point_column = next(col.column_name for col in schema.columns if col.point_id == POINT)
     database = schema.database_name("e2e-final")
     table = schema.subtable_name(DEVICE)
     for timestamp, raw in expected:
         rows = harness.stack.tdengine_sql(
-            f"SELECT `{point_column}` FROM `{database}`.`{table}` "
-            f"WHERE ts = {timestamp}",
+            f"SELECT `{point_column}` FROM `{database}`.`{table}` " f"WHERE ts = {timestamp}",
             database=database,
         )["data"]
         assert len(rows) == 1, (timestamp, rows)

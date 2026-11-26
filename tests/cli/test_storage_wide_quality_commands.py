@@ -11,10 +11,16 @@ def test_wide_query_quality_is_top_level(monkeypatch: pytest.MonkeyPatch) -> Non
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.query_wide_rows(
-        "farm", "wtg001", "device_farm_v1.0.0",
-        "2026-11-25T00:00:00Z", "2026-11-26T00:00:00Z",
-        level="protocol", point_ids=["wind_speed"], qualities=[1, 2],
-        page_size=20, page_token="",
+        "farm",
+        "wtg001",
+        "device_farm_v1.0.0",
+        "2026-11-25T00:00:00Z",
+        "2026-11-26T00:00:00Z",
+        level="protocol",
+        point_ids=["wind_speed"],
+        qualities=[1, 2],
+        page_size=20,
+        page_token="",
     )
     method, fields = receiver.call_args.args
     assert method == "QueryWideRows"
@@ -26,11 +32,18 @@ def test_wide_aggregate_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) 
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.query_wide_aggregates(
-        "farm", "wtg001", "device_farm_v1.0.0",
-        "2026-11-25T00:00:00Z", "2026-11-26T00:00:00Z",
-        level="protocol", operation="count", window_ms=60_000,
-        point_ids=["wind_speed"], qualities=[0, 2],
-        page_size=50, page_token="",
+        "farm",
+        "wtg001",
+        "device_farm_v1.0.0",
+        "2026-11-25T00:00:00Z",
+        "2026-11-26T00:00:00Z",
+        level="protocol",
+        operation="count",
+        window_ms=60_000,
+        point_ids=["wind_speed"],
+        qualities=[0, 2],
+        page_size=50,
+        page_token="",
     )
     method, fields = receiver.call_args.args
     assert method == "QueryAggregates"
@@ -42,10 +55,17 @@ def test_wide_export_quality_is_nested_only(monkeypatch: pytest.MonkeyPatch) -> 
     receiver = Mock()
     monkeypatch.setattr(storage_commands, "_invoke", receiver)
     storage_commands.create_wide_export(
-        "export-1", "farm", "wtg001", "device_farm_v1.0.0",
-        "2026-11-25T00:00:00Z", "2026-11-26T00:00:00Z",
-        level="business", export_format="json",
-        point_ids=["active_power"], qualities=[1], page_size=100,
+        "export-1",
+        "farm",
+        "wtg001",
+        "device_farm_v1.0.0",
+        "2026-11-25T00:00:00Z",
+        "2026-11-26T00:00:00Z",
+        level="business",
+        export_format="json",
+        point_ids=["active_power"],
+        qualities=[1],
+        page_size=100,
     )
     method, fields = receiver.call_args.args
     assert method == "CreateExport"

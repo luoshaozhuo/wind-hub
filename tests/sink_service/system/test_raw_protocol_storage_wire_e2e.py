@@ -92,7 +92,8 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
             ),
         )
         matching = [
-            record for record in records
+            record
+            for record in records
             if json.loads(record.value).get("schema_version") == 3
             and json.loads(record.value).get("data_level") == level
             and json.loads(record.value).get("device_id") == DEVICE_ID
@@ -179,7 +180,8 @@ async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
             ),
         )
         matching = [
-            record for record in records
+            record
+            for record in records
             if json.loads(record.value).get("schema_version") == 3
             and json.loads(record.value).get("data_level") == "raw"
             and json.loads(record.value).get("device_id") == DEVICE_ID
@@ -188,9 +190,7 @@ async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
         record = json.loads(matching[-1].value)
         assert record["device_config_id"]
         assert record["points"]["speed"] == [struct.pack(">f", 1200.5).hex(), 1]
-        stored = WideRecord.from_kafka_json(
-            matching[-1].value, physical_points=("speed",)
-        )
+        stored = WideRecord.from_kafka_json(matching[-1].value, physical_points=("speed",))
         assert stored.data_level is WideDataLevel.RAW
         assert stored.values == (sample.raw_payload.hex(),)
     finally:

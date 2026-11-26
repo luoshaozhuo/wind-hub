@@ -16,13 +16,11 @@ from storage_service.application.ingestion_contract import (
     KafkaRecord,
     WriteUnconfirmedError,
 )
-from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
+from storage_service.application.wide_ingestion import WideIngestionService
+from storage_service.domain.errors import TDengineSchemaConflictError
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
-from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
-    TDengineSchemaConflictError,
-)
 
 _LOG = logging.getLogger(__name__)
 
@@ -71,7 +69,9 @@ class KafkaStorageConsumer:
             auto_offset_reset="earliest",
             max_poll_records=configuration.kafka.max_poll_records,
             fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
-            max_partition_fetch_bytes=min(1048576, configuration.tdengine.ingestion.buffer_max_bytes),
+            max_partition_fetch_bytes=min(
+                1048576, configuration.tdengine.ingestion.buffer_max_bytes
+            ),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
         self._retry_failures: dict[TopicPartition, int] = {}

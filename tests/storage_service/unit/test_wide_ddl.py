@@ -26,9 +26,7 @@ def _schema(level: WideDataLevel = WideDataLevel.PROTOCOL) -> WideSchema:
 def test_stable_has_one_row_timestamp_complete_columns_and_quality() -> None:
     schema = _schema()
     ddl = stable_ddl(schema, database="wh_example")
-    assert ddl.startswith(
-        f"CREATE STABLE IF NOT EXISTS wh_example.{schema.supertable_name()}"
-    )
+    assert ddl.startswith(f"CREATE STABLE IF NOT EXISTS wh_example.{schema.supertable_name()}")
     assert "ts TIMESTAMP" in ddl
     assert "quality VARBINARY(1)" in ddl
     assert "device_id VARCHAR(128)" in ddl
@@ -39,27 +37,25 @@ def test_stable_has_one_row_timestamp_complete_columns_and_quality() -> None:
     assert "content_sha256" not in ddl
 
 
-@pytest.mark.parametrize("level, expected", [
-    (WideDataLevel.RAW, "1"),
-    (WideDataLevel.PROTOCOL, "2"),
-    (WideDataLevel.BUSINESS, "3"),
-])
+@pytest.mark.parametrize(
+    "level, expected",
+    [
+        (WideDataLevel.RAW, "1"),
+        (WideDataLevel.PROTOCOL, "2"),
+        (WideDataLevel.BUSINESS, "3"),
+    ],
+)
 def test_subtable_identity_includes_data_level_and_schema_fingerprint(
     level: WideDataLevel, expected: str
 ) -> None:
     schema = _schema(level)
-    ddl = subtable_ddl(
-        schema, database="wh_example", device_id="wtg_001", device_type="wind"
-    )
+    ddl = subtable_ddl(schema, database="wh_example", device_id="wtg_001", device_type="wind")
     assert f"USING wh_example.{schema.supertable_name()}" in ddl
     assert f"'point_table_example', {expected}, '{schema.fingerprint}'" in ddl
 
 
 def test_tag_quote_is_escaped_not_interpolated_as_sql() -> None:
-    ddl = subtable_ddl(
-        _schema(), database="wh_example", device_id="wtg_o'hare",
-        device_type="wind"
-    )
+    ddl = subtable_ddl(_schema(), database="wh_example", device_id="wtg_o'hare", device_type="wind")
     assert "'wtg_o''hare'" in ddl
 
 

@@ -284,7 +284,8 @@ def test_service_v6_preserves_legacy_schemas_and_restricts_tokens() -> None:
 @pytest.mark.parametrize("token", ["TOKEN", "env:lowercase", "env:1BAD"])
 def test_service_v6_rejects_invalid_token_references(token: str) -> None:
     schema = next(
-        item.fields for item in iter_schemas()
+        item.fields
+        for item in iter_schemas()
         if item.config_type == "service" and item.schema_version == 6
     )
     with pytest.raises(ValueError):
@@ -322,7 +323,8 @@ def test_shipped_service_v6_schema_acceptance(config_name: str) -> None:
     )
     assert raw["schema_version"] == 6
     spec = next(
-        item.fields for item in iter_schemas()
+        item.fields
+        for item in iter_schemas()
         if item.config_type == "service" and item.schema_version == 6
     )
     ConfigurationApplication._validate_schema(raw, spec)

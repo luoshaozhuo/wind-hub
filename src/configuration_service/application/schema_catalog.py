@@ -368,7 +368,6 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                 header=successor_header,
             )
 
-
             # Keep published V1–V3 definitions immutable for historical retrieval.
             # New service envelopes share the repository category, not a runtime model.
             wide = deepcopy(successor)
@@ -419,8 +418,13 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                     "write_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 30000},
                 },
                 "required": [
-                    "topic", "key_field", "business_duplicate_policy", "dedup_identity_fields",
-                    "enable_idempotence", "acks", "write_timeout_ms",
+                    "topic",
+                    "key_field",
+                    "business_duplicate_policy",
+                    "dedup_identity_fields",
+                    "enable_idempotence",
+                    "acks",
+                    "write_timeout_ms",
                 ],
                 "additionalProperties": False,
             }
@@ -433,8 +437,13 @@ def iter_schemas() -> Iterator[SchemaSpec]:
                 fields={
                     "properties": wide,
                     "required": [
-                        "schema_version", "file_version", "template_id", "kind",
-                        "capabilities", "connection", "output",
+                        "schema_version",
+                        "file_version",
+                        "template_id",
+                        "kind",
+                        "capabilities",
+                        "connection",
+                        "output",
                     ],
                     "additionalProperties": False,
                 },

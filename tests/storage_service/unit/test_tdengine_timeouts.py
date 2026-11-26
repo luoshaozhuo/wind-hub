@@ -66,8 +66,11 @@ class _Connection:
 class _Driver:
     def __init__(
         self,
-        *, blocking_connect: bool = False, blocking_query: bool = False,
-        query_error: OSError | None = None, statement_stage: str | None = None,
+        *,
+        blocking_connect: bool = False,
+        blocking_query: bool = False,
+        query_error: OSError | None = None,
+        statement_stage: str | None = None,
     ) -> None:
         self.connections: list[_Connection] = []
         self.read_timeouts: list[str] = []
@@ -96,17 +99,22 @@ def _configuration(connections: int) -> StorageConfig:
         (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     ingestion = config.tdengine.ingestion.model_copy(update={"write_timeout_ms": 100})
-    tdengine = config.tdengine.model_copy(update={
-        "max_connections": connections,
-        "max_inflight_sql": connections,
-        "ingestion": ingestion,
-    })
+    tdengine = config.tdengine.model_copy(
+        update={
+            "max_connections": connections,
+            "max_inflight_sql": connections,
+            "ingestion": ingestion,
+        }
+    )
     return config.model_copy(update={"tdengine": tdengine})
 
 
 async def _backend(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, driver: _Driver,
-    *, connections: int = 1,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    driver: _Driver,
+    *,
+    connections: int = 1,
 ) -> TDengineBackend:
     monkeypatch.setenv("WIND_HUB_TDENGINE_USER", "root")
     monkeypatch.setenv("WIND_HUB_TDENGINE_PASSWORD", "taosdata")
@@ -137,7 +145,8 @@ def _statement(backend: TDengineBackend, *, lease: Any) -> int:
 
 @pytest.mark.asyncio
 async def test_timeout_discards_late_connection_and_allows_bounded_replacement(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver = _Driver(blocking_query=True)
     backend = await _backend(tmp_path, monkeypatch, driver)
@@ -164,7 +173,9 @@ async def test_timeout_discards_late_connection_and_allows_bounded_replacement(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["prepare", "bind", "execute", "close"])
 async def test_stmt2_stages_obey_same_deadline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
 ) -> None:
     driver = _Driver(statement_stage=stage)
     backend = await _backend(tmp_path, monkeypatch, driver)
@@ -186,7 +197,8 @@ async def test_stmt2_stages_obey_same_deadline(
 
 @pytest.mark.asyncio
 async def test_connection_error_discards_connection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver = _Driver(query_error=OSError("websocket disconnected"))
     backend = await _backend(tmp_path, monkeypatch, driver)
@@ -204,7 +216,8 @@ async def test_connection_error_discards_connection(
 
 @pytest.mark.asyncio
 async def test_connect_timeout_closes_late_socket(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver = _Driver(blocking_connect=True)
     backend = await _backend(tmp_path, monkeypatch, driver)

@@ -23,21 +23,21 @@ from typing import Any, Protocol, TypeVar, cast
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
-from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.errors import TDengineSchemaConflictError
 from storage_service.domain.naming import StorageObjectNames
+from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.wide_record import WideDataLevel, WideRecord
 from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflictError,
     MetadataStore,
 )
-from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
-from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
 from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
     DatabaseRetention,
     create_database_sql,
 )
+from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
+from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
 
 
 class _PreparedStatement(Protocol):
@@ -58,6 +58,7 @@ class _TaosModule(Protocol):
     def connect(
         self, *, user: str, password: str, host: str, port: int, read_timeout: str
     ) -> _TaosConnection: ...
+
 
 _HOST_PORT = re.compile(r"(?P<host>[a-zA-Z0-9.-]+):(?P<port>[0-9]{1,5})\Z")
 _LOG = logging.getLogger(__name__)
@@ -159,7 +160,9 @@ class TDengineBackend:
             host=host,
             port=port,
             # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
-            read_timeout=str(max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)),
+            read_timeout=str(
+                max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)
+            ),
         )
 
     def _open_sync(self, *, lease: _OperationLease) -> None:
@@ -372,10 +375,7 @@ class TDengineBackend:
         device_type: str,
     ) -> None:
         """Create/verify a complete immutable wide-table family on first use."""
-        target = (
-            f"{schema.database_name(wind_farm_id)}."
-            f"{schema.subtable_name(device_id)}"
-        )
+        target = f"{schema.database_name(wind_farm_id)}." f"{schema.subtable_name(device_id)}"
         with self._lock:
             if target in self._wide_unknown_tables:
                 raise TDengineSchemaConflictError(
@@ -427,16 +427,25 @@ class TDengineBackend:
 
             db_json, db_hash = identity(wind_farm_id)
             stable_json, stable_hash = identity(
-                wind_farm_id, schema.point_table_id, schema.point_table_version,
-                schema.data_level.value, schema.fingerprint
+                wind_farm_id,
+                schema.point_table_id,
+                schema.point_table_version,
+                schema.data_level.value,
+                schema.fingerprint,
             )
             table_json, table_hash = identity(
-                wind_farm_id, device_id, schema.point_table_id,
-                schema.point_table_version, schema.data_level.value, schema.fingerprint
+                wind_farm_id,
+                device_id,
+                schema.point_table_id,
+                schema.point_table_version,
+                schema.data_level.value,
+                schema.fingerprint,
             )
             registrations = [
                 self._metadata.reserve_object(
-                    metadata_name, digest, description,
+                    metadata_name,
+                    digest,
+                    description,
                     "windhub-database-v1" if kind == "database" else schema.fingerprint,
                     physical_database=database_name,
                     stable_name=stable_name if kind != "database" else "",
@@ -481,8 +490,10 @@ class TDengineBackend:
             lease.remaining()
             connection.execute(
                 subtable_ddl(
-                    schema, database=database_name,
-                    device_id=device_id, device_type=device_type,
+                    schema,
+                    database=database_name,
+                    device_id=device_id,
+                    device_type=device_type,
                 )
             )
             self._verify_wide_table(
@@ -537,9 +548,7 @@ class TDengineBackend:
         )
         if len(tag_rows) != len(expected_tags):
             raise TDengineSchemaConflictError("wide-table immutable TAG count differs")
-        for row, (tag_name, tag_type, tag_value) in zip(
-            tag_rows, expected_tags, strict=True
-        ):
+        for row, (tag_name, tag_type, tag_value) in zip(tag_rows, expected_tags, strict=True):
             if len(row) < 6:
                 raise TDengineSchemaConflictError("wide-table TAG metadata is incomplete")
             table, database, stable = (str(item) for item in row[:3])
@@ -615,9 +624,7 @@ class TDengineBackend:
         )
         with self._borrow_connection(lease=lease) as (connection, driver):
             lease.remaining()
-            write_wide_stmt2(
-                connection, driver, table_name=name, schema=schema, records=records
-            )
+            write_wide_stmt2(connection, driver, table_name=name, schema=schema, records=records)
 
     async def verify_existing_wide_table(
         self,
@@ -628,10 +635,7 @@ class TDengineBackend:
         device_type: str,
     ) -> None:
         """Rebuild safe read cache only from persisted ownership and live schema."""
-        name = (
-            f"{schema.database_name(wind_farm_id)}."
-            f"{schema.subtable_name(device_id)}"
-        )
+        name = f"{schema.database_name(wind_farm_id)}." f"{schema.subtable_name(device_id)}"
         with self._lock:
             if name in self._wide_unknown_tables:
                 raise TDengineSchemaConflictError("wide table has unresolved writes")
@@ -639,8 +643,10 @@ class TDengineBackend:
                 return
         await self._run_bounded(
             self._verify_existing_wide_table_sync,
-            schema=schema, wind_farm_id=wind_farm_id,
-            device_id=device_id, device_type=device_type,
+            schema=schema,
+            wind_farm_id=wind_farm_id,
+            device_id=device_id,
+            device_type=device_type,
         )
 
     def _verify_existing_wide_table_sync(
@@ -658,15 +664,19 @@ class TDengineBackend:
         full_name = f"{database}.{table}"
         description = self._identity_json(
             (
-                wind_farm_id, device_id, schema.point_table_id,
-                schema.point_table_version, schema.data_level.value,
+                wind_farm_id,
+                device_id,
+                schema.point_table_id,
+                schema.point_table_version,
+                schema.data_level.value,
                 schema.fingerprint,
             )
         )
         digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
         try:
             self._metadata.require_ready_wide_table(
-                name=full_name, fingerprint=schema.fingerprint,
+                name=full_name,
+                fingerprint=schema.fingerprint,
                 identity_sha256=digest,
             )
         except MetadataConflictError as exc:
@@ -674,7 +684,9 @@ class TDengineBackend:
                 "historical wide table ownership cannot be proven"
             ) from exc
         names = StorageObjectNames(
-            database=database, stable=stable, table=table,
+            database=database,
+            stable=stable,
+            table=table,
             database_identity_sha256="",
             stable_identity_sha256="",
             table_identity_sha256=digest,
@@ -682,8 +694,11 @@ class TDengineBackend:
         with self._ddl_lock, self._borrow_connection(lease=lease) as (connection, _):
             lease.remaining()
             self._verify_wide_table(
-                connection, names=names, schema=schema,
-                device_id=device_id, device_type=device_type,
+                connection,
+                names=names,
+                schema=schema,
+                device_id=device_id,
+                device_type=device_type,
             )
             with self._lock:
                 if full_name in self._wide_unknown_tables:
@@ -697,9 +712,7 @@ class TDengineBackend:
     ) -> tuple[WideHistoryRow, ...]:
         """Fetch exact physical fields without merging versions or filling gaps."""
         query.validate(schema, maximum=self._config.query.max_page_size + 1)
-        return await self._run_bounded(
-            self._fetch_wide_history_sync, schema=schema, query=query
-        )
+        return await self._run_bounded(self._fetch_wide_history_sync, schema=schema, query=query)
 
     def _fetch_wide_history_sync(
         self,
@@ -730,9 +743,7 @@ class TDengineBackend:
             f"SELECT ts, {column_sql}, quality FROM {name} "
             f"WHERE {' AND '.join(filters)} ORDER BY ts ASC LIMIT {query.limit}"
         )
-        indexes = {
-            column.point_id: index for index, column in enumerate(schema.columns)
-        }
+        indexes = {column.point_id: index for index, column in enumerate(schema.columns)}
         with self._borrow_connection(lease=lease) as (connection, _driver):
             lease.remaining()
             records = list(connection.query(sql))
@@ -776,4 +787,3 @@ class TDengineBackend:
             delta = moment - epoch
             return (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
         raise TDengineSchemaConflictError("TDengine returned an invalid timestamp representation")
-

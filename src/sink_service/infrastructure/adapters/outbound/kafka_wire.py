@@ -39,11 +39,13 @@ def encode_kafka_wide_key(wind_farm_id: str, device_id: str) -> bytes:
     """Partition every data level of one device onto the same Kafka key."""
     for identity in (wind_farm_id, device_id):
         if (
-            not isinstance(identity, str) or not identity or ":" in identity
+            not isinstance(identity, str)
+            or not identity
+            or ":" in identity
             or len(identity.encode("utf-8")) > 256
         ):
             raise ValueError("Kafka device identity is missing or contains a delimiter")
-    return f"{wind_farm_id}:{device_id}".encode("utf-8")
+    return f"{wind_farm_id}:{device_id}".encode()
 
 
 def encode_kafka_wide(
@@ -69,9 +71,7 @@ def encode_kafka_wide(
     if data_level == "business":
         if business_values is None or set(business_values) != {item.sample_id for item in items}:
             raise ValueError("BUSINESS requires complete historical projection")
-        by_point = {
-            business_values[item.sample_id].business_point_id: item for item in items
-        }
+        by_point = {business_values[item.sample_id].business_point_id: item for item in items}
     else:
         if business_values is not None:
             raise ValueError("RAW/PROTOCOL cannot contain BUSINESS projection")

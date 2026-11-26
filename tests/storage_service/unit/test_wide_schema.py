@@ -7,7 +7,8 @@ from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 
 def _build(
-    points: tuple[PhysicalPoint, ...], *,
+    points: tuple[PhysicalPoint, ...],
+    *,
     version: str = "1.2.0",
     level: WideDataLevel = WideDataLevel.PROTOCOL,
     limit: int = 65536,
@@ -39,10 +40,17 @@ def test_version_and_type_changes_produce_distinct_table_families() -> None:
     changed_version = _build(points, version="1.2.1")
     changed_type = _build((PhysicalPoint("wind_speed", "DOUBLE"),))
     changed_level = _build(points, level=WideDataLevel.BUSINESS)
-    assert len({
-        base.supertable_name(), changed_version.supertable_name(),
-        changed_type.supertable_name(), changed_level.supertable_name(),
-    }) == 4
+    assert (
+        len(
+            {
+                base.supertable_name(),
+                changed_version.supertable_name(),
+                changed_type.supertable_name(),
+                changed_level.supertable_name(),
+            }
+        )
+        == 4
+    )
     assert base.subtable_name("wtg_001") != base.subtable_name("wtg_002")
 
 

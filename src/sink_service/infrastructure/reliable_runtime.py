@@ -430,27 +430,34 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             if self._history is None:
                 raise ConfigurationError("BUSINESS requires historical repository configuration")
             table = await self._history.get(batch.point_table_id, batch.device_type)
-            values = {
-                item.sample_id: table.project(item.point_id, item.value)
-                for item in items
-            }
-            point_ids = tuple(sorted(
-                (value.business_point_id for value in values.values()),
-                key=lambda token: token.encode("utf-8"),
-            ))
+            values = {item.sample_id: table.project(item.point_id, item.value) for item in items}
+            point_ids = tuple(
+                sorted(
+                    (value.business_point_id for value in values.values()),
+                    key=lambda token: token.encode("utf-8"),
+                )
+            )
             payload = encode_kafka_wide(
-                batch, items, device_config_id=batch.device_config_id,
-                physical_points=point_ids, data_level=self._data_level,
+                batch,
+                items,
+                device_config_id=batch.device_config_id,
+                physical_points=point_ids,
+                data_level=self._data_level,
                 business_values=values,
             )
         else:
-            point_ids = tuple(sorted(
-                (item.point_id for item in items),
-                key=lambda token: token.encode("utf-8"),
-            ))
+            point_ids = tuple(
+                sorted(
+                    (item.point_id for item in items),
+                    key=lambda token: token.encode("utf-8"),
+                )
+            )
             payload = encode_kafka_wide(
-                batch, items, device_config_id=batch.device_config_id,
-                physical_points=point_ids, data_level=self._data_level,
+                batch,
+                items,
+                device_config_id=batch.device_config_id,
+                physical_points=point_ids,
+                data_level=self._data_level,
             )
         return (payload,)
 

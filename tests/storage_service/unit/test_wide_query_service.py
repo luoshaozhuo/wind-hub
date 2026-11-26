@@ -26,11 +26,14 @@ def _schema(version: str = "1.0.0") -> WideSchema:
 
 def _filter(limit: int = 2) -> WideHistoryFilter:
     return WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_wtg_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=1000,
-        point_ids=("power",), limit=limit,
+        start_time_us=1,
+        end_time_us=1000,
+        point_ids=("power",),
+        limit=limit,
     )
 
 
@@ -39,9 +42,11 @@ async def test_wide_history_query_pages_without_duplicate_timestamps() -> None:
     schema, codec = _schema(), WideCursorCodec(b"x" * 32)
     backend = AsyncMock()
     backend.fetch_wide_history.side_effect = [
-        (WideHistoryRow(10, (("power", 1, 1),)),
-         WideHistoryRow(20, (("power", 2, 1),)),
-         WideHistoryRow(30, (("power", 3, 1),))),
+        (
+            WideHistoryRow(10, (("power", 1, 1),)),
+            WideHistoryRow(20, (("power", 2, 1),)),
+            WideHistoryRow(30, (("power", 3, 1),)),
+        ),
         (WideHistoryRow(30, (("power", 3, 1),)),),
     ]
     service = WideHistoryQueryService(backend=backend, codec=codec)
@@ -71,9 +76,7 @@ async def test_backend_out_of_order_fails_closed() -> None:
         WideHistoryRow(20, (("power", 2, 1),)),
         WideHistoryRow(10, (("power", 1, 1),)),
     )
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"x" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
     with pytest.raises(RuntimeError, match="ordered timestamp"):
         await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
 
@@ -94,9 +97,7 @@ async def test_wide_query_rejects_malformed_physical_rows(
 ) -> None:
     backend = AsyncMock()
     backend.fetch_wide_history.return_value = (WideHistoryRow(10, points),)
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"x" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
     with pytest.raises(RuntimeError, match=expected):
         await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
 
@@ -104,11 +105,7 @@ async def test_wide_query_rejects_malformed_physical_rows(
 @pytest.mark.asyncio
 async def test_wide_query_rejects_backend_row_from_other_version_field() -> None:
     backend = AsyncMock()
-    backend.fetch_wide_history.return_value = (
-        WideHistoryRow(10, (("power_v1_1_0", 11, 1),)),
-    )
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"x" * 32)
-    )
+    backend.fetch_wide_history.return_value = (WideHistoryRow(10, (("power_v1_1_0", 11, 1),)),)
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
     with pytest.raises(RuntimeError, match="invalid column"):
         await service.query(schema=_schema(), filter_=_filter(), device_type="wind")

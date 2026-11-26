@@ -6,7 +6,11 @@ from google.protobuf.descriptor import FieldDescriptor
 
 from contracts import (
     configuration_repository_pb2 as config_pb,
+)
+from contracts import (
     storage_service_pb2 as storage_pb,
+)
+from contracts import (
     storage_service_pb2_grpc as storage_rpc,
 )
 
@@ -67,9 +71,7 @@ def test_wide_column_units_and_numeric_results_have_lossless_types() -> None:
 
 
 def test_config_exact_roots_are_immutable_version_references() -> None:
-    field = config_pb.GetConfigBundleRequest.DESCRIPTOR.fields_by_name[
-        "exact_roots"
-    ]
+    field = config_pb.GetConfigBundleRequest.DESCRIPTOR.fields_by_name["exact_roots"]
     assert field.number == 4
     assert field.is_repeated
     assert field.message_type is config_pb.ConfigVersionRef.DESCRIPTOR
@@ -77,16 +79,12 @@ def test_config_exact_roots_are_immutable_version_references() -> None:
     original = config_pb.GetConfigBundleRequest(
         exact_roots=[
             config_pb.ConfigVersionRef(
-                config_id=config_pb.ConfigId(
-                    config_type="device", config_id="farm-a"
-                ),
+                config_id=config_pb.ConfigId(config_type="device", config_id="farm-a"),
                 version_id="immutable-version-id",
             )
         ],
         include_dependencies=True,
     )
-    restored = config_pb.GetConfigBundleRequest.FromString(
-        original.SerializeToString()
-    )
+    restored = config_pb.GetConfigBundleRequest.FromString(original.SerializeToString())
     assert restored.exact_roots[0].version_id == "immutable-version-id"
     assert not restored.HasField("revision_id")

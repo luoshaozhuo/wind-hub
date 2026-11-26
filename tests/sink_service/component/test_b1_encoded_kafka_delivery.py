@@ -184,7 +184,8 @@ def test_kafka_target_emits_one_complete_device_row() -> None:
     assert stripe == crc32(key) % 128
     assert payloads == _encoded(batch)
     row = WideRecord.from_kafka_json(
-        payloads[0], physical_points=tuple(item.point_id for item in batch.samples),
+        payloads[0],
+        physical_points=tuple(item.point_id for item in batch.samples),
     )
     assert len(row.values) == 500
     assert port.received_total == 500
@@ -202,10 +203,15 @@ def test_1024_points_are_not_split_into_partial_kafka_rows() -> None:
     assert len(adapter.encoded_calls) == 1
     assert len(adapter.encoded_calls[0][0]) == 1
     assert message.in_progress_calls == 0
-    assert len(WideRecord.from_kafka_json(
-        adapter.encoded_calls[0][0][0],
-        physical_points=tuple(item.point_id for item in batch.samples),
-    ).values) == 1024
+    assert (
+        len(
+            WideRecord.from_kafka_json(
+                adapter.encoded_calls[0][0][0],
+                physical_points=tuple(item.point_id for item in batch.samples),
+            ).values
+        )
+        == 1024
+    )
     assert port.received_total == 1024
     assert port.delivered_total == 1
 
@@ -245,7 +251,10 @@ def test_kafka_failure_does_not_report_device_cycle_success() -> None:
 def test_kafka_rejects_permanent_point_classification() -> None:
     adapter = _RecordingAdapter(
         outcome=BatchOutcome(
-            delivered=(), settled=(0,), error="", successful_attempts=0,
+            delivered=(),
+            settled=(0,),
+            error="",
+            successful_attempts=0,
             permanent=(0,),
         ),
     )
@@ -257,7 +266,11 @@ def test_kafka_rejects_permanent_point_classification() -> None:
 def test_unknown_kafka_write_remains_unconfirmed_after_settle() -> None:
     class _UncertainAdapter(_RecordingAdapter):
         async def write_encoded_batch(
-            self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int,
+            self,
+            payloads: tuple[bytes, ...],
+            *,
+            key: bytes,
+            stripe: int,
         ) -> BatchOutcome:
             self.encoded_calls.append((payloads, key, stripe))
             return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")

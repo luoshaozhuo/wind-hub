@@ -27,7 +27,7 @@ class DeliveryPoint:
     point_id: str
     sample_id: str
     value: float | int | bool | str | None
-    quality: Literal["good", "bad", "uncertain"]
+    quality: Literal["not_collected", "good", "bad", "uncertain"]
     sample_time: datetime
     publish_time: datetime
     receive_time: datetime | None

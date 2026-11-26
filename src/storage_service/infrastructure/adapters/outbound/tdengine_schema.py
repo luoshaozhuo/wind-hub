@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from storage_service.domain.naming import StorageObjectNames
 
-
 _IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\Z")
 _DURATION = re.compile(r"[1-9][0-9]*d\Z")
 
@@ -56,15 +55,17 @@ def create_database_sql(
             raise ValueError("unsupported TDengine CACHEMODEL")
         sql += f" CACHEMODEL '{cachemodel}'"
     if (
-        type(vgroups) is not int or vgroups < 1
-        or type(buffer_mb) is not int or buffer_mb < 1
-        or replica != 1 or comp not in (0, 1, 2)
-        or wal_level != 2 or wal_fsync_period_ms != 0
+        type(vgroups) is not int
+        or vgroups < 1
+        or type(buffer_mb) is not int
+        or buffer_mb < 1
+        or replica != 1
+        or comp not in (0, 1, 2)
+        or wal_level != 2
+        or wal_fsync_period_ms != 0
     ):
         raise ValueError("invalid database durability or allocation settings")
     return (
         f"{sql} VGROUPS {vgroups} BUFFER {buffer_mb} REPLICA {replica}"
         f" COMP {comp} WAL_LEVEL {wal_level} WAL_FSYNC_PERIOD {wal_fsync_period_ms}"
     )
-
-

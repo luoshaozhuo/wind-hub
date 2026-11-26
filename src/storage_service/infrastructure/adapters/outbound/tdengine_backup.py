@@ -18,7 +18,9 @@ from pathlib import Path
 
 from storage_service.application.config import StorageConfig
 from storage_service.domain.wide_schema import WideSchema
-from storage_service.infrastructure.adapters.outbound.configuration_archive import ImmutableConfigArchive
+from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+    ImmutableConfigArchive,
+)
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
@@ -32,7 +34,8 @@ class NativeTDengineBackup:
     """Invoke taosdump using an exact argv and controlled output directory."""
 
     def __init__(
-        self, *,
+        self,
+        *,
         config: StorageConfig,
         metadata: MetadataStore,
         archive: ImmutableConfigArchive,
@@ -61,9 +64,7 @@ class NativeTDengineBackup:
             self._metadata.list_ready_wide_tables, database=database
         )
         if not registrations:
-            raise NativeBackupError(
-                "Storage has no verified device-wide tables for this farm"
-            )
+            raise NativeBackupError("Storage has no verified device-wide tables for this farm")
         host, port = self._split_endpoint(self._config.tdengine.endpoint)
         password_name = self._config.tdengine.credential_ref.removeprefix("env:")
         password = os.getenv(password_name)
@@ -141,7 +142,8 @@ class NativeTDengineBackup:
             max_bytes=self._config.backup.max_bytes,
         )
         bindings = tuple(
-            binding for binding in self._metadata.list_device_bindings()
+            binding
+            for binding in self._metadata.list_device_bindings()
             if binding.wind_farm_id == wind_farm_id
         )
         semantic = self._metadata.list_semantic_pins()
@@ -152,17 +154,21 @@ class NativeTDengineBackup:
             pin = semantic.get(binding.point_table_id)
             if pin is None:
                 raise NativeBackupError("historical PointTable semantic pin is unavailable")
-            required.update((
-                ("device", binding.device_config_id, binding.device_version_id),
-                ("device_model", binding.model.config_id, binding.model.version_id),
-                ("point_table", pin[0][0], pin[0][1]),
-            ))
+            required.update(
+                (
+                    ("device", binding.device_config_id, binding.device_version_id),
+                    ("device_model", binding.model.config_id, binding.model.version_id),
+                    ("point_table", pin[0][0], pin[0][1]),
+                )
+            )
             if pin[1] is not None:
                 required.add(("business_points", pin[1][0], pin[1][1]))
-        if not required.issubset({
-            (kind, config_id, version_id)
-            for kind, config_id, version_id, _sha in archive_identities
-        }):
+        if not required.issubset(
+            {
+                (kind, config_id, version_id)
+                for kind, config_id, version_id, _sha in archive_identities
+            }
+        ):
             # Archived files are addressed by Repository version_id, not
             # the human-readable file_version. Never replace with latest.
             raise NativeBackupError(
@@ -175,7 +181,8 @@ class NativeTDengineBackup:
                 "wide physical table ownership changed while backup was running"
             )
         current_bindings = tuple(
-            binding for binding in self._metadata.list_device_bindings()
+            binding
+            for binding in self._metadata.list_device_bindings()
             if binding.wind_farm_id == wind_farm_id
         )
         if current_bindings != bindings or self._metadata.list_semantic_pins() != semantic:
@@ -183,7 +190,9 @@ class NativeTDengineBackup:
                 "historical configuration identity changed during native backup"
             )
         manifest, bytes_written, digest = await asyncio.to_thread(
-            self._verify_backup, path, database,
+            self._verify_backup,
+            path,
+            database,
         )
         if bytes_written > self._config.backup.max_bytes:
             raise NativeBackupError("native backup exceeded configured byte budget")
@@ -220,7 +229,9 @@ class NativeTDengineBackup:
         manifest.pop("sha256", None)
         digest = hashlib.sha256(
             json.dumps(
-                manifest, ensure_ascii=False, sort_keys=True,
+                manifest,
+                ensure_ascii=False,
+                sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
@@ -272,7 +283,9 @@ class NativeTDengineBackup:
         unsigned = {key: value for key, value in manifest.items() if key != "sha256"}
         actual = hashlib.sha256(
             json.dumps(
-                unsigned, ensure_ascii=False, sort_keys=True,
+                unsigned,
+                ensure_ascii=False,
+                sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
@@ -285,9 +298,11 @@ class NativeTDengineBackup:
         total = 0
         for item in entries:
             if (
-                not isinstance(item, list) or len(item) != 3
+                not isinstance(item, list)
+                or len(item) != 3
                 or not isinstance(item[0], str)
-                or type(item[1]) is not int or item[1] < 0
+                or type(item[1]) is not int
+                or item[1] < 0
                 or not isinstance(item[2], str)
                 or re.fullmatch(r"[0-9a-f]{64}", item[2]) is None
             ):
@@ -295,9 +310,11 @@ class NativeTDengineBackup:
             name, size, digest = item
             pure = Path(name)
             if (
-                pure.is_absolute() or ".." in pure.parts
+                pure.is_absolute()
+                or ".." in pure.parts
                 or name == "storage_manifest.json"
-                or not pure.parts or name in listed
+                or not pure.parts
+                or name in listed
             ):
                 raise NativeBackupError("native backup file path invalid")
             listed.add(name)
@@ -328,7 +345,10 @@ class NativeTDengineBackup:
             raise NativeBackupError("historical configuration bindings missing")
         for ref in history["documents"]:
             if not isinstance(ref, dict) or set(ref) != {
-                "config_type", "config_id", "version_id", "yaml_sha256"
+                "config_type",
+                "config_id",
+                "version_id",
+                "yaml_sha256",
             }:
                 raise NativeBackupError("historical configuration entry malformed")
             values = tuple(ref.values())
@@ -336,9 +356,13 @@ class NativeTDengineBackup:
                 raise NativeBackupError("historical configuration identity invalid")
             identity = json.dumps(
                 [
-                    ref["config_type"], ref["config_id"],
-                    ref["version_id"], ref["yaml_sha256"],
-                ], ensure_ascii=False, separators=(",", ":"),
+                    ref["config_type"],
+                    ref["config_id"],
+                    ref["version_id"],
+                    ref["yaml_sha256"],
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
             ).encode("utf-8")
             folder = hashlib.sha256(identity).hexdigest()
             yaml_path = f"configuration-archive/{folder}/document.yaml"
@@ -352,7 +376,10 @@ class NativeTDengineBackup:
             raise NativeBackupError("wide physical ownership index missing")
         for obj in ownership:
             if not isinstance(obj, dict) or set(obj) != {
-                "name", "full_sha256", "schema_fingerprint", "identity_json"
+                "name",
+                "full_sha256",
+                "schema_fingerprint",
+                "identity_json",
             }:
                 raise NativeBackupError("wide physical ownership entry malformed")
             if (

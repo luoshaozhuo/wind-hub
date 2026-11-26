@@ -208,9 +208,7 @@ class ReliableDeliveryEngine:
         if self._kafka_target and self._data_level == "raw":
             for item in selected:
                 if item.quality == "not_collected" or (
-                    item.quality == "bad"
-                    and item.value is None
-                    and item.raw_payload_hex is None
+                    item.quality == "bad" and item.value is None and item.raw_payload_hex is None
                 ):
                     continue
                 raw = item.raw_payload_hex

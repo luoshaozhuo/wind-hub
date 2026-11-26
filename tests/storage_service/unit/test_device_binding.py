@@ -16,7 +16,9 @@ from storage_service.application.config import (
     load_storage_config,
 )
 from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
-from storage_service.infrastructure.adapters.outbound.configuration_archive import RepositoryDocument
+from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+    RepositoryDocument,
+)
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     StorageBundle,
     _parse_device_closure,
@@ -205,7 +207,8 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
     assert restored.device_bindings == bindings
     assert restored.point_table_versions == tables
     assert {binding.device_file_version for binding in restored.device_bindings} == {
-        "1.0.0", "2.0.0"
+        "1.0.0",
+        "2.0.0",
     }
 
 

@@ -79,7 +79,8 @@ def test_all_points_form_exactly_one_complete_wide_record(size: int) -> None:
     assert list(payload["points"]) == [f"p{i:04d}" for i in range(size)]
     assert all(payload["points"][f"p{i:04d}"] == [1.0, 1] for i in range(size))
     decoded = WideRecord.from_kafka_json(
-        encoded, physical_points=tuple(payload["points"]),
+        encoded,
+        physical_points=tuple(payload["points"]),
     )
     assert len(decoded.values) == size
 
@@ -100,8 +101,11 @@ def test_empty_device_row_is_rejected() -> None:
     batch = _batch(3)
     with pytest.raises(ValueError, match="complete physical point set"):
         encode_kafka_wide(
-            batch, (), device_config_id=DEVICE_CONFIG,
-            physical_points=(), data_level="protocol",
+            batch,
+            (),
+            device_config_id=DEVICE_CONFIG,
+            physical_points=(),
+            data_level="protocol",
         )
 
 

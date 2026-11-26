@@ -40,8 +40,7 @@ def stable_ddl(schema: WideSchema, *, database: str) -> str:
         raise ValueError("wide schema requires physical points")
     columns = ["ts TIMESTAMP"]
     columns.extend(
-        f"{_identifier(column.column_name)} {column.sql_type}"
-        for column in schema.columns
+        f"{_identifier(column.column_name)} {column.sql_type}" for column in schema.columns
     )
     columns.append(f"quality VARBINARY({schema.quality_bytes})")
     tags = (
@@ -51,10 +50,7 @@ def stable_ddl(schema: WideSchema, *, database: str) -> str:
         "data_level TINYINT, "
         "schema_fingerprint VARCHAR(64)"
     )
-    return (
-        f"CREATE STABLE IF NOT EXISTS {db}.{stable} "
-        f"({', '.join(columns)}) TAGS ({tags})"
-    )
+    return f"CREATE STABLE IF NOT EXISTS {db}.{stable} " f"({', '.join(columns)}) TAGS ({tags})"
 
 
 def subtable_ddl(
@@ -79,6 +75,5 @@ def subtable_ddl(
         _tag_text(schema.fingerprint, maximum=64),
     )
     return (
-        f"CREATE TABLE IF NOT EXISTS {db}.{table} "
-        f"USING {db}.{stable} TAGS ({', '.join(tags)})"
+        f"CREATE TABLE IF NOT EXISTS {db}.{table} " f"USING {db}.{stable} TAGS ({', '.join(tags)})"
     )

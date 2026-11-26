@@ -27,8 +27,6 @@ from aiokafka.errors import TopicAlreadyExistsError
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
 from contracts import configuration_repository_pb2 as pb
-from contracts import storage_service_pb2 as storage_pb
-from contracts import storage_service_pb2_grpc as storage_rpc
 from tests.cli.e2e_util import last_json, run_cli
 from tests.fixtures.services import r5_stack
 from tests.support.configuration_live import (
@@ -36,7 +34,6 @@ from tests.support.configuration_live import (
     reserve_port,
     write_live_configuration,
 )
-
 
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"

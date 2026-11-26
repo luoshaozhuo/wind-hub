@@ -143,8 +143,11 @@ class WideSchema:
 
     def supertable_name(self) -> str:
         return _name(
-            "st", self.point_table_id, self.point_table_version,
-            self.data_level.value, self.fingerprint
+            "st",
+            self.point_table_id,
+            self.point_table_version,
+            self.data_level.value,
+            self.fingerprint,
         )
 
     def subtable_name(self, device_id: str) -> str:

@@ -106,9 +106,7 @@ _INSTANCE_ROLES = {
 }
 
 
-def _validate_document_identities(
-    root: Path, documents: dict[Path, dict[str, Any]]
-) -> None:
+def _validate_document_identities(root: Path, documents: dict[Path, dict[str, Any]]) -> None:
     """Enforce publication filenames and immutable identity/version agreement."""
     template_prefixes = {
         "point_tables": ("point_table_", "template_id"),
@@ -118,8 +116,12 @@ def _validate_document_identities(
         "deliveries": ("delivery_", "template_id"),
     }
     instance_prefixes = (
-        "collector_tasks_", "deliveries_", "scenarios_", "sinks_",
-        "device_", "site_",
+        "collector_tasks_",
+        "deliveries_",
+        "scenarios_",
+        "sinks_",
+        "device_",
+        "site_",
     )
     for path, document in documents.items():
         name = path.name
@@ -184,9 +186,8 @@ def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> 
                 if not isinstance(selection, dict) or set(selection) != {"file_version"}:
                     raise ValueError(f"invalid Deployment instance selection: {kind}/{instance_id}")
                 selected_version = selection["file_version"]
-                if (
-                    not isinstance(selected_version, str)
-                    or not _VERSION.fullmatch(selected_version)
+                if not isinstance(selected_version, str) or not _VERSION.fullmatch(
+                    selected_version
                 ):
                     raise ValueError(f"invalid Deployment instance version: {kind}/{instance_id}")
                 prefix = _INSTANCE_PREFIXES[kind]
@@ -243,7 +244,9 @@ def _validate_deployments(root: Path, documents: dict[Path, dict[str, Any]]) -> 
                 ):
                     raise ValueError(f"invalid template binding: {kind}/{member_id}")
                 template_path = (
-                    root / "templates" / template_dir
+                    root
+                    / "templates"
+                    / template_dir
                     / f"{kind}_{template_id}_v{template_version}.yaml"
                 )
                 template = documents.get(template_path)

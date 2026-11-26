@@ -18,7 +18,10 @@ from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
 
 
 async def _read(
-    sql_type: str, value: object, *, wrong_fingerprint: bool = False,
+    sql_type: str,
+    value: object,
+    *,
+    wrong_fingerprint: bool = False,
 ) -> pb.QueryWideRowsResponse:
     service = object.__new__(StorageServicer)
     service._auth = Mock()
@@ -38,9 +41,7 @@ async def _read(
     service._wide_query = Mock()
     service._wide_query.query = AsyncMock(
         return_value=WideHistoryPage(
-            rows=(WideHistoryRow(1_795_608_000_000_000, (
-                ("value", value, PointQuality.GOOD),
-            )),),
+            rows=(WideHistoryRow(1_795_608_000_000_000, (("value", value, PointQuality.GOOD),)),),
             next_page_token="",
             complete=True,
             schema_fingerprint=("f" * 64 if wrong_fingerprint else schema.fingerprint),
@@ -84,7 +85,8 @@ async def _read(
     ],
 )
 async def test_wide_rpc_rejects_out_of_range_physical_values(
-    sql_type: str, value: object,
+    sql_type: str,
+    value: object,
 ) -> None:
     with pytest.raises(TDengineSchemaConflictError):
         await _read(sql_type, value)
@@ -104,7 +106,9 @@ async def test_wide_rpc_rejects_out_of_range_physical_values(
     ],
 )
 async def test_wide_rpc_preserves_valid_boundary_values(
-    sql_type: str, value: object, field: str,
+    sql_type: str,
+    value: object,
+    field: str,
 ) -> None:
     result = await _read(sql_type, value)
     point = result.rows[0].points[0]

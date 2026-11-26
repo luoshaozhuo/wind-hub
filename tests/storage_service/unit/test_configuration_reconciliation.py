@@ -114,7 +114,8 @@ def _document(table_id: str, version_id: str) -> RepositoryDocument:
 
 
 async def _unit(
-    resolver: ConfigurationPointTableResolver, table_id: str,
+    resolver: ConfigurationPointTableResolver,
+    table_id: str,
 ) -> str:
     return await resolver.get_wide_unit(
         point_table_id=table_id,

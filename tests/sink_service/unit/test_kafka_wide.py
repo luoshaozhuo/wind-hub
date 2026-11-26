@@ -57,8 +57,13 @@ def test_one_device_record_with_complete_points() -> None:
     )
     data = json.loads(raw)
     assert set(data) == {
-        "schema_version", "wind_farm_id", "device_config_id",
-        "device_id", "data_level", "sample_time", "points",
+        "schema_version",
+        "wind_farm_id",
+        "device_config_id",
+        "device_id",
+        "data_level",
+        "sample_time",
+        "points",
     }
     assert data["schema_version"] == 3
     assert list(data["points"]) == ["active_power", "wind_speed"]
@@ -69,7 +74,8 @@ def test_partial_device_record_is_rejected() -> None:
     batch = _batch()
     with pytest.raises(ValueError, match="incomplete"):
         encode_kafka_wide(
-            batch, batch.samples[:1],
+            batch,
+            batch.samples[:1],
             device_config_id="device_prod-a_v1.0.1",
             physical_points=("active_power", "wind_speed"),
             data_level="protocol",
@@ -83,7 +89,8 @@ def test_mixed_logical_times_are_rejected() -> None:
     )
     with pytest.raises(ValueError, match="logical sample_time"):
         encode_kafka_wide(
-            batch, (batch.samples[0], delayed),
+            batch,
+            (batch.samples[0], delayed),
             device_config_id="device_prod-a_v1.0.1",
             physical_points=("active_power", "wind_speed"),
             data_level="protocol",
@@ -94,7 +101,8 @@ def test_raw_requires_original_capture() -> None:
     batch = _batch()
     with pytest.raises(ValueError, match="original protocol bytes"):
         encode_kafka_wide(
-            batch, batch.samples,
+            batch,
+            batch.samples,
             device_config_id="device_prod-a_v1.0.1",
             physical_points=("active_power", "wind_speed"),
             data_level="raw",
@@ -108,7 +116,8 @@ def test_business_columns_use_standard_ids_and_reject_non_bijective_mapping() ->
         "s2": BusinessValue("grid_active_power", "kw", None),
     }
     raw = encode_kafka_wide(
-        batch, batch.samples,
+        batch,
+        batch.samples,
         device_config_id="device_prod-a_v1.0.1",
         physical_points=("grid_active_power", "hub_wind_speed"),
         data_level="business",
@@ -118,7 +127,8 @@ def test_business_columns_use_standard_ids_and_reject_non_bijective_mapping() ->
     projected["s2"] = BusinessValue("hub_wind_speed", "kw", None)
     with pytest.raises(ValueError, match="non-unique"):
         encode_kafka_wide(
-            batch, batch.samples,
+            batch,
+            batch.samples,
             device_config_id="device_prod-a_v1.0.1",
             physical_points=("grid_active_power", "hub_wind_speed"),
             data_level="business",

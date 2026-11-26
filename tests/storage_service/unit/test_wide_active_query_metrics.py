@@ -49,9 +49,7 @@ async def test_wide_query_reports_inflight_and_releases_slot() -> None:
     backend = Mock()
     backend.verify_existing_wide_table = AsyncMock(side_effect=block_verification)
     backend.fetch_wide_history = AsyncMock(return_value=())
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"x" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
     task = asyncio.create_task(
         service.query(schema=_schema(), filter_=_request(), device_type="wind")
     )
@@ -70,9 +68,7 @@ async def test_wide_query_error_releases_active_count() -> None:
     backend = Mock()
     backend.verify_existing_wide_table = AsyncMock(return_value=None)
     backend.fetch_wide_history = AsyncMock(side_effect=RuntimeError("backend unavailable"))
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"x" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"x" * 32))
     with pytest.raises(RuntimeError, match="backend unavailable"):
         await service.query(schema=_schema(), filter_=_request(), device_type="wind")
     assert service.active_queries == 0

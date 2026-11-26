@@ -10,18 +10,25 @@ from core.application.protocol_contract import ProtocolSample
 
 def _builder(*, delivery: str = "reliable", max_samples: int = 500) -> BatchBuilder:
     return BatchBuilder(
-        site_id="farm_a", collector_id="collector_a",
-        delivery=delivery, max_staleness_ms=500,
-        max_samples_per_batch=max_samples, max_batch_bytes=1048576,
+        site_id="farm_a",
+        collector_id="collector_a",
+        delivery=delivery,
+        max_staleness_ms=500,
+        max_samples_per_batch=max_samples,
+        max_batch_bytes=1048576,
     )
 
 
 def _pack(builder: BatchBuilder, samples: tuple[ProtocolSample, ...], now: datetime):
     return builder.pack(
-        "wtg_001", samples, device_type="wind",
-        point_table_id="point_table_wind_v1.2.0", task_id="task01",
+        "wtg_001",
+        samples,
+        device_type="wind",
+        point_table_id="point_table_wind_v1.2.0",
+        task_id="task01",
         device_config_id="device_farm-a_v1.6.0",
-        sample_time=now, expected_point_ids=("wind_speed", "active_power"),
+        sample_time=now,
+        expected_point_ids=("wind_speed", "active_power"),
     )
 
 
@@ -29,7 +36,9 @@ def test_reliable_full_cycle_preserves_original_timestamp_and_missing_points() -
     now = datetime(2026, 11, 25, 12, tzinfo=UTC)
     source_time = now - timedelta(milliseconds=20)
     sample = ProtocolSample(
-        point_id="wind_speed", value=8.2, timestamp=source_time,
+        point_id="wind_speed",
+        value=8.2,
+        timestamp=source_time,
         raw_payload=b"\x01\x02",
     )
     batches = _pack(_builder(), (sample,), now)

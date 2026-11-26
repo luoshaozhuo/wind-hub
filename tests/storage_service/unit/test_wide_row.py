@@ -10,7 +10,9 @@ from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 
 def _row(
-    *, level: WideDataLevel, points: dict[str, list[object]],
+    *,
+    level: WideDataLevel,
+    points: dict[str, list[object]],
     types: tuple[PhysicalPoint, ...],
 ) -> tuple[WideRecord, WideSchema]:
     columns = tuple(point.point_id for point in types)
@@ -30,9 +32,7 @@ def _row(
         "sample_time": "2026-11-25T12:00:00Z",
         "points": points,
     }
-    row = WideRecord.from_kafka_json(
-        json.dumps(payload).encode("utf-8"), physical_points=columns
-    )
+    row = WideRecord.from_kafka_json(json.dumps(payload).encode("utf-8"), physical_points=columns)
     return row, schema
 
 
@@ -43,7 +43,8 @@ def test_complete_protocol_record_binding_including_null() -> None:
         PhysicalPoint("c", "VARCHAR(8)"),
     )
     row, schema = _row(
-        level=WideDataLevel.PROTOCOL, types=types,
+        level=WideDataLevel.PROTOCOL,
+        types=types,
         points={"a": [8.2, 1], "b": [None, 2], "c": ["wind", 1]},
     )
     bound = bind_wide_row(row, schema)
@@ -54,7 +55,8 @@ def test_complete_protocol_record_binding_including_null() -> None:
 def test_raw_hex_is_decoded_into_original_binary() -> None:
     types = (PhysicalPoint("payload", "VARBINARY(4)"),)
     row, schema = _row(
-        level=WideDataLevel.RAW, types=types,
+        level=WideDataLevel.RAW,
+        types=types,
         points={"payload": ["0102ff", 1]},
     )
     assert bind_wide_row(row, schema).values == (b"\x01\x02\xff",)
@@ -71,20 +73,28 @@ def test_raw_hex_is_decoded_into_original_binary() -> None:
     ],
 )
 def test_invalid_value_fails_before_any_io(
-    level: WideDataLevel, sql_type: str, value: object, error: str,
+    level: WideDataLevel,
+    sql_type: str,
+    value: object,
+    error: str,
 ) -> None:
     types = (PhysicalPoint("p", sql_type),)
     row, schema = _row(
-        level=level, types=types, points={"p": [value, 1]},
+        level=level,
+        types=types,
+        points={"p": [value, 1]},
     )
     with pytest.raises(ValueError, match=error):
         bind_wide_row(row, schema)
 
 
-@pytest.mark.parametrize("sql_type, value", [
-    ("FLOAT", 2**24 + 1),
-    ("DOUBLE", 2**53 + 1),
-])
+@pytest.mark.parametrize(
+    "sql_type, value",
+    [
+        ("FLOAT", 2**24 + 1),
+        ("DOUBLE", 2**53 + 1),
+    ],
+)
 def test_no_lossy_integer_to_float_conversion(sql_type: str, value: int) -> None:
     row, schema = _row(
         level=WideDataLevel.PROTOCOL,

@@ -30,22 +30,28 @@ def _schema() -> WideSchema:
 
 def _filter() -> WideHistoryFilter:
     return WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_wtg_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=0, end_time_us=1000,
-        point_ids=("wind_speed",), limit=10,
+        start_time_us=0,
+        end_time_us=1000,
+        point_ids=("wind_speed",),
+        limit=10,
     )
 
 
 def test_reject_unknown_field_without_querying() -> None:
     query = _filter()
     invalid = WideHistoryFilter(
-        wind_farm_id=query.wind_farm_id, device_id=query.device_id,
+        wind_farm_id=query.wind_farm_id,
+        device_id=query.device_id,
         device_config_id=query.device_config_id,
-        data_level=query.data_level, start_time_us=query.start_time_us,
+        data_level=query.data_level,
+        start_time_us=query.start_time_us,
         end_time_us=query.end_time_us,
-        point_ids=("different_version_field",), limit=query.limit,
+        point_ids=("different_version_field",),
+        limit=query.limit,
     )
     with pytest.raises(ValueError, match="outside the exact physical schema"):
         invalid.validate(_schema(), maximum=1000)
@@ -68,9 +74,7 @@ def test_readback_decodes_quality_by_full_schema_ordinal() -> None:
 
     backend._borrow_connection = borrow
     lease = Mock()
-    result = backend._fetch_wide_history_sync(
-        schema=schema, query=_filter(), lease=lease
-    )
+    result = backend._fetch_wide_history_sync(schema=schema, query=_filter(), lease=lease)
     assert len(result) == 1
     assert result[0].sample_time_us == 250
     assert result[0].points[0][0] == "wind_speed"
@@ -90,6 +94,4 @@ def test_block_readback_during_unsettled_device_write() -> None:
     backend._verified_tables = {target}
     backend._wide_unknown_tables = {target}
     with pytest.raises(TDengineSchemaConflictError, match="unresolved"):
-        backend._fetch_wide_history_sync(
-            schema=schema, query=_filter(), lease=Mock()
-        )
+        backend._fetch_wide_history_sync(schema=schema, query=_filter(), lease=Mock())

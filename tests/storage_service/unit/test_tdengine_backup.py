@@ -13,7 +13,12 @@ from typing import Any, cast
 
 import pytest
 
-from storage_service.application.config import DeviceBinding, DeviceModel, StorageConfig, load_storage_config
+from storage_service.application.config import (
+    DeviceBinding,
+    DeviceModel,
+    StorageConfig,
+    load_storage_config,
+)
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ImmutableConfigArchive,
     RepositoryDocument,
@@ -51,10 +56,7 @@ while True:
 
 class _Metadata:
     def list_ready_wide_tables(self, *, database: str) -> tuple[ObjectRegistration, ...]:
-        identity_json = (
-            '["farm-1","wtg-001","point_table_wind_v1.0.0",'
-            '"1.0.0","protocol","fp"]'
-        )
+        identity_json = '["farm-1","wtg-001","point_table_wind_v1.0.0",' '"1.0.0","protocol","fp"]'
         return (
             ObjectRegistration(
                 name=f"{database}.tb_wtg_0123456789abcdef",
@@ -90,7 +92,8 @@ class _Metadata:
     ) -> dict[str, tuple[tuple[str, str], tuple[str, str] | None]]:
         return {
             "point_table_wind_v1.0.0": (
-                ("wind", "table-repo-v1"), None,
+                ("wind", "table-repo-v1"),
+                None,
             )
         }
 
@@ -148,9 +151,7 @@ def _backup(
             )
         )
     return (
-        NativeTDengineBackup(
-            config=config, metadata=cast(Any, _Metadata()), archive=archive
-        ),
+        NativeTDengineBackup(config=config, metadata=cast(Any, _Metadata()), archive=archive),
         tmp_path / "backups",
     )
 
@@ -186,12 +187,17 @@ async def test_normal_backup_reaps_taosdump(
     manifest = json.loads((root / task_id / "storage_manifest.json").read_text())
     expected_digest = manifest.pop("sha256")
     assert expected_digest == digest
-    assert hashlib.sha256(
-        json.dumps(
-            manifest, ensure_ascii=False, sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest() == digest
+    assert (
+        hashlib.sha256(
+            json.dumps(
+                manifest,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        == digest
+    )
     assert len(manifest["historical_configuration"]["documents"]) == 3
     assert len(manifest["wide_schema_ownership"]) == 1
     assert len(digest) == 64
@@ -247,14 +253,13 @@ async def test_backup_manifest_verifier_rejects_avro_tampering(
     task_id = uuid.uuid4().hex
     _, _, digest = await backup.backup(task_id=task_id, wind_farm_id="farm-1")
     path = root / task_id
-    assert NativeTDengineBackup.verify_manifest(
-        path, database=backup._database_for_farm("farm-1")
-    )[1] == digest
+    assert (
+        NativeTDengineBackup.verify_manifest(path, database=backup._database_for_farm("farm-1"))[1]
+        == digest
+    )
     (path / "data.avro").write_bytes(b"tampered")
     with pytest.raises(NativeBackupError, match="hash or size"):
-        NativeTDengineBackup.verify_manifest(
-            path, database=backup._database_for_farm("farm-1")
-        )
+        NativeTDengineBackup.verify_manifest(path, database=backup._database_for_farm("farm-1"))
 
 
 async def test_backup_manifest_verifier_rejects_missing_historical_yaml(
@@ -267,9 +272,7 @@ async def test_backup_manifest_verifier_rejects_missing_historical_yaml(
     history = next((path / "configuration-archive").glob("*/document.yaml"))
     history.unlink()
     with pytest.raises(NativeBackupError, match="missing or unsafe"):
-        NativeTDengineBackup.verify_manifest(
-            path, database=backup._database_for_farm("farm-1")
-        )
+        NativeTDengineBackup.verify_manifest(path, database=backup._database_for_farm("farm-1"))
 
 
 async def test_backup_rejects_ownership_registry_change_during_dump(
@@ -287,9 +290,7 @@ async def test_backup_rejects_ownership_registry_change_during_dump(
 
     monkeypatch.setattr(metadata, "list_ready_wide_tables", changed)
     with pytest.raises(NativeBackupError, match="ownership changed"):
-        await backup.backup(
-            task_id=uuid.uuid4().hex, wind_farm_id="farm-1"
-        )
+        await backup.backup(task_id=uuid.uuid4().hex, wind_farm_id="farm-1")
 
 
 async def test_backup_manifest_verifier_rejects_metadata_tampering(
@@ -304,6 +305,4 @@ async def test_backup_manifest_verifier_rejects_metadata_tampering(
     data["wide_schema_ownership"][0]["schema_fingerprint"] = "other-schema"
     manifest_file.write_text(json.dumps(data))
     with pytest.raises(NativeBackupError, match="digest mismatch"):
-        NativeTDengineBackup.verify_manifest(
-            path, database=backup._database_for_farm("farm-1")
-        )
+        NativeTDengineBackup.verify_manifest(path, database=backup._database_for_farm("farm-1"))

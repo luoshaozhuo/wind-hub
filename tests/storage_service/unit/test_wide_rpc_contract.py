@@ -15,7 +15,8 @@ def test_wide_history_rpc_registered_with_exact_message_contract() -> None:
 def test_typed_wide_row_roundtrip_keeps_unsigned_null_and_quality() -> None:
     stamp = Timestamp(seconds=1795608000, nanos=1000)
     original = pb.QueryWideRowsResponse(
-        wind_farm_id="farm", device_id="wtg1",
+        wind_farm_id="farm",
+        device_id="wtg1",
         device_config_id="device_farm_v1.0.0",
         point_table_id="point_table_wtg_v1.0.0",
         point_table_version="1.0.0",
@@ -23,12 +24,16 @@ def test_typed_wide_row_roundtrip_keeps_unsigned_null_and_quality() -> None:
         schema_fingerprint="a" * 64,
         columns=[
             pb.WidePointColumn(
-                point_id="unsigned", physical_column_name="p_unsigned",
-                sql_type="BIGINT UNSIGNED", quality_ordinal=0,
+                point_id="unsigned",
+                physical_column_name="p_unsigned",
+                sql_type="BIGINT UNSIGNED",
+                quality_ordinal=0,
             ),
             pb.WidePointColumn(
-                point_id="missing", physical_column_name="p_missing",
-                sql_type="FLOAT", quality_ordinal=1,
+                point_id="missing",
+                physical_column_name="p_missing",
+                sql_type="FLOAT",
+                quality_ordinal=1,
             ),
         ],
         rows=[
@@ -36,7 +41,8 @@ def test_typed_wide_row_roundtrip_keeps_unsigned_null_and_quality() -> None:
                 sample_time=stamp,
                 points=[
                     pb.WidePointValue(
-                        point_id="unsigned", quality=1,
+                        point_id="unsigned",
+                        quality=1,
                         unsigned_value=2**64 - 1,
                     ),
                     pb.WidePointValue(point_id="missing", quality=0),

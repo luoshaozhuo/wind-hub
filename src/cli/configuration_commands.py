@@ -264,9 +264,7 @@ def get(
     _run("configuration get", invoke())
 
 
-def _export_config_bundle(
-    response: pb.GetConfigBundleResponse, output: Path
-) -> dict[str, Any]:
+def _export_config_bundle(response: pb.GetConfigBundleResponse, output: Path) -> dict[str, Any]:
     """Verify immutable bundle bytes and atomically write a private directory."""
     manifest = hashlib.sha256()
     names: set[str] = set()

@@ -40,7 +40,8 @@ def bind_wide_row(record: WideRecord, schema: WideSchema) -> BoundWideRow:
     if len(record.quality_bitmap) != schema.quality_bytes:
         raise ValueError("wide-row quality bitmap length differs from physical schema")
     values: list[int | float | bool | str | bytes | None] = []
-    for column, value in zip(schema.columns, record.values, strict=True):
+    for column, source_value in zip(schema.columns, record.values, strict=True):
+        value: int | float | bool | str | bytes | None = source_value
         sql_type = column.sql_type
         if value is None:
             values.append(None)
@@ -53,7 +54,7 @@ def bind_wide_row(record: WideRecord, schema: WideSchema) -> BoundWideRow:
             if type(value) is not int or not lower <= value <= upper:
                 raise ValueError(f"{column.point_id}: integer outside physical type")
         elif sql_type in ("FLOAT", "DOUBLE"):
-            if type(value) not in (float, int):
+            if not (type(value) is float or type(value) is int):
                 raise ValueError(f"{column.point_id}: expected numeric")
             if type(value) is int and abs(value) > (2**24 if sql_type == "FLOAT" else 2**53):
                 raise ValueError(f"{column.point_id}: integer cannot be represented exactly")

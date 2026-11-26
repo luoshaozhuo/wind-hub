@@ -11,11 +11,11 @@ from pathlib import Path
 
 import grpc
 
-from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
-from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
-from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.application.tasks import AsyncStorageTasks
+from storage_service.application.wide_aggregate import WideAggregationService
+from storage_service.application.wide_ingestion import WideIngestionService
+from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
 from storage_service.infrastructure.adapters.inbound.grpc_server import (
     build_storage_grpc_server,
 )

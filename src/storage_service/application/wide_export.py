@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import TextIO
+from typing import IO
 
 from storage_service.application.wide_query import (
     WideHistoryFilter,
@@ -40,16 +40,14 @@ def _json_scalar(value: object) -> object:
     raise ValueError("invalid TDengine wide export scalar")
 
 
-def _check_quota(file: TextIO, *, max_bytes: int) -> None:
+def _check_quota(file: IO[str], *, max_bytes: int) -> None:
     """Limit buffered export growth before another source row is accepted."""
     file.flush()
     if os.fstat(file.fileno()).st_size > max_bytes:
-        raise WideExportQuotaExceededError(
-            "wide export exceeded configured byte quota"
-        )
+        raise WideExportQuotaExceededError("wide export exceeded configured byte quota")
 
 
-def _synchronize(file: TextIO) -> int:
+def _synchronize(file: IO[str]) -> int:
     file.flush()
     os.fsync(file.fileno())
     return os.fstat(file.fileno()).st_size
@@ -71,10 +69,7 @@ async def export_wide_device_history(
         raise ValueError("wide export supports csv and json")
     if max_bytes <= 0:
         raise ValueError("wide export quota must be positive")
-    if (
-        not artifact_id.isascii() or not artifact_id.isalnum()
-        or len(artifact_id) > 128
-    ):
+    if not artifact_id.isascii() or not artifact_id.isalnum() or len(artifact_id) > 128:
         raise ValueError("wide export artifact identity invalid")
     filter_.validate(schema, maximum=1000)
     if filter_.after_time_us is not None:
@@ -91,8 +86,12 @@ async def export_wide_device_history(
     published = False
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", newline="", dir=root,
-            prefix=".storage-wide-export-", delete=False,
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=root,
+            prefix=".storage-wide-export-",
+            delete=False,
         ) as file:
             os.fchmod(file.fileno(), 0o600)
             temporary = Path(file.name)
@@ -100,11 +99,17 @@ async def export_wide_device_history(
             if csv_writer is not None:
                 csv_writer.writerow(
                     [
-                        "wind_farm_id", "device_id", "device_config_id",
-                        "point_table_id", "point_table_version",
-                        "data_level", "schema_fingerprint", "sample_time_us",
+                        "wind_farm_id",
+                        "device_id",
+                        "device_config_id",
+                        "point_table_id",
+                        "point_table_version",
+                        "data_level",
+                        "schema_fingerprint",
+                        "sample_time_us",
                         *(
-                            name for column in selected
+                            name
+                            for column in selected
                             for name in (column.column_name, f"{column.column_name}__quality")
                         ),
                     ]
@@ -123,7 +128,8 @@ async def export_wide_device_history(
                             "point_id": col.point_id,
                             "name": col.column_name,
                             "sql_type": col.sql_type,
-                        } for col in selected
+                        }
+                        for col in selected
                     ],
                 }
                 file.write(json.dumps(header, ensure_ascii=False)[:-1] + ',"rows":[')
@@ -133,7 +139,9 @@ async def export_wide_device_history(
             previous_time_us: int | None = None
             while True:
                 page = await history.query(
-                    schema=schema, filter_=filter_, device_type=device_type,
+                    schema=schema,
+                    filter_=filter_,
+                    device_type=device_type,
                     page_token=token,
                 )
                 if page.schema_fingerprint != schema.fingerprint:
@@ -144,10 +152,7 @@ async def export_wide_device_history(
                     if (
                         type(row.sample_time_us) is not int
                         or not filter_.start_time_us <= row.sample_time_us < filter_.end_time_us
-                        or (
-                            previous_time_us is not None
-                            and row.sample_time_us <= previous_time_us
-                        )
+                        or (previous_time_us is not None and row.sample_time_us <= previous_time_us)
                     ):
                         raise RuntimeError("wide export page timestamp order violated")
                     previous_time_us = row.sample_time_us
@@ -160,9 +165,8 @@ async def export_wide_device_history(
                             raise RuntimeError("wide export returned incompatible physical column")
                         if not 0 <= int(quality) <= 3:
                             raise RuntimeError("wide export returned invalid quality")
-                        if (
-                            (int(quality) == 0 and value is not None)
-                            or (int(quality) == 1 and value is None)
+                        if (int(quality) == 0 and value is not None) or (
+                            int(quality) == 1 and value is None
                         ):
                             raise RuntimeError("wide export NULL/quality mismatch")
                     if csv_writer is not None:
@@ -193,8 +197,8 @@ async def export_wide_device_history(
                             file.write(",")
                         file.write(json.dumps(record, ensure_ascii=False, allow_nan=False))
                     row_count += 1
-                    _check_quota(file, max_bytes=max_bytes)
-                size = await asyncio.to_thread(_synchronize, file)
+                    _check_quota(file.file, max_bytes=max_bytes)
+                size = await asyncio.to_thread(_synchronize, file.file)
                 if size > max_bytes:
                     raise WideExportQuotaExceededError("wide export exceeded configured byte quota")
                 if page.complete:
@@ -207,7 +211,7 @@ async def export_wide_device_history(
                 token = page.next_page_token
             if csv_writer is None:
                 file.write("]}")
-            size = await asyncio.to_thread(_synchronize, file)
+            size = await asyncio.to_thread(_synchronize, file.file)
             if size > max_bytes:
                 raise WideExportQuotaExceededError("wide export exceeded configured byte quota")
         if temporary is None:

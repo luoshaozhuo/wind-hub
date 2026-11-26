@@ -24,15 +24,16 @@ from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.application.metrics import StorageRuntimeMetrics
+from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
+from storage_service.application.wide_aggregate import WideAggregationService
+from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
 from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
     QueryRejectedError,
+    TDengineSchemaConflictError,
 )
-from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
-from storage_service.application.wide_query import WideHistoryQueryService, WideHistoryFilter
-from storage_service.application.wide_aggregate import WideAggregationService
-from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.domain.tasks import TaskRecord
+from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
@@ -43,12 +44,10 @@ from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflictError,
     MetadataStore,
 )
-from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
-    TDengineSchemaConflictError,
-)
 
 T = TypeVar("T")
 _LOG = logging.getLogger(__name__)
+
 
 def _date(us: int) -> Timestamp:
     result = Timestamp()
@@ -387,9 +386,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         """Return frozen device-wide columns and quality without cross-version joins."""
         self._auth.require(context, permission="storage.read", farm=request.wind_farm_id)
         if self._consumer.recovering:
-            await context.abort(
-                grpc.StatusCode.UNAVAILABLE, "Storage Kafka replay is not settled"
-            )
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Storage Kafka replay is not settled")
         levels = {
             pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
             pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
@@ -409,9 +406,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             type_mapping=self._config.tdengine.type_mapping,
             max_row_bytes=65536,
         )
-        point_ids = tuple(request.point_ids) or tuple(
-            column.point_id for column in schema.columns
-        )
+        point_ids = tuple(request.point_ids) or tuple(column.point_id for column in schema.columns)
         filter_ = WideHistoryFilter(
             wind_farm_id=identity.wind_farm_id,
             device_id=identity.device_id,
@@ -430,9 +425,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             page_token=request.page_token,
         )
         if self._consumer.recovering:
-            await context.abort(
-                grpc.StatusCode.UNAVAILABLE, "Storage replay began during query"
-            )
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Storage replay began during query")
         if page.schema_fingerprint != schema.fingerprint:
             raise TDengineSchemaConflictError("wide query schema fingerprint mismatch")
         response = pb.QueryWideRowsResponse(
@@ -446,10 +439,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             next_page_token=page.next_page_token,
             complete=page.complete,
         )
-        columns = {
-            column.point_id: (index, column)
-            for index, column in enumerate(schema.columns)
-        }
+        columns = {column.point_id: (index, column) for index, column in enumerate(schema.columns)}
         for point_id in point_ids:
             index, column = columns[point_id]
             unit = await self._point_tables.get_wide_unit(
@@ -469,9 +459,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             result.sample_time.CopyFrom(_date(row.sample_time_us))
             if len(row.points) != len(point_ids):
                 raise TDengineSchemaConflictError("wide query returned a partial row")
-            for expected, (point_id, value, quality) in zip(
-                point_ids, row.points, strict=True
-            ):
+            for expected, (point_id, value, quality) in zip(point_ids, row.points, strict=True):
                 if point_id != expected:
                     raise TDengineSchemaConflictError("wide row column order mismatch")
                 physical = columns[point_id][1]
@@ -485,24 +473,27 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                     point.bool_value = value
                 elif kind in {"TINYINT", "SMALLINT", "INT", "BIGINT"}:
                     bits = {"TINYINT": 8, "SMALLINT": 16, "INT": 32, "BIGINT": 64}[kind]
-                    if (
-                        type(value) is not int
-                        or not -(1 << (bits - 1)) <= value < (1 << (bits - 1))
+                    if type(value) is not int or not -(1 << (bits - 1)) <= value < (
+                        1 << (bits - 1)
                     ):
                         raise TDengineSchemaConflictError("wide signed integer out of range")
                     point.signed_value = value
                 elif kind.endswith(" UNSIGNED"):
-                    bits = {
+                    unsigned_bits = {
                         "TINYINT UNSIGNED": 8,
                         "SMALLINT UNSIGNED": 16,
                         "INT UNSIGNED": 32,
                         "BIGINT UNSIGNED": 64,
                     }.get(kind)
-                    if bits is None or type(value) is not int or not 0 <= value < 1 << bits:
+                    if (
+                        unsigned_bits is None
+                        or type(value) is not int
+                        or not 0 <= value < 1 << unsigned_bits
+                    ):
                         raise TDengineSchemaConflictError("wide unsigned integer out of range")
                     point.unsigned_value = value
                 elif kind in {"FLOAT", "DOUBLE"}:
-                    if type(value) not in {int, float}:
+                    if not (type(value) is int or type(value) is float):
                         raise TDengineSchemaConflictError("wide float invalid")
                     if type(value) is int and abs(value) > 2**53:
                         raise TDengineSchemaConflictError("wide float loses integer precision")
@@ -530,7 +521,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         return response
 
     async def _query_wide_aggregates(
-        self, request: pb.QueryAggregatesRequest,
+        self,
+        request: pb.QueryAggregatesRequest,
     ) -> pb.QueryAggregatesResponse:
         """Aggregate one exact device/schema with integer-preserving output."""
         source = request.wide_filter
@@ -541,7 +533,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         }
         level = levels.get(source.data_level)
         if (
-            level is None or not source.HasField("start_time")
+            level is None
+            or not source.HasField("start_time")
             or not source.HasField("end_time")
             or source.page_token
         ):
@@ -562,12 +555,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             data_level=level,
         )
         schema = await self._point_tables.resolve_wide_schema(
-            identity, type_mapping=self._config.tdengine.type_mapping,
+            identity,
+            type_mapping=self._config.tdengine.type_mapping,
             max_row_bytes=65536,
         )
-        points = tuple(source.point_ids) or tuple(
-            column.point_id for column in schema.columns
-        )
+        points = tuple(source.point_ids) or tuple(column.point_id for column in schema.columns)
         filter_ = WideHistoryFilter(
             wind_farm_id=identity.wind_farm_id,
             device_id=identity.device_id,
@@ -581,7 +573,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         )
         filter_.validate(schema, maximum=self._config.query.max_page_size)
         page = await self._wide_aggregation.page(
-            schema=schema, filter_=filter_,
+            schema=schema,
+            filter_=filter_,
             device_type=self._point_tables.wide_device_type(identity),
             operation=operation,
             window_ms=request.window_ms,
@@ -590,9 +583,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         )
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("wide aggregation replay changed")
-        response = pb.QueryAggregatesResponse(
-            next_page_token=page.next_page_token
-        )
+        response = pb.QueryAggregatesResponse(next_page_token=page.next_page_token)
         for row in page.rows:
             item = response.items.add(
                 point_id=row.point_id,
@@ -622,12 +613,14 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         if request.HasField("filter") or not request.HasField("wide_filter"):
             raise QueryRejectedError("wide aggregate requires the exact device filter")
         self._auth.require(
-            context, permission="storage.read",
+            context,
+            permission="storage.read",
             farm=request.wide_filter.wind_farm_id,
         )
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Kafka history replay is not settled")
         return await self._query_wide_aggregates(request)
+
     @guarded
     async def CreateExport(
         self,
@@ -637,9 +630,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         if request.HasField("filter") or not request.HasField("wide_filter"):
             raise QueryRejectedError("wide export requires the exact device filter")
         wide = request.wide_filter
-        owner = self._auth.require(
-            context, permission="storage.export", farm=wide.wind_farm_id
-        )
+        owner = self._auth.require(context, permission="storage.export", farm=wide.wind_farm_id)
         if self._consumer.recovering:
             await context.abort(
                 grpc.StatusCode.UNAVAILABLE,
@@ -664,12 +655,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             data_level=level,
         )
         schema = await self._point_tables.resolve_wide_schema(
-            identity, type_mapping=self._config.tdengine.type_mapping,
+            identity,
+            type_mapping=self._config.tdengine.type_mapping,
             max_row_bytes=65536,
         )
-        ids = tuple(wide.point_ids) or tuple(
-            column.point_id for column in schema.columns
-        )
+        ids = tuple(wide.point_ids) or tuple(column.point_id for column in schema.columns)
         filter_ = WideHistoryFilter(
             wind_farm_id=identity.wind_farm_id,
             device_id=identity.device_id,
@@ -683,9 +673,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         )
         record = await self._jobs.create_wide_export(
             request_id=request.request_id,
-            filter_=filter_, schema=schema,
+            filter_=filter_,
+            schema=schema,
             device_type=self._point_tables.wide_device_type(identity),
-            export_format=request.export_format, owner_id=owner,
+            export_format=request.export_format,
+            owner_id=owner,
         )
         return _task(record)
 

@@ -51,17 +51,15 @@ async def test_filtered_pages_do_not_skip_first_qualifying_lookahead() -> None:
         (_row(30, PointQuality.GOOD), _row(40, PointQuality.GOOD)),
         (_row(30, PointQuality.GOOD),),
     ]
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"k" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"k" * 32))
     original = _filter(limit=1)
-    first = await service.query(
-        schema=_schema(), filter_=original, device_type="wind"
-    )
+    first = await service.query(schema=_schema(), filter_=original, device_type="wind")
     assert [row.sample_time_us for row in first.rows] == [20]
     assert not first.complete
     second = await service.query(
-        schema=_schema(), filter_=original, device_type="wind",
+        schema=_schema(),
+        filter_=original,
+        device_type="wind",
         page_token=first.next_page_token,
     )
     assert [row.sample_time_us for row in second.rows] == [30]
@@ -71,9 +69,7 @@ async def test_filtered_pages_do_not_skip_first_qualifying_lookahead() -> None:
 
 def test_cursor_rejects_rebound_quality_predicate() -> None:
     codec = WideCursorCodec(b"k" * 32)
-    token = codec.encode(
-        _filter(), _schema(), last_us=20, horizon_us=1000
-    )
+    token = codec.encode(_filter(), _schema(), last_us=20, horizon_us=1000)
     with pytest.raises(ValueError, match="unauthorized"):
         codec.decode(token, _filter(quality=2), _schema())
 
@@ -88,7 +84,8 @@ def test_cursor_rejects_rebound_quality_predicate() -> None:
     ],
 )
 def test_invalid_quality_predicates_are_rejected(
-    qualities: tuple[int, ...], point_ids: tuple[str, ...],
+    qualities: tuple[int, ...],
+    point_ids: tuple[str, ...],
 ) -> None:
     base = _filter()
     requested = WideHistoryFilter(
@@ -112,13 +109,9 @@ async def test_filtered_query_rejects_corrupt_null_good_row() -> None:
     backend.fetch_wide_history.return_value = (
         WideHistoryRow(10, (("wind_speed", None, PointQuality.GOOD),)),
     )
-    service = WideHistoryQueryService(
-        backend=backend, codec=WideCursorCodec(b"k" * 32)
-    )
+    service = WideHistoryQueryService(backend=backend, codec=WideCursorCodec(b"k" * 32))
     with pytest.raises(RuntimeError, match="NULL and quality"):
-        await service.query(
-            schema=_schema(), filter_=_filter(), device_type="wind"
-        )
+        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
 
 
 def test_cursor_cannot_advance_to_or_beyond_frozen_horizon() -> None:

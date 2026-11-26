@@ -220,6 +220,8 @@ async def assemble_collector(
         repository.active_revision() or "",
     )
     messaging = service["messaging"]
+    if shared.acquisition is None:
+        raise ValueError("Collector acquisition plan is unavailable")
     if messaging.get("delivery", "realtime") == "reliable" and any(
         plan.mode != "poll" for plan in shared.acquisition.devices
     ):

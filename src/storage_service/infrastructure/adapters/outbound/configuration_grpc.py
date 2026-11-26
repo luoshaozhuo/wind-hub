@@ -366,8 +366,7 @@ class ConfigurationGrpcClient:
     ) -> tuple[RepositoryDocument, ...]:
         """Resolve an archived Device Instance file version without latest selection."""
         match = re.fullmatch(
-            r"device_(?P<id>[A-Za-z0-9_.-]+)_v"
-            r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)",
+            r"device_(?P<id>[A-Za-z0-9_.-]+)_v" r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)",
             device_config_id,
         )
         if match is None:
@@ -419,7 +418,8 @@ class ConfigurationGrpcClient:
             ):
                 roots += 1
         if (
-            roots != 1 or digest.hexdigest() != response.manifest_sha256
+            roots != 1
+            or digest.hexdigest() != response.manifest_sha256
             or sum(len(doc.yaml_bytes) for doc in documents) != response.total_bytes
         ):
             raise ConfigHistoryUnavailableError("historical bundle manifest or root mismatch")

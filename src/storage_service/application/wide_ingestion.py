@@ -14,12 +14,13 @@ from typing import NoReturn, Protocol
 from storage_service.application.config import TypeMapping
 from storage_service.application.ingestion_contract import (
     ConfigHistoryUnavailableError,
-    IngestResult,
     IngestionBlockedError,
+    IngestResult,
     KafkaRecord,
 )
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
+from storage_service.domain.errors import TDengineSchemaConflictError
 from storage_service.domain.wide_record import (
     WideIdentity,
     WideRecord,
@@ -27,7 +28,6 @@ from storage_service.domain.wide_record import (
 )
 from storage_service.domain.wide_row import bind_wide_row
 from storage_service.domain.wide_schema import WideSchema
-from storage_service.domain.errors import TDengineSchemaConflictError
 
 
 class WideSchemaResolver(Protocol):
@@ -53,7 +53,9 @@ class WideBackend(Protocol):
     ) -> None: ...
 
     async def insert_wide_batch(
-        self, schema: WideSchema, records: Sequence[WideRecord],
+        self,
+        schema: WideSchema,
+        records: Sequence[WideRecord],
     ) -> None: ...
 
 
@@ -88,7 +90,8 @@ class WideIngestionService:
         max_row_bytes: int = 65536,
     ) -> None:
         if (
-            not allowed_wind_farms or not 1 <= max_batch_rows <= 1000
+            not allowed_wind_farms
+            or not 1 <= max_batch_rows <= 1000
             or not 4096 <= max_batch_bytes <= 8388608
             or max_row_bytes < 1024
         ):
@@ -116,7 +119,7 @@ class WideIngestionService:
         identity = peek_wide_identity(source.value)
         if identity.wind_farm_id not in self._allowed_wind_farms:
             raise ValueError("Kafka wind farm is not authorized for Storage")
-        key = f"{identity.wind_farm_id}:{identity.device_id}".encode("utf-8")
+        key = f"{identity.wind_farm_id}:{identity.device_id}".encode()
         if source.key != key:
             raise ValueError("Kafka device key differs from immutable routing identity")
         schema = await self._resolver.resolve_wide_schema(
@@ -166,9 +169,7 @@ class WideIngestionService:
                 entry.row.sample_time_us: (position, entry.row)
                 for position, entry in enumerate(group)
             }
-            ordered_rows = tuple(
-                row for _position, row in sorted(latest_by_time.values())
-            )
+            ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
             try:
                 await self._storage.ensure_wide_table(
                     first.schema,
@@ -212,9 +213,7 @@ class WideIngestionService:
                 len(pending) >= self._max_rows
                 or pending_bytes + len(source.value) > self._max_bytes
             ):
-                accepted += await self._flush(
-                    pending, offsets=offsets, generation=generation
-                )
+                accepted += await self._flush(pending, offsets=offsets, generation=generation)
                 pending.clear()
                 pending_bytes = 0
                 pending_physical_bytes = 0
@@ -225,23 +224,17 @@ class WideIngestionService:
                 validated = await self._resolve(source)
             except (ConfigHistoryUnavailableError, ValueError, TypeError, KeyError) as exc:
                 if pending:
-                    accepted += await self._flush(
-                        pending, offsets=offsets, generation=generation
-                    )
+                    accepted += await self._flush(pending, offsets=offsets, generation=generation)
                 self._block(source, f"WIDE_RECORD_INVALID: {exc}")
             # Kafka payload size is not the STMT2 in-memory column budget.
             # Use the worst-case physical width from the pinned TDengine schema.
             row_bytes = validated.schema.declared_row_bytes
             if row_bytes > self._max_bytes:
                 if pending:
-                    accepted += await self._flush(
-                        pending, offsets=offsets, generation=generation
-                    )
+                    accepted += await self._flush(pending, offsets=offsets, generation=generation)
                 self._block(source, "TDENGINE_WIDE_ROW_EXCEEDS_BATCH_BUDGET")
             if pending and pending_physical_bytes + row_bytes > self._max_bytes:
-                accepted += await self._flush(
-                    pending, offsets=offsets, generation=generation
-                )
+                accepted += await self._flush(pending, offsets=offsets, generation=generation)
                 pending.clear()
                 pending_bytes = 0
                 pending_physical_bytes = 0
@@ -249,9 +242,7 @@ class WideIngestionService:
             pending_bytes += len(source.value)
             pending_physical_bytes += row_bytes
         if pending:
-            accepted += await self._flush(
-                pending, offsets=offsets, generation=generation
-            )
+            accepted += await self._flush(pending, offsets=offsets, generation=generation)
         return IngestResult(
             next_commit_offset=offsets.next_commit_offset,
             accepted_records=accepted,

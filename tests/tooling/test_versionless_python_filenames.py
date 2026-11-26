@@ -1,10 +1,9 @@
 """Code module filenames are stable; versions live in data and wire contracts."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[2]
 _VERSIONED_PYTHON = re.compile(r"_v[0-9]+(?:_[0-9]+)*\.py$")

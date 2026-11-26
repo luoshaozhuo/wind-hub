@@ -40,9 +40,11 @@ def _yaml_doc(item: SnapshotFile) -> dict[str, Any]:
         if type(doc.get("schema_version")) is not int or doc["schema_version"] != 6:
             raise ConfigurationError("Sink Service requires token-security schema")
     else:
-        schema_version = 2 if (
-            item.path.startswith("configs/templates/sinks/") and doc.get("kind") == "kafka"
-        ) else 1
+        schema_version = (
+            2
+            if (item.path.startswith("configs/templates/sinks/") and doc.get("kind") == "kafka")
+            else 1
+        )
         require_version(doc, item.path, schema_version=schema_version)
     if item.path.startswith("configs/templates/sinks/"):
         require_keys(
