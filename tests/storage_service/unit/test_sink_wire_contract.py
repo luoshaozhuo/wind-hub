@@ -38,6 +38,8 @@ def _batch() -> SampleBatch:
         device_type="WTG",
         device_id="WTG-f6",
         point_table_id="point_table_storage-points_v1.0.0",
+        device_config_id=_DEVICE_VERSION,
+        sample_time=_MOMENT,
         publish_time=_MOMENT,
         samples=(item,),
     )
