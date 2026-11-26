@@ -11,3 +11,7 @@ class QueryRejectedError(ValueError):
 
 class HistoryReplayUnavailableError(RuntimeError):
     """Kafka replay invalidates the visible history snapshot."""
+
+
+class WideTableNotCreatedError(LookupError):
+    """An immutable historical family has no physical table registration."""
