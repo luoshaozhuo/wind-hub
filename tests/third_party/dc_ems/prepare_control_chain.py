@@ -99,6 +99,8 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     commander["grpc"]["listen_port"] = COMMANDER_GRPC
     commander["simulation_targets"]["PPC_SIM01"]["endpoint"] = f"127.0.0.1:{EXECUTION_GRPC}"
     commander["repository"]["sqlite_path"] = str(root / "state" / "commander" / "events.db")
+    commander["repository"]["max_storage_bytes"] = 1073741824
+    commander["repository"]["reserved_storage_bytes"] = 134217728
     commander["audit"]["nats_servers"] = [nats_url]
     _write(config / "services" / "service_commander-dcems-control_v1.0.0.yaml", commander)
 
