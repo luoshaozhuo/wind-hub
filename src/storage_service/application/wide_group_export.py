@@ -222,7 +222,9 @@ async def export_grouped_wide_history(
                                 )
                                 json_file.flush()
                                 if os.fstat(json_file.fileno()).st_size > max_bytes:
-                                    raise WideExportQuotaExceededError("grouped JSON quota exceeded")
+                                    raise WideExportQuotaExceededError(
+                                        "grouped JSON quota exceeded"
+                                    )
                             else:
                                 if csv_file is None:
                                     raise RuntimeError("grouped CSV stream unavailable")
@@ -240,7 +242,10 @@ async def export_grouped_wide_history(
                                     ]
                                 )
                                 csv_file.flush()
-                                if total_csv_bytes + os.fstat(csv_file.fileno()).st_size > max_bytes:
+                                if (
+                                    total_csv_bytes + os.fstat(csv_file.fileno()).st_size
+                                    > max_bytes
+                                ):
                                     raise WideExportQuotaExceededError("grouped CSV quota exceeded")
                             group_row_count += 1
                     if page.complete:
