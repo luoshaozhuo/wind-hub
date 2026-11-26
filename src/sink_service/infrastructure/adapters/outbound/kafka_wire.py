@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from contracts.sample_batch import SampleBatch, SampleItem
@@ -16,7 +16,9 @@ DataLevel = Literal["raw", "protocol", "business"]
 def _json_timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return value.isoformat().replace("+00:00", "Z")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("wide sample timestamps require timezone-aware datetimes")
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _require_protocol(level: DataLevel) -> None:
