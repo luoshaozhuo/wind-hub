@@ -26,13 +26,13 @@ def test_ten_devices_and_gateways_have_unique_endpoints() -> None:
     gateway = _read("service_gateway-dcems-smoke_v1.0.0.yaml")
     servers = gateway["servers"]
     assert len(devices) == len(servers) == 10
-    expected_ids = {f"DCEMS_WTG{index:02d}" for index in range(1, 11)}
+    expected_ids = {f"WTG{index:02d}" for index in range(1, 11)}
     assert set(devices) == {server["device_id"] for server in servers} == expected_ids
     ports = {server["listen_port"] for server in servers}
     assert ports == set(range(15221, 15231))
     for index, server in enumerate(servers, 1):
         assert server["control"]["enabled"] is False
-        assert devices[f"DCEMS_WTG{index:02d}"]["endpoint"]["port"] == 15220 + index
+        assert devices[f"WTG{index:02d}"]["endpoint"]["port"] == 15220 + index
 
 
 def test_random_scenario_targets_exact_gateway_business_names() -> None:
