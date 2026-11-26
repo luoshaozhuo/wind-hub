@@ -395,6 +395,11 @@ class ConfigurationPointTableResolver:
             self._pins[table_id] = pinned
             self._business_pins[table_id] = semantic_pin
         self._loaded: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+        # Immutable version identities make bounded lookup/schema reuse safe.
+        self._exact_binding_cache: dict[tuple[str, str, str], DeviceBinding] = {}
+        self._wide_schema_cache: dict[
+            tuple[str, WideDataLevel, int, tuple[tuple[str, str], ...]], WideSchema
+        ] = {}
         self._lock = asyncio.Lock()
         self._refresh_hook: Callable[[], Awaitable[None]] | None = None
 
@@ -458,6 +463,8 @@ class ConfigurationPointTableResolver:
             self._pins[point_table_id] = pin
             self._business_pins[point_table_id] = business_points_pin
         self._device_bindings = merged_device_bindings
+        self._exact_binding_cache.clear()
+        self._wide_schema_cache.clear()
 
     async def _load(
         self,
@@ -709,6 +716,10 @@ class ConfigurationPointTableResolver:
 
     def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
         """Resolve one immutable instance identity without recommendation lookup."""
+        cache_key = (identity.wind_farm_id, identity.device_id, identity.device_config_id)
+        cached = self._exact_binding_cache.get(cache_key)
+        if cached is not None:
+            return cached
         matches = {
             (binding.device_version_id, binding.point_table_id): binding
             for (farm, device, _), entries in self._device_bindings.items()
@@ -723,7 +734,11 @@ class ConfigurationPointTableResolver:
             raise ConfigHistoryUnavailableError(
                 "Kafka Device Instance version lacks one exact historical binding"
             )
-        return next(iter(matches.values()))
+        binding = next(iter(matches.values()))
+        if len(self._exact_binding_cache) >= 1024:
+            self._exact_binding_cache.clear()
+        self._exact_binding_cache[cache_key] = binding
+        return binding
 
     def wide_device_type(self, identity: WideIdentity | WideRecord) -> str:
         """Return the authoritative pinned DeviceModel type for a Kafka identity."""
@@ -753,6 +768,16 @@ class ConfigurationPointTableResolver:
         pin = self._pins.get(binding.point_table_id)
         if pin is None:
             raise ConfigHistoryUnavailableError("PointTable lacks an immutable pin")
+        mapping = type_mapping.model_dump()
+        schema_key = (
+            binding.point_table_id,
+            record.data_level,
+            max_row_bytes,
+            tuple(sorted(mapping.items())),
+        )
+        cached_schema = self._wide_schema_cache.get(schema_key)
+        if cached_schema is not None:
+            return cached_schema
         document = await self._load(
             config_type="point_table",
             config_id=pin[0],
@@ -769,7 +794,6 @@ class ConfigurationPointTableResolver:
         protocol = document.get("protocol")
         if not isinstance(points, dict) or not points or not isinstance(protocol, str):
             raise ConfigHistoryUnavailableError("PointTable definitions are incomplete")
-        mapping = type_mapping.model_dump()
         business: Mapping[str, Any] = {}
         if record.data_level is WideDataLevel.BUSINESS:
             catalog_pin = self._business_pins.get(binding.point_table_id)
@@ -841,13 +865,17 @@ class ConfigurationPointTableResolver:
                 sql_type = f"{sql_type}({raw_width})"
             physical.append(PhysicalPoint(logical_id, sql_type))
         try:
-            return WideSchema.build(
+            schema = WideSchema.build(
                 point_table_id=binding.point_table_id,
                 point_table_version=document["file_version"],
                 data_level=record.data_level,
                 points=tuple(physical),
                 max_row_bytes=max_row_bytes,
             )
+            if len(self._wide_schema_cache) >= 256:
+                self._wide_schema_cache.clear()
+            self._wide_schema_cache[schema_key] = schema
+            return schema
         except (KeyError, ValueError) as exc:
             raise ConfigHistoryUnavailableError("historical wide schema is invalid") from exc
 
