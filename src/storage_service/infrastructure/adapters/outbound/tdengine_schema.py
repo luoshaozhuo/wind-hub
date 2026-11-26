@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from storage_service.domain.naming import StorageObjectNames
 
 
-_IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\\Z")
-_DURATION = re.compile(r"[1-9][0-9]*d\\Z")
+_IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\Z")
+_DURATION = re.compile(r"[1-9][0-9]*d\Z")
 
 
 def _identifier(value: str) -> str:
