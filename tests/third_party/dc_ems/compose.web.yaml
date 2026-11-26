@@ -10,7 +10,7 @@ services:
         target: /opt/dc-ems/data.json
         read_only: true
   dc-ems-web:
-    image: ${WEB_IMAGE:-dc-ems-nginx:1.26-alpine}
+    image: ${WEB_IMAGE:?set released DCEMS Web image tag}
     pull_policy: never
     network_mode: host
     volumes:
