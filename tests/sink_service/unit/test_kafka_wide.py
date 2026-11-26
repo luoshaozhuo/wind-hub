@@ -144,3 +144,31 @@ def test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes(invalid: str
             physical_points=("active_power", "wind_speed"),
             data_level="raw",
         )
+
+
+def test_wide_encoder_rejects_unpinned_device_version() -> None:
+    batch = _batch()
+    with pytest.raises(ValueError, match="must match the source batch"):
+        encode_kafka_wide(
+            batch,
+            batch.samples,
+            device_config_id="device_other_v1.0.0",
+            physical_points=("active_power", "wind_speed"),
+            data_level="protocol",
+        )
+
+
+def test_wide_encoder_rejects_timestamp_mismatch_with_batch() -> None:
+    batch = _batch()
+    shifted = tuple(
+        item.model_copy(update={"sample_time": batch.sample_time + timedelta(seconds=1)})
+        for item in batch.samples
+    )
+    with pytest.raises(ValueError, match="batch logical sample_time"):
+        encode_kafka_wide(
+            batch,
+            shifted,
+            device_config_id=batch.device_config_id,
+            physical_points=("active_power", "wind_speed"),
+            data_level="protocol",
+        )
