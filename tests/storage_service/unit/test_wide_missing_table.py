@@ -32,9 +32,7 @@ class _Backend:
     ) -> None:
         raise self.failure
 
-    async def fetch_wide_history(
-        self, schema: WideSchema, query: WideHistoryFilter
-    ) -> tuple[()]:
+    async def fetch_wide_history(self, schema: WideSchema, query: WideHistoryFilter) -> tuple[()]:
         self.reads += 1
         raise AssertionError("unverified wide table must not be queried")
 
@@ -100,10 +98,12 @@ async def test_conflicting_wide_ownership_remains_blocked(quality: bool) -> None
 
 
 def test_metadata_only_missing_registration_is_skippable(tmp_path: Path) -> None:
-    with MetadataStore(tmp_path / "metadata.sqlite") as metadata:
-        with pytest.raises(WideTableNotCreatedError):
-            metadata.require_ready_wide_table(
-                name="wh_farm_0000000000000000.tb_device_0000000000000000",
-                fingerprint="f" * 64,
-                identity_sha256="b" * 64,
-            )
+    with (
+        MetadataStore(tmp_path / "metadata.sqlite") as metadata,
+        pytest.raises(WideTableNotCreatedError),
+    ):
+        metadata.require_ready_wide_table(
+            name="wh_farm_0000000000000000.tb_device_0000000000000000",
+            fingerprint="f" * 64,
+            identity_sha256="b" * 64,
+        )

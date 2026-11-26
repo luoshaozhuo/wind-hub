@@ -17,8 +17,8 @@ from types import TracebackType
 from typing import BinaryIO, Literal, Self
 
 from storage_service.application.config import DeviceBinding, DeviceModel
-from storage_service.domain.tasks import TaskRecord
 from storage_service.domain.errors import WideTableNotCreatedError
+from storage_service.domain.tasks import TaskRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +34,6 @@ class ObjectRegistration:
 
 class MetadataConflictError(RuntimeError):
     """Existing durable ownership or request-id arguments conflict."""
-
-
 
 
 class MetadataStore:

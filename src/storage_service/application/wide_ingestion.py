@@ -171,9 +171,7 @@ class WideIngestionService:
                     entry.row.sample_time_us: (position, entry.row)
                     for position, entry in enumerate(group)
                 }
-                ordered_rows = tuple(
-                    row for _position, row in sorted(latest_by_time.values())
-                )
+                ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
                 await self._storage.ensure_wide_table(
                     first.schema,
                     wind_farm_id=first.row.wind_farm_id,
@@ -197,7 +195,7 @@ class WideIngestionService:
                 (
                     error
                     for error in errors
-                    if isinstance(error, (RuntimeError, TimeoutError, OSError))
+                    if isinstance(error, RuntimeError | TimeoutError | OSError)
                     and not isinstance(error, TDengineSchemaConflictError)
                 ),
                 None,

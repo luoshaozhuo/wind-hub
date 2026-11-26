@@ -11,9 +11,9 @@ import hashlib
 import json
 import os
 import pty
-import termios
 import re
 import shutil
+import termios
 from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
@@ -128,9 +128,7 @@ class NativeTDengineBackup:
             watcher = asyncio.create_task(self._watch_output(process, path))
             try:
                 os.write(master, (password + "\n").encode("utf-8"))
-                await asyncio.wait_for(
-                    process.wait(), timeout=self._config.backup.timeout_s
-                )
+                await asyncio.wait_for(process.wait(), timeout=self._config.backup.timeout_s)
                 if watcher.done() and not watcher.cancelled():
                     watcher.result()
                 result = process.returncode

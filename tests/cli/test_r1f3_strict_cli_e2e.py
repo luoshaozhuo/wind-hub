@@ -858,7 +858,21 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         for config in (harness.cli_realtime, harness.cli_reliable):
             await harness.cli(config, "collector", "stop", "turbine_all", "--yes")
         for delivery in ("ems_power", "gateway_output", "modbus_output", "power_history"):
-            await harness.cli(harness.cli_realtime, "sink", "stop", delivery, "--yes")
+            current = await harness.cli(harness.cli_realtime, "sink", "deliveries")
+            revision = next(
+                item["revision"]
+                for item in current["data"]["deliveries"]
+                if item["delivery_id"] == delivery
+            )
+            await harness.cli(
+                harness.cli_realtime,
+                "sink",
+                "stop",
+                delivery,
+                "--expected-revision",
+                revision,
+                "--yes",
+            )
         for name in reversed(SERVICES):
             await harness.service(harness.cli_realtime, "stop", name)
 
