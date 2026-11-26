@@ -89,6 +89,9 @@ unset DCEMS_LICENSE_CODE
 执行前确认本机对应端口不被其他业务占用；
 Docker Compose 项目固定 dcems-smoke，独立 volume，
 DB_NAME 固定 dcems_smoke，禁止复用旧业务数据库。
+若 dcems-smoke_database 卷已存在，启动会拒绝静默复用。
+只有核实该卷就是本次测试且无需重新导入种子时，才允许本地设置
+DCEMS_SMOKE_ALLOW_REUSE=1；禁止直接删除其他 Compose 项目的数据库卷。
 
 export DCEMS_ALLOW_LOCAL_SMOKE=1
 export DCEMS_TEST_SEED="$PWD/run/dcems-smoke/data.json"
