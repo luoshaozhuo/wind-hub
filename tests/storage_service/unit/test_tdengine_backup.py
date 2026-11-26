@@ -51,11 +51,15 @@ while True:
 
 class _Metadata:
     def list_ready_wide_tables(self, *, database: str) -> tuple[ObjectRegistration, ...]:
+        identity_json = (
+            '["farm-1","wtg-001","point_table_wind_v1.0.0",'
+            '"1.0.0","protocol","fp"]'
+        )
         return (
             ObjectRegistration(
                 name=f"{database}.tb_wtg_0123456789abcdef",
-                full_sha256="a" * 64,
-                identity_json='["farm-1","wtg-001","point_table_wind_v1.0.0","1.0.0","protocol","fp"]',
+                full_sha256=hashlib.sha256(identity_json.encode()).hexdigest(),
+                identity_json=identity_json,
                 schema_fingerprint="fp",
                 state="READY",
             ),
@@ -234,3 +238,35 @@ async def test_timeout_kills_and_reaps_taosdump(
     with pytest.raises(TimeoutError):
         await backup.backup(task_id=task_id, wind_farm_id="farm-1")
     _assert_reaped(_read_pid(root, task_id))
+
+
+async def test_backup_manifest_verifier_rejects_avro_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup, root = _backup(tmp_path, monkeypatch, mode="normal")
+    task_id = uuid.uuid4().hex
+    _, _, digest = await backup.backup(task_id=task_id, wind_farm_id="farm-1")
+    path = root / task_id
+    assert NativeTDengineBackup.verify_manifest(
+        path, database=backup._database_for_farm("farm-1")
+    )[1] == digest
+    (path / "data.avro").write_bytes(b"tampered")
+    with pytest.raises(NativeBackupError, match="hash or size"):
+        NativeTDengineBackup.verify_manifest(
+            path, database=backup._database_for_farm("farm-1")
+        )
+
+
+async def test_backup_manifest_verifier_rejects_missing_historical_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup, root = _backup(tmp_path, monkeypatch, mode="normal")
+    task_id = uuid.uuid4().hex
+    await backup.backup(task_id=task_id, wind_farm_id="farm-1")
+    path = root / task_id
+    history = next((path / "configuration-archive").glob("*/document.yaml"))
+    history.unlink()
+    with pytest.raises(NativeBackupError, match="missing or unsafe"):
+        NativeTDengineBackup.verify_manifest(
+            path, database=backup._database_for_farm("farm-1")
+        )
