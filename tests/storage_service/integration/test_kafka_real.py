@@ -14,7 +14,7 @@ from aiokafka import AIOKafkaProducer, TopicPartition
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 from storage_service.application.config import load_storage_config
-from storage_service.application.ingestion import KafkaRecord
+from storage_service.application.ingestion_contract import KafkaRecord
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.offsets import PartitionOffsets
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import KafkaStorageConsumer
