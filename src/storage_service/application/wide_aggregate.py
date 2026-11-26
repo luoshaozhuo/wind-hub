@@ -181,7 +181,9 @@ class WideAggregationService:
         counts: dict[tuple[int, str], tuple[int, int, int]] = {}
         # Scan unfiltered rows: quality selection must not change diagnostic counts.
         scan_filter = replace(filter_, qualities=())
-        accepted_qualities = set(filter_.qualities) if filter_.qualities else {int(PointQuality.GOOD)}
+        accepted_qualities = (
+            set(filter_.qualities) if filter_.qualities else {int(PointQuality.GOOD)}
+        )
         cursor = ""
         visited: set[str] = set()
         scanned = 0
