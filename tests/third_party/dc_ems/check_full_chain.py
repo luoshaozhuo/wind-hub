@@ -13,10 +13,13 @@ from collector.infrastructure.config.validation import (
 )
 from core.configuration.deployment import parse_deployment
 from core.configuration.local_selection import select_local_service
-from data_generator.infrastructure.config.service_settings import load_settings  # type: ignore[import-untyped]
-from industrial_gateway.infrastructure.config.resolution import load_gateway  # type: ignore[import-untyped]
-from sink_service.infrastructure.config_io import read_snapshot
-
+from data_generator.infrastructure.config.service_settings import (  # type: ignore[import-untyped]
+    load_settings,
+)
+from industrial_gateway.infrastructure.config.resolution import (  # type: ignore[import-untyped]
+    load_gateway,
+)
+from sink_service.infrastructure.config_io import read_snapshot  # type: ignore[import-untyped]
 from tests.third_party.dc_ems.prepare_full_chain import STATION_POINTS
 
 POINTS = frozenset(
@@ -62,6 +65,24 @@ def check(root: Path) -> None:
     scenario = generator.scenarios["dcems-random-ten"]
     assert len(scenario.devices) == 10
 
+    scenarios = yaml.safe_load(
+        (config / "instances" / "scenarios_dcems-smoke_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["scenarios"]
+    identity = next(
+        (item for item in scenarios if item["scenario_id"] == "dcems-identity-ten"), None
+    )
+    assert identity is not None, "identity isolation scenario is missing"
+    assert len(identity["devices"]) == len(identity["gateways"]) == 10
+    assert (
+        len(
+            {
+                identity["models"][item["model_ref"]]["rules"]["wind_speed"]["value"]
+                for item in identity["devices"]
+            }
+        )
+        == 10
+    )
+
     collector_file = config / "services" / "service_collector-dcems-realtime_v2.0.0.yaml"
     collector_paths = resolve_source_paths(collector_file)
     validate_collector_snapshot(collector_paths)
@@ -84,9 +105,7 @@ def check(root: Path) -> None:
         )
     )["deliveries"]
     outputs = yaml.safe_load(
-        (config / "instances" / "sinks_dcems-measurement_v1.0.0.yaml").read_text(
-            encoding="utf-8"
-        )
+        (config / "instances" / "sinks_dcems-measurement_v1.0.0.yaml").read_text(encoding="utf-8")
     )["sinks"]
     assert len(instances) == len(outputs) == 10
     assert sink.service["wind_farm_id"] == "dcems-smoke"

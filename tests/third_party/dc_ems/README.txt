@@ -211,6 +211,7 @@ Sink 的 10 条 Delivery 分别映射到 Gateway1 十个 gateway_id；没有反�
   WIND_HUB_DCE_TARGET_OPERATOR_TOKEN
   WIND_HUB_DCE_TARGET_SINK_TOKEN
   WIND_HUB_SINK_CLI_TOKEN
+  WIND_HUB_COLLECTOR_ADMIN_TOKEN
 
 Sink Gateway 专用令牌必须与目标 Gateway 的 inject-only 令牌相同：
   export WIND_HUB_GATEWAY_SINK_TOKEN="$WIND_HUB_DCE_TARGET_SINK_TOKEN"
@@ -224,6 +225,25 @@ Sink Gateway 专用令牌必须与目标 Gateway 的 inject-only 令牌相同：
 
 必须确认 Sink 十条 Delivery 实际为 RUNNING、Collector 任务实际为 RUNNING，
 之后才允许进行完整测量链路复测；CLI 启动成功并不等于业务就绪。
+CLI 服务名固定为 gateway / gateway-target / collector / sink / data-generator；
+Collector 管理 RPC 需要 WIND_HUB_COLLECTOR_ADMIN_TOKEN（服务端与 CLI 必须相同）。
+精简点表的机侧地址存在空洞，设备实例显式设置
+protocol_options.read_merge_max_gap=0，避免跨未定义寄存器合并读取。
+业务就绪与跨服务证据（需同时导出上述令牌与 Deployment 环境变量）：
+  python -m cli.main --config run/dcems-measurement/state/cli.yaml \
+      collector task dcems_source_all
+  python -m cli.main --config run/dcems-measurement/state/cli.yaml sink deliveries
+  python -m cli.main --config run/dcems-measurement/state/cli.yaml \
+      diagnose pipeline WTG01 --sink-id dcems_wtg01
+diagnose pipeline 只有在 Collector 与 Sink 共享同一已验证 sample ID 时才返回 PASS。
+实时测试的 CLI 子进程会优先使用当前 Shell 环境变量；未导出时从本机
+run/dcems-measurement/tokens.env（0600，不提交）补齐缺失令牌。
+防串台专项使用独立常量场景，必须在停止 dcems-random-ten 后切换：
+  data-generator stop <generation_id>
+  data-generator start dcems-identity-ten --yes
+  DCEMS_MEASUREMENT_ISOLATION=1 python -m pytest -q \
+      tests/third_party/dc_ems/test_full_chain_live.py -k identity_stimulus
+该场景每台风机常量不同；若目标端出现其他设备常量，测试直接失败。
 若 --up 中途失败须先 --down 并检查各进程日志。
 
 独立 Modbus 源端/目标端对账：

@@ -31,7 +31,7 @@ esac
 cli() { python -m cli.main --config "${CLI}" "$@"; }
 if [[ "$1" == "--down" ]]; then
     cli service stop data-generator --yes || true
-    cli service stop collector-realtime --yes || true
+    cli service stop collector --yes || true
     cli service stop sink --yes || true
     cli service stop gateway-target --yes || true
     cli service stop gateway --yes || true
@@ -45,6 +45,7 @@ required=(
     WIND_HUB_DCE_TARGET_OPERATOR_TOKEN
     WIND_HUB_DCE_TARGET_SINK_TOKEN
     WIND_HUB_SINK_CLI_TOKEN
+    WIND_HUB_COLLECTOR_ADMIN_TOKEN
 )
 for name in "${required[@]}"; do
     value="${!name:-}"
@@ -86,10 +87,32 @@ with socket.create_connection(("127.0.0.1", uri.port), timeout=3):
     pass
 PY
 
-cli service start gateway --yes
-cli service start gateway-target --yes
-cli service start sink --yes
-cli service start collector-realtime --yes
-cli service start data-generator --yes
-cli data-generator start dcems-random-ten --yes
+# 进程拉起的瞬时 DEGRADED 不当作启动失败；只接受真实 RUNNING 的进程，
+# 业务就绪（Collector Task / Sink Delivery）仍须由调用方单独核验。
+start_service() {
+    local name="$1" attempt output
+    for attempt in 1 2 3; do
+        if output="$(cli service start "${name}" --yes 2>&1)"; then
+            printf '%s\n' "${output}"
+            return 0
+        fi
+        if printf '%s' "${output}" | grep -q '"running": true'; then
+            printf '%s\n' "${output}"
+            return 0
+        fi
+        sleep 2
+    done
+    printf '%s\n' "${output:-service start failed: ${name}}" >&2
+    return 1
+}
+
+start_service gateway
+start_service gateway-target
+start_service sink
+start_service collector
+start_service data-generator
+for attempt in 1 2 3; do
+    cli data-generator start dcems-random-ten --yes && break
+    sleep 2
+done
 printf 'Started measurement services; verify Sink deliveries RUNNING before asserting data.\n'

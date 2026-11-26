@@ -17,16 +17,18 @@ def test_full_chain_production_loaders(tmp_path: Path) -> None:
     root = tmp_path / "dcems-measurement"
     config = prepare(root)
     check(root)
-    cli = yaml.safe_load(
-        prepare_cli(config, root / "state").read_text(encoding="utf-8")
-    )
+    cli = yaml.safe_load(prepare_cli(config, root / "state").read_text(encoding="utf-8"))
     assert set(cli["services"]) == {
-        "gateway", "gateway-target", "collector-realtime", "sink", "data-generator"
+        "gateway",
+        "gateway-target",
+        "collector",
+        "sink",
+        "data-generator",
     }
     assert cli["services"]["sink"]["process"]["argv"][-1].endswith(
         "service_sink-dcems-measurement_v2.0.0.yaml"
     )
-    assert cli["services"]["collector-realtime"]["process"]["argv"][2] == "collector.main"
+    assert cli["services"]["collector"]["process"]["argv"][2] == "collector.main"
 
 
 def test_isolated_templates_and_no_target_collection(tmp_path: Path) -> None:
@@ -40,25 +42,26 @@ def test_isolated_templates_and_no_target_collection(tmp_path: Path) -> None:
         )
     )["points"]
     compact = yaml.safe_load(
-        (
-            templates / "point_tables"
-            / "point_table_dcems_wtg_measurement_v1.0.0.yaml"
-        ).read_text(encoding="utf-8")
+        (templates / "point_tables" / "point_table_dcems_wtg_measurement_v1.0.0.yaml").read_text(
+            encoding="utf-8"
+        )
     )["points"]
     assert set(full) == POINTS | STATION_POINTS
     assert set(compact) == POINTS
+    business_points = sorted(templates.glob("business_points_standard_v*.yaml"))
+    assert [path.name for path in business_points] == ["business_points_standard_v1.6.0.yaml"]
     sources = yaml.safe_load(
-        (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(
-            encoding="utf-8"
-        )
+        (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(encoding="utf-8")
     )["devices"]
     targets = yaml.safe_load(
-        (config / "instances" / "device_dcems-target_v1.0.0.yaml").read_text(
-            encoding="utf-8"
-        )
+        (config / "instances" / "device_dcems-target_v1.0.0.yaml").read_text(encoding="utf-8")
     )["devices"]
     assert {value["group"] for value in sources.values()} == {"dcems-source"}
     assert {value["group"] for value in targets.values()} == {"dcems-target"}
+    assert all(
+        value["overrides"]["protocol_options"]["read_merge_max_gap"] == 0
+        for value in [*sources.values(), *targets.values()]
+    ), "sparse point tables must not merge reads across undefined registers"
     assert sources["WTG01"]["model"]["id"] == "dcems_wtg_random"
     assert all(
         sources[f"WTG{index:02d}"]["model"]["id"] == "dcems_wtg_measurement"
@@ -78,3 +81,25 @@ def test_full_chain_refuses_overwrite(tmp_path: Path) -> None:
     prepare(root)
     with pytest.raises(FileExistsError):
         prepare(root)
+
+
+def test_identity_scenario_has_distinct_constants(tmp_path: Path) -> None:
+    """防串台激励必须让每台风机具有唯一且可断言的静态差异。"""
+    root = tmp_path / "dcems-measurement"
+    config = prepare(root)
+    scenarios = yaml.safe_load(
+        (config / "instances" / "scenarios_dcems-smoke_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["scenarios"]
+    identity = next(item for item in scenarios if item["scenario_id"] == "dcems-identity-ten")
+    assert len(identity["devices"]) == len(identity["gateways"]) == 10
+    winds = {
+        identity["models"][item["model_ref"]]["rules"]["wind_speed"]["value"]
+        for item in identity["devices"]
+    }
+    powers = {
+        identity["models"][item["model_ref"]]["rules"]["sim_active_power"]["value"]
+        for item in identity["devices"]
+    }
+    assert len(winds) == len(powers) == 10
+    assert all("sim_plant_active_power" in item["points"] for item in identity["devices"][:1])
+    assert not any("sim_plant_active_power" in item["points"] for item in identity["devices"][1:])

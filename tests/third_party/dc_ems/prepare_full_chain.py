@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -22,7 +22,7 @@ STATION_POINTS = frozenset(
 
 def _read(path: Path) -> dict[str, Any]:
     """读取 YAML 配置。"""
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
 def _write(path: Path, document: dict[str, Any]) -> None:
@@ -45,14 +45,17 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
     stage(config)
 
     template_dir = config / "templates"
+    # Collector 要求模板根中 business_points 只有一个选中版本。
+    # e2e 样板带入的 1.5.0 与本次点表引用的 1.6.0 冲突，属于废弃副本。
+    for obsolete_business_points in template_dir.glob("business_points_standard_v*.yaml"):
+        if obsolete_business_points.name != "business_points_standard_v1.6.0.yaml":
+            obsolete_business_points.unlink()
     table_path = template_dir / "point_tables" / "point_table_dcems_wtg_random_v1.0.0.yaml"
     full_table = _read(table_path)
     compact_table = deepcopy(full_table)
     compact_table["template_id"] = "dcems_wtg_measurement"
     compact_table["points"] = {
-        name: point
-        for name, point in full_table["points"].items()
-        if name not in STATION_POINTS
+        name: point for name, point in full_table["points"].items() if name not in STATION_POINTS
     }
     _write(
         template_dir / "point_tables" / "point_table_dcems_wtg_measurement_v1.0.0.yaml",
@@ -76,6 +79,13 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
         }
     for device in source_devices["devices"].values():
         device["group"] = "dcems-source"
+        # 精简点表在机侧存在地址空洞；Collector 默认 max_gap=8 会合并
+        # 跨越未定义寄存器的读取，Gateway 按协议返回 IllegalDataAddress。
+        # 关闭跨空洞合并，只按点表实际地址发起读取。
+        device["overrides"] = {
+            **device.get("overrides", {}),
+            "protocol_options": {"read_merge_max_gap": 0},
+        }
     _write(instance_dir / "device_dcems-source_v1.0.0.yaml", source_devices)
 
     target_devices = deepcopy(source_devices)
@@ -135,8 +145,12 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
     )
 
     collector = _read(
-        ROOT / "deploy" / "config_roots" / "e2e-final"
-        / "services" / "service_collector-e2e-realtime_v2.0.0.yaml"
+        ROOT
+        / "deploy"
+        / "config_roots"
+        / "e2e-final"
+        / "services"
+        / "service_collector-e2e-realtime_v2.0.0.yaml"
     )
     collector["service_id"] = "collector-dcems-realtime"
     collector["config_sources"]["instances"] = {
@@ -149,8 +163,7 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
     _write(config / "services" / "service_collector-dcems-realtime_v2.0.0.yaml", collector)
 
     sink = _read(
-        ROOT / "deploy" / "config_roots" / "e2e-final"
-        / "services" / "service_sink-e2e_v2.0.0.yaml"
+        ROOT / "deploy" / "config_roots" / "e2e-final" / "services" / "service_sink-e2e_v2.0.0.yaml"
     )
     sink["service_id"] = "sink-dcems-measurement"
     sink["deployment_id"] = DEPLOYMENT
@@ -177,9 +190,7 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
     for index in range(1, 11):
         device_id = f"WTG{index:02d}"
         sink_id = f"dcems_gateway_{index:02d}"
-        points = list(
-            full_table["points"] if index == 1 else compact_table["points"]
-        )
+        points = list(full_table["points"] if index == 1 else compact_table["points"])
         sinks[sink_id] = {
             "template_id": "gateway_realtime",
             "template_version": "1.1.0",

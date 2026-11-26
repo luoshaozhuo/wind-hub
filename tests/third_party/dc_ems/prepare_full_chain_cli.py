@@ -36,7 +36,7 @@ def prepare_cli(config_root: Path, runtime_dir: Path) -> Path:
             [],
             "WIND_HUB_DCE_GENERATOR_CLI_TOKEN",
         ),
-        "collector-realtime": (
+        "collector": (
             "collector.main",
             "service_collector-dcems-realtime_v2.0.0.yaml",
             [
@@ -62,7 +62,7 @@ def prepare_cli(config_root: Path, runtime_dir: Path) -> Path:
         "gateway": "127.0.0.1:52073",
         "gateway-target": "127.0.0.1:52074",
         "data-generator": "127.0.0.1:52061",
-        "collector-realtime": "127.0.0.1:52051",
+        "collector": "127.0.0.1:52051",
         "sink": "127.0.0.1:52053",
     }
     services: dict[str, Any] = {}
