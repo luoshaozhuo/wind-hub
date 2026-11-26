@@ -26,6 +26,7 @@ from storage_service.application.ingestion_contract import ConfigHistoryUnavaila
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
 from storage_service.application.wide_aggregate import WideAggregationService
+from storage_service.application.wide_group_query import GroupedWideSelector, WideGroupedHistoryService
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
 from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
@@ -33,6 +34,7 @@ from storage_service.domain.errors import (
     TDengineSchemaConflictError,
 )
 from storage_service.domain.tasks import TaskRecord
+from storage_service.domain.quality_bitmap import pack_quality_bitmap
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
@@ -192,6 +194,57 @@ def guarded(
     return call
 
 
+def _set_wide_value(target: pb.StorageValue, value: object, sql_type: str) -> None:
+    """Bind one physical value without changing signedness or NULL presence."""
+    if value is None:
+        return
+    if sql_type == "BOOL":
+        if type(value) is not bool:
+            raise TDengineSchemaConflictError("wide BOOL value is invalid")
+        target.value_bool = value
+    elif sql_type in {"TINYINT", "SMALLINT", "INT", "BIGINT"}:
+        bits = {"TINYINT": 8, "SMALLINT": 16, "INT": 32, "BIGINT": 64}[sql_type]
+        if type(value) is not int or not -(1 << (bits - 1)) <= value < (1 << (bits - 1)):
+            raise TDengineSchemaConflictError("wide signed integer is outside its type")
+        target.value_i64 = value
+    elif sql_type.endswith(" UNSIGNED"):
+        bits = {
+            "TINYINT UNSIGNED": 8,
+            "SMALLINT UNSIGNED": 16,
+            "INT UNSIGNED": 32,
+            "BIGINT UNSIGNED": 64,
+        }.get(sql_type)
+        if bits is None or type(value) is not int or not 0 <= value < (1 << bits):
+            raise TDengineSchemaConflictError("wide unsigned integer is outside its type")
+        target.value_u64 = value
+    elif sql_type in {"FLOAT", "DOUBLE"}:
+        if type(value) not in (int, float) or (
+            type(value) is int and abs(value) > 2**53
+        ):
+            raise TDengineSchemaConflictError("wide floating-point value is invalid")
+        try:
+            numeric = float(value)
+        except OverflowError as exc:
+            raise TDengineSchemaConflictError("wide floating-point value overflow") from exc
+        if not math.isfinite(numeric) or (
+            sql_type == "FLOAT" and abs(numeric) > 3.4028234663852886e38
+        ):
+            raise TDengineSchemaConflictError("wide floating-point value out of range")
+        target.value_f64 = numeric
+    elif sql_type.startswith("VARCHAR("):
+        width = int(sql_type.removeprefix("VARCHAR(").removesuffix(")"))
+        if type(value) is not str or len(value.encode("utf-8")) > width:
+            raise TDengineSchemaConflictError("wide text is outside its declared width")
+        target.value_text = value
+    elif sql_type.startswith("VARBINARY("):
+        width = int(sql_type.removeprefix("VARBINARY(").removesuffix(")"))
+        if not isinstance(value, bytes | bytearray | memoryview) or len(value) > width:
+            raise TDengineSchemaConflictError("wide binary value is invalid")
+        target.payload_bytes = bytes(value)
+    else:
+        raise TDengineSchemaConflictError("unsupported physical wide column type")
+
+
 def _task(record: TaskRecord) -> pb.StorageTask:
     code = pb.StorageTaskState.Value(f"STORAGE_TASK_STATE_{record.state}")
     result = pb.StorageTask(
@@ -234,6 +287,13 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config = config
         self._metadata = metadata
         self._wide_query = wide_query
+        self._grouped_query = WideGroupedHistoryService(
+            history=wide_query,
+            resolver=point_tables,
+            type_mapping=config.tdengine.type_mapping,
+            cursor_secret=cursor_secret,
+            max_page_size=config.query.max_page_size,
+        )
         self._wide_aggregation = wide_aggregation
         self._jobs = jobs
         self._point_tables = point_tables
@@ -305,7 +365,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
-                "QueryWideRows",
+                "QuerySamples",
                 "QueryAggregates",
                 "CreateExport",
                 "GetExportTask",
@@ -378,146 +438,101 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         return await self._unsupported_common(context, "storage.inspect")
 
     @guarded
-    async def QueryWideRows(
+    async def QuerySamples(
         self,
-        request: pb.QueryWideRowsRequest,
+        request: pb.QuerySamplesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
-    ) -> pb.QueryWideRowsResponse:
-        """Return frozen device-wide columns and quality without cross-version joins."""
-        self._auth.require(context, permission="storage.read", farm=request.wind_farm_id)
+    ) -> pb.QuerySamplesResponse:
+        """Return pinned device-wide schema groups without legacy narrow samples."""
+        if not request.HasField("filter"):
+            raise QueryRejectedError("Storage query filter is required")
+        source = request.filter
+        self._auth.require(context, permission="storage.read", farm=source.wind_farm_id)
         if self._consumer.recovering:
-            await context.abort(grpc.StatusCode.UNAVAILABLE, "Storage Kafka replay is not settled")
+            raise HistoryReplayUnavailableError("Storage Kafka replay is not settled")
         levels = {
             pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
             pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
             pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
         }
-        level = levels.get(request.data_level)
-        if level is None or not request.HasField("start_time") or not request.HasField("end_time"):
-            raise QueryRejectedError("wide queries require explicit level and UTC time boundaries")
-        identity = WideIdentity(
-            wind_farm_id=request.wind_farm_id,
-            device_config_id=request.device_config_id,
-            device_id=request.device_id,
+        level = levels.get(source.data_level)
+        if (
+            level is None
+            or not source.HasField("start_time")
+            or not source.HasField("end_time")
+        ):
+            raise QueryRejectedError("Storage query requires level and UTC time range")
+        selector = GroupedWideSelector(
+            wind_farm_id=source.wind_farm_id,
+            device_ids=tuple(source.device_ids),
+            device_type=source.device_type,
+            point_table_id=source.point_table_id,
             data_level=level,
+            point_ids=tuple(source.point_ids),
+            qualities=tuple(int(quality) for quality in source.qualities),
+            start_time_us=_us(source.start_time),
+            end_time_us=_us(source.end_time),
+            schema_fingerprint=(
+                source.schema_fingerprint if source.HasField("schema_fingerprint") else ""
+            ),
         )
-        schema = await self._point_tables.resolve_wide_schema(
-            identity,
-            type_mapping=self._config.tdengine.type_mapping,
-            max_row_bytes=65536,
-        )
-        point_ids = tuple(request.point_ids) or tuple(column.point_id for column in schema.columns)
-        filter_ = WideHistoryFilter(
-            wind_farm_id=identity.wind_farm_id,
-            device_id=identity.device_id,
-            device_config_id=identity.device_config_id,
-            data_level=level,
-            start_time_us=_us(request.start_time),
-            end_time_us=_us(request.end_time),
-            point_ids=point_ids,
-            limit=request.page_size or 200,
-            qualities=tuple(request.qualities),
-        )
-        page = await self._wide_query.query(
-            schema=schema,
-            filter_=filter_,
-            device_type=self._point_tables.wide_device_type(identity),
+        page = await self._grouped_query.query(
+            selector=selector,
+            page_size=request.page_size or 200,
             page_token=request.page_token,
         )
         if self._consumer.recovering:
-            await context.abort(grpc.StatusCode.UNAVAILABLE, "Storage replay began during query")
-        if page.schema_fingerprint != schema.fingerprint:
-            raise TDengineSchemaConflictError("wide query schema fingerprint mismatch")
-        response = pb.QueryWideRowsResponse(
-            wind_farm_id=identity.wind_farm_id,
-            device_id=identity.device_id,
-            device_config_id=identity.device_config_id,
-            point_table_id=schema.point_table_id,
-            point_table_version=schema.point_table_version,
-            data_level=request.data_level,
-            schema_fingerprint=schema.fingerprint,
-            next_page_token=page.next_page_token,
-            complete=page.complete,
+            raise HistoryReplayUnavailableError("Storage Kafka replay began during query")
+        response = pb.QuerySamplesResponse(
+            next_page_token=page.next_page_token, complete=page.complete
         )
-        columns = {column.point_id: (index, column) for index, column in enumerate(schema.columns)}
-        for point_id in point_ids:
-            index, column = columns[point_id]
-            unit = await self._point_tables.get_wide_unit(
-                point_table_id=schema.point_table_id,
-                point_id=point_id,
-                data_level=level,
+        for family in page.groups:
+            group = response.groups.add(
+                wind_farm_id=family.identity.wind_farm_id,
+                device_id=family.identity.device_id,
+                device_type=family.device_type,
+                point_table_id=family.schema.point_table_id,
+                data_level=source.data_level,
+                schema_fingerprint=family.schema.fingerprint,
             )
-            response.columns.add(
-                point_id=point_id,
-                physical_column_name=column.column_name,
-                sql_type=column.sql_type,
-                quality_ordinal=index,
-                unit=unit,
+            columns = {column.point_id: column for column in family.schema.columns}
+            for point_id in family.point_ids:
+                column = columns[point_id]
+                source_id, business_id, native_type, unit = (
+                    await self._point_tables.get_wide_column_metadata(
+                        point_table_id=family.schema.point_table_id,
+                        physical_point_id=point_id,
+                        data_level=level,
+                    )
+                )
+                group.columns.add(
+                    point_id=source_id,
+                    business_point_id=business_id,
+                    unit=unit,
+                    data_type=native_type,
+                    physical_name=column.column_name,
+                )
+            for row in family.rows:
+                if len(row.points) != len(family.point_ids):
+                    raise TDengineSchemaConflictError("incomplete physical row")
+                result = group.rows.add()
+                result.sample_time.CopyFrom(_date(row.sample_time_us))
+                qualities: list[int] = []
+                for expected, (point_id, value, quality) in zip(
+                    family.point_ids, row.points, strict=True
+                ):
+                    if point_id != expected:
+                        raise TDengineSchemaConflictError("wide point ordering mismatch")
+                    qualities.append(int(quality))
+                    typed = result.values.add()
+                    _set_wide_value(typed, value, columns[point_id].sql_type)
+                result.quality = pack_quality_bitmap(qualities)
+        if response.ByteSize() > 4 * 1024 * 1024:
+            await context.abort(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                "Storage grouped query response exceeds 4 MiB",
             )
-        for row in page.rows:
-            result = response.rows.add()
-            result.sample_time.CopyFrom(_date(row.sample_time_us))
-            if len(row.points) != len(point_ids):
-                raise TDengineSchemaConflictError("wide query returned a partial row")
-            for expected, (point_id, value, quality) in zip(point_ids, row.points, strict=True):
-                if point_id != expected:
-                    raise TDengineSchemaConflictError("wide row column order mismatch")
-                physical = columns[point_id][1]
-                point = result.points.add(point_id=point_id, quality=int(quality))
-                if value is None:
-                    continue
-                kind = physical.sql_type
-                if kind == "BOOL":
-                    if type(value) is not bool:
-                        raise TDengineSchemaConflictError("wide BOOL invalid")
-                    point.bool_value = value
-                elif kind in {"TINYINT", "SMALLINT", "INT", "BIGINT"}:
-                    bits = {"TINYINT": 8, "SMALLINT": 16, "INT": 32, "BIGINT": 64}[kind]
-                    if type(value) is not int or not -(1 << (bits - 1)) <= value < (
-                        1 << (bits - 1)
-                    ):
-                        raise TDengineSchemaConflictError("wide signed integer out of range")
-                    point.signed_value = value
-                elif kind.endswith(" UNSIGNED"):
-                    unsigned_bits = {
-                        "TINYINT UNSIGNED": 8,
-                        "SMALLINT UNSIGNED": 16,
-                        "INT UNSIGNED": 32,
-                        "BIGINT UNSIGNED": 64,
-                    }.get(kind)
-                    if (
-                        unsigned_bits is None
-                        or type(value) is not int
-                        or not 0 <= value < 1 << unsigned_bits
-                    ):
-                        raise TDengineSchemaConflictError("wide unsigned integer out of range")
-                    point.unsigned_value = value
-                elif kind in {"FLOAT", "DOUBLE"}:
-                    if not (type(value) is int or type(value) is float):
-                        raise TDengineSchemaConflictError("wide float invalid")
-                    if type(value) is int and abs(value) > 2**53:
-                        raise TDengineSchemaConflictError("wide float loses integer precision")
-                    try:
-                        numeric = float(value)
-                    except OverflowError as exc:
-                        raise TDengineSchemaConflictError("wide float overflow") from exc
-                    if not math.isfinite(numeric) or (
-                        kind == "FLOAT" and abs(numeric) > 3.4028234663852886e38
-                    ):
-                        raise TDengineSchemaConflictError("wide float is not finite or in range")
-                    point.float_value = numeric
-                elif kind.startswith("VARCHAR("):
-                    bound = int(kind.removeprefix("VARCHAR(").removesuffix(")"))
-                    if type(value) is not str or len(value.encode("utf-8")) > bound:
-                        raise TDengineSchemaConflictError("wide text exceeds column bounds")
-                    point.string_value = value
-                elif kind.startswith("VARBINARY("):
-                    bound = int(kind.removeprefix("VARBINARY(").removesuffix(")"))
-                    if not isinstance(value, bytes | bytearray | memoryview) or len(value) > bound:
-                        raise TDengineSchemaConflictError("wide bytes exceed column bounds")
-                    point.bytes_value = bytes(value)
-                else:
-                    raise TDengineSchemaConflictError("unsupported wide physical field type")
+            raise AssertionError("abort must terminate RPC") from None
         return response
 
     async def _query_wide_aggregates(
