@@ -165,10 +165,8 @@ async def export_wide_device_history(
                             raise RuntimeError("wide export returned incompatible physical column")
                         if not 0 <= int(quality) <= 3:
                             raise RuntimeError("wide export returned invalid quality")
-                        if (int(quality) == 0 and value is not None) or (
-                            int(quality) == 1 and value is None
-                        ):
-                            raise RuntimeError("wide export NULL/quality mismatch")
+                        if int(quality) == 0 and value is not None:
+                            raise RuntimeError("wide export NOT_COLLECTED must be NULL")
                     if csv_writer is not None:
                         cells: list[object] = [
                             filter_.wind_farm_id,
