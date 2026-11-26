@@ -23,7 +23,7 @@ import grpc
 import yaml
 
 from storage_service.application.config import DeviceBinding, DeviceClosurePins, DeviceModel, TypeMapping
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from core.domain.protocol_types import normalize_protocol_scalar_type
 from core.domain.value_objects import DataType
 from storage_service.domain.sample import DataLevel, StorageSample
