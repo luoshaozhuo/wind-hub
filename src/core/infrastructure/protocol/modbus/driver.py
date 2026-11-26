@@ -398,8 +398,11 @@ class ModbusDriver:
                             tuple(dict.fromkeys(points)), max_gap=0
                         )
                     )
-                    if contiguous != groups:
-                        self._read_plan_cache[key] = contiguous
+                    # Persist the safe plan even when this call already used it.
+                    # Otherwise the next failed cycle would evict it and the
+                    # following cycle would recreate the rejected merged span.
+                    self._read_plan_cache[key] = contiguous
+                    self._read_plan_cache.move_to_end(key)
                 raise
             # Remember an accepted contiguous plan after an IllegalDataAddress
             # response; do not trigger the same invalid merged read every cycle.
