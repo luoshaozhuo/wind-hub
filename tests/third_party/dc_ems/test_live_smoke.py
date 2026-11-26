@@ -43,15 +43,14 @@ async def test_gateway_modbus_random_input_changes() -> None:
     """真实 Gateway 端口应暴露动态随机数据，不用内存对象作真值。"""
     host = os.environ.get("DCEMS_GATEWAY_HOST", "127.0.0.1")
     port = int(os.environ.get("DCEMS_GATEWAY_PORT", "15221"))
-    # 来自 DCEMS 历史契约：风速 F32 CDAB，零基保持寄存器偏移 41503。
-    address = 41503
+    # 专用烟雾配置：业务点 wind_speed = 1.3.0，F32 ABCD。\n    address = 0
     client = AsyncModbusTcpClient(host, port=port, timeout=3)
     connected = await client.connect()
     assert connected, "Gateway Modbus TCP endpoint unavailable"
     try:
         observations: set[tuple[int, ...]] = set()
         for _ in range(8):
-            result = await client.read_holding_registers(address, count=2, device_id=1)
+            result = await client.read_input_registers(address, count=2, device_id=1)
             assert not result.isError(), f"Modbus exception: {result}"
             observations.add(tuple(result.registers))
             await asyncio.sleep(0.4)
