@@ -51,12 +51,6 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
         point["address"]["address"] = address
         point["address"]["count"] = 2
         point["address"]["word_order"] = "little_endian"
-    # DCEMS 的 Modbus Master 必须至少完成一项真实 FC03 轮询，
-    # 否则其控制入口会因 comOk=false 拒绝写入。
-    wind = table["points"]["wind_speed"]
-    wind["address"]["register_type"] = "holding"
-    wind["address"]["address"] = 41503
-    wind["address"]["word_order"] = "little_endian"
     _write(tables / "point_table_modbus_wtg_dcems_control_v1.2.0.yaml", table)
 
     model = _read(models / SOURCE_MODEL)
