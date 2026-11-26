@@ -24,7 +24,7 @@ from storage_service.domain.errors import TDengineSchemaConflictError
 from storage_service.domain.wide_record import (
     WideIdentity,
     WideRecord,
-    peek_wide_identity,
+    parse_wide_envelope,
 )
 from storage_service.domain.wide_row import bind_wide_row
 from storage_service.domain.wide_schema import WideSchema
@@ -116,7 +116,8 @@ class WideIngestionService:
         )
 
     async def _resolve(self, source: KafkaRecord) -> _Validated:
-        identity = peek_wide_identity(source.value)
+        parsed = parse_wide_envelope(source.value)
+        identity = parsed.identity
         if identity.wind_farm_id not in self._allowed_wind_farms:
             raise ValueError("Kafka wind farm is not authorized for Storage")
         key = f"{identity.wind_farm_id}:{identity.device_id}".encode()
@@ -125,8 +126,8 @@ class WideIngestionService:
         schema = await self._resolver.resolve_wide_schema(
             identity, type_mapping=self._mapping, max_row_bytes=self._max_row_bytes
         )
-        row = WideRecord.from_kafka_json(
-            source.value,
+        row = WideRecord.from_parsed(
+            parsed,
             physical_points=tuple(column.point_id for column in schema.columns),
         )
         # Fail before DDL when any physical value is invalid or truncated.
