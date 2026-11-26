@@ -270,3 +270,40 @@ async def test_backup_manifest_verifier_rejects_missing_historical_yaml(
         NativeTDengineBackup.verify_manifest(
             path, database=backup._database_for_farm("farm-1")
         )
+
+
+async def test_backup_rejects_ownership_registry_change_during_dump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup, _root = _backup(tmp_path, monkeypatch, mode="normal")
+    metadata = backup._metadata
+    original = metadata.list_ready_wide_tables
+    calls = 0
+
+    def changed(*, database: str) -> tuple[ObjectRegistration, ...]:
+        nonlocal calls
+        calls += 1
+        return original(database=database) if calls == 1 else ()
+
+    monkeypatch.setattr(metadata, "list_ready_wide_tables", changed)
+    with pytest.raises(NativeBackupError, match="ownership changed"):
+        await backup.backup(
+            task_id=uuid.uuid4().hex, wind_farm_id="farm-1"
+        )
+
+
+async def test_backup_manifest_verifier_rejects_metadata_tampering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup, root = _backup(tmp_path, monkeypatch, mode="normal")
+    task_id = uuid.uuid4().hex
+    await backup.backup(task_id=task_id, wind_farm_id="farm-1")
+    path = root / task_id
+    manifest_file = path / "storage_manifest.json"
+    data = json.loads(manifest_file.read_text())
+    data["wide_schema_ownership"][0]["schema_fingerprint"] = "other-schema"
+    manifest_file.write_text(json.dumps(data))
+    with pytest.raises(NativeBackupError, match="digest mismatch"):
+        NativeTDengineBackup.verify_manifest(
+            path, database=backup._database_for_farm("farm-1")
+        )
