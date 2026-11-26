@@ -54,8 +54,17 @@ class WideIdentity:
     data_level: WideDataLevel
 
 
-def peek_wide_identity(raw: bytes) -> WideIdentity:
-    """Read only strict v3 routing metadata before resolving the physical schema."""
+@dataclass(frozen=True, slots=True)
+class ParsedWideEnvelope:
+    """Validated routing metadata and one decoded JSON point map."""
+
+    identity: WideIdentity
+    sample_time_us: int
+    points: dict[str, Any]
+
+
+def parse_wide_envelope(raw: bytes) -> ParsedWideEnvelope:
+    """Decode JSON once; validate the complete point set after schema resolution."""
     if len(raw) > 16 * 1024 * 1024:
         raise ValueError("Kafka wide record exceeds 16 MiB")
     try:
@@ -89,10 +98,19 @@ def peek_wide_identity(raw: bytes) -> WideIdentity:
         level = WideDataLevel(data["data_level"])
     except (ValueError, TypeError) as exc:
         raise ValueError("unsupported device-wide data level") from exc
-    _sample_time_us(data["sample_time"])
+    sample_time_us = _sample_time_us(data["sample_time"])
     if not isinstance(data["points"], dict):
         raise ValueError("Kafka v3 points must be an object")
-    return WideIdentity(identity[0], identity[1], identity[2], level)
+    return ParsedWideEnvelope(
+        WideIdentity(identity[0], identity[1], identity[2], level),
+        sample_time_us,
+        data["points"],
+    )
+
+
+def peek_wide_identity(raw: bytes) -> WideIdentity:
+    """Inspect validated routing identity without resolving a physical schema."""
+    return parse_wide_envelope(raw).identity
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,50 +128,23 @@ class WideRecord:
 
     @classmethod
     def from_kafka_json(cls, raw: bytes, *, physical_points: Sequence[str]) -> WideRecord:
-        """Reject missing/extra points instead of time-aligning or patching partial rows."""
-        if len(raw) > 16 * 1024 * 1024:
-            raise ValueError("Kafka wide record exceeds 16 MiB")
-        try:
-            data = json.loads(
-                raw.decode("utf-8"),
-                object_pairs_hook=_unique_object,
-                parse_constant=_reject_constant,
-            )
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError("invalid Kafka JSON v3") from exc
-        if not isinstance(data, dict):
-            raise ValueError("Kafka message must be an object")
-        required = {
-            "schema_version",
-            "wind_farm_id",
-            "device_config_id",
-            "device_id",
-            "data_level",
-            "sample_time",
-            "points",
-        }
-        if (
-            set(data) != required
-            or type(data["schema_version"]) is not int
-            or data["schema_version"] != 3
-        ):
-            raise ValueError("Kafka JSON v3 envelope mismatch")
-        identities = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
-        if any(
-            not isinstance(item, str) or not item or ":" in item or len(item.encode("utf-8")) > 256
-            for item in identities
-        ):
-            raise ValueError("device-wide record identities must be nonempty UTF-8")
-        try:
-            level = WideDataLevel(data["data_level"])
-        except (ValueError, TypeError) as exc:
-            raise ValueError("invalid data_level") from exc
+        """Parse one complete Kafka v3 row and enforce its physical schema."""
+        return cls.from_parsed(
+            parse_wide_envelope(raw), physical_points=physical_points
+        )
+
+    @classmethod
+    def from_parsed(
+        cls, parsed: ParsedWideEnvelope, *, physical_points: Sequence[str]
+    ) -> WideRecord:
+        """Bind an already decoded envelope without a second JSON parse."""
+        identity = parsed.identity
         ordered = tuple(physical_points)
         if not ordered or len(set(ordered)) != len(ordered):
             raise ValueError("physical schema must contain unique point IDs")
         if not all(isinstance(point, str) and point for point in ordered):
             raise ValueError("invalid physical point ID")
-        points = data["points"]
+        points = parsed.points
         if not isinstance(points, dict) or set(points) != set(ordered):
             raise ValueError("wide record must contain the complete physical point set")
         values: list[int | float | bool | str | None] = []
@@ -174,11 +165,11 @@ class WideRecord:
             values.append(value)
             qualities.append(quality)
         return cls(
-            wind_farm_id=identities[0],
-            device_config_id=identities[1],
-            device_id=identities[2],
-            data_level=level,
-            sample_time_us=_sample_time_us(data["sample_time"]),
+            wind_farm_id=identity.wind_farm_id,
+            device_config_id=identity.device_config_id,
+            device_id=identity.device_id,
+            data_level=identity.data_level,
+            sample_time_us=parsed.sample_time_us,
             point_ids=ordered,
             values=tuple(values),
             quality_bitmap=pack_quality_bitmap(qualities),
