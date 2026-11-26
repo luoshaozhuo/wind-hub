@@ -102,3 +102,105 @@ async def test_wide_export_quota_failure_cannot_publish_partial_artifact(
         )
     assert not (tmp_path / "test3.json").exists()
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_wide_export_rejects_different_page_schema(tmp_path: Path) -> None:
+    history = _history()
+    page = history.query.return_value
+    history.query.return_value = WideHistoryPage(
+        rows=page.rows,
+        complete=True,
+        next_page_token="",
+        schema_fingerprint="other-version-fingerprint",
+    )
+    with pytest.raises(RuntimeError, match="schema fingerprint"):
+        await export_wide_device_history(
+            history=history, schema=_schema(), filter_=_filter(),
+            device_type="wind", artifact_id="wrong_schema",
+            export_format="json", root=tmp_path, max_bytes=1_000_000,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_wide_export_rejects_duplicate_timestamp_across_pages(
+    tmp_path: Path,
+) -> None:
+    history = _history()
+    fingerprint = _schema().fingerprint
+    history.query.side_effect = [
+        WideHistoryPage(
+            rows=(WideHistoryRow(10, (
+                ("power", 1.5, PointQuality.GOOD),
+                ("status", "running", PointQuality.GOOD),
+            )),),
+            complete=False,
+            next_page_token="next",
+            schema_fingerprint=fingerprint,
+        ),
+        WideHistoryPage(
+            rows=(WideHistoryRow(10, (
+                ("power", 2.5, PointQuality.GOOD),
+                ("status", "stopped", PointQuality.GOOD),
+            )),),
+            complete=True,
+            next_page_token="",
+            schema_fingerprint=fingerprint,
+        ),
+    ]
+    with pytest.raises(RuntimeError, match="timestamp order"):
+        await export_wide_device_history(
+            history=history, schema=_schema(), filter_=_filter(),
+            device_type="wind", artifact_id="duplicate",
+            export_format="csv", root=tmp_path, max_bytes=1_000_000,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_wide_export_rejects_inconsistent_quality_value(
+    tmp_path: Path,
+) -> None:
+    history = _history()
+    history.query.return_value = WideHistoryPage(
+        rows=(WideHistoryRow(10, (
+            ("power", 2.5, PointQuality.NOT_COLLECTED),
+            ("status", None, PointQuality.BAD),
+        )),),
+        complete=True,
+        next_page_token="",
+        schema_fingerprint=_schema().fingerprint,
+    )
+    with pytest.raises(RuntimeError, match="NULL/quality"):
+        await export_wide_device_history(
+            history=history, schema=_schema(), filter_=_filter(),
+            device_type="wind", artifact_id="corrupt",
+            export_format="csv", root=tmp_path, max_bytes=1_000_000,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_published_artifact_is_rolled_back_if_directory_sync_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from storage_service.application import wide_export
+
+    original_fsync = wide_export.os.fsync
+
+    def fail_directory_sync(fd: int) -> None:
+        import stat
+
+        if stat.S_ISDIR(wide_export.os.fstat(fd).st_mode):
+            raise OSError("directory fsync failure")
+        original_fsync(fd)
+
+    monkeypatch.setattr(wide_export.os, "fsync", fail_directory_sync)
+    with pytest.raises(OSError, match="directory fsync"):
+        await export_wide_device_history(
+            history=_history(), schema=_schema(), filter_=_filter(),
+            device_type="wind", artifact_id="failed_sync",
+            export_format="json", root=tmp_path, max_bytes=1_000_000,
+        )
+    assert list(tmp_path.iterdir()) == []
