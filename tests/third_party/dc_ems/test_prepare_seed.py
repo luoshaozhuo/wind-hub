@@ -69,7 +69,10 @@ def test_address_mismatch_rejected(original: dict, bindings: dict) -> None:
 def test_shared_register_alias_must_share_business_id(
     original: dict, bindings: dict
 ) -> None:
-    assert bindings["ctrlActPow"]["business_point_id"] == bindings["emsActPowerSet"]["business_point_id"]
+    assert (
+        bindings["ctrlActPow"]["business_point_id"]
+        == bindings["emsActPowerSet"]["business_point_id"]
+    )
     bindings["ctrlActPow"]["business_point_id"] = "different_business"
     with pytest.raises(ValueError, match="aliases disagree"):
         build_seed(original, bindings, "127.0.0.1", 15221)
