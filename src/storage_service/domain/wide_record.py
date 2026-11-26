@@ -129,9 +129,7 @@ class WideRecord:
     @classmethod
     def from_kafka_json(cls, raw: bytes, *, physical_points: Sequence[str]) -> WideRecord:
         """Parse one complete Kafka v3 row and enforce its physical schema."""
-        return cls.from_parsed(
-            parse_wide_envelope(raw), physical_points=physical_points
-        )
+        return cls.from_parsed(parse_wide_envelope(raw), physical_points=physical_points)
 
     @classmethod
     def from_parsed(
