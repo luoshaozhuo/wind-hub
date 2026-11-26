@@ -11,7 +11,7 @@ import nats
 from nats.aio.client import Client as NatsClient
 from nats.aio.msg import Msg
 
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
