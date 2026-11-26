@@ -84,7 +84,14 @@ cli service start gateway --yes
 cli service start commander --yes
 cli service start gateway-target --yes
 cli service start data-generator --yes
-started="$(cli data-generator start e2e-plant-physical --yes)"
+started=""
+for attempt in 1 2 3 4 5; do
+    if started="$(cli data-generator start e2e-plant-physical --yes)"; then
+        break
+    fi
+    sleep 2
+done
+[[ -n "${started}" ]] || fail "Data Generator scenario failed to start"
 printf '%s' "${started}" | python -c '
 import json
 import sys
