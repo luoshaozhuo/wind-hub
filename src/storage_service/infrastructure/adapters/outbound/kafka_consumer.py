@@ -11,7 +11,7 @@ from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
 from aiokafka.errors import KafkaError
 
 from storage_service.application.config import StorageConfig
-from storage_service.application.ingestion import (
+from storage_service.application.ingestion_contract import (
     IngestionBlockedError,
     KafkaRecord,
     WriteUnconfirmedError,
