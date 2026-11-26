@@ -373,41 +373,10 @@ class ConfigurationGrpcClient:
         if match is None:
             raise ConfigHistoryUnavailableError("invalid exact Device Instance identity")
         identity = pb.ConfigId(config_type="device", config_id=match["id"])
-        matching: set[str] = set()
-        cursor = ""
-        seen_cursors: set[str] = set()
-        for _ in range(100):
-            response = await self._client().ListConfigVersions(
-                pb.ListConfigVersionsRequest(
-                    config_id=identity,
-                    include_deprecated=True,
-                    page_size=100,
-                    page_token=cursor,
-                ),
-                timeout=self._timeout,
-                metadata=self._metadata(),
-            )
-            matching.update(
-                item.version_id for item in response.versions
-                if item.file_version == match["version"] and item.version_id
-            )
-            cursor = response.next_page_token
-            if not cursor:
-                break
-            if cursor in seen_cursors:
-                raise ConfigHistoryUnavailableError("historical version cursor repeated")
-            seen_cursors.add(cursor)
-        else:
-            raise ConfigHistoryUnavailableError("historical version pagination limit exceeded")
-        if len(matching) != 1:
-            raise ConfigHistoryUnavailableError(
-                "exact historical Device Instance version missing or ambiguous"
-            )
-        version_id = next(iter(matching))
         response = await self._client().GetConfigBundle(
             pb.GetConfigBundleRequest(
                 exact_roots=[
-                    pb.ConfigVersionRef(config_id=identity, version_id=version_id)
+                    pb.ConfigVersionRef(config_id=identity, file_version=match["version"])
                 ],
                 include_dependencies=True,
             ),
@@ -443,7 +412,11 @@ class ConfigurationGrpcClient:
                 digest.update(len(encoded).to_bytes(4, "big"))
                 digest.update(encoded)
             documents.append(doc)
-            if key == ("device", match["id"], version_id):
+            if (
+                doc.config_type == "device"
+                and doc.config_id == match["id"]
+                and item.file_version == match["version"]
+            ):
                 roots += 1
         if (
             roots != 1 or digest.hexdigest() != response.manifest_sha256
