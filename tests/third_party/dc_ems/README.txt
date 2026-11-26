@@ -49,6 +49,9 @@ Web 登录所需账户数据来自本地隔离种子，不得把种子、令牌�
 三、启动 DCEMS 的本地容器
 ------------------------
 确保本地 image、数据库连接配置、有效授权、JKS 都存在。
+实际镜像标签由 third_party/dc-ems/VERSION 的 release_version 生成：
+dc-ems-server:<release_version>、dc-ems-web:<release_version>，
+及 dc-ems-timescaledb:2.7.0-pg14。
 无需把大型镜像上传 GitHub。
 # 发布包前端 WebSocket 地址在 localhost 下写死旧内网地址；只修隔离运行副本。
 python -m tests.third_party.dc_ems.prepare_web \
@@ -101,3 +104,10 @@ FactoryPoints、EmsDispatcher、ActPowerFun、FreActPowerFun。
 kW)、emsFreDst (一次调频目标功率,kW)、emsDeltapValue (功率增量,kW)。
 grid_frequency (Hz) 不能代替 emsFreDst；需要另行确定频率→功率转换逻辑。
 由于这些目标尚无接口，本轮禁止声明AGC/一次调频控制闭环PASS。
+
+七、第一阶段安全门禁
+--------------------
+派生数据库暂将 emsActPowerEnable、emsReactPowerEnable、bFreCtrlEnableFlag
+设为 false，防止未配齐 AGC/PFR 目标和实际控制回路时产生意外控制请求。
+这只影响随机采集/展示烟雾测试；待工业协议 AGC 和调频目标生产实现完成，
+才能针对独立控制测试场景显式启用。不得把禁用控制的烟雾测试判定为指令闭环 PASS。
