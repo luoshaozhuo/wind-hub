@@ -1,10 +1,4 @@
-"""Batch Kafka encoder capacity, ordering and determinism byte gate.
-
-``encode_kafka_points`` is the single authoritative Sink Kafka boundary. This
-module exercises its batch-level guarantees (per-record output, chunk slicing,
-deterministic encoding, trusted-boundary rejection) with exact UTF-8 byte
-comparisons; scalar/type parity is covered by test_kafka_wire_parity.
-"""
+"""Complete device-wide Kafka v3 payload size, ordering and determinism gates."""
 
 from __future__ import annotations
 
@@ -14,20 +8,17 @@ from datetime import UTC, datetime
 import pytest
 
 from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.infrastructure.adapters.outbound.kafka_wire import (
-    encode_kafka_points,
-)
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
+from storage_service.domain.wide_record import WideRecord
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
 FARM = "farm-b3"
 COLLECTOR = "collector-b3"
-TASK = "task-b3"
 DEVICE = "WT042"
-DEVICE_TYPE = "wind_turbine"
 POINT_TABLE = "point_table_wtg_b3_v1.0.0"
+DEVICE_CONFIG = "device_farm-b3_v1.0.0"
 PUBLISH = datetime(2026, 11, 10, 9, 30, 1, 123456, tzinfo=UTC)
-
 LIMIT_SAMPLES = 1024
 LIMIT_BYTES = 16 * 1024 * 1024
 
@@ -39,8 +30,6 @@ def _item(index: int, value: object = 1.0) -> SampleItem:
         value=value,
         quality="good",
         sample_time=PUBLISH,
-        receive_time=None,
-        max_staleness_ms=None,
     )
 
 
@@ -50,14 +39,13 @@ def _batch(size: int) -> SampleBatch:
         mode="reliable",
         wind_farm_id=FARM,
         collector_id=COLLECTOR,
-        task_id=TASK,
-        device_type=DEVICE_TYPE,
+        task_id="task-b3",
+        device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id=POINT_TABLE,
         publish_time=PUBLISH,
         samples=tuple(_item(i) for i in range(size)),
     )
-    # Round-trip through the strict decoder exactly as the Reliable engine does.
     return SampleBatch.decode(
         batch.encode(max_samples=LIMIT_SAMPLES, max_bytes=LIMIT_BYTES),
         "reliable",
@@ -67,118 +55,82 @@ def _batch(size: int) -> SampleBatch:
     )
 
 
-def test_every_sample_yields_one_record_with_stable_identity_prefix() -> None:
-    batch = _batch(500)
-    encoded = encode_kafka_points(batch, batch.samples, data_level="protocol")
-    assert len(encoded) == 500
-    junction = f'"device_id":"{DEVICE}",'.encode()
-    prefixes = {raw[: raw.index(junction) + len(junction)] for raw in encoded}
-    assert len(prefixes) == 1  # shared source identity across the whole batch
-    for token in (
-        f'"wind_farm_id":"{FARM}"',
-        f'"collector_id":"{COLLECTOR}"',
-        f'"device_type":"{DEVICE_TYPE}"',
-    ):
-        assert token.encode() in next(iter(prefixes))
-    # point_table_id follows device_id, so verify it on the full record instead.
-    assert f'"point_table_id":"{POINT_TABLE}"'.encode() in encoded[0]
-
-
-def test_full_sized_batch_keeps_per_record_order_and_bytes() -> None:
-    for size in (500, 1024):
-        batch = _batch(size)
-        encoded = encode_kafka_points(batch, batch.samples, data_level="protocol")
-        assert len(encoded) == size
-        for index, raw in enumerate(encoded):
-            decoded = json.loads(raw)
-            assert decoded["sample_id"] == f"s-b3-{index}"
-            assert decoded["point_id"] == f"p{index:04d}"
-            assert decoded["data_level"] == "protocol"
-            assert decoded["batch_id"] == "b-b3"
-
-
-def test_chunk_slicing_500_500_24_keeps_indices_and_bytes() -> None:
-    batch = _batch(1024)
-    slices = [batch.samples[0:500], batch.samples[500:1000], batch.samples[1000:1024]]
-    flattened: list[bytes] = []
-    for part in slices:
-        flattened.extend(encode_kafka_points(batch, part, data_level="protocol"))
-    full = encode_kafka_points(batch, batch.samples, data_level="protocol")
-    assert [len(part) for part in slices] == [500, 500, 24]
-    assert len(flattened) == 1024
-    assert flattened == list(full)
-    assert b'"point_id":"p0500"' in flattened[500]
-    assert b'"point_id":"p1000"' in flattened[1000]
-
-
-def test_empty_subset_returns_empty_tuple() -> None:
-    batch = _batch(3)
-    assert encode_kafka_points(batch, (), data_level="protocol") == ()
-
-
-def test_encoding_is_deterministic_with_no_hidden_state() -> None:
-    batch = _batch(128)
-    first = encode_kafka_points(batch, batch.samples, data_level="protocol")
-    second = encode_kafka_points(batch, batch.samples, data_level="protocol")
-    assert first == second
-    other = SampleBatch(
-        batch_id="b-other",
-        mode="reliable",
-        wind_farm_id="farm-other",
-        collector_id=COLLECTOR,
-        task_id=TASK,
-        device_type=DEVICE_TYPE,
-        device_id=DEVICE,
-        point_table_id=POINT_TABLE,
-        publish_time=PUBLISH,
-        samples=(_item(0),),
+def _encoded(batch: SampleBatch) -> bytes:
+    return encode_kafka_wide(
+        batch,
+        batch.samples,
+        device_config_id=DEVICE_CONFIG,
+        physical_points=tuple(item.point_id for item in batch.samples),
+        data_level="protocol",
     )
-    rendered = encode_kafka_points(other, other.samples, data_level="protocol")[0]
-    assert b'"wind_farm_id":"farm-other"' in rendered
-    assert FARM.encode() not in rendered
 
 
-@pytest.mark.parametrize("non_finite", [float("nan"), float("inf"), float("-inf")])
-def test_non_finite_values_rejected_at_trusted_boundary(non_finite: float) -> None:
-    with pytest.raises(Exception):  # noqa: B017, BLE001 - SampleBatch construction rejects
-        SampleBatch(
-            batch_id="b-bad",
-            mode="reliable",
-            wind_farm_id=FARM,
-            collector_id=COLLECTOR,
-            task_id=TASK,
-            device_type=DEVICE_TYPE,
-            device_id=DEVICE,
-            point_table_id=POINT_TABLE,
-            publish_time=PUBLISH,
-            samples=(_item(0, non_finite),),
+@pytest.mark.parametrize("size", [1, 500, 1024])
+def test_all_points_form_exactly_one_complete_wide_record(size: int) -> None:
+    batch = _batch(size)
+    encoded = _encoded(batch)
+    payload = json.loads(encoded)
+    assert payload["schema_version"] == 3
+    assert payload["device_config_id"] == DEVICE_CONFIG
+    assert payload["data_level"] == "protocol"
+    assert len(payload["points"]) == size
+    assert list(payload["points"]) == [f"p{i:04d}" for i in range(size)]
+    assert all(payload["points"][f"p{i:04d}"] == [1.0, 1] for i in range(size))
+    decoded = WideRecord.from_kafka_json(
+        encoded, physical_points=tuple(payload["points"]),
+    )
+    assert len(decoded.values) == size
+
+
+def test_subset_is_rejected_instead_of_emitting_partial_history() -> None:
+    batch = _batch(3)
+    with pytest.raises(ValueError, match="incomplete or non-unique"):
+        encode_kafka_wide(
+            batch,
+            batch.samples[:2],
+            device_config_id=DEVICE_CONFIG,
+            physical_points=tuple(item.point_id for item in batch.samples),
+            data_level="protocol",
         )
+
+
+def test_empty_device_row_is_rejected() -> None:
+    batch = _batch(3)
+    with pytest.raises(ValueError, match="complete physical point set"):
+        encode_kafka_wide(
+            batch, (), device_config_id=DEVICE_CONFIG,
+            physical_points=(), data_level="protocol",
+        )
+
+
+def test_wide_json_v3_is_deterministic_for_repeated_encoding() -> None:
+    batch = _batch(128)
+    assert _encoded(batch) == _encoded(batch)
+    parsed = json.loads(_encoded(batch))
+    assert parsed["wind_farm_id"] == FARM
+    assert parsed["device_id"] == DEVICE
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_values_are_rejected_at_sample_boundary(bad: float) -> None:
     with pytest.raises(ValueError):
-        json.dumps({"value": non_finite}, allow_nan=False)
+        json.dumps({"value": bad}, allow_nan=False)
 
 
-def test_unicode_is_raw_utf8_not_ascii_escaped() -> None:
+def test_unicode_is_utf8_not_ascii_escaped() -> None:
+    item = _item(0, "emoji😀中文")
     batch = SampleBatch(
         batch_id="b-unicode",
         mode="reliable",
         wind_farm_id=FARM,
         collector_id=COLLECTOR,
-        task_id=TASK,
-        device_type=DEVICE_TYPE,
+        task_id="task-b3",
+        device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id=POINT_TABLE,
         publish_time=PUBLISH,
-        samples=(
-            SampleItem(
-                point_id="p0",
-                sample_id="s-unicode",
-                value="emoji😀中文",
-                quality="good",
-                sample_time=PUBLISH,
-                max_staleness_ms=None,
-            ),
-        ),
+        samples=(item,),
     )
-    rendered = encode_kafka_points(batch, batch.samples, data_level="protocol")[0]
-    assert b"\\u" not in rendered
-    assert "emoji😀中文".encode() in rendered
+    wire = _encoded(batch)
+    assert b"\\u" not in wire
+    assert "emoji😀中文".encode() in wire
