@@ -543,12 +543,13 @@ class Runtime:
                 isinstance(stage, dict) and stage.get("confirmed") is not True for stage in stages
             ):
                 return "UNKNOWN", 3
-            if command != "service stop":
-                business = data.get("business")
-                if not isinstance(business, dict):
-                    return "UNKNOWN", 3
-                if business.get("health") not in {"READY", "HEALTHY", "PASS"}:
-                    return "UNKNOWN", 3
+            # The manager confirms process lifecycle independently of
+            # potentially transient business health. Service status/diagnose
+            # still report the latter without conflating it with start success.
+            if command != "service stop" and not (
+                process.get("running") is True or process.get("state") == "RUNNING"
+            ):
+                return "UNKNOWN", 3
         if command == "net tcp" and data.get("tcp_state") != "OPEN":
             return "UNKNOWN", 3
         if command == "net ping" and data.get("status") != "UP":

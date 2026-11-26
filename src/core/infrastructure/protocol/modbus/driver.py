@@ -218,13 +218,8 @@ class ModbusDriver:
                             max_gap=self._config.read_merge_max_gap,
                         )
                         for group in verification_groups:
-                            first = group[0]
-                            address = first.address
-                            count = max(item.address + item.count for item in group) - address
                             try:
-                                await session.read(
-                                    first.register_type, address, count, first.slave_id
-                                )
+                                await self._read_group(session, group)
                             except (ProtocolError, OSError, TimeoutError, ValueError) as exc:
                                 return result(
                                     PointTableUpdateStatus.VERIFICATION_FAILED,
@@ -312,6 +307,41 @@ class ModbusDriver:
             message=f"Modbus probe quality={sample.quality.value}",
         )
 
+    async def _read_group(
+        self, session: _ModbusSession, group: Sequence[ModbusPoint]
+    ) -> list[tuple[Sequence[ModbusPoint], Sequence[int | bool], datetime]]:
+        """Retry only a rejected gapped read as contiguous requests.
+
+        A Modbus exception response can mean that the server rejects an
+        unconfigured address within a merged span. Keep the fast single
+        request for devices supporting gap reads; never turn transport
+        failures into additional PLC requests.
+        """
+        first = group[0]
+        start = first.address
+        count = max(point.address + point.count for point in group) - start
+        try:
+            raw = await session.read(first.register_type, start, count, first.slave_id)
+        except ProtocolError as exc:
+            if isinstance(exc, ProtocolConnectionError):
+                raise
+            contiguous = group_consecutive_reads(group, max_gap=0)
+            if len(contiguous) == 1:
+                raise
+            results: list[tuple[Sequence[ModbusPoint], Sequence[int | bool], datetime]] = []
+            for subgroup in contiguous:
+                point = subgroup[0]
+                sub_start = point.address
+                sub_count = max(
+                    item.address + item.count for item in subgroup
+                ) - sub_start
+                sub_raw = await session.read(
+                    point.register_type, sub_start, sub_count, point.slave_id
+                )
+                results.append((subgroup, sub_raw, datetime.now(UTC)))
+            return results
+        return [(group, raw, datetime.now(UTC))]
+
     async def read_one(self, point_id: str) -> ProtocolSample:
         async with self._mapping_barrier.read():
             point = self._point(point_id)
@@ -350,14 +380,13 @@ class ModbusDriver:
                 self._read_plan_cache.move_to_end(key)
             samples: dict[ModbusPoint, ProtocolSample] = {}
             for group in groups:
-                first = group[0]
-                start = min(p.address for p in group)
-                count = max(p.address + p.count for p in group) - start
-                raw = await session.read(first.register_type, start, count, first.slave_id)
-                received_at = datetime.now(UTC)
-                for point in group:
-                    offset = point.address - start
-                    samples[point] = _sample(point, raw[offset : offset + point.count], received_at)
+                for subgroup, raw, received_at in await self._read_group(session, group):
+                    start = subgroup[0].address
+                    for point in subgroup:
+                        offset = point.address - start
+                        samples[point] = _sample(
+                            point, raw[offset : offset + point.count], received_at
+                        )
             return tuple(samples[point] for point in points)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
