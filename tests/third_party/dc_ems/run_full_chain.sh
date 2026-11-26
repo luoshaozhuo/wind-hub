@@ -17,7 +17,8 @@ CLI="${STATE}/cli.yaml"
 fail() { printf 'DCEMS measurement: %s\n' "$*" >&2; exit 1; }
 case "${1:-}" in
     --prepare)
-        python -m tests.third_party.dc_ems.prepare_full_chain --output "${BASE}"
+        python -m tests.third_party.dc_ems.prepare_full_chain --output "${BASE}" \
+            --nats-url "${DCEMS_MEASUREMENT_NATS_URL:-nats://127.0.0.1:14222}"
         python -m tests.third_party.dc_ems.prepare_full_chain_cli \
             --config-root "${CONFIG}" --runtime-dir "${STATE}"
         exit 0
@@ -60,10 +61,28 @@ python -m collector.main --config "${CONFIG}/services/service_collector-dcems-re
 python -m tests.third_party.dc_ems.check_full_chain --root "${BASE}"
 [[ "$1" == "--check" ]] && exit 0
 
-# NATS 需要由专用测试基础设施提前启动。禁止自动连接生产 NATS。
-python - <<'PY'
+# 从已生成的配置读取端口，只准连接本机独立 NATS。
+python - "${CONFIG}" <<'PY'
 import socket
-with socket.create_connection(("127.0.0.1", 4222), timeout=3):
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+import yaml
+
+config = Path(sys.argv[1])
+collector = yaml.safe_load(
+    (config / "services" / "service_collector-dcems-realtime_v2.0.0.yaml").read_text()
+)
+sink = yaml.safe_load(
+    (config / "services" / "service_sink-dcems-measurement_v2.0.0.yaml").read_text()
+)
+source = collector["messaging"]["servers"]
+target = sink["nats"]["servers"]
+assert source == target and len(source) == 1, "NATS endpoints do not match"
+uri = urlsplit(source[0])
+assert uri.scheme == "nats" and uri.hostname == "127.0.0.1", "NATS must use loopback"
+assert uri.port and uri.port != 4222, "dedicated nondefault NATS port required"
+with socket.create_connection(("127.0.0.1", uri.port), timeout=3):
     pass
 PY
 
