@@ -58,7 +58,7 @@ def _documents(
     *, static_update: bool = False, broadcast_revision: bool = False
 ) -> list[pb.ConfigDocumentInput]:
     service = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     if static_update:
         service["file_version"] = "1.1.1"
