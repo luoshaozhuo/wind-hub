@@ -1,0 +1,89 @@
+ADS Symbol Export — Linux 独立测试说明
+
+1. 测试目标
+验证真实 ADS/TCP 读请求、符号表解析、读取策略调度、文件服务协议、
+输出完整性及连接资源释放。TestServer 是协议模拟服务，不是实际 TwinCAT PLC。
+无需启动 wind-hub 主程序，不访问生产 PLC。
+
+2. 从零准备环境
+在 Linux Bash 中执行：
+  cd scripts/ads_symbol_export
+  conda create -n ads-symbol-export python=3.11 pip -y
+  conda activate ads-symbol-export
+  python -m pip install -e . pytest
+  python -c "import pyads; from pyads.testserver import AdsTestServer"
+
+已有环境时，只需激活并重新执行 pip install。
+安装使用项目 pyproject.toml 中锁定的 pyads 版本。
+
+3. 确认 ADS/TCP 端口可用
+  ss -ltn 'sport = :48898'
+
+除标题外不应存在监听记录。若端口已占用，先确认占用程序，
+在不影响其他服务的前提下释放端口；不要强制终止未知进程。
+测试绑定 127.0.0.1:48898；AMS Net ID 127.0.0.1.1.1，
+运行时 AMS port 801，System Service AMS port 10000。
+AMS port 与 TCP port 不是同一概念。
+
+4. 真实 ADS/TCP 集成测试（必须执行）
+  mkdir -p test-results
+  python -m pytest tests/test_ads_testserver.py -v -rs --junitxml=test-results/ads-tcp.xml
+
+pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地 TCP
+端口，真实 pyads/AdsLib 客户端通过 TCP 发出 ADS 请求；测试结束自动关闭。
+不要同时另行启动一个监听 48898 的 ADS Server，也不要并行执行此组测试。
+运行时符号表和文件服务使用不同测试场景，依次启动模拟服务。
+
+当前测试场景：
+  test_full_table_success_skips_chunk_fallback
+    整表读取成功，验证导出内容，无分段偏移请求。
+  test_full_table_error_then_chunk_fallback
+    整表返回 ADS 错误，自动回退到分段，检查非零偏移请求及导出内容。
+  test_offset_unsupported_does_not_overwrite_file
+    服务端拒绝非零偏移，导出失败，原输出不被覆盖。
+  test_server_ignores_offset_is_detected
+    服务端忽略偏移，客户端识别伪分段支持。
+  test_file_service_over_real_ads_tcp
+    运行时表拒绝读取，转入 System Service，验证文件查找、打开、
+    分段读取、EOF、关闭句柄、TPY/TMC 解析及输出来源标记。
+
+验收要求：上述测试全部 PASSED，0 failed、0 errors、0 skipped。
+端口不可用可能导致现有测试 skip；skip 不能计为集成测试通过。
+测试退出码为 0 也不能替代 skipped 数量检查。
+
+5. 单元测试
+  python -m pytest tests/test_export.py tests/test_connection.py tests/test_strategies.py -v -rs --junitxml=test-results/unit.xml
+
+该组使用 Fake/Mock，不证明实际 ADS/TCP 通信可用。
+
+6. 全部测试（串行）
+  python -m pytest tests -v -rs --junitxml=test-results/all.xml
+
+7. 检查测试结果
+  python - <<'PY'
+import xml.etree.ElementTree as ET
+from pathlib import Path
+for path in sorted(Path("test-results").glob("*.xml")):
+    cases = ET.parse(path).getroot().findall(".//testcase")
+    counts = {key: sum(case.find(key) is not None for case in cases)
+              for key in ("failure", "error", "skipped")}
+    print(path, "total=", len(cases), counts)
+    if not cases or any(counts.values()):
+        raise SystemExit(1)
+PY
+
+保存 pytest 输出及 XML 文件，记录 Git HEAD（在仓库内 git rev-parse HEAD）、
+Python 版本（python --version）和 pyads 版本（python -m pip show pyads）。
+
+8. 本轮重构后的补充验收要求（尚未实现，不计为当前测试覆盖）
+  - YAML 配置加载、非法值拒绝，配置错误不发出 ADS 请求。
+  - full/chunk/file 各自通过真实 ADS/TCP 执行，指定方法失败不跨策略回退。
+  - file 方式验证远端文件读取、来源标记及资源释放。
+  - 删除 OCX 代码、依赖及测试，并检查不存在旧配置入口。
+重构提交后更新本说明的实际测试清单及执行命令。
+
+9. 现场 PLC 验证（独立于模拟测试）
+模拟服务通过不代表所有 TwinCAT 固件都支持非零 IndexOffset 或文件服务。
+现场先确认目标 IP、AMS Net ID、端口及路由，经设备负责人许可后测试；
+整表读取可能导致部分 PLC 内存不足，优先评估风险。
+文件来源 TPY/TMC 不保证与当前运行时符号表内容一致。
