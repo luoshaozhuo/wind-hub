@@ -1,0 +1,8 @@
+# 不引入物理风机模型，供 Data Generator random 运行。
+schema_version: 1
+file_version: "1.0.0"
+template_id: dcems_wtg_random
+name: DCEMS 随机风机
+device_type_id: turbine
+protocol: {id: modbus_tcp, version: "1.1.0"}
+point_table: {id: dcems_wtg_random, version: "1.0.0"}
