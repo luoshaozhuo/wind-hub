@@ -95,8 +95,13 @@ def encode_kafka_wide(
                 ):
                     raise ValueError("not_collected RAW point must be NULL")
                 value = None
-            elif raw_hex is None:
-                raise ValueError("RAW requires original protocol bytes")
+            elif (
+                not isinstance(raw_hex, str)
+                or not 2 <= len(raw_hex) <= 4096
+                or len(raw_hex) % 2 != 0
+                or any(char not in "0123456789abcdef" for char in raw_hex)
+            ):
+                raise ValueError("RAW requires canonical original protocol bytes")
             else:
                 value = raw_hex
         elif data_level == "business":
