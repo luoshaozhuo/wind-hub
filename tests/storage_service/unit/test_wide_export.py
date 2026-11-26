@@ -204,3 +204,18 @@ async def test_published_artifact_is_rolled_back_if_directory_sync_fails(
             export_format="json", root=tmp_path, max_bytes=1_000_000,
         )
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_wide_export_replay_gate_blocks_final_artifact(
+    tmp_path: Path,
+) -> None:
+    history = _history()
+    history.read_available.return_value = False
+    with pytest.raises(RuntimeError, match="Kafka replay"):
+        await export_wide_device_history(
+            history=history, schema=_schema(), filter_=_filter(),
+            device_type="wind", artifact_id="replay",
+            export_format="json", root=tmp_path, max_bytes=1_000_000,
+        )
+    assert list(tmp_path.iterdir()) == []
