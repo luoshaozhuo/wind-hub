@@ -229,7 +229,9 @@ class WideAggregationService:
                                     previous_total = int(previous) if previous is not None else 0
                                     total = previous_total + value_int
                                     if abs(value_int) > 2**53 or abs(total) > 2**53:
-                                        raise ValueError("AVG would silently lose integer precision")
+                                        raise ValueError(
+                                            "AVG would silently lose integer precision"
+                                        )
                                     aggregates[key] = total
                                 else:
                                     aggregates[key] = (
