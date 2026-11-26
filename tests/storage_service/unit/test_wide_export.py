@@ -70,11 +70,15 @@ async def test_atomic_wide_csv_with_versioned_columns_and_quality(tmp_path: Path
     assert len(digest) == 64
     with (tmp_path / path).open(newline="") as fh:
         rows = list(csv.reader(fh))
-    assert rows[0][1].startswith("p_") and rows[0][1].endswith("_v1_0_0")
-    assert rows[1][3] == "'=HYPERLINK(1)"
-    assert rows[1][2] == "1"
-    assert rows[2][2] == "0"
-    assert rows[2][4] == "2"
+    assert rows[0][8].startswith("p_") and rows[0][8].endswith("_v1_0_0")
+    assert rows[1][10] == "'=HYPERLINK(1)"
+    assert rows[1][9] == "1"
+    assert rows[2][9] == "0"
+    assert rows[2][11] == "2"
+    assert rows[0][2] == "device_config_id"
+    assert rows[1][2] == "device_farm_v1.0.0"
+    assert rows[1][4] == "1.0.0"
+    assert rows[1][6] == _schema().fingerprint
 
 
 @pytest.mark.asyncio
