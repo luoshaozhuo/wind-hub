@@ -10,6 +10,8 @@ import asyncio
 import hashlib
 import json
 import os
+import pty
+import termios
 import re
 import shutil
 from contextlib import suppress
@@ -69,8 +71,10 @@ class NativeTDengineBackup:
         password_name = self._config.tdengine.credential_ref.removeprefix("env:")
         password = os.getenv(password_name)
         username = os.getenv("WIND_HUB_TDENGINE_USER")
-        if not password or not username:
-            raise NativeBackupError("TDengine backup credentials are unavailable")
+        if not password or not username or "\n" in password or "\r" in password:
+            raise NativeBackupError("TDengine backup credentials are unavailable or invalid")
+        if len(password.encode("utf-8")) > 4096:
+            raise NativeBackupError("TDengine backup credential exceeds PTY input budget")
         binary = shutil.which("taosdump")
         if binary is None:
             raise NativeBackupError("TDengine taosdump utility is not installed")
@@ -84,8 +88,7 @@ class NativeTDengineBackup:
         # -Z 1 selects TDengine WebSocket on port 6041.
         # -p requests interactive authentication: never trust an undocumented
         # TDENGINE_PASSWORD fallback or expose secrets in argv/process lists.
-        # Whether the target 3.3.6.13 taosdump accepts piped input is a
-        # mandatory backup acceptance check; if not, fail closed.
+        # Native 3.3.6.13 backup verification requires a real PTY for -p.
         command = [
             binary,
             "-Z",
@@ -102,31 +105,42 @@ class NativeTDengineBackup:
             "-o",
             str(path),
         ]
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        watcher = asyncio.create_task(self._watch_output(process, path))
+        # Provide a terminal to the CLI without a user session; disable echo
+        # so the credential is not reflected into subprocess output.
+        master, slave = pty.openpty()
         try:
-            await asyncio.wait_for(
-                process.communicate((password + "\n").encode("utf-8")),
-                timeout=self._config.backup.timeout_s,
+            attributes = termios.tcgetattr(slave)
+            attributes[3] &= ~termios.ECHO
+            termios.tcsetattr(slave, termios.TCSANOW, attributes)
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=slave,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            # Propagate a quota violation even if taosdump has already exited.
-            if watcher.done() and not watcher.cancelled():
-                watcher.result()
-            result = process.returncode
-        except BaseException:
-            if process.returncode is None:
-                process.kill()
-            await asyncio.shield(process.wait())
-            raise
         finally:
-            watcher.cancel()
-            with suppress(asyncio.CancelledError):
-                await watcher
+            os.close(slave)
+        try:
+            watcher = asyncio.create_task(self._watch_output(process, path))
+            try:
+                os.write(master, (password + "\n").encode("utf-8"))
+                await asyncio.wait_for(
+                    process.wait(), timeout=self._config.backup.timeout_s
+                )
+                if watcher.done() and not watcher.cancelled():
+                    watcher.result()
+                result = process.returncode
+            except BaseException:
+                if process.returncode is None:
+                    process.kill()
+                await asyncio.shield(process.wait())
+                raise
+            finally:
+                watcher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await watcher
+        finally:
+            os.close(master)
         if result is None:
             raise NativeBackupError("native backup exit state is unknown")
         if result != 0:
