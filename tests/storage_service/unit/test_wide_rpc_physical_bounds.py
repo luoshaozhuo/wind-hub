@@ -76,6 +76,7 @@ async def _read(sql_type: str, value: object) -> pb.QueryWideRowsResponse:
         ("FLOAT", 1e100),
         ("DOUBLE", float("-inf")),
         ("DOUBLE", 10**500),
+        ("DOUBLE", 2**53 + 1),
         ("VARCHAR(4)", "你好"),
         ("VARBINARY(3)", b"abcd"),
     ],
