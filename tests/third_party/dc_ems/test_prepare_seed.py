@@ -41,7 +41,9 @@ def test_derived_seed_is_isolated(
     assert original == snapshot
     assert len(derived["devices"]) == 10
     assert len(derived["edgeServers"]) == 10
-    assert len({x["deviceId"] for x in derived["devices"]}) == 10
+    assert {x["deviceId"] for x in derived["devices"]} == {
+        f"WTG{index:02d}" for index in range(1, 11)
+    }
     assert len({x["port1"] for x in derived["edgeServers"]}) == 10
     assert derived["edgeServers"][0]["serverIp1"] == "127.0.0.1"
     assert derived["edgeServers"][0]["port1"] == 15221
