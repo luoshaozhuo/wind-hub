@@ -14,7 +14,8 @@
 | 起始 HEAD | `e5d2e7aa435c97044d8c2f7b73b486a221d9d20e` |
 | 远端最新 HEAD（fetch 后） | `e5d2e7aa435c97044d8c2f7b73b486a221d9d20e`（与 ChatGPT 交付一致） |
 | 测试代码与证据提交 | `cbe86539` |
-| 报告提交 | 本文件提交（紧随 `cbe86539`） |
+| 报告提交（最终功能性 HEAD） | `47da7b1f567104023ce43abad8c8e2bbd3a14fb5` |
+| HEAD 元数据提交 | 仅更新本表、不改变测试结论 |
 
 未创建新分支、未创建 PR、未合并 main、未 force push / rebase / reset。
 
