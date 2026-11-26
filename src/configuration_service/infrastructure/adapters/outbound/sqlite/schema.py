@@ -6,7 +6,7 @@ import hashlib
 import sqlite3
 from datetime import UTC, datetime
 
-from configuration_service.infrastructure.adapters.outbound.sqlite.migration_v1 import (
+from configuration_service.infrastructure.adapters.outbound.sqlite.initial_schema import (
     DDL_V1,
     IMMUTABLE_TABLES_V1,
 )
