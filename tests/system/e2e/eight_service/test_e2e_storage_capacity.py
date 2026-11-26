@@ -301,6 +301,13 @@ def storage_wide_capacity_config(harness: EightServiceHarness) -> tuple[str, ...
         replica["model"] = {"id": "wtg_sim_capacity", "version": "1.2.0"}
         instances["devices"][device_id] = replica
     devices_path.write_text(yaml.safe_dump(instances, sort_keys=False), encoding="utf-8")
+    writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
+    if writer_count not in {1, 2, 4, 8}:
+        raise ValueError("STORAGE_WIDE_WRITER_COUNT must be 1, 2, 4, or 8")
+    storage_service_path = harness.root / "configs" / "services" / "service_storage-e2e_v2.0.0.yaml"
+    storage_service = yaml.safe_load(storage_service_path.read_text(encoding="utf-8"))
+    storage_service["service"]["tdengine"]["ingestion"]["writer_count"] = writer_count
+    storage_service_path.write_text(yaml.safe_dump(storage_service, sort_keys=False))
     return devices
 
 
@@ -498,7 +505,8 @@ def test_storage_single_instance_500_point_device_row_capacity(
     target_rows_per_second = len(devices) * rate_per_device
     result_dir = Path(os.environ.get("STORAGE_WIDE_RESULT_DIR", "/tmp"))
     result_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"storage_wide_500_devices_{len(devices):03d}"
+    writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
+    stem = f"storage_wide_500_devices_{len(devices):03d}_w{writer_count}"
     result_path = result_dir / f"{stem}.json"
     jsonl_path = result_dir / f"{stem}.jsonl"
 
@@ -723,6 +731,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
             "cycles_per_device": cycles,
             "points_per_complete_row": _WIDE_POINT_COUNT,
             "rate_per_device_rows_per_second": rate_per_device,
+            "writer_count": int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4")),
             "target_rows_per_second": target_rows_per_second,
             "expected_rows": total_rows,
             "expected_points": total_rows * _WIDE_POINT_COUNT,
