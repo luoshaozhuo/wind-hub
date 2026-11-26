@@ -38,6 +38,7 @@ import nats
 import pytest
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.errors import KafkaError
 
 from contracts import common_pb2, common_pb2_grpc
 from contracts.sample_batch import SampleBatch
@@ -122,8 +123,16 @@ async def _kafka_partition_offsets(consumer: AIOKafkaConsumer, topic: str) -> di
     if not partitions:
         return {}
     tps = [TopicPartition(topic, partition) for partition in sorted(partitions)]
-    ends = await consumer.end_offsets(tps)
-    return {tp.partition: ends[tp] for tp in tps}
+    for attempt in range(5):
+        try:
+            ends = await consumer.end_offsets(tps)
+            return {tp.partition: ends[tp] for tp in tps}
+        except KafkaError:
+            if attempt == 4:
+                raise
+            await consumer._client.force_metadata_update()  # noqa: SLF001
+            await asyncio.sleep(1)
+    raise AssertionError("unreachable Kafka offset retry state")
 
 
 def _devices(degree: int) -> list[str]:
