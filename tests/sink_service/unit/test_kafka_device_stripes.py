@@ -23,7 +23,8 @@ import pytest
 import sink_service.infrastructure.adapters.outbound.realtime_adapters as adapters
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.infrastructure.adapters.outbound.kafka_wire import (
-    encode_kafka_points,
+    encode_kafka_wide,
+    encode_kafka_wide_key,
 )
 from sink_service.infrastructure.adapters.outbound.realtime_adapters import (
     KafkaOutput,
@@ -153,35 +154,43 @@ def _output() -> KafkaOutput:
 
 
 def _encoded(device: str, count: int = 1) -> tuple[bytes, ...]:
+    """Build independent complete device cycles for Kafka adapter fault tests."""
     now = datetime.now(UTC)
-    batch = SampleBatch(
-        batch_id="b-stripe",
-        mode="reliable",
-        wind_farm_id=FARM,
-        collector_id=COLLECTOR,
-        task_id="task-1",
-        device_type="wind_turbine",
-        device_id=device,
-        point_table_id="point_table_wtg_sim_v1.0.0",
-        publish_time=now,
-        samples=tuple(
-            SampleItem(
-                point_id=f"p{i:03d}",
-                sample_id=f"s-{device}-{i}",
-                value=1.0,
-                quality="good",
-                sample_time=now,
-                max_staleness_ms=None,
+    records: list[bytes] = []
+    for index in range(count):
+        item = SampleItem(
+            point_id="power",
+            sample_id=f"s-{device}-{index}",
+            value=float(index + 1),
+            quality="good",
+            sample_time=now,
+        )
+        batch = SampleBatch(
+            batch_id=f"b-stripe-{index}",
+            mode="reliable",
+            wind_farm_id=FARM,
+            collector_id=COLLECTOR,
+            task_id="task-1",
+            device_type="wind_turbine",
+            device_id=device,
+            point_table_id="point_table_wtg_sim_v1.0.0",
+            publish_time=now,
+            samples=(item,),
+        )
+        records.append(
+            encode_kafka_wide(
+                batch,
+                batch.samples,
+                device_config_id="device_farm-a_v1.0.0",
+                physical_points=("power",),
+                data_level="protocol",
             )
-            for i in range(count)
-        ),
-    )
-    return encode_kafka_points(batch, batch.samples, data_level="protocol")
+        )
+    return tuple(records)
 
 
 def _route(device: str) -> tuple[bytes, int]:
-    key = f"{FARM}:{COLLECTOR}:{device}".encode()
-    # Route through the production module symbol so stripe monkeypatching applies.
+    key = encode_kafka_wide_key(FARM, device)
     return key, adapters.crc32(key) % STRIPES
 
 
