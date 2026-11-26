@@ -256,9 +256,7 @@ class WideHistoryQueryService:
                     type(quality) not in (int, PointQuality) or not 0 <= int(quality) <= 3
                 ):
                     raise RuntimeError("wide backend returned invalid column or quality")
-                if (int(quality) == int(PointQuality.NOT_COLLECTED) and value is not None) or (
-                    int(quality) == int(PointQuality.GOOD) and value is None
-                ):
+                if int(quality) == int(PointQuality.NOT_COLLECTED) and value is not None:
                     raise RuntimeError("wide backend returned inconsistent NULL and quality")
 
     def read_available(self) -> bool:
