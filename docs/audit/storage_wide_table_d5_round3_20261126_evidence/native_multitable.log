@@ -1,0 +1,44 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________________ test_td02_td03_multitable_and_statement_reuse _________________
+
+wide_probe = Probe(driver=<module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x5d428c1f84a0>, database='whd2_52927e1287d04004bcf96db9aeb3056b', vgroups=4, buffer_mb=256)
+
+    def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
+        """Probe dynamic table binding and repeated execute on one prepared object.
+    
+        Unsupported syntax/API is a real failure, not a silent single-table fallback.
+        """
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        try:
+>           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:191: ProgrammingError
+_________________ test_td07_partial_success_and_ordered_replay _________________
+
+wide_probe = Probe(driver=<module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x5d428c19db80>, database='whd2_ebe7c1bf6d9a4553b555c60e2907f143', vgroups=4, buffer_mb=256)
+
+    def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
+        """Observe partial native success and prove complete ordered replay restores values."""
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        try:
+>           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:599: ProgrammingError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/native_multitable.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/integration/test_tdengine_wide_probe.py::test_td02_td03_multitable_and_statement_reuse
+FAILED tests/storage_service/integration/test_tdengine_wide_probe.py::test_td07_partial_success_and_ordered_replay
+2 failed in 5.32s

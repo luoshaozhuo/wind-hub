@@ -1,0 +1,262 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 34359738368,
+  "history_stream_max_age_s": 900,
+  "duration_s": 60.0,
+  "degree": 30,
+  "target_batch_rate_global": 300.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 18000,
+  "scheduled_batches": 18000,
+  "published_batches": 18000,
+  "published_values": 9000000,
+  "confirmed_values": 9000000,
+  "physical_builder_count": 1735.0,
+  "confirmed_points_per_physical_builder": 5187.32,
+  "cross_device_coalescing_observed": true,
+  "kafka_partition_count": 1,
+  "kafka_confirmed_by_partition": {
+    "0": 18000
+  },
+  "device_order_audit": {
+    "scanned_records": 120,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT002": [
+        0
+      ],
+      "WT001": [
+        0
+      ],
+      "WT003": [
+        0
+      ],
+      "WT004": [
+        0
+      ],
+      "WT005": [
+        0
+      ],
+      "WT006": [
+        0
+      ],
+      "WT007": [
+        0
+      ],
+      "WT008": [
+        0
+      ],
+      "WT009": [
+        0
+      ],
+      "WT010": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT012": [
+        0
+      ],
+      "WT013": [
+        0
+      ],
+      "WT014": [
+        0
+      ],
+      "WT015": [
+        0
+      ],
+      "WT016": [
+        0
+      ],
+      "WT018": [
+        0
+      ],
+      "WT017": [
+        0
+      ],
+      "WT019": [
+        0
+      ],
+      "WT020": [
+        0
+      ],
+      "WT021": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT023": [
+        0
+      ],
+      "WT024": [
+        0
+      ],
+      "WT025": [
+        0
+      ],
+      "WT026": [
+        0
+      ],
+      "WT027": [
+        0
+      ],
+      "WT028": [
+        0
+      ],
+      "WT029": [
+        0
+      ],
+      "WT030": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 60.001,
+  "achieved_publish_batches_per_s": 299.99,
+  "publisher_puback_batches_per_s_steady": 300.0,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 0.593,
+  "confirmed_values_per_s_steady": 118287.0,
+  "confirmed_batches_per_s_steady": 236.57,
+  "backlog_slope_batches_per_s_steady": 63.452,
+  "final_pending": {
+    "WH_SINK_205ba3cbd9e86653e3a47c30": 0,
+    "WH_SINK_77d5eac51a64ac148f9c0247": 0,
+    "WH_SINK_5cd8b903b7799220568fecec": 0,
+    "WH_SINK_c9dc192e8ee06af6606de63a": 0,
+    "WH_SINK_da6b53e8930f580087ddbb53": 0,
+    "WH_SINK_dbdbe7d199d9f2480d46f0b2": 0,
+    "WH_SINK_197004430e08b18e3f6af495": 0,
+    "WH_SINK_a4fcbf5a2991eca494e78bde": 0,
+    "WH_SINK_6d5d3b3a58196dfc0c902d6c": 0,
+    "WH_SINK_5e549e4ecad19745c8359f53": 0,
+    "WH_SINK_2a77e3538c5ae075b86470ff": 0,
+    "WH_SINK_eca5b2fee34c0e455240b0fc": 0,
+    "WH_SINK_6846ec9e6904bbc4618c12ae": 0,
+    "WH_SINK_689d3599cbca09f62ec879df": 0,
+    "WH_SINK_f91e13c2030ad8dade508eda": 0,
+    "WH_SINK_11fe78a384febcce835f17d7": 0,
+    "WH_SINK_c4004989a7d43e6b7f18a328": 0,
+    "WH_SINK_bacca41ee8aaad681a64755a": 0,
+    "WH_SINK_a73412eaa073bef6345ae748": 0,
+    "WH_SINK_382a927bafa892063503ffc2": 0,
+    "WH_SINK_77bba6badc40a05c5ef0dc28": 0,
+    "WH_SINK_77b29caf05185e91d88e93ea": 0,
+    "WH_SINK_69dd3d55e3f3d4e1ddc0538b": 0,
+    "WH_SINK_68f7fa6bb8a14489655915de": 0,
+    "WH_SINK_bb236f671d75547ffe5b52a7": 0,
+    "WH_SINK_ff6a2702153648c2cad80c30": 0,
+    "WH_SINK_df1c8ea2dfd5e0ee401b4cc5": 0,
+    "WH_SINK_8cc00b8405c3319527300a38": 0,
+    "WH_SINK_d7cf118cb1bbb7d5ef5bfb7a": 0,
+    "WH_SINK_ccaaca7a88b291e0e7619395": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 59,
+  "grpc_max_latency_ms": 5.2,
+  "grpc_probe_p95_ms": 4.201,
+  "grpc_probe_p99_ms": 4.504,
+  "event_loop_lag_p99_max_ms": 56.828810993465595,
+  "write_latency_p99_max_ms": 87.90774106083163,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 192.871,
+      "operations": 13778,
+      "mean_duration_ms": 13.998
+    },
+    "reliable_encode": {
+      "duration_seconds": 129.178,
+      "operations": 13780,
+      "mean_duration_ms": 9.374
+    },
+    "reliable_write": {
+      "duration_seconds": 1358.901,
+      "operations": 13761,
+      "mean_duration_ms": 98.75
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 12.46,
+      "operations": 13753,
+      "mean_duration_ms": 0.906
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.006,
+      "writes": 13761,
+      "mean_duration_ms": 0.0
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 13761,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 336.451,
+      "writes": 13761,
+      "mean_duration_ms": 24.45
+    },
+    "confirm": {
+      "duration_seconds": 120.496,
+      "writes": 13761,
+      "mean_duration_ms": 8.756
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 45.647,
+      "writes": 13761,
+      "mean_duration_ms": 3.317
+    },
+    "physical": {
+      "duration_seconds": 827.869,
+      "writes": 13761,
+      "mean_duration_ms": 60.161
+    },
+    "native": {
+      "duration_seconds": 463.012,
+      "writes": 13761,
+      "mean_duration_ms": 33.647
+    }
+  },
+  "confirmed_subbatches_per_write": 0.125,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 8,
+    "max_batch_size": 131072,
+    "linger_ms": 10,
+    "partitions": 1
+  },
+  "cpu_percent_of_one_core": 70.3,
+  "rss_max_mib": 246.5,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "duplicate_audit": {
+    "audit_baseline_offsets": {
+      "0": 0
+    },
+    "audit_scanned_records": 18000,
+    "audit_payload_bytes": 169074395,
+    "audit_total_records": 18000,
+    "audit_distinct_identities": 18000,
+    "audit_duplicate_identities": 0,
+    "audit_duplicate_record_excess": 0,
+    "audit_max_occurrence": 1
+  },
+  "identity_closed": true,
+  "confirmed_payload_mb_total": 169.074,
+  "confirmed_payload_mb_per_s_end_to_end": 1.843,
+  "samples_path": "/home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l10/r14_capacity_d30_r300_c8_b131072_l10_p1_bd060b2726a6_samples.jsonl",
+  "samples_sha256": "30e77e419777d271ad393d1b7bec9435bd37cd3cdbd2664748b2bb41f2aa79ee",
+  "result_path": "/home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l10/r14_capacity_d30_r300_c8_b131072_l10_p1_bd060b2726a6.json"
+}

@@ -1,0 +1,146 @@
+[
+  {
+    "case": "c8_l0",
+    "concurrency": 8,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 107.367,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l0/r14_capacity_d30_r300_c8_b131072_l0_p1_9f2e010434e8.json"
+    ]
+  },
+  {
+    "case": "c8_l1",
+    "concurrency": 8,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 104.81,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l1/r14_capacity_d30_r300_c8_b131072_l1_p1_9f345ff0abd4.json"
+    ]
+  },
+  {
+    "case": "c8_l5",
+    "concurrency": 8,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 107.663,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l5/r14_capacity_d30_r300_c8_b131072_l5_p1_63a0ace6e0c2.json"
+    ]
+  },
+  {
+    "case": "c8_l10",
+    "concurrency": 8,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 111.225,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c8_l10/r14_capacity_d30_r300_c8_b131072_l10_p1_bd060b2726a6.json"
+    ]
+  },
+  {
+    "case": "c16_l0",
+    "concurrency": 16,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 108.818,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l0/r14_capacity_d30_r300_c16_b131072_l0_p1_52632acf12a2.json"
+    ]
+  },
+  {
+    "case": "c16_l1",
+    "concurrency": 16,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 106.467,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l1/r14_capacity_d30_r300_c16_b131072_l1_p1_10e5804c013c.json"
+    ]
+  },
+  {
+    "case": "c16_l5",
+    "concurrency": 16,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 106.879,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l5/r14_capacity_d30_r300_c16_b131072_l5_p1_3cdd82237969.json"
+    ]
+  },
+  {
+    "case": "c16_l10",
+    "concurrency": 16,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 104.11,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c16_l10/r14_capacity_d30_r300_c16_b131072_l10_p1_e0785522a04e.json"
+    ]
+  },
+  {
+    "case": "c32_l0",
+    "concurrency": 32,
+    "linger_ms": 0,
+    "returncode": 1,
+    "elapsed_seconds": 106.466,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l0/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l0/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l0/r14_capacity_d30_r300_c32_b131072_l0_p1_d28b75ef5343.json"
+    ]
+  },
+  {
+    "case": "c32_l1",
+    "concurrency": 32,
+    "linger_ms": 1,
+    "returncode": 1,
+    "elapsed_seconds": 115.302,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l1/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l1/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l1/r14_capacity_d30_r300_c32_b131072_l1_p1_49990c3d1440.json"
+    ]
+  },
+  {
+    "case": "c32_l5",
+    "concurrency": 32,
+    "linger_ms": 5,
+    "returncode": 1,
+    "elapsed_seconds": 116.314,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l5/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l5/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l5/r14_capacity_d30_r300_c32_b131072_l5_p1_bd3d375a767f.json"
+    ]
+  },
+  {
+    "case": "c32_l10",
+    "concurrency": 32,
+    "linger_ms": 10,
+    "returncode": 1,
+    "elapsed_seconds": 116.811,
+    "log": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l10/capacity.log",
+    "junit": "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l10/capacity.xml",
+    "result_files": [
+      "docs/audit/storage_wide_table_d5_round3_20261126_evidence/sink_short_matrix/c32_l10/r14_capacity_d30_r300_c32_b131072_l10_p1_c78fefd73a0e.json"
+    ]
+  }
+]

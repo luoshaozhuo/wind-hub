@@ -1,0 +1,711 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="779.745" timestamp="2026-11-26T21:30:37.871588+08:00" hostname="boss"><testcase classname="tests.sink_service.system.test_capacity_r14_sustained.TestR14SustainedCapacity" name="test_sustained_capacity_600s" time="779.631"><failure message="asyncio.exceptions.CancelledError">fut = &lt;Future cancelled&gt;, timeout = 40.0
+
+    async def wait_for(fut: Awaitable[T], timeout: None | int | float = None) -&gt; T:
+        # A replacement for buggy (since 3.8.6) `asyncio.wait_for()`
+        # https://bugs.python.org/issue42130
+        async with async_timeout.timeout(timeout):
+&gt;           return await fut
+                   ^^^^^^^^^
+E           asyncio.exceptions.CancelledError
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/util.py:45: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+self = &lt;AIOKafkaClient client_id=aiokafka-0.14.0&gt;, node_id = 1
+request = &lt;aiokafka.protocol.fetch.FetchRequest object at 0x769071538550&gt;
+
+    async def send(self, node_id, request, *, group=ConnectionGroup.DEFAULT):
+        """Send a request to a specific node.
+    
+        Arguments:
+            node_id (int): destination node
+            request (Request): request to send
+    
+        Raises:
+            aiokafka.errors.RequestTimedOutError
+            aiokafka.errors.NodeNotReadyError
+            aiokafka.errors.KafkaConnectionError
+            aiokafka.errors.CorrelationIdError
+    
+        Returns:
+            Future: resolves to Response struct
+        """
+        if not (await self.ready(node_id, group=group)):
+            raise NodeNotReadyError(
+                "Attempt to send a request to node"
+                f" which is not ready (node id {node_id})."
+            )
+    
+        # Every request gets a response, except one special case:
+        expect_response = True
+        if isinstance(request, ProduceRequest) and request.required_acks == 0:
+            expect_response = False
+    
+        future = self._conns[(node_id, group)].send(
+            request, expect_response=expect_response
+        )
+        try:
+&gt;           result = await future
+                     ^^^^^^^^^^^^
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/client.py:478: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/util.py:44: in wait_for
+    async with async_timeout.timeout(timeout):
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;Timeout [expired]&gt;
+exc_type = &lt;class 'asyncio.exceptions.CancelledError'&gt;
+exc_val = CancelledError(), exc_tb = &lt;traceback object at 0x76907137ea40&gt;
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -&gt; Optional[bool]:
+        assert self._state in (_State.ENTERED, _State.EXPIRING)
+    
+        if self._timeout_handler is not None:
+            self._timeout_handler.cancel()
+            self._timeout_handler = None
+    
+        if self._state is _State.EXPIRING:
+            self._state = _State.EXPIRED
+    
+            if self._task.uncancel() &lt;= self._cancelling and exc_type is exceptions.CancelledError:
+                # Since there are no new cancel requests, we're
+                # handling this.
+&gt;               raise TimeoutError from exc_val
+E               TimeoutError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/timeouts.py:115: TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+self = &lt;aiokafka.consumer.fetcher.Fetcher object at 0x7690796aa7d0&gt;
+assignment = &lt;aiokafka.consumer.subscription_state.Assignment object at 0x7690797a74d0&gt;
+node_id = 1
+request = &lt;aiokafka.protocol.fetch.FetchRequest object at 0x769071538550&gt;
+
+    async def _proc_fetch_request(self, assignment, node_id, request):
+        needs_wakeup = False
+        try:
+&gt;           response = await self._client.send(node_id, request)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/fetcher.py:747: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;AIOKafkaClient client_id=aiokafka-0.14.0&gt;, node_id = 1
+request = &lt;aiokafka.protocol.fetch.FetchRequest object at 0x769071538550&gt;
+
+    async def send(self, node_id, request, *, group=ConnectionGroup.DEFAULT):
+        """Send a request to a specific node.
+    
+        Arguments:
+            node_id (int): destination node
+            request (Request): request to send
+    
+        Raises:
+            aiokafka.errors.RequestTimedOutError
+            aiokafka.errors.NodeNotReadyError
+            aiokafka.errors.KafkaConnectionError
+            aiokafka.errors.CorrelationIdError
+    
+        Returns:
+            Future: resolves to Response struct
+        """
+        if not (await self.ready(node_id, group=group)):
+            raise NodeNotReadyError(
+                "Attempt to send a request to node"
+                f" which is not ready (node id {node_id})."
+            )
+    
+        # Every request gets a response, except one special case:
+        expect_response = True
+        if isinstance(request, ProduceRequest) and request.required_acks == 0:
+            expect_response = False
+    
+        future = self._conns[(node_id, group)].send(
+            request, expect_response=expect_response
+        )
+        try:
+            result = await future
+        except asyncio.TimeoutError as exc:
+            # close connection so it is renewed in next request
+            self._conns[(node_id, group)].close(reason=CloseReason.CONNECTION_TIMEOUT)
+&gt;           raise RequestTimedOutError() from exc
+E           aiokafka.errors.RequestTimedOutError: [Error 7] RequestTimedOutError
+
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/client.py:482: RequestTimedOutError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.sink_service.system.test_capacity_r14_sustained.TestR14SustainedCapacity object at 0x76907d1fcad0&gt;
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-142/test_sustained_capacity_600s0/sink-root-67ad5b005ee6...18', 'outsider': '8cd54be3639d7a822a578da4d10b6bd8245b3b31599c853ee868690b176a1a3d'}, staleness_ms=60000, process=None)
+
+    async def test_sustained_capacity_600s(
+        self,
+        sink_harness: SinkSystemHarness,
+    ) -&gt; None:
+        if not 0 &lt; MIN_SUSTAINED_FRACTION &lt;= 1:
+            raise ValueError("R14_MIN_SUSTAINED_FRACTION must be in (0, 1]")
+        if not 0 &lt;= MAX_BACKLOG_SLOPE_FRACTION &lt; 1:
+            raise ValueError("R14_MAX_BACKLOG_SLOPE_FRACTION must be in [0, 1)")
+        if (
+            not 1 &lt;= DEGREE &lt;= 1000
+            or POINTS_PER_BATCH &lt; 1
+            or TARGET_BATCH_RATE &lt;= 0
+            or not 30 &lt;= DURATION_S &lt;= 86400
+            or not 1 &lt;= KAFKA_MAX_SAFE_INFLIGHT &lt;= 128
+            or not 1 &lt;= KAFKA_MAX_BATCH_SIZE &lt;= 1048576
+            or not 0 &lt;= KAFKA_LINGER_MS &lt;= 10
+            or not 1 &lt;= KAFKA_PARTITIONS &lt;= 32
+            or not 1 &lt;= PUBLISH_ENCODERS &lt;= 16
+        ):
+            raise ValueError("invalid sustained load shape or duration")
+        devices = _devices(DEGREE)
+        delivery_ids = [_delivery_id(i) for i in range(DEGREE)]
+        _write_concurrent_root(
+            sink_harness,
+            devices=devices,
+            delivery_ids=delivery_ids,
+            kafka_max_safe_inflight=KAFKA_MAX_SAFE_INFLIGHT,
+            kafka_max_batch_size=KAFKA_MAX_BATCH_SIZE,
+            kafka_linger_ms=KAFKA_LINGER_MS,
+        )
+        await sink_harness.provision_streams()
+        # Explicitly create even the single-partition baseline so metadata
+        # checks cannot race Kafka's automatic topic creation.
+        admin = AIOKafkaAdminClient(bootstrap_servers=sink_harness.stack.kafka)
+        await admin.start()
+        try:
+            await admin.create_topics(
+                [
+                    NewTopic(
+                        name=sink_harness.kafka_topic,
+                        num_partitions=KAFKA_PARTITIONS,
+                        replication_factor=1,
+                    )
+                ]
+            )
+        finally:
+            await admin.close()
+        await self._enlarge_history_stream(sink_harness)
+        deployment = f"qa-{sink_harness.token}"
+        names = {_durable_name(deployment, did) for did in delivery_ids}
+        evidence_root = Path(os.environ.get("R14_RESULT_DIR", "/tmp")).resolve()
+        if not evidence_root.is_dir() or evidence_root.is_symlink():
+            raise ValueError("R14_RESULT_DIR must be an existing non-symlink directory")
+        stem = (
+            f"r14_capacity_d{DEGREE}_r{int(TARGET_BATCH_RATE)}_"
+            f"c{KAFKA_MAX_SAFE_INFLIGHT}_b{KAFKA_MAX_BATCH_SIZE}_"
+            f"l{KAFKA_LINGER_MS}_p{KAFKA_PARTITIONS}_{sink_harness.token}"
+        )
+        result_path = evidence_root / f"{stem}.json"
+        samples_path = evidence_root / f"{stem}_samples.jsonl"
+        try:
+            await sink_harness.start()
+            for did in delivery_ids:
+                await self._wait_running(sink_harness, did)
+    
+            publisher = await nats.connect(servers=sink_harness.stack.nats, connect_timeout=10)
+            consumer = AIOKafkaConsumer(
+                bootstrap_servers=sink_harness.stack.kafka,
+                client_id=f"qa-r14-cap-{sink_harness.token}",
+            )
+            pub_task: asyncio.Task[None] | None = None
+            encoder_pool: ProcessPoolExecutor | None = None
+            try:
+                await consumer.start()
+                baseline = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
+                baseline_partitions = await _kafka_partition_offsets(
+                    consumer, sink_harness.kafka_topic
+                )
+                if len(baseline_partitions) != KAFKA_PARTITIONS:
+                    raise AssertionError(
+                        f"Kafka topic partition count: {len(baseline_partitions)} "
+                        f"!= configured {KAFKA_PARTITIONS}"
+                    )
+                js = publisher.jetstream()
+                interval = 1.0 / TARGET_BATCH_RATE
+                loop = asyncio.get_running_loop()
+                pool = ProcessPoolExecutor(
+                    max_workers=PUBLISH_ENCODERS, mp_context=get_context("spawn")
+                )
+                encoder_pool = pool
+                # Warm the isolated encoders before timing and verify their wire
+                # output with the same strict contract used by production Sink.
+                warm_time = datetime.now(UTC)
+                warm = await asyncio.gather(
+                    *(
+                        loop.run_in_executor(
+                            pool,
+                            _encode_r14_batch,
+                            sink_harness.token,
+                            -index - 1,
+                            devices[index % DEGREE],
+                            POINTS_PER_BATCH,
+                            warm_time,
+                        )
+                        for index in range(PUBLISH_ENCODERS)
+                    )
+                )
+                for index, (subject, payload) in enumerate(warm):
+                    expected = make_system_batch(
+                        "reliable",
+                        -index - 1,
+                        POINTS_PER_BATCH,
+                        token=[REDACTED_TEST_CREDENTIAL],
+                        device_id=devices[index % DEGREE],
+                        now=warm_time,
+                    )
+                    assert SampleBatch.decode(payload, "reliable", subject=subject) == expected
+    
+                published_batches = 0
+                pub_seq = 0
+                puback_seconds_total = 0.0
+                pub_finished_at = 0.0
+                max_pending = max(64, DEGREE * 8)
+                scheduled_target = int(TARGET_BATCH_RATE * DURATION_S)
+    
+                async def _publish_loop() -&gt; None:
+                    nonlocal published_batches, pub_seq, puback_seconds_total, pub_finished_at
+                    pending: deque[asyncio.Task[None]] = deque()
+                    last_per_device: dict[str, asyncio.Task[None]] = {}
+    
+                    async def publish_ordered(
+                        prior: asyncio.Task[None] | None,
+                        seq: int,
+                        device: str,
+                        sample_time: datetime,
+                    ) -&gt; None:
+                        nonlocal published_batches, puback_seconds_total
+                        subject, payload = await loop.run_in_executor(
+                            pool,
+                            _encode_r14_batch,
+                            sink_harness.token,
+                            seq,
+                            device,
+                            POINTS_PER_BATCH,
+                            sample_time,
+                        )
+                        if prior is not None:
+                            await prior
+                        # Count only a real server PubAck, not a queued local send.
+                        puback_started = time.monotonic()
+                        await js.publish(subject, payload, timeout=10)
+                        puback_seconds_total += time.monotonic() - puback_started
+                        published_batches += 1
+    
+                    try:
+                        while pub_seq &lt; scheduled_target:
+                            now = time.monotonic()
+                            if now &gt;= stop_at:
+                                break
+                            due = t0 + pub_seq * interval
+                            if due &gt; now:
+                                await asyncio.sleep(due - now)
+                                continue
+                            device = devices[pub_seq % DEGREE]
+                            task = asyncio.create_task(
+                                publish_ordered(
+                                    last_per_device.get(device),
+                                    pub_seq,
+                                    device,
+                                    datetime.now(UTC),
+                                )
+                            )
+                            last_per_device[device] = task
+                            pending.append(task)
+                            pub_seq += 1
+                            # Absolute deadlines avoid accumulating sleep rounding
+                            # drift. The bounded in-flight window limits catch-up.
+                            if len(pending) &gt;= max_pending:
+                                await pending.popleft()
+                            elif pub_seq % 16 == 0:
+                                await asyncio.sleep(0)
+                        while pending:
+                            await pending.popleft()
+                        pub_finished_at = time.monotonic()
+                    finally:
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+    
+                samples: list[dict[str, Any]] = []
+                main_pid = sink_harness.process.proc.pid  # type: ignore[union-attr]
+                t0 = time.monotonic()
+                stop_at = t0 + DURATION_S
+                pub_task = asyncio.create_task(_publish_loop())
+    
+                # 持续期 1s 采样。
+                while not pub_task.done():
+                    pids = worker_pid_set(main_pid) | {main_pid}
+                    ticks, rss_kb = _proc_cpu_rss(pids)
+                    infos = await _consumer_infos(sink_harness)
+                    per_pending = {
+                        name: (
+                            infos[name].num_pending + infos[name].num_ack_pending
+                            if name in infos
+                            else None
+                        )
+                        for name in names
+                    }
+                    redelivered = {
+                        name: infos[name].num_redelivered if name in infos else None
+                        for name in names
+                    }
+                    ok, grpc_ms = await _grpc_probe(sink_harness)
+                    metrics = await _fetch_metrics(sink_harness)
+                    sample = {
+                        "t": time.monotonic(),
+                        "publisher_puback_batches": published_batches,
+                        "kafka_offset": await _kafka_total_offset(
+                            consumer, sink_harness.kafka_topic
+                        ),
+                        "per_durable_pending": per_pending,
+                        "redelivered": redelivered,
+                        "cpu_ticks": ticks,
+                        "rss_kb": rss_kb,
+                        "grpc_ok": ok,
+                        "grpc_ms": grpc_ms,
+                        "metrics_ok": bool(metrics),
+                        "lag_p99_ms": metrics.get("reliable_event_loop_lag_ms_p99"),
+                        "write_latency_p99_ms": metrics.get("write_latency_ms_max_delivery_p99"),
+                        "quota_timed_writes_total": metrics.get("quota_timed_writes_total"),
+                        "quota_stages": {
+                            stage: metrics.get(f"quota_{stage}_seconds_total")
+                            for stage in QUOTA_STAGES
+                        },
+                        "kafka_successful_subbatches_total": metrics.get("write_success_total"),
+                        "kafka_timed_writes_total": metrics.get("kafka_timed_writes_total"),
+                        "kafka_stages": {
+                            stage: metrics.get(f"kafka_{stage}_seconds_total")
+                            for stage in KAFKA_STAGES
+                        },
+                        "reliable_stages": {
+                            stage: {
+                                "seconds_total": metrics.get(f"{stage}_seconds_total"),
+                                "operations_total": metrics.get(f"{stage}_operations_total"),
+                            }
+                            for stage in RELIABLE_STAGES
+                        },
+                    }
+                    samples.append(sample)
+                    if len(samples) == 1:
+                        (evidence_root / f"{stem}_metric_names.json").write_text(
+                            json.dumps(sorted(metrics), indent=2), encoding="utf-8"
+                        )
+                    with samples_path.open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(sample, separators=(",", ":")) + "\n")
+                        stream.flush()
+                    await asyncio.sleep(SAMPLE_INTERVAL_S)
+                await pub_task
+                t_pub_end = pub_finished_at
+    
+                # 排空期：等到全部 durable 零积压或超时。
+                drain_deadline = time.monotonic() + DRAIN_TIMEOUT_S
+                while time.monotonic() &lt; drain_deadline:
+                    infos = await _consumer_infos(sink_harness)
+                    pending = sum(
+                        infos[name].num_pending + infos[name].num_ack_pending
+                        for name in names
+                        if name in infos
+                    )
+                    if pending == 0:
+                        break
+                    await asyncio.sleep(0.5)
+                # 终局前受控停止生产写入，防止顺序审计期间的新确认让
+                # final_offset、final_pending 与全量身份审计互相错位。
+                await sink_harness.stop()
+                await consumer._client.force_metadata_update()  # noqa: SLF001
+                final_infos = await _consumer_infos(sink_harness)
+                final_pending = {
+                    name: (
+                        final_infos[name].num_pending + final_infos[name].num_ack_pending
+                        if name in final_infos
+                        else None
+                    )
+                    for name in names
+                }
+                final_offset = await _kafka_total_offset(consumer, sink_harness.kafka_topic)
+                final_partitions = await _kafka_partition_offsets(
+                    consumer, sink_harness.kafka_topic
+                )
+                t_end = time.monotonic()
+    
+                published_values = published_batches * POINTS_PER_BATCH
+                confirmed_values = (final_offset - baseline) * POINTS_PER_BATCH
+                wall_pub = max(t_pub_end - t0, 1e-6)
+    
+                # 稳态窗口：持续期 10%→90%，排除预热与排空。
+                offsets = [
+                    (s["t"], (s["kafka_offset"] - baseline) * POINTS_PER_BATCH)
+                    for s in samples
+                    if t0 + 0.1 * DURATION_S &lt;= s["t"] &lt;= t0 + 0.9 * DURATION_S
+                ]
+                if len(offsets) &gt;= 2:
+                    dt = offsets[-1][0] - offsets[0][0]
+                    steady_values_s = (offsets[-1][1] - offsets[0][1]) / dt if dt &gt; 0 else 0.0
+                else:
+                    steady_values_s = 0.0
+    
+                puback_series = [
+                    (s["t"], s["publisher_puback_batches"])
+                    for s in samples
+                    if t0 + 0.1 * DURATION_S &lt;= s["t"] &lt;= t0 + 0.9 * DURATION_S
+                ]
+                steady_puback_batches_s = 0.0
+                if len(puback_series) &gt;= 2:
+                    puback_dt = puback_series[-1][0] - puback_series[0][0]
+                    if puback_dt &gt; 0:
+                        steady_puback_batches_s = (
+                            puback_series[-1][1] - puback_series[0][1]
+                        ) / puback_dt
+    
+                # 积压斜率（聚合）：稳态窗口末段 pending 线性趋势，应≈0。
+                pend_series = [
+                    (s["t"], sum(v for v in s["per_durable_pending"].values() if v is not None))
+                    for s in samples
+                    if t0 + 0.1 * DURATION_S &lt;= s["t"] &lt;= t0 + 0.9 * DURATION_S
+                ]
+                backlog_slope = 0.0
+                if len(pend_series) &gt;= 2:
+                    dtp = pend_series[-1][0] - pend_series[0][0]
+                    backlog_slope = (
+                        (pend_series[-1][1] - pend_series[0][1]) / dtp if dtp &gt; 0 else 0.0
+                    )
+    
+                first, last = samples[0], samples[-1]
+                stage_diagnostics: dict[str, dict[str, float | int | None]] = {}
+                for stage in RELIABLE_STAGES:
+                    valid = [
+                        sample["reliable_stages"][stage]
+                        for sample in samples
+                        if all(
+                            sample["reliable_stages"][stage][field] is not None
+                            for field in ("seconds_total", "operations_total")
+                        )
+                    ]
+                    if len(valid) &lt; 2:
+                        stage_diagnostics[stage] = {
+                            "duration_seconds": None,
+                            "operations": None,
+                            "mean_duration_ms": None,
+                        }
+                        continue
+                    before, after = valid[0], valid[-1]
+                    duration = max(0.0, after["seconds_total"] - before["seconds_total"])
+                    operations = max(0, int(after["operations_total"] - before["operations_total"]))
+                    stage_diagnostics[stage] = {
+                        "duration_seconds": round(duration, 3),
+                        "operations": operations,
+                        "mean_duration_ms": round(1000 * duration / operations, 3)
+                        if operations
+                        else None,
+                    }
+                kafka_diagnostics: dict[str, dict[str, float | int | None]] = {}
+                for stage in KAFKA_STAGES:
+                    valid = [
+                        (sample["kafka_stages"][stage], sample["kafka_timed_writes_total"])
+                        for sample in samples
+                        if sample["kafka_stages"][stage] is not None
+                        and sample["kafka_timed_writes_total"] is not None
+                    ]
+                    if len(valid) &lt; 2:
+                        kafka_diagnostics[stage] = {
+                            "duration_seconds": None,
+                            "writes": None,
+                            "mean_duration_ms": None,
+                        }
+                        continue
+                    before, after = valid[0], valid[-1]
+                    duration = max(0.0, after[0] - before[0])
+                    writes = max(0, int(after[1] - before[1]))
+                    kafka_diagnostics[stage] = {
+                        "duration_seconds": round(duration, 3),
+                        "writes": writes,
+                        "mean_duration_ms": round(duration * 1000 / writes, 3) if writes else None,
+                    }
+                quota_diagnostics: dict[str, dict[str, float | int | None]] = {}
+                for stage in QUOTA_STAGES:
+                    valid = [
+                        (sample["quota_stages"][stage], sample["quota_timed_writes_total"])
+                        for sample in samples
+                        if sample["quota_stages"][stage] is not None
+                        and sample["quota_timed_writes_total"] is not None
+                    ]
+                    if len(valid) &lt; 2:
+                        quota_diagnostics[stage] = {
+                            "duration_seconds": None,
+                            "writes": None,
+                            "mean_duration_ms": None,
+                        }
+                        continue
+                    before, after = valid[0], valid[-1]
+                    duration = max(0.0, after[0] - before[0])
+                    writes = max(0, int(after[1] - before[1]))
+                    quota_diagnostics[stage] = {
+                        "duration_seconds": round(duration, 3),
+                        "writes": writes,
+                        "mean_duration_ms": round(duration * 1000 / writes, 3) if writes else None,
+                    }
+                subbatch_samples = [
+                    (
+                        sample["kafka_successful_subbatches_total"],
+                        sample["kafka_timed_writes_total"],
+                    )
+                    for sample in samples
+                    if sample["kafka_successful_subbatches_total"] is not None
+                    and sample["kafka_timed_writes_total"] is not None
+                ]
+                confirmed_subbatches_per_write = None
+                if len(subbatch_samples) &gt;= 2:
+                    a, b = subbatch_samples[0], subbatch_samples[-1]
+                    writes = b[1] - a[1]
+                    if writes &gt; 0:
+                        confirmed_subbatches_per_write = round((b[0] - a[0]) / writes, 3)
+                cpu_seconds = (last["cpu_ticks"] - first["cpu_ticks"]) / CLK_TCK
+                grpc_failures = sum(1 for s in samples if not s["grpc_ok"])
+                metrics_failures = sum(1 for s in samples if not s["metrics_ok"])
+                grpc_max_ms = max(s["grpc_ms"] for s in samples)
+                grpc_ordered = sorted(s["grpc_ms"] for s in samples)
+                grpc_p95_ms = grpc_ordered[int((len(grpc_ordered) - 1) * 0.95)]
+                grpc_p99_ms = grpc_ordered[int((len(grpc_ordered) - 1) * 0.99)]
+                lag_p99_max = max(
+                    (s["lag_p99_ms"] for s in samples if s["lag_p99_ms"] is not None),
+                    default=None,
+                )
+                write_p99_max = max(
+                    (
+                        s["write_latency_p99_ms"]
+                        for s in samples
+                        if s["write_latency_p99_ms"] is not None
+                    ),
+                    default=None,
+                )
+                rss_max_mib = max(s["rss_kb"] for s in samples) / 1024
+                redeliver_peak = {
+                    name: peak
+                    for name, peak in (
+                        (n, max((s["redelivered"].get(n) or 0) for s in samples)) for n in names
+                    )
+                    if peak
+                }
+                dlq = await sink_harness.dlq_count()
+                order_audit = await _audit_device_order_sample(sink_harness)
+    
+                result = {
+                    "scenario": "r14_sustained_reliable",
+                    "history_stream_max_bytes": STREAM_MAX_BYTES,
+                    "history_stream_max_age_s": STREAM_MAX_AGE_S,
+                    "duration_s": DURATION_S,
+                    "degree": DEGREE,
+                    "target_batch_rate_global": TARGET_BATCH_RATE,
+                    "points_per_batch": POINTS_PER_BATCH,
+                    "scheduled_target_batches": scheduled_target,
+                    "scheduled_batches": pub_seq,
+                    "published_batches": published_batches,
+                    "published_values": published_values,
+                    "confirmed_values": confirmed_values,
+                    "physical_builder_count": last["kafka_successful_subbatches_total"],
+                    "confirmed_points_per_physical_builder": round(
+                        confirmed_values / last["kafka_successful_subbatches_total"], 3
+                    )
+                    if last["kafka_successful_subbatches_total"]
+                    else None,
+                    "cross_device_coalescing_observed": bool(
+                        last["kafka_successful_subbatches_total"]
+                        and confirmed_values / last["kafka_successful_subbatches_total"]
+                        &gt; POINTS_PER_BATCH
+                    ),
+                    "kafka_partition_count": len(final_partitions),
+                    "kafka_confirmed_by_partition": {
+                        str(partition): final_partitions.get(partition, 0)
+                        - baseline_partitions.get(partition, 0)
+                        for partition in sorted(final_partitions)
+                    },
+                    "device_order_audit": order_audit,
+                    "zero_loss": confirmed_values == published_values,
+                    "publish_wall_seconds": round(wall_pub, 3),
+                    "achieved_publish_batches_per_s": round(published_batches / wall_pub, 2),
+                    "publisher_puback_batches_per_s_steady": round(steady_puback_batches_s, 2),
+                    "publisher_encoder_processes": PUBLISH_ENCODERS,
+                    "publisher_max_inflight_batches": max_pending,
+                    "publisher_puback_mean_ms": round(
+                        1000 * puback_seconds_total / published_batches, 3
+                    )
+                    if published_batches
+                    else None,
+                    "confirmed_values_per_s_steady": round(steady_values_s, 2),
+                    "confirmed_batches_per_s_steady": round(steady_values_s / POINTS_PER_BATCH, 2),
+                    "backlog_slope_batches_per_s_steady": round(backlog_slope, 3),
+                    "final_pending": final_pending,
+                    "dlq_count": dlq,
+                    "grpc_failures": grpc_failures,
+                    "metrics_failures": metrics_failures,
+                    "grpc_probes": len(samples),
+                    "grpc_max_latency_ms": round(grpc_max_ms, 1),
+                    "grpc_probe_p95_ms": round(grpc_p95_ms, 3),
+                    "grpc_probe_p99_ms": round(grpc_p99_ms, 3),
+                    "event_loop_lag_p99_max_ms": lag_p99_max,
+                    "write_latency_p99_max_ms": write_p99_max,
+                    "reliable_stage_diagnostics": stage_diagnostics,
+                    "kafka_stage_diagnostics": kafka_diagnostics,
+                    "quota_stage_diagnostics": quota_diagnostics,
+                    "confirmed_subbatches_per_write": confirmed_subbatches_per_write,
+                    "kafka_capacity_profile": {
+                        "max_safe_inflight": KAFKA_MAX_SAFE_INFLIGHT,
+                        "max_batch_size": KAFKA_MAX_BATCH_SIZE,
+                        "linger_ms": KAFKA_LINGER_MS,
+                        "partitions": KAFKA_PARTITIONS,
+                    },
+                    "cpu_percent_of_one_core": round(100 * cpu_seconds / (t_end - t0), 1),
+                    "rss_max_mib": round(rss_max_mib, 1),
+                    "redeliver_peak": redeliver_peak,
+                    "drained": all(v == 0 for v in final_pending.values()),
+                    "minimum_sustained_fraction": MIN_SUSTAINED_FRACTION,
+                    "maximum_backlog_slope_fraction": MAX_BACKLOG_SLOPE_FRACTION,
+                }
+    
+                # Offset 总数无法暴露“缺失 + 重复”的抵消；每个工况都按
+                # farm/device/level/sample_time 身份做全量计数闭合。
+&gt;               result["duplicate_audit"] = await _audit_duplicates(
+                    sink_harness, confirmed_values, baseline_partitions
+                )
+
+tests/sink_service/system/test_capacity_r14_sustained.py:817: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/test_capacity_r14_sustained.py:235: in _audit_duplicates
+    await audit.stop()
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/consumer.py:519: in stop
+    await self._fetcher.close()
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/fetcher.py:457: in close
+    await x
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/fetcher.py:755: in _proc_fetch_request
+    await asyncio.sleep(self._retry_backoff)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+delay = 0.1, result = None
+
+    async def sleep(delay, result=None):
+        """Coroutine that completes after a given time (in seconds)."""
+        if delay &lt;= 0:
+            await __sleep0()
+            return result
+    
+        loop = events.get_running_loop()
+        future = loop.create_future()
+        h = loop.call_later(delay,
+                            futures._set_result_unless_cancelled,
+                            future, result)
+        try:
+&gt;           return await future
+                   ^^^^^^^^^^^^
+E           asyncio.exceptions.CancelledError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:649: CancelledError</failure></testcase></testsuite></testsuites>

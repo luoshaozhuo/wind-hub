@@ -1,0 +1,9 @@
+.                                                                        [100%]
+=============================== warnings summary ===============================
+tests/storage_service/integration/test_tdengine_wide_probe.py::test_td01_single_table_native_baseline
+  tests/storage_service/integration/test_tdengine_wide_probe.py:408: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.performance
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/native_single_table_baseline.xml -
+1 passed, 1 warning in 14.27s

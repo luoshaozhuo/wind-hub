@@ -1,0 +1,521 @@
+diff --git a/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py b/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
+index 6e19292d3..b62d063a4 100644
+--- a/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
++++ b/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
+@@ -472,10 +472,10 @@ class KafkaOutput:
+         """Submit ready writes in FIFO order, without waiting for earlier ACKs."""
+         queue = self._partition_queues[partition]
+         try:
+-            # Give already runnable device writes a chance to join the Builder.
+-            # There is no timer-based linger and no additional admission quota.
+-            await asyncio.sleep(self._linger_ms / 1000)
+             while queue:
++                # Coalesce every submission wave, not only the first one.
++                # The source device lock continues to own its pending write.
++                await asyncio.sleep(self._linger_ms / 1000)
+                 requests = queue[:]
+                 queue.clear()
+                 try:
+diff --git a/src/storage_service/application/wide_ingestion.py b/src/storage_service/application/wide_ingestion.py
+index 0b91113e8..2d118033a 100644
+--- a/src/storage_service/application/wide_ingestion.py
++++ b/src/storage_service/application/wide_ingestion.py
+@@ -7,6 +7,7 @@ No per-point reads, merges, or time-alignment take place here.
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ from collections.abc import Sequence
+ from dataclasses import dataclass
+ from typing import NoReturn, Protocol
+@@ -88,12 +89,15 @@ class WideIngestionService:
+         max_batch_rows: int,
+         max_batch_bytes: int,
+         max_row_bytes: int = 65536,
++        writer_count: int = 1,
+     ) -> None:
+         if (
+             not allowed_wind_farms
+             or not 1 <= max_batch_rows <= 1000
+             or not 4096 <= max_batch_bytes <= 8388608
+             or max_row_bytes < 1024
++            or type(writer_count) is not int
++            or not 1 <= writer_count <= 32
+         ):
+             raise ValueError("wide ingestion requires bounded authorized resources")
+         self._storage = storage
+@@ -105,6 +109,7 @@ class WideIngestionService:
+         self._max_rows = max_batch_rows
+         self._max_bytes = max_batch_bytes
+         self._max_row_bytes = max_row_bytes
++        self._write_permits = asyncio.Semaphore(writer_count)
+ 
+     def _block(self, record: KafkaRecord, reason: str) -> NoReturn:
+         self._evidence.block_partition(
+@@ -148,25 +153,27 @@ class WideIngestionService:
+         No offset becomes confirmed until every grouped write has returned
+         successfully. A partial write therefore replays the entire prefix.
+         """
+-        groups: dict[tuple[str, str, str, str], list[_Validated]] = {}
++        groups: dict[tuple[str, str, str], list[_Validated]] = {}
+         for entry in pending:
+             key = (
+                 entry.row.wind_farm_id,
+                 entry.row.device_id,
+-                entry.row.device_config_id,
+                 entry.schema.fingerprint,
+             )
+             groups.setdefault(key, []).append(entry)
+ 
+-        for group in groups.values():
+-            first = group[0]
+-            # The largest Kafka offset wins for duplicate device timestamps.
+-            latest_by_time = {
+-                entry.row.sample_time_us: (position, entry.row)
+-                for position, entry in enumerate(group)
+-            }
+-            ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
+-            try:
++        async def persist_group(group: list[_Validated]) -> tuple[int, int]:
++            # Each physical device group is one ordered STMT2 writer; groups
++            # for different devices may run concurrently within one process.
++            async with self._write_permits:
++                first = group[0]
++                latest_by_time = {
++                    entry.row.sample_time_us: (position, entry.row)
++                    for position, entry in enumerate(group)
++                }
++                ordered_rows = tuple(
++                    row for _position, row in sorted(latest_by_time.values())
++                )
+                 await self._storage.ensure_wide_table(
+                     first.schema,
+                     wind_farm_id=first.row.wind_farm_id,
+@@ -174,23 +181,43 @@ class WideIngestionService:
+                     device_type=first.device_type,
+                 )
+                 await self._storage.insert_wide_batch(first.schema, ordered_rows)
+-            except TDengineSchemaConflictError:
+-                raise
+-            except (RuntimeError, TimeoutError, OSError) as exc:
++                return len(ordered_rows), len(first.schema.columns)
++
++        # Await every in-flight physical write even if one fails. Canceling
++        # sibling STMT2 operations would create additional UNKNOWN outcomes.
++        results = await asyncio.gather(
++            *(persist_group(group) for group in groups.values()),
++            return_exceptions=True,
++        )
++        errors = [result for result in results if isinstance(result, BaseException)]
++        if errors:
++            # An uncertain write takes precedence over a deterministic schema
++            # failure elsewhere in the same physical batch: no offsets commit.
++            uncertain = next(
++                (
++                    error
++                    for error in errors
++                    if isinstance(error, (RuntimeError, TimeoutError, OSError))
++                    and not isinstance(error, TDengineSchemaConflictError)
++                ),
++                None,
++            )
++            if uncertain is not None:
+                 self._metrics.record_unknown()
+-                # Prior groups may be durable, but none may advance the Kafka
+-                # commit prefix. Replay is safe under timestamp-keyed writes.
+                 self._block(
+                     pending[0].source,
+-                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}",
++                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(uncertain).__name__}",
+                 )
+-            self._metrics.record_wide_persisted(
+-                rows=len(ordered_rows), points_per_row=len(first.schema.columns)
+-            )
++            raise errors[0]
+ 
+-        # Retain the original Kafka ordering when advancing the durable prefix.
++        # Commit no source offset until ALL physical groups have persisted.
+         for entry in pending:
+             offsets.confirm(generation=generation, offset=entry.source.offset)
++        for result in results:
++            if not isinstance(result, tuple):
++                raise RuntimeError("wide batch returned an invalid physical result")
++            rows, width = result
++            self._metrics.record_wide_persisted(rows=rows, points_per_row=width)
+         return len(pending)
+ 
+     async def process(
+diff --git a/src/storage_service/application/wide_query.py b/src/storage_service/application/wide_query.py
+index 0854a3c9e..935e5e29f 100644
+--- a/src/storage_service/application/wide_query.py
++++ b/src/storage_service/application/wide_query.py
+@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
+ from dataclasses import dataclass
+ from typing import Protocol
+ 
+-from storage_service.domain.errors import HistoryReplayUnavailableError
++from storage_service.domain.errors import HistoryReplayUnavailableError, WideTableNotCreatedError
+ from storage_service.domain.quality_bitmap import PointQuality
+ from storage_service.domain.wide_record import WideDataLevel
+ from storage_service.domain.wide_schema import WideSchema
+@@ -278,12 +278,19 @@ class WideHistoryQueryService:
+         more = False
+         async with self._query_lease():
+             async with asyncio.timeout(self._timeout):
+-                await self._backend.verify_existing_wide_table(
+-                    schema,
+-                    wind_farm_id=filter_.wind_farm_id,
+-                    device_id=filter_.device_id,
+-                    device_type=device_type,
+-                )
++                try:
++                    await self._backend.verify_existing_wide_table(
++                        schema,
++                        wind_farm_id=filter_.wind_farm_id,
++                        device_id=filter_.device_id,
++                        device_type=device_type,
++                    )
++                except WideTableNotCreatedError:
++                    if not self._read_available():
++                        raise HistoryReplayUnavailableError(
++                            "Kafka replay began while confirming absent wide table"
++                        ) from None
++                    return WideHistoryPage((), "", True, schema.fingerprint)
+                 while scanned < 10000:
+                     limit = min(filter_.limit + 1, 10000 - scanned)
+                     request = WideHistoryFilter(
+@@ -369,12 +376,19 @@ class WideHistoryQueryService:
+         )
+         async with self._query_lease():
+             async with asyncio.timeout(self._timeout):
+-                await self._backend.verify_existing_wide_table(
+-                    schema,
+-                    wind_farm_id=filter_.wind_farm_id,
+-                    device_id=filter_.device_id,
+-                    device_type=device_type,
+-                )
++                try:
++                    await self._backend.verify_existing_wide_table(
++                        schema,
++                        wind_farm_id=filter_.wind_farm_id,
++                        device_id=filter_.device_id,
++                        device_type=device_type,
++                    )
++                except WideTableNotCreatedError:
++                    if not self._read_available():
++                        raise HistoryReplayUnavailableError(
++                            "Kafka replay began while confirming absent wide table"
++                        ) from None
++                    return WideHistoryPage((), "", True, schema.fingerprint)
+                 rows = tuple(await self._backend.fetch_wide_history(schema, request))
+         if not self._read_available():
+             raise HistoryReplayUnavailableError(
+diff --git a/src/storage_service/domain/errors.py b/src/storage_service/domain/errors.py
+index 7b010aaed..e4f890cb8 100644
+--- a/src/storage_service/domain/errors.py
++++ b/src/storage_service/domain/errors.py
+@@ -11,3 +11,7 @@ class QueryRejectedError(ValueError):
+ 
+ class HistoryReplayUnavailableError(RuntimeError):
+     """Kafka replay invalidates the visible history snapshot."""
++
++
++class WideTableNotCreatedError(LookupError):
++    """An immutable historical family has no physical table registration."""
+diff --git a/src/storage_service/infrastructure/adapters/outbound/metadata_store.py b/src/storage_service/infrastructure/adapters/outbound/metadata_store.py
+index 65f5ae6e3..70bf2c991 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/metadata_store.py
++++ b/src/storage_service/infrastructure/adapters/outbound/metadata_store.py
+@@ -18,6 +18,7 @@ from typing import BinaryIO, Literal, Self
+ 
+ from storage_service.application.config import DeviceBinding, DeviceModel
+ from storage_service.domain.tasks import TaskRecord
++from storage_service.domain.errors import WideTableNotCreatedError
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -35,6 +36,8 @@ class MetadataConflictError(RuntimeError):
+     """Existing durable ownership or request-id arguments conflict."""
+ 
+ 
++
++
+ class MetadataStore:
+     """One SQLite owner, fenced by an exclusive OS lock for the process lifetime."""
+ 
+@@ -265,6 +268,8 @@ class MetadataStore:
+                 )
+                 .fetchone()
+             )
++        if row is None:
++            raise WideTableNotCreatedError("historical wide table was never registered")
+         if row != (identity_sha256, fingerprint, "READY"):
+             raise MetadataConflictError(
+                 "wide historical table is not READY under the requested immutable identity"
+diff --git a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+index fd0024592..fdee617e8 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
++++ b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+@@ -23,7 +23,7 @@ from typing import Any, Protocol, TypeVar, cast
+ 
+ from storage_service.application.config import StorageConfig
+ from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
+-from storage_service.domain.errors import TDengineSchemaConflictError
++from storage_service.domain.errors import TDengineSchemaConflictError, WideTableNotCreatedError
+ from storage_service.domain.naming import StorageObjectNames
+ from storage_service.domain.quality_bitmap import unpack_quality_bitmap
+ from storage_service.domain.wide_record import WideDataLevel, WideRecord
+@@ -679,6 +679,22 @@ class TDengineBackend:
+                 fingerprint=schema.fingerprint,
+                 identity_sha256=digest,
+             )
++        except WideTableNotCreatedError:
++            # Missing registry is not sufficient evidence of a missing physical
++            # table. A foreign table with the same name must fail closed.
++            with self._borrow_connection(lease=lease) as (connection, _driver):
++                lease.remaining()
++                observed = list(
++                    connection.query(
++                        "SELECT table_name FROM information_schema.ins_tables "
++                        f"WHERE db_name = '{database}' AND table_name = '{table}'"
++                    )
++                )
++            if observed:
++                raise TDengineSchemaConflictError(
++                    "unregistered physical wide table already exists"
++                ) from None
++            raise
+         except MetadataConflictError as exc:
+             raise TDengineSchemaConflictError(
+                 "historical wide table ownership cannot be proven"
+diff --git a/src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py b/src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py
+index e6db6e646..ce53ccf6d 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py
++++ b/src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py
+@@ -10,6 +10,8 @@ import asyncio
+ import hashlib
+ import json
+ import os
++import pty
++import termios
+ import re
+ import shutil
+ from contextlib import suppress
+@@ -69,8 +71,10 @@ class NativeTDengineBackup:
+         password_name = self._config.tdengine.credential_ref.removeprefix("env:")
+         password = [REDACTED_TEST_CREDENTIAL]
+         username = os.getenv("WIND_HUB_TDENGINE_USER")
+-        if not password or not username:
+-            raise NativeBackupError("TDengine backup credentials are unavailable")
++        if not password or not username or "\n" in password or "\r" in password:
++            raise NativeBackupError("TDengine backup credentials are unavailable or invalid")
++        if len(password.encode("utf-8")) > 4096:
++            raise NativeBackupError("TDengine backup credential exceeds PTY input budget")
+         binary = shutil.which("taosdump")
+         if binary is None:
+             raise NativeBackupError("TDengine taosdump utility is not installed")
+@@ -84,8 +88,7 @@ class NativeTDengineBackup:
+         # -Z 1 selects TDengine WebSocket on port 6041.
+         # -p requests interactive authentication: never trust an undocumented
+         # TDENGINE_PASSWORD fallback or expose secrets in argv/process lists.
+-        # Whether the target 3.3.6.13 taosdump accepts piped input is a
+-        # mandatory backup acceptance check; if not, fail closed.
++        # Native 3.3.6.13 backup verification requires a real PTY for -p.
+         command = [
+             binary,
+             "-Z",
+@@ -102,31 +105,46 @@ class NativeTDengineBackup:
+             "-o",
+             str(path),
+         ]
+-        process = await asyncio.create_subprocess_exec(
+-            *command,
+-            stdin=asyncio.subprocess.PIPE,
+-            stdout=asyncio.subprocess.DEVNULL,
+-            stderr=asyncio.subprocess.DEVNULL,
+-        )
+-        watcher = asyncio.create_task(self._watch_output(process, path))
++        # Provide a terminal to the CLI without a user session; disable echo
++        # so the credential is not reflected into subprocess output.
++        master, slave = pty.openpty()
+         try:
+-            await asyncio.wait_for(
+-                process.communicate((password + "\n").encode("utf-8")),
+-                timeout=self._config.backup.timeout_s,
+-            )
+-            # Propagate a quota violation even if taosdump has already exited.
+-            if watcher.done() and not watcher.cancelled():
+-                watcher.result()
+-            result = process.returncode
++            try:
++                attributes = termios.tcgetattr(slave)
++                attributes[3] &= ~termios.ECHO
++                termios.tcsetattr(slave, termios.TCSANOW, attributes)
++                process = await asyncio.create_subprocess_exec(
++                    *command,
++                    stdin=slave,
++                    stdout=asyncio.subprocess.DEVNULL,
++                    stderr=asyncio.subprocess.DEVNULL,
++                )
++            finally:
++                os.close(slave)
+         except BaseException:
+-            if process.returncode is None:
+-                process.kill()
+-            await asyncio.shield(process.wait())
++            os.close(master)
+             raise
++        try:
++            watcher = asyncio.create_task(self._watch_output(process, path))
++            try:
++                os.write(master, (password + "\n").encode("utf-8"))
++                await asyncio.wait_for(
++                    process.wait(), timeout=self._config.backup.timeout_s
++                )
++                if watcher.done() and not watcher.cancelled():
++                    watcher.result()
++                result = process.returncode
++            except BaseException:
++                if process.returncode is None:
++                    process.kill()
++                await asyncio.shield(process.wait())
++                raise
++            finally:
++                watcher.cancel()
++                with suppress(asyncio.CancelledError):
++                    await watcher
+         finally:
+-            watcher.cancel()
+-            with suppress(asyncio.CancelledError):
+-                await watcher
++            os.close(master)
+         if result is None:
+             raise NativeBackupError("native backup exit state is unknown")
+         if result != 0:
+diff --git a/src/storage_service/main.py b/src/storage_service/main.py
+index cef560ae6..ab9ab643e 100644
+--- a/src/storage_service/main.py
++++ b/src/storage_service/main.py
+@@ -157,6 +157,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
+                     type_mapping=bundle.configuration.tdengine.type_mapping,
+                     max_batch_rows=bundle.configuration.tdengine.ingestion.batch_max_rows,
+                     max_batch_bytes=bundle.configuration.tdengine.ingestion.batch_max_bytes,
++                    writer_count=bundle.configuration.tdengine.ingestion.writer_count,
+                 )
+                 consumer = KafkaStorageConsumer(
+                     configuration=bundle.configuration,
+diff --git a/tests/storage_service/unit/test_wide_missing_table.py b/tests/storage_service/unit/test_wide_missing_table.py
+new file mode 100644
+index 000000000..302e33cbd
+--- /dev/null
++++ b/tests/storage_service/unit/test_wide_missing_table.py
+@@ -0,0 +1,109 @@
++"""Missing physical wide tables are empty; conflicting ownership is not."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from storage_service.application.wide_query import (
++    WideCursorCodec,
++    WideHistoryFilter,
++    WideHistoryQueryService,
++)
++from storage_service.domain.errors import TDengineSchemaConflictError, WideTableNotCreatedError
++from storage_service.domain.wide_record import WideDataLevel
++from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
++from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
++
++
++class _Backend:
++    def __init__(self, failure: Exception) -> None:
++        self.failure = failure
++        self.reads = 0
++
++    async def verify_existing_wide_table(
++        self,
++        schema: WideSchema,
++        *,
++        wind_farm_id: str,
++        device_id: str,
++        device_type: str,
++    ) -> None:
++        raise self.failure
++
++    async def fetch_wide_history(
++        self, schema: WideSchema, query: WideHistoryFilter
++    ) -> tuple[()]:
++        self.reads += 1
++        raise AssertionError("unverified wide table must not be queried")
++
++
++def _schema() -> WideSchema:
++    return WideSchema.build(
++        point_table_id="point_table_test_v1.0.0",
++        point_table_version="1.0.0",
++        data_level=WideDataLevel.PROTOCOL,
++        points=(PhysicalPoint("p", "DOUBLE"),),
++        max_row_bytes=65536,
++    )
++
++
++def _filter(*, quality: bool) -> WideHistoryFilter:
++    return WideHistoryFilter(
++        wind_farm_id="farm",
++        device_id="WT001",
++        device_config_id="device_test_v1.0.0",
++        data_level=WideDataLevel.PROTOCOL,
++        start_time_us=1,
++        end_time_us=10_000_000,
++        point_ids=("p",),
++        limit=10,
++        qualities=(1,) if quality else (),
++    )
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("quality", [False, True])
++async def test_never_created_wide_table_is_empty(quality: bool) -> None:
++    backend = _Backend(WideTableNotCreatedError("no registration"))
++    query = WideHistoryQueryService(
++        backend=backend,
++        codec=WideCursorCodec(b"k" * 32),
++    )
++    page = await query.query(
++        schema=_schema(),
++        filter_=_filter(quality=quality),
++        device_type="wtg",
++    )
++    assert page.complete
++    assert page.rows == ()
++    assert page.next_page_token == ""
++    assert backend.reads == 0
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("quality", [False, True])
++async def test_conflicting_wide_ownership_remains_blocked(quality: bool) -> None:
++    backend = _Backend(TDengineSchemaConflictError("identity mismatch"))
++    query = WideHistoryQueryService(
++        backend=backend,
++        codec=WideCursorCodec(b"k" * 32),
++    )
++    with pytest.raises(TDengineSchemaConflictError, match="identity mismatch"):
++        await query.query(
++            schema=_schema(),
++            filter_=_filter(quality=quality),
++            device_type="wtg",
++        )
++    assert backend.reads == 0
++
++
++def test_metadata_only_missing_registration_is_skippable(tmp_path: Path) -> None:
++    with MetadataStore(tmp_path / "metadata.sqlite") as metadata:
++        with pytest.raises(WideTableNotCreatedError):
++            metadata.require_ready_wide_table(
++                name="wh_farm_0000000000000000.tb_device_0000000000000000",
++                fingerprint="f" * 64,
++                identity_sha256="b" * 64,
++            )

@@ -1,0 +1,26 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.16, pytest-8.4.2, pluggy-1.6.0 -- /home/luosh/miniconda3/envs/wind-hub/bin/python
+cachedir: .pytest_cache
+rootdir: /home/luosh/wind-hub
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.14.5, asyncio-0.24.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 14 items
+
+tests/storage_service/integration/test_missing_wide_table_real.py::test_registered_device_without_subtable_returns_empty[plain] PASSED [  7%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_registered_device_without_subtable_returns_empty[quality] PASSED [ 14%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_grouped_query_skips_missing_device_and_returns_only_real_rows[plain] PASSED [ 21%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_grouped_query_skips_missing_device_and_returns_only_real_rows[quality] PASSED [ 28%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_physical_table_without_registration_is_schema_conflict[plain] PASSED [ 35%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_physical_table_without_registration_is_schema_conflict[quality] PASSED [ 42%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_creating_registration_is_schema_conflict[plain] PASSED [ 50%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_creating_registration_is_schema_conflict[quality] PASSED [ 57%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_registered_schema_fingerprint_mismatch_is_schema_conflict[plain] PASSED [ 64%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_registered_schema_fingerprint_mismatch_is_schema_conflict[quality] PASSED [ 71%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_actual_schema_fingerprint_tag_mismatch_is_schema_conflict[plain] PASSED [ 78%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_actual_schema_fingerprint_tag_mismatch_is_schema_conflict[quality] PASSED [ 85%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_replay_unavailable_rejects_absent_table_for_plain_and_quality[plain] PASSED [ 92%]
+tests/storage_service/integration/test_missing_wide_table_real.py::test_replay_unavailable_rejects_absent_table_for_plain_and_quality[quality] PASSED [100%]
+
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/missing_table_real.xml -
+============================= 14 passed in 34.75s ==============================

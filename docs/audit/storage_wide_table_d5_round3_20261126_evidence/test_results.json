@@ -1,0 +1,289 @@
+{
+  "backup_fd_unit.xml": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.725
+  },
+  "backup_pty_real.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 50.926
+  },
+  "cli.xml": {
+    "tests": 287,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 86.699
+  },
+  "cli_final.xml": {
+    "tests": 287,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 89.615
+  },
+  "cli_strict.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 35.941
+  },
+  "cli_strict_final.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 38.954
+  },
+  "collector.xml": {
+    "tests": 120,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 12.512
+  },
+  "configuration.xml": {
+    "tests": 487,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 290.269
+  },
+  "contracts_core.xml": {
+    "tests": 667,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 29.278
+  },
+  "kafka_real_final.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 20.569
+  },
+  "missing_table_real.xml": {
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 34.747
+  },
+  "native_multitable.xml": {
+    "tests": 2,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.315
+  },
+  "native_single_table_baseline.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 14.271
+  },
+  "parallel_ingestion_unit.xml": {
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.117
+  },
+  "performance.xml": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.261
+  },
+  "sink.xml": {
+    "tests": 425,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.866
+  },
+  "sink_600_c16_l10.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 781.428
+  },
+  "sink_600_c16_l10_complete.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 790.778
+  },
+  "sink_600_c16_l10_final.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 800.897
+  },
+  "sink_600_c16_l10_retry.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 779.745
+  },
+  "sink_short_matrix/c16_l0/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 108.009
+  },
+  "sink_short_matrix/c16_l1/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 105.702
+  },
+  "sink_short_matrix/c16_l10/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 103.348
+  },
+  "sink_short_matrix/c16_l5/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 106.107
+  },
+  "sink_short_matrix/c32_l0/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 105.711
+  },
+  "sink_short_matrix/c32_l1/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 114.405
+  },
+  "sink_short_matrix/c32_l10/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 115.902
+  },
+  "sink_short_matrix/c32_l5/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 115.431
+  },
+  "sink_short_matrix/c8_l0/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 106.605
+  },
+  "sink_short_matrix/c8_l1/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 103.855
+  },
+  "sink_short_matrix/c8_l10/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 110.423
+  },
+  "sink_short_matrix/c8_l5/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 106.793
+  },
+  "storage.xml": {
+    "tests": 256,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.329
+  },
+  "storage_100_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 249.278
+  },
+  "storage_300_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 995.935
+  },
+  "storage_30_w1/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 84.193
+  },
+  "storage_30_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 82.827
+  },
+  "storage_30_w4/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 83.903
+  },
+  "storage_30_w8/capacity.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 1,
+    "skipped": 0,
+    "seconds": 45.898
+  },
+  "storage_30_w8/capacity_final.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 84.297
+  },
+  "storage_final.xml": {
+    "tests": 268,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.268
+  }
+}

@@ -1,0 +1,87 @@
+src/storage_service/application/wide_ingestion.py:200:24: UP038 Use `X | Y` in `isinstance` call instead of `(X, Y)`
+    |
+198 |                     error
+199 |                     for error in errors
+200 |                     if isinstance(error, (RuntimeError, TimeoutError, OSError))
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP038
+201 |                     and not isinstance(error, TDengineSchemaConflictError)
+202 |                 ),
+    |
+    = help: Convert to `X | Y`
+
+src/storage_service/infrastructure/adapters/outbound/metadata_store.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Crash-recoverable single-owner SQLite metadata and idempotent tasks."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import fcntl
+ 6 | | import hashlib
+ 7 | | import json
+ 8 | | import os
+ 9 | | import re
+10 | | import sqlite3
+11 | | import threading
+12 | | from collections.abc import Iterable
+13 | | from dataclasses import asdict, dataclass
+14 | | from datetime import UTC, datetime
+15 | | from pathlib import Path
+16 | | from types import TracebackType
+17 | | from typing import BinaryIO, Literal, Self
+18 | | 
+19 | | from storage_service.application.config import DeviceBinding, DeviceModel
+20 | | from storage_service.domain.tasks import TaskRecord
+21 | | from storage_service.domain.errors import WideTableNotCreatedError
+22 | | 
+23 | | 
+24 | | @dataclass(frozen=True, slots=True)
+   | |_^ I001
+25 |   class ObjectRegistration:
+26 |       """Physical name and full identity must never be silently rebound."""
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py:7:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 5 |   """
+ 6 |   
+ 7 | / from __future__ import annotations
+ 8 | | 
+ 9 | | import asyncio
+10 | | import hashlib
+11 | | import json
+12 | | import os
+13 | | import pty
+14 | | import termios
+15 | | import re
+16 | | import shutil
+17 | | from contextlib import suppress
+18 | | from dataclasses import asdict
+19 | | from pathlib import Path
+20 | | 
+21 | | from storage_service.application.config import StorageConfig
+22 | | from storage_service.domain.wide_schema import WideSchema
+23 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+24 | |     ImmutableConfigArchive,
+25 | | )
+26 | | from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+27 | | 
+28 | | _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
+   | |_^ I001
+   |
+   = help: Organize imports
+
+tests/storage_service/unit/test_wide_missing_table.py:103:5: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+    |
+102 |   def test_metadata_only_missing_registration_is_skippable(tmp_path: Path) -> None:
+103 |       with MetadataStore(tmp_path / "metadata.sqlite") as metadata:
+    |  _____^
+104 | |         with pytest.raises(WideTableNotCreatedError):
+    | |_____________________________________________________^ SIM117
+105 |               metadata.require_ready_wide_table(
+106 |                   name="wh_farm_0000000000000000.tb_device_0000000000000000",
+    |
+    = help: Combine `with` statements
+
+Found 4 errors.
+[*] 2 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).

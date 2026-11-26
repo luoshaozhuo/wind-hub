@@ -1,0 +1,35 @@
+[1m=============[0m
+[1mImport Linter[0m
+[1m=============[0m
+[22m[0m
+[1m---------[0m
+[1mContracts[0m
+[1m---------[0m
+[22m[0m
+[1mAnalyzed 577 files, 3352 dependencies.[0m
+[1m--------------------------------------[0m
+[22m[0m
+[22mstorage-service 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mstorage-service 不得依赖其他业务进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mStorage application/domain 不得依赖生成 Protobuf [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mconfiguration-service 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mconfiguration-service 不得依赖其他业务进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mconfiguration application/domain 不得依赖生成 Protobuf [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew core 不得依赖进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew core 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew commander 不得依赖 collector 或 cli [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew collector 不得依赖 commander 或 cli [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew commander 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew collector 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mcli 只依赖 shared core，不依赖进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mindustrial gateway 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mindustrial gateway 不得依赖其他进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mnew collector/commander application 与 domain 不得依赖生成的 protobuf [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mweb_server 只通过 core RPC 访问服务 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mdata generator 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mdata generator 不得依赖其他进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mdata generator 业务层不得依赖 wire Proto [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22mcore.configuration 只依赖公共基础库，不依赖业务进程包 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22msink service 三层依赖方向 [0m[32m[22mKEPT[0m[33m[22m[0m[22m[0m
+[22m[0m
+[22mContracts: 22 kept, 0 broken.[0m

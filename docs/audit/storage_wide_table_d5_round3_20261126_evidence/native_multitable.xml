@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="5.315" timestamp="2026-11-26T20:40:46.172887+08:00" hostname="boss"><testcase classname="tests.storage_service.integration.test_tdengine_wide_probe" name="test_td02_td03_multitable_and_statement_reuse" time="2.645"><failure message="_taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`">wide_probe = Probe(driver=&lt;module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x5d428c1f84a0&gt;, database='whd2_52927e1287d04004bcf96db9aeb3056b', vgroups=4, buffer_mb=256)
+
+    def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -&gt; None:
+        """Probe dynamic table binding and repeated execute on one prepared object.
+    
+        Unsupported syntax/API is a real failure, not a silent single-table fallback.
+        """
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        try:
+&gt;           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:191: ProgrammingError</failure></testcase><testcase classname="tests.storage_service.integration.test_tdengine_wide_probe" name="test_td07_partial_success_and_ordered_replay" time="2.630"><failure message="_taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`">wide_probe = Probe(driver=&lt;module 'taosws' from '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/taosws/__init__....ltins.Connection object at 0x5d428c19db80&gt;, database='whd2_ebe7c1bf6d9a4553b555c60e2907f143', vgroups=4, buffer_mb=256)
+
+    def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -&gt; None:
+        """Observe partial native success and prove complete ordered replay restores values."""
+        probe = wide_probe
+        _create_family(probe, "protocol", "BIGINT")
+        ts = time.time_ns() // 1000
+        probe.connection.execute(f"USE {probe.database}")
+        statement = probe.connection.stmt2_statement()
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        try:
+&gt;           statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+E           _taosws.ProgrammingError: [0x022B] Internal error: `Table does not exist`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:599: ProgrammingError</failure></testcase></testsuite></testsuites>

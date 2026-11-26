@@ -1,0 +1,158 @@
+[
+  {
+    "path": "sink_600_c16_l10_final.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_c16_l10.xml",
+    "replacements": 1
+  },
+  {
+    "path": "production_changes.diff",
+    "replacements": 1
+  },
+  {
+    "path": "cli.log",
+    "replacements": 9
+  },
+  {
+    "path": "sink_600_c16_l10_complete.log",
+    "replacements": 1
+  },
+  {
+    "path": "cli_strict.xml",
+    "replacements": 9
+  },
+  {
+    "path": "cli_strict.log",
+    "replacements": 9
+  },
+  {
+    "path": "cli.xml",
+    "replacements": 9
+  },
+  {
+    "path": "backup_pty_real.log",
+    "replacements": 2
+  },
+  {
+    "path": "sink_600_c16_l10_retry.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_c16_l10_complete.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_c16_l10_retry.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_c16_l10_final.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_c16_l10.log",
+    "replacements": 1
+  },
+  {
+    "path": "backup_pty_real.xml",
+    "replacements": 2
+  },
+  {
+    "path": "sink_short_matrix/c16_l5/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l5/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l10/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l10/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l0/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l0/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l5/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l5/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l1/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l1/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l1/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l1/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l0/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l0/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l10/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l10/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l1/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l1/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l10/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c16_l10/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l0/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c32_l0/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l5/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_short_matrix/c8_l5/capacity.log",
+    "replacements": 1
+  }
+]
