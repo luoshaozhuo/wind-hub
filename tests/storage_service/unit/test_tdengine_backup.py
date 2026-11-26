@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import time
 import uuid
@@ -11,7 +13,12 @@ from typing import Any, cast
 
 import pytest
 
-from storage_service.application.config import StorageConfig, load_storage_config
+from storage_service.application.config import DeviceBinding, DeviceModel, StorageConfig, load_storage_config
+from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+    ImmutableConfigArchive,
+    RepositoryDocument,
+)
+from storage_service.infrastructure.adapters.outbound.metadata_store import ObjectRegistration
 from storage_service.infrastructure.adapters.outbound.tdengine_backup import (
     NativeBackupError,
     NativeTDengineBackup,
@@ -43,13 +50,50 @@ while True:
 
 
 class _Metadata:
-    def list_tables(self, *, database: str) -> list[object]:
-        return [object()]
+    def list_ready_wide_tables(self, *, database: str) -> tuple[ObjectRegistration, ...]:
+        return (
+            ObjectRegistration(
+                name=f"{database}.tb_wtg_0123456789abcdef",
+                full_sha256="a" * 64,
+                identity_json='["farm-1","wtg-001","point_table_wind_v1.0.0","1.0.0","protocol","fp"]',
+                schema_fingerprint="fp",
+                state="READY",
+            ),
+        )
+
+    def list_device_bindings(self) -> tuple[DeviceBinding, ...]:
+        return (
+            DeviceBinding(
+                wind_farm_id="farm-1",
+                device_id="wtg-001",
+                device_config_id="farm-a",
+                device_version_id="device-repo-v1",
+                device_file_version="1.0.0",
+                site_config_id="",
+                site_file_version="",
+                model=DeviceModel(
+                    config_id="wind",
+                    version_id="model-repo-v1",
+                    file_version="1.0.0",
+                    device_type_id="wind",
+                    point_table_id="point_table_wind_v1.0.0",
+                ),
+            ),
+        )
+
+    def list_semantic_pins(
+        self,
+    ) -> dict[str, tuple[tuple[str, str], tuple[str, str] | None]]:
+        return {
+            "point_table_wind_v1.0.0": (
+                ("wind", "table-repo-v1"), None,
+            )
+        }
 
 
 def _config(tmp_path: Path) -> StorageConfig:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     return config.model_copy(
         update={
@@ -82,8 +126,27 @@ def _backup(
     monkeypatch.setenv("WIND_HUB_TDENGINE_USER", "root")
     config = _config(tmp_path)
     monkeypatch.setenv(config.tdengine.credential_ref.removeprefix("env:"), "taosdata")
+    archive = ImmutableConfigArchive(tmp_path / "archive")
+    for kind, name, version in (
+        ("device", "farm-a", "device-repo-v1"),
+        ("device_model", "wind", "model-repo-v1"),
+        ("point_table", "wind", "table-repo-v1"),
+    ):
+        body = b"schema_version: 1\\nfile_version: 1.0.0\\n"
+        archive.persist(
+            RepositoryDocument(
+                config_type=kind,
+                config_id=name,
+                version_id=version,
+                revision_id=1,
+                yaml_bytes=body,
+                yaml_sha256=hashlib.sha256(body).hexdigest(),
+            )
+        )
     return (
-        NativeTDengineBackup(config=config, metadata=cast(Any, _Metadata())),
+        NativeTDengineBackup(
+            config=config, metadata=cast(Any, _Metadata()), archive=archive
+        ),
         tmp_path / "backups",
     )
 
@@ -115,7 +178,18 @@ async def test_normal_backup_reaps_taosdump(
     artifact, size, digest = await backup.backup(task_id=task_id, wind_farm_id="farm-1")
     assert artifact == task_id
     manifest_size = (root / task_id / "storage_manifest.json").stat().st_size
-    assert size == len(b"verified-avro-payload") + manifest_size
+    assert size > len(b"verified-avro-payload") + manifest_size
+    manifest = json.loads((root / task_id / "storage_manifest.json").read_text())
+    expected_digest = manifest.pop("sha256")
+    assert expected_digest == digest
+    assert hashlib.sha256(
+        json.dumps(
+            manifest, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest() == digest
+    assert len(manifest["historical_configuration"]["documents"]) == 3
+    assert len(manifest["wide_schema_ownership"]) == 1
     assert len(digest) == 64
     assert (root / task_id / "storage_manifest.json").is_file()
     _assert_reaped(_read_pid(root, task_id))
