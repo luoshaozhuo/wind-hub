@@ -1,11 +1,4 @@
-"""T-59/T-44: Sink Kafka v2 encoder output satisfies Storage v2 decoding.
-
-Producer/consumer wire-contract test using the real Sink encoder and the real
-Storage decoder. It does not replace a live Sink→Storage system test: no Kafka
-broker or business process is involved.
-RAW records are accepted only when source bytes are preserved in the SampleBatch;
-a missing source payload is never synthesized.
-"""
+"""Sink Kafka JSON v3 complete-device encoding matches Storage's wide decoder."""
 
 from __future__ import annotations
 
@@ -17,16 +10,19 @@ from collector.application.batch_builder import BatchBuilder
 from contracts.sample_batch import SampleBatch, SampleItem
 from core.application.protocol_contract import ProtocolSample
 from sink_service.application.business_projection import BusinessValue
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
-from storage_service.domain.sample import DataLevel as StorageDataLevel
-from storage_service.domain.sample import StorageSample
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
+from storage_service.domain.wide_record import WideDataLevel, WideRecord
+from storage_service.domain.wide_row import bind_wide_row
+from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 _MOMENT = datetime(2026, 11, 22, 1, 2, 3, 456789, tzinfo=UTC)
+_DEVICE_VERSION = "device_farm-f6_v1.0.0"
+_POINT = "point.active_power"
 
 
 def _batch() -> SampleBatch:
     item = SampleItem(
-        point_id="point.active_power",
+        point_id=_POINT,
         sample_id="sample-f6-0001",
         value=12.5,
         quality="good",
@@ -47,88 +43,81 @@ def _batch() -> SampleBatch:
     )
 
 
-def test_protocol_record_encodes_and_decodes_across_boundary() -> None:
+def _wire(
+    batch: SampleBatch, items: tuple[SampleItem, ...], *,
+    level: str, projection: dict[str, BusinessValue] | None = None,
+) -> bytes:
+    return encode_kafka_wide(
+        batch, items,
+        device_config_id=_DEVICE_VERSION,
+        physical_points=(_POINT if level != "business" else "bp.active_power",),
+        data_level=level,  # type: ignore[arg-type]
+        business_values=projection,
+    )
+
+
+def _decode(wire: bytes, *, level: WideDataLevel) -> WideRecord:
+    point_id = "bp.active_power" if level is WideDataLevel.BUSINESS else _POINT
+    row = WideRecord.from_kafka_json(wire, physical_points=(point_id,))
+    assert row.data_level is level
+    assert row.device_config_id == _DEVICE_VERSION
+    assert row.device_id == "WTG-f6"
+    assert row.wind_farm_id == "farm-f6"
+    return row
+
+
+def test_protocol_roundtrip_uses_complete_device_row() -> None:
     batch = _batch()
-    wire = encode_kafka_points(batch, batch.samples, data_level="protocol")[0]
-    sample = StorageSample.from_kafka_json(wire)
-    assert sample.data_level == StorageDataLevel.PROTOCOL
-    assert sample.wind_farm_id == "farm-f6"
-    assert sample.point_table_id == "point_table_storage-points_v1.0.0"
-    assert sample.sample_id == "sample-f6-0001"
-    assert sample.business_point_id == ""
-    assert sample.unit == ""
+    row = _decode(_wire(batch, batch.samples, level="protocol"), level=WideDataLevel.PROTOCOL)
+    assert row.values == (12.5,)
+    assert row.sample_time_us == 1_795_306_923_456_789
 
 
-def test_business_record_requires_projection_and_decodes() -> None:
+def test_business_roundtrip_requires_verified_projection() -> None:
     batch = _batch()
     projection = {
         "sample-f6-0001": BusinessValue(
             business_point_id="bp.active_power",
             unit="kW",
-            value=12.5,
+            value=25.0,
         )
     }
-    wire = encode_kafka_points(
-        batch,
-        batch.samples,
-        data_level="business",
-        business_values=projection,
-    )[0]
-    sample = StorageSample.from_kafka_json(wire)
-    assert sample.data_level == StorageDataLevel.BUSINESS
-    assert sample.business_point_id == "bp.active_power"
-    assert sample.unit == "kW"
-
-
-def test_business_encoding_without_complete_projection_is_rejected() -> None:
-    batch = _batch()
+    row = _decode(
+        _wire(batch, batch.samples, level="business", projection=projection),
+        level=WideDataLevel.BUSINESS,
+    )
+    assert row.point_ids == ("bp.active_power",)
+    assert row.values == (25.0,)
     with pytest.raises(ValueError, match="BUSINESS requires"):
-        encode_kafka_points(batch, batch.samples, data_level="business")
+        _wire(batch, batch.samples, level="business")
 
 
-def test_raw_roundtrip_preserves_exact_source_bytes() -> None:
+def test_raw_roundtrip_preserves_original_bytes() -> None:
     batch = _batch()
-    source_bytes = b"\x00\x2a\xff\x80"
-    item = batch.samples[0].model_copy(update={"raw_payload_hex": source_bytes.hex()})
-    wire = encode_kafka_points(batch, (item,), data_level="raw")[0]
-    sample = StorageSample.from_kafka_json(wire)
-    assert sample.data_level == StorageDataLevel.RAW
-    assert sample.value == source_bytes
-    assert sample.unit == ""
-    assert sample.business_point_id == ""
-    assert sample.content_sha256
+    original = b"\x00\x2a\xff\x80"
+    sample = batch.samples[0].model_copy(update={"raw_payload_hex": original.hex()})
+    row = _decode(_wire(batch, (sample,), level="raw"), level=WideDataLevel.RAW)
+    schema = WideSchema.build(
+        point_table_id=batch.point_table_id,
+        point_table_version="1.0.0",
+        data_level=WideDataLevel.RAW,
+        points=(PhysicalPoint(_POINT, "VARBINARY(4)"),),
+        max_row_bytes=65536,
+    )
+    bound = bind_wide_row(row, schema)
+    assert bound.values == (original,)
 
 
-def test_missing_source_bytes_cannot_be_fabricated() -> None:
+def test_missing_raw_source_bytes_cannot_be_fabricated() -> None:
     batch = _batch()
     with pytest.raises(ValueError, match="RAW requires"):
-        encode_kafka_points(batch, batch.samples, data_level="raw")
+        _wire(batch, batch.samples, level="raw")
 
 
-def test_engineering_is_not_an_alias_for_protocol_at_either_boundary() -> None:
-    with pytest.raises(ValueError, match="data_level"):
-        StorageSample.from_kafka_json(
-            b'{"schema_version":2,"data_level":"engineering",'
-            b'"wind_farm_id":"f","collector_id":"c","task_id":"t","batch_id":"b",'
-            b'"device_type":"d","device_id":"x",'
-            b'"point_table_id":"point_table_p_v1.0.0","point_id":"p",'
-            b'"sample_id":"s","quality":"good","value":1,'
-            b'"sample_time":"2026-11-22T01:02:03.456789Z",'
-            b'"publish_time":"2026-11-22T01:02:03.456789Z"}'
-        )
-    # The Sink encoder rejects any level outside the authoritative set.
-    with pytest.raises(ValueError, match="data_level"):
-        encode_kafka_points(
-            _batch(),
-            _batch().samples,
-            data_level="engineering",  # type: ignore[arg-type]
-        )
-
-
-def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
+def test_collector_preserves_driver_payload_through_wide_wire() -> None:
     original = b"\x00\x01\xff\x80"
     sample = ProtocolSample(
-        point_id="point.active_power",
+        point_id=_POINT,
         value=12.5,
         timestamp=_MOMENT,
         receive_time=_MOMENT,
@@ -143,51 +132,22 @@ def test_collector_sample_batch_roundtrip_preserves_driver_raw_bytes() -> None:
         max_batch_bytes=1048576,
     )
     built = builder.pack(
-        "WTG-f6",
-        (sample,),
-        device_type="WTG",
+        "WTG-f6", (sample,), device_type="WTG",
         point_table_id="point_table_storage-points_v1.0.0",
         task_id="collector-task-f6",
     )
     assert len(built) == 1
     decoded = SampleBatch.decode(built[0].encode(), "reliable", subject=built[0].subject())
-    encoded = encode_kafka_points(decoded, decoded.samples, data_level="raw")
-    persisted = StorageSample.from_kafka_json(encoded[0])
-    assert persisted.value == original
-    assert persisted.value_kind.name == "BYTES"
-    assert persisted.sample_id == decoded.samples[0].sample_id
-    assert persisted.task_id == decoded.task_id == "collector-task-f6"
+    row = _decode(_wire(decoded, decoded.samples, level="raw"), level=WideDataLevel.RAW)
+    assert row.values == (original.hex(),)
 
 
-def test_raw_protocol_business_are_disjoint_storage_identities_for_one_sample() -> None:
+def test_old_point_record_and_engineering_level_are_rejected() -> None:
     batch = _batch()
-    original = bytes((0, 1, 254, 255))
-    item = batch.samples[0].model_copy(update={"raw_payload_hex": original.hex()})
-    projection = {
-        item.sample_id: BusinessValue(
-            business_point_id="bp.active_power",
-            unit="kW",
-            value=25.0,
+    with pytest.raises(ValueError, match="data_level"):
+        _wire(batch, batch.samples, level="engineering")
+    with pytest.raises(ValueError, match="Kafka JSON v3 envelope mismatch"):
+        WideRecord.from_kafka_json(
+            b'{"schema_version":2,"wind_farm_id":"farm"}',
+            physical_points=(_POINT,),
         )
-    }
-    raw = StorageSample.from_kafka_json(encode_kafka_points(batch, (item,), data_level="raw")[0])
-    protocol = StorageSample.from_kafka_json(
-        encode_kafka_points(batch, (item,), data_level="protocol")[0]
-    )
-    business = StorageSample.from_kafka_json(
-        encode_kafka_points(
-            batch,
-            (item,),
-            data_level="business",
-            business_values=projection,
-        )[0]
-    )
-    assert raw.sample_id == protocol.sample_id == business.sample_id
-    assert raw.batch_id == protocol.batch_id == business.batch_id
-    assert raw.value == original
-    assert protocol.value == 12.5
-    assert business.value == 25.0
-    assert business.business_point_id == "bp.active_power"
-    assert raw.business_point_id == protocol.business_point_id == ""
-    assert len({raw.logical_key, protocol.logical_key, business.logical_key}) == 3
-    assert len({raw.sample_key, protocol.sample_key, business.sample_key}) == 3
