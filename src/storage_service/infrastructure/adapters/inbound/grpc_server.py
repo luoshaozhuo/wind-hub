@@ -25,8 +25,6 @@ from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.query import (
-    HistoryFilter,
-    HistoryQueryService,
     HistoryReplayUnavailableError,
     QueryRejectedError,
 )
@@ -34,7 +32,6 @@ from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExce
 from storage_service.application.wide_query import WideHistoryQueryService, WideHistoryFilter
 from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity
-from storage_service.domain.sample import DataLevel
 from storage_service.domain.tasks import TaskRecord
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
@@ -71,30 +68,6 @@ def _us(timestamp: Timestamp) -> int:
     if timestamp.nanos % 1000 != 0:
         raise QueryRejectedError("timestamp exceeds TDengine microsecond precision")
     return timestamp.seconds * 1_000_000 + timestamp.nanos // 1000
-
-
-def _filter(source: pb.StorageFilter) -> HistoryFilter:
-    levels = {
-        pb.STORAGE_DATA_LEVEL_RAW: DataLevel.RAW,
-        pb.STORAGE_DATA_LEVEL_PROTOCOL: DataLevel.PROTOCOL,
-        pb.STORAGE_DATA_LEVEL_BUSINESS: DataLevel.BUSINESS,
-    }
-    if source.data_level not in levels:
-        raise QueryRejectedError("query must select exactly one explicit data_level")
-    if not source.HasField("start_time") or not source.HasField("end_time"):
-        raise QueryRejectedError("both query timestamps are mandatory")
-    return HistoryFilter(
-        wind_farm_id=source.wind_farm_id,
-        data_level=levels[source.data_level],
-        start_us=_us(source.start_time),
-        end_us=_us(source.end_time),
-        device_type=source.device_type,
-        device_id=source.device_id,
-        point_table_id=source.point_table_id,
-        point_id=source.point_id,
-        business_point_id=source.business_point_id,
-        qualities=tuple(source.qualities),
-    )
 
 
 class AuthenticationError(PermissionError):
@@ -248,7 +221,6 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         *,
         config: StorageConfig,
         metadata: MetadataStore,
-        query: HistoryQueryService,
         wide_query: WideHistoryQueryService,
         wide_aggregation: WideAggregationService,
         jobs: AsyncStorageTasks,
@@ -262,7 +234,6 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._auth = AuthorizationPolicy(config)
         self._config = config
         self._metadata = metadata
-        self._query = query
         self._wide_query = wide_query
         self._wide_aggregation = wide_aggregation
         self._jobs = jobs
@@ -336,7 +307,6 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "GetServiceStatus",
                 "GetCapabilities",
                 "QueryWideRows",
-                "QuerySamples",
                 "QueryAggregates",
                 "CreateExport",
                 "GetExportTask",
@@ -558,72 +528,6 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 else:
                     raise TDengineSchemaConflictError("unsupported wide physical field type")
         return response
-
-    @guarded
-    async def QuerySamples(
-        self,
-        request: pb.QuerySamplesRequest,
-        context: grpc.aio.ServicerContext[Any, Any],
-    ) -> pb.QuerySamplesResponse:
-        self._auth.require(context, permission="storage.read", farm=request.filter.wind_farm_id)
-        if self._consumer.recovering:
-            await context.abort(
-                grpc.StatusCode.UNAVAILABLE,
-                "Storage history is unavailable during Kafka replay reconciliation",
-            )
-        filter_ = _filter(request.filter)
-        page = await self._query.query(
-            filter_,
-            page_size=request.page_size or 200,
-            page_token=request.page_token,
-        )
-        reply = pb.QuerySamplesResponse(
-            next_page_token=page.next_page_token, complete=page.complete
-        )
-        for row in page.rows:
-            farm, device_type, device_id, table_id, level, _ = row.identity
-            if farm != filter_.wind_farm_id or level != filter_.data_level.value:
-                raise TDengineSchemaConflictError("history identity disagrees with query")
-            unit = await self._point_tables.get_unit(
-                point_table_id=table_id,
-                point_id=row.point_id,
-                business_point_id=row.business_point_id,
-                data_level=filter_.data_level,
-            )
-            sample = reply.items.add(
-                wind_farm_id=farm,
-                device_type=device_type,
-                device_id=device_id,
-                point_table_id=table_id,
-                point_id=row.point_id,
-                business_point_id=row.business_point_id,
-                sample_id=row.sample_id,
-                data_level=request.filter.data_level,
-                value_kind=row.value_kind,
-                quality=row.quality,
-                unit=unit,
-                logical_key=row.logical_key,
-                content_sha256=row.content_sha256,
-            )
-            sample.sample_time.CopyFrom(_date(row.ts_us))
-            sample.publish_time.CopyFrom(_date(row.publish_time_us))
-            if row.receive_time_us is not None:
-                sample.receive_time.CopyFrom(_date(row.receive_time_us))
-            if row.value_kind == pb.STORAGE_VALUE_KIND_INT64:
-                sample.value_i64 = int(cast(int, row.value))
-            elif row.value_kind == pb.STORAGE_VALUE_KIND_UINT64:
-                sample.value_u64 = int(cast(int, row.value))
-            elif row.value_kind == pb.STORAGE_VALUE_KIND_DOUBLE:
-                sample.value_f64 = float(cast(int | float, row.value))
-            elif row.value_kind == pb.STORAGE_VALUE_KIND_BOOL:
-                sample.value_bool = bool(row.value)
-            elif row.value_kind == pb.STORAGE_VALUE_KIND_TEXT:
-                sample.value_text = str(row.value)
-            elif row.value_kind == pb.STORAGE_VALUE_KIND_BYTES:
-                sample.payload_bytes = bytes(cast(bytes, row.value))
-            elif row.value_kind != pb.STORAGE_VALUE_KIND_MISSING:
-                raise TDengineSchemaConflictError("unknown stored value kind")
-        return reply
 
     async def _query_wide_aggregates(
         self, request: pb.QueryAggregatesRequest,
@@ -962,7 +866,6 @@ def build_storage_grpc_server(
     *,
     config: StorageConfig,
     metadata: MetadataStore,
-    query: HistoryQueryService,
     wide_query: WideHistoryQueryService,
     wide_aggregation: WideAggregationService,
     jobs: AsyncStorageTasks,
@@ -985,7 +888,6 @@ def build_storage_grpc_server(
     servicer = StorageServicer(
         config=config,
         metadata=metadata,
-        query=query,
         wide_query=wide_query,
         wide_aggregation=wide_aggregation,
         jobs=jobs,
