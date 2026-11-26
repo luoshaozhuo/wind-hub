@@ -708,6 +708,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         response = pb.GetStorageStatsResponse(
             service_state=state,
             persisted_points_total=counters.persisted_points,
+            persisted_rows_total=counters.persisted_rows,
+            confirmed_records_total=counters.confirmed_records,
+            buffer_rows=counters.buffer_rows,
+            buffer_bytes=counters.buffer_bytes,
+            replay_in_progress=self._consumer.recovering,
             write_unknown_total=counters.write_unknown,
             schema_conflicts_total=counters.schema_conflicts,
             active_queries=self._wide_query.active_queries,
@@ -715,14 +720,17 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             active_backups=self._jobs.active_backups,
         )
         for item in await self._consumer.snapshot_progress():
-            response.partitions.add(
+            progress = response.partitions.add(
                 topic=item[0],
                 partition=item[1],
                 committed_next_offset=item[2],
                 last_confirmed_offset=item[3],
                 lag=item[4],
                 block_reason=item[5],
+                assignment_epoch=item[7],
             )
+            if item[6] is not None:
+                progress.blocked_offset = item[6]
         if response.service_state == "READY" and (
             any(item.block_reason for item in response.partitions)
             or self._metadata.list_blocked(page_size=1)
@@ -743,13 +751,14 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             raise QueryRejectedError("blocked partition page_size must be 1..1000")
         after = self._decode_blocked_cursor(request.page_token)
         rows = self._metadata.list_blocked(page_size=size + 1, after=after)
-        result = pb.ListBlockedPartitionsResponse()
+        result = pb.ListBlockedPartitionsResponse(complete=len(rows) <= size)
         for topic, partition, offset, reason in rows[:size]:
             result.items.add(
                 topic=topic,
                 partition=partition,
                 committed_next_offset=offset,
                 last_confirmed_offset=offset - 1,
+                blocked_offset=offset,
                 block_reason=reason,
             )
         if len(rows) > size:
