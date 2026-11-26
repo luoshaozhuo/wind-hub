@@ -212,7 +212,7 @@ def _service_document(
     *, stack: Any, storage_port: int, token: str, work_root: Path
 ) -> dict[str, Any]:
     document = yaml.safe_load(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     body = document["service"]
     body["kafka"].update(
@@ -414,7 +414,7 @@ async def test_cli_restart_activates_staged_static_closure(
             assert accepted_a["config"]["query"]["max_page_size"] == 1000
             # --- Revision B: static parameter change (query page size 999). ---
             service_b = json.loads(json.dumps(service_a))
-            service_b["file_version"] = "1.1.1"
+            service_b["file_version"] = "2.0.1"
             service_b["service"]["query"]["max_page_size"] = 999
             revision_b = await _publish(live, _documents(service_b, "1.0.1"))
             assert revision_b > revision_a
