@@ -37,7 +37,7 @@ def test_real_dcems_seed_has_minimal_control_surface(tmp_path: Path) -> None:
     assert device["deviceId"] == DCEMS_DEVICE_ID
     assert "_" not in device["deviceId"], "DCEMS Web route splits deviceId_varPath"
     assert seed["edgeServers"][0]["port1"] == 15531
-    assert len(seed["edgeaddrset"]) == 3
+    assert len(seed["edgeaddrset"]) == 2
     assert {item["varPath"] for item in seed["edgeaddrset"]} == PROTOCOL_POINTS
     assert seed["syncdata"] == []
     assert {
@@ -48,7 +48,6 @@ def test_real_dcems_seed_has_minimal_control_surface(tmp_path: Path) -> None:
     config = prepare(tmp_path / "dcems-control-wtg")
     point_table = _staged_table(config)["points"]
     expected = {
-        "emsWinSpd": ("wind_speed", "1.4.41503", False),
         "ctrlActPow": ("active_power_setpoint", "1.4.41557", True),
         "ctrlReActPow": ("reactive_power_setpoint", "1.4.41555", True),
     }
