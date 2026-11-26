@@ -28,7 +28,8 @@ import pytest
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.domain.config import ConfigurationError
 from sink_service.infrastructure.adapters.outbound.kafka_wire import (
-    encode_kafka_points,
+    encode_kafka_wide,
+    encode_kafka_wide_key,
 )
 from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
 
@@ -163,7 +164,7 @@ class _FakeProducer:
 
 
 def _key(device: str) -> bytes:
-    return ":".join((FARM, COLLECTOR, device)).encode("utf-8")
+    return encode_kafka_wide_key(FARM, device)
 
 
 def _stripe(device: str) -> int:
@@ -171,30 +172,39 @@ def _stripe(device: str) -> int:
 
 
 def _encoded(device: str, sample_ids: list[str]) -> tuple[bytes, ...]:
+    """Each payload represents an independent complete device-wide cycle."""
     now = datetime.now(UTC)
-    batch = SampleBatch(
-        batch_id="b-cache",
-        mode="reliable",
-        wind_farm_id=FARM,
-        collector_id=COLLECTOR,
-        task_id="task-1",
-        device_type="wind_turbine",
-        device_id=device,
-        point_table_id="point_table_wtg_sim_v1.0.0",
-        publish_time=now,
-        samples=tuple(
-            SampleItem(
-                point_id=f"p{index:03d}",
-                sample_id=sample_id,
-                value=1.0,
-                quality="good",
-                sample_time=now,
-                max_staleness_ms=None,
+    results: list[bytes] = []
+    for sample_id in sample_ids:
+        item = SampleItem(
+            point_id="power",
+            sample_id=sample_id,
+            value=1.0,
+            quality="good",
+            sample_time=now,
+        )
+        batch = SampleBatch(
+            batch_id=f"b-cache-{sample_id}",
+            mode="reliable",
+            wind_farm_id=FARM,
+            collector_id=COLLECTOR,
+            task_id="task-1",
+            device_type="wind_turbine",
+            device_id=device,
+            point_table_id="point_table_wtg_sim_v1.0.0",
+            publish_time=now,
+            samples=(item,),
+        )
+        results.append(
+            encode_kafka_wide(
+                batch,
+                batch.samples,
+                device_config_id="device_farm-a_v1.0.0",
+                physical_points=("power",),
+                data_level="protocol",
             )
-            for index, sample_id in enumerate(sample_ids)
-        ),
-    )
-    return encode_kafka_points(batch, batch.samples, data_level="protocol")
+        )
+    return tuple(results)
 
 
 async def _write(output: KafkaOutput, device: str, sample_ids: list[str]):
