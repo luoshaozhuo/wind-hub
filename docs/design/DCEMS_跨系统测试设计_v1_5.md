@@ -1530,7 +1530,7 @@ flowchart TD
 | `sim_plant_reactive_power`（首台） | `1.3.4` | FC04 F32 ABCD | -250～250 kVar（Gateway 原值以 var 表达） | `SyzDevice.powReact`，`coe=0.001` | `emsSyzReact`（kVar） |
 | `primary_frequency_mode`（首台） | `1.1.0` | FC02 Boolean | 伯努利状态，保持 8 个采样步 | `YctpDevice.isFreMode` | `emsIsFreMod` |
 
-其中 `sim_plant_active_power` 与 `sim_plant_reactive_power` 是虚拟独立输入信号，并非十台风机实测功率之和。**仅用于验证协议传输和 DCEMS 数据处理，不能据此验收 AGC 物理闭环。** 首版模型参数和数据类型以 `tests/third_party/dc_ems/config/` 的真实 YAML 为准，10 个风机点分别设置确定性的随机种子与设备身份。此处为设计预期，尚未执行官方 Loader 检查。
+其中 `sim_plant_active_power` 与 `sim_plant_reactive_power` 是虚拟独立输入信号，并非十台风机实测功率之和。**仅用于验证协议传输和 DCEMS 数据处理，不能据此验收 AGC 物理闭环。** 首版模型参数和数据类型以 `tests/third_party/dc-ems/config/` 的真实 YAML 为准，10 个风机点分别设置确定性的随机种子与设备身份。此处为设计预期，尚未执行官方 Loader 检查。
 
 ### G.2 机密隔离和数据库装配
 
