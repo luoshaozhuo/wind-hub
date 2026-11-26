@@ -166,6 +166,16 @@ def _points(server: ServerConfig, device: SharedDeviceDefinition) -> ResolvedSer
             "coil",
         }:
             raise ConfigError(f"{server.device_id}: control mapping is read only")
+        if command_mapping.value_scale != 1.0:
+            target_variable = points.get(command_mapping.target_point_id)
+            if (
+                command_variable.data_type not in {"float32", "float64"}
+                or target_variable is None
+                or target_variable.data_type not in {"float32", "float64"}
+            ):
+                raise ConfigError(
+                    f"{server.device_id}: scaled control mappings require floating-point points"
+                )
         if (
             server.control.target.kind == "commander"
             and command_mapping.target_point_id not in points
