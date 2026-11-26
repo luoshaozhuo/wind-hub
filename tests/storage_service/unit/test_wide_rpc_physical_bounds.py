@@ -17,7 +17,9 @@ from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
 )
 
 
-async def _read(sql_type: str, value: object) -> pb.QueryWideRowsResponse:
+async def _read(
+    sql_type: str, value: object, *, wrong_fingerprint: bool = False,
+) -> pb.QueryWideRowsResponse:
     service = object.__new__(StorageServicer)
     service._auth = Mock()
     service._consumer = SimpleNamespace(recovering=False)
@@ -41,7 +43,7 @@ async def _read(sql_type: str, value: object) -> pb.QueryWideRowsResponse:
             )),),
             next_page_token="",
             complete=True,
-            schema_fingerprint=schema.fingerprint,
+            schema_fingerprint=("f" * 64 if wrong_fingerprint else schema.fingerprint),
         )
     )
     request = pb.QueryWideRowsRequest(
@@ -108,3 +110,9 @@ async def test_wide_rpc_preserves_valid_boundary_values(
     point = result.rows[0].points[0]
     assert point.WhichOneof("value") == field
     assert getattr(point, field) == value
+
+
+@pytest.mark.asyncio
+async def test_wide_rpc_rejects_schema_mismatch_without_partial_success() -> None:
+    with pytest.raises(TDengineSchemaConflictError, match="fingerprint mismatch"):
+        await _read("INT", 1, wrong_fingerprint=True)
