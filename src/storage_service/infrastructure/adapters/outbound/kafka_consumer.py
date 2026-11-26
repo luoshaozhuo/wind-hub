@@ -77,6 +77,8 @@ class KafkaStorageConsumer:
         self._retry_failures: dict[TopicPartition, int] = {}
         self._generation = 0
         self._stop = asyncio.Event()
+        self._close_lock = asyncio.Lock()
+        self._consumer_closed = False
         self._assignment_ready = False
         # Snapshot each assigned partition's broker end before serving queries.
         self._replay_targets: dict[TopicPartition, int] = {}
@@ -87,6 +89,8 @@ class KafkaStorageConsumer:
         return not self._assignment_ready or bool(self._replay_targets)
 
     async def start(self) -> None:
+        if self._consumer_closed:
+            raise RuntimeError("closed Kafka consumer cannot be restarted")
         self._consumer.subscribe(
             topics=[self._config.kafka.topic], listener=_PartitionListener(self)
         )
@@ -324,12 +328,28 @@ class KafkaStorageConsumer:
     async def run(self) -> None:
         """Parallelize partitions, while each partition remains strictly FIFO."""
         semaphore = asyncio.Semaphore(self._config.kafka.max_partition_workers)
+        stop_waiter = asyncio.create_task(self._stop.wait(), name="storage-stop-waiter")
         try:
             while not self._stop.is_set():
-                batches = await self._consumer.getmany(
-                    timeout_ms=self._config.tdengine.ingestion.batch_wait_ms,
-                    max_records=self._config.kafka.max_poll_records,
+                poll = asyncio.create_task(
+                    self._consumer.getmany(
+                        timeout_ms=self._config.tdengine.ingestion.batch_wait_ms,
+                        max_records=self._config.kafka.max_poll_records,
+                    ),
+                    name="storage-kafka-poll",
                 )
+                try:
+                    completed, _pending = await asyncio.wait(
+                        (poll, stop_waiter), return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if stop_waiter in completed:
+                        break
+                    batches = await poll
+                finally:
+                    if not poll.done():
+                        poll.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await poll
                 if not batches:
                     await asyncio.sleep(0)
                     continue
@@ -362,7 +382,17 @@ class KafkaStorageConsumer:
                             name=f"storage-partition-{tp.partition}",
                         )
         finally:
-            await self._consumer.stop()
+            stop_waiter.cancel()
+            with suppress(asyncio.CancelledError):
+                await stop_waiter
+            await self._close_consumer()
+
+    async def _close_consumer(self) -> None:
+        """Serialize shutdown; the run loop and external STOP share one owner."""
+        async with self._close_lock:
+            if not self._consumer_closed:
+                await self._consumer.stop()
+                self._consumer_closed = True
 
     async def retry_blocked_partition(
         self, *, request_id: str, topic: str, partition: int, expected_offset: int
@@ -428,4 +458,4 @@ class KafkaStorageConsumer:
 
     async def stop(self) -> None:
         self.request_stop()
-        await self._consumer.stop()
+        await self._close_consumer()
