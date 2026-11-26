@@ -30,7 +30,10 @@ from storage_service.application.ingestion_contract import ConfigHistoryUnavaila
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
 from storage_service.application.wide_aggregate import WideAggregationService
-from storage_service.application.wide_group_query import GroupedWideSelector, WideGroupedHistoryService
+from storage_service.application.wide_group_query import (
+    GroupedWideSelector,
+    WideGroupedHistoryService,
+)
 from storage_service.application.wide_query import WideHistoryQueryService
 from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
