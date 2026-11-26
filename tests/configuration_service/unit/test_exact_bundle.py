@@ -62,23 +62,34 @@ def test_exact_bundle_rejects_incomplete_or_duplicate_closure(
         app.get_exact_bundle(((identity, "historical-sha"),))
 
 
-@pytest.mark.parametrize(
-    "roots",
-    [
-        ((ConfigIdentity("device", "wtg001"), "same-sha"),) * 2,
-        (
-            (ConfigIdentity("device", "wtg001"), "sha-a"),
-            (ConfigIdentity("device", "wtg001"), "sha-b"),
-        ),
-    ],
-)
-def test_exact_bundle_rejects_duplicate_roots(
-    roots: tuple[tuple[ConfigIdentity, str], ...],
-) -> None:
+def test_exact_bundle_rejects_duplicate_version_roots() -> None:
     app, repo = _application()
-    with pytest.raises(ValueError, match="distinct versions and identities"):
-        app.get_exact_bundle(roots)
+    identity = ConfigIdentity("device", "wtg001")
+    with pytest.raises(ValueError, match="distinct version IDs"):
+        app.get_exact_bundle(((identity, "same-sha"), (identity, "same-sha")))
     repo.get_version_closure_snapshot.assert_not_called()
+
+
+def test_exact_bundle_allows_multiple_versions_of_one_identity() -> None:
+    app, repo = _application()
+    identity = ConfigIdentity("device", "wtg001")
+    repo.get_version_identity.return_value = identity
+    records = ({"version_id": "sha-a"}, {"version_id": "sha-b"})
+    repo.get_version_closure_snapshot.return_value = (7, records)
+    outputs = {
+        "sha-a": SimpleNamespace(
+            relative_path="a.yaml", version_id="sha-a", yaml_bytes=b"a"
+        ),
+        "sha-b": SimpleNamespace(
+            relative_path="b.yaml", version_id="sha-b", yaml_bytes=b"b"
+        ),
+    }
+    app._restore = Mock(side_effect=lambda record, revision_id: outputs[record["version_id"]])
+    roots = ((identity, "sha-a"), (identity, "sha-b"))
+    assert app.get_exact_bundle(roots) == (outputs["sha-a"], outputs["sha-b"])
+    repo.get_version_closure_snapshot.assert_called_once_with(
+        ["sha-a", "sha-b"], max_versions=16
+    )
 
 
 @pytest.mark.parametrize("roots", [(), ((ConfigIdentity("device", "a"), ""),)])
