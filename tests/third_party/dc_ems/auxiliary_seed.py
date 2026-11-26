@@ -21,8 +21,8 @@ def append_auxiliary_devices(seed: dict[str, Any]) -> dict[str, Any]:
     source_device = document["devices"][0]
     source_point = document["edgeaddrset"][0]
     for identity, name, kind, address_set in (
-        ("DCEMS_SUBSTATION", "DCEMS substation", "1", 2),
-        ("DCEMS_PFR", "DCEMS primary frequency", "2", 3),
+        ("SUBSTATION", "DCEMS substation", "1", 2),
+        ("PFR", "DCEMS primary frequency", "2", 3),
     ):
         device = deepcopy(source_device)
         device.update(
