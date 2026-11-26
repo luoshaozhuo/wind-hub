@@ -31,7 +31,7 @@ from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
 from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.application.wide_group_query import GroupedWideSelector, WideGroupedHistoryService
-from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
+from storage_service.application.wide_query import WideHistoryQueryService
 from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
     QueryRejectedError,
@@ -39,7 +39,7 @@ from storage_service.domain.errors import (
 )
 from storage_service.domain.tasks import TaskRecord
 from storage_service.domain.quality_bitmap import pack_quality_bitmap
-from storage_service.domain.wide_record import WideDataLevel, WideIdentity
+from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
