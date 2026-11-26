@@ -273,3 +273,83 @@ async def test_gap_read_does_not_retry_connection_failure() -> None:
     with pytest.raises(ProtocolConnectionError, match="connection lost"):
         await driver.read_many(["first", "second"])
     assert session.calls == 1
+
+
+
+@pytest.mark.asyncio
+async def test_sparse_point_table_online_verification_uses_safe_fallback() -> None:
+    """在线升级点表的预检也必须兼容严格的 Modbus 地址范围。"""
+    from core.application.protocol_contract import PointTableUpdateStatus
+    from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.domain.identities import PointTableId
+    from core.infrastructure.protocol.modbus.driver import ModbusDriver
+    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddress
+
+    original = PointTable(
+        PointTableId("before"),
+        Protocol("modbus"),
+        {"a": _point("a", address=0), "b": _point("b", address=1)},
+    )
+    updated = PointTable(
+        PointTableId("after"),
+        Protocol("modbus"),
+        {"a": _point("a", address=3), "b": _point("b", address=9)},
+    )
+    driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), original, {})
+
+    class StrictSession:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def is_open(self) -> bool:
+            return True
+
+        async def read(
+            self, register_type: str, address: int, count: int, slave_id: int
+        ) -> list[int]:
+            self.calls.append((address, count))
+            if count > 1:
+                raise _ModbusIllegalDataAddress("address hole")
+            return [123]
+
+    session = StrictSession()
+    driver._session = session
+    result = await driver.update_point_table(updated, timeout=5.0)
+    assert result.status is PointTableUpdateStatus.SUCCESS
+    assert result.applied is True
+    assert session.calls == [(3, 7), (3, 1), (9, 1)]
+
+
+@pytest.mark.asyncio
+async def test_unrelated_modbus_protocol_error_does_not_retry_gap() -> None:
+    """仅 IllegalDataAddress 可触发拆分，其他异常必须保持可见。"""
+    from core.application.errors import ProtocolError
+    from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.domain.identities import PointTableId
+    from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+    table = PointTable(
+        PointTableId("unsupported-function"),
+        Protocol("modbus"),
+        {"a": _point("a", address=0), "b": _point("b", address=6)},
+    )
+    driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
+
+    class UnsupportedSession:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def is_open(self) -> bool:
+            return True
+
+        async def read(
+            self, register_type: str, address: int, count: int, slave_id: int
+        ) -> list[int]:
+            self.calls += 1
+            raise ProtocolError("illegal function")
+
+    session = UnsupportedSession()
+    driver._session = session
+    with pytest.raises(ProtocolError, match="illegal function"):
+        await driver.read_many(["a", "b"])
+    assert session.calls == 1
