@@ -912,6 +912,76 @@ class ConfigurationPointTableResolver:
         except (KeyError, ValueError) as exc:
             raise ConfigHistoryUnavailableError("historical wide schema is invalid") from exc
 
+    async def get_wide_column_metadata(
+        self,
+        *,
+        point_table_id: str,
+        physical_point_id: str,
+        data_level: WideDataLevel,
+    ) -> tuple[str, str, str, str]:
+        """Return source point, BusinessPoint, native type and unit from fixed pins."""
+        pin = self._pins.get(point_table_id)
+        if pin is None:
+            raise ConfigHistoryUnavailableError("wide column lacks historical PointTable pin")
+        document = await self._load(
+            config_type="point_table",
+            config_id=pin[0],
+            version_id=pin[1],
+            point_table_id=point_table_id,
+        )
+        self._require_table_identity(
+            point_table_id=point_table_id,
+            config_id=pin[0],
+            document=document,
+        )
+        points = document.get("points")
+        if not isinstance(points, dict):
+            raise ConfigHistoryUnavailableError("historical PointTable points unavailable")
+        if data_level is WideDataLevel.BUSINESS:
+            sources = [
+                (point_id, point)
+                for point_id, point in points.items()
+                if isinstance(point, dict)
+                and point.get("business_point_id") == physical_point_id
+            ]
+            if len(sources) != 1:
+                raise ConfigHistoryUnavailableError("BusinessPoint has no unique source point")
+            source_point_id, _source = sources[0]
+            semantic_pin = self._business_pins.get(point_table_id)
+            if semantic_pin is None:
+                raise ConfigHistoryUnavailableError("historical BusinessPoint catalog is absent")
+            catalog = await self._load(
+                config_type="business_points",
+                config_id=semantic_pin[0],
+                version_id=semantic_pin[1],
+            )
+            definitions = catalog.get("business_points")
+            definition = (
+                definitions.get(physical_point_id) if isinstance(definitions, dict) else None
+            )
+            if not isinstance(definition, dict):
+                raise ConfigHistoryUnavailableError("historical BusinessPoint is absent")
+            native_type, unit = definition.get("data_type"), definition.get("unit")
+            business_id = physical_point_id
+        else:
+            source_point_id = physical_point_id
+            source = points.get(source_point_id)
+            if not isinstance(source, dict):
+                raise ConfigHistoryUnavailableError("historical source point is absent")
+            business_id = source.get("business_point_id") or ""
+            native_type = "bytes" if data_level is WideDataLevel.RAW else source.get("data_type")
+            unit = "" if data_level is WideDataLevel.RAW else source.get("unit")
+        if (
+            not isinstance(source_point_id, str)
+            or not source_point_id
+            or not isinstance(business_id, str)
+            or not isinstance(native_type, str)
+            or not native_type
+            or not isinstance(unit, str)
+        ):
+            raise ConfigHistoryUnavailableError("historical column metadata is invalid")
+        return source_point_id, business_id, native_type, unit
+
     async def get_wide_unit(
         self,
         *,
