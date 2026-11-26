@@ -14,6 +14,7 @@ import grpc
 from storage_service.application.metrics import StorageRuntimeMetrics
 from storage_service.application.tasks import AsyncStorageTasks
 from storage_service.application.wide_aggregate import WideAggregationService
+from storage_service.application.wide_group_query import WideGroupedHistoryService
 from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
 from storage_service.infrastructure.adapters.inbound.grpc_server import (
@@ -181,10 +182,18 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     secret=cursor_secret,
                     max_page_size=bundle.configuration.query.max_page_size,
                 )
+                grouped_history = WideGroupedHistoryService(
+                    history=wide_history,
+                    aggregation=wide_aggregation,
+                    resolver=point_tables,
+                    type_mapping=bundle.configuration.tdengine.type_mapping,
+                    cursor_secret=cursor_secret,
+                    max_page_size=bundle.configuration.query.max_page_size,
+                )
                 jobs = AsyncStorageTasks(
                     config=bundle.configuration,
                     metadata=metadata,
-                    wide_history=wide_history,
+                    grouped_history=grouped_history,
                     backup=NativeTDengineBackup(
                         config=bundle.configuration,
                         metadata=metadata,
@@ -209,6 +218,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     metadata=metadata,
                     wide_query=wide_history,
                     wide_aggregation=wide_aggregation,
+                    grouped_query=grouped_history,
                     jobs=jobs,
                     point_tables=point_tables,
                     consumer=consumer,
