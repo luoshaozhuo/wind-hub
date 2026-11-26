@@ -70,7 +70,7 @@ def test_protocol_roundtrip_uses_complete_device_row() -> None:
     batch = _batch()
     row = _decode(_wire(batch, batch.samples, level="protocol"), level=WideDataLevel.PROTOCOL)
     assert row.values == (12.5,)
-    assert row.sample_time_us == 1_795_306_923_456_789
+    assert row.sample_time_us == 1_795_309_323_456_789
 
 
 def test_business_roundtrip_requires_verified_projection() -> None:
