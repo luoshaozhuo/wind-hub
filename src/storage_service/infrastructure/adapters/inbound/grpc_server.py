@@ -532,6 +532,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 elif kind in {"FLOAT", "DOUBLE"}:
                     if type(value) not in {int, float}:
                         raise TDengineSchemaConflictError("wide float invalid")
+                    if type(value) is int and abs(value) > 2**53:
+                        raise TDengineSchemaConflictError("wide float loses integer precision")
                     try:
                         numeric = float(value)
                     except OverflowError as exc:
