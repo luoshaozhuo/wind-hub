@@ -1,0 +1,408 @@
+.......................FFFF............................................. [ 29%]
+................................................................F....... [ 58%]
+........................................................................ [ 87%]
+.........................F....                                           [100%]
+=================================== FAILURES ===================================
+_____ test_explicit_non_good_quality_participates_in_aggregate[count-1-2] ______
+
+quality = 2, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -> None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+>       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError
+_____ test_explicit_non_good_quality_participates_in_aggregate[count-1-3] ______
+
+quality = 3, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -> None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+>       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError
+______ test_explicit_non_good_quality_participates_in_aggregate[min-42-2] ______
+
+quality = 2, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -> None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+>       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError
+______ test_explicit_non_good_quality_participates_in_aggregate[min-42-3] ______
+
+quality = 3, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -> None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+>       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError
+_________ test_unknown_exact_device_version_is_not_upgraded_to_latest __________
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x744a2805e250>
+record = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=<WideDataLe...ness'>, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def resolve_wide_schema(
+        self,
+        record: WideRecord | WideIdentity,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -> WideSchema:
+        """Resolve an exact Device Instance → Model → PointTable → BusinessPoint schema.
+    
+        No Kafka value or current recommendation determines the physical columns.
+        """
+        try:
+>           binding = self._wide_binding(record)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:724: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x744a2805e250>
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=<WideDataLe...ness'>, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        matches = {
+            (binding.device_version_id, binding.point_table_id): binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == identity.wind_farm_id and device == identity.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == identity.device_config_id
+            )
+        }
+        if len(matches) != 1:
+>           raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+E           storage_service.application.ingestion_contract.ConfigHistoryUnavailableError: Kafka Device Instance version lacks one exact historical binding
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:703: ConfigHistoryUnavailableError
+
+During handling of the above exception, another exception occurred:
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x744a2805e250>
+record = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=<WideDataLe...ness'>, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def resolve_wide_schema(
+        self,
+        record: WideRecord | WideIdentity,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -> WideSchema:
+        """Resolve an exact Device Instance → Model → PointTable → BusinessPoint schema.
+    
+        No Kafka value or current recommendation determines the physical columns.
+        """
+        try:
+            binding = self._wide_binding(record)
+        except ConfigHistoryUnavailableError:
+            if self._refresh_hook is not None:
+                await self._refresh_hook()
+            try:
+>               binding = self._wide_binding(record)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:729: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x744a2805e250>
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=<WideDataLe...ness'>, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -> DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        matches = {
+            (binding.device_version_id, binding.point_table_id): binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == identity.wind_farm_id and device == identity.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == identity.device_config_id
+            )
+        }
+        if len(matches) != 1:
+>           raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+E           storage_service.application.ingestion_contract.ConfigHistoryUnavailableError: Kafka Device Instance version lacks one exact historical binding
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:703: ConfigHistoryUnavailableError
+
+During handling of the above exception, another exception occurred:
+
+    @pytest.mark.asyncio
+    async def test_unknown_exact_device_version_is_not_upgraded_to_latest() -> None:
+        with pytest.raises(ConfigHistoryUnavailableError, match="historical binding"):
+>           await _resolver().resolve_wide_schema(
+                _record("device_farm-a_v9.0.0"),
+                type_mapping=_mapping(), max_row_bytes=65536,
+            )
+
+tests/storage_service/unit/test_wide_device_resolution.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:731: in resolve_wide_schema
+    await self._fetch_unknown_device(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x744a2805e250>
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=<WideDataLe...ness'>, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def _fetch_unknown_device(self, identity: WideIdentity | WideRecord) -> None:
+        """Atomically validate and durably pin one previously unseen historical device."""
+>       async with self._lock:
+                   ^^^^^^^^^^
+E       AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_lock'
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:659: AttributeError
+_________ test_every_storage_and_common_rpc_rejects_unauthorized_calls _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x744a289c1090>
+
+    async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Enumerate the live proto, not a frozen count or hand-written method list."""
+        from google.protobuf.message_factory import GetMessageClass
+    
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        config = _config()
+        server = _server(config)
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        try:
+            services = (
+                (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+                (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+            )
+            observed: set[tuple[str, str]] = set()
+            for file_descriptor, name, stub_cls in services:
+                service = file_descriptor.services_by_name[name]
+                stub = stub_cls(channel)
+                for method in service.methods:
+                    assert not method.client_streaming and not method.server_streaming
+                    request = GetMessageClass(method.input_type)()
+                    for metadata in (
+                        None,
+                        (("authorization", "Bearer invalid-credential"),),
+                    ):
+                        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                            await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+>                       assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                            name,
+                            method.name,
+                        )
+E                       AssertionError: ('StorageService', 'QuerySamples')
+E                       assert <StatusCode.UNIMPLEMENTED: (12, 'unimplemented')> == <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')>
+E                        +  where <StatusCode.UNIMPLEMENTED: (12, 'unimplemented')> = code()
+E                        +    where code = <AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected <class 'NotImpleme...implemented!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected <class 'NotImplementedError'>: Method not implemented!"\n>.code
+E                        +      where <AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected <class 'NotImpleme...implemented!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected <class 'NotImplementedError'>: Method not implemented!"\n> = <ExceptionInfo <AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected <cl...ed!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected <class 'NotImplementedError'>: Method not implemented!"\n> tblen=2>.value
+E                        +  and   <StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')> = <enum 'StatusCode'>.UNAUTHENTICATED
+E                        +    where <enum 'StatusCode'> = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:127: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    grpc._cython.cygrpc:events.py:84 Unexpected [NotImplementedError] raised by servicer method [/windhub.storage.v1.StorageService/QuerySamples]
+Traceback (most recent call last):
+  File "src/python/grpcio/grpc/_cython/_cygrpc/aio/server.pyx.pxi", line 710, in grpc._cython.cygrpc._handle_exceptions
+  File "src/python/grpcio/grpc/_cython/_cygrpc/aio/server.pyx.pxi", line 866, in _handle_rpc
+  File "src/python/grpcio/grpc/_cython/_cygrpc/aio/server.pyx.pxi", line 572, in _handle_unary_unary_rpc
+  File "src/python/grpcio/grpc/_cython/_cygrpc/aio/server.pyx.pxi", line 433, in _finish_handler_with_unary_response
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/luosh/wind-hub/src/contracts/storage_service_pb2_grpc.py", line 102, in QuerySamples
+    raise NotImplementedError('Method not implemented!')
+NotImplementedError: Method not implemented!
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/storage.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/unit/test_d5_explicit_quality_aggregate.py::test_explicit_non_good_quality_participates_in_aggregate[count-1-2]
+FAILED tests/storage_service/unit/test_d5_explicit_quality_aggregate.py::test_explicit_non_good_quality_participates_in_aggregate[count-1-3]
+FAILED tests/storage_service/unit/test_d5_explicit_quality_aggregate.py::test_explicit_non_good_quality_participates_in_aggregate[min-42-2]
+FAILED tests/storage_service/unit/test_d5_explicit_quality_aggregate.py::test_explicit_non_good_quality_participates_in_aggregate[min-42-3]
+FAILED tests/storage_service/unit/test_wide_device_resolution.py::test_unknown_exact_device_version_is_not_upgraded_to_latest
+FAILED tests/storage_service/component/test_grpc_common.py::test_every_storage_and_common_rpc_rejects_unauthorized_calls
+6 failed, 240 passed in 2.34s

@@ -1,0 +1,26 @@
+[
+  {
+    "command": "python -m ruff check src tests scripts",
+    "exit_code": 1
+  },
+  {
+    "command": "python -m ruff format --check src tests scripts",
+    "exit_code": 1
+  },
+  {
+    "command": "python -m mypy src",
+    "exit_code": 1
+  },
+  {
+    "command": "python scripts/generate_rpc.py --check",
+    "exit_code": 0
+  },
+  {
+    "command": "lint-imports",
+    "exit_code": 0
+  },
+  {
+    "command": "pytest --collect-only -q",
+    "exit_code": 0
+  }
+]

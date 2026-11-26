@@ -1,0 +1,149 @@
+
+==> soak
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/reliability -q -m soak and not performance --junitxml docs/audit/storage_wide_table_d5_independent_20261126_evidence/soak.xml
+FF                                                                       [100%]Task was destroyed but it is pending!
+task: <Task pending name='Task-2' coro=<CollectorPublisher._run() running at /home/luosh/wind-hub/src/collector/infrastructure/adapters/outbound/publisher.py:324> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object CollectorPublisher._run at 0x700ddac3b340>
+
+Traceback (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+    await getter
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/luosh/wind-hub/src/collector/infrastructure/adapters/outbound/publisher.py", line 324, in _run
+    batch = await self._queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+    getter.cancel()  # Just in case getter is not done yet.
+    ^^^^^^^^^^^^^^^
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+    self._check_closed()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+
+Enable tracemalloc to get traceback where the object was allocated.
+See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+=================================== FAILURES ===================================
+______ test_realtime_30_devices_10hz_load_counts_close_and_tasks_released ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x700dde05a790>
+
+    @pytest.mark.asyncio
+    async def test_realtime_30_devices_10hz_load_counts_close_and_tasks_released(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake = _FakeNats()
+    
+        async def fake_connect(**kwargs: Any) -> _FakeNats:
+            return fake
+    
+        monkeypatch.setattr(publisher_module.nats, "connect", fake_connect)
+        publisher = CollectorPublisher(
+            servers=["nats://127.0.0.1:4222"],
+            site_id="farm-a",
+            collector_id="collector-1",
+            delivery="realtime",
+            capacity=8192,
+            max_samples_per_batch=100,
+            # 放大 TTL 隔离容量/对账语义；默认 500ms TTL 的过期丢弃由
+            # tests/src/component/test_collector/test_publisher.py 专门验证。
+            max_staleness_ms=30_000,
+        )
+        tasks_before = len(asyncio.all_tasks())
+        expected_batches = 30 * 20
+        await publisher.start()
+>       await _drive(publisher, devices=30, cycles=20, points=100)
+
+tests/src/reliability/test_batch_pipeline_load.py:109: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/src/reliability/test_batch_pipeline_load.py:71: in _drive
+    await asyncio.gather(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <range_iterator object at 0x700ddac53f00>
+
+        *(
+>           publisher.publish(
+                f"wtg-{device:02d}",
+                samples,
+                device_type="wtg",
+                point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                task_id="task-load",
+            )
+            for device in range(devices)
+        )
+    )
+E   TypeError: CollectorPublisher.publish() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/src/reliability/test_batch_pipeline_load.py:73: TypeError
+_______________ test_reliable_30_devices_load_has_no_silent_loss _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x700ddad96410>
+
+    @pytest.mark.asyncio
+    async def test_reliable_30_devices_load_has_no_silent_loss(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake = _FakeNats()
+    
+        async def fake_connect(**kwargs: Any) -> _FakeNats:
+            return fake
+    
+        monkeypatch.setattr(publisher_module.nats, "connect", fake_connect)
+        publisher = CollectorPublisher(
+            servers=["nats://127.0.0.1:4222"],
+            site_id="farm-a",
+            collector_id="collector-1",
+            delivery="reliable",
+            capacity=8192,
+            max_samples_per_batch=500,
+        )
+        expected_batches = 30 * 5
+        await publisher.start()
+>       await _drive(publisher, devices=30, cycles=5, points=500)
+
+tests/src/reliability/test_batch_pipeline_load.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/src/reliability/test_batch_pipeline_load.py:71: in _drive
+    await asyncio.gather(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <range_iterator object at 0x700ddacbfb70>
+
+        *(
+>           publisher.publish(
+                f"wtg-{device:02d}",
+                samples,
+                device_type="wtg",
+                point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                task_id="task-load",
+            )
+            for device in range(devices)
+        )
+    )
+E   TypeError: CollectorPublisher.publish() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/src/reliability/test_batch_pipeline_load.py:73: TypeError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/soak.xml -
+=========================== short test summary info ============================
+FAILED tests/src/reliability/test_batch_pipeline_load.py::test_realtime_30_devices_10hz_load_counts_close_and_tasks_released
+FAILED tests/src/reliability/test_batch_pipeline_load.py::test_reliable_30_devices_load_has_no_silent_loss
+2 failed, 9 deselected in 0.09s
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4' coro=<CollectorPublisher._run() running at /home/luosh/wind-hub/src/collector/infrastructure/adapters/outbound/publisher.py:324> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Exception ignored in: <coroutine object CollectorPublisher._run at 0x700ddac3aac0>
+Traceback (most recent call last):
+  File "/home/luosh/wind-hub/src/collector/infrastructure/adapters/outbound/publisher.py", line 324, in _run
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+RuntimeError: Event loop is closed
+[FAIL] soak: exit=1
+
+GATE RESULT: FAIL

@@ -1,0 +1,52 @@
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:74:101: E501 Line too long (102 > 100)
+   |
+72 |             max_poll_records=configuration.kafka.max_poll_records,
+73 |             fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
+74 |             max_partition_fetch_bytes=min(1048576, configuration.tdengine.ingestion.buffer_max_bytes),
+   |                                                                                                     ^^ E501
+75 |         )
+76 |         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
+   |
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:232:101: E501 Line too long (103 > 100)
+    |
+230 |             port=port,
+231 |             # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
+232 |             read_timeout=str(max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)),
+    |                                                                                                     ^^^ E501
+233 |         )
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:343:13: F541 [*] f-string without any placeholders
+    |
+341 |     for device in range(devices):
+342 |         rows = probe.connection.query(
+343 |             f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ F541
+344 |             + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
+345 |         )
+    |
+    = help: Remove extraneous `f` prefix
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:343:101: E501 Line too long (103 > 100)
+    |
+341 |     for device in range(devices):
+342 |         rows = probe.connection.query(
+343 |             f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+    |                                                                                                     ^^^ E501
+344 |             + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
+345 |         )
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:522:14: B017 `pytest.raises(Exception)` should be considered evil
+    |
+520 |     try:
+521 |         statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+522 |         with pytest.raises(Exception):
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^ B017
+523 |             statement.bind(
+524 |                 [
+    |
+
+Found 5 errors.
+[*] 1 fixable with the `--fix` option.

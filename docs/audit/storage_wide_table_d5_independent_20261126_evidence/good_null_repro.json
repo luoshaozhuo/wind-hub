@@ -1,0 +1,9 @@
+{
+  "decode": "PASS",
+  "bind_values": [
+    null
+  ],
+  "quality_hex": "01",
+  "query": "FAIL",
+  "error": "wide backend returned inconsistent NULL and quality"
+}

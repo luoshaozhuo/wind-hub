@@ -1,0 +1,91 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_eight_service_chain_is_cli_managed_and_persisted _____________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-48/test_eight_service_chain_is_cl0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_eight_service_chain_is_cli_managed_and_persisted(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+    
+        print("STEP1 status")
+        # 1) Every configured process is observable through the formal CLI.
+        for name in SERVICES + ("configuration",):
+            status = harness.status(name)
+            assert status["status"] == "SUCCESS", (name, status)
+    
+        print("STEP2 deliveries")
+        # 2) Business operations are issued through CLI: deliveries then generation.
+        listed = harness.cli("sink", "deliveries")
+        assert listed["status"] == "SUCCESS", listed
+        available = (listed.get("data") or {}).get("deliveries") or []
+        available_ids = {item.get("delivery_id") or item.get("id") for item in available}
+        assert set(DELIVERIES) <= available_ids, f"missing four-output Delivery: {available_ids}"
+        for delivery in DELIVERIES:
+            deadline = time.monotonic() + 45
+            last: dict[str, object] = {}
+            while time.monotonic() < deadline:
+                last = harness.cli("sink", "start", delivery, "--yes", check=False, timeout=90)
+                if last["status"] == "SUCCESS":
+                    break
+                time.sleep(1.0)
+            assert last.get("status") == "SUCCESS", (delivery, last)
+    
+        harvest = harness.cli("data-generator", "start", "e2e-plant-physical", "--yes", timeout=90)
+        assert harvest["status"] == "SUCCESS", harvest
+    
+        print("STEP3 samples")
+        # 3) Wait for PROTOCOL samples to reach Storage and TDengine.
+        window_end = datetime.now(UTC) + timedelta(seconds=5)
+        window_start = window_end - timedelta(minutes=10)
+        proto_args = (
+            "storage",
+            "samples",
+            "e2e-final",
+            (window_start - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "--level",
+            "protocol",
+            "--page-size",
+            "200",
+        )
+        deadline = time.monotonic() + 90
+        sample_count = 0
+        last: dict[str, object] = {}
+        while time.monotonic() < deadline:
+            payload = harness.cli(*proto_args, check=False, timeout=60)
+            last = payload
+            data = payload.get("data") or {}
+            items = data.get("samples") or data.get("items") or []
+            sample_count = len(items)
+            if sample_count:
+                break
+            await_time = 1.0
+            time.sleep(await_time)
+        if not sample_count:
+            diagnostics = {
+                name: harness.status(name)
+                for name in (
+                    "data-generator",
+                    "collector-realtime",
+                    "collector-reliable",
+                    "sink",
+                    "storage",
+                )
+            }
+            diagnostics["deliveries"] = harness.cli("sink", "deliveries", check=False)
+            diagnostics["sink_metrics"] = harness.cli("sink", "metrics", check=False)
+            diagnostics["storage"] = last
+>           raise AssertionError(f"Storage returned no PROTOCOL samples: {diagnostics}")
+E           AssertionError: Storage returned no PROTOCOL samples: {'data-generator': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'data-generator', 'process': {'manager': 'process', 'target': 'data-generator', 'pid': 435326, 'start_tick': '6270600', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'gateway:gw-bess-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-grid-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-ppc-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-pv-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}, {'name': 'gateway:gw-wtg-sim01', 'health': 'UNKNOWN', 'detail': 'no active health probe'}], 'observed_at': '2026-11-26T05:22:13.822748Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'collector-realtime': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'collector-realtime', 'process': {'manager': 'process', 'target': 'collector-realtime', 'pid': 435703, 'start_tick': '6270981', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'acquisition', 'health': 'HEALTHY', 'detail': ''}, {'name': 'nats', 'health': 'HEALTHY', 'detail': ''}], 'observed_at': '2026-11-26T05:22:14.114465Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'collector-reliable': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'collector-reliable', 'process': {'manager': 'process', 'target': 'collector-reliable', 'pid': 435793, 'start_tick': '6271162', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'acquisition', 'health': 'HEALTHY', 'detail': ''}, {'name': 'nats', 'health': 'HEALTHY', 'detail': ''}], 'observed_at': '2026-11-26T05:22:14.392293Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'sink': {'schema_version': 1, 'command': 'service status', 'status': 'SUCCESS', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': 435413, 'start_tick': '6270690', 'running': True, 'state': 'RUNNING', 'status': 'ACTIVE'}, 'business': {'health': 'HEALTHY', 'dependencies': [{'name': 'configuration', 'health': 'RUNNING', 'detail': ''}, {'name': 'worker.realtime', 'health': 'RUNNING', 'detail': ''}, {'name': 'worker.reliable', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_gateway_power', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_kafka_protocol', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_modbus_power', 'health': 'RUNNING', 'detail': ''}, {'name': 'e2e_redis_power', 'health': 'RUNNING', 'detail': ''}], 'observed_at': '2026-11-26T05:22:14.464710Z', 'target_revision': '', 'active_revision': ''}}], 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'storage': {'exit_code': 2, 'stderr': "Usage: python -m cli.main storage [OPTIONS] COMMAND [ARGS]...\nTry 'python -m cli.main storage --help' for help.\n╭─ Error ──────────────────────────────────────────────────────────────────────╮\n│ No such command 'samples'.                                                   │\n╰──────────────────────────────────────────────────────────────────────────────╯\n"}, 'deliveries': {'schema_version': 1, 'command': 'sink ListDeliveries', 'status': 'SUCCESS', 'target': None, 'data': {'deliveries': [{'delivery_id': 'e2e_gateway_power', 'channel': 'realtime', 'sink_id': 'e2e_gateway', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': '1d94bd6d6a12b4855f381a176d97a75e77fc8f05376d9681d6393fa0ff425484', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_gateway"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'target_mappings', 'value': {'string_value': '[{"source_device_id": "WTG_SIM01", "source_point_id": "active_power", "variable_id": "active_power"}]'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_kafka_protocol', 'channel': 'reliable', 'sink_id': 'e2e_kafka', 'process_role': 'reliable', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': '1d94bd6d6a12b4855f381a176d97a75e77fc8f05376d9681d6393fa0ff425484', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_kafka"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-reliable", "devices": ["WTG_SIM01"], "points": [], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"reliable_history"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_modbus_power', 'channel': 'realtime', 'sink_id': 'e2e_modbus', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': '1d94bd6d6a12b4855f381a176d97a75e77fc8f05376d9681d6393fa0ff425484', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_modbus"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}, {'delivery_id': 'e2e_redis_power', 'channel': 'realtime', 'sink_id': 'e2e_redis', 'process_role': 'realtime', 'desired_state': 'START', 'actual_state': 'RUNNING', 'revision': '1d94bd6d6a12b4855f381a176d97a75e77fc8f05376d9681d6393fa0ff425484', 'config': [{'key': 'desired_state', 'value': {'string_value': '"START"'}}, {'key': 'overrides', 'value': {'string_value': '{}'}}, {'key': 'sink_id', 'value': {'string_value': '"e2e_redis"'}}, {'key': 'source', 'value': {'string_value': '{"collector_id": "collector-e2e-realtime", "devices": ["WTG_SIM01"], "points": ["active_power"], "wind_farm_id": "e2e-final"}'}}, {'key': 'template_id', 'value': {'string_value': '"realtime_power"'}}, {'key': 'template_version', 'value': {'string_value': '"1.1.0"'}}], 'last_error': ''}], 'next_page_token': ''}, 'error_code': None, 'exit_code': 0, 'stderr': ''}, 'sink_metrics': {'schema_version': 1, 'command': 'sink GetMetrics', 'status': 'SUCCESS', 'target': None, 'data': {'metrics': [{'name': 'acknowledged_batches_total', 'value': 996.0, 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'backlog_messages', 'unit': 'messages', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'dead_letter_invalid_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'dead_letter_total', 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'delivered_rate_per_second', 'value': 37.333333333333336, 'unit': 'samples/s', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'delivered_total', 'value': 3789.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'dropped_total', 'value': 11.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'failed_total', 'unit': 'attempts', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'filtered_ack_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'filtered_ack_values_total', 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'input_batches_total', 'value': 5686.0, 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'input_values_total', 'value': 128486.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'io_inflight', 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'kafka_confirm_seconds_total', 'value': 1.408316083921818, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'kafka_lock_seconds_total', 'value': 0.0010632140474626794, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'kafka_metadata_seconds_total', 'value': 1.584499841555953e-05, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'kafka_submit_seconds_total', 'value': 0.04307117212738376, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'kafka_timed_writes_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'metrics_covered_ms', 'value': 60000.0, 'unit': 'ms', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'metrics_snapshot_ready', 'value': 1.0, 'unit': 'bool', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'metrics_snapshot_stale', 'unit': 'bool', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'quota_global_seconds_total', 'value': 0.017004065928631462, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'quota_native_seconds_total', 'value': 1.5457010261088726, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'quota_physical_seconds_total', 'value': 0.011487554060295224, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'quota_timed_writes_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'realtime_event_loop_lag_ms_p99', 'value': 2.062220999505371, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'received_total', 'value': 34676.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'rejected_batches_total', 'unit': 'batches', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'reliable_encode_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_encode_seconds_total', 'value': 0.1268606228986755, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_event_loop_lag_ms_p99', 'value': 1.9936030003009364, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_source_ack_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_source_ack_seconds_total', 'value': 0.46198769285547314, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_source_fetch_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_source_fetch_seconds_total', 'value': 91.27113419087982, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_write_operations_total', 'value': 996.0, 'unit': 'operations', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'reliable_write_seconds_total', 'value': 1.614019357075449, 'unit': 's', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'retry_total', 'unit': 'attempts', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z', 'value': 0.0}, {'name': 'routed_values_total', 'value': 2804.0, 'unit': 'samples', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'write_latency_ms_max_delivery_p99', 'value': 1.9582150505913154, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'write_latency_ms_p99', 'value': 1.7591805873929016, 'unit': 'ms', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'write_success_ratio', 'value': 1.0, 'unit': 'ratio', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}, {'name': 'write_success_total', 'value': 3789.0, 'unit': 'count', 'window_ms': '60000', 'sampled_at': '2026-11-26T05:22:15.465267Z'}]}, 'error_code': None, 'exit_code': 0, 'stderr': ''}}
+
+tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py:174: AssertionError
+----------------------------- Captured stdout call -----------------------------
+STEP1 status
+STEP2 deliveries
+STEP3 samples
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/eight_service_latest.xml -
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py::test_eight_service_chain_is_cli_managed_and_persisted
+1 failed, 1 passed in 179.05s (0:02:59)

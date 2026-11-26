@@ -1,0 +1,135 @@
+ .gitignore                                         |   1 +
+ src/cli/configuration_commands.py                  | 125 ++-
+ src/cli/storage_commands.py                        | 176 ++--
+ src/collector/application/acquisition.py           |  38 +-
+ src/collector/application/batch_builder.py         |  44 +-
+ src/collector/application/diagnostics.py           |   6 +
+ src/collector/application/ports/acquisition.py     |   4 +
+ src/collector/assembly.py                          |   7 +
+ .../infrastructure/adapters/outbound/publisher.py  |  12 +
+ src/collector/infrastructure/config/validation.py  |   1 +
+ src/configuration_service/application/ports.py     |   7 +
+ src/configuration_service/application/service.py   |  51 ++
+ .../adapters/inbound/grpc/repository_server.py     |  50 +-
+ .../sqlite/{migration_v1.py => initial_schema.py}  |   0
+ .../adapters/outbound/sqlite/repository.py         |  16 +
+ .../adapters/outbound/sqlite/schema.py             |   2 +-
+ src/contracts/configuration_repository.proto       |   3 +
+ src/contracts/configuration_repository_pb2.py      |  96 +--
+ src/contracts/configuration_repository_pb2.pyi     |   6 +-
+ src/contracts/sample_batch.py                      |  48 +-
+ src/contracts/storage_service.proto                |  58 ++
+ src/contracts/storage_service_pb2.py               |  86 +-
+ src/contracts/storage_service_pb2.pyi              | 226 ++++-
+ src/contracts/storage_service_pb2_grpc.py          |  43 +
+ src/contracts/storage_service_pb2_grpc.pyi         |   9 +
+ src/core/domain/protocol_types.py                  |  44 +
+ src/sink_service/application/reliable_engine.py    |  19 +-
+ src/sink_service/application/reliable_policy.py    |  10 +-
+ .../infrastructure/adapters/outbound/kafka_wire.py | 161 ++--
+ .../infrastructure/reliable_runtime.py             |  55 +-
+ src/storage_service/application/config.py          |   6 +-
+ src/storage_service/application/ingestion.py       | 276 ------
+ .../application/ingestion_contract.py              |  31 +
+ src/storage_service/application/metrics.py         |  14 +
+ src/storage_service/application/query.py           | 278 ------
+ src/storage_service/application/tasks.py           | 241 ++----
+ src/storage_service/application/wide_aggregate.py  | 284 ++++++
+ src/storage_service/application/wide_export.py     | 235 +++++
+ src/storage_service/application/wide_ingestion.py  | 259 ++++++
+ src/storage_service/application/wide_query.py      | 390 +++++++++
+ src/storage_service/domain/errors.py               |  13 +
+ src/storage_service/domain/naming.py               |  48 +-
+ src/storage_service/domain/quality_bitmap.py       |  43 +
+ src/storage_service/domain/sample.py               | 255 ------
+ src/storage_service/domain/wide_record.py          | 173 ++++
+ src/storage_service/domain/wide_row.py             |  85 ++
+ src/storage_service/domain/wide_schema.py          | 159 ++++
+ .../infrastructure/adapters/inbound/grpc_server.py | 618 +++++++-------
+ .../adapters/outbound/configuration_archive.py     | 533 +++++++++---
+ .../adapters/outbound/configuration_grpc.py        |  68 +-
+ .../adapters/outbound/configuration_snapshot.py    |   2 +-
+ .../adapters/outbound/configuration_watch.py       |   2 +-
+ .../adapters/outbound/kafka_consumer.py            |  24 +-
+ .../adapters/outbound/metadata_store.py            |  55 +-
+ .../adapters/outbound/tdengine_backend.py          | 947 +++++++++------------
+ .../adapters/outbound/tdengine_backup.py           | 242 +++++-
+ .../adapters/outbound/tdengine_schema.py           |  79 +-
+ .../infrastructure/adapters/outbound/wide_ddl.py   |  84 ++
+ .../infrastructure/adapters/outbound/wide_stmt2.py | 123 +++
+ src/storage_service/main.py                        |  36 +-
+ tests/cli/test_command_tree.py                     |   7 +-
+ tests/cli/test_storage_command_cleanup.py          |  18 +
+ tests/cli/test_storage_wide_quality_commands.py    |  53 ++
+ ...n_runtime_v1.py => test_acquisition_runtime.py} |   0
+ ...t_grpc_contract_v1.py => test_grpc_contract.py} |   0
+ .../{test_rpc_bounds_v1.py => test_rpc_bounds.py}  |   0
+ ...t_snapshot_grpc_v1.py => test_snapshot_grpc.py} |   0
+ tests/collector/unit/test_batch_builder_wide.py    |  60 ++
+ .../{test_lifecycle_v1.py => test_lifecycle.py}    |   0
+ ...trics_emitter_v1.py => test_metrics_emitter.py} |   0
+ .../{test_telemetry_v1.py => test_telemetry.py}    |   0
+ .../component/test_schema_regressions.py           |  69 +-
+ .../integration/test_storage_deployment_flow.py    |   6 +-
+ .../unit/test_exact_bundle.py                      |  99 +++
+ .../unit/test_exact_bundle_rpc.py                  | 112 +++
+ .../unit/test_exact_bundle_wire.py                 |  23 +
+ ...t_sqlite_schema_v2.py => test_sqlite_schema.py} |   2 +-
+ .../test_wide_rpc_v2_binding_consistency.py        |  92 ++
+ tests/core/domain/test_protocol_types.py           |  35 +
+ .../component/test_b1_encoded_kafka_delivery.py    | 108 ++-
+ .../system/test_raw_protocol_storage_wire_e2e.py   |  91 +-
+ .../sink_service/unit/test_kafka_device_stripes.py |  61 +-
+ .../unit/test_kafka_output_partition_cache.py      |  60 +-
+ tests/sink_service/unit/test_kafka_wide.py         | 174 ++++
+ .../sink_service/unit/test_kafka_wire_b3_bytes.py  | 190 ++---
+ tests/sink_service/unit/test_kafka_wire_parity.py  | 271 ++----
+ ..._subscription_v1_27.py => test_subscription.py} |   0
+ .../{test_publisher_v2.py => test_publisher.py}    |   0
+ tests/src/reliability/test_batch_pipeline_load.py  |   2 +-
+ .../component/test_aggregate_pagination.py         | 197 -----
+ .../storage_service/component/test_grpc_common.py  |  16 +-
+ .../component/test_kafka_ingestion_reliability.py  | 165 ----
+ .../integration/test_cli_restart_activation.py     | 214 +----
+ .../integration/test_kafka_json_versions.py        | 282 ------
+ .../storage_service/integration/test_kafka_real.py |   4 +-
+ .../integration/test_tdengine_real.py              | 726 ----------------
+ .../unit/test_configuration_archive.py             |   2 +-
+ .../unit/test_configuration_grpc.py                |  18 +-
+ .../unit/test_configuration_reconciliation.py      | 231 +----
+ tests/storage_service/unit/test_device_binding.py  | 322 +------
+ .../unit/test_exact_device_bundle_rpc.py           |  58 ++
+ .../unit/test_historical_device_closure.py         |  97 +++
+ .../unit/test_kafka_json_contract.py               | 103 ---
+ .../storage_service/unit/test_kafka_replay_gate.py |  21 +
+ tests/storage_service/unit/test_kafka_retry.py     |   4 +-
+ .../unit/test_no_legacy_history_paths.py           | 120 +++
+ tests/storage_service/unit/test_quality_bitmap.py  |  38 +
+ .../storage_service/unit/test_replay_visibility.py |  76 ++
+ .../unit/test_sink_storage_wide_contract.py        |  55 ++
+ .../unit/test_sink_wire_contract.py                | 189 ++--
+ .../unit/test_storage_crash_faults.py              |   2 +-
+ tests/storage_service/unit/test_tdengine_backup.py | 159 +++-
+ tests/storage_service/unit/test_tdengine_decode.py | 115 +--
+ .../storage_service/unit/test_tdengine_timeouts.py | 359 +++-----
+ .../unit/test_wide_active_query_metrics.py         |  78 ++
+ tests/storage_service/unit/test_wide_aggregate.py  | 329 +++++++
+ tests/storage_service/unit/test_wide_ddl.py        |  68 ++
+ .../unit/test_wide_device_resolution.py            |  98 +++
+ tests/storage_service/unit/test_wide_export.py     | 225 +++++
+ tests/storage_service/unit/test_wide_ingestion.py  | 224 +++++
+ .../unit/test_wide_quality_filter.py               | 128 +++
+ tests/storage_service/unit/test_wide_query.py      |  95 +++
+ .../unit/test_wide_query_service.py                | 114 +++
+ tests/storage_service/unit/test_wide_record.py     | 105 +++
+ tests/storage_service/unit/test_wide_row.py        |  95 +++
+ .../storage_service/unit/test_wide_rpc_contract.py |  52 ++
+ .../storage_service/unit/test_wide_rpc_handler.py  |  68 ++
+ .../unit/test_wide_rpc_physical_bounds.py          | 118 +++
+ tests/storage_service/unit/test_wide_schema.py     |  66 ++
+ tests/storage_service/unit/test_wide_stmt2.py      |  99 +++
+ .../eight_service/test_e2e_eight_service_raw.py    | 187 ++--
+ .../eight_service/test_e2e_eight_service_smoke.py  |   2 +-
+ tests/tooling/test_versionless_python_filenames.py |  20 +
+ .../webapi/{test_v1.py => test_webapi_contract.py} |   0
+ 134 files changed, 8539 insertions(+), 5745 deletions(-)

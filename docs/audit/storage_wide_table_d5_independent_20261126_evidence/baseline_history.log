@@ -1,0 +1,381 @@
+2965d3bd0 feat 忽略所有tar文件
+360d88484 test: reject spoofed device-version and timestamp overrides in Sink wide v3 encoding
+6e10ee9ee sink: pin wide Kafka device version and sample time to immutable source batch
+bf0c79c96 test: supply Collector v4 immutable device and synchronized point-set arguments in Sink real E2E
+8cb596ebe test: reject malformed and oversized original RAW bytes at Sink v3 encoder
+35e205678 sink: enforce canonical bounded RAW source bytes at device-wide encoder boundary
+75ff756b9 test: prevent reintroduction of retired Sink Kafka v2 encoder or hook
+4ddbea443 test: use exact immutable device version and complete point set in Collector-to-Sink wide wire test
+5f0de9d60 sink: rename reliable Kafka encoding hook to its sole device-wide v3 contract
+fa99b4a77 sink: rename reliable Kafka encoding hook to its sole device-wide v3 contract
+65633f923 test: replace point-chunk Kafka Delivery tests with complete-device v3 reliability gates
+3abced76e test: supply required immutable device config and synchronized sample time for v4 SampleBatch
+0d4f28b58 test: supply required immutable device config and synchronized sample time for v4 SampleBatch
+a5c2230b3 test: supply required immutable device config and synchronized sample time for v4 SampleBatch
+e55780acb test: supply required immutable device config and synchronized sample time for v4 SampleBatch
+60ac8cfd5 test: supply required immutable device config and synchronized sample time for v4 SampleBatch
+7df28a9d2 test: preserve Kafka partition-cache coverage with authoritative farm-device wide keys
+8fe50f5a7 test: exercise Kafka device stripes with complete wide v3 records and farm-device keys
+2f2668c3b test: replace obsolete Kafka point chunking gates with complete wide record invariants
+00b539299 test: replace Kafka v2 per-point parity cases with independent wide JSON v3 encoder contract
+3e89e6f4e sink: serialize device-wide sample times as canonical UTC RFC3339
+a7862a9a3 sink: remove obsolete per-point Kafka JSON v2 encoder, keep only wide v3
+df849bdfe test: align Storage CLI restart activation service versions with current Schema v6
+f759955d0 test: keep published Storage service file versions consistent with Schema v6 documents
+d4d7a2c13 test: migrate Storage configuration fixtures and exact service versions to Schema v6
+d93ef31d8 test: migrate Storage configuration fixtures and exact service versions to Schema v6
+01d35a5c5 test: migrate Storage configuration fixtures and exact service versions to Schema v6
+1cc30c9ac test: migrate Storage configuration fixtures and exact service versions to Schema v6
+cb5e6390d test: migrate Storage configuration fixtures and exact service versions to Schema v6
+dafece0cc test: enforce removal of retired point-oriented Storage symbols across all production modules
+824ade051 storage: remove obsolete per-point Kafka JSON v2 StorageSample domain
+9b8e29b1b test: delete obsolete Kafka v2 tests superseded by strict wide JSON v3 coverage
+47f83ed0d test: migrate real Sink Kafka system boundary assertions to wide JSON v3
+e0a7849df test: require strict Kafka v3 envelope and reject old data-level aliases
+bbf9b386e test: correct UTC microsecond expectation for wide Sink boundary
+2a6f65d56 test: replace obsolete point Kafka v2 wire tests with Sink-to-Storage wide JSON v3 contract
+c5d969452 test: migrate FC04 RAW eight-service E2E from point Kafka v2 and QuerySamples to wide v3 RPC and TDengine
+df809ac41 test: resolve current e2e Storage service configuration version
+0687634cd storage: remove obsolete narrow STMT2 driver protocol declarations
+9ec10df92 test: preserve real CLI restart activation checks without retired narrow Storage history RPC
+c568c5ace test: gate removal of obsolete narrow TDengine and configuration APIs
+acb6c633f storage: anchor generated SQL name and retention regexes correctly
+d2e7b0adb storage: remove retired narrow supertable DDL and schema fingerprint
+9675ebf7a storage: remove obsolete per-point object naming and preserve physical name container
+78f084f2d test: migrate configuration reconciliation checks to pinned wide PointTable unit lookup
+d6e37e397 test: remove narrow device-ingest checks, retain immutable closure and snapshot assertions
+cad253258 storage: delete narrow PointTable resolver APIs and resolve wide units from immutable pins
+d40892fc3 storage: delete retired per-point Kafka ingestion implementation
+b1b0139e0 test: import active wide Kafka types from ingestion contract
+29f66873a test: import active wide Kafka types from ingestion contract
+b7024ff9f test: import active wide Kafka types from ingestion contract
+c2377857f test: import active wide Kafka types from ingestion contract
+cc9441337 test: retire point-sample ingestion fixture while retaining pinned device closure validation
+bdfcc435c test: remove obsolete per-point Kafka reconciliation fixtures while retaining config watcher tests
+7d3d0203e test: retire narrow Kafka v2 ingestion suite superseded by wide v3 coverage
+1d1451334 test: retire narrow Kafka v2 ingestion suite superseded by wide v3 coverage
+4088bfb66 storage: route active Kafka and configuration code through wide ingestion contract
+04281383e storage: route active Kafka and configuration code through wide ingestion contract
+72f296a53 storage: route active Kafka and configuration code through wide ingestion contract
+438ab3494 storage: route active Kafka and configuration code through wide ingestion contract
+bbdd8cbf5 storage: route active Kafka and configuration code through wide ingestion contract
+cd768d438 storage: route active Kafka and configuration code through wide ingestion contract
+6e621ec4a storage: route active Kafka and configuration code through wide ingestion contract
+3188394ec storage: factor active wide Kafka record and error contract from retired point ingestion
+eabd04c78 storage: delete retired narrow-table history service and cursor codec
+4427dfa66 storage: migrate wide transport and tests off retired point-query module
+f2820ecbf storage: migrate wide transport and tests off retired point-query module
+9cf8fbfa4 storage: consolidate live wide-query errors into domain contract
+410ef0d3c test: remove retired per-point TDengine integration suite after wide-only adapter migration
+06db0f177 test: migrate TDengine deadline and connection isolation tests to active wide backend
+01e8846f5 storage: remove obsolete narrow STMT2, DDL, and content-hash readback implementation
+e3b2f17a6 test: remove narrow TDengine row tests, retain required timezone decoding coverage
+fad89de7d storage: remove obsolete TDengine point-history SQL reader and typed row decoder
+e390d100f test: enforce removal of point-wise query and snapshot pagination implementation
+42fd4acb1 test: align Storage gRPC fixtures and capabilities with wide-only query handler
+8b8b1e5dd storage: retire point-history query instantiation from production startup
+8887a3217 storage: remove obsolete point-based query RPC handler and legacy query injection
+42d4c2bd2 test: reject mixed-schema wide query response
+62bbc82b8 storage: fail closed on wide query schema fingerprint mismatch
+534b5bed5 test: reject lossy wide float conversion from large integers
+d60dcb8e4 storage: reject wide RPC floating-point conversions that lose 64-bit integer precision
+eb49a9a43 test: cover wide RPC physical integer, float, text and byte bounds
+540fa6c19 storage: validate exact TDengine physical bounds before wide RPC serialization
+405432bd9 test: remove obsolete version-suffixed ADS test module
+c8b080714 test: give ADS subscription component test a versionless filename
+610e2c30e test: verify wide-query active counter during reads and backend failures
+4fa15e73b storage: report current wide-table query concurrency rather than legacy query count
+85b307729 storage: track active wide queries with bounded lease and finally cleanup
+421d6a9d5 test: assert Storage exposes wide-row RPC in capabilities
+958a5ec75 storage: report active wide-row RPC in advertised capabilities
+9c6b0f9d5 test: supply required wide services in Storage gRPC component fixture
+328916fbc test: fix filename validation regex to match literal dot
+abeb6902e test: match literal .py suffix in versionless filename gate
+4ebbac9f7 test: prevent version suffixes in production, test and script Python filenames
+dbb24332b test: update publisher test reference after filename cleanup
+6ecc300cb test: remove versioned Python test filename
+fc19fae67 test: give versioned test module a stable descriptive filename
+d0fd603a1 test: remove versioned Python test filename
+babc2fc7a test: give versioned test module a stable descriptive filename
+4bc3c95be test: remove versioned Python test filename
+f3495bba0 test: give versioned test module a stable descriptive filename
+32b16cbe8 test: remove obsolete version-suffixed test path
+f14af194e test: rename versioned test module to stable subject
+03b62d27f test: remove obsolete version-suffixed test path
+090c5bc80 test: rename versioned test module to stable subject
+c8605886f test: remove obsolete version-suffixed test path
+3bba29407 test: rename versioned test module to stable subject
+f14b64312 test: remove obsolete version-suffixed test path
+9a02ee25e test: rename versioned test module to stable subject
+3d4193aab test: delete retired version-suffixed test module
+bce9f7f64 test: move versioned test module to stable name
+605c7a65d test: delete retired version-suffixed test module
+249be2379 test: move versioned test module to stable name
+ebd95c233 test: delete retired version-suffixed test module
+341932943 test: move versioned test module to stable name
+a94580235 storage: remove unused legacy aggregate imports
+9e8d93038 config: remove renamed version-suffixed migration source file
+110e3192f config: replace versioned migration module imports with initial_schema
+935697405 config: replace versioned migration module imports with initial_schema
+645ceee2b config: preserve frozen initial SQL schema without versioned Python filename
+60283447f test: enforce wide-only aggregate and export RPC inputs
+f93df4d97 test: drop retired narrow-row snapshot tests superseded by wide aggregation pagination
+aab85786b storage: remove retired query and units adapters from export task wiring
+e28d13537 storage: remove narrow CSV task executor and legacy dependencies
+d069d6963 storage: remove obsolete narrow-table export execution branch
+cc65c6f30 storage: delete obsolete point-wise aggregate snapshots and legacy query path
+ecae59997 test: update CLI command tree to wide-only Storage leaf contract
+9aefd80bb test: enforce removal of obsolete Storage CLI command paths
+9827d0795 cli: remove obsolete narrow-row Storage commands and filter adapter
+7afd77cc8 test: validate shipped Collector Sink and Storage Schema v6 service files
+3dbf3e8c0 cli: enforce complete immutable dependency closure for bundle-exact
+599a811b0 test: import historical configuration error from its application module
+7d8164eff test: ensure Storage uses direct historical file-version bundle RPC
+737e77b07 storage: fetch exact device closure directly by immutable file version
+45feb1f4f test: align immutable Service Schema v6 registration and token validation
+0c34251c9 test: preserve same-identity multi-version historical closures
+67bb4b328 config: allow distinct historical versions of the same document identity
+a42531e9b test: verify exact RPC returns captured configuration revision
+c59edeee8 test: adapt exact closure checks to atomic revision snapshots
+c83df01bb storage: accept exact closure revision from atomic configuration snapshot
+5848d9762 config: return exact snapshot's authoritative revision in bundle RPC
+c5426a7fe config: propagate repository snapshot revision with exact historical closure
+e1c71b1b4 config: expose atomic exact closure snapshot in repository port
+5d5020b22 config: read exact closure and repository revision atomically
+e380c631a test: cover exact-root version selectors, digest verification and dependency requirement
+98719f2c2 config: resolve exact roots by pinned file version and verify content digests
+153199e97 config: require explicit full dependencies for exact historical bundles
+4a9465b00 test: cover immutable closure completeness and duplicate roots
+580001f55 config: verify complete unique historical exact-root closures
+e1f79b8bf storage: decouple application wide ingestion from concrete TDengine adapter exceptions
+702583c59 storage: decouple application wide ingestion from concrete TDengine adapter exceptions
+d4fadb60f storage: place physical schema conflict type in dependency-neutral domain
+d13dd9e74 test(storage): split by actual physical schema width and block oversize rows without offsets
+723c0434b storage: guard TDengine adapter STMT2 row and physical-byte budgets at the write boundary
+bdf2dbf03 storage: bound STMT2 batch by physical declared row widths as well as Kafka payload size
+aafd37cc4 test(storage): fence history access when Kafka consumer has zero assigned partitions
+28eddab23 test(storage): prevent over-limit STMT2 allocation before connector access
+9f0710c06 storage: enforce physical 1000-row safety limit in STMT2 binder regardless of caller
+2370e8553 storage: prohibit READY query visibility while Kafka consumer owns no assigned partitions
+8f612df74 test(storage): distinguish physical schema conflict from uncertain write and enforce STMT2 batch budgets
+e412f78e0 storage: keep deterministic schema conflicts separate from UNKNOWN STMT2 I/O and cap write batches
+c7d068a96 storage: enforce 1000-row maximum physical STMT2 batch in strict configuration
+39cd8f0ce test(storage): fail closed on changing TDengine ownership and tampered backup metadata
+59ea449ee test(storage): reject tampered taosdump payload and missing historical Configuration YAML
+7618a885b storage: verify native backup index, file hashes, historical YAML and wide ownership before publishing
+732e5b819 storage: fail closed when physical table or historical semantic ownership changes during backup
+7ec6b24f8 test(storage): use valid newline-separated immutable YAML fixture bytes
+52ab5d44d test(storage): verify native backup embeds historical YAML and final manifest digest
+f5ca298a5 storage: connect immutable Configuration archive to native backup service
+77c3fe723 storage: require archived historical Device/Model/PointTable closures in taosdump manifest
+6747b1d91 storage: export fsync-verified immutable Configuration YAML archive into native backup
+9b2389088 fix(storage): make native backup manifest digest cover final verified wide ownership
+6b18d0e70 test(storage): validate CSV provenance columns and shifted versioned value/quality positions
+b2a8e3689 storage: embed device config, point-table version, level and schema fingerprint in CSV wide exports
+947f7029d test(storage): prevent publishing wide export artifact after Kafka replay begins
+6bbe03a3c storage: enforce physical export quota per row and block publication during Kafka replay
+49efde00c test(storage): verify wide export rejects mixed schemas, duplicate pages, bad quality and failed atomic publication
+cac3adb0b storage: verify wide export schema and cross-page row order; roll back failed atomic publication
+17b207295 test(storage): ensure quality-filtered aggregate cursors and signed INT64 extrema remain exact
+f3bbe769e refactor(storage): centralize wide numeric bounds and reject overflow converting physical floats
+7e76b1ae4 test(storage): cover exact aggregate snapshot, quality counting and numeric overflow
+daf951c66 storage: enforce physical integer bounds and finite FLOAT/DOUBLE semantics in wide aggregations
+0e37b6176 storage: bind wide aggregate snapshots to page size and Kafka replay visibility; validate aggregation bounds
+0982c6a29 storage: expose query replay gate to aggregate snapshot pagination
+130ffb075 test(storage): guard filtered NULL corruption and impossible signed horizon cursors
+bdbff7c1f fix(storage): enforce cursor last timestamp strictly below frozen query horizon
+1de735aa0 test(storage): reject mismatched wide point identity, quality corruption and NULL inconsistencies
+942f14b42 fix(storage): validate wide column order, quality states and NULL invariants before pagination
+18f2fa815 test(contracts): verify generated Storage v2 and Configuration exact-root wire and gRPC bindings
+577786864 contracts: reconcile mypy ClearField types for wide quality and unit fields
+83a88f7cf test(cli): type quality forwarding fixture with pytest.MonkeyPatch
+b859db691 test(cli): assert correct top-level/nested quality filter contracts for wide endpoints
+5fd691634 test(storage): align quality-filter continuation fixtures with bounded backend fetch limits
+31d9bc495 test(storage): protect quality-filter pagination and reject rebound two-bit predicates
+bf456beb0 fix(cli): correct nested Quality filter shape in wide aggregates and export
+52c1eaba5 cli: support 2-bit quality predicates for wide query, aggregate and export
+29a0abe80 storage: include quality constraints in export idempotency SHA-256
+329461f56 storage: bind wide aggregate cursor fingerprint to quality predicates
+de1117fc8 storage: propagate canonical two-bit quality predicates through wide read, export and aggregate RPC
+473cd69d1 storage: implement bounded quality-aware wide-row scans with signed cursors
+7403fdacf storage: bind explicit single-point 2-bit Quality filtering to immutable wide query contract and HMAC cursor
+6986b560e contracts: add repeated wide quality selector to typed generated request
+6c1f8007f contracts: generate QueryWideRowsRequest repeated quality selector protobuf field
+a55f2db22 contracts: define precise single-field wide quality filter with 2-bit numeric states
+6d879dd3c storage: reject integer AVG where total accumulation exceeds exact DOUBLE precision
+f584817d1 test(storage): mock exact historical unit resolution in typed wide RPC handler
+3c66527c8 storage: populate wide RPC column metadata with immutable standardized or protocol units
+6c9ab5608 storage: resolve wide column units from exact PointTable or BusinessPoint historical catalog
+ed88ba0aa contracts: update WidePointColumn typed unit property and constructor
+31e15cba2 contracts: regenerate WidePointColumn unit field in protobuf runtime descriptor
+0804c007d contracts: carry immutable per-column engineering units in wide query response
+bbdfb2184 fix(storage): include wide ownership metadata in canonical backup manifest SHA-256
+37ca8a7da storage: native backup uses exact wide farm database and embeds verified subtable ownership
+5d38018f3 storage: enumerate only integrity-checked wide subtable ownership for native farm backup
+2aab51ae5 test(storage): validate wide aggregation quality semantics, signed cursor and exact uint64 MIN/MAX
+1bcdb079f cli: expose exact-device quality-aware wide aggregates with signed 64-bit result types
+2ca65b39f test(storage): inject wide aggregation dependency into existing gRPC component fixtures
+b05a024dd test(storage): inject wide aggregation dependency into existing gRPC component fixtures
+2383db3b6 storage: serve exact wide COUNT/MIN/MAX/AVG through signed paginated RPC with typed 64-bit aggregates
+ab390a4c3 storage: connect exact-schema wide aggregation service to production RPC lifecycle
+f889f060e storage: implement bounded exact-version wide aggregation with quality-aware typed results and signed snapshot pagination
+77c3822c0 contracts: expose exact wide aggregate selector and integer kind in typed stubs
+c82b57343 contracts: generate exact wide aggregate selector and typed numeric result protobuf fields
+8af4d5358 contracts: add explicit aggregate result kind to preserve integer-zero presence
+fa81f6b09 contracts: enable exact-version wide aggregation and lossless signed/unsigned integer results
+5a3e1c837 test(storage): validate atomic quality-preserving wide CSV/JSON exports and quota cleanup
+69bd8c5ad cli: submit durable exact-device wide CSV/JSON export jobs
+065d308d5 fix(storage): authorize CreateExport by the correct exact wide request farm, not empty legacy filter
+a1658088d storage: route authenticated wide CSV/JSON export requests to durable exact-schema tasks
+ec07dbf58 storage: attach wide export query engine to persistent Storage job coordinator
+041a2b78b storage: register durable idempotent wide CSV/JSON export tasks using authenticated physical schemas
+5cfa15b0b storage: implement bounded atomic exact-schema wide CSV/JSON export with quality columns
+a7e02a2df contracts: update typed CreateExportRequest wide_filter message property
+a6ad7cd18 contracts: regenerate protobuf CreateExportRequest wide_filter field
+532ceccad contracts: add exact-version wide export filter to durable CreateExport task RPC
+0728ce856 test(storage): exercise wide RPC handler authentication, exact schema and 64-bit value mapping
+16d7ec511 storage: attach Kafka replay visibility fence to wide history query lifecycle
+9b4f0b520 storage: enforce replay isolation inside wide query service before and after connector I/O
+05fd8664e test(storage): satisfy wide query service dependency in aggregate fixture
+d45e1ab95 test(storage): synchronize gRPC fixture with canonical wide service configuration and query port
+c9615c53c storage: report missing historical wide table ownership as physical verification failure
+50b6bd3bd test(storage): assert QueryWideRows generated descriptor and lossless typed value roundtrip
+87930de15 test(storage): supply exact DeviceModel type for read-only wide history table verification
+e34ab26c2 storage: query exact pinned DeviceModel type and verify existing physical table ownership
+c93c85f68 storage: require durable read-only wide-table verification on each new process before paginated query
+f04db4d52 storage: safely restore wide-table read verification after process restart without DDL
+9e07910b8 storage: require durable full wide-table identity before allowing restart-time readback
+25d0ed31c cli: expose exact-device QueryWideRows with selected fields and signed pagination
+53847211a storage: wire wide-row query service into production gRPC lifecycle
+4badd6f48 storage: implement authenticated typed wide-row RPC and schema-bound quality values
+c704c848a contracts: generate synchronous/async gRPC bindings for QueryWideRows
+be820ecdc contracts: generate synchronous/async gRPC bindings for QueryWideRows
+38be12d69 contracts: generate typed mypy protobuf definitions for wide query records
+8710b68fb contracts: emit protobuf runtime descriptors for device-wide query messages and RPC
+0a7d40196 contracts: define typed exact-version device-wide history RPC and quality-bearing wide rows
+38d117dbd storage: disallow client-forged raw timestamp cursor; require signed keyset token
+75fb76bf1 fix(storage): allow one bounded lookahead row for maximum-size wide pagination
+214c7b3cb storage: surface REPLAYING operational state until all assigned offsets are durable
+54cf0f88e storage: retain complete bounded Kafka v3 poison payload up to 16 MiB for audit
+0eb0a3993 test(storage): require Kafka replay settlement before and during historical reads
+f5ca7b1ab storage: enforce replay gate throughout query/aggregate/export lifecycle and report UNAVAILABLE
+a00b60a95 storage: enforce replay gate throughout query/aggregate/export lifecycle and report UNAVAILABLE
+50705db2b storage: enforce replay gate throughout query/aggregate/export lifecycle and report UNAVAILABLE
+f35ce05b6 storage: guard every query and export page against changing Kafka replay state
+90dd3391a storage: deny read/aggregate/export/backup during Kafka replay to prevent stale overwrites leaking
+3aed38ed3 storage: gate query visibility until Kafka replay reaches assigned broker end offsets
+f5452fc8e ci: restore baseline workflow branch list after no workflow trigger
+9ed978513 ci: execute existing static gates on wide-table completion branch
+54bb82dc1 storage: verify every TDengine child-table TAG type, value and actual parent supertable
+e7bb0f6be storage: remove unused query resolver port and bind cursor to original page size
+dcd138187 test(storage): signed wide query cursors and keyset pagination boundaries
+541559748 storage: add authenticated exact-version wide history pagination and bounded query execution
+dbf8a54a9 test(storage): assert wide rows and physical point metrics are counted separately
+98d27e286 storage: correctly count committed wide rows and physical point values separately
+7bb00a254 storage: correctly count committed wide rows and physical point values separately
+0767b885b storage: treat uncertain first-use DDL and subsequent batch write as one blocked offset unit
+cfce643b3 storage: fence uncertain TDengine DDL as well as STMT2 before any retry
+f204b8828 fix(storage): decouple farm database registration from individual wide Schema fingerprints
+0bda1a33c storage: fingerprint wide primary key, immutable tags and bit-level quality schema
+fcef3995b fix(storage): import historical DeviceModel for exact dependency closure reconstruction
+e6f820ee6 test(storage): verify unknown exact Device Instance closure before durable pin activation
+829e63d45 storage: persist verified historical device and PointTable bindings before activation
+7fa01e9c7 fix(storage): correct historical Device Instance matching regex
+19b592ae4 storage: discover, verify and durably register unknown historical Device Instance closures
+25e464b67 storage: extend Configuration port with exact historical device closure and durable pin callback
+13f74ed11 storage: permit site-independent historical Device Instance closures with explicit absence
+52733aab0 fix(storage): use correct exact Device Instance semantic version regex
+b42f8981b storage: fetch exact historical Device Instance closure with pinned version and manifest verification
+e5df1143c cli: export exact immutable Configuration bundles with shared verified atomic writer
+37833034e test(configuration): assert exact historical root protobuf roundtrip
+c2fd10ce8 contracts: update Configuration mypy protobuf bindings for exact historical roots
+728bad1f0 contracts: regenerate Configuration protobuf descriptor for exact_roots field
+3d055c4e8 build: remove inactive temporary D4 codegen workflow
+c181e3ac0 build: generate authoritative Protobuf bindings on D4 branch
+e21dada41 configuration: serve exact historical immutable bundles with exclusive selector modes
+f1f4a2c4d contracts: extend GetConfigBundle with mutually exclusive exact historical roots
+17e312be7 test(storage): exact wide query quality projection and UNKNOWN write quarantine
+2712ec9ea storage: implement exact-device wide TDengine readback with version-safe point quality decoding
+e3ba5ae9c storage: define exact-version field-filtered wide history query contracts
+cc7657620 collector: reject asynchronous listen/subscribe in reliable synchronized device mode
+43e7a1645 storage: derive BUSINESS physical types directly from canonical Core DataType
+715a26b0b test(collector): verify v4 synchronized complete reliable device batches
+766190a6c storage: scope wide schema ownership metadata by database to avoid cross-farm collisions
+86356492e sink: preserve NULL BAD/NOT_COLLECTED without fabricating RAW protocol bytes
+d62d167e2 sink: preserve NULL BAD/NOT_COLLECTED without fabricating RAW protocol bytes
+04133c079 collector: impose fixed-cycle deadline and distinguish late/uncollected from BAD polls
+b49582600 test: migrate Sink–Storage contract cases to SampleBatch v4
+4760566be test: migrate Sink–Storage contract cases to SampleBatch v4
+767cf1b21 contracts: correct v4 batch identity and preserve all-uncollected reliable cycles
+d9ebf9898 contracts: correct v4 batch identity and preserve all-uncollected reliable cycles
+fbcb804ab storage: preserve Kafka poison evidence and block on every uncertain wide I/O
+4e77be888 storage: fence all uncertain STMT2 device writes, not only timeouts
+de92afbad storage: make device-wide Kafka v3 ingestion the production service path
+4ea38f438 storage: make device-wide Kafka v3 ingestion the production service path
+fdc919fe7 sink: encode explicit not-collected NULL quality in wide RAW records
+1026ed542 sink: treat one complete Kafka device-wide batch as one atomic settlement unit
+e06d22483 sink: wire complete Kafka JSON v3 device serialization in reliable runtime
+de0a1f979 sink: select complete Kafka device records with farm/device partition key
+41e211909 sink: preserve original device-wide NATS bytes as reliable DLQ evidence
+d98d08130 collector: update diagnostic publisher probe for synchronized v4 identity
+a5a986950 collector: propagate exact device version and logical sample time through publisher
+3c0b5eb9f collector: propagate exact device version and logical sample time through publisher
+fdcc744eb collector: propagate exact device version and logical sample time through publisher
+0c4754152 collector: propagate exact device version and logical sample time through publisher
+9b7a8c924 collector: build complete synchronized v4 reliable device batches without splitting
+5b329deff contracts: upgrade SampleBatch to device-pinned v4 synchronized sample contract
+1c7bc54d3 test(sink): verify unique device-scoped Kafka partition key
+de8552b09 sink: define collision-safe Kafka device key for ordered wide rows
+658d8486c fix(storage): scope wide-table verification and UNKNOWN fences by database identity
+780cf9dcb test(storage): verify device-wide offsets, duplicate timestamps and UNKNOWN fencing
+10a024511 storage: enforce Kafka last-offset-wins for duplicate wide timestamps in one batch
+d907b91de storage: make authoritative wide device type an explicit resolver port
+0d1a20563 storage: centralize exact Device Instance binding for wide ingest and schema lookup
+e201b6789 storage: implement ordered device-wide Kafka v3 ingestion with fail-closed offset confirmation
+89c34132d storage: permanently fence device writes after UNKNOWN driver I/O
+6c0b0ed36 storage: allow schema resolution from trusted Kafka v3 identity header
+4c9ac0284 storage: reject ambiguous Kafka colon-delimited routing identities
+edb42979f storage: peek strict Kafka v3 device identity without inferring physical columns
+1797787f2 test(storage): verify exact Device Instance and BusinessPoint wide schema
+46195291b test(sink): enforce 1:1 BUSINESS wide-column identities
+3a8e0aa98 sink: use 1:1 standardized BusinessPoint identities for business wide columns
+e3f036cbd storage: resolve full wide physical schema from exact Device Instance closure
+c3f159858 test(core): normalize protocol point types without implicit widening
+d270951f6 core: normalize ADS and industrial protocol scalar declarations
+4bb0659c2 fix(storage): correct escaped wide-schema SQL regex patterns
+39a6dff77 fix(storage): correct escaped wide-schema SQL regex patterns
+53ba84a30 fix(storage): use immutable pin presence and tolerate TDengine DESCRIBE tag layout
+e01213fdf storage: add fail-closed on-demand wide-table DDL and live schema/TAG verification
+d0595418d storage: accept versioned readable identifiers with stable hash suffix
+41841e266 storage: admit deterministic readable wide-table identifiers in DDL whitelist
+cb7a4785e storage: connect wide STMT2 batches to bounded TDengine connection lease
+b79f56191 test(storage): use exact generated table identity for wide STMT2
+a7a983f0a storage: bind wide STMT2 target to exact farm/device/schema identity
+16d7ab346 test(storage): validate STMT2 full-row column binding and failure closing
+dc5729eb6 storage: implement complete wide-record STMT2 column-vector insert
+1d9ca6bc8 test(storage): reject lossy wide-record floating conversions
+cd754bf6f storage: prevent lossy wide integer-to-floating conversions
+994c4cd31 test(storage): enforce complete wide-row SQL type bounds and original RAW bytes
+480a76220 storage: validate and bind complete device rows to physical SQL types
+d7ec26141 fix(storage): use correct regex escapes for bounded SQL variable types
+17a0c3907 test(storage): verify wide DDL and immutable device tags
+fda832eb6 storage: render safe deterministic TDengine wide-table DDL
+df04fbd82 fix(storage): disallow unsupported unsigned floating and boolean types
+5b8fe0cbc storage: restrict wide physical SQL types to supported exact widths
+f189b404f test(storage): assert human-readable PointTable versioned columns
+9f33b57f0 fix(storage): remove invalid escaped quotes in versioned name generator
+3833705f3 fix(storage): correct Python 3.11 versioned column name expressions
+ed9ba2f3a storage: expose PointTable version in physical wide-column names
+09c2433cd test(storage): wide schema ordering, version separation and row bounds
+d0778d3b2 storage: construct deterministic complete wide-table physical manifests
+1ccd0f202 test(storage): verify Sink Kafka v3 device row codec roundtrip
+796b2615b test(storage): reject non-null values with uncollected quality
+bb5c04f4a storage: enforce NULL for uncollected quality state
+3aa1a8092 test(sink): enforce complete synchronized Kafka v3 records
+d0f1224a3 sink: add strict synchronized device-wide Kafka JSON v3 encoder
+e79fadfd2 test(configuration): verify immutable exact-root selection
+6f8c035a5 test(storage): cover complete device-wide v3 rows and invalid envelopes
+83642df65 storage: validate complete Kafka JSON v3 device-wide records
+a51dd5db6 configuration: resolve exact historical version roots with pinned closure
+6564de45e test(storage): cover two-bit wide-row quality encoding and boundaries
+680945399 storage: implement canonical two-bit wide-row quality bitmap

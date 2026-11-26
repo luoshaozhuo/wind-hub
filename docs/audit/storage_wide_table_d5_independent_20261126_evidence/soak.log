@@ -1,0 +1,9 @@
+
+==> soak
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/reliability -q -m soak and not performance --junitxml docs/audit/storage_wide_table_d5_independent_20261126_evidence/soak.xml
+..                                                                       [100%]
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/soak.xml -
+2 passed, 9 deselected in 1.86s
+[PASS] soak
+
+GATE RESULT: PASS

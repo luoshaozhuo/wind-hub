@@ -1,0 +1,677 @@
+src/collector/application/batch_builder.py:138:25: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+    |
+136 |                       count //= 2
+137 |                       if self._delivery == "reliable":
+138 |                           raise ValueError(
+    |  _________________________^
+139 | |                             "reliable device sample exceeds transport bound; splitting forbidden"
+140 | |                         )
+    | |_________________________^ B904
+141 |                       candidate = self._batch(
+142 |                           device_id,
+    |
+
+src/sink_service/infrastructure/adapters/outbound/kafka_wire.py:46:12: UP012 [*] Unnecessary UTF-8 `encoding` argument to `encode`
+   |
+44 |         ):
+45 |             raise ValueError("Kafka device identity is missing or contains a delimiter")
+46 |     return f"{wind_farm_id}:{device_id}".encode("utf-8")
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP012
+   |
+   = help: Remove unnecessary `encoding` argument
+
+src/storage_service/application/tasks.py:6:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 4 |   """
+ 5 |   
+ 6 | / from __future__ import annotations
+ 7 | | 
+ 8 | | import asyncio
+ 9 | | import hashlib
+10 | | import json
+11 | | import logging
+12 | | import uuid
+13 | | from typing import Protocol
+14 | | 
+15 | | from storage_service.application.config import StorageConfig
+16 | | from storage_service.application.wide_export import export_wide_device_history
+17 | | from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
+18 | | from storage_service.domain.wide_schema import WideSchema
+19 | | from storage_service.domain.tasks import TaskRecord
+20 | | 
+21 | | _LOG = logging.getLogger(__name__)
+   | |_^ I001
+   |
+   = help: Organize imports
+
+src/storage_service/application/wide_aggregate.py:120:101: E501 Line too long (101 > 100)
+    |
+118 |             [name, digest, next_index, expires], separators=(",", ":"),
+119 |         ).encode()
+120 |         return base64.urlsafe_b64encode(hmac.digest(self._key, payload, "sha256") + payload).decode()
+    |                                                                                                     ^ E501
+121 | 
+122 |     def _decode(self, token: str, digest: str) -> tuple[str, int]:
+    |
+
+src/storage_service/application/wide_ingestion.py:8:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 6 |   """
+ 7 |   
+ 8 | / from __future__ import annotations
+ 9 | | 
+10 | | from collections.abc import Sequence
+11 | | from dataclasses import dataclass
+12 | | from typing import NoReturn, Protocol
+13 | | 
+14 | | from storage_service.application.config import TypeMapping
+15 | | from storage_service.application.ingestion_contract import (
+16 | |     ConfigHistoryUnavailableError,
+17 | |     IngestResult,
+18 | |     IngestionBlockedError,
+19 | |     KafkaRecord,
+20 | | )
+21 | | from storage_service.application.metrics import StorageRuntimeMetrics
+22 | | from storage_service.application.offsets import PartitionOffsets
+23 | | from storage_service.domain.wide_record import (
+24 | |     WideIdentity,
+25 | |     WideRecord,
+26 | |     peek_wide_identity,
+27 | | )
+28 | | from storage_service.domain.wide_row import bind_wide_row
+29 | | from storage_service.domain.wide_schema import WideSchema
+30 | | from storage_service.domain.errors import TDengineSchemaConflictError
+31 | | 
+32 | | 
+33 | | class WideSchemaResolver(Protocol):
+   | |_^ I001
+34 |       async def resolve_wide_schema(
+35 |           self,
+   |
+   = help: Organize imports
+
+src/storage_service/application/wide_ingestion.py:119:15: UP012 [*] Unnecessary UTF-8 `encoding` argument to `encode`
+    |
+117 |         if identity.wind_farm_id not in self._allowed_wind_farms:
+118 |             raise ValueError("Kafka wind farm is not authorized for Storage")
+119 |         key = f"{identity.wind_farm_id}:{identity.device_id}".encode("utf-8")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ UP012
+120 |         if source.key != key:
+121 |             raise ValueError("Kafka device key differs from immutable routing identity")
+    |
+    = help: Remove unnecessary `encoding` argument
+
+src/storage_service/domain/wide_record.py:126:101: E501 Line too long (107 > 100)
+    |
+124 |             "device_id", "data_level", "sample_time", "points",
+125 |         }
+126 |         if set(data) != required or type(data["schema_version"]) is not int or data["schema_version"] != 3:
+    |                                                                                                     ^^^^^^^ E501
+127 |             raise ValueError("Kafka JSON v3 envelope mismatch")
+128 |         identities = (data["wind_farm_id"], data["device_config_id"], data["device_id"])
+    |
+
+src/storage_service/infrastructure/adapters/inbound/grpc_server.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """StorageService gRPC handlers: typed Contracts RPC and scoped token authority."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import base64
+ 6 | | import hmac
+ 7 | | import json
+ 8 | | import logging
+ 9 | | import math
+10 | | import os
+11 | | import time
+12 | | from collections.abc import Callable, Coroutine
+13 | | from datetime import UTC, datetime, timedelta
+14 | | from functools import wraps
+15 | | from typing import Any, NoReturn, TypeVar, cast
+16 | | 
+17 | | import grpc
+18 | | from google.protobuf.timestamp_pb2 import Timestamp
+19 | | 
+20 | | from contracts import common_pb2 as common
+21 | | from contracts import common_pb2_grpc as common_rpc
+22 | | from contracts import storage_service_pb2 as pb
+23 | | from contracts import storage_service_pb2_grpc as rpc
+24 | | from storage_service.application.config import StorageConfig
+25 | | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+26 | | from storage_service.application.metrics import StorageRuntimeMetrics
+27 | | from storage_service.domain.errors import (
+28 | |     HistoryReplayUnavailableError,
+29 | |     QueryRejectedError,
+30 | | )
+31 | | from storage_service.application.tasks import AsyncStorageTasks, ExportQuotaExceededError
+32 | | from storage_service.application.wide_query import WideHistoryQueryService, WideHistoryFilter
+33 | | from storage_service.application.wide_aggregate import WideAggregationService
+34 | | from storage_service.domain.wide_record import WideDataLevel, WideIdentity
+35 | | from storage_service.domain.tasks import TaskRecord
+36 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+37 | |     ConfigurationPointTableResolver,
+38 | | )
+39 | | from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
+40 | |     KafkaStorageConsumer,
+41 | | )
+42 | | from storage_service.infrastructure.adapters.outbound.metadata_store import (
+43 | |     MetadataConflictError,
+44 | |     MetadataStore,
+45 | | )
+46 | | from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+47 | |     TDengineSchemaConflictError,
+48 | | )
+49 | | 
+50 | | T = TypeVar("T")
+   | |_^ I001
+51 |   _LOG = logging.getLogger(__name__)
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:8:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 6 |   """
+ 7 |   
+ 8 | / from __future__ import annotations
+ 9 | | 
+10 | | import asyncio
+11 | | import hashlib
+12 | | import json
+13 | | import os
+14 | | import re
+15 | | import tempfile
+16 | | import threading
+17 | | from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+18 | | from dataclasses import dataclass
+19 | | from pathlib import Path
+20 | | from typing import Any, Protocol
+21 | | 
+22 | | import grpc
+23 | | import yaml
+24 | | 
+25 | | from storage_service.application.config import DeviceBinding, DeviceClosurePins, DeviceModel, TypeMapping
+26 | | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+27 | | from core.domain.protocol_types import normalize_protocol_scalar_type
+28 | | from core.domain.value_objects import DataType
+29 | | from storage_service.domain.wide_record import WideDataLevel, WideIdentity, WideRecord
+30 | | from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
+31 | | 
+32 | | _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+   | |_^ I001
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:17:69: F401 [*] `collections.abc.Sequence` imported but unused
+   |
+15 | import tempfile
+16 | import threading
+17 | from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+   |                                                                     ^^^^^^^^ F401
+18 | from dataclasses import dataclass
+19 | from pathlib import Path
+   |
+   = help: Remove unused import: `collections.abc.Sequence`
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:25:101: E501 Line too long (105 > 100)
+   |
+23 | import yaml
+24 | 
+25 | from storage_service.application.config import DeviceBinding, DeviceClosurePins, DeviceModel, TypeMapping
+   |                                                                                                     ^^^^^ E501
+26 | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+27 | from core.domain.protocol_types import normalize_protocol_scalar_type
+   |
+
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Manual-commit Kafka consumer: partition FIFO and generation-fenced commits."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import asyncio
+ 6 | | import logging
+ 7 | | from contextlib import suppress
+ 8 | | from dataclasses import dataclass
+ 9 | | 
+10 | | from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
+11 | | from aiokafka.errors import KafkaError
+12 | | 
+13 | | from storage_service.application.config import StorageConfig
+14 | | from storage_service.application.ingestion_contract import (
+15 | |     IngestionBlockedError,
+16 | |     KafkaRecord,
+17 | |     WriteUnconfirmedError,
+18 | | )
+19 | | from storage_service.application.wide_ingestion import WideIngestionService
+20 | | from storage_service.application.metrics import StorageRuntimeMetrics
+21 | | from storage_service.application.offsets import PartitionOffsets
+22 | | from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+23 | | from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+24 | |     TDengineSchemaConflictError,
+25 | | )
+26 | | 
+27 | | _LOG = logging.getLogger(__name__)
+   | |_^ I001
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:74:101: E501 Line too long (102 > 100)
+   |
+72 |             max_poll_records=configuration.kafka.max_poll_records,
+73 |             fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
+74 |             max_partition_fetch_bytes=min(1048576, configuration.tdengine.ingestion.buffer_max_bytes),
+   |                                                                                                     ^^ E501
+75 |         )
+76 |         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
+   |
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:7:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 5 |   """
+ 6 |   
+ 7 | / from __future__ import annotations
+ 8 | | 
+ 9 | | import asyncio
+10 | | import hashlib
+11 | | import json
+12 | | import logging
+13 | | import os
+14 | | import queue
+15 | | import re
+16 | | import threading
+17 | | import time
+18 | | from collections.abc import Callable, Iterator, Sequence
+19 | | from concurrent.futures import Future, ThreadPoolExecutor
+20 | | from contextlib import contextmanager
+21 | | from importlib import import_module
+22 | | from typing import Any, Protocol, TypeVar, cast
+23 | | 
+24 | | from storage_service.application.config import StorageConfig
+25 | | from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
+26 | | from storage_service.domain.quality_bitmap import unpack_quality_bitmap
+27 | | from storage_service.domain.errors import TDengineSchemaConflictError
+28 | | from storage_service.domain.naming import StorageObjectNames
+29 | | from storage_service.domain.wide_record import WideDataLevel, WideRecord
+30 | | from storage_service.domain.wide_schema import WideSchema
+31 | | from storage_service.infrastructure.adapters.outbound.metadata_store import (
+32 | |     MetadataConflictError,
+33 | |     MetadataStore,
+34 | | )
+35 | | from storage_service.infrastructure.adapters.outbound.wide_ddl import stable_ddl, subtable_ddl
+36 | | from storage_service.infrastructure.adapters.outbound.wide_stmt2 import write_wide_stmt2
+37 | | from storage_service.infrastructure.adapters.outbound.tdengine_schema import (
+38 | |     DatabaseRetention,
+39 | |     create_database_sql,
+40 | | )
+41 | | 
+42 | | 
+43 | | class _PreparedStatement(Protocol):
+   | |_^ I001
+44 |       def prepare(self, sql: str) -> None: ...
+45 |       def bind(self, params: list[object]) -> None: ...
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:162:101: E501 Line too long (103 > 100)
+    |
+160 |             port=port,
+161 |             # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
+162 |             read_timeout=str(max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)),
+    |                                                                                                     ^^^ E501
+163 |         )
+    |
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py:7:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 5 |   """
+ 6 |   
+ 7 | / from __future__ import annotations
+ 8 | | 
+ 9 | | import asyncio
+10 | | import hashlib
+11 | | import json
+12 | | import os
+13 | | import re
+14 | | import shutil
+15 | | from contextlib import suppress
+16 | | from dataclasses import asdict
+17 | | from pathlib import Path
+18 | | 
+19 | | from storage_service.application.config import StorageConfig
+20 | | from storage_service.domain.wide_schema import WideSchema
+21 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import ImmutableConfigArchive
+22 | | from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+23 | | 
+24 | | _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
+   | |_^ I001
+   |
+   = help: Organize imports
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_backup.py:21:101: E501 Line too long (105 > 100)
+   |
+19 | from storage_service.application.config import StorageConfig
+20 | from storage_service.domain.wide_schema import WideSchema
+21 | from storage_service.infrastructure.adapters.outbound.configuration_archive import ImmutableConfigArchive
+   |                                                                                                     ^^^^^ E501
+22 | from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+   |
+
+src/storage_service/infrastructure/adapters/outbound/tdengine_schema.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Validated TDengine database retention and database-level DDL for wide rows."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import re
+ 6 | | from dataclasses import dataclass
+ 7 | | 
+ 8 | | from storage_service.domain.naming import StorageObjectNames
+ 9 | | 
+10 | | 
+11 | | _IDENTIFIER = re.compile(r"(?:wh|st|tb)_(?:[0-9a-f]{24}|[a-z0-9_]+_[0-9a-f]{16})\Z")
+   | |_^ I001
+12 |   _DURATION = re.compile(r"[1-9][0-9]*d\Z")
+   |
+   = help: Organize imports
+
+src/storage_service/main.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Storage Service process lifecycle: Configuration-pinned reliable Kafka ingestion."""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import argparse
+ 6 | | import asyncio
+ 7 | | import logging
+ 8 | | import os
+ 9 | | import signal
+10 | | from pathlib import Path
+11 | | 
+12 | | import grpc
+13 | | 
+14 | | from storage_service.application.wide_ingestion import WideIngestionService
+15 | | from storage_service.application.metrics import StorageRuntimeMetrics
+16 | | from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
+17 | | from storage_service.application.wide_aggregate import WideAggregationService
+18 | | from storage_service.application.tasks import AsyncStorageTasks
+19 | | from storage_service.infrastructure.adapters.inbound.grpc_server import (
+20 | |     build_storage_grpc_server,
+21 | | )
+22 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+23 | |     ConfigurationPointTableResolver,
+24 | |     ImmutableConfigArchive,
+25 | | )
+26 | | from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
+27 | |     ConfigurationGrpcClient,
+28 | | )
+29 | | from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+30 | |     StorageBundleSnapshot,
+31 | | )
+32 | | from storage_service.infrastructure.adapters.outbound.configuration_watch import (
+33 | |     StorageConfigurationWatcher,
+34 | | )
+35 | | from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
+36 | |     KafkaStorageConsumer,
+37 | | )
+38 | | from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
+39 | | from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+40 | |     TDengineBackend,
+41 | | )
+42 | | from storage_service.infrastructure.adapters.outbound.tdengine_backup import (
+43 | |     NativeTDengineBackup,
+44 | | )
+45 | | from storage_service.settings import StorageBootstrap, load_bootstrap
+46 | | 
+47 | | _LOG = logging.getLogger(__name__)
+   | |_^ I001
+   |
+   = help: Organize imports
+
+tests/contracts/test_wide_rpc_v2_binding_consistency.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Validate Protobuf v2 contracts against generated runtime and gRPC bindings."""
+ 2 |   
+ 3 | / from unittest.mock import Mock
+ 4 | | 
+ 5 | | from google.protobuf.descriptor import FieldDescriptor
+ 6 | | 
+ 7 | | from contracts import (
+ 8 | |     configuration_repository_pb2 as config_pb,
+ 9 | |     storage_service_pb2 as storage_pb,
+10 | |     storage_service_pb2_grpc as storage_rpc,
+11 | | )
+12 | | 
+13 | | 
+14 | | def test_query_wide_rows_grpc_endpoint_and_types_are_generated() -> None:
+   | |_^ I001
+15 |       service = storage_pb.DESCRIPTOR.services_by_name["StorageService"]
+16 |       method = service.methods_by_name["QueryWideRows"]
+   |
+   = help: Organize imports
+
+tests/storage_service/integration/test_cli_restart_activation.py:10:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 8 |   """
+ 9 |   
+10 | / from __future__ import annotations
+11 | | 
+12 | | import asyncio
+13 | | import contextlib
+14 | | import json
+15 | | import sys
+16 | | import time
+17 | | from pathlib import Path
+18 | | from typing import Any
+19 | | from uuid import uuid4
+20 | | 
+21 | | import grpc
+22 | | import pytest
+23 | | import yaml
+24 | | from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+25 | | from aiokafka.errors import TopicAlreadyExistsError
+26 | | 
+27 | | from contracts import common_pb2 as common
+28 | | from contracts import common_pb2_grpc as common_rpc
+29 | | from contracts import configuration_repository_pb2 as pb
+30 | | from contracts import storage_service_pb2 as storage_pb
+31 | | from contracts import storage_service_pb2_grpc as storage_rpc
+32 | | from tests.cli.e2e_util import last_json, run_cli
+33 | | from tests.fixtures.services import r5_stack
+34 | | from tests.support.configuration_live import (
+35 | |     LiveConfiguration,
+36 | |     reserve_port,
+37 | |     write_live_configuration,
+38 | | )
+39 | | 
+40 | | 
+41 | | ROOT = Path(__file__).resolve().parents[3]
+   | |_^ I001
+42 |   SRC = ROOT / "src"
+   |
+   = help: Organize imports
+
+tests/storage_service/integration/test_cli_restart_activation.py:30:46: F401 [*] `contracts.storage_service_pb2` imported but unused
+   |
+28 | from contracts import common_pb2_grpc as common_rpc
+29 | from contracts import configuration_repository_pb2 as pb
+30 | from contracts import storage_service_pb2 as storage_pb
+   |                                              ^^^^^^^^^^ F401
+31 | from contracts import storage_service_pb2_grpc as storage_rpc
+32 | from tests.cli.e2e_util import last_json, run_cli
+   |
+   = help: Remove unused import: `contracts.storage_service_pb2`
+
+tests/storage_service/integration/test_cli_restart_activation.py:31:51: F401 [*] `contracts.storage_service_pb2_grpc` imported but unused
+   |
+29 | from contracts import configuration_repository_pb2 as pb
+30 | from contracts import storage_service_pb2 as storage_pb
+31 | from contracts import storage_service_pb2_grpc as storage_rpc
+   |                                                   ^^^^^^^^^^^ F401
+32 | from tests.cli.e2e_util import last_json, run_cli
+33 | from tests.fixtures.services import r5_stack
+   |
+   = help: Remove unused import: `contracts.storage_service_pb2_grpc`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:343:13: F541 [*] f-string without any placeholders
+    |
+341 |     for device in range(devices):
+342 |         rows = probe.connection.query(
+343 |             f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ F541
+344 |             + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
+345 |         )
+    |
+    = help: Remove extraneous `f` prefix
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:343:101: E501 Line too long (103 > 100)
+    |
+341 |     for device in range(devices):
+342 |         rows = probe.connection.query(
+343 |             f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+    |                                                                                                     ^^^ E501
+344 |             + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
+345 |         )
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:522:14: B017 `pytest.raises(Exception)` should be considered evil
+    |
+520 |     try:
+521 |         statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+522 |         with pytest.raises(Exception):
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^ B017
+523 |             statement.bind(
+524 |                 [
+    |
+
+tests/storage_service/unit/test_device_binding.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """PointTable、DeviceModel 与设备实例固定闭包的写入准入测试。"""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import hashlib
+ 6 | | import sqlite3
+ 7 | | from dataclasses import replace
+ 8 | | from pathlib import Path
+ 9 | | 
+10 | | import pytest
+11 | | import yaml
+12 | | 
+13 | | from storage_service.application.config import (
+14 | |     DeviceBinding,
+15 | |     DeviceModel,
+16 | |     load_storage_config,
+17 | | )
+18 | | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+19 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import RepositoryDocument
+20 | | from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
+21 | |     StorageBundle,
+22 | |     _parse_device_closure,
+23 | | )
+24 | | from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+25 | |     StorageBundleSnapshot,
+26 | | )
+27 | | from storage_service.infrastructure.adapters.outbound.metadata_store import (
+28 | |     MetadataConflictError,
+29 | |     MetadataStore,
+30 | | )
+31 | | 
+32 | | ROOT = Path(__file__).resolve().parents[3]
+   | |_^ I001
+33 |   TABLE = "point_table_shared_v1.0.0"
+34 |   NEW_TABLE = "point_table_shared_v2.0.0"
+   |
+   = help: Organize imports
+
+tests/storage_service/unit/test_device_binding.py:19:101: E501 Line too long (101 > 100)
+   |
+17 | )
+18 | from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
+19 | from storage_service.infrastructure.adapters.outbound.configuration_archive import RepositoryDocument
+   |                                                                                                     ^ E501
+20 | from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
+21 |     StorageBundle,
+   |
+
+tests/storage_service/unit/test_historical_device_closure.py:44:101: E501 Line too long (101 > 100)
+   |
+42 |                                       "address": {"count": 2}}},
+43 |             "config_sources": [
+44 |                 {"config_type": "business_points", "config_id": "standard", "file_version": "1.0.0"},
+   |                                                                                                     ^ E501
+45 |                 {"config_type": "units", "config_id": "standard", "file_version": "1.0.0"},
+46 |             ],
+   |
+
+tests/storage_service/unit/test_tdengine_backup.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """taosdump 真实子进程的配额、取消、超时和正常退出清理。"""
+ 2 |   
+ 3 | / from __future__ import annotations
+ 4 | | 
+ 5 | | import asyncio
+ 6 | | import hashlib
+ 7 | | import json
+ 8 | | import os
+ 9 | | import time
+10 | | import uuid
+11 | | from pathlib import Path
+12 | | from typing import Any, cast
+13 | | 
+14 | | import pytest
+15 | | 
+16 | | from storage_service.application.config import DeviceBinding, DeviceModel, StorageConfig, load_storage_config
+17 | | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+18 | |     ImmutableConfigArchive,
+19 | |     RepositoryDocument,
+20 | | )
+21 | | from storage_service.infrastructure.adapters.outbound.metadata_store import ObjectRegistration
+22 | | from storage_service.infrastructure.adapters.outbound.tdengine_backup import (
+23 | |     NativeBackupError,
+24 | |     NativeTDengineBackup,
+25 | | )
+26 | | 
+27 | | ROOT = Path(__file__).resolve().parents[3]
+   | |_^ I001
+28 |   pytestmark = pytest.mark.unit
+   |
+   = help: Organize imports
+
+tests/storage_service/unit/test_tdengine_backup.py:16:101: E501 Line too long (109 > 100)
+   |
+14 | import pytest
+15 | 
+16 | from storage_service.application.config import DeviceBinding, DeviceModel, StorageConfig, load_storage_config
+   |                                                                                                     ^^^^^^^^^ E501
+17 | from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+18 |     ImmutableConfigArchive,
+   |
+
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:198:101: E501 Line too long (101 > 100)
+    |
+196 |                 break
+197 |             time.sleep(1)
+198 |     assert expected <= observed, f"Storage wide RPC did not return RAW points: {expected - observed}"
+    |                                                                                                     ^ E501
+199 |     assert last_reply is not None
+200 |     assert last_reply.schema_fingerprint
+    |
+
+tests/tooling/test_versionless_python_filenames.py:3:1: I001 [*] Import block is un-sorted or un-formatted
+   |
+ 1 |   """Code module filenames are stable; versions live in data and wire contracts."""
+ 2 |   
+ 3 | / from pathlib import Path
+ 4 | | import re
+ 5 | | 
+ 6 | | import pytest
+ 7 | | 
+ 8 | | 
+ 9 | | ROOT = Path(__file__).resolve().parents[2]
+   | |_^ I001
+10 |   _VERSIONED_PYTHON = re.compile(r"_v[0-9]+(?:_[0-9]+)*\.py$")
+   |
+   = help: Organize imports
+
+Found 33 errors.
+[*] 20 fixable with the `--fix` option.

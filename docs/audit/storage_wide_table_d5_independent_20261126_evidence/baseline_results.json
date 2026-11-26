@@ -1,0 +1,21 @@
+{
+  "head": "141ac2b78b83d2fbf49da71147358e7393d165cd",
+  "results": [
+    {
+      "command": "python -m ruff check src tests scripts",
+      "exit_code": 1
+    },
+    {
+      "command": "python -m ruff format --check src tests scripts",
+      "exit_code": 1
+    },
+    {
+      "command": "python -m mypy src",
+      "exit_code": 0
+    },
+    {
+      "command": "python scripts/generate_rpc.py --check",
+      "exit_code": 0
+    }
+  ]
+}

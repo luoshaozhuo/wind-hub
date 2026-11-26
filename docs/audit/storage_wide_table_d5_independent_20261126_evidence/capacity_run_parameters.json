@@ -1,0 +1,13 @@
+{
+  "head_at_start": "d643703181e1e78de6aa8f5d6fc839eaefc898d3",
+  "R14_DURATION_S": 600,
+  "R14_DEGREE": 30,
+  "R14_TARGET_BATCH_RATE": 300,
+  "R14_POINTS": 500,
+  "R14_MIN_SUSTAINED_FRACTION": 1,
+  "STREAM_MAX_AGE_S": 180,
+  "STREAM_MAX_BYTES": 4294967296,
+  "started_with_test_fix_before_commit": true,
+  "source_only_changes_after_start": "format/import/type narrowing changes subsequently regressed; not a claim of capacity rerun on final source HEAD",
+  "equivalent_committed_capacity_fix": "a0b37acdf876185305833be6bbf47115cbbae089"
+}

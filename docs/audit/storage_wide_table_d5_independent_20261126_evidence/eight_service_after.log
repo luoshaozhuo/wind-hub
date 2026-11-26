@@ -1,0 +1,198 @@
+EE                                                                       [100%]
+==================================== ERRORS ====================================
+_________ ERROR at setup of test_fc04_raw_reaches_storage_and_tdengine _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7a97eb7e3fd0>
+request = <SubRequest 'raw_started' for <Function test_fc04_raw_reaches_storage_and_tdengine>>
+
+    @pytest.fixture
+    def raw_started(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> Iterator[Any]:
+        monkeypatch.setenv("EIGHT_SERVICE_SINK_DATA_LEVEL", "raw")
+>       yield request.getfixturevalue("started")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:35: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:549: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:640: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1128: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1196: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:930: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+tests/system/e2e/eight_service/conftest.py:412: in started
+    harness.wait_healthy(name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-34/test_fc04_raw_reaches_storage_0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'collector-realtime'
+
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+            business = (items[0].get("business") if items else {}) or {}
+            if business.get("health") == "HEALTHY":
+                return last
+            time.sleep(0.5)
+>       raise AssertionError(
+            f"{name} did not become HEALTHY: {last}; {_service_load_has_problem(self, name, name)}"
+        )
+E       AssertionError: collector-realtime did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'collector-realtime', 'process': {'manager': 'process', 'target': 'collector-realtime', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '<AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52051: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52051: Failed to connect to remote host: Connection refused"\n>'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; 198, in _run_module_as_main
+E         File "<frozen runpy>", line 88, in _run_code
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 118, in <module>
+E           raise SystemExit(main())
+E                            ^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 105, in main
+E           return asyncio.run(
+E                  ^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E           return runner.run(main)
+E                  ^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E           return self._loop.run_until_complete(task)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E           return future.result()
+E                  ^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 49, in run_collector
+E           app = await assemble_collector(
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/assembly.py", line 203, in assemble_collector
+E           source = await asyncio.to_thread(resolve_source_paths, config_path)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py", line 25, in to_thread
+E           return await loop.run_in_executor(None, func_call)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+E           result = self.fn(*self.args, **self.kwargs)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/infrastructure/config/validation.py", line 42, in resolve_source_paths
+E           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E       core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-e2e-realtime_v1.0.0.yaml
+
+tests/system/e2e/eight_service/conftest.py:273: AssertionError
+___ ERROR at setup of test_eight_service_chain_is_cli_managed_and_persisted ____
+
+harness = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-34/test_eight_service_chain_is_cl0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    @pytest.fixture
+    def started(harness: EightServiceHarness) -> EightServiceHarness:
+        """Configuration first, publish the active root, then every business process."""
+        harness.start("configuration")
+        harness.wait_healthy("configuration")
+        publish = harness.cli(
+            "config",
+            "publish",
+            "--root",
+            str(harness.root / "configs"),
+            timeout=180,
+        )
+        assert publish["status"] == "SUCCESS", publish
+        harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(int(publish["data"]["revision_id"]))
+        asyncio.run(_ensure_topic(harness.stack.kafka, "windhub.e2e.history"))
+        asyncio.run(_ensure_streams(harness.stack.nats))
+        for name in SERVICES:
+            # Collectors may report UNKNOWN briefly before their snapshot converges;
+            # readiness is asserted below with a bounded wait instead of the CLI probe.
+            payload = harness.start(
+                name, check=name not in {"collector-realtime", "collector-reliable", "sink"}
+            )
+            if name not in {"collector-realtime", "collector-reliable", "sink"}:
+                assert payload["status"] == "SUCCESS", payload
+        for name in SERVICES:
+            if name == "storage":
+                harness.wait_targets(name)
+            else:
+>               harness.wait_healthy(name)
+
+tests/system/e2e/eight_service/conftest.py:412: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-34/test_eight_service_chain_is_cl0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'collector-realtime'
+
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+            business = (items[0].get("business") if items else {}) or {}
+            if business.get("health") == "HEALTHY":
+                return last
+            time.sleep(0.5)
+>       raise AssertionError(
+            f"{name} did not become HEALTHY: {last}; {_service_load_has_problem(self, name, name)}"
+        )
+E       AssertionError: collector-realtime did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'collector-realtime', 'process': {'manager': 'process', 'target': 'collector-realtime', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '<AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52051: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52051: Failed to connect to remote host: Connection refused"\n>'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; 198, in _run_module_as_main
+E         File "<frozen runpy>", line 88, in _run_code
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 118, in <module>
+E           raise SystemExit(main())
+E                            ^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 105, in main
+E           return asyncio.run(
+E                  ^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E           return runner.run(main)
+E                  ^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E           return self._loop.run_until_complete(task)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E           return future.result()
+E                  ^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/main.py", line 49, in run_collector
+E           app = await assemble_collector(
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/assembly.py", line 203, in assemble_collector
+E           source = await asyncio.to_thread(resolve_source_paths, config_path)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py", line 25, in to_thread
+E           return await loop.run_in_executor(None, func_call)
+E                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+E           result = self.fn(*self.args, **self.kwargs)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         File "/home/luosh/wind-hub/src/collector/infrastructure/config/validation.py", line 42, in resolve_source_paths
+E           raise ConfigError(f"Collector Deployment selection failed: {exc}") from exc
+E       core.application.errors.ConfigError: Collector Deployment selection failed: selected configuration is missing: services/service_collector-e2e-realtime_v1.0.0.yaml
+
+tests/system/e2e/eight_service/conftest.py:273: AssertionError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/eight_service_after.xml -
+=========================== short test summary info ============================
+ERROR tests/system/e2e/eight_service/test_e2e_eight_service_raw.py::test_fc04_raw_reaches_storage_and_tdengine
+ERROR tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py::test_eight_service_chain_is_cli_managed_and_persisted
+2 errors in 251.26s (0:04:11)

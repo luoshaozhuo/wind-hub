@@ -1,0 +1,32 @@
+[
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "python -m ruff check src tests scripts",
+    "exit_code": 0
+  },
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "python -m ruff format --check src tests scripts",
+    "exit_code": 0
+  },
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "python -m mypy src",
+    "exit_code": 1
+  },
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "python scripts/generate_rpc.py --check",
+    "exit_code": 0
+  },
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "lint-imports",
+    "exit_code": 0
+  },
+  {
+    "head": "dd2a0dfd097776b9660bc1177528399e15051d3f",
+    "command": "pytest --collect-only -q",
+    "exit_code": 0
+  }
+]

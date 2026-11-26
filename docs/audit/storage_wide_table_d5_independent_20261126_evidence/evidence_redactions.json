@@ -1,0 +1,9 @@
+{
+  "reason": "Remove ephemeral test authentication tokens while preserving test results and source fingerprints",
+  "files": {
+    "wire_e2e_final.xml": 1,
+    "wire_e2e_final.log": 1,
+    "capacity_wide_30.xml": 1,
+    "capacity_wide_30.log": 1
+  }
+}

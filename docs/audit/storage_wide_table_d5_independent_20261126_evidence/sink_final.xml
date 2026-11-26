@@ -1,0 +1,1471 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="38" skipped="0" tests="418" time="6.356" timestamp="2026-11-26T12:06:05.571087+08:00" hostname="boss"><testcase classname="tests.sink_service.unit.test_business_projection" name="test_exact_point_match_projects_to_pinned_business_point" time="0.001" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_one_business_point_serves_many_source_points" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_scale_and_offset_engineering_conversion" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_units_standardization_converts_to_business_standard_unit" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_combined_scale_offset_and_unit_conversion" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_integer_value_is_preserved_without_float_round_trip" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_int64_boundary_values_are_accepted" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_uint64_full_range_is_accepted" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_integer_above_lossless_float_threshold_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_non_finite_engineering_value_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_null_value_returns_null_business_value_without_conversion" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_unknown_point_fails_closed" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_missing_business_mapping_fails_closed" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_boolean_is_not_treated_as_integer" time="0.000" /><testcase classname="tests.sink_service.unit.test_business_projection" name="test_type_conflict_fails_closed_without_protocol_fallback" time="0.000" /><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_shipped_kafka_110_template_declares_device_concurrency" time="0.008"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">def test_shipped_kafka_110_template_declares_device_concurrency() -&gt; None:
+        document = yaml.safe_load(SHIPPED_110.read_bytes())
+        assert document["template_id"] == "kafka_history"
+        assert document["file_version"] == "1.1.0"
+        caps = document["capabilities"]
+        assert caps["supports_concurrent_write"] is True
+        assert caps["max_safe_inflight"] == 4
+        assert caps["reliable"] is True and caps["realtime"] is False
+        assert document["output"]["acks"] == "all"
+        assert document["output"]["enable_idempotence"] is True
+        # 入库模板本身必须能通过完整快照校验。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110] = document
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection'...rap_servers': ['192.168.1.20:9092'], 'credential_ref': 'kafka/history'}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_legacy_100_template_remains_serial_capability" time="0.001" /><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_distinct_devices_share_one_concurrent_sink" time="0.007"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">def test_distinct_devices_share_one_concurrent_sink() -&gt; None:
+&gt;       snapshot = _validate(_two_device_docs())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:186: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_distinct_devices_same_sink_accept_overlapping_points" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">def test_distinct_devices_same_sink_accept_overlapping_points() -&gt; None:
+        # 设备互斥即满足要求；测点选择器相同不阻断并发配置。
+        docs = _two_device_docs()
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_accepts_single_legal_device_token" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">def test_concurrent_delivery_accepts_single_legal_device_token() -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=["WT-001_A"])},
+        )
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:202: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_requires_exactly_one_device[bad_devices0]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'concurrent Kafka requires one explicit device'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_devices = []
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_devices = []
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+&gt;       with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka requires one explicit device'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:220: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_requires_exactly_one_device[bad_devices1]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'concurrent Kafka requires one explicit device'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_devices = ['WT001', 'WT002']
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_devices = ['WT001', 'WT002']
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+&gt;       with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka requires one explicit device'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:220: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_rejects_illegal_subject_token[WT.001]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid source device token'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_token = 'WT.001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT.001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+&gt;       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_rejects_illegal_subject_token[WT*1]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid source device token'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_token = 'WT*1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT*1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+&gt;       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_rejects_illegal_subject_token[WT&gt;1]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid source device token'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_token = 'WT&gt;1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT&gt;1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+&gt;       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_rejects_illegal_subject_token[WT 001]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid source device token'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_token = 'WT 001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT 001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+&gt;       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_concurrent_delivery_rejects_illegal_subject_token[WT\t1]" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'invalid source device token'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">bad_token = 'WT\t1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT\t1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT&gt;1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+&gt;       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_same_device_cannot_occupy_same_kafka_target_twice" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'concurrent Kafka device overlaps'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">def test_same_device_cannot_occupy_same_kafka_target_twice() -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={
+                "d1": _delivery_instance("d1", sink="history_kafka", devices=["WT001"]),
+                "d2": _delivery_instance(
+                    "d2", sink="history_kafka", devices=["WT001"], points=["voltage"]
+                ),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka device overlaps"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_same_device_cannot_occupy_same_kafka_target_twice() -&gt; None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={
+                "d1": _delivery_instance("d1", sink="history_kafka", devices=["WT001"]),
+                "d2": _delivery_instance(
+                    "d2", sink="history_kafka", devices=["WT001"], points=["voltage"]
+                ),
+            },
+        )
+&gt;       with pytest.raises(ConfigurationError, match="concurrent Kafka device overlaps"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka device overlaps'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:249: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_distinct_sink_ids_same_physical_target_cannot_bypass_quota" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'concurrent Kafka target must reuse Sink'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">def test_distinct_sink_ids_same_physical_target_cannot_bypass_quota() -&gt; None:
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.1.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT002"]),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_distinct_sink_ids_same_physical_target_cannot_bypass_quota() -&gt; None:
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.1.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT002"]),
+            },
+        )
+&gt;       with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka target must reuse Sink'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:264: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected" time="0.008"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'concurrent Kafka target must reuse Sink'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version'">def test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected() -&gt; None:
+        docs = _docs(
+            templates=("1.0.0", "1.1.0"),
+            sinks={
+                "kafka_new": _sink_instance("kafka_new", version="1.1.0"),
+                "kafka_old": _sink_instance("kafka_old", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_new", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_old", devices=["WT002"]),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:281: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected() -&gt; None:
+        docs = _docs(
+            templates=("1.0.0", "1.1.0"),
+            sinks={
+                "kafka_new": _sink_instance("kafka_new", version="1.1.0"),
+                "kafka_old": _sink_instance("kafka_old", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_new", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_old", devices=["WT002"]),
+            },
+        )
+&gt;       with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka target must reuse Sink'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:280: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_same_device_on_different_topics_is_independent" time="0.007"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version">def test_same_device_on_different_topics_is_independent() -&gt; None:
+        # 物理目标不同（topic 不同），不构成同一目标的重复占用。
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT001"]),
+            },
+        )
+        # topic 属于模板契约：1.0.0 路径放置同能力但不同 topic 的独立模板。
+        extra = copy.deepcopy(docs[KAFKA_PATH_110])
+        extra["file_version"] = "1.0.0"
+        extra["output"]["topic"] = "windhub.other"
+        docs[KAFKA_PATH_100] = extra
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:301: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_legacy_template_still_allows_multi_device_delivery" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version">def test_legacy_template_still_allows_multi_device_delivery() -&gt; None:
+        docs = _docs(
+            templates=("1.0.0",),
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.0.0")},
+            deliveries={
+                "d1": _delivery_instance(
+                    "d1", sink="history_kafka", devices=["WT001", "WT002", "WT003"]
+                )
+            },
+        )
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:317: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_legacy_template_allows_empty_device_wildcard" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version">def test_legacy_template_allows_empty_device_wildcard() -&gt; None:
+        docs = _docs(
+            templates=("1.0.0",),
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.0.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[])},
+        )
+&gt;       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:326: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_non_concurrent_capability_requires_inflight_one_shipped" time="0.006"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'unsafe parallel write declaration'&#10; Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'">def test_non_concurrent_capability_requires_inflight_one_shipped() -&gt; None:
+        # 能力声明自身不一致时 fail-closed：并发关闭却声明 &gt;1 在途。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110]["capabilities"]["supports_concurrent_write"] = False
+        with pytest.raises(ConfigurationError, match="unsafe parallel write declaration"):
+&gt;           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:334: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_non_concurrent_capability_requires_inflight_one_shipped() -&gt; None:
+        # 能力声明自身不一致时 fail-closed：并发关闭却声明 &gt;1 在途。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110]["capabilities"]["supports_concurrent_write"] = False
+&gt;       with pytest.raises(ConfigurationError, match="unsafe parallel write declaration"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'unsafe parallel write declaration'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:333: AssertionError</failure></testcase><testcase classname="tests.sink_service.unit.test_concurrent_kafka_config" name="test_snapshot_files_remain_content_addressed" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">def test_snapshot_files_remain_content_addressed() -&gt; None:
+&gt;       first = _validate(_two_device_docs())
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:338: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_config_validation" name="test_valid_reference_snapshot_passes" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_digest_revision_is_content_addressed_and_order_independent" time="0.015" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[/etc/passwd]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[../escape.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs/services/../evil.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs/services/sub/../../evil.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs/services/evil.txt]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[evil/x.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs\\services\\evil.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs//services/evil.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_file_rejects_unsafe_paths[configs/./services/evil.yaml]" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_empty_and_oversized_snapshots_rejected" time="0.276" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_duplicate_paths_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_requires_exactly_one_service_file" time="0.014" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_legacy_process_role_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_legacy_config_writer_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_legacy_config_sync_forwarding_fields_rejected" time="0.015" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_config_root_must_be_nonempty" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[grpc-listen_port-70000]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[grpc-max_active_rpcs-65]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[grpc-max_request_bytes-2097153]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[grpc-default_deadline_ms-5001]" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[runtime-max_inflight_per_sink-129]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[metrics-metrics_compute_interval_ms-99]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_service_value_ranges_enforced[metrics-metrics_window_ms-999]" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_missing_template_reference_rejected" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_template_identity_must_match_reference" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_unknown_sink_reference_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_incompatible_sink_capability_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_reliable_requires_duplicate_policy" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_non_concurrent_adapter_requires_inflight_one" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_wind_farm_identity_must_match_service" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_invalid_desired_state_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_wire_metadata_size_and_hash_validated" time="0.003" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_mutating_document_changes_revision" time="0.016" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_snapshot_returns_independent_file_tuples" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_missing_required_instance_file_rejected" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_copy_helper_is_deep" time="0.000" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_producer_settings_default_when_absent" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[1]" time="0.007" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[5]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[-1]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[True]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[False]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[0.0]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[0]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_linger_ms_must_be_integer_zero[None]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_accepts_positive_integer[16384]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_accepts_positive_integer[32768]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_accepts_positive_integer[65536]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_accepts_positive_integer[131072]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[0]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[-1]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[True]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[False]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[1.5]" time="0.009" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[16384]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_max_batch_size_rejects_non_positive_or_non_integer[None]" time="0.008" /><testcase classname="tests.sink_service.unit.test_config_validation" name="test_kafka_explicit_zero_linger_and_batch_size_pass_together" time="0.008" /><testcase classname="tests.sink_service.unit.test_delivery_admission" name="test_kafka_reliable_delivery_is_admitted" time="0.006" /><testcase classname="tests.sink_service.unit.test_delivery_admission" name="test_non_kafka_realtime_delivery_is_admitted" time="0.005" /><testcase classname="tests.sink_service.unit.test_delivery_admission" name="test_kafka_realtime_delivery_is_rejected" time="0.006" /><testcase classname="tests.sink_service.unit.test_delivery_admission" name="test_non_kafka_reliable_delivery_is_rejected" time="0.005" /><testcase classname="tests.sink_service.unit.test_delivery_admission" name="test_default_full_snapshot_remains_valid" time="0.007" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_invalid_caller_configuration_is_rejected_at_construction[callers0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_invalid_caller_configuration_is_rejected_at_construction[callers1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_invalid_caller_configuration_is_rejected_at_construction[callers2]" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_invalid_caller_configuration_is_rejected_at_construction[callers3]" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_invalid_caller_configuration_is_rejected_at_construction[callers4]" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_missing_token_is_unauthenticated" time="0.001" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_duplicate_authorization_header_is_unauthenticated" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_wrong_token_is_denied" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_query_only_caller_is_denied_control_permission" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_unknown_rpc_is_denied_even_with_a_valid_token" time="0.000" /><testcase classname="tests.sink_service.unit.test_grpc_auth" name="test_authorized_call_reaches_handler" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_valid_closure_parses_into_historical_point_table" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_response_identity_mismatch_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_device_type_mismatch_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_tampered_yaml_fails_transport_checksum" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_tampered_semantic_content_fails_canonical_hash" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_manifest_digest_mismatch_is_rejected" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_missing_units_dependency_is_rejected" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_bundle_codec" name="test_duplicate_document_version_is_rejected" time="0.001" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_requires_env_token_reference" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_empty_endpoint" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_empty_approved_manifests" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_non_sha256_manifest_digest[]" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_non_sha256_manifest_digest[short]" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_non_sha256_manifest_digest[gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_non_sha256_manifest_digest[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_construction_rejects_non_sha256_manifest_digest[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_unapproved_point_table_is_rejected_before_any_network_call" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_cache_keys_are_isolated_by_point_table_and_device_type" time="0.000" /><testcase classname="tests.sink_service.unit.test_historical_point_table_client" name="test_cache_holds_at_most_128_entries" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_attempt_counters" name="test_success_counts_builders_not_records" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_attempt_counters" name="test_single_builder_success_is_one_attempt" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_attempt_counters" name="test_confirmation_rejection_counts_every_failed_future" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_attempt_counters" name="test_send_batch_rejection_counts_one_failed_attempt" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_attempt_counters" name="test_disconnected_output_keeps_counters_at_zero" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_device_locks_are_bounded_stripes" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_distinct_partitions_overlap_and_each_fully_settles" time="0.006" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_stripe_hash_collision_serializes_without_corruption" time="0.056" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_send_failure_reports_error_without_false_success" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_close_reopen_leaves_no_unconfirmed_future" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_write_encoded_batch_without_open_fails_closed" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_device_stripes" name="test_partition_cache_is_an_ordered_dict" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_encoded_bytes_go_on_wire_unchanged_with_explicit_key_and_stripe" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_partition_failure_never_orphans_submitted_encoded_futures" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_metadata_invalidation_during_encoded_send_does_not_raise_or_orphan" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_send_failure_fails_closed_and_keeps_cache_empty" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_rejected_confirmation_is_not_delivered_but_future_awaited" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_encoded_write_without_open_returns_error_outcome" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_same_stripe_serializes_while_distinct_partitions_overlap" time="0.011" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_same_partition_merges_keys_and_preserves_original_indexes" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_shared_confirmation_failure_is_not_success_for_either_request" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_merged_partial_submit_failure_keeps_confirmed_prefix" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_partition_dispatch_does_not_wait_for_prior_broker_confirmation" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_encoded_batch" name="test_cancelled_caller_and_close_retain_shared_confirmation_ownership" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[-1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[10]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[0.0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_linger_ms_rejects_anything_but_integer_zero[None]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[-1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[1.5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[16384]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_max_batch_size_rejects_non_positive_or_non_integer[None]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_defaults_and_explicit_valid_values_accepted" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_open_propagates_l3_options_and_manages_listener" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_open_failure_stops_producer_and_does_not_register_listener" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_same_key_partitions_once_then_uses_explicit_partition" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_distinct_keys_get_independent_cached_partitions" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_cache_is_bounded_lru_and_evicts_least_recently_used" time="0.694" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_metadata_event_invalidates_cache" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_send_failure_marks_batch_errored_and_keeps_cache_empty" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_partition_resolution_failure_blocks_enqueue_without_fabricating_success" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_rejected_broker_confirmation_is_not_delivered_and_future_awaited" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_multi_record_batch_keeps_all_confirmations_under_one_partition" time="0.004" /><testcase classname="tests.sink_service.unit.test_kafka_output_partition_cache" name="test_write_encoded_batch_without_open_returns_error_outcome" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_one_device_record_with_complete_points" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_partial_device_record_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_mixed_logical_times_are_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_requires_original_capture" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_business_columns_use_standard_ids_and_reject_non_bijective_mapping" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_kafka_key_uses_only_wind_farm_and_device" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[123]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[AA]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[0g]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_wide_encoder_rejects_unpinned_device_version" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wide" name="test_wide_encoder_rejects_timestamp_mismatch_with_batch" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_all_points_form_exactly_one_complete_wide_record[1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_all_points_form_exactly_one_complete_wide_record[500]" time="0.006" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_all_points_form_exactly_one_complete_wide_record[1024]" time="0.010" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_subset_is_rejected_instead_of_emitting_partial_history" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_empty_device_row_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_wide_json_v3_is_deterministic_for_repeated_encoding" time="0.001" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_nonfinite_values_are_rejected_at_sample_boundary[nan]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_nonfinite_values_are_rejected_at_sample_boundary[inf]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_nonfinite_values_are_rejected_at_sample_boundary[-inf]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_b3_bytes" name="test_unicode_is_utf8_not_ascii_escaped" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0--17]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-9007199254740992]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-0.0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-1.5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0--3.14e-09]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-1e+308]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-None]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-\u4e2d\u6587\uff0c\u6807\u70b9\xb7\u6d4b\u8bd5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-quote&quot;back\\slash]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-tab\there\nnewline\r]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-emoji\U0001f600unicode\xe9]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-{}[]:,]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time0-                                                                                                                                                                                                        ]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1--17]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-9007199254740992]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-0.0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-1.5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1--3.14e-09]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-1e+308]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-None]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-\u4e2d\u6587\uff0c\u6807\u70b9\xb7\u6d4b\u8bd5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-quote&quot;back\\slash]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-tab\there\nnewline\r]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-emoji\U0001f600unicode\xe9]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-{}[]:,]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time1-                                                                                                                                                                                                        ]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2--17]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-9007199254740992]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-0.0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-1.5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2--3.14e-09]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-1e+308]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-None]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-\u4e2d\u6587\uff0c\u6807\u70b9\xb7\u6d4b\u8bd5]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-quote&quot;back\\slash]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-tab\there\nnewline\r]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-emoji\U0001f600unicode\xe9]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-{}[]:,]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_protocol_bytes_match_independent_reference[sample_time2-                                                                                                                                                                                                        ]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_wide_wire_has_only_seven_authoritative_envelope_fields" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_protocol_rejects_business_projection" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_raw_requires_original_bytes" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_business_requires_complete_projection" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_business_projection_uses_business_point_identity" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_invalid_sample_batch_is_rejected_upstream[not-json]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_invalid_sample_batch_is_rejected_upstream[{&quot;schema_version&quot;:3,&quot;points&quot;:NaN}]" time="0.000" /><testcase classname="tests.sink_service.unit.test_kafka_wire_parity" name="test_sink_exposes_only_device_wide_history_encoder" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_duplicate_point_declaration_is_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_float32_value_and_quality_are_mapped_big_endian" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_quality_codes_map_to_contract_values" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_out_of_order_sample_never_rolls_back_the_image" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_duplicate_is_confirmed_but_conflicting_identity_errors" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_non_numeric_and_boolean_values_are_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_stale_sample_is_settled_without_writing_the_image" time="0.000" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_read_enforces_bounds_validity_and_expiry" time="0.101" /><testcase classname="tests.sink_service.unit.test_modbus_image" name="test_unmapped_point_is_reported_but_does_not_abort_the_batch" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_constructor_rejects_bad_policy_interval_and_thresholds" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_foreign_source_is_ignored_without_being_counted" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_stale_sample_is_dropped" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_out_of_order_and_duplicate_samples_are_dropped_or_ignored" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_conflicting_task_authority_quarantines_the_point" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_cache_capacity_rejects_a_new_point_but_kept_points_accept_updates" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_change_detection_honours_absolute_and_relative_thresholds" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_periodic_policy_emits_even_without_value_change" time="0.122" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_on_change_policy_stays_idle_below_threshold" time="0.242" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_change_with_heartbeat_resends_unchanged_value_on_tick" time="0.122" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_batch_is_chunked_at_500_points" time="0.104" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_writer_failure_is_retried_and_then_delivered" time="0.201" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_confirmed_sample_evidence_is_bounded_for_large_delivery" time="0.092" /><testcase classname="tests.sink_service.unit.test_output_policy" name="test_confirmed_evidence_keeps_non_dominant_device_under_fanout" time="0.022" /><testcase classname="tests.sink_service.unit.test_output_pool_cancel_races" name="test_quarantine_rechecks_waiters_before_starting_native_io" time="0.001" /><testcase classname="tests.sink_service.unit.test_output_pool_cancel_races" name="test_release_cannot_recycle_quarantine_during_close" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_pool_cancel_races" name="test_release_observes_native_state_when_done_callback_runs_after_close[False]" time="0.000" /><testcase classname="tests.sink_service.unit.test_output_pool_cancel_races" name="test_release_observes_native_state_when_done_callback_runs_after_close[True]" time="0.000" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_confirmed_samples_remain_pending_until_source_ack" time="0.007"><failure message="RuntimeError: Adapter returned invalid batch indexes">async def test_confirmed_samples_remain_pending_until_source_ack() -&gt; None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=(0, 1, 2), settled=(0, 1, 2), successful_attempts=1)
+        )
+        port = _port(adapter, ["p1", "p2", "p3"])
+        message = _FakeMessage()
+&gt;       terminal = await port._deliver_batch(
+            message, _batch([("p1", "s1"), ("p2", "s2"), ("p3", "s3")])
+        )
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2), settled=(0, 1, 2), error='', successful_attempts=1, failed_attempts=0, successful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -&gt; SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 &lt;= index &lt; length for index in settled)
+        ):
+&gt;           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_failed_target_write_produces_no_confirmed_samples" time="0.007"><failure message="RuntimeError: Adapter returned invalid batch indexes">async def test_failed_target_write_produces_no_confirmed_samples() -&gt; None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=(), settled=(0, 1), error="target outage", failed_attempts=1)
+        )
+        port = _port(adapter, ["p1", "p2"])
+&gt;       terminal = await port._deliver_batch(_FakeMessage(), _batch([("p1", "s1"), ("p2", "s2")]))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:149: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(), settled=(0, 1), error='target outage', successful_attempts=0, failed_attempts=1, successful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -&gt; SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 &lt;= index &lt; length for index in settled)
+        ):
+&gt;           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_partial_settlement_confirms_only_delivered_indices" time="0.007"><failure message="RuntimeError: Adapter returned invalid batch indexes">async def test_partial_settlement_confirms_only_delivered_indices() -&gt; None:
+        # Index 1 is neither delivered nor permanently classified: it must not be
+        # observable as target-confirmed evidence, and the batch stays unresolved.
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(
+                delivered=(0,),
+                settled=(0, 1),
+                error="partial write uncertainty",
+                successful_attempts=1,
+                failed_attempts=1,
+            )
+        )
+        port = _port(adapter, ["p1", "p2"])
+&gt;       terminal = await port._deliver_batch(_FakeMessage(), _batch([("p1", "s1"), ("p2", "s2")]))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:170: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0,), settled=(0, 1), error='partial write uncertainty', successful_attempts=1, failed_attempts...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -&gt; SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 &lt;= index &lt; length for index in settled)
+        ):
+&gt;           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_pending_evidence_is_capped_at_four_and_keeps_newest" time="0.007"><failure message="RuntimeError: Adapter returned invalid batch indexes">async def test_pending_evidence_is_capped_at_four_and_keeps_newest() -&gt; None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
+        )
+        port = _port(adapter, [f"p{i}" for i in range(6)])
+&gt;       await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:182: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2, 3, 4, 5), settled=(0, 1, 2, 3, 4, 5), error='', successful_attempts=1, failed_attempt...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -&gt; SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 &lt;= index &lt; length for index in settled)
+        ):
+&gt;           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_pending_evidence_resets_for_each_source_batch" time="0.007" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe" time="0.007"><failure message="RuntimeError: Adapter returned invalid batch indexes">async def test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe() -&gt; None:
+        import json
+    
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
+        )
+        port = _port(adapter, [f"p{i}" for i in range(6)])
+&gt;       await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:211: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2, 3, 4, 5), settled=(0, 1, 2, 3, 4, 5), error='', successful_attempts=1, failed_attempt...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -&gt; SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 &lt;= index &lt; length for index in settled)
+        ):
+&gt;           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_evidence_is_isolated_between_delivery_engines" time="0.014" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_cold_inspect_exposes_empty_sample_evidence" time="0.007" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_uncertain_or_failed_writes_never_become_success_evidence[outcome0]" time="0.008" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_uncertain_or_failed_writes_never_become_success_evidence[outcome1]" time="0.007" /><testcase classname="tests.sink_service.unit.test_reliable_sample_evidence" name="test_kafka_stage_timings_are_attributed_to_the_owning_delivery" time="0.007" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_validate_target_accepts_declared_at_least_once_kafka" time="0.009" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_require_dedup_needs_exact_two_field_identity" time="0.023" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_unknown_duplicate_policy_is_rejected" time="0.012" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_reliable_redis_requires_idempotent_capability" time="0.022" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_non_reliable_sink_and_unknown_kind_are_rejected" time="0.022" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_durable_identity_is_deterministic_and_deployment_scoped" time="0.016" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_source_selector_honours_declared_filter" time="0.000" /><testcase classname="tests.sink_service.unit.test_reliable_seams" name="test_cold_observability_surface_is_honest" time="0.008" /><testcase classname="tests.sink_service.unit.test_reliable_subject_seam" name="test_concurrent_template_uses_exact_device_subject" time="0.007"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70d9e80b1750&gt;
+
+    async def test_concurrent_template_uses_exact_device_subject(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:230: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_subject_seam" name="test_legacy_template_keeps_broad_subscription" time="0.007"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70d9e82ab010&gt;
+
+    async def test_legacy_template_keeps_broad_subscription(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(concurrent=False, devices=["WT001", "WT002"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:249: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_subject_seam" name="test_durable_filter_mismatch_fails_closed_and_releases_resources" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70d9e7fc3a10&gt;
+
+    async def test_durable_filter_mismatch_fails_closed_and_releases_resources(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_reliable_subject_seam" name="test_durable_ackwait_mismatch_rejects_before_binding" time="0.007"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70d9e8276c10&gt;
+
+    async def test_durable_ackwait_mismatch_rejects_before_binding(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:294: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.unit.test_replay_header_ack_bypass" name="test_forged_replay_header_still_delivers_and_acks_after_success" time="0.009" /><testcase classname="tests.sink_service.unit.test_replay_header_ack_bypass" name="test_forged_replay_header_cannot_force_ack_when_delivery_unsettled" time="0.009" /><testcase classname="tests.sink_service.unit.test_replay_header_ack_bypass" name="test_headerless_message_keeps_happy_path" time="0.009" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_reference_snapshot_passes_application_validation" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_sink_instance_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_sink_instance_container_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_kafka_connection_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_kafka_output_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_capability_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_delivery_instance_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_delivery_source_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_reliable_template_key_rejected" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_template_top_level_key_rejected" time="0.007" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_non_empty_source_filter_rejected" time="0.012" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_empty_source_filter_mapping_remains_allowed" time="0.008" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_application" name="test_unknown_service_caller_permission_rejected_end_to_end" time="0.007" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_require_keys_accepts_exact_and_optional" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_require_keys_rejects_unknown_and_missing" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_reference_service_document_passes_strict_validation" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_unknown_top_level_service_key_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_unknown_nested_section_key_rejected[grpc-payload0]" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_unknown_nested_section_key_rejected[runtime-payload1]" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_unknown_nested_section_key_rejected[metrics-payload2]" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_unknown_nested_section_key_rejected[shutdown-payload3]" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_legacy_dual_process_fields_still_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_bounded_max_deliver_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_callers_must_be_non_empty_list" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_caller_unknown_permission_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_caller_duplicate_permission_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_duplicate_caller_id_and_identity_rejected" time="0.000" /><testcase classname="tests.sink_service.unit.test_strict_config_keys_domain" name="test_caller_unknown_key_rejected" time="0.000" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_kafka_target_emits_one_complete_device_row" time="0.010" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_1024_points_are_not_split_into_partial_kafka_rows" time="0.012" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_non_kafka_target_uses_point_adapter_without_wide_encoding" time="0.009" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_kafka_target_refuses_point_subset_without_partial_write" time="0.007" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_kafka_failure_does_not_report_device_cycle_success" time="0.008" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_kafka_rejects_permanent_point_classification" time="0.008" /><testcase classname="tests.sink_service.component.test_b1_encoded_kafka_delivery" name="test_unknown_kafka_write_remains_unconfirmed_after_settle" time="0.007" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_push_validates_and_stages_without_mutating_disk" time="0.031" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_stale_expected_revision_aborts_push" time="0.026" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_invalid_candidate_is_invalid_argument" time="0.028" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_reader_rejects_mutations" time="0.015" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_candidate_capacity_and_expiry" time="0.038" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_apply_commits_and_advances_runtime_when_converged" time="0.041" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_start_desired_change_converges_and_advances" time="0.048" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_apply_with_failed_convergence_keeps_old_runtime" time="0.041" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_apply_missing_candidate_is_not_found" time="0.023" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_apply_revision_conflict_aborts_without_commit" time="0.032" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_second_apply_of_same_candidate_rejected" time="0.042" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_service_change_marks_restart_required" time="0.041" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_set_delivery_desired_uses_same_cas_as_apply" time="0.040" /><testcase classname="tests.sink_service.component.test_config_snapshot" name="test_construction_pins_disk_and_runtime_to_initial_revision" time="0.013" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_registry_owns_only_matching_channel" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_other_role_registry_does_not_start_delivery" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_start_failure_is_failed_and_remains_queryable" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_watchdog_never_revives_manual_stop" time="0.016" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_reapply_unchanged_snapshot_does_not_rebuild_port" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_changed_binding_closes_old_port_before_replacement_runs" time="0.017" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_removed_delivery_stops_and_releases_ownership" time="0.015" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_failed_removal_retains_ownership_and_watchdog_does_not_restart" time="0.015" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_shutdown_closes_all_ports_and_aggregates_failures" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_registry_rejects_foreign_role_construction" time="0.009" /><testcase classname="tests.sink_service.component.test_delivery_runtime" name="test_failed_start_not_revived_when_desired_stop" time="0.018" /><testcase classname="tests.sink_service.component.test_generation_selection" name="test_restart_uses_committed_versioned_service_path" time="0.028" /><testcase classname="tests.sink_service.component.test_generation_selection" name="test_worker_recovery_rejects_unknown_generation" time="0.023" /><testcase classname="tests.sink_service.component.test_generation_selection" name="test_worker_recovery_rejects_unsafe_or_unversioned_paths[configs/services/../evil.yaml]" time="0.018" /><testcase classname="tests.sink_service.component.test_generation_selection" name="test_worker_recovery_rejects_unsafe_or_unversioned_paths[configs/services/sink_service.yaml]" time="0.018" /><testcase classname="tests.sink_service.component.test_generation_selection" name="test_worker_recovery_rejects_unsafe_or_unversioned_paths[/configs/services/service_sink-west_v1.0.0.yaml]" time="0.019" /><testcase classname="tests.sink_service.component.test_metrics" name="test_cold_snapshot_is_honestly_not_ready" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_unsupported_window_is_rejected" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_retired_received_batches_counter_is_never_emitted" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_sampled_counters_stay_inside_r04_vocabulary" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_backlog_omitted_when_not_reported" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_write_success_ratio_requires_a_denominator" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_p99_omitted_without_latency_samples_and_uses_nearest_rank" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_latency_window_is_half_open_and_overflow_suppresses_p99" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_delivery_scope_excludes_process_readiness_metrics" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_event_ring_is_bounded_and_cursor_paged" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_event_cursor_rejects_unknown_id_and_filters_query_and_time" time="0.000" /><testcase classname="tests.sink_service.component.test_metrics" name="test_event_fields_are_truncated_to_contract_limits" time="0.000" /><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_concurrent_sink_quota_is_intersection_and_adapter_shared" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_concurrent_sink_quota_is_intersection_and_adapter_shared(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(global_quota=128, per_sink=8)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_distinct_sink_ids_share_one_physical_target_quota" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_distinct_sink_ids_share_one_physical_target_quota(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+&gt;       snapshot = _snapshot(inflight=2)
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:186: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 2, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_dynamic_minimum_physical_quota_shrinks_and_restores" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_dynamic_minimum_physical_quota_shrinks_and_restores(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+        """Cross-Sink caps shrink below in-flight work without revoking that work."""
+&gt;       snapshot = _snapshot(inflight=4)
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_distinct_physical_targets_have_independent_quotas" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_distinct_physical_targets_have_independent_quotas(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+&gt;       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_legacy_template_forces_serial_quota" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_legacy_template_forces_serial_quota(fake_kafka: type[FakeKafkaAdapter]) -&gt; None:
+&gt;       snapshot = _snapshot(version="1.0.0", concurrent=False, inflight=1, per_sink=8)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:267: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_distinct_writers_overlap_while_reentry_is_rejected" time="0.006"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_distinct_writers_overlap_while_reentry_is_rejected(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+&gt;       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:280: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_global_quota_serializes_when_set_to_one" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_global_quota_serializes_when_set_to_one(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+        # 服务校验要求 per_sink &lt;= global；两层同时收紧到 1 时写入必须串行。
+&gt;       snapshot = _snapshot(global_quota=1, per_sink=1)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:313: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_quota_released_after_uncertain_timeout_and_settlement" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_quota_released_after_uncertain_timeout_and_settlement(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+        # io_wait_timeout_ms=1：门控写入观察超时返回 UNKNOWN，但额度保留至收敛。
+&gt;       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:342: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_encoded_batch_keeps_quota_through_uncertain_timeout" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_encoded_batch_keeps_quota_through_uncertain_timeout(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+&gt;       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:372: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_output_pool_quota" name="test_encoded_batch_caller_cancel_does_not_leak_quota" time="0.005"><failure message="sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version">fake_kafka = &lt;class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'&gt;
+
+    async def test_encoded_batch_caller_cancel_does_not_leak_quota(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -&gt; None:
+        # shield 语义：调用方观察被取消时，底层 I/O 任务继续跑到终局，
+        # done_callback 必须释放两层额度，不得留下孤儿任务或额度泄漏。
+&gt;       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:404: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in &lt;dictcomp&gt;
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -&gt; None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+&gt;           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError</failure></testcase><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_ingress_routes_single_and_multi_delivery_fanout" time="0.001" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_ingress_filters_source_device_and_point_and_negative_caches" time="0.001" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_target_cache_evicts_oldest_identity_at_lru_capacity" time="0.928" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_cache_has_no_stale_routes_after_remove_and_hot_update" time="0.001" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_isolated_change_keeps_low_latency_immediate_path" time="0.129" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_sustained_saturation_coalesces_to_heartbeat_tick" time="0.356" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_recovery_returns_to_immediate_trigger_after_quiet" time="0.358" /><testcase classname="tests.sink_service.component.test_realtime_cache" name="test_stop_during_pending_change_writes_nothing_extra" time="0.027" /><testcase classname="tests.sink_service.component.test_writer_lease" name="test_second_writer_is_rejected" time="0.001" /><testcase classname="tests.sink_service.component.test_writer_lease" name="test_lease_is_reacquirable_after_release" time="0.000" /><testcase classname="tests.sink_service.component.test_writer_lease" name="test_double_acquire_same_instance_is_rejected" time="0.000" /></testsuite></testsuites>

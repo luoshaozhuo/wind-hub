@@ -1,0 +1,2 @@
+src/storage_service/infrastructure/adapters/inbound/grpc_server.py:880: error: Cannot instantiate abstract class "StorageServicer" with abstract attribute "QuerySamples"  [abstract]
+Found 1 error in 1 file (checked 493 source files)

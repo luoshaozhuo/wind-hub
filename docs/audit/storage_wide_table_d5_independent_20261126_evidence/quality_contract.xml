@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="0.044" timestamp="2026-11-26T11:50:12.937296+08:00" hostname="boss"><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-2]" time="0.002"><failure message="AssertionError: assert 0 == 1&#10; +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result">quality = 2, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-3]" time="0.001"><failure message="AssertionError: assert 0 == 1&#10; +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result">quality = 3, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-2]" time="0.001"><failure message="AssertionError: assert None == 42&#10; +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result">quality = 2, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-3]" time="0.001"><failure message="AssertionError: assert None == 42&#10; +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result">quality = 3, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,9 @@
+
+==> performance
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/performance -q -m performance and not soak --junitxml docs/audit/storage_wide_table_d5_independent_20261126_evidence/performance.xml
+......                                                                   [100%]
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/performance.xml -
+6 passed in 22.13s
+[PASS] performance
+
+GATE RESULT: PASS

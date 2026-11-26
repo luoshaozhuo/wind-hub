@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="2" time="244.944" timestamp="2026-11-26T11:52:11.333933+08:00" hostname="boss"><testcase classname="tests.system.e2e.eight_service.test_e2e_eight_service_raw" name="test_fc04_raw_reaches_storage_and_tdengine" time="122.280"><error message="failed on setup with &quot;AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '&lt;AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = &quot;failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused&quot;\n\tdebug_error_string = &quot;UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused&quot;\n&gt;'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; Traceback (most recent call last):&#10;  File &quot;&lt;frozen runpy&gt;&quot;, line 198, in _run_module_as_main&#10;  File &quot;&lt;frozen runpy&gt;&quot;, line 88, in _run_code&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 209, in &lt;module&gt;&#10;    main()&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 205, in main&#10;    asyncio.run(run_sink_service(args.config_root, args.service_file))&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py&quot;, line 190, in run&#10;    return runner.run(main)&#10;           ^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py&quot;, line 118, in run&#10;    return self._loop.run_until_complete(task)&#10;           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py&quot;, line 654, in run_until_complete&#10;    return future.result()&#10;           ^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 52, in run_sink_service&#10;    snapshot = read_snapshot(config_root, config_root / service_file)&#10;               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py&quot;, line 96, in read_snapshot&#10;    resolved = path.resolve(strict=True)&#10;               ^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/pathlib.py&quot;, line 993, in resolve&#10;    s = os.path.realpath(self, strict=strict)&#10;        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;&lt;frozen posixpath&gt;&quot;, line 413, in realpath&#10;  File &quot;&lt;frozen posixpath&gt;&quot;, line 457, in _joinrealpath&#10;FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-luosh/pytest-25/test_fc04_raw_reaches_storage_0/e2e/configs/services/service_sink-e2e_v1.0.0.yaml'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x74ad73cfbf50&gt;
+request = &lt;SubRequest 'raw_started' for &lt;Function test_fc04_raw_reaches_storage_and_tdengine&gt;&gt;
+
+    @pytest.fixture
+    def raw_started(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -&gt; Iterator[Any]:
+        monkeypatch.setenv("EIGHT_SERVICE_SINK_DATA_LEVEL", "raw")
+&gt;       yield request.getfixturevalue("started")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_raw.py:35: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:549: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:640: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1128: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:53: in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py:38: in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:1196: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py:930: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+tests/system/e2e/eight_service/conftest.py:408: in started
+    for name in SERVICES:
+            ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-25/test_fc04_raw_reaches_storage_0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'sink'
+
+    
+    def status(self, name: str) -&gt; dict[str, Any]:
+        return self.cli("service", "status", name, check=False, timeout=60)
+    
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -&gt; dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() &lt; deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+&gt;           business = (items[0].get("business") if items else {}) or {}
+E           AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '&lt;AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n&gt;'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; Traceback (most recent call last):
+E             File "&lt;frozen runpy&gt;", line 198, in _run_module_as_main
+E             File "&lt;frozen runpy&gt;", line 88, in _run_code
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 209, in &lt;module&gt;
+E               main()
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 205, in main
+E               asyncio.run(run_sink_service(args.config_root, args.service_file))
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E               return runner.run(main)
+E                      ^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E               return self._loop.run_until_complete(task)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E               return future.result()
+E                      ^^^^^^^^^^^^^^^
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 52, in run_sink_service
+E               snapshot = read_snapshot(config_root, config_root / service_file)
+E                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 96, in read_snapshot
+E               resolved = path.resolve(strict=True)
+E                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/pathlib.py", line 993, in resolve
+E               s = os.path.realpath(self, strict=strict)
+E                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "&lt;frozen posixpath&gt;", line 413, in realpath
+E             File "&lt;frozen posixpath&gt;", line 457, in _joinrealpath
+E           FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-luosh/pytest-25/test_fc04_raw_reaches_storage_0/e2e/configs/services/service_sink-e2e_v1.0.0.yaml'
+
+tests/system/e2e/eight_service/conftest.py:269: AssertionError</error></testcase><testcase classname="tests.system.e2e.eight_service.test_e2e_eight_service_smoke" name="test_eight_service_chain_is_cli_managed_and_persisted" time="122.580"><error message="failed on setup with &quot;AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '&lt;AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = &quot;failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused&quot;\n\tdebug_error_string = &quot;UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused&quot;\n&gt;'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; Traceback (most recent call last):&#10;  File &quot;&lt;frozen runpy&gt;&quot;, line 198, in _run_module_as_main&#10;  File &quot;&lt;frozen runpy&gt;&quot;, line 88, in _run_code&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 209, in &lt;module&gt;&#10;    main()&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 205, in main&#10;    asyncio.run(run_sink_service(args.config_root, args.service_file))&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py&quot;, line 190, in run&#10;    return runner.run(main)&#10;           ^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py&quot;, line 118, in run&#10;    return self._loop.run_until_complete(task)&#10;           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py&quot;, line 654, in run_until_complete&#10;    return future.result()&#10;           ^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/main.py&quot;, line 52, in run_sink_service&#10;    snapshot = read_snapshot(config_root, config_root / service_file)&#10;               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py&quot;, line 96, in read_snapshot&#10;    resolved = path.resolve(strict=True)&#10;               ^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/pathlib.py&quot;, line 993, in resolve&#10;    s = os.path.realpath(self, strict=strict)&#10;        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  File &quot;&lt;frozen posixpath&gt;&quot;, line 413, in realpath&#10;  File &quot;&lt;frozen posixpath&gt;&quot;, line 457, in _joinrealpath&#10;FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-luosh/pytest-25/test_eight_service_chain_is_cl0/e2e/configs/services/service_sink-e2e_v1.0.0.yaml'&quot;">harness = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-25/test_eight_service_chain_is_cl0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+                result.cli("service", "stop", name, "--yes", check=False, timeout=60)
+            _free_fixed_ports()
+    
+    
+    @pytest.fixture
+    def started(harness: EightServiceHarness) -&gt; EightServiceHarness:
+        """Configuration first, publish the active root, then every business process."""
+        harness.start("configuration")
+        harness.wait_healthy("configuration")
+        publish = harness.cli(
+            "config",
+            "publish",
+            "--root",
+            str(harness.root / "configs"),
+            timeout=180,
+        )
+        assert publish["status"] == "SUCCESS", publish
+        harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(int(publish["data"]["revision_id"]))
+        asyncio.run(_ensure_topic(harness.stack.kafka, "windhub.e2e.history"))
+        asyncio.run(_ensure_streams(harness.stack.nats))
+        for name in SERVICES:
+            # Collectors may report UNKNOWN briefly before their snapshot converges;
+            # readiness is asserted below with a bounded wait instead of the CLI probe.
+            payload = harness.start(
+                name, check=name not in {"collector-realtime", "collector-reliable", "sink"}
+            )
+            if name not in {"collector-realtime", "collector-reliable", "sink"}:
+                assert payload["status"] == "SUCCESS", payload
+&gt;       for name in SERVICES:
+                ^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/conftest.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-25/test_eight_service_chain_is_cl0/e2e'), stack=R5Stac...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+name = 'sink'
+
+    
+    def status(self, name: str) -&gt; dict[str, Any]:
+        return self.cli("service", "status", name, check=False, timeout=60)
+    
+    def wait_healthy(self, name: str, *, timeout: float = 90.0) -&gt; dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        last: dict[str, Any] = {}
+        while time.monotonic() &lt; deadline:
+            last = self.status(name)
+            data = last.get("data") or []
+            items = data if isinstance(data, list) else [data]
+&gt;           business = (items[0].get("business") if items else {}) or {}
+E           AssertionError: sink did not become HEALTHY: {'schema_version': 1, 'command': 'service status', 'status': 'UNKNOWN', 'target': None, 'data': [{'service': 'sink', 'process': {'manager': 'process', 'target': 'sink', 'pid': None, 'start_tick': None, 'running': False, 'state': 'STOPPED', 'status': 'INACTIVE'}, 'business': {'health': 'UNKNOWN', 'error': '&lt;AioRpcError of RPC that terminated with:\n\tstatus = StatusCode.UNAVAILABLE\n\tdetails = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n\tdebug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52053: Failed to connect to remote host: Connection refused"\n&gt;'}}], 'error_code': None, 'exit_code': 3, 'stderr': ''}; Traceback (most recent call last):
+E             File "&lt;frozen runpy&gt;", line 198, in _run_module_as_main
+E             File "&lt;frozen runpy&gt;", line 88, in _run_code
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 209, in &lt;module&gt;
+E               main()
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 205, in main
+E               asyncio.run(run_sink_service(args.config_root, args.service_file))
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 190, in run
+E               return runner.run(main)
+E                      ^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py", line 118, in run
+E               return self._loop.run_until_complete(task)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+E               return future.result()
+E                      ^^^^^^^^^^^^^^^
+E             File "/home/luosh/wind-hub/src/sink_service/main.py", line 52, in run_sink_service
+E               snapshot = read_snapshot(config_root, config_root / service_file)
+E                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/wind-hub/src/sink_service/infrastructure/config_io.py", line 96, in read_snapshot
+E               resolved = path.resolve(strict=True)
+E                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/pathlib.py", line 993, in resolve
+E               s = os.path.realpath(self, strict=strict)
+E                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             File "&lt;frozen posixpath&gt;", line 413, in realpath
+E             File "&lt;frozen posixpath&gt;", line 457, in _joinrealpath
+E           FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-luosh/pytest-25/test_eight_service_chain_is_cl0/e2e/configs/services/service_sink-e2e_v1.0.0.yaml'
+
+tests/system/e2e/eight_service/conftest.py:269: AssertionError</error></testcase></testsuite></testsuites>

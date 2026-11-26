@@ -1,0 +1,1632 @@
+...............F.FFFFFFFFFFFFFFFFFF..................................... [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 51%]
+........................................................................ [ 68%]
+......FFFF.F.............FFFF........................................... [ 86%]
+.....................................FFFFFFFFFF...........               [100%]
+=================================== FAILURES ===================================
+_________ test_shipped_kafka_110_template_declares_device_concurrency __________
+
+    def test_shipped_kafka_110_template_declares_device_concurrency() -> None:
+        document = yaml.safe_load(SHIPPED_110.read_bytes())
+        assert document["template_id"] == "kafka_history"
+        assert document["file_version"] == "1.1.0"
+        caps = document["capabilities"]
+        assert caps["supports_concurrent_write"] is True
+        assert caps["max_safe_inflight"] == 4
+        assert caps["reliable"] is True and caps["realtime"] is False
+        assert document["output"]["acks"] == "all"
+        assert document["output"]["enable_idempotence"] is True
+        # 入库模板本身必须能通过完整快照校验。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110] = document
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection'...rap_servers': ['192.168.1.20:9092'], 'credential_ref': 'kafka/history'}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_______________ test_distinct_devices_share_one_concurrent_sink ________________
+
+    def test_distinct_devices_share_one_concurrent_sink() -> None:
+>       snapshot = _validate(_two_device_docs())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:186: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+__________ test_distinct_devices_same_sink_accept_overlapping_points ___________
+
+    def test_distinct_devices_same_sink_accept_overlapping_points() -> None:
+        # 设备互斥即满足要求；测点选择器相同不阻断并发配置。
+        docs = _two_device_docs()
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+__________ test_concurrent_delivery_accepts_single_legal_device_token __________
+
+    def test_concurrent_delivery_accepts_single_legal_device_token() -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=["WT-001_A"])},
+        )
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:202: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+______ test_concurrent_delivery_requires_exactly_one_device[bad_devices0] ______
+
+bad_devices = []
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_devices = []
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+>       with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka requires one explicit device'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:220: AssertionError
+______ test_concurrent_delivery_requires_exactly_one_device[bad_devices1] ______
+
+bad_devices = ['WT001', 'WT002']
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_devices = ['WT001', 'WT002']
+
+    @pytest.mark.parametrize(
+        "bad_devices",
+        [
+            [],  # 空设备选择器是通配，不允许进入并发路径
+            ["WT001", "WT002"],  # 多设备走旧串行路径，并发模式拒绝
+        ],
+    )
+    def test_concurrent_delivery_requires_exactly_one_device(bad_devices: list[str]) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=bad_devices)},
+        )
+>       with pytest.raises(ConfigurationError, match="concurrent Kafka requires one explicit device"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka requires one explicit device'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:220: AssertionError
+________ test_concurrent_delivery_rejects_illegal_subject_token[WT.001] ________
+
+bad_token = 'WT.001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT.001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+>       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError
+_________ test_concurrent_delivery_rejects_illegal_subject_token[WT*1] _________
+
+bad_token = 'WT*1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT*1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+>       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError
+_________ test_concurrent_delivery_rejects_illegal_subject_token[WT>1] _________
+
+bad_token = 'WT>1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT>1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+>       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError
+________ test_concurrent_delivery_rejects_illegal_subject_token[WT 001] ________
+
+bad_token = 'WT 001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT 001'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+>       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError
+________ test_concurrent_delivery_rejects_illegal_subject_token[WT\t1] _________
+
+bad_token = 'WT\t1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+        with pytest.raises(ConfigurationError, match="invalid source device token"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:233: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+bad_token = 'WT\t1'
+
+    @pytest.mark.parametrize("bad_token", ["WT.001", "WT*1", "WT>1", "WT 001", "WT\t1"])
+    def test_concurrent_delivery_rejects_illegal_subject_token(bad_token: str) -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[bad_token])},
+        )
+        # v1_47 起设备 token 校验对全部 Delivery 生效（不再限于并发 Kafka），
+        # 拒绝行为不变，错误位置与消息更新为通用 source device token。
+>       with pytest.raises(ConfigurationError, match="invalid source device token"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'invalid source device token'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:232: AssertionError
+____________ test_same_device_cannot_occupy_same_kafka_target_twice ____________
+
+    def test_same_device_cannot_occupy_same_kafka_target_twice() -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={
+                "d1": _delivery_instance("d1", sink="history_kafka", devices=["WT001"]),
+                "d2": _delivery_instance(
+                    "d2", sink="history_kafka", devices=["WT001"], points=["voltage"]
+                ),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka device overlaps"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_same_device_cannot_occupy_same_kafka_target_twice() -> None:
+        docs = _docs(
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.1.0")},
+            deliveries={
+                "d1": _delivery_instance("d1", sink="history_kafka", devices=["WT001"]),
+                "d2": _delivery_instance(
+                    "d2", sink="history_kafka", devices=["WT001"], points=["voltage"]
+                ),
+            },
+        )
+>       with pytest.raises(ConfigurationError, match="concurrent Kafka device overlaps"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka device overlaps'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:249: AssertionError
+_______ test_distinct_sink_ids_same_physical_target_cannot_bypass_quota ________
+
+    def test_distinct_sink_ids_same_physical_target_cannot_bypass_quota() -> None:
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.1.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT002"]),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_distinct_sink_ids_same_physical_target_cannot_bypass_quota() -> None:
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.1.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT002"]),
+            },
+        )
+>       with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka target must reuse Sink'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:264: AssertionError
+________ test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected ________
+
+    def test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected() -> None:
+        docs = _docs(
+            templates=("1.0.0", "1.1.0"),
+            sinks={
+                "kafka_new": _sink_instance("kafka_new", version="1.1.0"),
+                "kafka_old": _sink_instance("kafka_old", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_new", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_old", devices=["WT002"]),
+            },
+        )
+        with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:281: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected() -> None:
+        docs = _docs(
+            templates=("1.0.0", "1.1.0"),
+            sinks={
+                "kafka_new": _sink_instance("kafka_new", version="1.1.0"),
+                "kafka_old": _sink_instance("kafka_old", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_new", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_old", devices=["WT002"]),
+            },
+        )
+>       with pytest.raises(ConfigurationError, match="concurrent Kafka target must reuse Sink"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'concurrent Kafka target must reuse Sink'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:280: AssertionError
+_____________ test_same_device_on_different_topics_is_independent ______________
+
+    def test_same_device_on_different_topics_is_independent() -> None:
+        # 物理目标不同（topic 不同），不构成同一目标的重复占用。
+        docs = _docs(
+            sinks={
+                "kafka_a": _sink_instance("kafka_a", version="1.1.0"),
+                "kafka_b": _sink_instance("kafka_b", version="1.0.0"),
+            },
+            deliveries={
+                "d1": _delivery_instance("d1", sink="kafka_a", devices=["WT001"]),
+                "d2": _delivery_instance("d2", sink="kafka_b", devices=["WT001"]),
+            },
+        )
+        # topic 属于模板契约：1.0.0 路径放置同能力但不同 topic 的独立模板。
+        extra = copy.deepcopy(docs[KAFKA_PATH_110])
+        extra["file_version"] = "1.0.0"
+        extra["output"]["topic"] = "windhub.other"
+        docs[KAFKA_PATH_100] = extra
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:301: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+___________ test_legacy_template_still_allows_multi_device_delivery ____________
+
+    def test_legacy_template_still_allows_multi_device_delivery() -> None:
+        docs = _docs(
+            templates=("1.0.0",),
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.0.0")},
+            deliveries={
+                "d1": _delivery_instance(
+                    "d1", sink="history_kafka", devices=["WT001", "WT002", "WT003"]
+                )
+            },
+        )
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:317: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+______________ test_legacy_template_allows_empty_device_wildcard _______________
+
+    def test_legacy_template_allows_empty_device_wildcard() -> None:
+        docs = _docs(
+            templates=("1.0.0",),
+            sinks={"history_kafka": _sink_instance("history_kafka", version="1.0.0")},
+            deliveries={"d1": _delivery_instance("d1", sink="history_kafka", devices=[])},
+        )
+>       _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:326: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_________ test_non_concurrent_capability_requires_inflight_one_shipped _________
+
+    def test_non_concurrent_capability_requires_inflight_one_shipped() -> None:
+        # 能力声明自身不一致时 fail-closed：并发关闭却声明 >1 在途。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110]["capabilities"]["supports_concurrent_write"] = False
+        with pytest.raises(ConfigurationError, match="unsafe parallel write declaration"):
+>           _validate(docs)
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:334: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+
+During handling of the above exception, another exception occurred:
+
+    def test_non_concurrent_capability_requires_inflight_one_shipped() -> None:
+        # 能力声明自身不一致时 fail-closed：并发关闭却声明 >1 在途。
+        docs = _two_device_docs()
+        docs[KAFKA_PATH_110]["capabilities"]["supports_concurrent_write"] = False
+>       with pytest.raises(ConfigurationError, match="unsafe parallel write declaration"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'unsafe parallel write declaration'
+E        Input: 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version'
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:333: AssertionError
+_________________ test_snapshot_files_remain_content_addressed _________________
+
+    def test_snapshot_files_remain_content_addressed() -> None:
+>       first = _validate(_two_device_docs())
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_concurrent_kafka_config.py:338: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_concurrent_kafka_config.py:142: in _validate
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+____________ test_confirmed_samples_remain_pending_until_source_ack ____________
+
+    async def test_confirmed_samples_remain_pending_until_source_ack() -> None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=(0, 1, 2), settled=(0, 1, 2), successful_attempts=1)
+        )
+        port = _port(adapter, ["p1", "p2", "p3"])
+        message = _FakeMessage()
+>       terminal = await port._deliver_batch(
+            message, _batch([("p1", "s1"), ("p2", "s2"), ("p3", "s3")])
+        )
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2), settled=(0, 1, 2), error='', successful_attempts=1, failed_attempts=0, successful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 <= index < length for index in settled)
+        ):
+>           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError
+____________ test_failed_target_write_produces_no_confirmed_samples ____________
+
+    async def test_failed_target_write_produces_no_confirmed_samples() -> None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=(), settled=(0, 1), error="target outage", failed_attempts=1)
+        )
+        port = _port(adapter, ["p1", "p2"])
+>       terminal = await port._deliver_batch(_FakeMessage(), _batch([("p1", "s1"), ("p2", "s2")]))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:149: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(), settled=(0, 1), error='target outage', successful_attempts=0, failed_attempts=1, successful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 <= index < length for index in settled)
+        ):
+>           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError
+___________ test_partial_settlement_confirms_only_delivered_indices ____________
+
+    async def test_partial_settlement_confirms_only_delivered_indices() -> None:
+        # Index 1 is neither delivered nor permanently classified: it must not be
+        # observable as target-confirmed evidence, and the batch stays unresolved.
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(
+                delivered=(0,),
+                settled=(0, 1),
+                error="partial write uncertainty",
+                successful_attempts=1,
+                failed_attempts=1,
+            )
+        )
+        port = _port(adapter, ["p1", "p2"])
+>       terminal = await port._deliver_batch(_FakeMessage(), _batch([("p1", "s1"), ("p2", "s2")]))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:170: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0,), settled=(0, 1), error='partial write uncertainty', successful_attempts=1, failed_attempts...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 <= index < length for index in settled)
+        ):
+>           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError
+___________ test_pending_evidence_is_capped_at_four_and_keeps_newest ___________
+
+    async def test_pending_evidence_is_capped_at_four_and_keeps_newest() -> None:
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
+        )
+        port = _port(adapter, [f"p{i}" for i in range(6)])
+>       await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:182: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2, 3, 4, 5), settled=(0, 1, 2, 3, 4, 5), error='', successful_attempts=1, failed_attempt...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 <= index < length for index in settled)
+        ):
+>           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError
+_______ test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe _______
+
+    async def test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe() -> None:
+        import json
+    
+        adapter = _FakeKafkaAdapter(
+            BatchOutcome(delivered=tuple(range(6)), settled=tuple(range(6)), successful_attempts=1)
+        )
+        port = _port(adapter, [f"p{i}" for i in range(6)])
+>       await port._deliver_batch(_FakeMessage(), _batch([(f"p{i}", f"s{i}") for i in range(6)]))
+
+tests/sink_service/unit/test_reliable_sample_evidence.py:211: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/sink_service/application/reliable_engine.py:281: in _deliver_batch
+    decision = classify_settlement(outcome, chunk_length, kafka=self._kafka_target)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+outcome = BatchOutcome(delivered=(0, 1, 2, 3, 4, 5), settled=(0, 1, 2, 3, 4, 5), error='', successful_attempts=1, failed_attempt...ssful_latencies_ms=(), permanent=(), successful_latency_weights=(), kafka_stage_seconds=None, quota_stage_seconds=None)
+length = 1
+
+    def classify_settlement(outcome: BatchOutcome, length: int, *, kafka: bool) -> SettlementDecision:
+        """A terminal result requires confirmed delivery or explicit permanent evidence."""
+        settled = set(outcome.settled)
+        delivered = set(outcome.delivered)
+        if (
+            not delivered.issubset(settled)
+            or len(settled) != len(outcome.settled)
+            or any(not 0 <= index < length for index in settled)
+        ):
+>           raise RuntimeError("Adapter returned invalid batch indexes")
+E           RuntimeError: Adapter returned invalid batch indexes
+
+src/sink_service/application/reliable_policy.py:69: RuntimeError
+______________ test_concurrent_template_uses_exact_device_subject ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x70d9e80b1750>
+
+    async def test_concurrent_template_uses_exact_device_subject(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+>       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:230: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+________________ test_legacy_template_keeps_broad_subscription _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x70d9e82ab010>
+
+    async def test_legacy_template_keeps_broad_subscription(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+>       snapshot = _snapshot(concurrent=False, devices=["WT001", "WT002"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:249: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_______ test_durable_filter_mismatch_fails_closed_and_releases_resources _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x70d9e7fc3a10>
+
+    async def test_durable_filter_mismatch_fails_closed_and_releases_resources(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+>       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_____________ test_durable_ackwait_mismatch_rejects_before_binding _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x70d9e8276c10>
+
+    async def test_durable_ackwait_mismatch_rejects_before_binding(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+>       snapshot = _snapshot(concurrent=True, devices=["WT001"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/unit/test_reliable_subject_seam.py:294: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/unit/test_reliable_subject_seam.py:100: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+________ test_concurrent_sink_quota_is_intersection_and_adapter_shared _________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_concurrent_sink_quota_is_intersection_and_adapter_shared(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+>       snapshot = _snapshot(global_quota=128, per_sink=8)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+____________ test_distinct_sink_ids_share_one_physical_target_quota ____________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_distinct_sink_ids_share_one_physical_target_quota(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+>       snapshot = _snapshot(inflight=2)
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:186: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 2, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+___________ test_dynamic_minimum_physical_quota_shrinks_and_restores ___________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_dynamic_minimum_physical_quota_shrinks_and_restores(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+        """Cross-Sink caps shrink below in-flight work without revoking that work."""
+>       snapshot = _snapshot(inflight=4)
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+____________ test_distinct_physical_targets_have_independent_quotas ____________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_distinct_physical_targets_have_independent_quotas(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+>       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+___________________ test_legacy_template_forces_serial_quota ___________________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_legacy_template_forces_serial_quota(fake_kafka: type[FakeKafkaAdapter]) -> None:
+>       snapshot = _snapshot(version="1.0.0", concurrent=False, inflight=1, per_sink=8)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:267: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 1, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.0.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.0.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.0.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+___________ test_distinct_writers_overlap_while_reentry_is_rejected ____________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_distinct_writers_overlap_while_reentry_is_rejected(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+>       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:280: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_________________ test_global_quota_serializes_when_set_to_one _________________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_global_quota_serializes_when_set_to_one(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+        # 服务校验要求 per_sink <= global；两层同时收紧到 1 时写入必须串行。
+>       snapshot = _snapshot(global_quota=1, per_sink=1)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:313: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+__________ test_quota_released_after_uncertain_timeout_and_settlement __________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_quota_released_after_uncertain_timeout_and_settlement(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+        # io_wait_timeout_ms=1：门控写入观察超时返回 UNKNOWN，但额度保留至收敛。
+>       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:342: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+___________ test_encoded_batch_keeps_quota_through_uncertain_timeout ___________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_encoded_batch_keeps_quota_through_uncertain_timeout(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+>       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:372: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+_____________ test_encoded_batch_caller_cancel_does_not_leak_quota _____________
+
+fake_kafka = <class 'tests.sink_service.component.test_output_pool_quota.FakeKafkaAdapter'>
+
+    async def test_encoded_batch_caller_cancel_does_not_leak_quota(
+        fake_kafka: type[FakeKafkaAdapter],
+    ) -> None:
+        # shield 语义：调用方观察被取消时，底层 I/O 任务继续跑到终局，
+        # done_callback 必须释放两层额度，不得留下孤儿任务或额度泄漏。
+>       snapshot = _snapshot()
+                   ^^^^^^^^^^^
+
+tests/sink_service/component/test_output_pool_quota.py:404: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/component/test_output_pool_quota.py:103: in _snapshot
+    return validate_snapshot(snapshot_files(docs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in validate_snapshot
+    docs = {item.path: _yaml_doc(item) for item in files}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:82: in <dictcomp>
+    docs = {item.path: _yaml_doc(item) for item in files}
+                       ^^^^^^^^^^^^^^^
+src/sink_service/infrastructure/config_io.py:46: in _yaml_doc
+    require_version(doc, item.path, schema_version=schema_version)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+doc = {'capabilities': {'idempotent': False, 'max_safe_inflight': 4, 'realtime': False, 'reliable': True, ...}, 'connection': {'bootstrap_servers': ['192.168.1.20:9092']}, 'file_version': '1.1.0', 'kind': 'kafka', ...}
+location = 'configs/templates/sinks/sink_kafka_history_v1.1.0.yaml'
+
+    def require_version(doc: dict[str, Any], location: str, *, schema_version: int = 1) -> None:
+        if type(doc.get("schema_version")) is not int or doc["schema_version"] != schema_version:
+>           raise ConfigurationError(f"{location}: unsupported schema_version")
+E           sink_service.domain.config.ConfigurationError: configs/templates/sinks/sink_kafka_history_v1.1.0.yaml: unsupported schema_version
+
+src/sink_service/domain/config.py:107: ConfigurationError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/sink_final.xml -
+=========================== short test summary info ============================
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_shipped_kafka_110_template_declares_device_concurrency
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_distinct_devices_share_one_concurrent_sink
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_distinct_devices_same_sink_accept_overlapping_points
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_accepts_single_legal_device_token
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_requires_exactly_one_device[bad_devices0]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_requires_exactly_one_device[bad_devices1]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_rejects_illegal_subject_token[WT.001]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_rejects_illegal_subject_token[WT*1]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_rejects_illegal_subject_token[WT>1]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_rejects_illegal_subject_token[WT 001]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_concurrent_delivery_rejects_illegal_subject_token[WT\t1]
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_same_device_cannot_occupy_same_kafka_target_twice
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_distinct_sink_ids_same_physical_target_cannot_bypass_quota
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_mixed_concurrent_and_legacy_sink_ids_same_target_rejected
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_same_device_on_different_topics_is_independent
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_legacy_template_still_allows_multi_device_delivery
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_legacy_template_allows_empty_device_wildcard
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_non_concurrent_capability_requires_inflight_one_shipped
+FAILED tests/sink_service/unit/test_concurrent_kafka_config.py::test_snapshot_files_remain_content_addressed
+FAILED tests/sink_service/unit/test_reliable_sample_evidence.py::test_confirmed_samples_remain_pending_until_source_ack
+FAILED tests/sink_service/unit/test_reliable_sample_evidence.py::test_failed_target_write_produces_no_confirmed_samples
+FAILED tests/sink_service/unit/test_reliable_sample_evidence.py::test_partial_settlement_confirms_only_delivered_indices
+FAILED tests/sink_service/unit/test_reliable_sample_evidence.py::test_pending_evidence_is_capped_at_four_and_keeps_newest
+FAILED tests/sink_service/unit/test_reliable_sample_evidence.py::test_promoted_evidence_is_bounded_and_inspect_json_is_frame_safe
+FAILED tests/sink_service/unit/test_reliable_subject_seam.py::test_concurrent_template_uses_exact_device_subject
+FAILED tests/sink_service/unit/test_reliable_subject_seam.py::test_legacy_template_keeps_broad_subscription
+FAILED tests/sink_service/unit/test_reliable_subject_seam.py::test_durable_filter_mismatch_fails_closed_and_releases_resources
+FAILED tests/sink_service/unit/test_reliable_subject_seam.py::test_durable_ackwait_mismatch_rejects_before_binding
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_concurrent_sink_quota_is_intersection_and_adapter_shared
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_distinct_sink_ids_share_one_physical_target_quota
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_dynamic_minimum_physical_quota_shrinks_and_restores
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_distinct_physical_targets_have_independent_quotas
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_legacy_template_forces_serial_quota
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_distinct_writers_overlap_while_reentry_is_rejected
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_global_quota_serializes_when_set_to_one
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_quota_released_after_uncertain_timeout_and_settlement
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_encoded_batch_keeps_quota_through_uncertain_timeout
+FAILED tests/sink_service/component/test_output_pool_quota.py::test_encoded_batch_caller_cancel_does_not_leak_quota
+38 failed, 380 passed in 6.36s

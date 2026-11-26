@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="13" tests="287" time="69.747" timestamp="2026-11-26T12:04:36.349604+08:00" hostname="boss"><testcase classname="tests.cli.test_collector_objects_e2e" name="test_collector_devices_detail_points_empty_list" time="1.078" /><testcase classname="tests.cli.test_collector_objects_e2e" name="test_collector_point_and_tasks_roundtrip" time="0.976" /><testcase classname="tests.cli.test_collector_objects_e2e" name="test_collector_objects_permission_denied_exit2" time="0.301" /><testcase classname="tests.cli.test_collector_objects_e2e" name="test_collector_device_vanished" time="0.294" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_start_stop_task_with_revision_prefetch_and_confirm" time="0.589" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_accepted_apply_failed_is_failure_not_success" time="0.303" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_start_requires_confirmation" time="0.303" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_revision_conflict_failed_precondition_exit1" time="0.300" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_missing_revision_fails_closed_exit2" time="0.292" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_admin_token_attached_to_control_rpc_metadata" time="0.299" /><testcase classname="tests.cli.test_collector_task_e2e" name="test_missing_admin_token_fails_closed_without_leak" time="0.299" /><testcase classname="tests.cli.test_collector_watch_e2e" name="test_watch_bounded_iterations_real_process" time="0.486" /><testcase classname="tests.cli.test_collector_watch_e2e" name="test_watch_tolerates_transient_unavailable" time="0.701" /><testcase classname="tests.cli.test_collector_watch_e2e" name="test_watch_per_point_bad_quality_and_staleness_visible" time="0.283" /><testcase classname="tests.cli.test_collector_watch_e2e" name="test_watch_slow_response_is_non_reentrant" time="1.383" /><testcase classname="tests.cli.test_command_tree" name="test_command_tree_covers_design_leaf_commands" time="0.011" /><testcase classname="tests.cli.test_command_tree" name="test_help_lists_all_leaf_commands" time="0.021" /><testcase classname="tests.cli.test_command_tree" name="test_unknown_command_exit_code_2" time="0.030" /><testcase classname="tests.cli.test_command_tree" name="test_shell_dispatch_unknown_command_raises_valueerror" time="0.012" /><testcase classname="tests.cli.test_command_tree" name="test_invalid_format_option_exit_2" time="0.011" /><testcase classname="tests.cli.test_command_tree" name="test_remote_command_without_config_is_exit_2" time="0.012" /><testcase classname="tests.cli.test_command_tree" name="test_net_tcp_closed_json_envelope_exit_3" time="0.012" /><testcase classname="tests.cli.test_command_tree" name="test_net_invalid_argument_exit_2" time="0.012" /><testcase classname="tests.cli.test_commander_e2e" name="test_commander_write_accepted_then_poll_final_result" time="0.563" /><testcase classname="tests.cli.test_commander_e2e" name="test_commander_write_confirm_gate_and_illegal_scalar" time="0.549" /><testcase classname="tests.cli.test_commander_e2e" name="test_commander_write_unknown_no_resubmit" time="0.293" /><testcase classname="tests.cli.test_commander_e2e" name="test_reused_request_id_requires_explicit_expiry" time="0.540" /><testcase classname="tests.cli.test_commander_e2e" name="test_commander_write_replayed_request_keeps_stable_revision_and_expiry" time="0.636" /><testcase classname="tests.cli.test_commander_e2e" name="test_commander_write_rejected_precondition_exit1" time="0.306" /><testcase classname="tests.cli.test_config_loader" name="test_load_minimal_config" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_missing_config_file" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_schema_version_must_be_integer_1[schema_version: 2\ncli: {}\n]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_schema_version_must_be_integer_1[schema_version: '1'\n]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_schema_version_must_be_integer_1[cli: {}\n]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_duplicate_yaml_keys_rejected" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_rpc_via_is_not_supported" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_collector_without_tls_profile" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_token_authenticated_loopback_service" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[192.168.1.20:5000-WIND_HUB_GATEWAY_TOKEN-loopback endpoint]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[127.0.0.1:5000-None-token_env is required]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[127.0.0.1:5000-invalid.token-token_env must]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[user@127.0.0.1:5000-WIND_HUB_GATEWAY_TOKEN-loopback endpoint]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[127.0.0.1:5000/path-WIND_HUB_GATEWAY_TOKEN-loopback endpoint]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_authentication_fail_closed[localhost:5000-WIND_HUB_GATEWAY_TOKEN-loopback endpoint]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_unknown_tls_profile_reference_rejected" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_containerd_requires_namespace_and_absolute_socket" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_isulad_binary_must_be_absolute" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_process_paths_reject_traversal[cwd]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_process_paths_reject_traversal[state_dir]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_process_paths_reject_traversal[log_file]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_industrial_port_list_bounds[ports0]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_industrial_port_list_bounds[ports1]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_industrial_port_list_bounds[ports2]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_industrial_port_list_bounds[ports3]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_industrial_port_list_bounds[ports4]" time="0.002" /><testcase classname="tests.cli.test_config_loader" name="test_max_hosts_hard_bounds[0]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_max_hosts_hard_bounds[4097]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[None]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[1_0]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[1_1]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[v1.0.0]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[1.0]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[1.0.0-beta]" time="0.000" /><testcase classname="tests.cli.test_config_loader" name="test_file_version_is_required_semver_string[1..0]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_loopback_service_passes_bearer_token_from_environment" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_method_specific_caller_identity" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_method_credentials_require_default_identity" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_active_candidate_cli_transport[e2e-final-service_cli-e2e_v1.1.7.yaml-1.1.7-WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN]" time="0.005" /><testcase classname="tests.cli.test_config_loader" name="test_active_candidate_cli_transport[sim-a-service_cli-sim_v1.10.0.yaml-1.10.0-WIND_HUB_SIM_COMMANDER_MAINTENANCE_TOKEN]" time="0.003" /><testcase classname="tests.cli.test_config_loader" name="test_active_candidate_cli_transport[prod-a-service_cli_v1.4.0.yaml-1.4.0-WIND_HUB_COMMANDER_MAINTENANCE_TOKEN]" time="0.004" /><testcase classname="tests.cli.test_config_loader" name="test_collector_management_credential_applies_to_deployed_target_names[collector]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_collector_management_credential_applies_to_deployed_target_names[collector_realtime]" time="0.001" /><testcase classname="tests.cli.test_config_loader" name="test_collector_management_credential_applies_to_deployed_target_names[collector_reliable]" time="0.001" /><testcase classname="tests.cli.test_configuration_publish_contract" name="test_repository_publish_is_the_only_config_write_entrypoint" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_contract" name="test_publication_identity_is_shared_with_configuration_service" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_local_bootstrap_is_not_a_repository_document[services/cli.example.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_local_bootstrap_is_not_a_repository_document[services/storage_bootstrap_v1.0.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_local_bootstrap_is_not_a_repository_document[services/storage_bootstrap_v12.3.45.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/service_storage-main_v1.1.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/service_commander_v1.4.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/storage_bootstrap_v1.0.0.yaml.bak]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/storage_bootstrap_v1.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/other_bootstrap_v1.0.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[instances/device_farm-a_v1.4.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[templates/units_standard_v1.2.0.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_unknown_yaml_is_never_silently_excluded[services/cli.yaml]" time="0.000" /><testcase classname="tests.cli.test_configuration_publish_exclusions" name="test_complete_publication_excludes_only_local_bootstraps" time="0.002" /><testcase classname="tests.cli.test_data_generator_e2e" name="test_generator_devices_scenarios_roundtrip" time="0.627" /><testcase classname="tests.cli.test_data_generator_e2e" name="test_generator_start_accept_stop_status" time="0.903" /><testcase classname="tests.cli.test_data_generator_e2e" name="test_generator_start_rejected_exit1" time="0.293" /><testcase classname="tests.cli.test_data_generator_e2e" name="test_generator_variables_list_and_update" time="0.903" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_requires_correlated_evidence" time="0.061" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_pass_with_shared_id" time="0.022" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_failure_is_exit1" time="0.023" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_sink_uses_single_service_identity" time="0.006" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_requires_explicit_sink_id" time="0.018" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_routes_explicit_delivery_id_to_sink" time="0.023" /><testcase classname="tests.cli.test_diagnose_and_sinks" name="test_diagnose_pipeline_unknown_delivery_is_business_failure" time="0.023" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PASS-expected0-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PASS-expected0-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PASS-expected0-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[SUCCESS-expected1-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[SUCCESS-expected1-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[SUCCESS-expected1-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAIL-expected2-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAIL-expected2-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAIL-expected2-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILED-expected3-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILED-expected3-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILED-expected3-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILURE-expected4-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILURE-expected4-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[FAILURE-expected4-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PARTIAL-expected5-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PARTIAL-expected5-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[PARTIAL-expected5-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[UNKNOWN-expected6-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[UNKNOWN-expected6-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[UNKNOWN-expected6-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[NOT_RUN-expected7-diagnose pipeline]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[NOT_RUN-expected7-collector Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diagnose_result_state" name="test_diagnose_status_controls_exit_code[NOT_RUN-expected7-sink Diagnose]" time="0.000" /><testcase classname="tests.cli.test_diff_e2e" name="test_diff_add_delete_modify_and_summary" time="0.290" /><testcase classname="tests.cli.test_diff_e2e" name="test_diff_empty_directories_complete" time="0.294" /><testcase classname="tests.cli.test_diff_e2e" name="test_diff_changed_during_scan_exit4" time="0.347" /><testcase classname="tests.cli.test_diff_e2e" name="test_diff_truncated_output_incomplete_exit4" time="0.308" /><testcase classname="tests.cli.test_diff_e2e" name="test_diff_unreadable_file_and_secret_redaction" time="0.588" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_closed_loop_list_update_read" time="0.894" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_requires_confirmation" time="0.280" /><testcase classname="tests.cli.test_gateway_e2e" name="test_lease_ms_range_and_token" time="0.621" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_accepts_lease_ms_bounds_and_passes_value" time="0.586" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_all_fail_exit_1" time="0.292" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_denied_lease_never_dispatches_update" time="0.293" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_result_count_mismatch_is_unknown_no_retry" time="0.285" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_result_id_order_mismatch_is_unknown_no_retry" time="0.286" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_illegal_scalar_exit_2" time="0.560" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_duplicate_variable_rejected" time="0.291" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_unimplemented_capability_exit_3" time="0.289" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_unreachable_exit_3" time="0.278" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_deadline_unknown_single_dispatch" time="1.294" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_start_stop_revision_prefetch_and_confirm" time="0.874" /><testcase classname="tests.cli.test_gateway_e2e" name="test_gateway_update_unconfirmed_release_is_not_reported_success" time="0.302" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_help_matches_frozen_interface_without_values_option" time="0.347" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_happy_path_claim_update_release_against_real_gateway" time="0.450" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments0]" time="0.317" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments1]" time="0.301" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments2]" time="0.313" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments3]" time="0.316" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments4]" time="0.318" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments5]" time="0.330" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_local_argument_rejections_exit_2_without_write[arguments6]" time="0.333" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_reader_certificate_is_permission_denied_without_write" time="0.303" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_lease_conflict_denies_cli_without_write" time="0.310" /><testcase classname="tests.cli.test_gateway_real_gateway_e2e" name="test_unknown_gateway_id_is_business_failure_exit_1" time="0.300" /><testcase classname="tests.cli.test_grpc_integration" name="test_mtls_service_info_happy_path" time="0.020" /><testcase classname="tests.cli.test_grpc_integration" name="test_channel_reused_per_resolved_service" time="0.005" /><testcase classname="tests.cli.test_grpc_integration" name="test_rpc_whitelist_rejects_undeclared_method" time="0.004" /><testcase classname="tests.cli.test_grpc_integration" name="test_grpc_error_to_exit_code[StatusCode.UNAVAILABLE-3-UNKNOWN]" time="0.018" /><testcase classname="tests.cli.test_grpc_integration" name="test_grpc_error_to_exit_code[StatusCode.DEADLINE_EXCEEDED-3-UNKNOWN]" time="0.019" /><testcase classname="tests.cli.test_grpc_integration" name="test_grpc_error_to_exit_code[StatusCode.UNIMPLEMENTED-3-UNKNOWN]" time="0.019" /><testcase classname="tests.cli.test_grpc_integration" name="test_grpc_error_to_exit_code[StatusCode.FAILED_PRECONDITION-1-None]" time="0.019" /><testcase classname="tests.cli.test_grpc_integration" name="test_grpc_error_to_exit_code[StatusCode.PERMISSION_DENIED-2-None]" time="0.019" /><testcase classname="tests.cli.test_grpc_integration" name="test_collector_devices_real_protobuf_roundtrip" time="0.019" /><testcase classname="tests.cli.test_grpc_integration" name="test_commander_write_unknown_outcome_exit3_no_resubmit" time="0.020" /><testcase classname="tests.cli.test_grpc_integration" name="test_commander_write_requires_yes_in_json" time="0.036" /><testcase classname="tests.cli.test_grpc_integration" name="test_collector_watch_non_overlapping_bounded_polling" time="0.524" /><testcase classname="tests.cli.test_grpc_integration" name="test_collector_watch_survives_transient_unavailable" time="1.223" /><testcase classname="tests.cli.test_grpc_integration" name="test_collector_watch_fails_after_reconnect_budget" time="1.821" /><testcase classname="tests.cli.test_grpc_integration" name="test_mtls_rejects_untrusted_client" time="0.007" /><testcase classname="tests.cli.test_local_tools" name="test_tcp_probe_open_closed_timeout" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_tcp_probe_input_validation" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_industrial_probe_uses_preset_ports" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_scan_cidr_rejects_oversized_network" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_scan_cidr_enforces_hard_concurrency_bounds" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_scan_cidr_real_local_subnet_bounded" time="0.004" /><testcase classname="tests.cli.test_local_tools" name="test_ping_executable_present_or_skip" time="0.002" /><testcase classname="tests.cli.test_local_tools" name="test_directory_diff_added_removed_modified" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_directory_diff_rejects_symlink" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_directory_diff_redacts_sensitive_lines_and_key_files" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_directory_diff_truncation_is_display_only" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_happy_path_atomic" time="0.001" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_blocks_traversal[../escape.yaml]" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_blocks_traversal[/abs.yaml]" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_blocks_traversal[a/./b]" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_blocks_traversal[a/../b.yaml]" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_blocks_traversal[a\\b.yaml]" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_rejects_existing_destination" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_checksum_and_size_mismatch" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_export_snapshot_rejects_duplicates_and_bad_base64" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_safe_history_suppresses_mutations_and_secrets" time="0.000" /><testcase classname="tests.cli.test_local_tools" name="test_confirm_mutation_fail_closed_without_tty" time="0.001" /><testcase classname="tests.cli.test_native_process" name="test_native_lifecycle_and_idempotence" time="0.006" /><testcase classname="tests.cli.test_native_process" name="test_stale_pid_identity_never_signals_unowned_pid" time="0.001" /><testcase classname="tests.cli.test_native_process" name="test_occupied_loopback_endpoint_cannot_confirm_foreign_service" time="0.002" /><testcase classname="tests.cli.test_native_process" name="test_early_child_failure_is_not_confirmed_as_service_start" time="0.403" /><testcase classname="tests.cli.test_native_process" name="test_restart_waits_for_previous_listener_to_disappear" time="0.857" /><testcase classname="tests.cli.test_native_process" name="test_foreign_health_endpoint_not_owned_by_managed_process" time="0.408" /><testcase classname="tests.cli.test_native_process" name="test_managed_listener_ownership_matches_process_group[2-127.0.0.1-127.0.0.1]" time="0.411" /><testcase classname="tests.cli.test_native_process" name="test_managed_listener_ownership_matches_process_group[10-::1-[::1]]" time="0.414" /><testcase classname="tests.cli.test_native_process" name="test_managed_listener_ownership_matches_process_group[10-::ffff:127.0.0.1-127.0.0.1]" time="0.412" /><testcase classname="tests.cli.test_native_process" name="test_cli_rejects_healthy_foreign_endpoint_after_process_start" time="0.002" /><testcase classname="tests.cli.test_native_process" name="test_cli_rejects_changed_listener_inode_across_healthy_rpc" time="0.002" /><testcase classname="tests.cli.test_native_process" name="test_native_process_exit_is_not_reported_running" time="0.605" /><testcase classname="tests.cli.test_native_process" name="test_process_group_workers_are_reaped" time="0.003" /><testcase classname="tests.cli.test_native_process" name="test_concurrent_starts_create_one_process" time="0.003" /><testcase classname="tests.cli.test_native_process" name="test_state_save_failure_reaps_started_group" time="0.005" /><testcase classname="tests.cli.test_native_process" name="test_orphaned_group_guard_detects_active_pgid" time="0.001" /><testcase classname="tests.cli.test_network_e2e" name="test_net_ping_localhost_success" time="0.272" /><testcase classname="tests.cli.test_network_e2e" name="test_net_tcp_open_and_closed" time="0.548" /><testcase classname="tests.cli.test_network_e2e" name="test_net_ping_bad_arguments_exit2" time="0.277" /><testcase classname="tests.cli.test_network_e2e" name="test_net_industrial_all_ports_closed_is_success" time="0.279" /><testcase classname="tests.cli.test_network_e2e" name="test_net_scan_loopback_and_bad_cidr" time="0.575" /><testcase classname="tests.cli.test_observability_e2e" name="test_metrics_all_services[command0]" time="0.297" /><testcase classname="tests.cli.test_observability_e2e" name="test_metrics_all_services[command1]" time="0.290" /><testcase classname="tests.cli.test_observability_e2e" name="test_metrics_all_services[command2]" time="0.280" /><testcase classname="tests.cli.test_observability_e2e" name="test_metrics_all_services[command3]" time="0.292" /><testcase classname="tests.cli.test_observability_e2e" name="test_metrics_all_services[command4]" time="0.289" /><testcase classname="tests.cli.test_observability_e2e" name="test_events_pagination_and_redaction" time="0.288" /><testcase classname="tests.cli.test_observability_e2e" name="test_publishing_status_roundtrip" time="0.290" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_correlated_pass" time="0.294" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_missing_correlation_fails" time="0.301" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_other_device_traffic_cannot_pass_target" time="0.308" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_rejects_matching_anonymous_ids" time="0.311" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_rejects_malformed_structured_evidence" time="0.321" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload0-sink_payload0-same-device-different-id]" time="0.339" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload1-sink_payload1-collector-missing-device-id]" time="0.333" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload2-sink_payload2-sink-missing-device-id]" time="0.341" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload3-sink_payload3-empty-sample-id]" time="0.361" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload4-sink_payload4-numeric-sample-id]" time="0.337" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload5-sink_payload5-object-sample-id]" time="0.313" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload6-None-sink-anonymous-sample-id]" time="0.298" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_evidence_matrix_rejects_unprovable_pairs[collector_payload7-sink_payload7-extra-fields-wrong-device]" time="0.290" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_structured_matrix_accepts_exact_device_bound_match" time="0.306" /><testcase classname="tests.cli.test_pipeline_diagnose_e2e" name="test_pipeline_failed_service_maps_to_exit_one_even_with_matching_ids" time="0.289" /><testcase classname="tests.cli.test_r1f3_strict_cli_e2e" name="test_strict_cli_five_service_data_command_restart_e2e" time="13.080"><failure message="AssertionError: service start collector_realtime not confirmed: {'schema_version': 1, 'command': 'service start', 'status': 'FAILURE', 'target': None, 'data': None, 'error_code': 'RuntimeError', 'message': 'process exited during start confirmation'}">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-41/test_strict_cli_five_service_d0')
+
+    @pytest.mark.asyncio
+    async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -&gt; None:
+        """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
+        token = uuid4().hex[:8]
+        farm = "farm-a"
+        rt_collector = f"collector-rt-{token}"
+        reliable_collector = f"collector-hist-{token}"
+        device = "modbus-1"
+        point = "rotor_speed"
+        scenario = f"strict-cli-{token}"
+        value = 42.25
+        stack: r5_stack.R5Stack | None = None
+        # 采集链源头寄存器预置本用例期望值：rotor_speed=42.25（modbus-1）。
+        modbus = ModbusMockServer(port=reserve_port(), holding=_holding_registers(value, 800.0))
+        harness = StrictCliE2E(tmp_path)
+        sink: SinkSystemHarness | None = None
+        generation_id: str | None = None
+    
+        try:
+            stack = await asyncio.to_thread(r5_stack.up_stack)
+            await modbus.start()
+    
+            ports = {name: reserve_port() for name in SERVICES}
+            endpoints = {name: f"127.0.0.1:{port}" for name, port in ports.items()}
+    
+            gateway_root = tmp_path / "gateway"
+            pki = write_mtls_pki(gateway_root, ("cli", "generator", "sink"))
+            # D01 的上游是本用例的真实 ModbusMockServer；Gateway 自身的下游
+            # Modbus 侦听必须独立端口，否则与设备端口冲突（启动 fail-closed）。
+            gateway_listen_port = reserve_port()
+            gateway_service = write_config_tree(
+                gateway_root,
+                [
+                    ServerSpec(
+                        server_id="gw-strict",
+                        device_id="D01",
+                        modbus_port=modbus.port,
+                        listen_port=gateway_listen_port,
+                        control_enabled=False,
+                    )
+                ],
+                commander_endpoint="127.0.0.1:1",
+                grpc_port=ports["gateway"],
+                permissions={
+                    "cli": ["read", "lifecycle", "inject", "diagnose"],
+                    "generator": ["read", "inject"],
+                },
+                point_table={
+                    "fb_float": {
+                        "data_type": "float32",
+                        "address": {
+                            "register_type": "holding",
+                            "address": 100,
+                            "word_order": "big_endian",
+                        },
+                    },
+                    "sink_value": {
+                        "data_type": "float32",
+                        "address": {
+                            "register_type": "holding",
+                            "address": 102,
+                            "word_order": "big_endian",
+                        },
+                    },
+                },
+                mtls_enabled=False,
+            )
+    
+            dg_root = tmp_path / "dg-config"
+            _real_tree(dg_root)
+            _dump(
+                dg_root / "instances" / "device_farm-a_v1.6.0.yaml",
+                {
+                    "schema_version": 1,
+                    "file_version": "1.6.0",
+                    "devices": {
+                        "D01": {
+                            "enabled": True,
+                            "model": {"id": "wtg_tz2mw", "version": "1.4.0"},
+                            "endpoint": {"host": "127.0.0.1", "port": modbus.port},
+                            "overrides": {},
+                        }
+                    },
+                },
+            )
+            point_table_path = (
+                dg_root / "templates" / "point_tables" / "point_table_modbus_wtg_tz2mw_v1.2.0.yaml"
+            )
+            point_table_doc = yaml.safe_load(point_table_path.read_text(encoding="utf-8"))
+            point_table_doc["points"]["generator_speed"]["data_type"] = "float32"
+            _dump(point_table_path, point_table_doc)
+            business_path = dg_root / "templates" / "business_points_standard_v1.5.0.yaml"
+            business_doc = yaml.safe_load(business_path.read_text(encoding="utf-8"))
+            business_doc["business_points"]["tz2mw_generator_speed_raw"]["data_type"] = "float32"
+            _dump(business_path, business_doc)
+            scenario_doc = simulation_document(
+                {"gw-strict": endpoints["gateway"]},
+                [
+                    (
+                        "D01",
+                        "generator_speed",
+                        {
+                            "kind": "random",
+                            "distribution": "uniform",
+                            "minimum": value,
+                            "maximum": value,
+                        },
+                        [("gw-strict", "fb_float")],
+                    )
+                ],
+                scenario_id=scenario,
+                interval=0.2,
+            )
+            dg_service = write_service_yaml(
+                dg_root,
+                bind=endpoints["data-generator"],
+                scenarios=scenario_doc["scenarios"],
+            )
+            dg_doc = yaml.safe_load(dg_service.read_text(encoding="utf-8"))
+            # Service YAML already carries the current Bearer security contract.
+            # Generator output uses WIND_HUB_TEST_DG_GATEWAY_TOKEN.
+            assert dg_doc["output"]["gateway_token_env"] == "WIND_HUB_TEST_DG_GATEWAY_TOKEN"
+            _dump(dg_service, dg_doc)
+    
+            collector_roots: dict[str, Path] = {}
+            for name, delivery in (
+                ("collector_realtime", "realtime"),
+                ("collector_reliable", "reliable"),
+            ):
+                root = write_collector_modbus_tree(
+                    tmp_path / name,
+                    modbus.port,
+                    device_id=device,
+                    site_id=farm,
+                    nats_url=stack.nats,
+                )
+                protocol_source = root / "templates" / "protocols" / "protocol_modbus_tcp_v1.1.0.yaml"
+                protocol_doc = yaml.safe_load(protocol_source.read_text(encoding="utf-8"))
+                protocol_doc["file_version"] = "1.0.0"
+                _dump(protocol_source.with_name("protocol_modbus_tcp_v1.0.0.yaml"), protocol_doc)
+                service_path = root / "services" / SERVICE_NAME
+                document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
+                document["messaging"]["delivery"] = delivery
+                _dump(service_path, document)
+                collector_roots[name] = root
+    
+            (tmp_path / "commander-pki").mkdir(parents=True)
+            commander_pki = build_pki(tmp_path / "commander-pki")
+            commander_tree = write_collector_modbus_tree(
+                tmp_path / "commander" / "config-tree",
+                modbus.port,
+                device_id="WT01",
+                site_id=farm,
+                nats_url=stack.nats,
+            )
+            commander_protocol = (
+                commander_tree / "templates" / "protocols" / "protocol_modbus_tcp_v1.1.0.yaml"
+            )
+            commander_protocol_doc = yaml.safe_load(commander_protocol.read_text(encoding="utf-8"))
+            commander_protocol_doc["file_version"] = "1.0.0"
+            _dump(
+                commander_protocol.with_name("protocol_modbus_tcp_v1.0.0.yaml"),
+                commander_protocol_doc,
+            )
+            commander_service = write_commander_service(
+                tmp_path / "commander",
+                commander_tree,
+                commander_pki,
+                grpc_port=ports["commander"],
+            )
+            commander_doc = yaml.safe_load(commander_service.read_text(encoding="utf-8"))
+            audit_stream = f"CMD_STRICT_{token.upper()}"
+            audit_subject = f"commander.strict.{token}"
+            commander_doc["audit"]["nats_servers"] = [stack.nats]
+            commander_doc["audit"]["stream"] = audit_stream
+            commander_doc["audit"]["subject"] = audit_subject
+            _dump(commander_service, commander_doc)
+            await _provision_commander_audit(stack.nats, audit_stream, audit_subject)
+    
+            gateway_sink_port = reserve_port()
+            gateway_sink_token = os.urandom(32).hex()
+            gateway_service_doc = yaml.safe_load(gateway_service.read_text(encoding="utf-8"))
+            gateway_service_doc["grpc"]["sink_listener_port"] = gateway_sink_port
+            gateway_service_doc["security"]["callers"].append(
+                {
+                    "caller_id": "sink",
+                    "token_env": "WIND_HUB_GATEWAY_SINK_TOKEN",
+                    "permissions": ["inject"],
+                }
+            )
+            _dump(gateway_service, gateway_service_doc)
+            sink = SinkSystemHarness(
+                root=tmp_path / "sink",
+                stack=stack,
+                grpc_port=ports["sink"],
+                namespace=f"strict-cli-{token}",
+                kafka_topic=f"strict-cli-{token}",
+                history_stream=f"WH_HISTORY_STRICT_{token.upper()}",
+                dlq_stream=f"WH_DLQ_STRICT_{token.upper()}",
+                dlq_subject=f"wh.strict.dlq.{token}",
+                token=token,
+            )
+            sink.write_dual_channel_root()
+            harness.sink_token = sink.auth_tokens["admin"]
+            deliveries_path = sink.root / DELIVERIES_INSTANCE
+            deliveries_doc = yaml.safe_load(deliveries_path.read_text(encoding="utf-8"))
+            deliveries_doc["deliveries"]["ems_power"]["source"]["collector_id"] = rt_collector
+            deliveries_doc["deliveries"]["power_history"]["source"]["collector_id"] = reliable_collector
+            bounded_source = {
+                "wind_farm_id": farm,
+                "collector_id": rt_collector,
+                "devices": [device],
+                "points": [point],
+            }
+            deliveries_doc["deliveries"]["gateway_output"] = {
+                "template_id": "realtime_power",
+                "template_version": "1.0.0",
+                "sink_id": "gateway_sink",
+                "desired_state": "START",
+                "source": bounded_source,
+                "target_mappings": [
+                    {
+                        "source_device_id": device,
+                        "source_point_id": point,
+                        "variable_id": "sink_value",
+                    }
+                ],
+                "overrides": {},
+            }
+            deliveries_doc["deliveries"]["modbus_output"] = {
+                "template_id": "realtime_power",
+                "template_version": "1.0.0",
+                "sink_id": "modbus_sink",
+                "desired_state": "START",
+                "source": bounded_source,
+                "overrides": {},
+            }
+            _dump(deliveries_path, deliveries_doc)
+    
+            sinks_path = sink.root / SINKS_INSTANCE
+            sinks_doc = yaml.safe_load(sinks_path.read_text(encoding="utf-8"))
+            sink_modbus_port = reserve_port()
+            sinks_doc["sinks"]["gateway_sink"] = {
+                "template_id": "gateway_realtime",
+                "template_version": "1.1.0",
+                "connection": {
+                    "endpoint": f"127.0.0.1:{gateway_sink_port}",
+                    "gateway_id": "gw-strict",
+                },
+                "overrides": {},
+            }
+            sinks_doc["sinks"]["modbus_sink"] = {
+                "template_id": "modbus_registers",
+                "template_version": "1.0.0",
+                "connection": {"listen_host": "127.0.0.1", "port": sink_modbus_port},
+                "overrides": {},
+            }
+            _dump(sinks_path, sinks_doc)
+            for template_name, version in (
+                ("gateway_realtime", "1.1.0"),
+                ("modbus_registers", "1.0.0"),
+            ):
+                relative = Path("configs/templates/sinks") / f"sink_{template_name}_v{version}.yaml"
+                source = SRC.parent / relative
+                target = sink.root / relative
+                _dump(target, yaml.safe_load(source.read_text(encoding="utf-8")))
+            await sink.provision_streams()
+    
+            python = sys.executable
+            common_env = {
+                "WIND_HUB_COLLECTOR_TLS_CERT": str(pki["server_crt"]),
+                "WIND_HUB_COLLECTOR_TLS_KEY": str(pki["server_key"]),
+                "WIND_HUB_COLLECTOR_TLS_CA": str(pki["ca"]),
+                # N-CLI-1：Collector 受保护 RPC 的服务端令牌，与 CLI 子进程一致。
+                "WIND_HUB_COLLECTOR_ADMIN_TOKEN": ADMIN_TOKEN,
+            }
+            gateway_cli_token = os.urandom(32).hex()
+            generator_gateway_token = os.urandom(32).hex()
+            gateway_sink_management_token = os.urandom(32).hex()
+            dg_cli_token = os.urandom(32).hex()
+            commander_ops_token = os.urandom(32).hex()
+            harness.auth_tokens = {
+                "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+                "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                "WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token,
+            }
+            harness.register_process(
+                "gateway",
+                [
+                    python,
+                    "-m",
+                    "industrial_gateway.main",
+                    "--config",
+                    str(gateway_service),
+                    "--project-root",
+                    str(gateway_root),
+                ],
+                cwd=SRC,
+                env={
+                    "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                    "WIND_HUB_TEST_GATEWAY_COMMANDER_TARGET_TOKEN": os.urandom(32).hex(),
+                    "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
+                    "WIND_HUB_TEST_GATEWAY_GENERATOR_TOKEN": generator_gateway_token,
+                    "WIND_HUB_TEST_GATEWAY_SINK_TOKEN": gateway_sink_management_token,
+                },
+            )
+            harness.register_process(
+                "data-generator",
+                [python, "-m", "data_generator.main", "--config", str(dg_service)],
+                cwd=SRC,
+                env={
+                    "WIND_HUB_TEST_DG_GATEWAY_TOKEN": generator_gateway_token,
+                    "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                    "WIND_HUB_TEST_DG_CALLER_TOKEN": os.urandom(32).hex(),
+                },
+            )
+            for name, collector_id in (
+                ("collector_realtime", rt_collector),
+                ("collector_reliable", reliable_collector),
+            ):
+                harness.register_process(
+                    name,
+                    [
+                        python,
+                        "-m",
+                        "collector.main",
+                        "--config",
+                        str(collector_roots[name] / "services" / SERVICE_NAME),
+                        "--state-directory",
+                        str(tmp_path / name / "state"),
+                        "--collector-id",
+                        collector_id,
+                        "--grpc-host",
+                        "127.0.0.1",
+                        "--grpc-port",
+                        str(ports[name]),
+                        "--shutdown-timeout",
+                        "10",
+                    ],
+                    cwd=SRC,
+                    env=common_env,
+                )
+            harness.register_process(
+                "sink",
+                [
+                    python,
+                    "-m",
+                    "sink_service.main",
+                    "--config-root",
+                    str(sink.root),
+                    "--service-file",
+                    SINK_SERVICE_FILE,
+                ],
+                cwd=sink.root,
+                env={
+                    "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                    "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
+                },
+            )
+            harness.register_process(
+                "commander",
+                [python, "-m", "commander", "--config", str(commander_service)],
+                cwd=SRC,
+                env={"WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token},
+            )
+            _write_cli(
+                harness.cli_realtime,
+                collector="collector_realtime",
+                endpoints=endpoints,
+                processes=harness.processes,
+                collector_pki=pki,
+            )
+            _write_cli(
+                harness.cli_reliable,
+                collector="collector_reliable",
+                endpoints=endpoints,
+                processes=harness.processes,
+                collector_pki=pki,
+            )
+    
+            for name in SERVICES:
+&gt;               await harness.service(harness.cli_realtime, "start", name)
+
+tests/cli/test_r1f3_strict_cli_e2e.py:688: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.cli.test_r1f3_strict_cli_e2e.StrictCliE2E object at 0x74bf7822b850&gt;
+config = PosixPath('/tmp/pytest-of-luosh/pytest-41/test_strict_cli_five_service_d0/cli-realtime.yaml')
+operation = 'start', name = 'collector_realtime'
+
+    async def service(self, config: Path, operation: str, name: str) -&gt; dict[str, Any]:
+        result = await self.cli(config, "service", operation, name, "--yes", check=False)
+        if operation == "stop":
+            if result.get("status") != "SUCCESS":
+                raise AssertionError(f"service stop {name} failed: {result}")
+            return result
+        data = result.get("data")
+        process = data.get("process", {}) if isinstance(data, dict) else {}
+        if not process.get("confirmed", False):
+&gt;           raise AssertionError(f"service {operation} {name} not confirmed: {result}")
+E           AssertionError: service start collector_realtime not confirmed: {'schema_version': 1, 'command': 'service start', 'status': 'FAILURE', 'target': None, 'data': None, 'error_code': 'RuntimeError', 'message': 'process exited during start confirmation'}
+
+tests/cli/test_r1f3_strict_cli_e2e.py:233: AssertionError</failure></testcase><testcase classname="tests.cli.test_recover_device" name="test_recover_device_help_exposes_all_required_options" time="0.025" /><testcase classname="tests.cli.test_recover_device" name="test_binary_attestation_roundtrip_and_blocked_response_is_failure" time="0.025" /><testcase classname="tests.cli.test_recover_device" name="test_recover_device_rpc_failures_are_nonzero_without_evidence_leak[StatusCode.FAILED_PRECONDITION-1]" time="0.024" /><testcase classname="tests.cli.test_recover_device" name="test_recover_device_rpc_failures_are_nonzero_without_evidence_leak[StatusCode.PERMISSION_DENIED-2]" time="0.024" /><testcase classname="tests.cli.test_recover_device" name="test_recover_device_rpc_failures_are_nonzero_without_evidence_leak[StatusCode.UNAVAILABLE-3]" time="0.027" /><testcase classname="tests.cli.test_recover_device" name="test_recover_device_rpc_failures_are_nonzero_without_evidence_leak[StatusCode.INVALID_ARGUMENT-2]" time="0.020" /><testcase classname="tests.cli.test_recover_device" name="test_empty_or_oversized_attestation_is_local_failure_without_rpc[empty]" time="0.021" /><testcase classname="tests.cli.test_recover_device" name="test_empty_or_oversized_attestation_is_local_failure_without_rpc[oversized]" time="0.022" /><testcase classname="tests.cli.test_recover_device" name="test_missing_attestation_file_is_nonzero_without_rpc" time="0.024" /><testcase classname="tests.cli.test_recover_device" name="test_maximum_size_attestation_is_not_rejected_by_local_bound" time="0.026" /><testcase classname="tests.cli.test_runtime_e2e" name="test_s01_status_real_running" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:193: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s01_stop_graceful_sigterm" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:205: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s01_restart_null_io_confirmed" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:218: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s02_start_already_running_is_idempotent" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:243: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s02_start_created_task_confirmed" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:252: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s03_unreachable_socket_exit3" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:304: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s03_permission_denied_socket_exit3" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:313: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s03_stop_sigterm_timeout_no_sigkill" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:331: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s03_restart_missing_fifo_fails_preflight" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:343: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_s03_restart_real_fifo_task_refuses_before_delete" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:361: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_runtime_e2e" name="test_service_status_reports_stopped_container_as_degraded" time="0.000"><skipped type="pytest.skip" message="NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36">/home/luosh/wind-hub/tests/cli/test_runtime_e2e.py:397: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36</skipped></testcase><testcase classname="tests.cli.test_service_diagnose_e2e" name="test_diagnose_collector_stages" time="0.884" /><testcase classname="tests.cli.test_service_diagnose_e2e" name="test_diagnose_unavailable_exit3" time="0.378" /><testcase classname="tests.cli.test_service_diagnose_e2e" name="test_diagnose_gi_invalid_argument_envelope_exit2" time="0.330" /><testcase classname="tests.cli.test_service_diagnose_e2e" name="test_diagnose_sink_retired_service_selector_rejected" time="0.307" /><testcase classname="tests.cli.test_service_info_e2e" name="test_service_info_and_capabilities_roundtrip" time="0.595" /><testcase classname="tests.cli.test_service_info_e2e" name="test_capability_unimplemented_exit3" time="0.272" /><testcase classname="tests.cli.test_service_info_e2e" name="test_service_status_partial_degradation_is_independent" time="0.292" /><testcase classname="tests.cli.test_service_info_e2e" name="test_service_status_single_name" time="0.284" /><testcase classname="tests.cli.test_shell_e2e" name="test_shell_start_command_exit" time="1.273" /><testcase classname="tests.cli.test_shell_e2e" name="test_shell_history_navigation_and_redaction" time="1.298" /><testcase classname="tests.cli.test_shell_e2e" name="test_shell_unreachable_keeps_session" time="1.303" /><testcase classname="tests.cli.test_shell_e2e" name="test_shell_ctrl_c_cancels_inflight_rpc_and_continues" time="2.588" /><testcase classname="tests.cli.test_sink_e2e" name="test_sink_list_detail_roundtrip" time="0.615" /><testcase classname="tests.cli.test_sink_e2e" name="test_sink_start_stop_revision_guard" time="0.601" /><testcase classname="tests.cli.test_sink_e2e" name="test_sink_stop_revision_conflict_exit1" time="0.293" /><testcase classname="tests.cli.test_snapshot_commands" name="test_verify_snapshot_rejects_checksum_and_size_mismatch" time="0.000" /><testcase classname="tests.cli.test_snapshot_commands" name="test_write_snapshot_is_atomic_and_rejects_existing_destination" time="0.001" /><testcase classname="tests.cli.test_snapshot_commands" name="test_write_snapshot_leaves_no_partial_output_on_verify_failure" time="0.001" /><testcase classname="tests.cli.test_snapshot_commands" name="test_get_snapshot_scope_arguments_are_validated" time="0.000" /><testcase classname="tests.cli.test_snapshot_commands" name="test_dual_mode_get_keeps_repository_and_snapshot_selectors_disjoint" time="0.000" /><testcase classname="tests.cli.test_snapshot_e2e" name="test_config_get_export_verified_atomic" time="0.593" /><testcase classname="tests.cli.test_snapshot_e2e" name="test_config_get_checksum_mismatch_refused" time="0.293" /><testcase classname="tests.cli.test_snapshot_e2e" name="test_config_get_runtime_view_with_stale_apply_results_is_success" time="0.299" /><testcase classname="tests.cli.test_storage_command_cleanup" name="test_storage_cli_exposes_only_wide_history_operations" time="0.000" /><testcase classname="tests.cli.test_storage_command_cleanup" name="test_storage_cli_has_no_legacy_filter_adapter" time="0.000" /><testcase classname="tests.cli.test_storage_wide_quality_commands" name="test_wide_query_quality_is_top_level" time="0.000" /><testcase classname="tests.cli.test_storage_wide_quality_commands" name="test_wide_aggregate_quality_is_nested_only" time="0.000" /><testcase classname="tests.cli.test_storage_wide_quality_commands" name="test_wide_export_quality_is_nested_only" time="0.000" /><testcase classname="tests.cli.test_system_real" name="test_containerd_native_grpc_or_not_run" time="0.001"><skipped type="pytest.skip" message="NOT_RUN: 本机无 containerd socket/CLI，UC-02 containerd 9 宫格未执行">/home/luosh/wind-hub/tests/cli/test_system_real.py:38: NOT_RUN: 本机无 containerd socket/CLI，UC-02 containerd 9 宫格未执行</skipped></testcase><testcase classname="tests.cli.test_system_real" name="test_isulad_or_not_run" time="0.052"><skipped type="pytest.skip" message="NOT_RUN: 本机无 iSulad，UC-02 isulad 9 宫格未执行">/home/luosh/wind-hub/tests/cli/test_system_real.py:47: NOT_RUN: 本机无 iSulad，UC-02 isulad 9 宫格未执行</skipped></testcase><testcase classname="tests.cli.test_system_real" name="test_cli_subprocess_json_envelope_and_exit_code" time="0.301" /></testsuite></testsuites>

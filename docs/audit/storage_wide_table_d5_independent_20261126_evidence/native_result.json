@@ -1,0 +1,6 @@
+{
+  "command": "pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/native_tdengine.xml",
+  "exit_code": 1,
+  "server": "3.3.6.13",
+  "capacity_opt_in": false
+}

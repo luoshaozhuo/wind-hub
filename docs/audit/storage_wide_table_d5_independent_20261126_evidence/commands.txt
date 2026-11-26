@@ -1,0 +1,41 @@
+python -m ruff check src tests scripts
+python -m ruff format --check src tests scripts
+python -m mypy src
+python scripts/generate_rpc.py --check
+lint-imports
+pytest --collect-only -q
+pytest -q tests/contracts tests/core --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/contracts_core.xml
+pytest -q tests/configuration_service --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/configuration.xml
+pytest -q tests/collector --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/collector.xml
+pytest -q tests/sink_service/unit tests/sink_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/sink.xml
+pytest -q tests/storage_service/unit tests/storage_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/storage.xml
+pytest -q tests/cli --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/cli.xml
+pytest -q tests/configuration_service --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/configuration_final.xml
+pytest -q tests/collector/unit tests/collector/component tests/collector/integration --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/collector_final.xml
+pytest -q tests/sink_service/unit tests/sink_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/sink_final.xml
+pytest -q tests/storage_service/unit tests/storage_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/storage_final.xml
+pytest -q tests/storage_service/integration/test_kafka_real.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/real_kafka.xml
+pytest -q tests/storage_service/integration/test_cli_restart_activation.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/real_storage.xml
+pytest -q tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/wire_e2e.xml
+pytest -q tests/system/e2e/eight_service/test_e2e_eight_service_raw.py tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/eight_service.xml
+python3 scripts/dev.py env
+python scripts/generate_rpc.py
+pytest -q tests/contracts tests/core --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/contracts_core_final.xml
+pytest -q tests/storage_service/unit tests/storage_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/storage_delivery.xml
+pytest -q tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/wire_acceptance.xml
+pytest -q tests/system/e2e/eight_service/test_e2e_eight_service_raw.py tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/eight_service_latest.xml
+python3 scripts/dev.py python scripts/ci_gate.py performance --output docs/audit/storage_wide_table_d5_independent_20261126_evidence/performance.xml
+python3 scripts/dev.py python scripts/ci_gate.py soak --output docs/audit/storage_wide_table_d5_independent_20261126_evidence/soak.xml
+pytest -q tests/storage_service/unit/test_d5_explicit_quality_aggregate.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/quality_contract.xml
+pytest -q tests/storage_service/unit tests/storage_service/component tests/sink_service/unit/test_kafka_wide.py tests/collector/unit/test_batch_builder_wide.py tests/collector/component/test_acquisition_runtime.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/final_regression.xml
+pytest -q tests/tooling/test_versionless_python_filenames.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/versionless.xml
+python docs/audit/storage_wide_table_d5_independent_20261126_evidence/reproduce_good_null.py
+R14_DURATION_S=600 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_RESULT_DIR=docs/audit/storage_wide_table_d5_independent_20261126_evidence pytest -q tests/sink_service/system/test_capacity_r14_sustained.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/capacity_wide_30.xml
+
+Native probes: dedicated disposable tdengine/tdengine:3.3.6.13 container, loopback dynamic port, label windhub.d2.disposable=true. Set WIND_HUB_TEST_TDENGINE_WIDE_PROBE=1, WIND_HUB_TEST_TDENGINE_ENDPOINT=<ephemeral-loopback-port>, WIND_HUB_TEST_TDENGINE_PASSWORD=<redacted-ephemeral-test-password>.
+pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/native_tdengine.xml
+WAL restart additionally sets WIND_HUB_TEST_TDENGINE_WIDE_RESTART=1 and WIND_HUB_TEST_TDENGINE_CONTAINER=<dedicated-labelled-container>.
+pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py::test_td07_acknowledged_rows_survive_container_restart --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/native_wal_restart.xml
+
+Initial diagnostic capacity runs used d2/r300 and d30/r300 with legacy point accounting; both explicitly interrupted and excluded from qualification. All raw samples retained.
+Baseline comparison: git archive origin/main into an isolated temporary directory; run Ruff check, Ruff format --check, mypy src and generate_rpc.py --check there. See baseline_results.json.

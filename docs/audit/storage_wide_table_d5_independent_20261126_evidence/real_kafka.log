@@ -1,0 +1,815 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_commit_timeout_replay_restart_and_rebalance_recovery ___________
+
+fut = <_GatheringFuture finished exception=CancelledError()>, timeout = 20
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        This function is a coroutine.
+        """
+        loop = events.get_running_loop()
+    
+        if timeout is None:
+            return await fut
+    
+        if timeout <= 0:
+            fut = ensure_future(fut, loop=loop)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut, loop=loop)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise exceptions.TimeoutError() from exc
+    
+        waiter = loop.create_future()
+        timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        cb = functools.partial(_release_waiter, waiter)
+    
+        fut = ensure_future(fut, loop=loop)
+        fut.add_done_callback(cb)
+    
+        try:
+            # wait until the future completes or the timeout
+            try:
+                await waiter
+            except exceptions.CancelledError:
+                if fut.done():
+                    return fut.result()
+                else:
+                    fut.remove_done_callback(cb)
+                    # We must ensure that the task is not running
+                    # after wait_for() returns.
+                    # See https://bugs.python.org/issue32751
+                    await _cancel_and_wait(fut, loop=loop)
+                    raise
+    
+            if fut.done():
+                return fut.result()
+            else:
+                fut.remove_done_callback(cb)
+                # We must ensure that the task is not running
+                # after wait_for() returns.
+                # See https://bugs.python.org/issue32751
+                await _cancel_and_wait(fut, loop=loop)
+                # In case task cancellation failed with some
+                # exception, we should re-raise it
+                # See https://bugs.python.org/issue40607
+                try:
+>                   return fut.result()
+                           ^^^^^^^^^^^^
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:500: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:329: in run
+    batches = await self._consumer.getmany(
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/consumer.py:1197: in getmany
+    records = await self._fetcher.fetched_records(
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/fetcher.py:1255: in fetched_records
+    done, pending = await asyncio.wait([waiter], timeout=timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:428: in wait
+    return await _wait(fs, timeout, return_when, loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fs = {<Future finished result=None>}, timeout = 60.0
+return_when = 'ALL_COMPLETED'
+loop = <_UnixSelectorEventLoop running=False closed=False debug=False>
+
+    async def _wait(fs, timeout, return_when, loop):
+        """Internal helper for wait().
+    
+        The fs argument must be a collection of Futures.
+        """
+        assert fs, 'Set of Futures is empty.'
+        waiter = loop.create_future()
+        timeout_handle = None
+        if timeout is not None:
+            timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        counter = len(fs)
+    
+        def _on_completion(f):
+            nonlocal counter
+            counter -= 1
+            if (counter <= 0 or
+                return_when == FIRST_COMPLETED or
+                return_when == FIRST_EXCEPTION and (not f.cancelled() and
+                                                    f.exception() is not None)):
+                if timeout_handle is not None:
+                    timeout_handle.cancel()
+                if not waiter.done():
+                    waiter.set_result(None)
+    
+        for f in fs:
+            f.add_done_callback(_on_completion)
+    
+        try:
+>           await waiter
+E           asyncio.exceptions.CancelledError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:535: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-21/test_commit_timeout_replay_res0')
+
+    @pytest.mark.asyncio
+    async def test_commit_timeout_replay_restart_and_rebalance_recovery(tmp_path: Path) -> None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = uuid4().hex[:10]
+        topic = f"storage-commit-{token}"
+        group = f"storage-commit-{token}"
+        tp = TopicPartition(topic, 0)
+        admin = AIOKafkaAdminClient(bootstrap_servers=stack.kafka)
+        producer = AIOKafkaProducer(bootstrap_servers=stack.kafka)
+        metadata = MetadataStore(tmp_path / "storage.sqlite3")
+        metadata.open()
+        ingestion = _GatedIngestion()
+        consumer: KafkaStorageConsumer | None = None
+        runner: asyncio.Task[None] | None = None
+        replacement: KafkaStorageConsumer | None = None
+        replacement_runner: asyncio.Task[None] | None = None
+        replacement_metadata = MetadataStore(tmp_path / "replacement.sqlite3")
+        replacement_ingestion = _GatedIngestion(gate_first=False)
+        try:
+            await admin.start()
+            await admin.create_topics([NewTopic(name=topic, num_partitions=1, replication_factor=1)])
+            await producer.start()
+            await producer.send_and_wait(topic, b'{"record":0}', key=b"farm:collector:device")
+            base = load_storage_config(
+                (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
+            )
+            config = base.model_copy(
+                update={
+                    "kafka": base.kafka.model_copy(
+                        update={
+                            "bootstrap_servers": stack.kafka,
+                            "topic": topic,
+                            "group_id": group,
+                            "max_partition_workers": 1,
+                            "commit_timeout_ms": 100,
+                        }
+                    ),
+                    "retry": base.retry.model_copy(
+                        update={"initial_ms": 100, "max_ms": 1000, "max_attempts": 0}
+                    ),
+                }
+            )
+            consumer = KafkaStorageConsumer(
+                configuration=config,
+                bootstrap_servers=stack.kafka,
+                ingestion=ingestion,  # type: ignore[arg-type]
+                metadata=metadata,
+                metrics=StorageRuntimeMetrics(),
+            )
+            await consumer.start()
+            runner = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(ingestion.started.wait(), 30)
+    
+            # Pause after DML confirmation but before the real broker commit. The
+            # bounded commit becomes UNKNOWN and must rewind to the original cursor.
+            await asyncio.to_thread(stack.pause, "kafka")
+            ingestion.release.set()
+            await asyncio.sleep(1)
+            assert not runner.done()
+            assert ingestion.calls == [0]
+            await asyncio.to_thread(stack.unpause, "kafka")
+            await _wait_offset(admin, group, tp, 1)
+            assert ingestion.calls[:2] == [0, 0]
+    
+            # A real broker restart forces coordinator discovery and a new group
+            # generation. Replay remains bounded and the next record is committed.
+            await asyncio.to_thread(stack.stop_container, "kafka")
+            await asyncio.to_thread(stack.start_container, "kafka")
+            await _wait_offset(admin, group, tp, 1, timeout=90)
+            await producer.send_and_wait(topic, b'{"record":1}', key=b"farm:collector:device")
+            await _wait_offset(admin, group, tp, 2, timeout=90)
+            assert ingestion.calls[-1] == 1
+            assert not runner.done()
+    
+            # A second real group member forces rebalance. Once the old owner has
+            # stopped, only the replacement may ingest and commit the next offset.
+            replacement_metadata.open()
+            replacement = KafkaStorageConsumer(
+                configuration=config,
+                bootstrap_servers=stack.kafka,
+                ingestion=replacement_ingestion,  # type: ignore[arg-type]
+                metadata=replacement_metadata,
+                metrics=StorageRuntimeMetrics(),
+            )
+            await replacement.start()
+            replacement_runner = asyncio.create_task(replacement.run())
+            await asyncio.sleep(2)
+            consumer.request_stop()
+>           await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), 20)
+
+tests/storage_service/integration/test_kafka_real.py:170: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fut = <_GatheringFuture finished exception=CancelledError()>, timeout = 20
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        This function is a coroutine.
+        """
+        loop = events.get_running_loop()
+    
+        if timeout is None:
+            return await fut
+    
+        if timeout <= 0:
+            fut = ensure_future(fut, loop=loop)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut, loop=loop)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise exceptions.TimeoutError() from exc
+    
+        waiter = loop.create_future()
+        timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        cb = functools.partial(_release_waiter, waiter)
+    
+        fut = ensure_future(fut, loop=loop)
+        fut.add_done_callback(cb)
+    
+        try:
+            # wait until the future completes or the timeout
+            try:
+                await waiter
+            except exceptions.CancelledError:
+                if fut.done():
+                    return fut.result()
+                else:
+                    fut.remove_done_callback(cb)
+                    # We must ensure that the task is not running
+                    # after wait_for() returns.
+                    # See https://bugs.python.org/issue32751
+                    await _cancel_and_wait(fut, loop=loop)
+                    raise
+    
+            if fut.done():
+                return fut.result()
+            else:
+                fut.remove_done_callback(cb)
+                # We must ensure that the task is not running
+                # after wait_for() returns.
+                # See https://bugs.python.org/issue32751
+                await _cancel_and_wait(fut, loop=loop)
+                # In case task cancellation failed with some
+                # exception, we should re-raise it
+                # See https://bugs.python.org/issue40607
+                try:
+                    return fut.result()
+                except exceptions.CancelledError as exc:
+>                   raise exceptions.TimeoutError() from exc
+E                   TimeoutError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:502: TimeoutError
+
+During handling of the above exception, another exception occurred:
+
+fut = <_GatheringFuture finished exception=CancelledError()>, timeout = 20
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        This function is a coroutine.
+        """
+        loop = events.get_running_loop()
+    
+        if timeout is None:
+            return await fut
+    
+        if timeout <= 0:
+            fut = ensure_future(fut, loop=loop)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut, loop=loop)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise exceptions.TimeoutError() from exc
+    
+        waiter = loop.create_future()
+        timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        cb = functools.partial(_release_waiter, waiter)
+    
+        fut = ensure_future(fut, loop=loop)
+        fut.add_done_callback(cb)
+    
+        try:
+            # wait until the future completes or the timeout
+            try:
+                await waiter
+            except exceptions.CancelledError:
+                if fut.done():
+                    return fut.result()
+                else:
+                    fut.remove_done_callback(cb)
+                    # We must ensure that the task is not running
+                    # after wait_for() returns.
+                    # See https://bugs.python.org/issue32751
+                    await _cancel_and_wait(fut, loop=loop)
+                    raise
+    
+            if fut.done():
+                return fut.result()
+            else:
+                fut.remove_done_callback(cb)
+                # We must ensure that the task is not running
+                # after wait_for() returns.
+                # See https://bugs.python.org/issue32751
+                await _cancel_and_wait(fut, loop=loop)
+                # In case task cancellation failed with some
+                # exception, we should re-raise it
+                # See https://bugs.python.org/issue40607
+                try:
+>                   return fut.result()
+                           ^^^^^^^^^^^^
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:500: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:329: in run
+    batches = await self._consumer.getmany(
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/consumer.py:1197: in getmany
+    records = await self._fetcher.fetched_records(
+../miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/consumer/fetcher.py:1255: in fetched_records
+    done, pending = await asyncio.wait([waiter], timeout=timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:428: in wait
+    return await _wait(fs, timeout, return_when, loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fs = {<Future finished result=None>}, timeout = 60.0
+return_when = 'ALL_COMPLETED'
+loop = <_UnixSelectorEventLoop running=False closed=False debug=False>
+
+    async def _wait(fs, timeout, return_when, loop):
+        """Internal helper for wait().
+    
+        The fs argument must be a collection of Futures.
+        """
+        assert fs, 'Set of Futures is empty.'
+        waiter = loop.create_future()
+        timeout_handle = None
+        if timeout is not None:
+            timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        counter = len(fs)
+    
+        def _on_completion(f):
+            nonlocal counter
+            counter -= 1
+            if (counter <= 0 or
+                return_when == FIRST_COMPLETED or
+                return_when == FIRST_EXCEPTION and (not f.cancelled() and
+                                                    f.exception() is not None)):
+                if timeout_handle is not None:
+                    timeout_handle.cancel()
+                if not waiter.done():
+                    waiter.set_result(None)
+    
+        for f in fs:
+            f.add_done_callback(_on_completion)
+    
+        try:
+>           await waiter
+E           asyncio.exceptions.CancelledError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:535: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-21/test_commit_timeout_replay_res0')
+
+    @pytest.mark.asyncio
+    async def test_commit_timeout_replay_restart_and_rebalance_recovery(tmp_path: Path) -> None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = uuid4().hex[:10]
+        topic = f"storage-commit-{token}"
+        group = f"storage-commit-{token}"
+        tp = TopicPartition(topic, 0)
+        admin = AIOKafkaAdminClient(bootstrap_servers=stack.kafka)
+        producer = AIOKafkaProducer(bootstrap_servers=stack.kafka)
+        metadata = MetadataStore(tmp_path / "storage.sqlite3")
+        metadata.open()
+        ingestion = _GatedIngestion()
+        consumer: KafkaStorageConsumer | None = None
+        runner: asyncio.Task[None] | None = None
+        replacement: KafkaStorageConsumer | None = None
+        replacement_runner: asyncio.Task[None] | None = None
+        replacement_metadata = MetadataStore(tmp_path / "replacement.sqlite3")
+        replacement_ingestion = _GatedIngestion(gate_first=False)
+        try:
+            await admin.start()
+            await admin.create_topics([NewTopic(name=topic, num_partitions=1, replication_factor=1)])
+            await producer.start()
+            await producer.send_and_wait(topic, b'{"record":0}', key=b"farm:collector:device")
+            base = load_storage_config(
+                (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
+            )
+            config = base.model_copy(
+                update={
+                    "kafka": base.kafka.model_copy(
+                        update={
+                            "bootstrap_servers": stack.kafka,
+                            "topic": topic,
+                            "group_id": group,
+                            "max_partition_workers": 1,
+                            "commit_timeout_ms": 100,
+                        }
+                    ),
+                    "retry": base.retry.model_copy(
+                        update={"initial_ms": 100, "max_ms": 1000, "max_attempts": 0}
+                    ),
+                }
+            )
+            consumer = KafkaStorageConsumer(
+                configuration=config,
+                bootstrap_servers=stack.kafka,
+                ingestion=ingestion,  # type: ignore[arg-type]
+                metadata=metadata,
+                metrics=StorageRuntimeMetrics(),
+            )
+            await consumer.start()
+            runner = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(ingestion.started.wait(), 30)
+    
+            # Pause after DML confirmation but before the real broker commit. The
+            # bounded commit becomes UNKNOWN and must rewind to the original cursor.
+            await asyncio.to_thread(stack.pause, "kafka")
+            ingestion.release.set()
+            await asyncio.sleep(1)
+            assert not runner.done()
+            assert ingestion.calls == [0]
+            await asyncio.to_thread(stack.unpause, "kafka")
+            await _wait_offset(admin, group, tp, 1)
+            assert ingestion.calls[:2] == [0, 0]
+    
+            # A real broker restart forces coordinator discovery and a new group
+            # generation. Replay remains bounded and the next record is committed.
+            await asyncio.to_thread(stack.stop_container, "kafka")
+            await asyncio.to_thread(stack.start_container, "kafka")
+            await _wait_offset(admin, group, tp, 1, timeout=90)
+            await producer.send_and_wait(topic, b'{"record":1}', key=b"farm:collector:device")
+            await _wait_offset(admin, group, tp, 2, timeout=90)
+            assert ingestion.calls[-1] == 1
+            assert not runner.done()
+    
+            # A second real group member forces rebalance. Once the old owner has
+            # stopped, only the replacement may ingest and commit the next offset.
+            replacement_metadata.open()
+            replacement = KafkaStorageConsumer(
+                configuration=config,
+                bootstrap_servers=stack.kafka,
+                ingestion=replacement_ingestion,  # type: ignore[arg-type]
+                metadata=replacement_metadata,
+                metrics=StorageRuntimeMetrics(),
+            )
+            await replacement.start()
+            replacement_runner = asyncio.create_task(replacement.run())
+            await asyncio.sleep(2)
+            consumer.request_stop()
+            await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), 20)
+            await consumer.stop()
+            consumer = None
+            runner = None
+            await producer.send_and_wait(topic, b'{"record":2}', key=b"farm:collector:device")
+            await _wait_offset(admin, group, tp, 3, timeout=60)
+            assert replacement_ingestion.calls[-1] == 2
+            assert 2 not in ingestion.calls
+            assert not replacement_runner.done()
+        finally:
+            if consumer is not None:
+                consumer.request_stop()
+            if runner is not None:
+                await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), 20)
+            if consumer is not None:
+                await consumer.stop()
+            if replacement is not None:
+                replacement.request_stop()
+            if replacement_runner is not None:
+>               await asyncio.wait_for(asyncio.gather(replacement_runner, return_exceptions=True), 20)
+
+tests/storage_service/integration/test_kafka_real.py:189: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fut = <_GatheringFuture finished exception=CancelledError()>, timeout = 20
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        This function is a coroutine.
+        """
+        loop = events.get_running_loop()
+    
+        if timeout is None:
+            return await fut
+    
+        if timeout <= 0:
+            fut = ensure_future(fut, loop=loop)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut, loop=loop)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise exceptions.TimeoutError() from exc
+    
+        waiter = loop.create_future()
+        timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
+        cb = functools.partial(_release_waiter, waiter)
+    
+        fut = ensure_future(fut, loop=loop)
+        fut.add_done_callback(cb)
+    
+        try:
+            # wait until the future completes or the timeout
+            try:
+                await waiter
+            except exceptions.CancelledError:
+                if fut.done():
+                    return fut.result()
+                else:
+                    fut.remove_done_callback(cb)
+                    # We must ensure that the task is not running
+                    # after wait_for() returns.
+                    # See https://bugs.python.org/issue32751
+                    await _cancel_and_wait(fut, loop=loop)
+                    raise
+    
+            if fut.done():
+                return fut.result()
+            else:
+                fut.remove_done_callback(cb)
+                # We must ensure that the task is not running
+                # after wait_for() returns.
+                # See https://bugs.python.org/issue32751
+                await _cancel_and_wait(fut, loop=loop)
+                # In case task cancellation failed with some
+                # exception, we should re-raise it
+                # See https://bugs.python.org/issue40607
+                try:
+                    return fut.result()
+                except exceptions.CancelledError as exc:
+>                   raise exceptions.TimeoutError() from exc
+E                   TimeoutError
+
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:502: TimeoutError
+------------------------------ Captured log call -------------------------------
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group storage-commit-dc1faf7612.
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group storage-commit-dc1faf7612.
+WARNING  storage_service.infrastructure.adapters.outbound.kafka_consumer:kafka_consumer.py:169 Storage Kafka write/commit unconfirmed: topic=storage-commit-dc1faf7612 partition=0 attempt=1
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:311 Error sending HeartbeatRequest to node 1 [NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).] -- marking coordinator dead
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:522 Marking the coordinator dead (node 1)for group storage-commit-dc1faf7612.
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:810 Heartbeat send request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).. Will retry.
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.fetcher:fetcher.py:749 Failed fetch messages from 1: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka.consumer.group_coordinator:group_coordinator.py:566 Group Coordinator Request failed: NodeNotReadyError: Attempt to send a request to node which is not ready (node id 1).
+ERROR    aiokafka:client.py:435 Unable connect to node with id 1: KafkaConnectionError: Connection at 127.0.0.1:39043 closed
+ERROR    aiokafka:client.py:325 Unable to update metadata from [1]
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:830 Heartbeat failed for group storage-commit-dc1faf7612 because it is rebalancing
+WARNING  aiokafka.consumer.group_coordinator:group_coordinator.py:830 Heartbeat failed for group storage-commit-dc1faf7612 because it is rebalancing
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/real_kafka.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/integration/test_kafka_real.py::test_commit_timeout_replay_restart_and_rebalance_recovery
+1 failed in 56.98s
+Unclosed AIOKafkaProducer
+producer: <aiokafka.producer.producer.AIOKafkaProducer object at 0x7d5e4f8d6390>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3' coro=<AIOKafkaClient._md_synchronizer() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/client.py:252> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-6' coro=<AIOKafkaClient._md_synchronizer() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/client.py:252> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-7' coro=<Sender._sender_routine() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/producer/sender.py:167> wait_for=<Future pending cb=[Task.task_wakeup()]> cb=[Sender._fail_all()]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-151' coro=<AIOKafkaConnection._read() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/conn.py:521> wait_for=<Future pending cb=[Task.task_wakeup()]> cb=[AIOKafkaConnection._on_read_task_error(<weakref at 0...c060e00; dead>)()]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-155' coro=<AIOKafkaConnection._read() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/aiokafka/conn.py:521> wait_for=<Future pending cb=[Task.task_wakeup()]> cb=[AIOKafkaConnection._on_read_task_error(<weakref at 0...c061350; dead>)()]>

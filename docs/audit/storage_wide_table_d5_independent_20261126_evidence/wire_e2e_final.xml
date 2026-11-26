@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="17.299" timestamp="2026-11-26T11:55:44.598134+08:00" hostname="boss"><testcase classname="tests.sink_service.system.test_raw_protocol_storage_wire_e2e" name="test_reliable_sink_preserves_data_level_and_sample_identity[raw]" time="9.344" /><testcase classname="tests.sink_service.system.test_raw_protocol_storage_wire_e2e" name="test_reliable_sink_preserves_data_level_and_sample_identity[protocol]" time="2.163" /><testcase classname="tests.sink_service.system.test_raw_protocol_storage_wire_e2e" name="test_modbus_tcp_native_register_bytes_reach_kafka_and_storage" time="2.255" /><testcase classname="tests.sink_service.system.test_raw_protocol_storage_wire_e2e" name="test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write" time="3.491"><failure message="pydantic_core._pydantic_core.ValidationError: 2 validation errors for SampleBatch&#10;device_config_id&#10;  Field required [type=missing, input_value={'batch_id': 'b-reliable-... raw_payload_hex=None))}, input_type=dict]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing&#10;sample_time&#10;  Field required [type=missing, input_value={'batch_id': 'b-reliable-... raw_payload_hex=None))}, input_type=dict]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing">sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-32/test_raw_missing_source_bytes_0/sink-root-251e6e8117e...c2', 'outsider': '[REDACTED_EPHEMERAL_TEST_TOKEN]'}, staleness_ms=60000, process=None)
+
+    async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write(
+        sink_harness: SinkSystemHarness,
+    ) -&gt; None:
+        sink_harness.write_dual_channel_root()
+        template = sink_harness.root / template_path("reliable_history")
+        document = yaml.safe_load(template.read_text(encoding="utf-8"))
+        document["output"]["data_level"] = "raw"
+        template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        await sink_harness.provision_streams()
+        await sink_harness.start()
+        try:
+            # The first point has valid source bytes, the second has none.
+            # The whole batch must be rejected before the first Kafka write.
+&gt;           batch = sink_harness.make_batch("reliable", seq=822, points=2)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/conftest.py:448: in make_batch
+    return make_system_batch(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mode = 'reliable', seq = 822, points = 2
+
+    def make_system_batch(
+        mode: str,
+        seq: int,
+        points: int,
+        *,
+        token: str,
+        staleness_ms: int = DEFAULT_STALENESS_MS,
+        device_id: str = DEVICE_ID,
+        quality: str = "good",
+        stale: bool = False,
+        now: datetime | None = None,
+    ) -&gt; SampleBatch:
+        """Build the same strict fixture in the parent or an encoder process."""
+        if now is None:
+            now = datetime.now(UTC)
+        sample_time = (
+            now
+            if not stale
+            else datetime.fromtimestamp(now.timestamp() - staleness_ms / 1000.0 - 5, UTC)
+        )
+        samples = tuple(
+            SampleItem(
+                point_id=f"p{idx:03d}",
+                sample_id=f"s-{mode}-{seq}-{idx}-{token[:4]}",
+                value=float(seq + idx),
+                quality=quality,  # type: ignore[arg-type]
+                sample_time=sample_time,
+                max_staleness_ms=staleness_ms if mode == "realtime" else None,
+            )
+            for idx in range(points)
+        )
+&gt;       return SampleBatch(
+            batch_id=f"b-{mode}-{seq}-{token}",
+            mode=mode,  # type: ignore[arg-type]
+            wind_farm_id=WIND_FARM_ID,
+            collector_id=COLLECTOR_ID,
+            task_id="task-qa",
+            device_type="wtg",
+            device_id=device_id,
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            publish_time=now,
+            samples=samples,
+        )
+E       pydantic_core._pydantic_core.ValidationError: 2 validation errors for SampleBatch
+E       device_config_id
+E         Field required [type=missing, input_value={'batch_id': 'b-reliable-... raw_payload_hex=None))}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       sample_time
+E         Field required [type=missing, input_value={'batch_id': 'b-reliable-... raw_payload_hex=None))}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/sink_service/system/conftest.py:93: ValidationError</failure></testcase></testsuite></testsuites>

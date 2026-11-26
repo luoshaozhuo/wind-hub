@@ -1,0 +1,11 @@
+{
+  "source": "r14_capacity_d30_r300_c4_b131072_p1_6ae463aadfd8_samples.jsonl",
+  "sample_sha256": "2e7c31dc745f3090fb0c8c1dbc290692bfc9210748934e2f844fbcdca3163763",
+  "samples": 585,
+  "sampled_duration_s": 599.2331049420027,
+  "grpc_probe_p95_ms": 4.204584001854528,
+  "grpc_probe_p99_ms": 4.935190998367034,
+  "write_latency_window_p99_max_ms": 77.9011059245099,
+  "write_latency_p95_ms": null,
+  "limitation": "gRPC probe latency is not row-write end-to-end latency; P99 is the maximum of service-reported window P99 values, not a pooled 600s percentile."
+}

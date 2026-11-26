@@ -1,0 +1,290 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_______ test_reliable_sink_preserves_data_level_and_sample_identity[raw] _______
+
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-27/test_reliable_sink_preserves_d0/sink-root-c3e01294d93...xPath('/tmp/pytest-of-luosh/pytest-27/test_reliable_sink_preserves_d0/sink-root-c3e01294d93c/sink-service-41107.log')))
+level = 'raw'
+
+    @pytest.mark.parametrize("level", ["raw", "protocol"])
+    async def test_reliable_sink_preserves_data_level_and_sample_identity(
+        sink_harness: SinkSystemHarness, level: DataLevel
+    ) -> None:
+        sink_harness.write_dual_channel_root()
+        template = sink_harness.root / template_path("reliable_history")
+        document = yaml.safe_load(template.read_text(encoding="utf-8"))
+        document["output"]["data_level"] = level
+        template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        await sink_harness.provision_streams()
+>       await sink_harness.start()
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/conftest.py:361: in start
+    await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
+tests/support/wait.py:166: in wait_tcp_port
+    return await wait_until(_probe, timeout=timeout, interval=0.2, description=f"tcp {host}:{port}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = <function wait_tcp_port.<locals>._probe at 0x79bb89dcc2c0>
+
+    async def wait_until(
+        probe: Callable[[], Awaitable[T | None] | T | None],
+        *,
+        timeout: float = 15.0,
+        interval: float = 0.1,
+        description: str = "condition",
+    ) -> T:
+        """轮询直到 ``probe()`` 返回非 None 值（同步/异步 probe 均可）。
+    
+        Args:
+            probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果；
+                返回 awaitable 时先 await 再判定。
+            timeout: 总超时（秒）。
+            interval: 轮询间隔（秒）。
+            description: 条件描述（用于超时消息）。
+    
+        Returns:
+            probe 首次返回的非 None 值。
+    
+        Raises:
+            WaitTimeoutError: 超时未满足。
+        """
+        deadline = time.monotonic() + timeout
+        last_error: BaseException | None = None
+        while time.monotonic() < deadline:
+            try:
+                result = probe()
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception as exc:  # 探测期间依赖尚未就绪是常态，记录后继续轮询
+                last_error = exc
+                result = None
+            if result is not None:
+                return result
+            await asyncio.sleep(interval)
+        detail = f"; last probe error: {last_error!r}" if last_error else ""
+>       raise WaitTimeoutError(f"timeout after {timeout}s waiting for {description}{detail}")
+E       tests.support.wait.WaitTimeoutError: timeout after 30.0s waiting for tcp 127.0.0.1:41107
+
+tests/support/wait.py:60: WaitTimeoutError
+____ test_reliable_sink_preserves_data_level_and_sample_identity[protocol] _____
+
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-27/test_reliable_sink_preserves_d1/sink-root-549871c8c7f...xPath('/tmp/pytest-of-luosh/pytest-27/test_reliable_sink_preserves_d1/sink-root-549871c8c7f1/sink-service-46081.log')))
+level = 'protocol'
+
+    @pytest.mark.parametrize("level", ["raw", "protocol"])
+    async def test_reliable_sink_preserves_data_level_and_sample_identity(
+        sink_harness: SinkSystemHarness, level: DataLevel
+    ) -> None:
+        sink_harness.write_dual_channel_root()
+        template = sink_harness.root / template_path("reliable_history")
+        document = yaml.safe_load(template.read_text(encoding="utf-8"))
+        document["output"]["data_level"] = level
+        template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        await sink_harness.provision_streams()
+>       await sink_harness.start()
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/conftest.py:361: in start
+    await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
+tests/support/wait.py:166: in wait_tcp_port
+    return await wait_until(_probe, timeout=timeout, interval=0.2, description=f"tcp {host}:{port}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = <function wait_tcp_port.<locals>._probe at 0x79bb89a3b880>
+
+    async def wait_until(
+        probe: Callable[[], Awaitable[T | None] | T | None],
+        *,
+        timeout: float = 15.0,
+        interval: float = 0.1,
+        description: str = "condition",
+    ) -> T:
+        """轮询直到 ``probe()`` 返回非 None 值（同步/异步 probe 均可）。
+    
+        Args:
+            probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果；
+                返回 awaitable 时先 await 再判定。
+            timeout: 总超时（秒）。
+            interval: 轮询间隔（秒）。
+            description: 条件描述（用于超时消息）。
+    
+        Returns:
+            probe 首次返回的非 None 值。
+    
+        Raises:
+            WaitTimeoutError: 超时未满足。
+        """
+        deadline = time.monotonic() + timeout
+        last_error: BaseException | None = None
+        while time.monotonic() < deadline:
+            try:
+                result = probe()
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception as exc:  # 探测期间依赖尚未就绪是常态，记录后继续轮询
+                last_error = exc
+                result = None
+            if result is not None:
+                return result
+            await asyncio.sleep(interval)
+        detail = f"; last probe error: {last_error!r}" if last_error else ""
+>       raise WaitTimeoutError(f"timeout after {timeout}s waiting for {description}{detail}")
+E       tests.support.wait.WaitTimeoutError: timeout after 30.0s waiting for tcp 127.0.0.1:46081
+
+tests/support/wait.py:60: WaitTimeoutError
+________ test_modbus_tcp_native_register_bytes_reach_kafka_and_storage _________
+
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-27/test_modbus_tcp_native_registe0/sink-root-7baaa10ac88...xPath('/tmp/pytest-of-luosh/pytest-27/test_modbus_tcp_native_registe0/sink-root-7baaa10ac883/sink-service-36871.log')))
+
+    async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
+        sink_harness: SinkSystemHarness,
+    ) -> None:
+        """Read an actual FC03 response, then verify unchanged bytes at storage input."""
+        import struct
+    
+        from tests.core.protocol.conftest import modbus_driver
+        from tests.fixtures.servers.modbus_server import ModbusMockServer
+        from tests.sink_service.system.conftest import free_port
+    
+        sink_harness.write_dual_channel_root()
+        template = sink_harness.root / template_path("reliable_history")
+        document = yaml.safe_load(template.read_text(encoding="utf-8"))
+        document["output"]["data_level"] = "raw"
+        template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        await sink_harness.provision_streams()
+>       await sink_harness.start()
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:132: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/conftest.py:361: in start
+    await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
+tests/support/wait.py:166: in wait_tcp_port
+    return await wait_until(_probe, timeout=timeout, interval=0.2, description=f"tcp {host}:{port}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = <function wait_tcp_port.<locals>._probe at 0x79bb89a3bc40>
+
+    async def wait_until(
+        probe: Callable[[], Awaitable[T | None] | T | None],
+        *,
+        timeout: float = 15.0,
+        interval: float = 0.1,
+        description: str = "condition",
+    ) -> T:
+        """轮询直到 ``probe()`` 返回非 None 值（同步/异步 probe 均可）。
+    
+        Args:
+            probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果；
+                返回 awaitable 时先 await 再判定。
+            timeout: 总超时（秒）。
+            interval: 轮询间隔（秒）。
+            description: 条件描述（用于超时消息）。
+    
+        Returns:
+            probe 首次返回的非 None 值。
+    
+        Raises:
+            WaitTimeoutError: 超时未满足。
+        """
+        deadline = time.monotonic() + timeout
+        last_error: BaseException | None = None
+        while time.monotonic() < deadline:
+            try:
+                result = probe()
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception as exc:  # 探测期间依赖尚未就绪是常态，记录后继续轮询
+                last_error = exc
+                result = None
+            if result is not None:
+                return result
+            await asyncio.sleep(interval)
+        detail = f"; last probe error: {last_error!r}" if last_error else ""
+>       raise WaitTimeoutError(f"timeout after {timeout}s waiting for {description}{detail}")
+E       tests.support.wait.WaitTimeoutError: timeout after 30.0s waiting for tcp 127.0.0.1:36871
+
+tests/support/wait.py:60: WaitTimeoutError
+_ test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write _
+
+sink_harness = SinkSystemHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-27/test_raw_missing_source_bytes_0/sink-root-6cfcbb72b56...xPath('/tmp/pytest-of-luosh/pytest-27/test_raw_missing_source_bytes_0/sink-root-6cfcbb72b56c/sink-service-51963.log')))
+
+    async def test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write(
+        sink_harness: SinkSystemHarness,
+    ) -> None:
+        sink_harness.write_dual_channel_root()
+        template = sink_harness.root / template_path("reliable_history")
+        document = yaml.safe_load(template.read_text(encoding="utf-8"))
+        document["output"]["data_level"] = "raw"
+        template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        await sink_harness.provision_streams()
+>       await sink_harness.start()
+
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:210: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/sink_service/system/conftest.py:361: in start
+    await wait_tcp_port("127.0.0.1", self.grpc_port, timeout=30.0)
+tests/support/wait.py:166: in wait_tcp_port
+    return await wait_until(_probe, timeout=timeout, interval=0.2, description=f"tcp {host}:{port}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+probe = <function wait_tcp_port.<locals>._probe at 0x79bb89df1580>
+
+    async def wait_until(
+        probe: Callable[[], Awaitable[T | None] | T | None],
+        *,
+        timeout: float = 15.0,
+        interval: float = 0.1,
+        description: str = "condition",
+    ) -> T:
+        """轮询直到 ``probe()`` 返回非 None 值（同步/异步 probe 均可）。
+    
+        Args:
+            probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果；
+                返回 awaitable 时先 await 再判定。
+            timeout: 总超时（秒）。
+            interval: 轮询间隔（秒）。
+            description: 条件描述（用于超时消息）。
+    
+        Returns:
+            probe 首次返回的非 None 值。
+    
+        Raises:
+            WaitTimeoutError: 超时未满足。
+        """
+        deadline = time.monotonic() + timeout
+        last_error: BaseException | None = None
+        while time.monotonic() < deadline:
+            try:
+                result = probe()
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception as exc:  # 探测期间依赖尚未就绪是常态，记录后继续轮询
+                last_error = exc
+                result = None
+            if result is not None:
+                return result
+            await asyncio.sleep(interval)
+        detail = f"; last probe error: {last_error!r}" if last_error else ""
+>       raise WaitTimeoutError(f"timeout after {timeout}s waiting for {description}{detail}")
+E       tests.support.wait.WaitTimeoutError: timeout after 30.0s waiting for tcp 127.0.0.1:51963
+
+tests/support/wait.py:60: WaitTimeoutError
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/wire_e2e_after.xml -
+=========================== short test summary info ============================
+FAILED tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py::test_reliable_sink_preserves_data_level_and_sample_identity[raw]
+FAILED tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py::test_reliable_sink_preserves_data_level_and_sample_identity[protocol]
+FAILED tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py::test_modbus_tcp_native_register_bytes_reach_kafka_and_storage
+FAILED tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py::test_raw_missing_source_bytes_goes_to_durable_dlq_without_partial_kafka_write
+4 failed, 1 warning in 128.47s (0:02:08)

@@ -1,0 +1,66 @@
+........................................................................ [ 10%]
+........................................................................ [ 21%]
+........................................................................ [ 32%]
+........................................................................ [ 43%]
+........................................................................ [ 54%]
+........................................................................ [ 64%]
+........................................................................ [ 75%]
+........................................................................ [ 86%]
+....................................FF...FF............................. [ 97%]
+..................                                                       [100%]
+=================================== FAILURES ===================================
+_ test_shared_source_selection_is_exact_and_versioned[service_collector-realtime_v2.0.0.yaml] _
+
+service_name = 'service_collector-realtime_v2.0.0.yaml'
+
+    @pytest.mark.parametrize("service_name", _SERVICES)
+    def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
+        path = _CONFIGS / "services" / service_name
+        service = read_yaml(path)
+>       assert service["schema_version"] in {1, 2, 3}
+E       assert 6 in {1, 2, 3}
+
+tests/core/unit/config/test_service_sources_contract.py:33: AssertionError
+_ test_shared_source_selection_is_exact_and_versioned[service_collector-reliable_v2.0.0.yaml] _
+
+service_name = 'service_collector-reliable_v2.0.0.yaml'
+
+    @pytest.mark.parametrize("service_name", _SERVICES)
+    def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
+        path = _CONFIGS / "services" / service_name
+        service = read_yaml(path)
+>       assert service["schema_version"] in {1, 2, 3}
+E       assert 6 in {1, 2, 3}
+
+tests/core/unit/config/test_service_sources_contract.py:33: AssertionError
+_ test_shared_source_selection_is_exact_and_versioned[service_sink-west_v2.0.0.yaml] _
+
+service_name = 'service_sink-west_v2.0.0.yaml'
+
+    @pytest.mark.parametrize("service_name", _SERVICES)
+    def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
+        path = _CONFIGS / "services" / service_name
+        service = read_yaml(path)
+>       assert service["schema_version"] in {1, 2, 3}
+E       assert 6 in {1, 2, 3}
+
+tests/core/unit/config/test_service_sources_contract.py:33: AssertionError
+_ test_shared_source_selection_is_exact_and_versioned[service_storage-main_v2.0.0.yaml] _
+
+service_name = 'service_storage-main_v2.0.0.yaml'
+
+    @pytest.mark.parametrize("service_name", _SERVICES)
+    def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
+        path = _CONFIGS / "services" / service_name
+        service = read_yaml(path)
+>       assert service["schema_version"] in {1, 2, 3}
+E       assert 6 in {1, 2, 3}
+
+tests/core/unit/config/test_service_sources_contract.py:33: AssertionError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/contracts_core.xml -
+=========================== short test summary info ============================
+FAILED tests/core/unit/config/test_service_sources_contract.py::test_shared_source_selection_is_exact_and_versioned[service_collector-realtime_v2.0.0.yaml]
+FAILED tests/core/unit/config/test_service_sources_contract.py::test_shared_source_selection_is_exact_and_versioned[service_collector-reliable_v2.0.0.yaml]
+FAILED tests/core/unit/config/test_service_sources_contract.py::test_shared_source_selection_is_exact_and_versioned[service_sink-west_v2.0.0.yaml]
+FAILED tests/core/unit/config/test_service_sources_contract.py::test_shared_source_selection_is_exact_and_versioned[service_storage-main_v2.0.0.yaml]
+4 failed, 662 passed in 29.54s

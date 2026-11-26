@@ -1,0 +1,573 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="10" skipped="0" tests="246" time="2.284" timestamp="2026-11-26T11:53:26.973814+08:00" hostname="boss"><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_persist_is_idempotent_and_rejects_new_history_beyond_quota" time="0.002" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_set_max_bytes_fails_closed_for_existing_archive_and_duplicate_replay" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_partial_entry_consumes_quota_before_completion" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_fixed_version_cannot_be_rebound_to_different_content" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_archive" name="test_same_fixed_version_is_stable_across_bundle_revisions" time="0.001" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_deployment_service_bundle_has_exact_selected_identity" time="0.031" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_wrong_closure_sha" time="0.025" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_historical_point_table_bundle_requires_exact_manifest" time="0.010" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_rejects_legacy_fixed_template_sources" time="0.007" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_requires_both_selected_instance_roles" time="0.007" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[semantic_hash]" time="0.020" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[duplicate_yaml_key]" time="0.021" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_bundle_rejects_malformed_semantic_documents_before_archive[yaml_alias]" time="0.020" /><testcase classname="tests.storage_service.unit.test_configuration_grpc" name="test_service_v6_only_allows_module_configuration_inside_service" time="0.013" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_unknown_point_table_reconciles_then_retries_original_identity" time="0.002" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_configuration_failure_and_missing_target_fail_closed" time="0.000" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_concurrent_partitions_and_periodic_hint_share_one_pull" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_same_name_versions_and_archive_fallback_remain_exact" time="0.002" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_yaml_identity_and_same_revision_mutation_are_rejected" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_restart_required_keeps_verified_old_closure" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_demand_failure_updates_health_without_poisoning_next_refresh" time="0.014" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_unrelated_repository_revision_does_not_rewrite_storage_snapshot" time="0.015" /><testcase classname="tests.storage_service.unit.test_configuration_reconciliation" name="test_rejected_device_model_rebinding_is_not_persisted" time="0.007" /><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-2]" time="0.001"><failure message="AssertionError: assert 0 == 1&#10; +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result">quality = 2, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[count-1-3]" time="0.001"><failure message="AssertionError: assert 0 == 1&#10; +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result">quality = 3, operation = 'count', expected = 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert 0 == 1
+E        +  where 0 = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=0, result_kind=2).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-2]" time="0.001"><failure message="AssertionError: assert None == 42&#10; +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result">quality = 2, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_d5_explicit_quality_aggregate" name="test_explicit_non_good_quality_participates_in_aggregate[min-42-3]" time="0.001"><failure message="AssertionError: assert None == 42&#10; +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result">quality = 3, operation = 'min', expected = 42
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality", [2, 3])
+    @pytest.mark.parametrize("operation, expected", [("count", 1), ("min", 42)])
+    async def test_explicit_non_good_quality_participates_in_aggregate(
+        quality: int, operation: str, expected: int
+    ) -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0",
+            point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(
+            return_value=WideHistoryPage(
+                rows=(WideHistoryRow(1000, (("power", 42, quality),)),),
+                next_page_token="",
+                complete=True,
+                schema_fingerprint=schema.fingerprint,
+            )
+        )
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+        page = await service.page(
+            schema=schema,
+            filter_=WideHistoryFilter(
+                wind_farm_id="farm",
+                device_id="wtg001",
+                device_config_id="device_wtg_v1.0.0",
+                data_level=WideDataLevel.PROTOCOL,
+                start_time_us=1,
+                end_time_us=2000,
+                point_ids=("power",),
+                qualities=(quality,),
+                limit=10,
+            ),
+            device_type="wind",
+            operation=operation,
+            window_ms=1,
+            page_size=10,
+        )
+        assert len(page.rows) == 1
+        assert page.rows[0].good_count == 0
+&gt;       assert page.rows[0].result == expected
+E       AssertionError: assert None == 42
+E        +  where None = WideAggregateRow(point_id='power', start_us=1000, end_us=2000, good_count=0, missing_count=0, result=None, result_kind=0).result
+
+tests/storage_service/unit/test_d5_explicit_quality_aggregate.py:61: AssertionError</failure></testcase><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes0-device references absent fixed DeviceModel]" time="0.003" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes1-pinned PointTable is absent]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes2-device_type conflicts]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes3-PointTable document identity]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_rejects_incomplete_or_mismatched_device_closure[changes4-selected Site identity]" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_deployment_missing_selected_instance_rejected" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_bundle_retains_multiple_instances_from_one_versioned_device_document" time="0.002" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_snapshot_restores_all_historical_device_bindings_without_main_changes" time="0.004" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_sqlite_persists_historical_device_bindings_across_restart" time="0.001" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_restart_target_is_durable_without_replacing_active_snapshot" time="0.004" /><testcase classname="tests.storage_service.unit.test_device_binding" name="test_sqlite_schema_v1_upgrade_creates_historical_device_binding_table" time="0.001" /><testcase classname="tests.storage_service.unit.test_exact_device_bundle_rpc" name="test_historical_device_closure_uses_direct_file_version" time="0.001" /><testcase classname="tests.storage_service.unit.test_exact_device_bundle_rpc" name="test_historical_device_closure_rejects_invalid_file_id" time="0.000" /><testcase classname="tests.storage_service.unit.test_historical_device_closure" name="test_unknown_historical_device_is_persisted_before_wide_schema_use" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_replay_gate" name="test_empty_assignment_does_not_expose_history_as_ready" time="0.000" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_uses_backoff_and_honors_max_attempts" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_unlimited_retry_is_bounded_and_success_resets_failures" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_commit_failure_replays_original_cursor_then_recovers" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_commit_timeout_replays_original_cursor" time="0.104" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_rewinds_to_earliest_unconfirmed_not_batch_end" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_rebalance_during_processing_blocks_old_commit_and_seek" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_rebalance_during_commit_blocks_old_seek_and_state_reset" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_old_generation_failure_cannot_restore_retry_counter" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_stop_during_backoff_wakes_without_rewind_after_reassignment" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_assignment_restores_committed_fetch_position" time="0.005" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_assignment_rejects_bootstrap_and_retention_offset_gaps" time="0.012" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_schema_conflict_isolated_and_retry_resumes_contiguous_prefix" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_retry_rejected_by_durable_evidence_does_not_resume" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_partition_fifo_with_cross_partition_parallelism" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_ingestion_block_does_not_pause_other_partition" time="0.004" /><testcase classname="tests.storage_service.unit.test_kafka_retry" name="test_successive_full_batches_keep_prefetched_position" time="0.004" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_aggregate_rejects_narrow_or_ambiguous_filter[QueryAggregatesRequest0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_aggregate_rejects_narrow_or_ambiguous_filter[QueryAggregatesRequest1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_aggregate_rejects_narrow_or_ambiguous_filter[QueryAggregatesRequest2]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_narrow_or_ambiguous_filter[CreateExportRequest0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_narrow_or_ambiguous_filter[CreateExportRequest1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_export_rejects_narrow_or_ambiguous_filter[CreateExportRequest2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_servicer_exposes_no_legacy_point_query" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_retired_tdengine_methods_are_not_exposed" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_config_resolver_does_not_offer_point_sample_compatibility" time="0.000" /><testcase classname="tests.storage_service.unit.test_no_legacy_history_paths" name="test_production_storage_contains_no_point_history_implementation" time="0.018" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_only_contiguous_confirmation_advances_commit_cursor" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_offset_gap_replay_and_out_of_order_delivery_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_revoked_generation_cannot_confirm_or_mutate_replacement" time="0.000" /><testcase classname="tests.storage_service.unit.test_partition_offsets" name="test_invalid_initial_cursor_and_stale_generation_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_low_bit_first_and_cross_byte_boundary" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_five_hundred_fields_occupy_exactly_125_bytes" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_invalid_quality_is_rejected[values4]" time="0.000" /><testcase classname="tests.storage_service.unit.test_quality_bitmap" name="test_empty_bitmap_and_unused_padding" time="0.000" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_consumer_starts_without_authorized_history_visibility" time="0.000" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_query_rejected_when_replay_has_not_settled" time="0.001" /><testcase classname="tests.storage_service.unit.test_replay_visibility" name="test_query_discards_result_when_replay_starts_midread" time="0.002" /><testcase classname="tests.storage_service.unit.test_sink_storage_wide_contract" name="test_sink_storage_wide_contract" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_protocol_roundtrip_uses_complete_device_row" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_business_roundtrip_requires_verified_projection" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_raw_roundtrip_preserves_original_bytes" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_missing_raw_source_bytes_cannot_be_fabricated" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_collector_preserves_driver_payload_through_wide_wire" time="0.000" /><testcase classname="tests.storage_service.unit.test_sink_wire_contract" name="test_old_point_record_and_engineering_level_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_replace_failure_keeps_previous_accepted_snapshot" time="0.008" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_fsync_failure_before_replace_preserves_active_snapshot" time="0.008" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_directory_fsync_failure_never_exposes_partial_bundle" time="0.007" /><testcase classname="tests.storage_service.unit.test_storage_crash_faults" name="test_sqlite_device_binding_failure_rolls_back_semantic_pin" time="0.002" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_normal_backup_reaps_taosdump" time="0.023" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_overquota_kills_running_taosdump_promptly" time="0.207" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_cancellation_kills_and_reaps_taosdump" time="0.027" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_timeout_kills_and_reaps_taosdump" time="0.207" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_avro_tampering" time="0.022" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_missing_historical_yaml" time="0.022" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_rejects_ownership_registry_change_during_dump" time="0.019" /><testcase classname="tests.storage_service.unit.test_tdengine_backup" name="test_backup_manifest_verifier_rejects_metadata_tampering" time="0.021" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_decodes_aware_websocket_timestamp" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_rejects_invalid_websocket_timestamp[2027-01-15 16:00:00.123456]" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_decode" name="test_datetime_us_rejects_invalid_websocket_timestamp[not-a-timestamp]" time="0.000" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_timeout_discards_late_connection_and_allows_bounded_replacement" time="0.207" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[prepare]" time="0.106" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[bind]" time="0.106" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[execute]" time="0.106" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_stmt2_stages_obey_same_deadline[close]" time="0.107" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_connection_error_discards_connection" time="0.006" /><testcase classname="tests.storage_service.unit.test_tdengine_timeouts" name="test_connect_timeout_closes_late_socket" time="0.106" /><testcase classname="tests.storage_service.unit.test_wide_active_query_metrics" name="test_wide_query_reports_inflight_and_releases_slot" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_active_query_metrics" name="test_wide_query_error_releases_active_count" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_exact_uint64_max_preserved_across_window" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_signed_aggregate_cursor_is_stable_and_cannot_be_rebound" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_large_unsigned_avg_rejects_lossy_float_result" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_snapshot_cursor_rejects_changed_page_size" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_cached_aggregate_snapshot_fenced_during_replay" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT UNSIGNED--1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT UNSIGNED-18446744073709551616]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[INT-2147483648]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT--9223372036854775809]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[BIGINT-12.0]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[DOUBLE-nan]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_wide_numeric_aggregate_rejects_invalid_physical_values[DOUBLE-inf]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_bad_uncertain_and_not_collected_are_excluded_from_good_count" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_quality_predicate_reaches_history_and_binds_aggregate_cursor" time="0.001"><failure message="ValueError: quality filter contains invalid two-bit states">@pytest.mark.asyncio
+    async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -&gt; None:
+        schema = WideSchema.build(
+            point_table_id="point_table_wtg_v1.0.0", point_table_version="1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            points=(PhysicalPoint("power", "INT"),),
+            max_row_bytes=65536,
+        )
+        request = WideHistoryFilter(
+            wind_farm_id="farm", device_id="wtg001",
+            device_config_id="device_farm_v1.0.0",
+            data_level=WideDataLevel.PROTOCOL,
+            start_time_us=1, end_time_us=100_000_000,
+            point_ids=("power",), limit=50, qualities=(PointQuality.GOOD,),
+        )
+        history = Mock()
+        history.read_available.return_value = True
+        history.query = AsyncMock(return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(
+                    1_000_000, (("power", 10, PointQuality.GOOD),)
+                ),
+                WideHistoryRow(
+                    62_000_000, (("power", 15, PointQuality.GOOD),)
+                ),
+            ),
+            complete=True, next_page_token="", schema_fingerprint=schema.fingerprint,
+        ))
+        service = WideAggregationService(history=history, secret=b"x" * 32)
+&gt;       first = await service.page(
+            schema=schema, filter_=request, device_type="wind",
+            operation="min", window_ms=60000, page_size=1,
+        )
+
+tests/storage_service/unit/test_wide_aggregate.py:272: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/application/wide_aggregate.py:244: in page
+    filter_.validate(schema, maximum=self._page_size)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = WideHistoryFilter(wind_farm_id='farm', device_id='wtg001', device_config_id='device_farm_v1.0.0', data_level=&lt;WideData...e_us=1, end_time_us=100000000, point_ids=('power',), limit=50, after_time_us=None, qualities=(&lt;PointQuality.GOOD: 1&gt;,))
+schema = WideSchema(point_table_id='point_table_wtg_v1.0.0', point_table_version='1.0.0', data_level=&lt;WideDataLevel.PROTOCOL: '...quality_bytes=1, declared_row_bytes=15, fingerprint='b9c922382049f3408aefd265b7a75b62ca1f40f52ac298ee8dec16b9a7abf951')
+
+    def validate(self, schema: WideSchema, *, maximum: int) -&gt; None:
+        if (
+            not self.wind_farm_id
+            or not self.device_id
+            or not self.device_config_id
+            or self.data_level != schema.data_level
+        ):
+            raise ValueError("wide query requires an exact device version and data level")
+        if (
+            type(self.start_time_us) is not int
+            or type(self.end_time_us) is not int
+            or self.start_time_us &gt;= self.end_time_us
+        ):
+            raise ValueError("wide query time range must be nonempty")
+        if type(self.limit) is not int or not 1 &lt;= self.limit &lt;= maximum:
+            raise ValueError("wide query limit exceeds configured maximum")
+        if self.after_time_us is not None and (
+            type(self.after_time_us) is not int or self.after_time_us &lt; self.start_time_us
+        ):
+            raise ValueError("wide query pagination cursor is invalid")
+        if self.qualities:
+            if len(self.point_ids) != 1:
+                raise ValueError("quality filtering requires exactly one selected physical point")
+            if len(set(self.qualities)) != len(self.qualities) or any(
+                type(q) is not int or not 0 &lt;= q &lt;= 3 for q in self.qualities
+            ):
+&gt;               raise ValueError("quality filter contains invalid two-bit states")
+E               ValueError: quality filter contains invalid two-bit states
+
+src/storage_service/application/wide_query.py:61: ValueError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_aggregate" name="test_signed_bigint_min_preserves_negative_64_bit_boundary" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_stable_has_one_row_timestamp_complete_columns_and_quality" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[raw-1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[protocol-2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_subtable_identity_includes_data_level_and_schema_fingerprint[business-3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_tag_quote_is_escaped_not_interpolated_as_sql" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_ddl" name="test_reject_untrusted_database_identifier" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_device_resolution" name="test_business_wide_schema_has_one_column_per_standard_point" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_device_resolution" name="test_unknown_exact_device_version_is_not_upgraded_to_latest" time="0.001"><failure message="AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_lock'">self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x70f91ed69010&gt;
+record = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=&lt;WideDataLe...ness'&gt;, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def resolve_wide_schema(
+        self,
+        record: WideRecord | WideIdentity,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -&gt; WideSchema:
+        """Resolve an exact Device Instance → Model → PointTable → BusinessPoint schema.
+    
+        No Kafka value or current recommendation determines the physical columns.
+        """
+        try:
+&gt;           binding = self._wide_binding(record)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:724: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x70f91ed69010&gt;
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=&lt;WideDataLe...ness'&gt;, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -&gt; DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        matches = {
+            (binding.device_version_id, binding.point_table_id): binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == identity.wind_farm_id and device == identity.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == identity.device_config_id
+            )
+        }
+        if len(matches) != 1:
+&gt;           raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+E           storage_service.application.ingestion_contract.ConfigHistoryUnavailableError: Kafka Device Instance version lacks one exact historical binding
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:703: ConfigHistoryUnavailableError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x70f91ed69010&gt;
+record = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=&lt;WideDataLe...ness'&gt;, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def resolve_wide_schema(
+        self,
+        record: WideRecord | WideIdentity,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -&gt; WideSchema:
+        """Resolve an exact Device Instance → Model → PointTable → BusinessPoint schema.
+    
+        No Kafka value or current recommendation determines the physical columns.
+        """
+        try:
+            binding = self._wide_binding(record)
+        except ConfigHistoryUnavailableError:
+            if self._refresh_hook is not None:
+                await self._refresh_hook()
+            try:
+&gt;               binding = self._wide_binding(record)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:729: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x70f91ed69010&gt;
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=&lt;WideDataLe...ness'&gt;, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    def _wide_binding(self, identity: WideIdentity | WideRecord) -&gt; DeviceBinding:
+        """Resolve one immutable instance identity without recommendation lookup."""
+        matches = {
+            (binding.device_version_id, binding.point_table_id): binding
+            for (farm, device, _), entries in self._device_bindings.items()
+            if farm == identity.wind_farm_id and device == identity.device_id
+            for binding in entries
+            if (
+                f"device_{binding.device_config_id}_v{binding.device_file_version}"
+                == identity.device_config_id
+            )
+        }
+        if len(matches) != 1:
+&gt;           raise ConfigHistoryUnavailableError(
+                "Kafka Device Instance version lacks one exact historical binding"
+            )
+E           storage_service.application.ingestion_contract.ConfigHistoryUnavailableError: Kafka Device Instance version lacks one exact historical binding
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:703: ConfigHistoryUnavailableError
+
+During handling of the above exception, another exception occurred:
+
+    @pytest.mark.asyncio
+    async def test_unknown_exact_device_version_is_not_upgraded_to_latest() -&gt; None:
+        with pytest.raises(ConfigHistoryUnavailableError, match="historical binding"):
+&gt;           await _resolver().resolve_wide_schema(
+                _record("device_farm-a_v9.0.0"),
+                type_mapping=_mapping(), max_row_bytes=65536,
+            )
+
+tests/storage_service/unit/test_wide_device_resolution.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:731: in resolve_wide_schema
+    await self._fetch_unknown_device(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;storage_service.infrastructure.adapters.outbound.configuration_archive.ConfigurationPointTableResolver object at 0x70f91ed69010&gt;
+identity = WideRecord(wind_farm_id='farm_a', device_config_id='device_farm-a_v9.0.0', device_id='wtg_001', data_level=&lt;WideDataLe...ness'&gt;, sample_time_us=1, point_ids=('grid_active_power', 'hub_wind_speed'), values=(100, 8.2), quality_bitmap=b'\x05')
+
+    async def _fetch_unknown_device(self, identity: WideIdentity | WideRecord) -&gt; None:
+        """Atomically validate and durably pin one previously unseen historical device."""
+&gt;       async with self._lock:
+                   ^^^^^^^^^^
+E       AttributeError: 'ConfigurationPointTableResolver' object has no attribute '_lock'
+
+src/storage_service/infrastructure/adapters/outbound/configuration_archive.py:659: AttributeError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_export" name="test_atomic_wide_csv_with_versioned_columns_and_quality" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_atomic_wide_json_returns_original_quality_and_null" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_wide_export_quota_failure_cannot_publish_partial_artifact" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_wide_export_rejects_different_page_schema" time="0.001"><failure message="ValueError: wide export artifact identity invalid">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-28/test_wide_export_rejects_diffe0')
+
+    @pytest.mark.asyncio
+    async def test_wide_export_rejects_different_page_schema(tmp_path: Path) -&gt; None:
+        history = _history()
+        page = history.query.return_value
+        history.query.return_value = WideHistoryPage(
+            rows=page.rows,
+            complete=True,
+            next_page_token="",
+            schema_fingerprint="other-version-fingerprint",
+        )
+        with pytest.raises(RuntimeError, match="schema fingerprint"):
+&gt;           await export_wide_device_history(
+                history=history, schema=_schema(), filter_=_filter(),
+                device_type="wind", artifact_id="wrong_schema",
+                export_format="json", root=tmp_path, max_bytes=1_000_000,
+            )
+
+tests/storage_service/unit/test_wide_export.py:122: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def export_wide_device_history(
+        *,
+        history: WideHistoryQueryService,
+        schema: WideSchema,
+        filter_: WideHistoryFilter,
+        device_type: str,
+        artifact_id: str,
+        export_format: str,
+        root: Path,
+        max_bytes: int,
+    ) -&gt; tuple[str, int, str]:
+        """Write an immutable physical schema family to one atomic bounded artifact."""
+        if export_format not in {"csv", "json"}:
+            raise ValueError("wide export supports csv and json")
+        if max_bytes &lt;= 0:
+            raise ValueError("wide export quota must be positive")
+        if (
+            not artifact_id.isascii() or not artifact_id.isalnum()
+            or len(artifact_id) &gt; 128
+        ):
+&gt;           raise ValueError("wide export artifact identity invalid")
+E           ValueError: wide export artifact identity invalid
+
+src/storage_service/application/wide_export.py:78: ValueError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_export" name="test_wide_export_rejects_duplicate_timestamp_across_pages" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_wide_export_rejects_inconsistent_quality_value" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_export" name="test_published_artifact_is_rolled_back_if_directory_sync_fails" time="0.001"><failure message="ValueError: wide export artifact identity invalid">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-28/test_published_artifact_is_rol0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70f91dc77310&gt;
+
+    @pytest.mark.asyncio
+    async def test_published_artifact_is_rolled_back_if_directory_sync_fails(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+        from storage_service.application import wide_export
+    
+        original_fsync = wide_export.os.fsync
+    
+        def fail_directory_sync(fd: int) -&gt; None:
+            import stat
+    
+            if stat.S_ISDIR(wide_export.os.fstat(fd).st_mode):
+                raise OSError("directory fsync failure")
+            original_fsync(fd)
+    
+        monkeypatch.setattr(wide_export.os, "fsync", fail_directory_sync)
+        with pytest.raises(OSError, match="directory fsync"):
+&gt;           await export_wide_device_history(
+                history=_history(), schema=_schema(), filter_=_filter(),
+                device_type="wind", artifact_id="failed_sync",
+                export_format="json", root=tmp_path, max_bytes=1_000_000,
+            )
+
+tests/storage_service/unit/test_wide_export.py:205: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def export_wide_device_history(
+        *,
+        history: WideHistoryQueryService,
+        schema: WideSchema,
+        filter_: WideHistoryFilter,
+        device_type: str,
+        artifact_id: str,
+        export_format: str,
+        root: Path,
+        max_bytes: int,
+    ) -&gt; tuple[str, int, str]:
+        """Write an immutable physical schema family to one atomic bounded artifact."""
+        if export_format not in {"csv", "json"}:
+            raise ValueError("wide export supports csv and json")
+        if max_bytes &lt;= 0:
+            raise ValueError("wide export quota must be positive")
+        if (
+            not artifact_id.isascii() or not artifact_id.isalnum()
+            or len(artifact_id) &gt; 128
+        ):
+&gt;           raise ValueError("wide export artifact identity invalid")
+E           ValueError: wide export artifact identity invalid
+
+src/storage_service/application/wide_export.py:78: ValueError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_export" name="test_wide_export_replay_gate_blocks_final_artifact" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_duplicate_timestamp_last_kafka_offset_wins" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_invalid_partial_record_blocks_without_offset_confirmation" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_unknown_write_blocks_and_fences_offset" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_deterministic_schema_conflict_is_not_unknown_io" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_ingestion_rejects_out_of_contract_stmt2_batch_limits[1001-8388608]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_ingestion_rejects_out_of_contract_stmt2_batch_limits[1000-8388609]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_physical_byte_budget_splits_rows_even_when_json_is_small" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_ingestion" name="test_single_physical_row_exceeding_batch_limit_blocks_offset" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_filtered_pages_do_not_skip_first_qualifying_lookahead" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_cursor_rejects_rebound_quality_predicate" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities0-point_ids0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities1-point_ids1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities2-point_ids2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_invalid_quality_predicates_are_rejected[qualities3-point_ids3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_filtered_query_rejects_corrupt_null_good_row" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_quality_filter" name="test_cursor_cannot_advance_to_or_beyond_frozen_horizon" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_reject_unknown_field_without_querying" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_readback_decodes_quality_by_full_schema_ordinal" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query" name="test_block_readback_during_unsettled_device_write" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_history_query_pages_without_duplicate_timestamps" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_cursor_must_match_exact_schema_version" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_backend_out_of_order_fails_closed" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points0-NULL and quality]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points1-NULL and quality]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points2-invalid column]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points3-invalid column]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_malformed_physical_rows[points4-incomplete physical]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_query_service" name="test_wide_query_rejects_backend_row_from_other_version_field" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_record_is_one_complete_device_row_in_physical_column_order" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_missing_point_is_not_interpolated[active_power]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_missing_point_is_not_interpolated[wind_speed]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_unknown_point_is_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_duplicate_json_members_are_rejected" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value0]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_invalid_point_value_or_quality_is_rejected[value3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_not_collected_requires_null_value" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[1]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[2]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[3]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_legacy_point_json_versions_are_never_upgraded[None]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[engineering]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[PROTOCOL]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_record" name="test_wide_device_level_rejects_legacy_aliases[]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_complete_protocol_record_binding_including_null" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_raw_hex_is_decoded_into_original_binary" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-TINYINT-128-outside physical type]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-BIGINT UNSIGNED--1-outside physical type]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-FLOAT-1e+100-FLOAT overflow]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[protocol-VARCHAR(2)-\u4e2d-width exceeded]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_invalid_value_fails_before_any_io[raw-VARBINARY(2)-010203-width exceeded]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_no_lossy_integer_to_float_conversion[FLOAT-16777217]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_row" name="test_no_lossy_integer_to_float_conversion[DOUBLE-9007199254740993]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_contract" name="test_wide_history_rpc_registered_with_exact_message_contract" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_contract" name="test_typed_wide_row_roundtrip_keeps_unsigned_null_and_quality" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_rpc_handler" name="test_exact_wide_rpc_binds_auth_schema_quality_and_unsigned_value" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[TINYINT-128]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[TINYINT--129]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[SMALLINT-32768]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[INT--2147483649]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[BIGINT-9223372036854775808]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[TINYINT UNSIGNED--1]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[SMALLINT UNSIGNED-65536]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[INT UNSIGNED-4294967296]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[BIGINT UNSIGNED-18446744073709551616]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[INT-True]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[FLOAT-nan]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[FLOAT-inf]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[FLOAT-1e+100]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[DOUBLE--inf]" time="0.003" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[DOUBLE-100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[DOUBLE-9007199254740993]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[VARCHAR(4)-\u4f60\u597d]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_out_of_range_physical_values[VARBINARY(3)-abcd]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[TINYINT--128-signed_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[TINYINT-127-signed_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[BIGINT--9223372036854775808-signed_value]" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[BIGINT UNSIGNED-18446744073709551615-unsigned_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[FLOAT-1.25-float_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[VARCHAR(6)-\u4f60\u597d-string_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_preserves_valid_boundary_values[VARBINARY(3)-abc-bytes_value]" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_rpc_physical_bounds" name="test_wide_rpc_rejects_schema_mismatch_without_partial_success" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_column_order_uses_utf8_identity_not_input_order" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_version_and_type_changes_produce_distinct_table_families" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_wide_schema_500_fields_has_125_quality_bytes" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_oversize_raw_schema_is_rejected_not_split" time="0.002" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[TEXT]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[VARBINARY]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[VARCHAR(-1)]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_schema" name="test_invalid_sql_type_is_rejected[BIGINT;DROP]" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_stmt2_binds_complete_rows_and_2bit_quality_column" time="0.001" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_negative_affected_row_count_fails_and_closes_statement" time="0.000"><failure message="ValueError: wide insert target differs from exact device schema identity">def test_negative_affected_row_count_fails_and_closes_statement() -&gt; None:
+        schema = _schema()
+        conn = Mock()
+        conn.stmt2_statement.return_value.execute.return_value = -1
+        driver = Mock()
+        with pytest.raises(RuntimeError, match="negative affected"):
+&gt;           write_wide_stmt2(
+                conn, driver, table_name="wh_farm.tb_device",
+                schema=schema, records=(_record(schema, 0),),
+            )
+
+tests/storage_service/unit/test_wide_stmt2.py:77: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+connection = &lt;Mock id='124215267117456'&gt;, driver = &lt;Mock id='124215266628752'&gt;
+
+    def write_wide_stmt2(
+        connection: WideStmt2Connection,
+        driver: object,
+        *,
+        table_name: str,
+        schema: WideSchema,
+        records: Sequence[WideRecord],
+    ) -&gt; None:
+        """Write complete timestamp-keyed rows without read-before-write SELECT.
+    
+        This synchronous method does not retry uncertain operations. The surrounding
+        lease must preserve ownership until driver I/O returns or is isolated.
+        """
+        if not records:
+            return
+        first = records[0]
+        expected = (
+            f"{schema.database_name(first.wind_farm_id)}."
+            f"{schema.subtable_name(first.device_id)}"
+        )
+        if table_name != expected:
+&gt;           raise ValueError("wide insert target differs from exact device schema identity")
+E           ValueError: wide insert target differs from exact device schema identity
+
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:103: ValueError</failure></testcase><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_refuses_unsafe_table_name" time="0.000" /><testcase classname="tests.storage_service.unit.test_wide_stmt2" name="test_stmt2_rejects_more_than_1000_rows_before_driver_allocation" time="0.000" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_common_service_uses_bearer_and_reports_only_real_capabilities" time="0.011" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_every_storage_and_common_rpc_rejects_unauthorized_calls" time="0.016"><failure message="AssertionError: ('StorageService', 'QuerySamples')&#10;assert &lt;StatusCode.UNIMPLEMENTED: (12, 'unimplemented')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;&#10; +  where &lt;StatusCode.UNIMPLEMENTED: (12, 'unimplemented')&gt; = code()&#10; +    where code = &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.UNIMPLEMENTED\n&#09;details = &quot;Unexpected &lt;class 'NotImpleme...implemented!&quot;\n&#09;debug_error_string = &quot;UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!&quot;\n&gt;.code&#10; +      where &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.UNIMPLEMENTED\n&#09;details = &quot;Unexpected &lt;class 'NotImpleme...implemented!&quot;\n&#09;debug_error_string = &quot;UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!&quot;\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n&#09;status = StatusCode.UNIMPLEMENTED\n&#09;details = &quot;Unexpected &lt;cl...ed!&quot;\n&#09;debug_error_string = &quot;UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!&quot;\n&gt; tblen=2&gt;.value&#10; +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED&#10; +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70f91dc784d0&gt;
+
+    async def test_every_storage_and_common_rpc_rejects_unauthorized_calls(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+        """Enumerate the live proto, not a frozen count or hand-written method list."""
+        from google.protobuf.message_factory import GetMessageClass
+    
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", TOKEN)
+        config = _config()
+        server = _server(config)
+        await server.start()
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{config.grpc.listen_port}")
+        try:
+            services = (
+                (common.DESCRIPTOR, "CommonService", common_rpc.CommonServiceStub),
+                (storage_pb.DESCRIPTOR, "StorageService", storage_rpc.StorageServiceStub),
+            )
+            observed: set[tuple[str, str]] = set()
+            for file_descriptor, name, stub_cls in services:
+                service = file_descriptor.services_by_name[name]
+                stub = stub_cls(channel)
+                for method in service.methods:
+                    assert not method.client_streaming and not method.server_streaming
+                    request = GetMessageClass(method.input_type)()
+                    for metadata in (
+                        None,
+                        (("authorization", "Bearer invalid-credential"),),
+                    ):
+                        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                            await getattr(stub, method.name)(request, metadata=metadata, timeout=5)
+&gt;                       assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED, (
+                            name,
+                            method.name,
+                        )
+E                       AssertionError: ('StorageService', 'QuerySamples')
+E                       assert &lt;StatusCode.UNIMPLEMENTED: (12, 'unimplemented')&gt; == &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt;
+E                        +  where &lt;StatusCode.UNIMPLEMENTED: (12, 'unimplemented')&gt; = code()
+E                        +    where code = &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected &lt;class 'NotImpleme...implemented!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!"\n&gt;.code
+E                        +      where &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected &lt;class 'NotImpleme...implemented!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!"\n&gt; = &lt;ExceptionInfo &lt;AioRpcError of RPC that terminated with:\n	status = StatusCode.UNIMPLEMENTED\n	details = "Unexpected &lt;cl...ed!"\n	debug_error_string = "UNIMPLEMENTED:Unexpected &lt;class 'NotImplementedError'&gt;: Method not implemented!"\n&gt; tblen=2&gt;.value
+E                        +  and   &lt;StatusCode.UNAUTHENTICATED: (16, 'unauthenticated')&gt; = &lt;enum 'StatusCode'&gt;.UNAUTHENTICATED
+E                        +    where &lt;enum 'StatusCode'&gt; = grpc.StatusCode
+
+tests/storage_service/component/test_grpc_common.py:127: AssertionError</failure></testcase><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_requires_admin_and_invalid_token_is_unauthenticated" time="0.004" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_global_retry_is_permission_denied_for_farm_scoped_operator" time="0.006" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_retry_blocked_partition_stale_offset_returns_failed_precondition" time="0.005" /><testcase classname="tests.storage_service.component.test_grpc_common" name="test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_access" time="0.008" /></testsuite></testsuites>

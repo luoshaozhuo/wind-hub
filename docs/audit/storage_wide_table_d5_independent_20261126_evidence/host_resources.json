@@ -1,0 +1,6 @@
+{
+  "logical_cpu_count": 20,
+  "memory": "MemTotal:       65762448 kB",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "qualification_concurrency": "Initial D5 module suites completed before capacity run. Final eight-service retry overlaps the later capacity window; shared-host contention is an explicit limitation."
+}

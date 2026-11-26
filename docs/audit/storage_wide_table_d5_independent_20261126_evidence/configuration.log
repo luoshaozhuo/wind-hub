@@ -1,0 +1,164 @@
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+....................................................s..............s.... [ 44%]
+............................F...FF...................................... [ 59%]
+........................................................................ [ 73%]
+........................................................................ [ 88%]
+.......................................................                  [100%]
+=================================== FAILURES ===================================
+_______ test_exact_bundle_uses_pinned_version_not_current_recommendation _______
+
+    def test_exact_bundle_uses_pinned_version_not_current_recommendation() -> None:
+        app, repo = _application()
+        identity = ConfigIdentity("device", "wtg001")
+        repo.get_version_identity.return_value = identity
+        repo.get_version_closure_snapshot.return_value = (7, ({"version_id": "historical-sha"},))
+        output = SimpleNamespace(
+            relative_path="device.yaml",
+            version_id="historical-sha",
+            yaml_bytes=b"historical-content",
+        )
+        app._restore = Mock(return_value=output)
+>       assert app.get_exact_bundle(((identity, "historical-sha"),)) == (output,)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/configuration_service/unit/test_exact_bundle.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/configuration_service/application/service.py:907: in get_exact_bundle
+    _, documents = self.get_exact_bundle_snapshot(
+src/configuration_service/application/service.py:944: in get_exact_bundle_snapshot
+    result = self._unique_export_paths(
+src/configuration_service/application/service.py:860: in _unique_export_paths
+    exported.append(replace(item, relative_path=path))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+obj = namespace(relative_path='device.yaml', version_id='historical-sha', yaml_bytes=b'historical-content')
+changes = {'relative_path': 'device.yaml'}
+
+    def replace(obj, /, **changes):
+        """Return a new object replacing specified fields with new values.
+    
+        This is especially useful for frozen classes.  Example usage::
+    
+          @dataclass(frozen=True)
+          class C:
+              x: int
+              y: int
+    
+          c = C(1, 2)
+          c1 = replace(c, x=3)
+          assert c1.x == 3 and c1.y == 2
+        """
+    
+        # We're going to mutate 'changes', but that's okay because it's a
+        # new dict, even if called with 'replace(obj, **my_changes)'.
+    
+        if not _is_dataclass_instance(obj):
+>           raise TypeError("replace() should be called on dataclass instances")
+E           TypeError: replace() should be called on dataclass instances
+
+../miniconda3/envs/wind-hub/lib/python3.11/dataclasses.py:1474: TypeError
+______________ test_exact_bundle_rejects_duplicate_version_roots _______________
+
+    def test_exact_bundle_rejects_duplicate_version_roots() -> None:
+        app, repo = _application()
+        identity = ConfigIdentity("device", "wtg001")
+        with pytest.raises(ValueError, match="distinct version IDs"):
+>           app.get_exact_bundle(((identity, "same-sha"), (identity, "same-sha")))
+
+tests/configuration_service/unit/test_exact_bundle.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/configuration_service/application/service.py:907: in get_exact_bundle
+    _, documents = self.get_exact_bundle_snapshot(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <configuration_service.application.service.ConfigurationApplication object at 0x7383bb23d490>
+roots = ((ConfigIdentity(config_type='device', config_id='wtg001'), 'same-sha'), (ConfigIdentity(config_type='device', config_id='wtg001'), 'same-sha'))
+
+    def get_exact_bundle_snapshot(
+        self,
+        roots: tuple[tuple[ConfigIdentity, str], ...],
+        *,
+        include_dependencies: bool = True,
+    ) -> tuple[int, tuple[DocumentOutput, ...]]:
+        """Restore exact roots and the revision captured by their SQLite snapshot."""
+        if not roots or len(roots) > self.limits.max_dependencies:
+            raise ValueError("exact version roots must be nonempty and bounded")
+        version_ids: list[str] = []
+        seen_versions: set[str] = set()
+        for identity, version_id in roots:
+            if not version_id:
+                raise ValueError("exact version_id is required")
+            if version_id in seen_versions:
+                raise ValueError("exact roots must have distinct version IDs")
+            seen_versions.add(version_id)
+            if self.repository.get_version_identity(version_id) != identity:
+>               raise RepositoryConflictError("exact root version and identity disagree")
+E               configuration_service.domain.models.RepositoryConflictError: exact root version and identity disagree
+
+src/configuration_service/application/service.py:930: RepositoryConflictError
+__________ test_exact_bundle_allows_multiple_versions_of_one_identity __________
+
+    def test_exact_bundle_allows_multiple_versions_of_one_identity() -> None:
+        app, repo = _application()
+        identity = ConfigIdentity("device", "wtg001")
+        repo.get_version_identity.return_value = identity
+        records = ({"version_id": "sha-a"}, {"version_id": "sha-b"})
+        repo.get_version_closure_snapshot.return_value = (7, records)
+        outputs = {
+            "sha-a": SimpleNamespace(
+                relative_path="a.yaml", version_id="sha-a", yaml_bytes=b"a"
+            ),
+            "sha-b": SimpleNamespace(
+                relative_path="b.yaml", version_id="sha-b", yaml_bytes=b"b"
+            ),
+        }
+        app._restore = Mock(side_effect=lambda record, revision_id: outputs[record["version_id"]])
+        roots = ((identity, "sha-a"), (identity, "sha-b"))
+>       assert app.get_exact_bundle(roots) == (outputs["sha-a"], outputs["sha-b"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/configuration_service/unit/test_exact_bundle.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/configuration_service/application/service.py:907: in get_exact_bundle
+    _, documents = self.get_exact_bundle_snapshot(
+src/configuration_service/application/service.py:944: in get_exact_bundle_snapshot
+    result = self._unique_export_paths(
+src/configuration_service/application/service.py:860: in _unique_export_paths
+    exported.append(replace(item, relative_path=path))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+obj = namespace(relative_path='a.yaml', version_id='sha-a', yaml_bytes=b'a')
+changes = {'relative_path': 'a.yaml'}
+
+    def replace(obj, /, **changes):
+        """Return a new object replacing specified fields with new values.
+    
+        This is especially useful for frozen classes.  Example usage::
+    
+          @dataclass(frozen=True)
+          class C:
+              x: int
+              y: int
+    
+          c = C(1, 2)
+          c1 = replace(c, x=3)
+          assert c1.x == 3 and c1.y == 2
+        """
+    
+        # We're going to mutate 'changes', but that's okay because it's a
+        # new dict, even if called with 'replace(obj, **my_changes)'.
+    
+        if not _is_dataclass_instance(obj):
+>           raise TypeError("replace() should be called on dataclass instances")
+E           TypeError: replace() should be called on dataclass instances
+
+../miniconda3/envs/wind-hub/lib/python3.11/dataclasses.py:1474: TypeError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/configuration.xml -
+=========================== short test summary info ============================
+FAILED tests/configuration_service/unit/test_exact_bundle.py::test_exact_bundle_uses_pinned_version_not_current_recommendation
+FAILED tests/configuration_service/unit/test_exact_bundle.py::test_exact_bundle_rejects_duplicate_version_roots
+FAILED tests/configuration_service/unit/test_exact_bundle.py::test_exact_bundle_allows_multiple_versions_of_one_identity
+3 failed, 482 passed, 2 skipped in 311.57s (0:05:11)

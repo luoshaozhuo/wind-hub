@@ -1,0 +1,4 @@
+{
+  "command": "pytest -q tests/storage_service/integration/test_tdengine_wide_probe.py::test_td07_acknowledged_rows_survive_container_restart --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/native_wal_restart.xml",
+  "exit_code": 0
+}

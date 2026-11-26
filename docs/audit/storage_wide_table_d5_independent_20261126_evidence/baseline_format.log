@@ -1,0 +1,8 @@
+Would reformat: scripts/audit_business_points.py
+Would reformat: src/configuration_service/application/schema_catalog.py
+Would reformat: src/sink_service/infrastructure/config_io.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/tdengine_schema.py
+Would reformat: tests/storage_service/integration/test_tdengine_wide_probe.py
+7 files would be reformatted, 1091 files already formatted

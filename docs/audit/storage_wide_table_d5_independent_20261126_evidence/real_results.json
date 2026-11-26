@@ -1,0 +1,26 @@
+[
+  {
+    "name": "real_kafka",
+    "command": "pytest -q tests/storage_service/integration/test_kafka_real.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/real_kafka.xml",
+    "exit_code": 1,
+    "seconds": 57.45
+  },
+  {
+    "name": "real_storage",
+    "command": "pytest -q tests/storage_service/integration/test_cli_restart_activation.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/real_storage.xml",
+    "exit_code": 0,
+    "seconds": 42.33
+  },
+  {
+    "name": "wire_e2e",
+    "command": "pytest -q tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/wire_e2e.xml",
+    "exit_code": 1,
+    "seconds": 129.29
+  },
+  {
+    "name": "eight_service",
+    "command": "pytest -q tests/system/e2e/eight_service/test_e2e_eight_service_raw.py tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/eight_service.xml",
+    "exit_code": 1,
+    "seconds": 245.73
+  }
+]

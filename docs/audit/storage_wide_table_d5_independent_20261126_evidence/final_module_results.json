@@ -1,0 +1,26 @@
+[
+  {
+    "name": "configuration_final",
+    "command": "pytest -q tests/configuration_service --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/configuration_final.xml",
+    "exit_code": 0,
+    "seconds": 311.68
+  },
+  {
+    "name": "collector_final",
+    "command": "pytest -q tests/collector/unit tests/collector/component tests/collector/integration --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/collector_final.xml",
+    "exit_code": 1,
+    "seconds": 8.63
+  },
+  {
+    "name": "sink_final",
+    "command": "pytest -q tests/sink_service/unit tests/sink_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/sink_final.xml",
+    "exit_code": 1,
+    "seconds": 7.03
+  },
+  {
+    "name": "storage_final",
+    "command": "pytest -q tests/storage_service/unit tests/storage_service/component --junitxml=docs/audit/storage_wide_table_d5_independent_20261126_evidence/storage_final.xml",
+    "exit_code": 1,
+    "seconds": 3.02
+  }
+]

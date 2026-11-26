@@ -1,0 +1,247 @@
+
+==> performance
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/performance -q -m performance and not soak --junitxml docs/audit/storage_wide_table_d5_independent_20261126_evidence/performance.xml
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+________ test_batch_encode_decode_throughput_baseline[realtime-100-300] ________
+
+mode = 'realtime', points_per_batch = 100, batches = 300
+
+    @pytest.mark.parametrize(
+        ("mode", "points_per_batch", "batches"),
+        [("realtime", 100, 300), ("reliable", 500, 60)],
+    )
+    def test_batch_encode_decode_throughput_baseline(
+        mode: Literal["realtime", "reliable"], points_per_batch: int, batches: int
+    ) -> None:
+        samples = _samples(points_per_batch)
+        builder = BatchBuilder(
+            site_id="farm-a",
+            collector_id="collector-1",
+            delivery=mode,
+            max_staleness_ms=500,
+            max_samples_per_batch=points_per_batch,
+            max_batch_bytes=1024 * 1024,
+        )
+        encoded: list[bytes] = []
+        encode_latency_ms: list[float] = []
+        decode_latency_ms: list[float] = []
+        started = time.perf_counter()
+        for i in range(batches):
+>           batch = builder.pack(f"wtg-{i % 30:02d}", samples)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: BatchBuilder.pack() missing 6 required keyword-only arguments: 'device_type', 'point_table_id', 'task_id', 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/src/performance/test_batch_throughput.py:89: TypeError
+________ test_batch_encode_decode_throughput_baseline[reliable-500-60] _________
+
+mode = 'reliable', points_per_batch = 500, batches = 60
+
+    @pytest.mark.parametrize(
+        ("mode", "points_per_batch", "batches"),
+        [("realtime", 100, 300), ("reliable", 500, 60)],
+    )
+    def test_batch_encode_decode_throughput_baseline(
+        mode: Literal["realtime", "reliable"], points_per_batch: int, batches: int
+    ) -> None:
+        samples = _samples(points_per_batch)
+        builder = BatchBuilder(
+            site_id="farm-a",
+            collector_id="collector-1",
+            delivery=mode,
+            max_staleness_ms=500,
+            max_samples_per_batch=points_per_batch,
+            max_batch_bytes=1024 * 1024,
+        )
+        encoded: list[bytes] = []
+        encode_latency_ms: list[float] = []
+        decode_latency_ms: list[float] = []
+        started = time.perf_counter()
+        for i in range(batches):
+>           batch = builder.pack(f"wtg-{i % 30:02d}", samples)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: BatchBuilder.pack() missing 6 required keyword-only arguments: 'device_type', 'point_table_id', 'task_id', 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/src/performance/test_batch_throughput.py:89: TypeError
+____________ test_publisher_pipeline_throughput_with_fake_transport ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7d2f9c944b90>
+
+    @pytest.mark.asyncio
+    async def test_publisher_pipeline_throughput_with_fake_transport(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake = _FakeNats()
+    
+        async def fake_connect(**kwargs: Any) -> _FakeNats:
+            return fake
+    
+        monkeypatch.setattr(publisher_module.nats, "connect", fake_connect)
+        publisher = CollectorPublisher(
+            servers=["nats://127.0.0.1:4222"],
+            site_id="farm-a",
+            collector_id="collector-1",
+            delivery="realtime",
+            capacity=4096,
+            max_samples_per_batch=100,
+            # 本用例验证管线排空与计数，不验证 staleness 淘汰。默认 500ms 预算在
+            # 全仓并发负载下会让排队较久的批次被生产逻辑合法判过期丢弃，形成环境
+            # 相关的假失败；放大预算使过期路径与本测量解耦，dropped==0 断言不变。
+            max_staleness_ms=30_000,
+        )
+        await publisher.start()
+        samples = _samples(100)
+        batches = 300  # 30 台 × 10 批
+        started = time.perf_counter()
+        for i in range(batches):
+>           await publisher.publish(
+                f"wtg-{i % 30:02d}",
+                samples,
+                device_type="wtg",
+                point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+                task_id="task-load",
+            )
+E           TypeError: CollectorPublisher.publish() missing 3 required keyword-only arguments: 'device_config_id', 'sample_time', and 'expected_point_ids'
+
+tests/src/performance/test_batch_throughput.py:146: TypeError
+_____________ test_ten_hertz_five_devices_hold_103_point_contract ______________
+
+    def test_ten_hertz_five_devices_hold_103_point_contract() -> None:
+>       baseline = asyncio.run(_run_rate(dt=0.1, writes_per_second=20.0))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:130: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/src/performance/test_physical_engine_rate.py:54: in _run_rate
+    settings = load_settings(SERVICE_PATH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/configs/services', rest = '', strict = True
+seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/configs/services/data-generator-sim.example.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+____________ test_twenty_hertz_five_devices_hold_103_point_contract ____________
+
+    def test_twenty_hertz_five_devices_hold_103_point_contract() -> None:
+>       baseline = asyncio.run(_run_rate(dt=0.05, writes_per_second=40.0))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:138: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/src/performance/test_physical_engine_rate.py:54: in _run_rate
+    settings = load_settings(SERVICE_PATH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/configs/services', rest = '', strict = True
+seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/configs/services/data-generator-sim.example.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+____________ test_concurrent_control_inputs_are_observed_by_models _____________
+
+    def test_concurrent_control_inputs_are_observed_by_models() -> None:
+        """并发 set_inputs 不得丢批：推进后 PPC AGC 使能与 BESS 目标进入模型状态。"""
+>       settings = load_settings(SERVICE_PATH)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/configs/services', rest = '', strict = True
+seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/configs/services/data-generator-sim.example.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+=============================== warnings summary ===============================
+tests/src/performance/test_physical_engine_rate.py::test_ten_hertz_five_devices_hold_103_point_contract
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object CollectorPublisher._run at 0x7d2f9cc26df0>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/wind-hub/src/collector/infrastructure/adapters/outbound/publisher.py", line 324, in _run
+      batch = await self._queue.get()
+              ^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_wide_table_d5_independent_20261126_evidence/performance.xml -
+=========================== short test summary info ============================
+FAILED tests/src/performance/test_batch_throughput.py::test_batch_encode_decode_throughput_baseline[realtime-100-300]
+FAILED tests/src/performance/test_batch_throughput.py::test_batch_encode_decode_throughput_baseline[reliable-500-60]
+FAILED tests/src/performance/test_batch_throughput.py::test_publisher_pipeline_throughput_with_fake_transport
+FAILED tests/src/performance/test_physical_engine_rate.py::test_ten_hertz_five_devices_hold_103_point_contract
+FAILED tests/src/performance/test_physical_engine_rate.py::test_twenty_hertz_five_devices_hold_103_point_contract
+FAILED tests/src/performance/test_physical_engine_rate.py::test_concurrent_control_inputs_are_observed_by_models
+6 failed, 1 warning in 0.17s
+[FAIL] performance: exit=1
+
+GATE RESULT: FAIL
