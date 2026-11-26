@@ -305,6 +305,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         metadata: MetadataStore,
         wide_query: WideHistoryQueryService,
         wide_aggregation: WideAggregationService,
+        grouped_query: WideGroupedHistoryService,
         jobs: AsyncStorageTasks,
         point_tables: ConfigurationPointTableResolver,
         consumer: KafkaStorageConsumer,
@@ -317,14 +318,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config = config
         self._metadata = metadata
         self._wide_query = wide_query
-        self._grouped_query = WideGroupedHistoryService(
-            history=wide_query,
-            aggregation=wide_aggregation,
-            resolver=point_tables,
-            type_mapping=config.tdengine.type_mapping,
-            cursor_secret=cursor_secret,
-            max_page_size=config.query.max_page_size,
-        )
+        self._grouped_query = grouped_query
         self._wide_aggregation = wide_aggregation
         self._jobs = jobs
         self._point_tables = point_tables
