@@ -992,6 +992,22 @@ class SQLiteRepository:
                 connection, sorted(set(version_ids)), max_versions=max_versions
             )
 
+    def get_version_closure_snapshot(
+        self,
+        version_ids: Sequence[str],
+        *,
+        max_versions: int,
+    ) -> tuple[int, tuple[dict[str, Any], ...]]:
+        """Read exact immutable roots and Repository revision in one transaction."""
+        if not version_ids or max_versions < 1:
+            raise ValueError("version roots and max_versions are required")
+        with self.read() as connection:
+            revision_id = self._current_revision(connection)
+            records = self._load_version_closure(
+                connection, sorted(set(version_ids)), max_versions=max_versions
+            )
+            return revision_id, records
+
     def get_point_table_versions(
         self,
         point_table_id: str,
