@@ -24,7 +24,7 @@ from contracts import storage_service_pb2_grpc as storage_rpc
 from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.wide_schema import WideSchema
 from tests.fixtures.services.r5_stack import R5StackError
-from tests.system.e2e.eight_service.conftest import EightServiceHarness
+from tests.system.e2e.eight_service.conftest import EightServiceHarness, _ensure_topic
 from tests.system.e2e.eight_service.test_e2e_eight_service_smoke import _storage_port
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
@@ -307,11 +307,25 @@ def storage_wide_capacity_config(harness: EightServiceHarness) -> tuple[str, ...
 @pytest.fixture
 def storage_wide_started(
     storage_wide_capacity_config: tuple[str, ...],
-    started: EightServiceHarness,
+    harness: EightServiceHarness,
 ) -> EightServiceHarness:
-    # 依赖顺序保证配置改写发生在 started 的 config publish 之前。
+    """Kafka 直注容量只需真实 Configuration 和 Storage，不启动无关八服务。"""
     assert storage_wide_capacity_config
-    return started
+    harness.start("configuration")
+    harness.wait_healthy("configuration")
+    publish = harness.cli(
+        "config",
+        "publish",
+        "--root",
+        str(harness.root / "configs"),
+        timeout=180,
+    )
+    assert publish["status"] == "SUCCESS", publish
+    harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(int(publish["data"]["revision_id"]))
+    asyncio.run(_ensure_topic(harness.stack.kafka, "windhub.e2e.history"))
+    harness.start("storage")
+    harness.wait_targets("storage")
+    return harness
 
 
 def _wide_value(point_index: int, cycle: int) -> float:
@@ -650,24 +664,33 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 drained_at = time.monotonic()
                 blocked = await _blocked_partitions(stub, metadata)
                 progress["phase"] = "verification"
-                edge_verification = {
-                    "first": await _verify_wide_edge(
-                        stub,
-                        metadata=metadata,
-                        device=devices[0],
-                        point_table_id=point_table_id,
-                        moment_us=sample_start_us,
-                        cycle=0,
-                    ),
-                    "last": await _verify_wide_edge(
-                        stub,
-                        metadata=metadata,
-                        device=devices[0],
-                        point_table_id=point_table_id,
-                        moment_us=sample_end_us - interval_us,
-                        cycle=cycles - 1,
-                    ),
-                }
+                complete = set(counts) == set(devices) and all(
+                    count == cycles for count in counts.values()
+                )
+                if complete:
+                    edge_verification = {
+                        "first": await _verify_wide_edge(
+                            stub,
+                            metadata=metadata,
+                            device=devices[0],
+                            point_table_id=point_table_id,
+                            moment_us=sample_start_us,
+                            cycle=0,
+                        ),
+                        "last": await _verify_wide_edge(
+                            stub,
+                            metadata=metadata,
+                            device=devices[0],
+                            point_table_id=point_table_id,
+                            moment_us=sample_end_us - interval_us,
+                            cycle=cycles - 1,
+                        ),
+                    }
+                else:
+                    edge_verification = {
+                        "status": "NOT_RUN",
+                        "reason": "incomplete persistence prevents first/last-row qualification",
+                    }
             finally:
                 for task in pending:
                     task.cancel()
@@ -768,4 +791,5 @@ def test_storage_single_instance_500_point_device_row_capacity(
     assert kafka_result["acknowledged_rows"] == total_rows, result
     assert result["published_rows_per_second"] >= target_rows_per_second * 0.95, result
     assert result["fully_persisted"], result
+    assert result["end_to_end_confirmed_rows_per_second"] >= target_rows_per_second * 0.95, result
     assert result["blocked_partitions"] == [], result
