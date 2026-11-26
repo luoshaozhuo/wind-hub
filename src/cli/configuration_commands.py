@@ -349,7 +349,6 @@ def bundle_exact(
     version_id: str,
     output: Path,
     service: str = "configuration",
-    dependencies: bool = True,
 ) -> None:
     """Export an immutable historical configuration closure by repository version."""
     if not version_id:
@@ -367,7 +366,7 @@ def bundle_exact(
                         version_id=version_id,
                     )
                 ],
-                include_dependencies=dependencies,
+                include_dependencies=True,
             ),
             timeout=runtime().target(service).timeout,
             metadata=runtime().get_rpc_metadata(service, "GetConfigBundle"),
