@@ -10,11 +10,13 @@ from typing import Any, cast
 from urllib.request import Request, urlopen
 
 import pytest
+from pymodbus.client import ModbusTcpClient
 
 from tests.third_party.dc_ems.test_control_chain_live import _cli, _events, _request_id
 from tests.third_party.dc_ems.test_wtg_control_chain_live import (
     _assert_applied,
     _terminal_request,
+    _words_cdab,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -78,6 +80,19 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
     assert command["outcome"] == "CONFIRMED_SUCCESS"
     assert _assert_applied(command_id, generation_id) > 0
 
+    gateway2 = ModbusTcpClient("127.0.0.1", port=15421, timeout=5)
+    try:
+        assert gateway2.connect()
+        for _ in range(100):
+            actual = gateway2.read_holding_registers(41557, count=2, device_id=1)
+            if not actual.isError() and actual.registers == _words_cdab(450000.0):
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("Gateway2 did not publish 450000 W after DCEMS control")
+    finally:
+        gateway2.close()
+
     evidence = {
         "source": "dc-ems Server /api/config/setParam",
         "dcems_device_id": "WTG01",
@@ -89,6 +104,7 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
         "commander_command_id": command_id,
         "commander_outcome": command["outcome"],
         "generator_state": "APPLIED",
+        "gateway2_readback_w": 450000.0,
         "dcems_web_ack_is_not_execution_proof": True,
     }
     (base / "state" / "dcems-server-control-evidence.json").write_text(
