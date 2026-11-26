@@ -258,6 +258,14 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
             },
         },
     )
+    # 删除仅供原单 Gateway Smoke 使用的派生副本，避免误选旧 Deployment。
+    for obsolete in (
+        "services/service_gateway-dcems-smoke_v1.0.0.yaml",
+        "services/service_data-generator-dcems-smoke_v1.0.0.yaml",
+        "deployments/deployment_dcems-smoke_v1.0.0.yaml",
+        "instances/device_dcems-smoke_v1.0.0.yaml",
+    ):
+        (config / obsolete).unlink()
     return config
 
 
