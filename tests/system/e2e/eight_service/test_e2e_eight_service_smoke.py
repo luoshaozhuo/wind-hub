@@ -38,7 +38,7 @@ def _storage_port(harness: EightServiceHarness) -> int:
     import yaml
 
     config = yaml.safe_load(
-        (harness.root / "configs" / "services" / "service_storage-e2e_v1.1.0.yaml").read_text(
+        (harness.root / "configs" / "services" / "service_storage-e2e_v2.0.0.yaml").read_text(
             encoding="utf-8"
         )
     )
