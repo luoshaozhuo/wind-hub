@@ -24,7 +24,7 @@ from contracts import storage_service_pb2_grpc as rpc
 from storage_service.application.config import StorageConfig
 from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.application.metrics import StorageRuntimeMetrics
-from storage_service.application.query import (
+from storage_service.domain.errors import (
     HistoryReplayUnavailableError,
     QueryRejectedError,
 )
