@@ -3,6 +3,12 @@
 #                 -f tests/third_party/dc_ems/compose.web.yaml config
 name: dcems-smoke
 services:
+  dc-ems-server:
+    volumes:
+      - type: bind
+        source: ${DCEMS_TEST_SEED:?set absolute path to derived data.json}
+        target: /opt/dc-ems/data.json
+        read_only: true
   dc-ems-web:
     image: ${WEB_IMAGE:-dc-ems-nginx:1.26-alpine}
     pull_policy: never
