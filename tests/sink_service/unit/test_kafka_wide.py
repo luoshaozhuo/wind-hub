@@ -130,3 +130,17 @@ def test_kafka_key_uses_only_wind_farm_and_device() -> None:
     assert encode_kafka_wide_key("farm_a", "wtg_001") == b"farm_a:wtg_001"
     with pytest.raises(ValueError, match="delimiter"):
         encode_kafka_wide_key("farm:a", "wtg_001")
+
+
+@pytest.mark.parametrize("invalid", ["", "0", "123", "AA", "0g", "aa" * 2049])
+def test_raw_encoder_rejects_noncanonical_or_oversized_source_bytes(invalid: str) -> None:
+    batch = _batch()
+    altered = batch.samples[0].model_copy(update={"raw_payload_hex": invalid})
+    with pytest.raises(ValueError, match="canonical original protocol bytes"):
+        encode_kafka_wide(
+            batch,
+            (altered, batch.samples[1]),
+            device_config_id=batch.device_config_id,
+            physical_points=("active_power", "wind_speed"),
+            data_level="raw",
+        )
