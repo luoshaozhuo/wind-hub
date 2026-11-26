@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -173,12 +174,23 @@ class GatewayApplicationRuntime:
                 return
             for mapping in resolved.settings.control.mappings:
                 if mapping.variable_id == variable_id:
+                    forwarded_value = value
+                    if mapping.value_scale != 1.0:
+                        forwarded_value = float(value) * mapping.value_scale
+                        if not math.isfinite(forwarded_value):
+                            self.observability.event(
+                                server_id,
+                                "scaled control value is not finite",
+                                severity="ERROR",
+                                error_code="CONTROL_SCALE_INVALID",
+                            )
+                            return
                     forwarder.capture(
                         event_id=event_id,
                         gateway_id=server_id,
                         device_id=resolved.settings.device_id,
                         point_id=mapping.target_point_id,
-                        value=value,
+                        value=forwarded_value,
                         revision=revision,
                     )
                     break
