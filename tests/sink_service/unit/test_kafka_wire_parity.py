@@ -49,6 +49,8 @@ def _batch(value: int | float | bool | str | None, sampled: datetime) -> SampleB
         device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id=POINT_TABLE,
+        device_config_id=CONFIG_ID,
+        sample_time=sampled,
         publish_time=NOW,
         samples=(item,),
     )
