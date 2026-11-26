@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -10,8 +11,12 @@ import yaml
 from commander.infrastructure.config.service_settings import load_service_settings
 from core.configuration.deployment import parse_deployment
 from core.configuration.local_selection import select_local_service
-from data_generator.infrastructure.config.service_settings import load_settings  # type: ignore[import-untyped]
-from industrial_gateway.infrastructure.config.resolution import load_gateway  # type: ignore[import-untyped]
+from data_generator.infrastructure.config.service_settings import (  # type: ignore[import-untyped]
+    load_settings,
+)
+from industrial_gateway.infrastructure.config.resolution import (  # type: ignore[import-untyped]
+    load_gateway,
+)
 from tests.third_party.dc_ems.prepare_control_chain import (
     COMMANDER_GRPC,
     DEPLOYMENT,
@@ -23,9 +28,11 @@ from tests.third_party.dc_ems.prepare_control_chain import (
 )
 
 
-def _load(config: Path, name: str) -> dict[str, object]:
+def _load(config: Path, name: str) -> dict[str, Any]:
     """读取生成的版本化 YAML。"""
-    return yaml.safe_load((config / name).read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+    return cast(
+        dict[str, Any], yaml.safe_load((config / name).read_text(encoding="utf-8"))
+    )
 
 
 def test_control_config_uses_production_loaders(tmp_path: Path) -> None:
