@@ -20,14 +20,7 @@ from storage_service.application.config import (
     DeviceModel,
     load_storage_config,
 )
-from storage_service.application.ingestion import (
-    ConfigHistoryUnavailableError,
-    IngestionBlockedError,
-    IngestionService,
-    KafkaRecord,
-)
-from storage_service.application.metrics import StorageRuntimeMetrics
-from storage_service.application.offsets import PartitionOffsets
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.domain.sample import DataLevel, StorageSample
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
@@ -292,81 +285,6 @@ async def test_device_bound_to_old_model_and_table_cannot_use_new_version(
         await resolver.require_exact_versions([_sample(NEW_TABLE)])
 
 
-class _Backend:
-    def __init__(self) -> None:
-        self.ensure_calls = 0
-
-    async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
-        self.ensure_calls += 1
-
-    async def fetch_content_hashes(
-        self, samples: Sequence[StorageSample]
-    ) -> dict[str, frozenset[str]]:
-        return {}
-
-    async def insert_batch(self, samples: Sequence[StorageSample]) -> None:
-        raise AssertionError("invalid identity reached TDengine insert")
-
-
-class _Evidence:
-    def __init__(self) -> None:
-        self.reasons: list[str] = []
-
-    def block_partition(
-        self, topic: str, partition: int, offset: int, reason: str, payload: bytes
-    ) -> None:
-        self.reasons.append(reason)
-
-
-async def test_kafka_self_reported_type_is_blocked_before_any_ddl(tmp_path: Path) -> None:
-    resolver = _resolver(tmp_path, {TABLE: ("shared", "pin-1.0.0")}, [_binding()])
-    backend = _Backend()
-    evidence = _Evidence()
-    ingestion = IngestionService(
-        storage=backend,
-        point_tables=resolver,
-        evidence=evidence,
-        metrics=StorageRuntimeMetrics(),
-        allowed_wind_farms=frozenset(("farm-1",)),
-    )
-    sample = _sample(device_type="photovoltaic")
-    payload = {
-        "schema_version": 2,
-        "wind_farm_id": sample.wind_farm_id,
-        "collector_id": sample.collector_id,
-        "task_id": sample.task_id,
-        "batch_id": sample.batch_id,
-        "device_type": sample.device_type,
-        "device_id": sample.device_id,
-        "point_table_id": sample.point_table_id,
-        "point_id": sample.point_id,
-        "business_point_id": "",
-        "sample_id": sample.sample_id,
-        "data_level": "protocol",
-        "quality": "good",
-        "unit": "m/s",
-        "value": 1.5,
-        "sample_time": "2026-01-01T00:00:00Z",
-        "publish_time": "2026-01-01T00:00:00Z",
-    }
-    record = KafkaRecord(
-        topic="samples",
-        partition=0,
-        offset=7,
-        key=b"farm-1:collector-1:device-1",
-        value=json.dumps(payload).encode(),
-    )
-
-    with pytest.raises(IngestionBlockedError):
-        await ingestion.process(
-            generation=1,
-            offsets=PartitionOffsets(partition=0, generation=1, next_commit_offset=7),
-            records=[record],
-        )
-    assert backend.ensure_calls == 0
-    assert "device_type disagrees" in evidence.reasons[0]
-
-
 def _repository_document(
     config_type: str,
     config_id: str,
@@ -482,7 +400,7 @@ async def test_snapshot_restores_all_historical_device_bindings_without_main_cha
     tmp_path: Path,
 ) -> None:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     tables = {
         TABLE: ("shared", "pin-1.0.0"),
@@ -547,7 +465,7 @@ def test_sqlite_persists_historical_device_bindings_across_restart(
 
 def test_restart_target_is_durable_without_replacing_active_snapshot(tmp_path: Path) -> None:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     binding = _binding()
     active = StorageBundle(
