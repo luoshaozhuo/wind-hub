@@ -13,7 +13,6 @@ import grpc
 
 from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.application.metrics import StorageRuntimeMetrics
-from storage_service.application.query import CursorCodec, HistoryQueryService
 from storage_service.application.wide_query import WideCursorCodec, WideHistoryQueryService
 from storage_service.application.wide_aggregate import WideAggregationService
 from storage_service.application.tasks import AsyncStorageTasks
@@ -168,15 +167,6 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 cursor_secret = os.getenv("WIND_HUB_STORAGE_CURSOR_SECRET", "").encode()
                 if len(cursor_secret) < 32:
                     raise RuntimeError("WIND_HUB_STORAGE_CURSOR_SECRET must contain 32+ bytes")
-                history = HistoryQueryService(
-                    backend=storage,
-                    codec=CursorCodec(cursor_secret),
-                    max_page_size=bundle.configuration.query.max_page_size,
-                    max_range_days=bundle.configuration.query.max_range_days,
-                    max_concurrent=bundle.configuration.query.max_concurrent,
-                    timeout_ms=bundle.configuration.query.timeout_ms,
-                    read_available=lambda: not consumer.recovering,
-                )
                 wide_history = WideHistoryQueryService(
                     backend=storage,
                     codec=WideCursorCodec(cursor_secret),
@@ -217,7 +207,6 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                 server = build_storage_grpc_server(
                     config=bundle.configuration,
                     metadata=metadata,
-                    query=history,
                     wide_query=wide_history,
                     wide_aggregation=wide_aggregation,
                     jobs=jobs,
