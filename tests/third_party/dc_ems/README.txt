@@ -46,7 +46,7 @@ bash tests/third_party/dc_ems/run_windhub.sh --prepare
 bash tests/third_party/dc_ems/run_windhub.sh --check
 bash tests/third_party/dc_ems/run_windhub.sh --up
 
-对应设备 DCEMS_WTG01..10；监听 127.0.0.1:15221..15230。
+对应设备 WTG01..10；监听 127.0.0.1:15221..15230。
 Gateway 点键为正式 BusinessPoint 变量名：
   wind_speed = 1.3.0, FC04 F32 ABCD, m/s（每台）
   sim_running_status = 1.3.6, FC04 I32 ABCD，固定工作模式 32（每台）
