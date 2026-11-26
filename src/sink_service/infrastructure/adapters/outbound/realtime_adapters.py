@@ -293,14 +293,15 @@ class KafkaOutput:
     ) -> None:
         if not servers or not topic:
             raise ConfigurationError("Kafka brokers and topic must be configured")
-        if type(linger_ms) is not int or linger_ms != 0:
-            raise ConfigurationError("Kafka linger_ms must be 0")
+        if type(linger_ms) is not int or not 0 <= linger_ms <= 10:
+            raise ConfigurationError("Kafka linger_ms must be 0..10")
         if type(max_batch_size) is not int or max_batch_size <= 0:
             raise ConfigurationError("Kafka max_batch_size must be positive")
         self._servers, self._topic = servers, topic
         self._timeout_ms = timeout_ms
         self._credential_ref = credential_ref
         self._max_batch_size = max_batch_size
+        self._linger_ms = linger_ms
         self._producer: Any = None
         self._device_locks = tuple(asyncio.Lock() for _ in range(128))
         self._partition_cache: OrderedDict[bytes, int] = OrderedDict()
@@ -473,7 +474,7 @@ class KafkaOutput:
         try:
             # Give already runnable device writes a chance to join the Builder.
             # There is no timer-based linger and no additional admission quota.
-            await asyncio.sleep(0)
+            await asyncio.sleep(self._linger_ms / 1000)
             while queue:
                 requests = queue[:]
                 queue.clear()
