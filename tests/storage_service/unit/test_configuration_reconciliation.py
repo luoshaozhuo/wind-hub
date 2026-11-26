@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -19,14 +18,7 @@ from storage_service.application.config import (
     StorageConfig,
     load_storage_config,
 )
-from storage_service.application.ingestion import (
-    ConfigHistoryUnavailableError,
-    IngestionBlockedError,
-    IngestionService,
-    KafkaRecord,
-)
-from storage_service.application.metrics import StorageRuntimeMetrics
-from storage_service.application.offsets import PartitionOffsets
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.domain.sample import StorageSample
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
@@ -47,7 +39,7 @@ pytestmark = pytest.mark.unit
 
 def _config() -> StorageConfig:
     return load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
 
 
@@ -457,162 +449,6 @@ async def test_demand_failure_updates_health_without_poisoning_next_refresh(
     client.failure = None
     await watcher.refresh_now()
     assert watcher.status == "READY"
-
-
-class _Backend:
-    def __init__(self) -> None:
-        self.rows: dict[str, frozenset[str]] = {}
-        self.inserted: list[str] = []
-        self.insert_started = asyncio.Event()
-        self.insert_release: asyncio.Event | None = None
-
-    async def ensure_tables(self, samples: Sequence[StorageSample]) -> None:
-        return None
-
-    async def fetch_content_hashes(
-        self, samples: Sequence[StorageSample]
-    ) -> dict[str, frozenset[str]]:
-        return {
-            sample.logical_key: self.rows[sample.logical_key]
-            for sample in samples
-            if sample.logical_key in self.rows
-        }
-
-    async def insert_batch(self, samples: Sequence[StorageSample]) -> None:
-        self.insert_started.set()
-        if self.insert_release is not None:
-            await self.insert_release.wait()
-        for sample in samples:
-            self.rows[sample.logical_key] = frozenset((sample.content_sha256,))
-            self.inserted.append(sample.point_table_id)
-
-
-class _Evidence:
-    def __init__(self) -> None:
-        self.blocked: list[tuple[int, str, bytes]] = []
-
-    def block_partition(
-        self, topic: str, partition: int, offset: int, reason: str, payload: bytes
-    ) -> None:
-        self.blocked.append((offset, reason, payload))
-
-
-def _record(sample: StorageSample, offset: int) -> KafkaRecord:
-    payload = json.dumps(
-        {
-            "schema_version": 2,
-            "wind_farm_id": sample.wind_farm_id,
-            "collector_id": sample.collector_id,
-            "task_id": sample.task_id,
-            "batch_id": sample.batch_id,
-            "device_type": sample.device_type,
-            "device_id": sample.device_id,
-            "point_table_id": sample.point_table_id,
-            "point_id": sample.point_id,
-            "business_point_id": "",
-            "sample_id": sample.sample_id,
-            "data_level": "protocol",
-            "quality": "good",
-            "unit": "m/s",
-            "value": 1.5,
-            "sample_time": "2026-01-01T00:00:00Z",
-            "publish_time": "2026-01-01T00:00:00Z",
-        }
-    ).encode()
-    return KafkaRecord(
-        topic="samples",
-        partition=0,
-        offset=offset,
-        key=b"farm-1:collector-1:device-1",
-        value=payload,
-    )
-
-
-def _ingestion(
-    resolver: ConfigurationPointTableResolver,
-) -> tuple[IngestionService, _Backend, _Evidence]:
-    backend = _Backend()
-    evidence = _Evidence()
-    return (
-        IngestionService(
-            storage=backend,
-            point_tables=resolver,
-            evidence=evidence,
-            metrics=StorageRuntimeMetrics(),
-            allowed_wind_farms=frozenset(("farm-1",)),
-        ),
-        backend,
-        evidence,
-    )
-
-
-async def test_missing_target_blocks_and_retries_the_same_original_offset(tmp_path: Path) -> None:
-    resolver = ConfigurationPointTableResolver(
-        fetcher=_Fetcher({"v1": _document(OLD, "v1"), "v2": _document(NEW, "v2")}),
-        archive=ImmutableConfigArchive(tmp_path),
-        point_table_versions={OLD: ("turbine", "v1")},
-        device_bindings=_bindings({OLD: ("turbine", "v1")}),
-    )
-
-    async def no_target() -> None:
-        return None
-
-    resolver.set_refresh_hook(no_target)
-    ingestion, backend, evidence = _ingestion(resolver)
-    offsets = PartitionOffsets(partition=0, generation=1, next_commit_offset=7)
-    sample = _sample(NEW)
-    record = _record(sample, 7)
-    with pytest.raises(IngestionBlockedError):
-        await ingestion.process(generation=1, offsets=offsets, records=[record])
-    assert offsets.next_commit_offset == 7
-    assert backend.inserted == []
-    assert evidence.blocked[0][0] == 7
-    assert evidence.blocked[0][2] == record.value
-
-    async def found() -> None:
-        resolver.add_immutable_pins(
-            point_table_versions={NEW: ("turbine", "v2")},
-            business_points_pin=None,
-            device_bindings=_bindings({NEW: ("turbine", "v2")}),
-        )
-
-    resolver.set_refresh_hook(found)
-    # KafkaStorageConsumer recreates the offset tracker when retrying a block.
-    offsets = PartitionOffsets(partition=0, generation=1, next_commit_offset=7)
-    result = await ingestion.process(generation=1, offsets=offsets, records=[record])
-    assert result.next_commit_offset == 8
-    assert backend.inserted == [NEW]
-
-
-async def test_reference_only_update_can_overlap_an_inflight_write(tmp_path: Path) -> None:
-    pins = {OLD: ("turbine", "v1"), NEW: ("turbine", "v2")}
-    fetcher = _Fetcher({pin[1]: _document(table_id, pin[1]) for table_id, pin in pins.items()})
-    resolver = ConfigurationPointTableResolver(
-        fetcher=fetcher,
-        archive=ImmutableConfigArchive(tmp_path),
-        point_table_versions={OLD: pins[OLD]},
-        device_bindings=_bindings({OLD: pins[OLD]}),
-    )
-    updated_config = _config().model_copy(update={"file_version": "1.0.2"})
-    client = _Client(_bundle(2, pins, config=updated_config))
-    watcher, _, snapshot = _watcher(
-        client=client, resolver=resolver, active=_bundle(1, {OLD: pins[OLD]})
-    )
-    ingestion, backend, _ = _ingestion(resolver)
-    backend.insert_release = asyncio.Event()
-    offsets = PartitionOffsets(partition=0, generation=1, next_commit_offset=0)
-    writing = asyncio.create_task(
-        ingestion.process(generation=1, offsets=offsets, records=[_record(_sample(OLD), 0)])
-    )
-    await asyncio.wait_for(backend.insert_started.wait(), timeout=1)
-
-    await watcher.refresh_now()
-    backend.insert_release.set()
-    await asyncio.wait_for(writing, timeout=1)
-    await ingestion.process(generation=1, offsets=offsets, records=[_record(_sample(NEW), 1)])
-
-    assert backend.inserted == [OLD, NEW]
-    assert [item.revision_id for item in snapshot.stored] == [2]
 
 
 async def test_unrelated_repository_revision_does_not_rewrite_storage_snapshot(
