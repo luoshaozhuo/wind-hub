@@ -307,6 +307,27 @@ def test_service_v6_rejects_invalid_token_references(token: str) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "service_storage-main_v2.0.0.yaml",
+        "service_collector-reliable_v2.0.0.yaml",
+        "service_sink-west_v2.0.0.yaml",
+    ],
+)
+def test_shipped_service_v6_schema_acceptance(config_name: str) -> None:
+    raw = parse_yaml(
+        (ROOT / "configs/services" / config_name).read_bytes(),
+        max_bytes=64 * 1024 * 1024,
+    )
+    assert raw["schema_version"] == 6
+    spec = next(
+        item.fields for item in iter_schemas()
+        if item.config_type == "service" and item.schema_version == 6
+    )
+    ConfigurationApplication._validate_schema(raw, spec)
+
+
 def test_service_v3_accepts_strict_simulation_mapping() -> None:
     schema = next(
         item.fields
