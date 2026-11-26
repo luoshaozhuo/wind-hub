@@ -18,6 +18,7 @@ from typing import BinaryIO, Literal, Self
 
 from storage_service.application.config import DeviceBinding, DeviceModel
 from storage_service.domain.tasks import TaskRecord
+from storage_service.domain.errors import WideTableNotCreatedError
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +36,6 @@ class MetadataConflictError(RuntimeError):
     """Existing durable ownership or request-id arguments conflict."""
 
 
-class WideTableNotCreatedError(LookupError):
-    """No durable physical table registration exists for this exact name."""
 
 
 class MetadataStore:
