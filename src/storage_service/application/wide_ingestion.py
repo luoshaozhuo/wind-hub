@@ -27,9 +27,7 @@ from storage_service.domain.wide_record import (
 )
 from storage_service.domain.wide_row import bind_wide_row
 from storage_service.domain.wide_schema import WideSchema
-from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
-    TDengineSchemaConflictError,
-)
+from storage_service.domain.errors import TDengineSchemaConflictError
 
 
 class WideSchemaResolver(Protocol):
