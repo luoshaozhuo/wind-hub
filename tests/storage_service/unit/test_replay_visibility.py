@@ -5,24 +5,39 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from storage_service.application.query import (
-    CursorCodec,
-    HistoryFilter,
-    HistoryQueryService,
-    HistoryReplayUnavailableError,
+from storage_service.application.wide_query import (
+    WideCursorCodec,
+    WideHistoryFilter,
+    WideHistoryQueryService,
 )
-from storage_service.domain.sample import DataLevel
+from storage_service.domain.errors import HistoryReplayUnavailableError
+from storage_service.domain.wide_record import WideDataLevel
+from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
 
 
-def _filter() -> HistoryFilter:
-    return HistoryFilter(
+def _schema() -> WideSchema:
+    return WideSchema.build(
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        points=(PhysicalPoint("power", "INT"),),
+        max_row_bytes=65536,
+    )
+
+
+def _filter() -> WideHistoryFilter:
+    return WideHistoryFilter(
         wind_farm_id="farm",
-        data_level=DataLevel.PROTOCOL,
-        start_us=1,
-        end_us=1_000,
+        device_id="wtg001",
+        device_config_id="device_wtg_v1.0.0",
+        data_level=WideDataLevel.PROTOCOL,
+        start_time_us=1,
+        end_time_us=1000,
+        point_ids=("power",),
+        limit=2,
     )
 
 
@@ -40,14 +55,14 @@ def test_consumer_starts_without_authorized_history_visibility() -> None:
 @pytest.mark.asyncio
 async def test_query_rejected_when_replay_has_not_settled() -> None:
     backend = AsyncMock()
-    service = HistoryQueryService(
+    service = WideHistoryQueryService(
         backend=backend,
-        codec=CursorCodec(b"x" * 32),
+        codec=WideCursorCodec(b"x" * 32),
         read_available=lambda: False,
     )
-    with pytest.raises(HistoryReplayUnavailableError):
-        await service.query(_filter())
-    backend.fetch_history.assert_not_awaited()
+    with pytest.raises(HistoryReplayUnavailableError, match="replay"):
+        await service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+    backend.fetch_wide_history.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -55,22 +70,24 @@ async def test_query_discards_result_when_replay_starts_midread() -> None:
     started = asyncio.Event()
     resume = asyncio.Event()
 
-    async def fetch_history(*_args: object, **_kwargs: object) -> tuple[()]:
+    async def fetch_wide_history(*_args: object, **_kwargs: object) -> tuple[()]:
         started.set()
         await resume.wait()
         return ()
 
     backend = AsyncMock()
-    backend.fetch_history.side_effect = fetch_history
+    backend.fetch_wide_history.side_effect = fetch_wide_history
     safe = True
-    service = HistoryQueryService(
+    service = WideHistoryQueryService(
         backend=backend,
-        codec=CursorCodec(b"x" * 32),
+        codec=WideCursorCodec(b"x" * 32),
         read_available=lambda: safe,
     )
-    pending = asyncio.create_task(service.query(_filter()))
+    pending = asyncio.create_task(
+        service.query(schema=_schema(), filter_=_filter(), device_type="wind")
+    )
     await started.wait()
     safe = False
     resume.set()
-    with pytest.raises(HistoryReplayUnavailableError):
+    with pytest.raises(HistoryReplayUnavailableError, match="replay"):
         await pending

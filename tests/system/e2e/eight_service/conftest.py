@@ -175,6 +175,10 @@ def _write_cli_config(root: Path, configuration_bootstrap: Path, storage_bootstr
             argv[-1] = str(storage_bootstrap)
         if name == "sink":
             argv = [
+                part.replace("service_sink-e2e_v1.0.0.yaml", "service_sink-e2e_v2.0.0.yaml")
+                for part in argv
+            ]
+            argv = [
                 str(root) if part in {str(REPO_ROOT), "/opt/wind-hub/src"} else part
                 for part in argv
             ]

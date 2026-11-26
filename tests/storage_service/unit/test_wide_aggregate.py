@@ -17,7 +17,8 @@ from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
 
 def _schema() -> WideSchema:
     return WideSchema.build(
-        point_table_id="point_table_wtg_v1.0.0", point_table_version="1.0.0",
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
         data_level=WideDataLevel.PROTOCOL,
         points=(
             PhysicalPoint("counter", "BIGINT UNSIGNED"),
@@ -29,33 +30,49 @@ def _schema() -> WideSchema:
 
 def _filter() -> WideHistoryFilter:
     return WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_farm_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=200_000_000,
-        point_ids=("counter", "status"), limit=100,
+        start_time_us=1,
+        end_time_us=200_000_000,
+        point_ids=("counter", "status"),
+        limit=100,
     )
 
 
 def _service() -> WideAggregationService:
     history = Mock()
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(
-            WideHistoryRow(1_000_000, (
-                ("counter", 2**64 - 1, PointQuality.GOOD),
-                ("status", 10, PointQuality.GOOD),
-            )),
-            WideHistoryRow(2_000_000, (
-                ("counter", None, PointQuality.NOT_COLLECTED),
-                ("status", 20, PointQuality.BAD),
-            )),
-            WideHistoryRow(62_000_000, (
-                ("counter", 2**64 - 2, PointQuality.GOOD),
-                ("status", 4, PointQuality.GOOD),
-            )),
-        ),
-        next_page_token="", complete=True, schema_fingerprint=_schema().fingerprint,
-    ))
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(
+                    1_000_000,
+                    (
+                        ("counter", 2**64 - 1, PointQuality.GOOD),
+                        ("status", 10, PointQuality.GOOD),
+                    ),
+                ),
+                WideHistoryRow(
+                    2_000_000,
+                    (
+                        ("counter", None, PointQuality.NOT_COLLECTED),
+                        ("status", 20, PointQuality.BAD),
+                    ),
+                ),
+                WideHistoryRow(
+                    62_000_000,
+                    (
+                        ("counter", 2**64 - 2, PointQuality.GOOD),
+                        ("status", 4, PointQuality.GOOD),
+                    ),
+                ),
+            ),
+            next_page_token="",
+            complete=True,
+            schema_fingerprint=_schema().fingerprint,
+        )
+    )
     return WideAggregationService(history=history, secret=b"x" * 32)
 
 
@@ -63,8 +80,12 @@ def _service() -> WideAggregationService:
 async def test_exact_uint64_max_preserved_across_window() -> None:
     service = _service()
     page = await service.page(
-        schema=_schema(), filter_=_filter(), device_type="wind",
-        operation="max", window_ms=60000, page_size=10,
+        schema=_schema(),
+        filter_=_filter(),
+        device_type="wind",
+        operation="max",
+        window_ms=60000,
+        page_size=10,
     )
     values = [row for row in page.rows if row.point_id == "counter"]
     assert values[0].result == 2**64 - 1
@@ -79,21 +100,33 @@ async def test_exact_uint64_max_preserved_across_window() -> None:
 async def test_signed_aggregate_cursor_is_stable_and_cannot_be_rebound() -> None:
     service = _service()
     first = await service.page(
-        schema=_schema(), filter_=_filter(), device_type="wind",
-        operation="count", window_ms=60000, page_size=1,
+        schema=_schema(),
+        filter_=_filter(),
+        device_type="wind",
+        operation="count",
+        window_ms=60000,
+        page_size=1,
     )
     assert not first.complete
     second = await service.page(
-        schema=_schema(), filter_=_filter(), device_type="wind",
-        operation="count", window_ms=60000, page_size=1,
+        schema=_schema(),
+        filter_=_filter(),
+        device_type="wind",
+        operation="count",
+        window_ms=60000,
+        page_size=1,
         page_token=first.next_page_token,
     )
     assert second.rows != first.rows
     assert second.rows[0].result_kind == 2
     with pytest.raises(ValueError):
         await service.page(
-            schema=_schema(), filter_=_filter(), device_type="wind",
-            operation="max", window_ms=60000, page_size=1,
+            schema=_schema(),
+            filter_=_filter(),
+            device_type="wind",
+            operation="max",
+            window_ms=60000,
+            page_size=1,
             page_token=first.next_page_token,
         )
 
@@ -103,8 +136,12 @@ async def test_large_unsigned_avg_rejects_lossy_float_result() -> None:
     service = _service()
     with pytest.raises(ValueError, match="precision"):
         await service.page(
-            schema=_schema(), filter_=_filter(), device_type="wind",
-            operation="avg", window_ms=60000, page_size=10,
+            schema=_schema(),
+            filter_=_filter(),
+            device_type="wind",
+            operation="avg",
+            window_ms=60000,
+            page_size=10,
         )
 
 
@@ -112,14 +149,22 @@ async def test_large_unsigned_avg_rejects_lossy_float_result() -> None:
 async def test_snapshot_cursor_rejects_changed_page_size() -> None:
     service = _service()
     first = await service.page(
-        schema=_schema(), filter_=_filter(), device_type="wind",
-        operation="count", window_ms=60000, page_size=1,
+        schema=_schema(),
+        filter_=_filter(),
+        device_type="wind",
+        operation="count",
+        window_ms=60000,
+        page_size=1,
     )
     assert first.next_page_token
     with pytest.raises(ValueError, match="malformed"):
         await service.page(
-            schema=_schema(), filter_=_filter(), device_type="wind",
-            operation="count", window_ms=60000, page_size=2,
+            schema=_schema(),
+            filter_=_filter(),
+            device_type="wind",
+            operation="count",
+            window_ms=60000,
+            page_size=2,
             page_token=first.next_page_token,
         )
 
@@ -128,29 +173,47 @@ async def test_snapshot_cursor_rejects_changed_page_size() -> None:
 async def test_cached_aggregate_snapshot_fenced_during_replay() -> None:
     history = Mock()
     history.read_available.return_value = True
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(
-            WideHistoryRow(1_000_000, (
-                ("counter", 3, PointQuality.GOOD),
-                ("status", None, PointQuality.NOT_COLLECTED),
-            )),
-            WideHistoryRow(62_000_000, (
-                ("counter", 4, PointQuality.GOOD),
-                ("status", 1, PointQuality.GOOD),
-            )),
-        ),
-        next_page_token="", complete=True, schema_fingerprint=_schema().fingerprint,
-    ))
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(
+                    1_000_000,
+                    (
+                        ("counter", 3, PointQuality.GOOD),
+                        ("status", None, PointQuality.NOT_COLLECTED),
+                    ),
+                ),
+                WideHistoryRow(
+                    62_000_000,
+                    (
+                        ("counter", 4, PointQuality.GOOD),
+                        ("status", 1, PointQuality.GOOD),
+                    ),
+                ),
+            ),
+            next_page_token="",
+            complete=True,
+            schema_fingerprint=_schema().fingerprint,
+        )
+    )
     service = WideAggregationService(history=history, secret=b"x" * 32)
     first = await service.page(
-        schema=_schema(), filter_=_filter(), device_type="wind",
-        operation="count", window_ms=60000, page_size=1,
+        schema=_schema(),
+        filter_=_filter(),
+        device_type="wind",
+        operation="count",
+        window_ms=60000,
+        page_size=1,
     )
     history.read_available.return_value = False
     with pytest.raises(RuntimeError, match="replay"):
         await service.page(
-            schema=_schema(), filter_=_filter(), device_type="wind",
-            operation="count", window_ms=60000, page_size=1,
+            schema=_schema(),
+            filter_=_filter(),
+            device_type="wind",
+            operation="count",
+            window_ms=60000,
+            page_size=1,
             page_token=first.next_page_token,
         )
 
@@ -163,13 +226,14 @@ async def test_cached_aggregate_snapshot_fenced_during_replay() -> None:
         ("BIGINT UNSIGNED", 2**64),
         ("INT", 2**31),
         ("BIGINT", -(2**63) - 1),
-        ("BIGINT", float(12.0)),
+        ("BIGINT", 12.0),
         ("DOUBLE", float("nan")),
         ("DOUBLE", float("inf")),
     ],
 )
 async def test_wide_numeric_aggregate_rejects_invalid_physical_values(
-    sql_type: str, value: object,
+    sql_type: str,
+    value: object,
 ) -> None:
     schema = WideSchema.build(
         point_table_id="point_table_wtg_v1.0.0",
@@ -179,25 +243,34 @@ async def test_wide_numeric_aggregate_rejects_invalid_physical_values(
         max_row_bytes=65536,
     )
     filter_ = WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_farm_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=2_000_000,
-        point_ids=("counter",), limit=100,
+        start_time_us=1,
+        end_time_us=2_000_000,
+        point_ids=("counter",),
+        limit=100,
     )
     history = Mock()
     history.read_available.return_value = True
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(WideHistoryRow(1_000_000, (
-            ("counter", value, PointQuality.GOOD),
-        )),),
-        next_page_token="", complete=True, schema_fingerprint=schema.fingerprint,
-    ))
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(WideHistoryRow(1_000_000, (("counter", value, PointQuality.GOOD),)),),
+            next_page_token="",
+            complete=True,
+            schema_fingerprint=schema.fingerprint,
+        )
+    )
     service = WideAggregationService(history=history, secret=b"x" * 32)
     with pytest.raises(ValueError, match="wide"):
         await service.page(
-            schema=schema, filter_=filter_, device_type="wind",
-            operation="max", window_ms=60000, page_size=10,
+            schema=schema,
+            filter_=filter_,
+            device_type="wind",
+            operation="max",
+            window_ms=60000,
+            page_size=10,
         )
 
 
@@ -211,27 +284,38 @@ async def test_bad_uncertain_and_not_collected_are_excluded_from_good_count() ->
         max_row_bytes=65536,
     )
     filter_ = WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_farm_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=10_000_000,
-        point_ids=("power",), limit=20,
+        start_time_us=1,
+        end_time_us=10_000_000,
+        point_ids=("power",),
+        limit=20,
     )
     history = Mock()
     history.read_available.return_value = True
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(
-            WideHistoryRow(1_000_000, (("power", 5, PointQuality.GOOD),)),
-            WideHistoryRow(2_000_000, (("power", 50, PointQuality.BAD),)),
-            WideHistoryRow(3_000_000, (("power", 60, PointQuality.UNCERTAIN),)),
-            WideHistoryRow(4_000_000, (("power", None, PointQuality.NOT_COLLECTED),)),
-        ),
-        next_page_token="", complete=True, schema_fingerprint=schema.fingerprint,
-    ))
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(1_000_000, (("power", 5, PointQuality.GOOD),)),
+                WideHistoryRow(2_000_000, (("power", 50, PointQuality.BAD),)),
+                WideHistoryRow(3_000_000, (("power", 60, PointQuality.UNCERTAIN),)),
+                WideHistoryRow(4_000_000, (("power", None, PointQuality.NOT_COLLECTED),)),
+            ),
+            next_page_token="",
+            complete=True,
+            schema_fingerprint=schema.fingerprint,
+        )
+    )
     service = WideAggregationService(history=history, secret=b"x" * 32)
     page = await service.page(
-        schema=schema, filter_=filter_, device_type="wind",
-        operation="avg", window_ms=60000, page_size=10,
+        schema=schema,
+        filter_=filter_,
+        device_type="wind",
+        operation="avg",
+        window_ms=60000,
+        page_size=10,
     )
     assert len(page.rows) == 1
     row = page.rows[0]
@@ -243,35 +327,44 @@ async def test_bad_uncertain_and_not_collected_are_excluded_from_good_count() ->
 @pytest.mark.asyncio
 async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() -> None:
     schema = WideSchema.build(
-        point_table_id="point_table_wtg_v1.0.0", point_table_version="1.0.0",
+        point_table_id="point_table_wtg_v1.0.0",
+        point_table_version="1.0.0",
         data_level=WideDataLevel.PROTOCOL,
         points=(PhysicalPoint("power", "INT"),),
         max_row_bytes=65536,
     )
     request = WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_farm_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=100_000_000,
-        point_ids=("power",), limit=50, qualities=(PointQuality.GOOD,),
+        start_time_us=1,
+        end_time_us=100_000_000,
+        point_ids=("power",),
+        limit=50,
+        qualities=(int(PointQuality.GOOD),),
     )
     history = Mock()
     history.read_available.return_value = True
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(
-            WideHistoryRow(
-                1_000_000, (("power", 10, PointQuality.GOOD),)
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(1_000_000, (("power", 10, PointQuality.GOOD),)),
+                WideHistoryRow(62_000_000, (("power", 15, PointQuality.GOOD),)),
             ),
-            WideHistoryRow(
-                62_000_000, (("power", 15, PointQuality.GOOD),)
-            ),
-        ),
-        complete=True, next_page_token="", schema_fingerprint=schema.fingerprint,
-    ))
+            complete=True,
+            next_page_token="",
+            schema_fingerprint=schema.fingerprint,
+        )
+    )
     service = WideAggregationService(history=history, secret=b"x" * 32)
     first = await service.page(
-        schema=schema, filter_=request, device_type="wind",
-        operation="min", window_ms=60000, page_size=1,
+        schema=schema,
+        filter_=request,
+        device_type="wind",
+        operation="min",
+        window_ms=60000,
+        page_size=1,
     )
     assert first.rows[0].result == 10
     assert history.query.await_args.kwargs["filter_"].qualities == (PointQuality.GOOD,)
@@ -284,12 +377,16 @@ async def test_quality_predicate_reaches_history_and_binds_aggregate_cursor() ->
         end_time_us=request.end_time_us,
         point_ids=request.point_ids,
         limit=request.limit,
-        qualities=(PointQuality.BAD,),
+        qualities=(int(PointQuality.BAD),),
     )
     with pytest.raises(ValueError, match="malformed"):
         await service.page(
-            schema=schema, filter_=changed, device_type="wind",
-            operation="min", window_ms=60000, page_size=1,
+            schema=schema,
+            filter_=changed,
+            device_type="wind",
+            operation="min",
+            window_ms=60000,
+            page_size=1,
             page_token=first.next_page_token,
         )
 
@@ -304,26 +401,35 @@ async def test_signed_bigint_min_preserves_negative_64_bit_boundary() -> None:
         max_row_bytes=65536,
     )
     request = WideHistoryFilter(
-        wind_farm_id="farm", device_id="wtg001",
+        wind_farm_id="farm",
+        device_id="wtg001",
         device_config_id="device_farm_v1.0.0",
         data_level=WideDataLevel.PROTOCOL,
-        start_time_us=1, end_time_us=10_000_000,
-        point_ids=("counter",), limit=20,
+        start_time_us=1,
+        end_time_us=10_000_000,
+        point_ids=("counter",),
+        limit=20,
     )
     history = Mock()
     history.read_available.return_value = True
-    history.query = AsyncMock(return_value=WideHistoryPage(
-        rows=(
-            WideHistoryRow(1_000_000, (("counter", -(2**63), PointQuality.GOOD),)),
-            WideHistoryRow(2_000_000, (("counter", -3, PointQuality.GOOD),)),
-        ),
-        complete=True, next_page_token="", schema_fingerprint=schema.fingerprint,
-    ))
-    result = await WideAggregationService(
-        history=history, secret=b"x" * 32
-    ).page(
-        schema=schema, filter_=request, device_type="wind",
-        operation="min", window_ms=60000, page_size=10,
+    history.query = AsyncMock(
+        return_value=WideHistoryPage(
+            rows=(
+                WideHistoryRow(1_000_000, (("counter", -(2**63), PointQuality.GOOD),)),
+                WideHistoryRow(2_000_000, (("counter", -3, PointQuality.GOOD),)),
+            ),
+            complete=True,
+            next_page_token="",
+            schema_fingerprint=schema.fingerprint,
+        )
+    )
+    result = await WideAggregationService(history=history, secret=b"x" * 32).page(
+        schema=schema,
+        filter_=request,
+        device_type="wind",
+        operation="min",
+        window_ms=60000,
+        page_size=10,
     )
     assert result.rows[0].result == -(2**63)
     assert result.rows[0].result_kind == 1

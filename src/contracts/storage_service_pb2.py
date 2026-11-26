@@ -51,10 +51,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_QUERYAGGREGATESREQUEST']._serialized_start=1289
   _globals['_QUERYAGGREGATESREQUEST']._serialized_end=1546
   _globals['_STORAGEAGGREGATE']._serialized_start=1549
-  _globals['_STORAGEAGGREGATE']._serialized_end=1881
-  _globals['_QUERYAGGREGATESRESPONSE']._serialized_start=1883
+  _globals['_STORAGEAGGREGATE']._serialized_end=1948
+  _globals['_QUERYAGGREGATESRESPONSE']._serialized_start=1950
   _globals['_QUERYAGGREGATESRESPONSE']._serialized_end=2053
-  _globals['_CREATEEXPORTREQUEST']._serialized_start=2055
+  _globals['_CREATEEXPORTREQUEST']._serialized_start=2056
   _globals['_CREATEEXPORTREQUEST']._serialized_end=2234
   _globals['_CREATEBACKUPREQUEST']._serialized_start=2236
   _globals['_CREATEBACKUPREQUEST']._serialized_end=2299

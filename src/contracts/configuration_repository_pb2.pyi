@@ -718,9 +718,13 @@ class GetConfigBundleRequest(_message.Message):
     revision_id: _builtins.int
     include_dependencies: _builtins.bool
     @_builtins.property
-    def roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigId]: ...
+    def roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigId]:
+        """Recommended roots at one published revision; mutually exclusive with exact_roots."""
+
     @_builtins.property
-    def exact_roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigVersionRef]: ...
+    def exact_roots(self) -> _containers.RepeatedCompositeFieldContainer[Global___ConfigVersionRef]:
+        """Immutable historical repository version IDs, independent of recommendations."""
+
     def __init__(
         self,
         *,

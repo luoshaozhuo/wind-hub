@@ -105,6 +105,9 @@ class FakePublisher:
         device_type: str,
         point_table_id: str,
         task_id: str,
+        device_config_id: str,
+        sample_time: datetime,
+        expected_point_ids: tuple[str, ...],
     ) -> None:
         self.last_task_id = task_id
         self.received.append((device_id, samples))
@@ -127,6 +130,7 @@ async def test_poll_starts_and_stops_with_owned_session() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         publisher,
@@ -168,6 +172,7 @@ async def test_stale_callback_during_recovery_never_promotes_running(
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
@@ -202,6 +207,7 @@ async def test_transient_isolation_with_healthy_io_still_promotes_running() -> N
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, FakeDriver()),
         publisher,
@@ -238,6 +244,7 @@ async def test_stop_intent_does_not_start_protocol_session() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -267,6 +274,7 @@ async def test_unsettled_read_is_not_overlapped_by_reconnect() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -308,6 +316,7 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
         ),
         1,
@@ -332,6 +341,7 @@ async def test_device_reconfigure_replaces_only_changed_worker() -> None:
                     device_type=device_type,
                     point_table_id=point_table_id,
                     task_id="task-component",
+                    device_config_id="device_farm-a_v1.0.0",
                 ),
             ),
             1,
@@ -403,6 +413,7 @@ async def test_subscribe_mode_owns_remote_notification_handle() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -434,6 +445,7 @@ async def test_listen_mode_owns_local_listener_handle() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -488,6 +500,7 @@ async def test_active_read_falls_back_to_serial_read_one() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -521,6 +534,7 @@ async def test_interrogation_requires_protocol_capability() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, unsupported),
         FakePublisher(),
@@ -560,6 +574,7 @@ async def test_health_timeout_never_reopens_unsettled_session() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -603,6 +618,7 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
             DevicePlan(
                 second,
@@ -613,6 +629,7 @@ async def test_one_device_factory_failure_does_not_disrupt_other_devices() -> No
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
         ),
         0.5,
@@ -654,6 +671,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
             DevicePlan(
                 second,
@@ -664,6 +682,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
         ),
         read_timeout=0.03,
@@ -686,6 +705,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                     device_type=device_type,
                     point_table_id=point_table_id,
                     task_id="task-component",
+                    device_config_id="device_farm-a_v1.0.0",
                 ),
                 DevicePlan(
                     second,
@@ -696,6 +716,7 @@ async def test_blocked_device_does_not_block_other_incremental_updates() -> None
                     device_type=device_type,
                     point_table_id=point_table_id,
                     task_id="task-component",
+                    device_config_id="device_farm-a_v1.0.0",
                 ),
             ),
             0.03,
@@ -732,6 +753,7 @@ async def test_timed_out_active_rpc_keeps_device_session_owned() -> None:
             device_type=device_type,
             point_table_id=point_table_id,
             task_id="task-component",
+            device_config_id="device_farm-a_v1.0.0",
         ),
         cast(ProtocolPort, driver),
         FakePublisher(),
@@ -795,6 +817,7 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
         ),
         0.2,
@@ -817,6 +840,7 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
                 device_type=device_type,
                 point_table_id=point_table_id,
                 task_id="task-component",
+                device_config_id="device_farm-a_v1.0.0",
             ),
         ),
         0.2,
@@ -837,3 +861,49 @@ async def test_failed_device_close_preserves_old_worker_for_retry() -> None:
         assert len(created) == 2
     finally:
         await acquisition.stop()
+
+
+@pytest.mark.asyncio
+async def test_connection_failure_publishes_bad_cycle_without_crashing_supervisor() -> None:
+    from unittest.mock import AsyncMock
+
+    from core.application import Quality
+
+    device, table, device_type, point_table_id = _device()
+    driver = FakeDriver()
+    driver.connect = AsyncMock(side_effect=ConnectionError("injected connection failure"))
+    sink = AsyncMock()
+    worker = DeviceWorker(
+        DevicePlan(
+            device,
+            table,
+            0.02,
+            "START",
+            "poll",
+            device_type=device_type,
+            point_table_id=point_table_id,
+            task_id="d5-failed-cycle",
+            device_config_id="device_farm-a_v1.0.0",
+        ),
+        cast(ProtocolPort, driver),
+        sink,
+        timeout=0.2,
+        connect_timeout=0.2,
+        watchdog_interval=0.02,
+    )
+    await worker.start()
+    try:
+        for _ in range(100):
+            if sink.publish.await_count:
+                break
+            await asyncio.sleep(0.01)
+        assert sink.publish.await_count >= 1
+        call = sink.publish.await_args
+        samples = call.args[1]
+        assert samples
+        assert all(sample.value is None and sample.quality is Quality.BAD for sample in samples)
+        assert all(sample.timestamp == call.kwargs["sample_time"] for sample in samples)
+        assert worker._monitor is not None and not worker._monitor.done()
+        assert worker.last_error == "injected connection failure"
+    finally:
+        await worker.stop()

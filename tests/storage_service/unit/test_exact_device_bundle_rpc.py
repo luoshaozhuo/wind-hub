@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from contracts import configuration_repository_pb2 as pb
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
 )
@@ -23,14 +23,10 @@ async def test_historical_device_closure_uses_direct_file_version(
         archive=archive,
     )
     stub = Mock()
-    stub.GetConfigBundle = AsyncMock(
-        return_value=pb.GetConfigBundleResponse(revision_id=0)
-    )
+    stub.GetConfigBundle = AsyncMock(return_value=pb.GetConfigBundleResponse(revision_id=0))
     client._stub = stub
     with pytest.raises(ConfigHistoryUnavailableError, match="malformed"):
-        await client.fetch_exact_device_closure(
-            device_config_id="device_wtg001_v1.2.3"
-        )
+        await client.fetch_exact_device_closure(device_config_id="device_wtg001_v1.2.3")
     stub.GetConfigBundle.assert_awaited_once()
     request = stub.GetConfigBundle.await_args.args[0]
     assert request.exact_roots[0].config_id.config_type == "device"
@@ -53,6 +49,4 @@ async def test_historical_device_closure_rejects_invalid_file_id(
         archive=Mock(),
     )
     with pytest.raises(ConfigHistoryUnavailableError, match="invalid exact"):
-        await client.fetch_exact_device_closure(
-            device_config_id="device_wtg001_vlatest"
-        )
+        await client.fetch_exact_device_closure(device_config_id="device_wtg001_vlatest")

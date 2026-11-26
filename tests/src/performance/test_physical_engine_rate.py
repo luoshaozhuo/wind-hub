@@ -22,7 +22,8 @@ from data_generator.infrastructure.config.service_settings import load_settings
 pytestmark = [pytest.mark.performance, pytest.mark.load]
 
 SERVICE_PATH = (
-    Path(__file__).resolve().parents[3] / "configs" / "services" / "data-generator-sim.example.yaml"
+    Path(__file__).resolve().parents[3]
+    / "deploy/config_roots/sim-a/services/service_data-generator-sim_v1.3.1.yaml"
 )
 EXPECTED_POINTS = 103
 # 每个速率的固定物理时长（秒）与并发写入者使用的真实可写输入名。

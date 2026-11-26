@@ -5,8 +5,24 @@ from unittest.mock import Mock
 
 import pytest
 
-from configuration_service.application.service import ConfigurationApplication
+from configuration_service.application.service import ConfigurationApplication, DocumentOutput
 from configuration_service.domain.models import ConfigIdentity, RepositoryConflictError
+
+
+def _output(version_id: str, path: str, content: bytes) -> DocumentOutput:
+    return DocumentOutput(
+        identity=ConfigIdentity("device", "wtg001"),
+        version_id=version_id,
+        file_version="1.0.0",
+        schema_version=1,
+        revision_id=0,
+        schema_ref="device:1:hash",
+        content_sha256="hash",
+        yaml_sha256="hash",
+        yaml_bytes=content,
+        file_name=path,
+        relative_path=path,
+    )
 
 
 def _application() -> tuple[ConfigurationApplication, Mock]:
@@ -30,16 +46,10 @@ def test_exact_bundle_uses_pinned_version_not_current_recommendation() -> None:
     identity = ConfigIdentity("device", "wtg001")
     repo.get_version_identity.return_value = identity
     repo.get_version_closure_snapshot.return_value = (7, ({"version_id": "historical-sha"},))
-    output = SimpleNamespace(
-        relative_path="device.yaml",
-        version_id="historical-sha",
-        yaml_bytes=b"historical-content",
-    )
+    output = _output("historical-sha", "device.yaml", b"historical-content")
     app._restore = Mock(return_value=output)
     assert app.get_exact_bundle(((identity, "historical-sha"),)) == (output,)
-    repo.get_version_closure_snapshot.assert_called_once_with(
-        ["historical-sha"], max_versions=16
-    )
+    repo.get_version_closure_snapshot.assert_called_once_with(["historical-sha"], max_versions=16)
     repo.get_bundle_versions.assert_not_called()
 
 
@@ -65,6 +75,7 @@ def test_exact_bundle_rejects_incomplete_or_duplicate_closure(
 def test_exact_bundle_rejects_duplicate_version_roots() -> None:
     app, repo = _application()
     identity = ConfigIdentity("device", "wtg001")
+    repo.get_version_identity.return_value = identity
     with pytest.raises(ValueError, match="distinct version IDs"):
         app.get_exact_bundle(((identity, "same-sha"), (identity, "same-sha")))
     repo.get_version_closure_snapshot.assert_not_called()
@@ -77,19 +88,13 @@ def test_exact_bundle_allows_multiple_versions_of_one_identity() -> None:
     records = ({"version_id": "sha-a"}, {"version_id": "sha-b"})
     repo.get_version_closure_snapshot.return_value = (7, records)
     outputs = {
-        "sha-a": SimpleNamespace(
-            relative_path="a.yaml", version_id="sha-a", yaml_bytes=b"a"
-        ),
-        "sha-b": SimpleNamespace(
-            relative_path="b.yaml", version_id="sha-b", yaml_bytes=b"b"
-        ),
+        "sha-a": _output("sha-a", "a.yaml", b"a"),
+        "sha-b": _output("sha-b", "b.yaml", b"b"),
     }
     app._restore = Mock(side_effect=lambda record, revision_id: outputs[record["version_id"]])
     roots = ((identity, "sha-a"), (identity, "sha-b"))
     assert app.get_exact_bundle(roots) == (outputs["sha-a"], outputs["sha-b"])
-    repo.get_version_closure_snapshot.assert_called_once_with(
-        ["sha-a", "sha-b"], max_versions=16
-    )
+    repo.get_version_closure_snapshot.assert_called_once_with(["sha-a", "sha-b"], max_versions=16)
 
 
 @pytest.mark.parametrize("roots", [(), ((ConfigIdentity("device", "a"), ""),)])

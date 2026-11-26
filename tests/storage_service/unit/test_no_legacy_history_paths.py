@@ -12,7 +12,7 @@ from storage_service.infrastructure.adapters.inbound.grpc_server import StorageS
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "request",
+    "rpc_request",
     [
         pb.QueryAggregatesRequest(),
         pb.QueryAggregatesRequest(filter=pb.StorageFilter(wind_farm_id="farm-a")),
@@ -23,20 +23,18 @@ from storage_service.infrastructure.adapters.inbound.grpc_server import StorageS
     ],
 )
 async def test_aggregate_rejects_narrow_or_ambiguous_filter(
-    request: pb.QueryAggregatesRequest,
+    rpc_request: pb.QueryAggregatesRequest,
 ) -> None:
     auth = Mock()
     servicer = SimpleNamespace(_auth=auth)
     with pytest.raises(QueryRejectedError, match="exact device filter"):
-        await StorageServicer.QueryAggregates.__wrapped__(
-            servicer, request, Mock()
-        )
+        await StorageServicer.QueryAggregates.__wrapped__(servicer, rpc_request, Mock())
     auth.require.assert_not_called()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "request",
+    "rpc_request",
     [
         pb.CreateExportRequest(request_id="job-1"),
         pb.CreateExportRequest(
@@ -51,15 +49,13 @@ async def test_aggregate_rejects_narrow_or_ambiguous_filter(
     ],
 )
 async def test_export_rejects_narrow_or_ambiguous_filter(
-    request: pb.CreateExportRequest,
+    rpc_request: pb.CreateExportRequest,
 ) -> None:
     auth = Mock()
     jobs = Mock()
     servicer = SimpleNamespace(_auth=auth, _jobs=jobs)
     with pytest.raises(QueryRejectedError, match="exact device filter"):
-        await StorageServicer.CreateExport.__wrapped__(
-            servicer, request, Mock()
-        )
+        await StorageServicer.CreateExport.__wrapped__(servicer, rpc_request, Mock())
     auth.require.assert_not_called()
     jobs.create_export.assert_not_called()
     jobs.create_wide_export.assert_not_called()
@@ -98,19 +94,19 @@ def test_config_resolver_does_not_offer_point_sample_compatibility() -> None:
 
 
 def test_production_storage_contains_no_point_history_implementation() -> None:
-    from pathlib import Path
     import re
+    from pathlib import Path
 
     src = Path(__file__).resolve().parents[3] / "src" / "storage_service"
     forbidden = (
-        re.compile(r"\\bStorageSample\\b"),
-        re.compile(r"\\bHistoryQueryService\\b"),
-        re.compile(r"\\bQuerySamples\\b"),
-        re.compile(r"\\bfetch_content_hashes\\b"),
-        re.compile(r"\\bensure_tables\\b"),
-        re.compile(r"\\binsert_batch\\b"),
-        re.compile(r"\\bIngestionService\\b"),
-        re.compile(r"storage_service\\.domain\\.sample"),
+        re.compile(r"\bStorageSample\b"),
+        re.compile(r"\bHistoryQueryService\b"),
+        re.compile(r"\bQuerySamples\b"),
+        re.compile(r"\bfetch_content_hashes\b"),
+        re.compile(r"\bensure_tables\b"),
+        re.compile(r"\binsert_batch\b"),
+        re.compile(r"\bIngestionService\b"),
+        re.compile(r"storage_service\.domain\.sample"),
     )
     offenders = [
         path.relative_to(src).as_posix()

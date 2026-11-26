@@ -76,6 +76,9 @@ async def _drive(publisher: CollectorPublisher, devices: int, cycles: int, point
                     device_type="wtg",
                     point_table_id="point_table_modbus_wtg_sim_v1.0.0",
                     task_id="task-load",
+                    device_config_id="device_wtg_sim_v1.0.0",
+                    sample_time=samples[0].timestamp,
+                    expected_point_ids=tuple(sample.point_id for sample in samples),
                 )
                 for device in range(devices)
             )

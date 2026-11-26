@@ -99,6 +99,8 @@ def make_system_batch(
         device_type="wtg",
         device_id=device_id,
         point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+        device_config_id="device_farm-a_v1.0.0",
+        sample_time=sample_time,
         publish_time=now,
         samples=samples,
     )

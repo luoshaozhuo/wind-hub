@@ -30,7 +30,17 @@ _SERVICES = tuple(
 def test_shared_source_selection_is_exact_and_versioned(service_name: str) -> None:
     path = _CONFIGS / "services" / service_name
     service = read_yaml(path)
-    assert service["schema_version"] in {1, 2, 3}
+    expected_versions = {
+        "service_collector-realtime_v2.0.0.yaml": 6,
+        "service_collector-reliable_v2.0.0.yaml": 6,
+        "service_sink-west_v2.0.0.yaml": 6,
+        "service_storage-main_v2.0.0.yaml": 6,
+        "service_commander_v1.5.0.yaml": 3,
+        "service_gateway_v1.3.0.yaml": 3,
+        "service_data-generator_v1.2.0.yaml": 2,
+        "service_cli_v1.4.0.yaml": 1,
+    }
+    assert service["schema_version"] == expected_versions[service_name]
     assert service["service_id"]
     sources = service["config_sources"]
     assert set(sources) == {"instances"}

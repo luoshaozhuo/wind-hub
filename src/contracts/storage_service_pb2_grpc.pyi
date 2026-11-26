@@ -31,8 +31,8 @@ class StorageServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> StorageServiceAsyncStub: ...
-    QuerySamples: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]
     QueryWideRows: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QueryWideRowsRequest, _storage_service_pb2.QueryWideRowsResponse]
+    QuerySamples: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]
     QueryAggregates: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.QueryAggregatesRequest, _storage_service_pb2.QueryAggregatesResponse]
     CreateExport: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.CreateExportRequest, _storage_service_pb2.StorageTask]
     GetExportTask: _grpc.UnaryUnaryMultiCallable[_storage_service_pb2.GetStorageTaskRequest, _storage_service_pb2.StorageTask]
@@ -45,8 +45,8 @@ class StorageServiceStub:
 @_typing.type_check_only
 class StorageServiceAsyncStub(StorageServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
-    QuerySamples: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]  # type: ignore[assignment]
     QueryWideRows: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QueryWideRowsRequest, _storage_service_pb2.QueryWideRowsResponse]  # type: ignore[assignment]
+    QuerySamples: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QuerySamplesRequest, _storage_service_pb2.QuerySamplesResponse]  # type: ignore[assignment]
     QueryAggregates: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.QueryAggregatesRequest, _storage_service_pb2.QueryAggregatesResponse]  # type: ignore[assignment]
     CreateExport: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.CreateExportRequest, _storage_service_pb2.StorageTask]  # type: ignore[assignment]
     GetExportTask: _aio.UnaryUnaryMultiCallable[_storage_service_pb2.GetStorageTaskRequest, _storage_service_pb2.StorageTask]  # type: ignore[assignment]

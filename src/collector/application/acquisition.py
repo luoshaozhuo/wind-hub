@@ -7,9 +7,9 @@ import contextlib
 import inspect
 import logging
 import time
-from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from core.application import (
@@ -163,10 +163,15 @@ class DeviceWorker:
             except Exception as exc:
                 # A failed read is BAD, distinct from a point never acquired.
                 # Emit one complete failed logical device cycle before recovery.
+                cycle_time = datetime.now(UTC)
+                point_ids = tuple(
+                    point.point_id
+                    for point in self.plan.point_table.points.values()
+                    if point.access in (PointAccess.READ, PointAccess.READ_WRITE)
+                )
                 failed = tuple(
                     ProtocolSample(
-                        point_id=point_id, value=None,
-                        timestamp=cycle_time, quality=Quality.BAD
+                        point_id=point_id, value=None, timestamp=cycle_time, quality=Quality.BAD
                     )
                     for point_id in point_ids
                 )

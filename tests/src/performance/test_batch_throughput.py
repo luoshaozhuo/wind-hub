@@ -1,4 +1,4 @@
-"""SampleBatch v2 批量编解码与发布管线吞吐/延迟基线（无外部服务）。
+"""SampleBatch v4 批量编解码与发布管线吞吐/延迟基线（无外部服务）。
 
 按 testing.md §6：无正式 SLA 时只建立 baseline，报告实测环境、轮次、吞吐量
 与延迟分位数，不虚构生产阈值。Fake NATS 仅隔离 socket I/O；计时覆盖真实
@@ -86,7 +86,16 @@ def test_batch_encode_decode_throughput_baseline(
     decode_latency_ms: list[float] = []
     started = time.perf_counter()
     for i in range(batches):
-        batch = builder.pack(f"wtg-{i % 30:02d}", samples)
+        batch = builder.pack(
+            f"wtg-{i % 30:02d}",
+            samples,
+            device_type="wtg",
+            point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+            task_id="task-load",
+            device_config_id="device_wtg_sim_v1.0.0",
+            sample_time=samples[0].timestamp,
+            expected_point_ids=tuple(sample.point_id for sample in samples),
+        )
         assert len(batch) == 1
         t0 = time.perf_counter()
         payload = batch[0].encode()
@@ -149,6 +158,9 @@ async def test_publisher_pipeline_throughput_with_fake_transport(
             device_type="wtg",
             point_table_id="point_table_modbus_wtg_sim_v1.0.0",
             task_id="task-load",
+            device_config_id="device_wtg_sim_v1.0.0",
+            sample_time=samples[0].timestamp,
+            expected_point_ids=tuple(sample.point_id for sample in samples),
         )
     # 确定性完成条件：先等到全部批次真正送达传输层，再 stop()。stop() 内的
     # queue.join() 只有 2s 生产保护超时，负载竞争下直接 stop 会把未排空批次

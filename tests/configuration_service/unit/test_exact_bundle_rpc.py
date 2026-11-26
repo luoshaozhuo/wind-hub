@@ -13,9 +13,9 @@ from configuration_service.infrastructure.adapters.inbound.grpc.repository_serve
 from contracts import configuration_repository_pb2 as pb
 
 
-def _invoke(request: pb.GetConfigBundleRequest, app: Mock) -> pb.GetConfigBundleResponse:
+def _invoke(rpc_request: pb.GetConfigBundleRequest, app: Mock) -> pb.GetConfigBundleResponse:
     servicer = SimpleNamespace(app=app, _actor=Mock(return_value="query-caller"))
-    return RepositoryServicer.GetConfigBundle.__wrapped__(servicer, request, Mock())
+    return RepositoryServicer.GetConfigBundle.__wrapped__(servicer, rpc_request, Mock())
 
 
 def _root(*, version: str = "", file_version: str = "", sha: str = "") -> pb.ConfigVersionRef:
@@ -44,23 +44,21 @@ def _document() -> DocumentOutput:
 
 
 @pytest.mark.parametrize(
-    "request",
+    "rpc_request",
     [
         pb.GetConfigBundleRequest(exact_roots=[_root(version="fixed-version")]),
         pb.GetConfigBundleRequest(
             exact_roots=[_root(version="fixed-version")], include_dependencies=False
         ),
-        pb.GetConfigBundleRequest(
-            exact_roots=[_root()], include_dependencies=True
-        ),
+        pb.GetConfigBundleRequest(exact_roots=[_root()], include_dependencies=True),
     ],
 )
 def test_exact_bundle_requires_explicit_closure_and_selector(
-    request: pb.GetConfigBundleRequest,
+    rpc_request: pb.GetConfigBundleRequest,
 ) -> None:
     app = Mock()
     with pytest.raises(ValueError):
-        _invoke(request, app)
+        _invoke(rpc_request, app)
     app.get_exact_bundle_snapshot.assert_not_called()
 
 
@@ -95,7 +93,9 @@ def test_exact_bundle_accepts_fixed_file_version_and_validates_digest() -> None:
     ],
 )
 def test_exact_bundle_rejects_inconsistent_pins(
-    version: str, sha: str, message: str,
+    version: str,
+    sha: str,
+    message: str,
 ) -> None:
     app = Mock()
     app.repository.resolve_version.return_value = "fixed-version"
@@ -103,9 +103,7 @@ def test_exact_bundle_rejects_inconsistent_pins(
     with pytest.raises(RepositoryConflictError, match=message):
         _invoke(
             pb.GetConfigBundleRequest(
-                exact_roots=[
-                    _root(version=version, file_version="1.2.3", sha=sha)
-                ],
+                exact_roots=[_root(version=version, file_version="1.2.3", sha=sha)],
                 include_dependencies=True,
             ),
             app,

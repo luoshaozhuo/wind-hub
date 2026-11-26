@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Protocol
 
+from storage_service.domain.errors import HistoryReplayUnavailableError
 from storage_service.domain.quality_bitmap import PointQuality
 from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import WideSchema
@@ -33,30 +34,29 @@ class WideHistoryFilter:
 
     def validate(self, schema: WideSchema, *, maximum: int) -> None:
         if (
-            not self.wind_farm_id or not self.device_id or not self.device_config_id
+            not self.wind_farm_id
+            or not self.device_id
+            or not self.device_config_id
             or self.data_level != schema.data_level
         ):
             raise ValueError("wide query requires an exact device version and data level")
         if (
-            type(self.start_time_us) is not int or type(self.end_time_us) is not int
+            type(self.start_time_us) is not int
+            or type(self.end_time_us) is not int
             or self.start_time_us >= self.end_time_us
         ):
             raise ValueError("wide query time range must be nonempty")
         if type(self.limit) is not int or not 1 <= self.limit <= maximum:
             raise ValueError("wide query limit exceeds configured maximum")
-        if (
-            self.after_time_us is not None
-            and (type(self.after_time_us) is not int or self.after_time_us < self.start_time_us)
+        if self.after_time_us is not None and (
+            type(self.after_time_us) is not int or self.after_time_us < self.start_time_us
         ):
             raise ValueError("wide query pagination cursor is invalid")
         if self.qualities:
             if len(self.point_ids) != 1:
-                raise ValueError(
-                    "quality filtering requires exactly one selected physical point"
-                )
-            if (
-                len(set(self.qualities)) != len(self.qualities)
-                or any(type(q) is not int or not 0 <= q <= 3 for q in self.qualities)
+                raise ValueError("quality filtering requires exactly one selected physical point")
+            if len(set(self.qualities)) != len(self.qualities) or any(
+                type(q) is not int or not 0 <= q <= 3 for q in self.qualities
             ):
                 raise ValueError("quality filter contains invalid two-bit states")
         actual = {column.point_id for column in schema.columns}
@@ -71,6 +71,7 @@ class WideHistoryRow:
     sample_time_us: int
     points: tuple[tuple[str, object, PointQuality], ...]
 
+
 @dataclass(frozen=True, slots=True)
 class WideHistoryPage:
     rows: tuple[WideHistoryRow, ...]
@@ -81,12 +82,18 @@ class WideHistoryPage:
 
 class WideQueryBackend(Protocol):
     async def verify_existing_wide_table(
-        self, schema: WideSchema, *,
-        wind_farm_id: str, device_id: str, device_type: str,
+        self,
+        schema: WideSchema,
+        *,
+        wind_farm_id: str,
+        device_id: str,
+        device_type: str,
     ) -> None: ...
 
     async def fetch_wide_history(
-        self, schema: WideSchema, query: WideHistoryFilter,
+        self,
+        schema: WideSchema,
+        query: WideHistoryFilter,
     ) -> Sequence[WideHistoryRow]: ...
 
 
@@ -102,10 +109,16 @@ class WideCursorCodec:
     @staticmethod
     def _identity(filter_: WideHistoryFilter, schema: WideSchema) -> str:
         fields = (
-            filter_.wind_farm_id, filter_.device_id,
-            filter_.device_config_id, filter_.data_level.value,
-            filter_.start_time_us, filter_.end_time_us,
-            filter_.point_ids, filter_.qualities, filter_.limit, schema.fingerprint,
+            filter_.wind_farm_id,
+            filter_.device_id,
+            filter_.device_config_id,
+            filter_.data_level.value,
+            filter_.start_time_us,
+            filter_.end_time_us,
+            filter_.point_ids,
+            filter_.qualities,
+            filter_.limit,
+            schema.fingerprint,
         )
         return hashlib.sha256(
             json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -133,7 +146,8 @@ class WideCursorCodec:
                 "horizon": horizon_us,
                 "expires": int(time.time()) + self._ttl,
             },
-            sort_keys=True, separators=(",", ":"),
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode("utf-8")
         return base64.urlsafe_b64encode(hmac.digest(self._key, raw, "sha256") + raw).decode()
 
@@ -154,7 +168,8 @@ class WideCursorCodec:
                 raise ValueError("wide pagination signature is invalid")
             payload = json.loads(raw)
             if (
-                not isinstance(payload, dict) or payload.get("v") != 1
+                not isinstance(payload, dict)
+                or payload.get("v") != 1
                 or payload.get("id") != self._identity(filter_, schema)
                 or type(payload.get("last")) is not int
                 or type(payload.get("horizon")) is not int
@@ -238,13 +253,11 @@ class WideHistoryQueryService:
                 filter_.point_ids, row.points, strict=True
             ):
                 if point_id != actual_id or (
-                    type(quality) not in (int, PointQuality)
-                    or not 0 <= int(quality) <= 3
+                    type(quality) not in (int, PointQuality) or not 0 <= int(quality) <= 3
                 ):
                     raise RuntimeError("wide backend returned invalid column or quality")
-                if (
-                    (int(quality) == int(PointQuality.NOT_COLLECTED) and value is not None)
-                    or (int(quality) == int(PointQuality.GOOD) and value is None)
+                if (int(quality) == int(PointQuality.NOT_COLLECTED) and value is not None) or (
+                    int(quality) == int(PointQuality.GOOD) and value is None
                 ):
                     raise RuntimeError("wide backend returned inconsistent NULL and quality")
 
@@ -288,14 +301,10 @@ class WideHistoryQueryService:
                         limit=limit,
                         after_time_us=cursor,
                     )
-                    rows = tuple(
-                        await self._backend.fetch_wide_history(schema, request)
-                    )
+                    rows = tuple(await self._backend.fetch_wide_history(schema, request))
                     if len(rows) > limit:
                         raise RuntimeError("wide quality scan exceeded fetch bound")
-                    self._validate_rows(
-                        rows, filter_=filter_, last=cursor, horizon=horizon
-                    )
+                    self._validate_rows(rows, filter_=filter_, last=cursor, horizon=horizon)
                     for row in rows:
                         scanned += 1
                         if int(row.points[0][2]) in filter_.qualities:
@@ -310,14 +319,13 @@ class WideHistoryQueryService:
                         complete = True
                         break
         if not self._read_available():
-            raise RuntimeError("Kafka replay changed during quality scan")
+            raise HistoryReplayUnavailableError("Kafka replay changed during quality scan")
         if not complete and not more and scanned == 10000:
             more = True
         token = (
-            self._codec.encode(
-                filter_, schema, last_us=cursor, horizon_us=horizon
-            )
-            if more and cursor is not None else ""
+            self._codec.encode(filter_, schema, last_us=cursor, horizon_us=horizon)
+            if more and cursor is not None
+            else ""
         )
         return WideHistoryPage(tuple(accepted), token, not more, schema.fingerprint)
 
@@ -330,15 +338,13 @@ class WideHistoryQueryService:
         page_token: str = "",
     ) -> WideHistoryPage:
         if not self._read_available():
-            raise RuntimeError("wide history is unavailable during Kafka replay")
+            raise HistoryReplayUnavailableError("wide history is unavailable during Kafka replay")
         filter_.validate(schema, maximum=self._max_page_size)
         if filter_.after_time_us is not None:
             raise ValueError("wide query cursor must be a signed page token")
         if not 0 <= filter_.start_time_us < filter_.end_time_us:
             raise ValueError("wide query requires positive UTC microsecond timestamps")
-        if filter_.end_time_us - filter_.start_time_us > (
-            self._max_range_days * 86_400_000_000
-        ):
+        if filter_.end_time_us - filter_.start_time_us > (self._max_range_days * 86_400_000_000):
             raise ValueError("wide query range exceeds configured maximum")
         last: int | None = None
         horizon = min(filter_.end_time_us, time.time_ns() // 1000)
@@ -348,8 +354,11 @@ class WideHistoryQueryService:
             return WideHistoryPage((), "", True, schema.fingerprint)
         if filter_.qualities:
             return await self._query_filtered(
-                schema=schema, filter_=filter_, device_type=device_type,
-                last=last, horizon=horizon,
+                schema=schema,
+                filter_=filter_,
+                device_type=device_type,
+                last=last,
+                horizon=horizon,
             )
         request = WideHistoryFilter(
             wind_farm_id=filter_.wind_farm_id,
@@ -370,21 +379,24 @@ class WideHistoryQueryService:
                     device_id=filter_.device_id,
                     device_type=device_type,
                 )
-                rows = tuple(
-                    await self._backend.fetch_wide_history(schema, request)
-                )
+                rows = tuple(await self._backend.fetch_wide_history(schema, request))
         if not self._read_available():
-            raise RuntimeError("Kafka replay changed while reading device-wide history")
+            raise HistoryReplayUnavailableError(
+                "Kafka replay changed while reading device-wide history"
+            )
         if len(rows) > request.limit:
             raise RuntimeError("wide backend returned rows beyond requested bound")
         self._validate_rows(rows, filter_=filter_, last=last, horizon=horizon)
         more = len(rows) > filter_.limit
-        included = rows[:filter_.limit]
+        included = rows[: filter_.limit]
         token = (
             self._codec.encode(
-                filter_, schema, last_us=included[-1].sample_time_us,
+                filter_,
+                schema,
+                last_us=included[-1].sample_time_us,
                 horizon_us=horizon,
             )
-            if more and included else ""
+            if more and included
+            else ""
         )
         return WideHistoryPage(included, token, not more, schema.fingerprint)

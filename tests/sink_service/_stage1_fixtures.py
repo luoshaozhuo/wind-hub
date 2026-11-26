@@ -36,7 +36,7 @@ _CONFIG_SOURCES = {
 }
 
 _BASE_SERVICE: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 6,
     "file_version": "1.0.0",
     "service_id": "sink-west",
     "wind_farm_id": "farm-a",
@@ -96,7 +96,7 @@ _BASE_SERVICE: dict[str, Any] = {
         "replay_max_inflight": 1,
         "replay_max_rate_per_second": 50,
         "replay_starvation_alarm_seconds": 300,
-        "dedup_key": "sample_id",
+        "dedup_key": "batch_id",
     },
     "metrics": {
         "metrics_compute_interval_ms": 1000,
@@ -145,7 +145,7 @@ _REDIS_TEMPLATE = {
 }
 
 _KAFKA_TEMPLATE = {
-    "schema_version": 1,
+    "schema_version": 2,
     "file_version": "1.0.0",
     "template_id": "kafka_history",
     "kind": "kafka",
@@ -159,9 +159,9 @@ _KAFKA_TEMPLATE = {
     "connection": {"bootstrap_servers": ["127.0.0.1:9092"]},
     "output": {
         "topic": "wh.history",
-        "key_field": "device_id",
+        "key_field": "wind_farm_device",
         "business_duplicate_policy": "allow_at_least_once",
-        "dedup_identity_fields": ["delivery_id", "sample_id"],
+        "dedup_identity_fields": ["wind_farm_id", "device_id", "data_level", "sample_time"],
         "enable_idempotence": True,
         "acks": "all",
         "write_timeout_ms": 5000,
