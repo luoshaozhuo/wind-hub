@@ -126,3 +126,36 @@ async def test_source_to_target_ten_turbine_realtime() -> None:
         encoding="utf-8",
     )
     assert not failures, failures
+
+
+
+@pytest.mark.asyncio
+async def test_source_to_target_static_device_contract() -> None:
+    """逐机核查状态、额定值、故障位在目标端的真实协议读回。"""
+    host = os.environ.get("DCEMS_MEASUREMENT_HOST", "127.0.0.1")
+    for index in range(10):
+        source = AsyncModbusTcpClient(host, port=15221 + index, timeout=3)
+        target = AsyncModbusTcpClient(host, port=15121 + index, timeout=3)
+        try:
+            assert await source.connect()
+            assert await target.connect()
+            for client in (source, target):
+                mode = await client.read_input_registers(6, count=2, device_id=1)
+                limit = await client.read_input_registers(12, count=2, device_id=1)
+                rpm = await client.read_input_registers(14, count=2, device_id=1)
+                pitch = await client.read_input_registers(16, count=2, device_id=1)
+                minimum = await client.read_input_registers(18, count=2, device_id=1)
+                fault = await client.read_discrete_inputs(1, count=1, device_id=1)
+                assert all(
+                    not result.isError()
+                    for result in (mode, limit, rpm, pitch, minimum, fault)
+                ), f"WTG{index + 1:02d}: static point read failed"
+                assert struct.unpack(">i", struct.pack(">HH", *mode.registers))[0] == 32
+                assert abs(_decode_float(limit.registers) - 2000.0) < 0.001
+                assert abs(_decode_float(rpm.registers) - 1500.0) < 0.001
+                assert abs(_decode_float(pitch.registers) - 5.0) < 0.001
+                assert abs(_decode_float(minimum.registers)) < 0.001
+                assert fault.bits[0] is False
+        finally:
+            source.close()
+            target.close()
