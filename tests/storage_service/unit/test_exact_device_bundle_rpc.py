@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from contracts import configuration_repository_pb2 as pb
-from storage_service.domain.errors import ConfigHistoryUnavailableError
+from storage_service.application.ingestion import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_grpc import (
     ConfigurationGrpcClient,
 )
