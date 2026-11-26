@@ -14,6 +14,11 @@ from tests.third_party.dc_ems.prepare_seed import load_mapping
 
 AREAS = {"0": "coil", "1": "discrete_input", "3": "input", "4": "holding"}
 TYPES = {"F": "float32", "I": "int32", "B": "bool"}
+AUXILIARY = {
+    "powAct": ("sim_plant_active_power", "1.3.2", 0.001, "watt"),
+    "powReact": ("sim_plant_reactive_power", "1.3.4", 0.001, "var"),
+    "isFreMode": ("primary_frequency_mode", "1.1.0", None, "none"),
+}
 
 
 def validate(
@@ -27,11 +32,24 @@ def validate(
         raise ValueError("Gateway point table must contain points mapping")
     aliases: dict[str, str] = {}
     names = {str(row["varPath"]) for row in seed["edgeaddrset"]}
-    if names != set(mapping):
+    auxiliary = names - set(mapping)
+    if auxiliary and auxiliary != set(AUXILIARY):
         raise ValueError(f"DCEMS mapping not closed: {sorted(names ^ set(mapping))}")
+    if not set(mapping) <= names:
+        raise ValueError(f"DCEMS mapping not closed: {sorted(names ^ set(mapping))}")
+    complete = dict(mapping)
+    for name in auxiliary:
+        business, address, _, _ = AUXILIARY[name]
+        complete[name] = {"business_point_id": business, "modbus_addr": address}
     for row in seed["edgeaddrset"]:
         name = str(row["varPath"])
-        target = mapping[name]
+        target = complete[name]
+        if name in auxiliary:
+            business, expected_address, scale, unit = AUXILIARY[name]
+            if row.get("addr") != expected_address or row.get("coe") != scale:
+                raise ValueError(f"{name}: invalid auxiliary DCEMS address or conversion")
+            if points[business].get("unit") != unit:
+                raise ValueError(f"{name}: Gateway physical unit mismatch")
         business = target["business_point_id"]
         if business not in points:
             raise ValueError(f"{name}: Gateway business point missing: {business}")
