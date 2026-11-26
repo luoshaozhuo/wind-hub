@@ -20,89 +20,129 @@ def _invoke(method: str, fields: dict[str, Any]) -> None:
     _run(f"storage {method}", task())
 
 
-@storage.command("wide-rows")
-def query_wide_rows(
+_LEVELS = {
+    "raw": "STORAGE_DATA_LEVEL_RAW",
+    "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
+    "business": "STORAGE_DATA_LEVEL_BUSINESS",
+}
+
+
+def _history_filter(
+    *,
     wind_farm_id: str,
-    device_id: str,
-    device_config_id: str,
+    start_time: str,
+    end_time: str,
+    level: str,
+    device_ids: list[str] | None,
+    device_type: str,
+    point_table_id: str,
+    point_ids: list[str] | None,
+    qualities: list[int] | None,
+    schema_fingerprint: str,
+) -> dict[str, Any]:
+    """Construct only the frozen v2 grouped-history filter fields."""
+    if level not in _LEVELS:
+        raise typer.BadParameter("level must be raw, protocol, or business")
+    if not all((wind_farm_id, start_time, end_time)):
+        raise typer.BadParameter("history requires farm and UTC time boundaries")
+    if qualities and (len(set(qualities)) != len(qualities) or any(
+        not 0 <= quality <= 3 for quality in qualities
+    )):
+        raise typer.BadParameter("quality must be one of 0, 1, 2, 3 without duplicates")
+    fields: dict[str, Any] = {
+        "wind_farm_id": wind_farm_id,
+        "device_type": device_type,
+        "device_ids": device_ids or [],
+        "point_table_id": point_table_id,
+        "data_level": _LEVELS[level],
+        "point_ids": point_ids or [],
+        "start_time": start_time,
+        "end_time": end_time,
+        "qualities": qualities or [],
+    }
+    if schema_fingerprint:
+        fields["schema_fingerprint"] = schema_fingerprint
+    return fields
+
+
+@storage.command("samples")
+def query_samples(
+    wind_farm_id: str,
     start_time: str,
     end_time: str,
     level: str = typer.Option(..., "--level"),
+    device_ids: list[str] | None = typer.Option(None, "--device-id"),
+    device_type: str = typer.Option("", "--device-type"),
+    point_table_id: str = typer.Option("", "--point-table-id"),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
     qualities: list[int] | None = typer.Option(None, "--quality"),
+    schema_fingerprint: str = typer.Option("", "--schema-fingerprint"),
     page_size: int = typer.Option(200, min=1, max=1000),
     page_token: str = "",
 ) -> None:
-    """Read one exact device/schema family as timestamped wide rows."""
-    levels = {
-        "raw": "STORAGE_DATA_LEVEL_RAW",
-        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
-        "business": "STORAGE_DATA_LEVEL_BUSINESS",
-    }
-    if level not in levels:
-        raise typer.BadParameter("level must be raw, protocol, or business")
-    if not all((wind_farm_id, device_id, device_config_id, start_time, end_time)):
-        raise typer.BadParameter("wide query requires complete device identity and UTC range")
+    """Query grouped device-wide rows across immutable physical schemas."""
     _invoke(
-        "QueryWideRows",
+        "QuerySamples",
         {
-            "wind_farm_id": wind_farm_id,
-            "device_id": device_id,
-            "device_config_id": device_config_id,
-            "data_level": levels[level],
-            "start_time": start_time,
-            "end_time": end_time,
-            "point_ids": point_ids or [],
-            "qualities": qualities or [],
+            "filter": _history_filter(
+                wind_farm_id=wind_farm_id,
+                start_time=start_time,
+                end_time=end_time,
+                level=level,
+                device_ids=device_ids,
+                device_type=device_type,
+                point_table_id=point_table_id,
+                point_ids=point_ids,
+                qualities=qualities,
+                schema_fingerprint=schema_fingerprint,
+            ),
             "page_size": page_size,
             "page_token": page_token,
         },
     )
 
 
-@storage.command("wide-aggregates")
-def query_wide_aggregates(
+@storage.command("aggregates")
+def query_aggregates(
     wind_farm_id: str,
-    device_id: str,
-    device_config_id: str,
     start_time: str,
     end_time: str,
     level: str = typer.Option(..., "--level"),
     operation: str = typer.Option("avg", "--operation"),
     window_ms: int = typer.Option(60000, min=1),
+    device_ids: list[str] | None = typer.Option(None, "--device-id"),
+    device_type: str = typer.Option("", "--device-type"),
+    point_table_id: str = typer.Option("", "--point-table-id"),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
     qualities: list[int] | None = typer.Option(None, "--quality"),
+    schema_fingerprint: str = typer.Option("", "--schema-fingerprint"),
     page_size: int = typer.Option(200, min=1, max=1000),
     page_token: str = "",
 ) -> None:
-    """Aggregate one immutable wide device/schema family with precise integer results."""
-    levels = {
-        "raw": "STORAGE_DATA_LEVEL_RAW",
-        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
-        "business": "STORAGE_DATA_LEVEL_BUSINESS",
-    }
+    """Aggregate independently by device, immutable schema and time window."""
     operations = {
         "count": "STORAGE_AGGREGATION_COUNT",
         "min": "STORAGE_AGGREGATION_MIN",
         "max": "STORAGE_AGGREGATION_MAX",
         "avg": "STORAGE_AGGREGATION_AVG",
     }
-    if level not in levels or operation not in operations:
-        raise typer.BadParameter("invalid data_level or aggregation operation")
+    if operation not in operations:
+        raise typer.BadParameter("operation must be count, min, max, or avg")
     _invoke(
         "QueryAggregates",
         {
-            "wide_filter": {
-                "wind_farm_id": wind_farm_id,
-                "device_id": device_id,
-                "device_config_id": device_config_id,
-                "data_level": levels[level],
-                "start_time": start_time,
-                "end_time": end_time,
-                "point_ids": point_ids or [],
-                "qualities": qualities or [],
-                "page_size": min(page_size, 200),
-            },
+            "filter": _history_filter(
+                wind_farm_id=wind_farm_id,
+                start_time=start_time,
+                end_time=end_time,
+                level=level,
+                device_ids=device_ids,
+                device_type=device_type,
+                point_table_id=point_table_id,
+                point_ids=point_ids,
+                qualities=qualities,
+                schema_fingerprint=schema_fingerprint,
+            ),
             "aggregation": operations[operation],
             "window_ms": window_ms,
             "page_size": page_size,
@@ -111,46 +151,41 @@ def query_wide_aggregates(
     )
 
 
-@storage.command("wide-export")
-def create_wide_export(
+@storage.command("export")
+def create_export(
     request_id: str,
     wind_farm_id: str,
-    device_id: str,
-    device_config_id: str,
     start_time: str,
     end_time: str,
     level: str = typer.Option(..., "--level"),
     export_format: str = typer.Option("csv", "--format"),
+    device_ids: list[str] | None = typer.Option(None, "--device-id"),
+    device_type: str = typer.Option("", "--device-type"),
+    point_table_id: str = typer.Option("", "--point-table-id"),
     point_ids: list[str] | None = typer.Option(None, "--point-id"),
     qualities: list[int] | None = typer.Option(None, "--quality"),
-    page_size: int = typer.Option(100, min=1, max=1000),
+    schema_fingerprint: str = typer.Option("", "--schema-fingerprint"),
 ) -> None:
-    """Create a durable version-scoped device-wide CSV/JSON export task."""
-    levels = {
-        "raw": "STORAGE_DATA_LEVEL_RAW",
-        "protocol": "STORAGE_DATA_LEVEL_PROTOCOL",
-        "business": "STORAGE_DATA_LEVEL_BUSINESS",
-    }
-    if level not in levels:
-        raise typer.BadParameter("invalid data_level")
+    """Create an authorized grouped wide-history CSV/JSON export."""
     if export_format not in {"csv", "json"}:
-        raise typer.BadParameter("wide export format must be csv or json")
+        raise typer.BadParameter("export format must be csv or json")
     _invoke(
         "CreateExport",
         {
             "request_id": request_id,
             "export_format": export_format,
-            "wide_filter": {
-                "wind_farm_id": wind_farm_id,
-                "device_id": device_id,
-                "device_config_id": device_config_id,
-                "data_level": levels[level],
-                "start_time": start_time,
-                "end_time": end_time,
-                "point_ids": point_ids or [],
-                "qualities": qualities or [],
-                "page_size": page_size,
-            },
+            "filter": _history_filter(
+                wind_farm_id=wind_farm_id,
+                start_time=start_time,
+                end_time=end_time,
+                level=level,
+                device_ids=device_ids,
+                device_type=device_type,
+                point_table_id=point_table_id,
+                point_ids=point_ids,
+                qualities=qualities,
+                schema_fingerprint=schema_fingerprint,
+            ),
         },
     )
 
