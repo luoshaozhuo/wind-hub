@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ImmutableConfigArchive,
     RepositoryDocument,
