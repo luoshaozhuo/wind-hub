@@ -31,7 +31,7 @@ mkdir -p run/dcems-smoke
 export DCEMS_LICENSE_CODE='<本机真实合法授权码>'
 python -m tests.third_party.dc_ems.prepare_seed \
     --seed third_party/dc-ems/app/server/data.json \
-    --mapping tests/third_party/dc_ems/config/mapping_random_smoke.csv \
+    --mapping tests/third_party/dc-ems/config/mapping_random_smoke.csv \
     --gateway-point-table run/dcems-smoke/configs/templates/point_tables/point_table_dcems_wtg_random_v1.0.0.yaml \
     --smoke-subset --with-auxiliary --device-count 10 \
     --output run/dcems-smoke/data.json \
