@@ -23,6 +23,7 @@ def test_dcems_historical_seed_missing_agc_frequency_inputs() -> None:
     assert status["plant_active_power"] == "MISSING_DEVICE_OR_POINT"
     assert status["plant_reactive_power"] == "MISSING_DEVICE_OR_POINT"
     assert status["pfr_mode"] == "MISSING_DEVICE_OR_POINT"
+    assert status["pfr_factory_mode"] == "DERIVED_INTERNAL"
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
     assert status["avc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
     assert status["avc_enabled"] == "INTERNAL_CONFIG"
@@ -41,7 +42,6 @@ def test_algorithm_input_is_not_proven_by_fake_same_named_edge_point() -> None:
     result = audit(document, contract)
     status = {item["id"]: item["status"] for item in result["records"]}
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
-
 
 
 def test_partial_device_binding_is_not_complete() -> None:

@@ -1,4 +1,11 @@
-"""核查 DCEMS AGC、AVC 与一次调频输入的真实工业协议绑定，不产生假阳性。"""
+"""核查 DCEMS AGC、AVC 与一次调频输入的真实工业协议绑定，不产生假阳性。
+
+状态含义：
+- BOUND：真实设备类型 + 边缘地址集测点同时存在；
+- DERIVED_INTERNAL：由设备 Getter 写入的全场内部量，不是独立协议入口；
+- INTERNAL_CONFIG：内部控制使能，不构成工业协议输入；
+- UNPROVEN_FACTORY_INPUT：无已证实的设备协议写入路径。
+"""
 
 from __future__ import annotations
 
@@ -41,6 +48,10 @@ def audit(seed: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
                 )
             )
             result = "BOUND" if bound else "MISSING_DEVICE_OR_POINT"
+        elif expected == "internal_derived":
+            # 设备 Getter 写入的内部量；它不提供独立的工业协议入口，
+            # 也不能用同名测点冒充。运行时传播由实时订阅测试单独判定。
+            result = "DERIVED_INTERNAL"
         elif expected == "internal_config":
             result = "INTERNAL_CONFIG"
         else:
@@ -55,7 +66,11 @@ def audit(seed: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
                 "expected": expected,
             }
         )
-    missing = [item["id"] for item in records if item["status"] not in {"BOUND", "INTERNAL_CONFIG"}]
+    missing = [
+        item["id"]
+        for item in records
+        if item["status"] not in {"BOUND", "INTERNAL_CONFIG", "DERIVED_INTERNAL"}
+    ]
     return {
         "records": records,
         "blocking_signals": missing,

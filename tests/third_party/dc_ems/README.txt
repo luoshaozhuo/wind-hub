@@ -140,12 +140,15 @@ python -m pytest -q tests/third_party/dc_ems/test_live_smoke.py
 
 验收内容：
 - 10 台风机各自在 FC04 风速寄存器有动态值；
+- 逐台按点表功能码/地址/类型/字序读取全部 9 个机侧业务点（首台另加站控 P/Q
+  与 FC02 调频模式），常量等于场景值、随机量落在区间且真实变化；
 - 首台 Gateway 的 FC04 站控 P/Q 与 FC02 调频模式存在；
 - Web 静态页面和 API 代理可达，WebSocket 返回 101；
 - 实际发送订阅报文并核实 DCEMS Server 对 10 台风机的数据有更新；
 - 并发读取 Gateway 与 WebSocket，逐台数值对账并检查 W/var→kW/kVar；
 - DCEMS SUBSTATION 和 PFR 模式的实际 WebSocket 数据存在；
 - Playwright Chromium 真实登录并逐行检查十机数值及各自持续刷新、站控 P/Q 和调频 false；
+- AVC 页面真实登录后基础导航可达，不点击任何控制确认控件；
 - 独立订阅 PFR_isFreMode 与 fp_emsIsFreMod，缺失或非 false 均判失败；
 - 不以页面 HTTP 200、WebSocket 101 或 Modbus ACK 冒充业务通过。
 
@@ -162,6 +165,8 @@ emsGridDispatchReact = AVC 无功目标（kVar）；
 emsFreDst = 一次调频目标功率（kW），不是 Hz 频率；
 emsDeltapValue = 一次调频增量功率（kW）。
 这几个 FactoryPoints 的工业协议生产者尚未核实。
+emsIsFreMod 相邻但不同：它由 PFR 设备 isFreMode 写入，不是独立协议入口，
+audit_external_signals.py 将其标记为 DERIVED_INTERNAL，运行时传播另行判定。
 种子派生要求三个自动控制使能配置分别存在且唯一，否则拒绝生成。
 因此初始种子中 emsActPowerEnable、emsReactPowerEnable、
 bFreCtrlEnableFlag 均为 false，不能验收 DCEMS 自动控制回写。

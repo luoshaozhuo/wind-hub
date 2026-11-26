@@ -10,14 +10,29 @@ import socket
 import struct
 import time
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import pytest
+import yaml
 from playwright.sync_api import Page, sync_playwright
 from pymodbus.client import AsyncModbusTcpClient
 
 from tests.third_party.dc_ems.websocket_observer import observe
+
+ROOT = Path(__file__).resolve().parents[3]
+POINT_TABLE = (
+    ROOT
+    / "tests"
+    / "third_party"
+    / "dc-ems"
+    / "config"
+    / "point_table_dcems_wtg_random_v1.0.0.yaml"
+)
+SCENARIO_FILE = (
+    ROOT / "tests" / "third_party" / "dc-ems" / "config" / "scenarios_dcems-smoke_v1.0.0.yaml"
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -144,6 +159,95 @@ def _has_rounded_match(samples: list[float], observed: set[str], scale: float) -
     )
 
 
+def _decode(data_type: str, registers: list[int]) -> float | int:
+    """只按点表声明的类型解码，错误字序会落到断言而非静默通过。"""
+    if data_type == "float32":
+        return _float32(registers)
+    if data_type == "int32":
+        return int(struct.unpack(">i", struct.pack(">HH", *registers))[0])
+    raise AssertionError(f"unsupported Modbus data type: {data_type}")
+
+
+async def _read_point(client: AsyncModbusTcpClient, spec: dict[str, Any]) -> float | int | bool:
+    """按真实点表的功能码、地址和字序读取单个业务点。"""
+    address = spec["address"]
+    if address["register_type"] == "discrete_input":
+        result = await client.read_discrete_inputs(
+            address["address"], count=address["count"], device_id=1
+        )
+        assert not result.isError(), f"discrete input read failed: {spec}"
+        return bool(result.bits[0])
+    result = await client.read_input_registers(
+        address["address"], count=address["count"], device_id=1
+    )
+    assert not result.isError(), f"input register read failed: {spec}"
+    return _decode(spec["data_type"], result.registers)
+
+
+def _load_point_contract() -> tuple[dict[str, Any], dict[str, Any]]:
+    table = yaml.safe_load(POINT_TABLE.read_text(encoding="utf-8"))
+    scenario = yaml.safe_load(SCENARIO_FILE.read_text(encoding="utf-8"))
+    return table["points"], scenario["scenarios"][0]
+
+
+def _assert_against_rule(name: str, values: list[float | int | bool], rule: dict[str, Any]) -> None:
+    """常量必须逐样本相等；随机量必须落在场景区间且真实变化。"""
+    if rule["distribution"] == "constant":
+        expected = rule["value"]
+        if isinstance(expected, bool):
+            assert all(value is expected for value in values), f"{name} constant mismatch: {values}"
+        else:
+            assert all(
+                abs(float(value) - float(expected)) <= 1e-6 for value in values
+            ), f"{name} constant mismatch: {values}"
+        return
+    minimum = float(rule["minimum"])
+    maximum = float(rule["maximum"])
+    numeric = [float(value) for value in values]
+    assert all(minimum <= value <= maximum for value in numeric), f"{name} out of range: {values}"
+    assert len(set(numeric)) >= 2, f"{name} frozen at Gateway: {values}"
+
+
+@pytest.mark.parametrize("device_index", range(10))
+@pytest.mark.asyncio
+async def test_gateway_ten_turbine_all_points_match_scenario_contract(device_index: int) -> None:
+    """逐台读取点表全部业务点，核对功能码、地址、类型、字序、常量与动态刷新。"""
+    table, scenario = _load_point_contract()
+    device_id = f"WTG{device_index + 1:02d}"
+    binding = next(row for row in scenario["gateways"] if row["device_id"] == device_id)
+    rules: dict[str, Any] = scenario["models"]["dcems-random"]["rules"]
+    names = sorted(binding["variable_mapping"])
+    assert set(names) <= set(table), f"point table lacks scenario points for {device_id}"
+    assert len(names) == (12 if device_index == 0 else 9), f"unexpected point set: {device_id}"
+
+    host = os.environ.get("DCEMS_GATEWAY_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_GATEWAY_PORT", "15221")) + device_index
+    client = AsyncModbusTcpClient(host, port=port, timeout=3)
+    samples: dict[str, list[float | int | bool]] = {name: [] for name in names}
+    assert await client.connect(), f"Gateway {device_id} Modbus TCP endpoint unavailable"
+    try:
+        for _ in range(6):
+            for name in names:
+                samples[name].append(await _read_point(client, table[name]))
+            await asyncio.sleep(0.5)
+    finally:
+        client.close()
+
+    evidence_dir = Path(os.environ.get("DCEMS_EVIDENCE_DIR", "run/dcems-smoke/evidence"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / f"gateway-points-{device_id}.json").write_text(
+        json.dumps(
+            {"device_id": device_id, "samples": samples, "rules": rules},
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+    for name, values in samples.items():
+        _assert_against_rule(name, values, rules[name])
+
+
 @pytest.mark.asyncio
 async def test_gateway_and_dcems_numeric_reconciliation() -> None:
     """并发采样真实协议与 Server 推送，逐机防串台并核对站控工程单位。"""
@@ -259,35 +363,53 @@ def test_browser_ten_turbines_are_numeric_and_refresh() -> None:
             device_ids = [f"WTG{index:02d}" for index in range(1, 11)]
             samples: dict[str, list[float]] = {device_id: [] for device_id in device_ids}
             rows: dict[str, str] = {}
+            rounds: list[dict[str, float]] = []
+            ambiguous: list[str] = []
             deadline = time.monotonic() + 20.0
             while time.monotonic() < deadline:
+                current: dict[str, float] = {}
                 for device_id in device_ids:
                     row = page.locator(".el-table__body-wrapper tr").filter(
                         has=page.get_by_text(device_id, exact=True)
                     )
-                    if row.count() != 1:
+                    count = row.count()
+                    if count > 1:
+                        if device_id not in ambiguous:
+                            ambiguous.append(device_id)
+                        continue
+                    if count == 0:
                         continue
                     rows[device_id] = row.inner_text(timeout=1000)
                     match = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", rows[device_id])
                     if match:
-                        samples[device_id].append(float(match.group(1)))
+                        value = float(match.group(1))
+                        samples[device_id].append(value)
+                        current[device_id] = value
+                if len(current) == len(device_ids):
+                    rounds.append(current)
                 if all(len(set(values)) >= 2 for values in samples.values()):
                     break
                 page.wait_for_timeout(500)
             page.screenshot(path=str(evidence_dir / "browser-ten-turbines.png"), full_page=True)
             (evidence_dir / "browser-ten-turbines.json").write_text(
                 json.dumps(
-                    {"last_rows": rows, "wind_speed_samples": samples},
+                    {
+                        "last_rows": rows,
+                        "wind_speed_samples": samples,
+                        "row_distinct_values": rounds,
+                    },
                     ensure_ascii=False,
                     indent=2,
                 ),
                 encoding="utf-8",
             )
             missing = [device_id for device_id, values in samples.items() if not values]
-            frozen = [
-                device_id for device_id, values in samples.items() if len(set(values)) == 1
-            ]
+            frozen = [device_id for device_id, values in samples.items() if len(set(values)) == 1]
+            assert not ambiguous, f"ambiguous device rows: {ambiguous}"
             assert not missing and not frozen, f"missing={missing}, frozen={frozen}"
+            # 历史 Web 缺陷会把所有行解析成首台设备；逐轮核对同屏数值不能全部相同。
+            distinct = sorted(len(set(row.values())) for row in rounds)
+            assert distinct and distinct[-1] >= 6, f"rows look cross-wired: {distinct}"
         finally:
             browser.close()
 
@@ -323,6 +445,32 @@ def test_browser_station_power_is_visible_and_refreshes() -> None:
                 assert refreshed.group(1) != initial.group(
                     1
                 ), f"browser station value frozen: {label}"
+        finally:
+            browser.close()
+
+
+def test_browser_avc_page_is_navigable_without_control_action() -> None:
+    """真实登录后的 AVC 页面基础导航验收；不点击任何控制确认控件。"""
+    host = os.environ.get("DCEMS_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
+    evidence_dir = (
+        Path(os.environ.get("DCEMS_EVIDENCE_DIR", "run/dcems-smoke/evidence")) / "browser"
+    )
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1920, "height": 1080})
+            page.goto(f"http://{host}:{port}/dc-ems/#/login", wait_until="networkidle")
+            _login(page)
+            page.goto(f"http://{host}:{port}/dc-ems/#/AVC/index")
+            page.wait_for_timeout(4000)
+            text = page.locator("body").inner_text()
+            page.screenshot(path=str(evidence_dir / "browser-avc-page.png"), full_page=True)
+            (evidence_dir / "browser-avc-page.txt").write_text(text, encoding="utf-8")
+            assert "#/AVC/index" in page.url, f"AVC navigation failed: {page.url}"
+            assert "AVC" in text, "AVC page did not render its menu label"
+            assert len(text.strip()) > 200, "AVC page rendered an empty document"
         finally:
             browser.close()
 

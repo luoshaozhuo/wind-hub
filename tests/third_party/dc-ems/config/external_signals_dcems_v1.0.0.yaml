@@ -34,6 +34,14 @@ required_signals:
     unit: none
     industrial_source: confirmed
     first_stage: true
+  - id: pfr_factory_mode
+    dcems_device_type: derived
+    dcems_field: emsIsFreMod
+    derived_from: pfr_mode
+    semantics: "一次调频全场模式，由设备 isFreMode 写入，不是独立工业协议入口"
+    unit: none
+    industrial_source: internal_derived
+    first_stage: true
   - id: agc_grid_target
     dcems_device_type: factory
     dcems_field: emsGridDispatchAct
