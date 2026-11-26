@@ -217,7 +217,8 @@ async def export_grouped_wide_history(
                                         allow_nan=False,
                                     )
                                 )
-                                if _synchronize(json_file) > max_bytes:
+                                json_file.flush()
+                                if os.fstat(json_file.fileno()).st_size > max_bytes:
                                     raise WideExportQuotaExceededError("grouped JSON quota exceeded")
                             else:
                                 if csv_file is None:
