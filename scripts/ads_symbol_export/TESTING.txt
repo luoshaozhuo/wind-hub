@@ -73,7 +73,9 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
   test_empty_runtime_table                         合法空表 full/chunk/auto 成功，
                                                    无符号数据请求、无回退
   test_inconsistent_empty_runtime_table            count/total 不一致失败保旧文件
-  所有 file 成功场景验证纯名称输出，CLI 日志保留来源、路径及验证等级。
+  test_cli_empty_runtime_table[full/auto]          空表 CLI 退出 0、零字节输出
+  所有 file 成功场景验证纯名称输出、单次连接、无 ReadState 请求，
+  CLI 日志保留 source/remote/verification/runtime_count。
 
 验收要求：上述测试全部 PASSED，0 failed、0 errors、0 skipped。
 端口不可用直接导致测试失败；skip 不能计为集成测试通过。
@@ -86,7 +88,8 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
 覆盖：合法/非法/缺失/未知配置字段、非法配置不建立连接、UTF-8 与 CP1252
 符号名、跨 Chunk 记录解析、长度与声明数量一致性、连接失败/重连/资源所有权、
 FREAD 短读/EOF/中途错误/无效句柄、文件大小上限边界、原子替换与失败保护、
-显式模式隔离、自动回退顺序、文件来源验证等级。
+显式模式隔离、自动回退顺序、文件来源验证等级、Runtime 与文件来源输出字节
+一致性（无标题/BOM）。
 
 7. 全部测试（串行）
   python -m pytest tests -v -rs --junitxml=test-results/all.xml
@@ -131,7 +134,13 @@ CLI 子进程场景由上节集成测试覆盖：四种模式均通过独立进�
   python -m pytest tests -q -rs
 复制后的目录不得依赖仓库根、src/ 或其他 wind-hub 模块。
 
-11. 现场 PLC 验证（独立于模拟测试）
+11. 已接受的能力限制
+TC3 默认 TMC 搜索路径（Boot\Plc、Boot）属于启发式路径，实际固件布局可能
+不同；保留 TPY_SEARCH_PATHS 配置入口指定真实路径。
+整表读取受 ADS 服务端及 AdsLib 单次请求能力限制；显式 full 失败会明确报告，
+auto 模式下可回退到分段。测试服务通过不代表所有真实 PLC 固件支持上述行为。
+
+12. 现场 PLC 验证（独立于模拟测试）
 模拟服务通过不代表所有 TwinCAT 固件都支持非零 IndexOffset 或文件服务。
 现场先确认目标 IP、AMS Net ID、端口及路由，经设备负责人许可后测试；
 整表读取可能导致部分 PLC 内存不足，优先评估风险。

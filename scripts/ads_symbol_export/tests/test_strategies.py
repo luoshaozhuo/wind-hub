@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from ads_export import file_service, runtime
-from ads_export.config import Settings
+from ads_export.config import Settings, load_config
 from ads_export.strategies import StrategyOutcome, export_symbols
 
 
@@ -174,8 +174,9 @@ def test_file_service_reads_tpy(
     outcome = [o for o in outcomes if o.name == "ads-file"][0]
     assert outcome.ok and outcome.source == "file"
     assert outcome.verification == "count_matched"  # 数量一致，不声称内容一致
-    # 所有打开的连接与远端句柄均释放
-    assert conns and all(c.conn_closed for c in conns)
+    # 只建立一个文件服务连接（无冗余探测连接），且所有连接与远端句柄均释放
+    assert len(conns) == 1
+    assert all(c.conn_closed for c in conns)
     used = [c for c in conns if c.handles or c.closed_handles]
     assert used and not used[0].handles and used[0].closed_handles
 
@@ -404,7 +405,10 @@ def test_read_method_full_only(
     )
     file_factory = MagicMock(side_effect=AssertionError("unexpected file"))
     result = export_symbols(
-        plc, tmp_path / "symbols.txt", read_method="full", settings=settings,
+        plc,
+        tmp_path / "symbols.txt",
+        read_method="full",
+        settings=settings,
         file_service_factory=file_factory,
     )
     file_factory.assert_not_called()
@@ -424,9 +428,13 @@ def test_read_method_chunk_only(
     settings.CHUNK_SIZES = (64,)
     assert (
         export_symbols(
-            plc, tmp_path / "symbols.txt", read_method="chunk", settings=settings,
+            plc,
+            tmp_path / "symbols.txt",
+            read_method="chunk",
+            settings=settings,
             file_service_factory=file_factory,
-        ) == 2
+        )
+        == 2
     )
     file_factory.assert_not_called()
 
@@ -454,7 +462,10 @@ def test_read_method_full_failure_does_not_fallback(
     monkeypatch.setattr(runtime, "_export_in_chunks", chunk)
     with pytest.raises(RuntimeError, match="指定 full 方法读取失败"):
         export_symbols(
-            object(), tmp_path / "symbols.txt", read_method="full", settings=settings,
+            object(),
+            tmp_path / "symbols.txt",
+            read_method="full",
+            settings=settings,
             file_service_factory=file_factory,
         )
     chunk.assert_not_called()
@@ -533,3 +544,47 @@ def test_fread_request_observes_read_chunk(
     ) == len(names)
     reader = next(c for c in conns if c.read_calls)
     assert reader.max_read_size <= settings.FILE_READ_CHUNK
+
+
+@pytest.mark.parametrize(
+    ("runtime_method", "try_full_first"),
+    [("full", True), ("chunk", False), ("auto", True), ("auto", False)],
+)
+def test_output_bytes_identical_between_runtime_and_file(
+    settings: Settings,
+    fake_ads: types.ModuleType,
+    tmp_path: Path,
+    runtime_method: str,
+    try_full_first: bool,
+) -> None:
+    """相同名称与顺序时，Runtime 与文件来源输出字节完全一致且无 BOM/标题。"""
+    names = ["MAIN.temperature", "GVL.状态"]
+    payload = b"".join(_entry(name) for name in names)
+    expected = ("".join(name + "\n" for name in names)).encode("utf-8")
+    config = Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml"
+
+    runtime_settings = load_config(config)
+    runtime_settings.READ_METHOD = runtime_method
+    runtime_settings.TRY_FULL_TABLE_FIRST = try_full_first
+    runtime_settings.CHUNK_SIZES = (64,)
+    runtime_output = tmp_path / f"runtime-{runtime_method}-{try_full_first}.txt"
+    assert export_symbols(
+        FakePLC(payload, len(names)), runtime_output, settings=runtime_settings
+    ) == len(names)
+    assert runtime_output.read_bytes() == expected
+
+    file_settings = load_config(config)
+    file_settings.READ_METHOD = "file"
+    file_output = tmp_path / f"file-{runtime_method}-{try_full_first}.txt"
+    files = {r"C:\TwinCAT\Boot\port_801.tmc": _tpy(names)}
+    conns: list[FakeFileServiceConn] = []
+    assert export_symbols(
+        None,
+        file_output,
+        file_service_factory=_file_factory(files, conns),
+        settings=file_settings,
+    ) == len(names)
+
+    assert file_output.read_bytes() == runtime_output.read_bytes() == expected
+    assert not expected.startswith(b"\xef\xbb\xbf")
+    assert len(conns) == 1 and conns[0].conn_closed

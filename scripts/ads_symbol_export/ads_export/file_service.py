@@ -173,8 +173,13 @@ def _is_symbol_file(name: str) -> bool:
     return name.lower().endswith((".tpy", ".tmc"))
 
 
-def _find_remote_symbol_files(fs: AdsFileService, settings: Settings) -> list[str]:
-    """按默认目录与配置路径查找 TPY/TMC；服务不可用或目录不存在时记录原因。"""
+def _find_remote_symbol_files(
+    fs: AdsFileService, settings: Settings
+) -> tuple[list[str], list[str]]:
+    """按默认目录与配置路径查找 TPY/TMC；服务不可用或目录不存在时记录原因。
+
+    返回 (候选文件, 枚举失败原因)，使上层在无候选时仍能保留实际 ADS 错误诊断。
+    """
     candidates: list[str] = []
     problems: list[str] = []
     for entry in (*_default_search_dirs(settings), *settings.TPY_SEARCH_PATHS):
@@ -189,7 +194,7 @@ def _find_remote_symbol_files(fs: AdsFileService, settings: Settings) -> list[st
             problems.append(f"{entry}: {type(exc).__name__}: {exc}")
     if problems:
         _LOG.info("部分远端目录不可枚举：%s", "; ".join(problems))
-    return candidates
+    return candidates, problems
 
 
 def _download_remote_file(
@@ -309,9 +314,10 @@ def _export_via_file_service(
     try:
         fs = AdsFileService(conn, settings)
         try:
-            candidates = _find_remote_symbol_files(fs, settings)
+            candidates, problems = _find_remote_symbol_files(fs, settings)
             if not candidates:
-                raise FileNotFoundError("远端未发现 TPY/TMC 文件")
+                detail = "" if not problems else "；目录枚举失败：" + "; ".join(problems)
+                raise FileNotFoundError(f"远端未发现 TPY/TMC 文件{detail}")
             last_error: Exception | None = None
             for remote in candidates:
                 try:

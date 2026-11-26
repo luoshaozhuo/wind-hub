@@ -403,6 +403,7 @@ def test_count_matched_metadata_in_logs(
     assert "source=file" in caplog.text
     assert "remote=" in caplog.text
     assert "verification=count_matched" in caplog.text
+    assert "runtime_count=2" in caplog.text
     assert outcomes[-1].verification == "count_matched"
 
 

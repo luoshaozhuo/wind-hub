@@ -372,10 +372,13 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path, method: str) -> None:
         settings.CHUNK_SIZES = (64,)
         output = tmp_path / "symbols.txt"
 
+        file_connections: list[pyads.Connection] = []
+
         def file_conn() -> pyads.Connection:
             conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
             conn.open()
             conn.set_timeout(3000)
+            file_connections.append(conn)
             return conn
 
         count = export_symbols(plc, output, file_service_factory=file_conn, settings=settings)
@@ -384,6 +387,9 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path, method: str) -> None:
         text = output.read_text(encoding="utf-8")
         assert text == "MAIN.temperature\nGVL.状态\n"
         assert handler.closed and not handler.handles  # 远端句柄已释放
+        # 去掉 ReadState 探测后只建立一次文件服务连接，且导出后关闭。
+        assert len(file_connections) == 1
+        assert getattr(file_connections[0], "_port", None) is None
 
         # 文件协议证据：FFILEFIND/FOPEN/FREAD/FCLOSE 全部经过 AMS port 10000。
         file_requests = [item for item in handler.requests if item[0] == 10000]
@@ -530,6 +536,7 @@ def test_cli_file_service_without_runtime(
         assert "verification=unverified" in caplog.text
         assert "source=file" in caplog.text
         assert "remote=" in caplog.text
+        assert "runtime_count=None" in caplog.text
         assert all(item[1] != ADS_READ_STATE for item in handler.requests if item[0] == 10000)
         assert handler.closed and not handler.handles
         assert 10000 in handler.target_ports
@@ -559,17 +566,24 @@ def test_explicit_file_failure_does_not_touch_runtime(tmp_path: Path) -> None:
         output = tmp_path / "symbols.txt"
         output.write_text("previous\n", encoding="utf-8")
 
+        file_connections: list[pyads.Connection] = []
+
         def file_conn() -> pyads.Connection:
             conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
             conn.open()
             conn.set_timeout(1000)
+            file_connections.append(conn)
             return conn
 
         with pytest.raises(RuntimeError, match="指定 file") as err:
             export_symbols(None, output, file_service_factory=file_conn, settings=settings)
 
         assert "远端未发现 TPY/TMC 文件" in str(err.value)
+        # 实际 FFILEFIND 失败原因必须保留在诊断信息中。
+        assert "目录枚举失败" in str(err.value)
         assert set(handler.target_ports) == {10000}  # 所有请求仅发往 System Service
+        assert len(file_connections) == 1
+        assert getattr(file_connections[0], "_port", None) is None  # 失败路径也释放连接
         assert output.read_text(encoding="utf-8") == "previous\n"
         assert not output.with_name(output.name + ".partial").exists()
         assert not list(tmp_path.glob("ads_remote_*"))
@@ -703,6 +717,9 @@ def test_cli_subprocess_all_modes(tmp_path: Path, method: str) -> None:
 
         if method == "file":
             assert set(handler.target_ports) == {10000}  # Runtime 端口从未出现
+            assert all(
+                item[1] != ADS_READ_STATE for item in handler.requests if item[0] == 10000
+            )  # 不依赖 ReadState 前置探测
         else:
             assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 未访问文件服务
     finally:
@@ -782,7 +799,6 @@ def test_cli_invalid_config_makes_no_requests(tmp_path: Path) -> None:
             server.join(timeout=3)
 
 
-
 @pytest.mark.parametrize(
     "method,try_full_first,expected_strategy",
     [
@@ -816,6 +832,8 @@ def test_empty_runtime_table(
     assert len(outcomes) == 1
     assert outcomes[0].ok and outcomes[0].name == expected_strategy
     assert outcomes[0].count == 0
+    assert outcomes[0].source == "runtime"
+    assert outcomes[0].verification == "runtime_verified"
     assert not output.with_name(output.name + ".partial").exists()
 
 
@@ -840,4 +858,46 @@ def test_inconsistent_empty_runtime_table(
         export_symbols(plc, output, settings=settings)
     assert output.read_bytes() == b"previous\n"
     assert not handler.data_reads
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 不回退文件服务
     assert not output.with_name(output.name + ".partial").exists()
+
+
+@pytest.mark.parametrize("method", ["full", "auto"])
+def test_cli_empty_runtime_table(tmp_path: Path, method: str) -> None:
+    """CLI 对合法空表退出 0，原子替换为零字节且不发送符号数据请求。"""
+    handler = SymbolTableHandler(SYMBOL_NAMES, "normal")
+    handler.symbols = b""
+    handler.count = 0
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        commands = [[sys.executable, str(_tool_dir() / "export.py")], [str(_console_script())]]
+        for index, command in enumerate(commands):
+            output = tmp_path / f"empty-{index}.txt"
+            output.write_text("previous\n", encoding="utf-8")
+            config = _config_with(
+                tmp_path,
+                f"empty-{index}.yaml",
+                PLC_IP=SERVER_IP,
+                PLC_AMS_NET_ID=SERVER_AMS_NET_ID,
+                PLC_AMS_PORT=SERVER_ADS_PORT,
+                READ_METHOD=method,
+                OUTPUT_FILENAME=str(output),
+                ADS_TIMEOUT_MS=1000,
+            )
+            result = _run_cli(command, config)
+
+            assert result.returncode == 0, result.stderr
+            assert output.read_bytes() == b""  # 原子替换为零字节
+            assert "已写入 0 个变量名" in result.stderr
+            assert not output.with_name(output.name + ".partial").exists()
+        assert not handler.data_reads  # 未发送 0xF00B 符号数据请求
+        assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 未访问 System Service
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
