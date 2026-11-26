@@ -159,7 +159,7 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload() -> None:
             return [address + i for i in range(count)]
 
     session = ReadSession()
-    driver._session = session
+    driver._session = session  # type: ignore[assignment]
     assert [v.value for v in await driver.read_many(["p1", "p2"])] == [1, 2]
     key = ("p1", "p2")
     cached = driver._read_plan_cache[key]
@@ -196,9 +196,9 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload() -> None:
 async def test_gap_rejection_falls_back_and_caches_safe_read_plan() -> None:
     """严格 Modbus Server 拒绝跨空洞读取后，连续地址计划可被复用。"""
     from core.domain import ConnectionEndpoint, PointTable, Protocol
-    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddress
     from core.domain.identities import PointTableId
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
+    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddressError
 
     points = {
         "first": _point("first", address=0),
@@ -220,17 +220,19 @@ async def test_gap_rejection_falls_back_and_caches_safe_read_plan() -> None:
             assert register_type == "holding" and slave_id == 1
             self.calls.append((address, count))
             if count > 1:
-                raise _ModbusIllegalDataAddress("Modbus exception response: IllegalDataAddress")
+                raise _ModbusIllegalDataAddressError(
+                    "Modbus exception response: IllegalDataAddress"
+                )
             return [address + 100]
 
     session = StrictSession()
-    driver._session = session
+    driver._session = session  # type: ignore[assignment]
     first = await driver.read_many(["first", "second"])
     assert [sample.value for sample in first] == [100, 106]
     assert session.calls == [(0, 7), (0, 1), (6, 1)]
-    assert [[p.point_id for p in group] for group in driver._read_plan_cache[
-        ("first", "second")
-    ]] == [["first"], ["second"]]
+    assert [
+        [p.point_id for p in group] for group in driver._read_plan_cache[("first", "second")]
+    ] == [["first"], ["second"]]
     second = await driver.read_many(["first", "second"])
     assert [sample.value for sample in second] == [100, 106]
     assert session.calls[-2:] == [(0, 1), (6, 1)]
@@ -269,11 +271,10 @@ async def test_gap_read_does_not_retry_connection_failure() -> None:
             raise ProtocolConnectionError("connection lost")
 
     session = BrokenSession()
-    driver._session = session
+    driver._session = session  # type: ignore[assignment]
     with pytest.raises(ProtocolConnectionError, match="connection lost"):
         await driver.read_many(["first", "second"])
     assert session.calls == 1
-
 
 
 @pytest.mark.asyncio
@@ -283,7 +284,7 @@ async def test_sparse_point_table_online_verification_uses_safe_fallback() -> No
     from core.domain import ConnectionEndpoint, PointTable, Protocol
     from core.domain.identities import PointTableId
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
-    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddress
+    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddressError
 
     original = PointTable(
         PointTableId("before"),
@@ -309,11 +310,11 @@ async def test_sparse_point_table_online_verification_uses_safe_fallback() -> No
         ) -> list[int]:
             self.calls.append((address, count))
             if count > 1:
-                raise _ModbusIllegalDataAddress("address hole")
+                raise _ModbusIllegalDataAddressError("address hole")
             return [123]
 
     session = StrictSession()
-    driver._session = session
+    driver._session = session  # type: ignore[assignment]
     result = await driver.update_point_table(updated, timeout=5.0)
     assert result.status is PointTableUpdateStatus.SUCCESS
     assert result.applied is True
@@ -349,7 +350,7 @@ async def test_unrelated_modbus_protocol_error_does_not_retry_gap() -> None:
             raise ProtocolError("illegal function")
 
     session = UnsupportedSession()
-    driver._session = session
+    driver._session = session  # type: ignore[assignment]
     with pytest.raises(ProtocolError, match="illegal function"):
         await driver.read_many(["a", "b"])
     assert session.calls == 1

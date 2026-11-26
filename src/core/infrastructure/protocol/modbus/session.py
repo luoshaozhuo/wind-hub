@@ -20,7 +20,7 @@ class _ModbusCommandNotSentError(ProtocolConnectionError):
     """请求未进入 PyModbus 原生事务，确认没有发送。"""
 
 
-class _ModbusIllegalDataAddress(ProtocolError):
+class _ModbusIllegalDataAddressError(ProtocolError):
     """Server explicitly rejected a register span containing an invalid address."""
 
 
@@ -121,7 +121,7 @@ class _ModbusSession:
         expected = {"coil": 1, "discrete_input": 2, "holding": 3, "input": 4}[register_type]
         if response.isError():
             if getattr(response, "exception_code", None) == 2:
-                raise _ModbusIllegalDataAddress(
+                raise _ModbusIllegalDataAddressError(
                     f"Modbus {register_type} read exception response: IllegalDataAddress"
                 )
             raise ProtocolError(f"Modbus {register_type} read exception response")
