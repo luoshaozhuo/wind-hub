@@ -1,7 +1,7 @@
 """Real JetStream -> Sink reliable -> Kafka RAW/PROTOCOL wire and provenance.
 
 The process and middleware are real; no mocked delivery adapter is used.
-Storage's production Kafka decoder checks the consumed record at the boundary.
+Storage's production Kafka JSON v3 decoder checks device-wide records.
 """
 
 from __future__ import annotations
@@ -16,8 +16,7 @@ import yaml
 from collector.infrastructure.adapters.outbound.publisher import CollectorPublisher
 from core.application import ProtocolSample
 from sink_service.infrastructure.adapters.outbound.kafka_wire import DataLevel
-from storage_service.domain.sample import DataLevel as StorageLevel
-from storage_service.domain.sample import StorageSample
+from storage_service.domain.wide_record import WideDataLevel, WideRecord
 from tests.sink_service._stage1_fixtures import template_path
 from tests.sink_service.system.conftest import (
     COLLECTOR_ID,
@@ -80,37 +79,33 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
             assert producer.pubacked == 1, producer.last_error
         finally:
             await producer.stop()
-        markers = [item["sample_id"] for item in producer.last_sample_evidence]
-        assert len(markers) == 1
-        marker = markers[0]
         records = await sink_harness.wait_kafka_messages(
             min_messages=1,
             timeout=60,
-            match=lambda message: marker.encode() in message.value,
+            match=lambda message: (
+                json.loads(message.value).get("schema_version") == 3
+                and json.loads(message.value).get("device_id") == DEVICE_ID
+                and json.loads(message.value).get("data_level") == level
+            ),
         )
         matching = [
-            record for record in records if json.loads(record.value).get("sample_id") == marker
+            record for record in records
+            if json.loads(record.value).get("schema_version") == 3
+            and json.loads(record.value).get("data_level") == level
+            and json.loads(record.value).get("device_id") == DEVICE_ID
         ]
-        assert len(matching) == 1, "one Collector sample must reach Kafka"
-        wire = json.loads(matching[0].value)
-        assert wire["data_level"] == level
-        assert wire["task_id"] == "real-collector-task"
-        assert wire["point_table_id"] == "point_table_modbus_wtg_sim_v1.0.0"
-        assert wire["collector_id"] == COLLECTOR_ID
-        assert wire["device_id"] == DEVICE_ID
-        assert wire["sample_id"] == marker
-        assert wire["batch_id"]
-        sample = StorageSample.from_kafka_json(matching[0].value)
-        assert sample.sample_id == marker
-        assert sample.batch_id == wire["batch_id"]
-        assert sample.task_id == "real-collector-task"
+        assert matching, "Collector device row must reach Kafka"
+        wire = json.loads(matching[-1].value)
+        assert wire["points"]["p000"][1] == 1
+        assert wire["device_config_id"]
+        assert wire["wind_farm_id"] == WIND_FARM_ID
+        row = WideRecord.from_kafka_json(matching[-1].value, physical_points=("p000",))
+        assert row.data_level is WideDataLevel(level)
+        assert row.device_id == DEVICE_ID
         if level == "raw":
-            assert sample.data_level is StorageLevel.RAW
-            assert wire["value"] == source.hex()
-            assert sample.value == source
+            assert row.values == (source.hex(),)
         else:
-            assert sample.data_level is StorageLevel.PROTOCOL
-            assert sample.value == 821.0
+            assert row.values == (821.0,)
     finally:
         await sink_harness.stop()
 
@@ -168,34 +163,30 @@ async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
         finally:
             await publisher.stop()
 
-        markers = [item["sample_id"] for item in publisher.last_sample_evidence]
-        assert len(markers) == 1
         records = await sink_harness.wait_kafka_messages(
             min_messages=1,
             timeout=60,
-            match=lambda message: markers[0].encode() in message.value,
+            match=lambda message: (
+                json.loads(message.value).get("schema_version") == 3
+                and json.loads(message.value).get("device_id") == DEVICE_ID
+                and json.loads(message.value).get("data_level") == "raw"
+            ),
         )
         matching = [
-            json.loads(record.value)
-            for record in records
-            if json.loads(record.value).get("sample_id") == markers[0]
+            record for record in records
+            if json.loads(record.value).get("schema_version") == 3
+            and json.loads(record.value).get("data_level") == "raw"
+            and json.loads(record.value).get("device_id") == DEVICE_ID
         ]
-        assert len(matching) == 1
-        record = matching[0]
-        assert record["data_level"] == "raw"
-        assert record["point_id"] == "speed"
-        assert record["task_id"] == "modbus-fc03-source"
-        assert record["value"] == struct.pack(">f", 1200.5).hex()
-        stored = StorageSample.from_kafka_json(
-            next(
-                message.value
-                for message in records
-                if json.loads(message.value).get("sample_id") == markers[0]
-            )
+        assert matching
+        record = json.loads(matching[-1].value)
+        assert record["device_config_id"]
+        assert record["points"]["speed"] == [struct.pack(">f", 1200.5).hex(), 1]
+        stored = WideRecord.from_kafka_json(
+            matching[-1].value, physical_points=("speed",)
         )
-        assert stored.data_level is StorageLevel.RAW
-        assert stored.value == sample.raw_payload
-        assert stored.sample_id == markers[0]
+        assert stored.data_level is WideDataLevel.RAW
+        assert stored.values == (sample.raw_payload.hex(),)
     finally:
         await server.stop()
         await sink_harness.stop()
