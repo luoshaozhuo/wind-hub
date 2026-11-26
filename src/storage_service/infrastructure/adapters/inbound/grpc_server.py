@@ -6,6 +6,7 @@ import base64
 import hmac
 import json
 import logging
+import math
 import os
 import time
 from collections.abc import Callable, Coroutine
@@ -511,24 +512,44 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                         raise TDengineSchemaConflictError("wide BOOL invalid")
                     point.bool_value = value
                 elif kind in {"TINYINT", "SMALLINT", "INT", "BIGINT"}:
-                    if type(value) is not int:
-                        raise TDengineSchemaConflictError("wide signed integer invalid")
+                    bits = {"TINYINT": 8, "SMALLINT": 16, "INT": 32, "BIGINT": 64}[kind]
+                    if (
+                        type(value) is not int
+                        or not -(1 << (bits - 1)) <= value < (1 << (bits - 1))
+                    ):
+                        raise TDengineSchemaConflictError("wide signed integer out of range")
                     point.signed_value = value
                 elif kind.endswith(" UNSIGNED"):
-                    if type(value) is not int or value < 0:
-                        raise TDengineSchemaConflictError("wide unsigned integer invalid")
+                    bits = {
+                        "TINYINT UNSIGNED": 8,
+                        "SMALLINT UNSIGNED": 16,
+                        "INT UNSIGNED": 32,
+                        "BIGINT UNSIGNED": 64,
+                    }.get(kind)
+                    if bits is None or type(value) is not int or not 0 <= value < 1 << bits:
+                        raise TDengineSchemaConflictError("wide unsigned integer out of range")
                     point.unsigned_value = value
                 elif kind in {"FLOAT", "DOUBLE"}:
                     if type(value) not in {int, float}:
                         raise TDengineSchemaConflictError("wide float invalid")
-                    point.float_value = float(value)
+                    try:
+                        numeric = float(value)
+                    except OverflowError as exc:
+                        raise TDengineSchemaConflictError("wide float overflow") from exc
+                    if not math.isfinite(numeric) or (
+                        kind == "FLOAT" and abs(numeric) > 3.4028234663852886e38
+                    ):
+                        raise TDengineSchemaConflictError("wide float is not finite or in range")
+                    point.float_value = numeric
                 elif kind.startswith("VARCHAR("):
-                    if not isinstance(value, str):
-                        raise TDengineSchemaConflictError("wide text invalid")
+                    bound = int(kind.removeprefix("VARCHAR(").removesuffix(")"))
+                    if type(value) is not str or len(value.encode("utf-8")) > bound:
+                        raise TDengineSchemaConflictError("wide text exceeds column bounds")
                     point.string_value = value
                 elif kind.startswith("VARBINARY("):
-                    if not isinstance(value, bytes | bytearray | memoryview):
-                        raise TDengineSchemaConflictError("wide binary invalid")
+                    bound = int(kind.removeprefix("VARBINARY(").removesuffix(")"))
+                    if not isinstance(value, bytes | bytearray | memoryview) or len(value) > bound:
+                        raise TDengineSchemaConflictError("wide bytes exceed column bounds")
                     point.bytes_value = bytes(value)
                 else:
                     raise TDengineSchemaConflictError("unsupported wide physical field type")
