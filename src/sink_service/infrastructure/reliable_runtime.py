@@ -420,7 +420,7 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
         except (NatsTimeoutError, TimeoutError) as exc:
             raise TimeoutError from exc
 
-    async def _encode_kafka_points(
+    async def _encode_kafka_wide(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
         """Publish exactly one complete wide record per reliable device cycle."""
