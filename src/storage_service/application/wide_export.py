@@ -40,6 +40,15 @@ def _json_scalar(value: object) -> object:
     raise ValueError("invalid TDengine wide export scalar")
 
 
+def _check_quota(file: TextIO, *, max_bytes: int) -> None:
+    """Limit buffered export growth before another source row is accepted."""
+    file.flush()
+    if os.fstat(file.fileno()).st_size > max_bytes:
+        raise WideExportQuotaExceededError(
+            "wide export exceeded configured byte quota"
+        )
+
+
 def _synchronize(file: TextIO) -> int:
     file.flush()
     os.fsync(file.fileno())
@@ -170,6 +179,7 @@ async def export_wide_device_history(
                             file.write(",")
                         file.write(json.dumps(record, ensure_ascii=False, allow_nan=False))
                     row_count += 1
+                    _check_quota(file, max_bytes=max_bytes)
                 size = await asyncio.to_thread(_synchronize, file)
                 if size > max_bytes:
                     raise WideExportQuotaExceededError("wide export exceeded configured byte quota")
@@ -188,8 +198,12 @@ async def export_wide_device_history(
                 raise WideExportQuotaExceededError("wide export exceeded configured byte quota")
         if temporary is None:
             raise RuntimeError("wide export temporary artifact was not created")
+        if not history.read_available():
+            raise RuntimeError("wide export blocked by Kafka replay before publication")
         with temporary.open("rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
+        if not history.read_available():
+            raise RuntimeError("wide export replay changed during artifact hashing")
         os.link(temporary, output)
         published = True
         directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
