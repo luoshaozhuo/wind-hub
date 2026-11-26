@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import base64
+import asyncio
+import hashlib
+import re
 import hmac
 import json
 import logging
@@ -12,6 +15,7 @@ import time
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from functools import wraps
+from pathlib import Path
 from typing import Any, NoReturn, TypeVar, cast
 
 import grpc
@@ -36,12 +40,14 @@ from storage_service.domain.errors import (
 from storage_service.domain.tasks import TaskRecord
 from storage_service.domain.quality_bitmap import pack_quality_bitmap
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity
+from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
+from storage_service.infrastructure.adapters.outbound.tdengine_backup import NativeTDengineBackup
 from storage_service.infrastructure.adapters.outbound.metadata_store import (
     MetadataConflictError,
     MetadataStore,
@@ -275,12 +281,16 @@ def _set_wide_value(target: pb.StorageValue, value: object, sql_type: str) -> No
         raise TDengineSchemaConflictError("unsupported physical wide column type")
 
 
-def _task(record: TaskRecord) -> pb.StorageTask:
+def _task(
+    record: TaskRecord, *, artifact_path: str = "", integrity_verified: bool = False
+) -> pb.StorageTask:
     code = pb.StorageTaskState.Value(f"STORAGE_TASK_STATE_{record.state}")
     result = pb.StorageTask(
         task_id=record.task_id,
         state=code,
         artifact_id=record.artifact_id,
+        artifact_path=artifact_path,
+        integrity_verified=integrity_verified,
         size_bytes=record.size_bytes,
         sha256=record.sha256,
         error_code=record.error_code,
@@ -293,6 +303,37 @@ def _task(record: TaskRecord) -> pb.StorageTask:
     if finished is not None:
         result.finished_at.CopyFrom(finished)
     return result
+
+
+def _verify_export_file(root: Path, record: TaskRecord) -> str:
+    """Recheck a completed export before disclosing a trusted artifact path."""
+    if (
+        root.is_symlink()
+        or re.fullmatch(r"[0-9a-f]{32}\\.(csv|json|zip)", record.artifact_id) is None
+    ):
+        raise RuntimeError("Storage export artifact identity is invalid")
+    artifact = root / record.artifact_id
+    if artifact.is_symlink() or not artifact.is_file():
+        raise RuntimeError("Storage completed export is unavailable")
+    with artifact.open("rb") as stream:
+        size = os.fstat(stream.fileno()).st_size
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if size != record.size_bytes or not hmac.compare_digest(digest, record.sha256):
+        raise RuntimeError("Storage export integrity verification failed")
+    return str(artifact)
+
+
+def _verify_backup_directory(root: Path, record: TaskRecord) -> str:
+    """Verify the native manifest and historical interpretation closure."""
+    if root.is_symlink() or re.fullmatch(r"[0-9a-f]{32}", record.artifact_id) is None:
+        raise RuntimeError("Storage backup artifact identity is invalid")
+    artifact = root / record.artifact_id
+    size, digest = NativeTDengineBackup.verify_manifest(
+        artifact, database=WideSchema.database_name(record.wind_farm_id)
+    )
+    if size != record.size_bytes or not hmac.compare_digest(digest, record.sha256):
+        raise RuntimeError("Storage backup integrity verification failed")
+    return str(artifact)
 
 
 class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServicer):
@@ -330,6 +371,22 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config_revisions = config_revisions
         self._metrics = metrics
         self._started_at = datetime.now(UTC)
+
+    async def _export_task_response(self, record: TaskRecord) -> pb.StorageTask:
+        if record.state != "SUCCEEDED":
+            return _task(record)
+        path = await asyncio.to_thread(
+            _verify_export_file, self._config.export.root, record
+        )
+        return _task(record, artifact_path=path, integrity_verified=True)
+
+    async def _backup_task_response(self, record: TaskRecord) -> pb.StorageTask:
+        if record.state != "SUCCEEDED":
+            return _task(record)
+        path = await asyncio.to_thread(
+            _verify_backup_directory, self._config.backup.root, record
+        )
+        return _task(record, artifact_path=path, integrity_verified=True)
 
     @guarded
     async def GetServiceInfo(
