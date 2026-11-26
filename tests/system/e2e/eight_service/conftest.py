@@ -173,6 +173,17 @@ def _write_cli_config(root: Path, configuration_bootstrap: Path, storage_bootstr
             argv[-1] = str(configuration_bootstrap)
         if name == "storage":
             argv[-1] = str(storage_bootstrap)
+        if name in {"collector-realtime", "collector-reliable"}:
+            argv = [
+                part.replace(
+                    "service_collector-e2e-realtime_v1.0.0.yaml",
+                    "service_collector-e2e-realtime_v2.0.0.yaml",
+                ).replace(
+                    "service_collector-e2e-reliable_v1.0.0.yaml",
+                    "service_collector-e2e-reliable_v2.0.0.yaml",
+                )
+                for part in argv
+            ]
         if name == "sink":
             argv = [
                 part.replace("service_sink-e2e_v1.0.0.yaml", "service_sink-e2e_v2.0.0.yaml")
