@@ -36,7 +36,7 @@ from core.infrastructure.protocol.mapping_barrier import MappingBarrier
 from .codec import _encode_coil, _encode_registers, decode
 from .config import parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
-from .session import _ModbusSession
+from .session import _ModbusIllegalDataAddress, _ModbusSession
 
 _READ_ONLY = frozenset({"discrete_input", "input"})
 
@@ -322,9 +322,7 @@ class ModbusDriver:
         count = max(point.address + point.count for point in group) - start
         try:
             raw = await session.read(first.register_type, start, count, first.slave_id)
-        except ProtocolError as exc:
-            if isinstance(exc, ProtocolConnectionError):
-                raise
+        except _ModbusIllegalDataAddress:
             contiguous = group_consecutive_reads(group, max_gap=0)
             if len(contiguous) == 1:
                 raise

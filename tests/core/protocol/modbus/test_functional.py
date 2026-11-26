@@ -195,8 +195,8 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload() -> None:
 @pytest.mark.asyncio
 async def test_gap_rejection_falls_back_and_caches_safe_read_plan() -> None:
     """严格 Modbus Server 拒绝跨空洞读取后，连续地址计划可被复用。"""
-    from core.application.errors import ProtocolError
     from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.infrastructure.protocol.modbus.session import _ModbusIllegalDataAddress
     from core.domain.identities import PointTableId
     from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
@@ -220,7 +220,7 @@ async def test_gap_rejection_falls_back_and_caches_safe_read_plan() -> None:
             assert register_type == "holding" and slave_id == 1
             self.calls.append((address, count))
             if count > 1:
-                raise ProtocolError("Modbus exception response: IllegalDataAddress")
+                raise _ModbusIllegalDataAddress("Modbus exception response: IllegalDataAddress")
             return [address + 100]
 
     session = StrictSession()
