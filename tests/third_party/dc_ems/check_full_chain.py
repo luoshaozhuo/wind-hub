@@ -48,11 +48,11 @@ def check(root: Path) -> None:
     source = load_gateway(source_file, project_root=config)
     target = load_gateway(target_file, project_root=config)
     assert len(source.servers) == len(target.servers) == 10
-    assert {server.device_id for server in source.servers} == {
-        server.device_id for server in target.servers
+    assert {server.settings.device_id for server in source.servers.values()} == {
+        server.settings.device_id for server in target.servers.values()
     }
-    assert {server.listen_port for server in source.servers}.isdisjoint(
-        {server.listen_port for server in target.servers}
+    assert {server.settings.listen_port for server in source.servers.values()}.isdisjoint(
+        {server.settings.listen_port for server in target.servers.values()}
     )
     assert select_local_service(source_file).deployment_id == deployment.deployment_id
     assert select_local_service(target_file).deployment_id == deployment.deployment_id
