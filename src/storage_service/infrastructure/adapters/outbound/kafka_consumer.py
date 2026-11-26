@@ -207,6 +207,20 @@ class KafkaStorageConsumer:
         messages: list[KafkaRecord],
         semaphore: asyncio.Semaphore,
     ) -> None:
+        """Expose in-flight Kafka buffer gauges even while awaiting a permit."""
+        bytes_received = sum(len(message.value) for message in messages)
+        self._metrics.change_buffer(rows=len(messages), byte_count=bytes_received)
+        try:
+            await self._process_partition_inner(tp, messages, semaphore)
+        finally:
+            self._metrics.change_buffer(rows=-len(messages), byte_count=-bytes_received)
+
+    async def _process_partition_inner(
+        self,
+        tp: TopicPartition,
+        messages: list[KafkaRecord],
+        semaphore: asyncio.Semaphore,
+    ) -> None:
         """Never have more than one in-flight batch per assigned partition."""
         async with semaphore:
             state = self._assignments.get(tp)
@@ -310,6 +324,9 @@ class KafkaStorageConsumer:
             ):
                 return
             self._retry_failures.pop(tp, None)
+            self._metrics.record_confirmed_records(
+                state.offsets.next_commit_offset - retry_cursor
+            )
             target = self._replay_targets.get(tp)
             if target is not None and state.offsets.next_commit_offset >= target:
                 self._replay_targets.pop(tp, None)
