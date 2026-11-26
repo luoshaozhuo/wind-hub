@@ -265,3 +265,25 @@ prepare_seed.py 的 --gateway-port 设置为 15121，指向 Gateway1。
 未验证：本轮未在当前开发环境运行五服务完整链路；
 所有新建配置和真实 Modbus 对账必须由 Claude 以正式 CLI、
 真实 NATS 与生产 Loader 完成独立复测，不能据静态生成判 PASS。
+
+
+八、Gateway2 重启后的 Data Generator 恢复
+------------------------------------
+本项目安全设计要求 Data Generator 丢失 Gateway 注入租约后 fail-closed 停止输出。
+Gateway2 重新启动、Collector Task 恢复 RUNNING 并不意味着 DG 自动恢复生成。
+必须使用正式 CLI 显式重新启动场景，并核实确认批次重新增加：
+  python -m cli.main --config run/dcems-measurement/state/cli.yaml \
+    data-generator start dcems-random-ten --yes
+随后确认 Collector NATS 发布恢复、Sink 十条 Delivery RUNNING，并在
+Gateway1 通过 Modbus 回读到更新数据。不得绕过租约直接写入目标值。
+
+CLI 的 service start/restart 操作退出码表示受管进程是否确认运行；
+业务健康结果仍在响应 business 字段中，须继续检查
+service status、Collector Task、Sink Delivery 与实际协议回读。
+不得把 service start 的退出码 0 当成跨服务业务验收通过。
+
+Modbus 稀疏点表说明：当前测试配置保留 read_merge_max_gap=0 作为
+保守部署配置；Core 对带空洞的合并读遭遇服务端 IllegalDataAddress
+时已加入连续地址拆分回退。上线前必须由 Claude 对默认 gap=8
+和显式 gap=0 分别执行严格 Server 回归，并确认不会对传输故障
+或其他协议异常触发拆分重试。
