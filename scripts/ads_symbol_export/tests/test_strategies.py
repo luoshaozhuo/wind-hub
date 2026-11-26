@@ -407,7 +407,6 @@ def test_read_method_file_only_skips_runtime_exports(
     chunks = MagicMock()
     monkeypatch.setattr(runtime, "_export_full_table", full)
     monkeypatch.setattr(runtime, "_export_in_chunks", chunks)
-    monkeypatch.setattr(connection, "_default_file_service_factory", lambda plc, settings: None)
     with pytest.raises(RuntimeError, match="指定 file 方法读取失败"):
         export_symbols(object(), tmp_path / "symbols.txt", read_method="file", settings=settings)
     full.assert_not_called()

@@ -92,7 +92,10 @@ def load_config(path: Path) -> Settings:
     if raw["FILE_READ_CHUNK"] > raw["MAX_TPY_FILE_BYTES"]:
         raise ValueError("文件读取块超过文件长度上限")
     for key in ("TEXT_ENCODING", "REMOTE_PATH_ENCODING"):
-        codecs.lookup(raw[key])
+        try:
+            codecs.lookup(raw[key])
+        except LookupError as exc:
+            raise ValueError(f"{key} 编码不支持：{raw[key]}") from exc
     raw["CHUNK_SIZES"] = tuple(chunks)
     raw["TPY_SEARCH_PATHS"] = tuple(paths)
     result = Settings(**raw)

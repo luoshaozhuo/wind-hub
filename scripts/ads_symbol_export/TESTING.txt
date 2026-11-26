@@ -79,6 +79,8 @@ Python 版本（python --version）和 pyads 版本（python -m pip show pyads�
   test_explicit_runtime_method[full/chunk]：真实 TCP 显式整表或分段。
   test_explicit_full_failure_does_not_fallback：整表失败且不回退，原文件保留。
   test_file_service_over_real_ads_tcp[auto/file]：自动及显式文件服务读取。
+  test_cli_file_service_without_runtime[file/auto]：真实 TCP CLI 文件服务；
+    file 不访问 Runtime，auto 在 Runtime 初始连接失败后仍可导出。
   test_config.py：YAML 合法/非法配置，非法配置不得建立 ADS 连接。
   所有集成测试必须运行，不接受 skip。
   配置文件：ads_symbol_export_v1.0.0.yaml。

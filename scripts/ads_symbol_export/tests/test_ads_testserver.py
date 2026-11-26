@@ -16,6 +16,9 @@ import pytest
 from pyads.testserver import AdsTestServer
 from pyads.testserver.handler import AmsResponseData
 
+import yaml
+
+from ads_export import cli
 from ads_export.config import load_config
 from ads_export.strategies import export_symbols
 
@@ -213,10 +216,16 @@ class FileServiceHandler:
         self.handles: dict[int, int] = {}
         self.closed: list[int] = []
         self.find_pending: list[str] = []
+        self.target_ports: list[int] = []
+        self.reject_runtime = False
 
     def handle_request(self, request: Any) -> AmsResponseData:
         command = int.from_bytes(request.ams_header.command_id, "little")
         data = request.ams_header.data
+        target_port = int.from_bytes(request.ams_header.target_port, "little")
+        self.target_ports.append(target_port)
+        if self.reject_runtime and target_port != 10000:
+            return SymbolTableHandler._error_reply()
         if command == ADS_READ_STATE:
             return AmsResponseData(
                 b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
@@ -366,3 +375,41 @@ def test_explicit_full_failure_does_not_fallback(
     assert handler.full_requests == 1
     assert not any(offset > 0 for offset, _ in handler.data_reads)
     assert output.read_text(encoding="utf-8") == "previous\n"
+
+
+@pytest.mark.parametrize("method", ["file", "auto"])
+def test_cli_file_service_without_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str,
+) -> None:
+    """通过真实 TCP 验证 Runtime 不可用时的 CLI 文件服务路径。"""
+    handler = FileServiceHandler()
+    handler.reject_runtime = True
+    server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    try:
+        server.start()
+        config = Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml"
+        raw = yaml.safe_load(config.read_text(encoding="utf-8"))
+        output = tmp_path / "symbols.txt"
+        raw.update(
+            PLC_IP=SERVER_IP, PLC_AMS_NET_ID=SERVER_AMS_NET_ID,
+            PLC_AMS_PORT=SERVER_ADS_PORT, READ_METHOD=method,
+            OUTPUT_FILENAME=str(output), ADS_TIMEOUT_MS=1000,
+        )
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["ads-symbol-export", "--config", str(path)])
+        assert cli.main() == 0
+        assert output.read_text(encoding="utf-8").splitlines()[-2:] == [
+            "MAIN.temperature", "GVL.状态",
+        ]
+        assert "verification=unverified" in output.read_text(encoding="utf-8")
+        assert handler.closed and not handler.handles
+        assert 10000 in handler.target_ports
+        if method == "file":
+            assert set(handler.target_ports) == {10000}
+        else:
+            assert SERVER_ADS_PORT in handler.target_ports
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)

@@ -124,6 +124,8 @@ class _ConnectionManager:
             return False
         self._attempts_left -= 1
         _safe_close(self.current)  # 失效连接先关闭，避免泄漏
+        self.current = None
+        self._owned = False
         try:
             candidate = self._reconnect()
         except Exception as exc:
@@ -155,6 +157,8 @@ def _safe_close(conn: Any) -> None:
 
 
 def _connection_usable(plc: Any) -> bool:
+    if plc is None:
+        return False
     read_state = getattr(plc, "read_state", None)
     if not callable(read_state):
         return True  # 无状态接口的测试桩视为可用
@@ -165,16 +169,11 @@ def _connection_usable(plc: Any) -> bool:
         return False
 
 
-def _default_file_service_factory(plc: Any, settings: Settings) -> Callable[[], Any] | None:
-    """从运行时连接推导 System Service(10000) 连接工厂；测试桩返回 None。"""
-    net_id = getattr(plc, "ams_net_id", None)
-    ip = getattr(plc, "ip_address", None)
-    if not isinstance(net_id, str) or not isinstance(ip, str):
-        return None
+def _default_file_service_factory(settings: Settings) -> Callable[[], pyads.Connection]:
+    """独立连接配置指定的 System Service，不依赖 Runtime 地址或状态。"""
 
     def factory() -> pyads.Connection:
-        # 文件服务在 System Service 端口，不能复用 PLC Runtime 端口。
-        conn = pyads.Connection(net_id, _SYSSERV_PORT, ip)
+        conn = pyads.Connection(settings.PLC_AMS_NET_ID, _SYSSERV_PORT, settings.PLC_IP)
         try:
             conn.open()
             conn.set_timeout(settings.ADS_TIMEOUT_MS)
@@ -184,6 +183,7 @@ def _default_file_service_factory(plc: Any, settings: Settings) -> Callable[[], 
         return conn
 
     return factory
+
 
 def _is_local_route_error(exc: Exception) -> bool:
     """保守识别"本地路由缺失"：仅明确的端口/路由缺失信号。

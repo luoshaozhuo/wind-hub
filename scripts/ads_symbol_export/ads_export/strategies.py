@@ -65,7 +65,9 @@ def _run_strategies(ctx: _RunContext) -> int:
         return count
 
     # 方案 1：ADS 整表
-    if method == "full" or (method == "auto" and settings.TRY_FULL_TABLE_FIRST):
+    if ctx.conn.current is not None and (
+        method == "full" or (method == "auto" and settings.TRY_FULL_TABLE_FIRST)
+    ):
         _LOG.warning("先尝试读取完整符号表；已知部分 PLC 存在内存溢出风险")
         result = record(
             "full-table", "runtime", lambda: runtime._export_full_table(ctx.conn.current, ctx.output, settings)
@@ -111,17 +113,17 @@ def _run_strategies(ctx: _RunContext) -> int:
 
     # 方案 3：ADS 文件服务（独立 System Service 端口，PLC Runtime 失效也可尝试）
     runtime_count: int | None = None
-    if method in ("auto", "file") and ctx.conn.usable():
+    if method == "auto" and ctx.conn.usable():
         try:
             runtime_count, _ = runtime._read_symbol_table_info(ctx.conn.current, settings)
         except Exception:
             runtime_count = None
-    factory = ctx.file_service_factory or connection._default_file_service_factory(ctx.conn.current, settings)
+    factory = ctx.file_service_factory
     unavailable = ""
     if method == "auto" and not settings.FILE_SERVICE_ENABLED:
         unavailable = "文件服务方案已在配置中禁用"
     elif factory is None:
-        unavailable = "无法从当前连接推导 System Service 地址"
+        unavailable = "未提供 System Service 连接工厂"
     if not unavailable:
         assert factory is not None
         reachable, unavailable = connection._probe_file_service(factory)

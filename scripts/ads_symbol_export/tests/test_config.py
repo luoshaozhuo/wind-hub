@@ -31,7 +31,7 @@ def test_supported_methods(tmp_path: Path, method: str) -> None:
         ("PLC_AMS_PORT", 65536), ("ADS_TIMEOUT_MS", 0),
         ("CHUNK_SIZES", [32]), ("RECONNECT_ATTEMPTS", -1),
         ("FILE_SERVICE_ENABLED", "true"), ("schema_version", "2.0.0"),
-        ("UNKNOWN_FIELD", True),
+        ("UNKNOWN_FIELD", True), ("TEXT_ENCODING", "unknown-encoding"),
     ],
 )
 def test_invalid_config(tmp_path: Path, key: str, value: object) -> None:
