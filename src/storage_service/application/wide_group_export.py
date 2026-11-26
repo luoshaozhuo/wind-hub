@@ -12,12 +12,15 @@ import zipfile
 from pathlib import Path
 from typing import IO
 
-from storage_service.application.wide_export import WideExportQuotaExceededError
 from storage_service.application.wide_group_query import (
     GroupedWideSelector,
     WideGroupedHistoryService,
 )
 from storage_service.domain.quality_bitmap import PointQuality
+
+
+class WideExportQuotaExceededError(RuntimeError):
+    """An export exceeded its configured physical byte limit."""
 
 
 def _csv_value(value: object) -> object:
