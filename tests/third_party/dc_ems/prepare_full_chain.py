@@ -39,6 +39,7 @@ def prepare(
     *,
     nats_url: str = "nats://127.0.0.1:14222",
     read_merge_max_gap: int = 0,
+    source_port_base: int = SOURCE_PORT,
 ) -> Path:
     """创建独立配置树；所有输入来自仓库中已发布的隔离样板。"""
     root = root.resolve()
@@ -82,8 +83,9 @@ def prepare(
             "id": "dcems_wtg_measurement",
             "version": VERSION,
         }
-    for device in source_devices["devices"].values():
+    for index, device in enumerate(source_devices["devices"].values()):
         device["group"] = "dcems-source"
+        device["endpoint"]["port"] = source_port_base + index
         # 精简点表在机侧存在地址空洞；Collector 默认 max_gap=8 会合并
         # 跨越未定义寄存器的读取，Gateway 按协议返回 IllegalDataAddress。
         # 关闭跨空洞合并，只按点表实际地址发起读取。
@@ -291,12 +293,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--nats-url", default="nats://127.0.0.1:14222")
     parser.add_argument("--read-merge-max-gap", type=int, default=0)
+    parser.add_argument("--source-port-base", type=int, default=SOURCE_PORT)
     args = parser.parse_args()
     print(
         prepare(
             args.output,
             nats_url=args.nats_url,
             read_merge_max_gap=args.read_merge_max_gap,
+            source_port_base=args.source_port_base,
         )
     )
 

@@ -19,7 +19,8 @@ case "${1:-}" in
     --prepare)
         python -m tests.third_party.dc_ems.prepare_full_chain --output "${BASE}" \
             --nats-url "${DCEMS_MEASUREMENT_NATS_URL:-nats://127.0.0.1:14222}" \
-            --read-merge-max-gap "${DCEMS_MEASUREMENT_READ_GAP:-0}"
+            --read-merge-max-gap "${DCEMS_MEASUREMENT_READ_GAP:-0}" \
+            --source-port-base "${DCEMS_MEASUREMENT_SOURCE_PORT_BASE:-15221}"
         python -m tests.third_party.dc_ems.prepare_full_chain_cli \
             --config-root "${CONFIG}" --runtime-dir "${STATE}"
         exit 0

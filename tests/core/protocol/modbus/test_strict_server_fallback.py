@@ -51,11 +51,15 @@ def _driver(
     *,
     timeout: float = 1.0,
     register_type: str = "holding",
+    read_plan_cache_size: int | None = None,
 ) -> ModbusDriver:
+    options: dict[str, str | int | float | bool | None] = {"timeout": timeout}
+    if read_plan_cache_size is not None:
+        options["read_plan_cache_size"] = read_plan_cache_size
     return ModbusDriver(
         ConnectionEndpoint("127.0.0.1", port),
         _table("sparse", points, register_type),
-        {"timeout": timeout},
+        options,
     )
 
 
@@ -315,17 +319,67 @@ async def test_persistent_address_rejection_evicts_invalid_cached_plan() -> None
                 await driver.read_many(["first", "second"])
             key = ("first", "second")
             assert [
-                [point.point_id for point in group]
-                for group in driver._read_plan_cache[key]
+                [point.point_id for point in group] for group in driver._read_plan_cache[key]
             ] == [["first"], ["second"]]
             assert server.requests == [(3, 0, 7), (3, 0, 1), (3, 6, 1)]
 
             with pytest.raises(_ModbusIllegalDataAddressError):
                 await driver.read_many(["first", "second"])
-            assert server.requests == [
-                (3, 0, 7), (3, 0, 1), (3, 6, 1), (3, 0, 1), (3, 6, 1)
-            ]
+            assert server.requests == [(3, 0, 7), (3, 0, 1), (3, 6, 1), (3, 0, 1), (3, 6, 1)]
             assert server.requests.count((3, 0, 7)) == 1
+        finally:
+            await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_cache_disabled_replans_each_call_without_persisting_state() -> None:
+    """缓存关闭时应按原设计每次重新规划，不保留任何跨调用状态。"""
+    async with _WireServer(defined={0, 6}) as server:
+        driver = _driver(server.port, {"first": 0, "second": 6}, read_plan_cache_size=0)
+        await driver.connect()
+        try:
+            assert len(await driver.read_many(["first", "second"])) == 2
+            assert len(await driver.read_many(["first", "second"])) == 2
+            assert server.requests == [
+                (3, 0, 7),
+                (3, 0, 1),
+                (3, 6, 1),
+                (3, 0, 7),
+                (3, 0, 1),
+                (3, 6, 1),
+            ]
+            assert not driver._read_plan_cache
+        finally:
+            await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_twenty_persistent_rejections_send_merged_request_only_once() -> None:
+    """持续 20 个周期失败时，非法合并请求只能出现一次。"""
+    async with _WireServer(defined={0}) as server:
+        driver = _driver(server.port, {"first": 0, "second": 6})
+        await driver.connect()
+        try:
+            for _ in range(20):
+                with pytest.raises(_ModbusIllegalDataAddressError):
+                    await driver.read_many(["first", "second"])
+            assert server.requests.count((3, 0, 7)) == 1
+            assert server.requests == [(3, 0, 7)] + [(3, 0, 1), (3, 6, 1)] * 20
+        finally:
+            await driver.close()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_point_ids_keep_request_order_and_values() -> None:
+    """重复 Point ID 必须保持请求顺序并返回重复样本。"""
+    async with _WireServer(defined={0, 6}) as server:
+        driver = _driver(server.port, {"a": 0, "b": 6})
+        await driver.connect()
+        try:
+            samples = await driver.read_many(["a", "b", "a"])
+            assert [sample.point_id for sample in samples] == ["a", "b", "a"]
+            assert [sample.value for sample in samples] == [100, 106, 100]
+            assert server.requests == [(3, 0, 7), (3, 0, 1), (3, 6, 1)]
         finally:
             await driver.close()
 

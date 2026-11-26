@@ -86,6 +86,11 @@ def check(root: Path) -> None:
     collector_file = config / "services" / "service_collector-dcems-realtime_v2.0.0.yaml"
     collector_paths = resolve_source_paths(collector_file)
     validate_collector_snapshot(collector_paths)
+    source_document = yaml.safe_load(
+        (config / "services" / "service_gateway-dcems-source_v1.0.0.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     source_devices = yaml.safe_load(
         (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(encoding="utf-8")
     )["devices"]
@@ -124,8 +129,14 @@ def check(root: Path) -> None:
         output = outputs[delivery["sink_id"]]
         assert output["connection"]["gateway_id"] == f"dcems-target-{index:02d}"
         assert output["connection"]["endpoint"] == "127.0.0.1:52075"
-        assert source_devices[device]["endpoint"]["port"] == 15220 + index
         assert target_devices[device]["endpoint"]["port"] == 15120 + index
+    # Collector 源端口允许经请求探针转发，但必须是 10 个互不相交的本机端口，
+    # 且 Gateway2 自身监听仍固定在 15221..15230。
+    source_ports = {int(value["endpoint"]["port"]) for value in source_devices.values()}
+    assert len(source_ports) == 10
+    assert {int(server["listen_port"]) for server in source_document["servers"]} == set(
+        range(15221, 15231)
+    )
 
 
 def main() -> None:

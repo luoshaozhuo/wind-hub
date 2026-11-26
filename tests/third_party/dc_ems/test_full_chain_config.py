@@ -97,6 +97,22 @@ def test_prepare_supports_production_default_gap(tmp_path: Path) -> None:
     )
 
 
+def test_prepare_can_route_collector_through_request_probe(tmp_path: Path) -> None:
+    """记录真实请求时必须把 Collector 源端端口与 Gateway 监听端口分离。"""
+    root = tmp_path / "dcems-measurement"
+    config = prepare(root, source_port_base=15231)
+    devices = yaml.safe_load(
+        (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["devices"]
+    assert [value["endpoint"]["port"] for value in devices.values()] == list(range(15231, 15241))
+    gateway = yaml.safe_load(
+        (config / "services" / "service_gateway-dcems-source_v1.0.0.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [server["listen_port"] for server in gateway["servers"]] == list(range(15221, 15231))
+
+
 def test_identity_scenario_has_distinct_constants(tmp_path: Path) -> None:
     """防串台激励必须让每台风机具有唯一且可断言的静态差异。"""
     root = tmp_path / "dcems-measurement"

@@ -283,8 +283,13 @@ CLI 的 service start/restart 操作退出码表示受管进程是否确认运�
 service status、Collector Task、Sink Delivery 与实际协议回读。
 不得把 service start 的退出码 0 当成跨服务业务验收通过。
 
-Modbus 稀疏点表说明：当前测试配置保留 read_merge_max_gap=0 作为
-保守部署配置；Core 对带空洞的合并读遭遇服务端 IllegalDataAddress
-时已加入连续地址拆分回退。上线前必须由 Claude 对默认 gap=8
-和显式 gap=0 分别执行严格 Server 回归，并确认不会对传输故障
-或其他协议异常触发拆分重试。
+Modbus 稀疏点表说明：测试配置可按 DCEMS_MEASUREMENT_READ_GAP 选择
+gap=0 或生产默认 gap=8；Core 对带空洞的合并读遭遇服务端 IllegalDataAddress
+时按连续地址拆分回退。上线前必须由 Claude 对两种配置分别执行严格
+Server 回归，并确认不会对传输故障或其他协议异常触发拆分重试。
+统计 Collector 实际 Modbus 请求时可启动透明探针并让源端端口经其转发：
+  python -m tests.third_party.dc_ems.modbus_request_probe \
+    --listen-base 15231 --target-base 15221 --count 10 \
+    --output run/dcems-measurement/evidence/probe.jsonl
+准备配置时设置 DCEMS_MEASUREMENT_SOURCE_PORT_BASE=15231；Gateway2
+自身监听仍为 15221..15230。探针只记录帧，不修改报文。

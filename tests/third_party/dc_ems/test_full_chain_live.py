@@ -254,9 +254,16 @@ def test_collector_endpoints_exclude_target_gateway() -> None:
     """Collector 只采源端；目标端地址出现即说明存在回环采集风险。"""
     devices = _cli("collector", "devices")["data"]["devices"]
     endpoints = {int(item["endpoint"].split(":")[1]) for item in devices}
-    assert endpoints == set(range(15221, 15231))
+    config = Path(os.environ.get("DCEMS_MEASUREMENT_CONFIG_ROOT", str(DEFAULT_CONFIG)))
+    source = yaml.safe_load(
+        (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["devices"]
+    target = yaml.safe_load(
+        (config / "instances" / "device_dcems-target_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["devices"]
+    assert endpoints == {int(value["endpoint"]["port"]) for value in source.values()}
     assert all(item["actual_state"] == "RUNNING" for item in devices), devices
-    assert not endpoints.intersection(range(15121, 15131))
+    assert endpoints.isdisjoint({int(value["endpoint"]["port"]) for value in target.values()})
 
 
 def test_wrong_bearer_token_cannot_access_target_gateway() -> None:
