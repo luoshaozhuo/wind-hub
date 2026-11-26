@@ -42,8 +42,10 @@ def test_derived_seed_is_isolated(original: dict, bindings: dict) -> None:
     snapshot = copy.deepcopy(original)
     derived = build_seed(original, bindings, "127.0.0.1", 15221)
     assert original == snapshot
-    assert len(derived["devices"]) == 1
-    assert len(derived["edgeServers"]) == 1
+    assert len(derived["devices"]) == 10
+    assert len(derived["edgeServers"]) == 10
+    assert len({x["deviceId"] for x in derived["devices"]}) == 10
+    assert len({x["port1"] for x in derived["edgeServers"]}) == 10
     assert derived["edgeServers"][0]["serverIp1"] == "127.0.0.1"
     assert derived["edgeServers"][0]["port1"] == 15221
     assert derived["syncdata"] == []
@@ -51,7 +53,10 @@ def test_derived_seed_is_isolated(original: dict, bindings: dict) -> None:
         row["groupName"] == "sync" and row["itemName"] == "redisCon"
         for row in derived["sysconfig"]
     )
-    assert next(row for row in derived["emsConfig"] if row["varPath"] == "iWTUnits")["val"] == "1"
+    assert (
+        next(row for row in derived["emsConfig"] if row["varPath"] == "iWTUnits")["val"]
+        == "10"
+    )
 
 
 def test_missing_business_mapping_rejected(original: dict, bindings: dict) -> None:
