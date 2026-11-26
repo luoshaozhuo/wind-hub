@@ -13,10 +13,12 @@ import uuid
 from typing import Protocol
 
 from storage_service.application.config import StorageConfig
-from storage_service.application.wide_export import export_wide_device_history
-from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
+from storage_service.application.wide_group_export import export_grouped_wide_history
+from storage_service.application.wide_group_query import (
+    GroupedWideSelector,
+    WideGroupedHistoryService,
+)
 from storage_service.domain.tasks import TaskRecord
-from storage_service.domain.wide_schema import WideSchema
 
 _LOG = logging.getLogger(__name__)
 
@@ -76,12 +78,12 @@ class AsyncStorageTasks:
         *,
         config: StorageConfig,
         metadata: TaskStore,
-        wide_history: WideHistoryQueryService,
+        grouped_history: WideGroupedHistoryService,
         backup: NativeBackupPort,
     ) -> None:
         self._config = config
         self._metadata = metadata
-        self._wide_history = wide_history
+        self._grouped_history = grouped_history
         self._backup = backup
         self._backup_semaphore = asyncio.Semaphore(config.backup.max_jobs)
         self._semaphore = asyncio.Semaphore(config.export.max_jobs)
@@ -104,37 +106,34 @@ class AsyncStorageTasks:
         payload = json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(payload).hexdigest()
 
-    async def create_wide_export(
+    async def create_grouped_export(
         self,
         *,
         request_id: str,
-        filter_: WideHistoryFilter,
-        schema: WideSchema,
-        device_type: str,
+        selector: GroupedWideSelector,
         export_format: str,
         owner_id: str,
     ) -> TaskRecord:
-        """Register one immutable schema-bound CSV/JSON export job."""
+        """Register a version-grouped export with durable request idempotency."""
         if not request_id or len(request_id) > 256:
-            raise ValueError("invalid wide export request_id")
+            raise ValueError("invalid grouped export request_id")
         if export_format not in {"csv", "json"}:
-            raise ValueError("wide export format must be csv or json")
-        filter_.validate(schema, maximum=self._config.query.max_page_size)
-        if filter_.after_time_us is not None:
-            raise ValueError("wide export cannot accept an external pagination cursor")
+            raise ValueError("grouped export format must be csv or json")
+        selector.validate()
         task_id = uuid.uuid4().hex
         fingerprint = self._request_digest(
             [
-                "WIDE_EXPORT_V1",
-                filter_.wind_farm_id,
-                filter_.device_id,
-                filter_.device_config_id,
-                filter_.data_level.value,
-                filter_.start_time_us,
-                filter_.end_time_us,
-                filter_.point_ids,
-                filter_.qualities,
-                schema.fingerprint,
+                "GROUPED_WIDE_EXPORT_V2",
+                selector.wind_farm_id,
+                selector.device_ids,
+                selector.device_type,
+                selector.point_table_id,
+                selector.data_level.value,
+                selector.start_time_us,
+                selector.end_time_us,
+                selector.point_ids,
+                selector.qualities,
+                selector.schema_fingerprint,
                 export_format,
             ]
         )
@@ -144,19 +143,17 @@ class AsyncStorageTasks:
             request_id=request_id,
             request_sha256=fingerprint,
             kind="EXPORT",
-            wind_farm_id=filter_.wind_farm_id,
+            wind_farm_id=selector.wind_farm_id,
             owner_id=owner_id,
         )
         stored = self.get_export(existing, owner_id=owner_id)
         if stored is None:
-            raise RuntimeError("registered wide export task not found")
+            raise RuntimeError("registered grouped export task not found")
         if existing == task_id:
             worker = asyncio.create_task(
-                self._run_wide_export(
+                self._run_grouped_export(
                     task_id=task_id,
-                    filter_=filter_,
-                    schema=schema,
-                    device_type=device_type,
+                    selector=selector,
                     export_format=export_format,
                 ),
                 name=f"storage-export-{task_id}",
@@ -165,23 +162,19 @@ class AsyncStorageTasks:
             worker.add_done_callback(self._completed)
         return stored
 
-    async def _run_wide_export(
+    async def _run_grouped_export(
         self,
         *,
         task_id: str,
-        filter_: WideHistoryFilter,
-        schema: WideSchema,
-        device_type: str,
+        selector: GroupedWideSelector,
         export_format: str,
     ) -> None:
         async with self._semaphore:
             await asyncio.to_thread(self._metadata.set_task_state, task_id, state="RUNNING")
             try:
-                artifact, size, digest = await export_wide_device_history(
-                    history=self._wide_history,
-                    schema=schema,
-                    filter_=filter_,
-                    device_type=device_type,
+                artifact, size, digest = await export_grouped_wide_history(
+                    history=self._grouped_history,
+                    selector=selector,
                     artifact_id=task_id,
                     export_format=export_format,
                     root=self._config.export.root,
@@ -200,7 +193,7 @@ class AsyncStorageTasks:
                     self._metadata.set_task_state,
                     task_id,
                     state="FAILED",
-                    error_code="WIDE_EXPORT_FAILED",
+                    error_code="GROUPED_WIDE_EXPORT_FAILED",
                     message=type(exc).__name__,
                 )
                 raise
