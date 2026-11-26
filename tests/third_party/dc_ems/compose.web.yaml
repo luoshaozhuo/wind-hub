@@ -1,0 +1,21 @@
+# 仅限隔离联测：使用本机已有镜像，不从远端拉取。
+# 调用：docker compose -f third_party/dc-ems/runtime/containerized/compose.yaml
+#                 -f tests/third_party/dc_ems/compose.web.yaml config
+name: dcems-smoke
+services:
+  dc-ems-web:
+    image: ${WEB_IMAGE:-dc-ems-nginx:1.26-alpine}
+    pull_policy: never
+    network_mode: host
+    volumes:
+      - type: bind
+        source: ${DCEMS_TEST_DIR:?set the absolute tests/third_party/dc_ems path}/nginx.smoke.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+      - type: bind
+        source: ${DCEMS_RELEASE_DIR:?set the absolute third_party/dc-ems path}/app/web
+        target: /usr/share/nginx/html/dc-ems
+        read_only: true
+    depends_on:
+      - dc-ems-server
+    restart: "no"
