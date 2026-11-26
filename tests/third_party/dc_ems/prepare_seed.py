@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 REQUIRED_COLUMNS = frozenset({"dcems_var_path", "business_point_id", "modbus_addr"})
 
@@ -164,8 +166,6 @@ def main() -> None:
         device_count=args.device_count,
         allow_subset=args.smoke_subset,
     )
-    import yaml
-
     from tests.third_party.dc_ems.validate_gateway_mapping import validate
 
     point_table = yaml.safe_load(args.gateway_point_table.read_text(encoding="utf-8"))
