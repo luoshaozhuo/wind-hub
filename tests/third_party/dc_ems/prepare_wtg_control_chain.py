@@ -64,7 +64,31 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
         "id": "wtg_dcems_control",
         "version": VERSION,
     }
+    # DG 不允许非 PPC 调用方改写 PPC 拥有的风机设定值。
+    # 派生受测风机为 local，PPC 仍控制其余 PV/BESS。
+    ppc_model_path = models / "device_model_plant_controller_sim_physical_v1.2.0.yaml"
+    ppc_model = _read(ppc_model_path)
+    ppc_model["template_id"] = "plant_controller_dcems_wtg"
+    ppc_params = ppc_model["simulation"]["parameters"]
+    ppc_params["participating_device_ids"] = [
+        item for item in ppc_params["participating_device_ids"] if item != "WTG_SIM01"
+    ]
+    ppc_params["allocation_weights"].pop("WTG_SIM01")
+    _write(models / "device_model_plant_controller_dcems_wtg_v1.2.0.yaml", ppc_model)
+    devices["devices"]["PPC_SIM01"]["model"] = {
+        "id": "plant_controller_dcems_wtg",
+        "version": VERSION,
+    }
     _write(devices_path, devices)
+
+    scenario_path = config / "instances" / "scenarios_e2e-final_v1.0.0.yaml"
+    scenario_doc = _read(scenario_path)
+    physical = next(
+        item for item in scenario_doc["scenarios"] if item["scenario_id"] == "e2e-plant-physical"
+    )
+    turbine = next(item for item in physical["devices"] if item["device_id"] == "WTG_SIM01")
+    turbine["controller_mode"] = "local"
+    _write(scenario_path, scenario_doc)
 
     execution_path = (
         config / "services" / "service_gateway-dcems-control-execution_v1.0.0.yaml"
