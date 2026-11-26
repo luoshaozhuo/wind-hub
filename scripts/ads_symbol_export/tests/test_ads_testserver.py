@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-import importlib.util
 import struct
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -15,8 +15,20 @@ from typing import Any
 
 import pyads
 import pytest
+import yaml
 from pyads.testserver import AdsTestServer
 from pyads.testserver.handler import AmsResponseData
+
+from ads_export import cli
+from ads_export.config import load_config
+from ads_export.strategies import StrategyOutcome, export_symbols
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.real_service,
+    pytest.mark.ads,
+    pytest.mark.network,
+]
 
 # ==================== 测试配置 ====================
 SERVER_IP = "127.0.0.1"
@@ -32,22 +44,42 @@ SYMBOL_INFO = 0xF00F
 SYMBOL_DATA = 0xF00B
 ADS_OK = 0
 ADS_REJECT = 0x701
+FILE_OPEN_FLAGS = 0x51  # READ | BINARY | ENSURE_DIR
+
+
+def _tool_dir() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _config_with(tmp_path: Path, name: str, **overrides: object) -> Path:
+    """基于正式配置生成测试配置，只覆盖指向本地 TestServer 的字段。"""
+    raw = yaml.safe_load(
+        (_tool_dir() / "ads_symbol_export_v1.0.0.yaml").read_text(encoding="utf-8")
+    )
+    raw.update(overrides)
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    return path
+
+
+def _run_cli(command: list[str], config: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [*command, "--config", str(config)],
+        cwd=_tool_dir(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def _console_script() -> Path:
+    return Path(sys.executable).with_name("ads-symbol-export")
 
 
 def _err_bytes(code: int) -> bytes:
     """AmsResponseData.error_code 需要 4 字节小端 bytes，而非 int。"""
     return struct.pack("<I", code)
-
-
-def _load_exporter() -> Any:
-    path = Path(__file__).resolve().parents[1] / "export.py"
-    spec = importlib.util.spec_from_file_location("_ads_export_integration", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # dataclass 解析字符串注解时需要在 sys.modules 中找到模块
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _encode_symbol(name: str) -> bytes:
@@ -78,18 +110,26 @@ class SymbolTableHandler:
         self.mode = mode
         self.full_requests = 0
         self.data_reads: list[tuple[int, int]] = []
+        self.target_ports: list[int] = []
+        # (target AMS port, command, index group, index offset, read length)
+        self.requests: list[tuple[int, int, int, int, int]] = []
 
     def handle_request(self, request: Any) -> AmsResponseData:
         command = int.from_bytes(request.ams_header.command_id, "little")
+        target_port = int.from_bytes(request.ams_header.target_port, "little")
+        self.target_ports.append(target_port)
         # error_code 必须为 4 字节小端 bytes，testserver 会原样拼进响应包。
         if command == ADS_READ_STATE:
+            self.requests.append((target_port, command, -1, -1, 0))
             return AmsResponseData(
                 b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
             )
         if command != ADS_READ:
+            self.requests.append((target_port, command, -1, -1, 0))
             return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<I", ADS_REJECT))
 
         group, offset, size = struct.unpack_from("<III", request.ams_header.data)
+        self.requests.append((target_port, command, group, offset, size))
         if group == SYMBOL_INFO:
             # 同时兼容仅需前 8 字节和更长的 upload-info 请求。
             info = struct.pack("<II", self.count, len(self.symbols))
@@ -129,7 +169,7 @@ def server_and_connection() -> Iterator[tuple[SymbolTableHandler, pyads.Connecti
     try:
         server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
     except OSError as exc:
-        pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
 
     try:
         # Linux 下 pyads 自带的 AdsLib 以 IP:48898 直连测试服务，
@@ -153,12 +193,12 @@ def test_full_table_error_then_chunk_fallback(
 ) -> None:
     """整表请求返回 ADS 错误后，实际 ADS/TCP 分段请求成功。"""
     handler, plc = server_and_connection
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = True
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = True
+    settings.CHUNK_SIZES = (64,)
     output = tmp_path / "symbols.txt"
 
-    result = exporter.export_symbols(plc, output)
+    result = export_symbols(plc, output, settings=settings)
 
     assert result == len(SYMBOL_NAMES)
     assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
@@ -173,14 +213,14 @@ def test_offset_unsupported_does_not_overwrite_file(
     """PLC 不支持偏移时，应报告失败并保留原文件。"""
     handler, plc = server_and_connection
     handler.mode = "reject_offset"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = False
-    exporter.CHUNK_SIZES = (64, 40)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = False
+    settings.CHUNK_SIZES = (64, 40)
     output = tmp_path / "symbols.txt"
     output.write_text("previous\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
-        exporter.export_symbols(plc, output)
+        export_symbols(plc, output, settings=settings)
 
     assert output.read_text(encoding="utf-8") == "previous\n"
     assert not output.with_name(output.name + ".partial").exists()
@@ -192,12 +232,12 @@ def test_server_ignores_offset_is_detected(
 ) -> None:
     handler, plc = server_and_connection
     handler.mode = "ignore_offset"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = False
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = False
+    settings.CHUNK_SIZES = (64,)
 
     with pytest.raises(RuntimeError, match="字节偏移"):
-        exporter.export_symbols(plc, tmp_path / "symbols.txt")
+        export_symbols(plc, tmp_path / "symbols.txt", settings=settings)
 
 
 TPY_CONTENT = (
@@ -221,17 +261,39 @@ class FileServiceHandler:
         self.handles: dict[int, int] = {}
         self.closed: list[int] = []
         self.find_pending: list[str] = []
+        self.target_ports: list[int] = []
+        self.reject_runtime = False
+        self.reject_file = False
+        self.fread_calls = 0
+        self.fail_fread_after: int | None = None
+        # (target AMS port, command, index group, index offset, read length, write length)
+        self.requests: list[tuple[int, int, int, int, int, int]] = []
 
     def handle_request(self, request: Any) -> AmsResponseData:
         command = int.from_bytes(request.ams_header.command_id, "little")
         data = request.ams_header.data
+        target_port = int.from_bytes(request.ams_header.target_port, "little")
+        self.target_ports.append(target_port)
+        if self.reject_runtime and target_port != 10000:
+            self.requests.append((target_port, command, -1, -1, 0, 0))
+            return SymbolTableHandler._error_reply()
+        if self.reject_file and target_port == 10000:
+            self.requests.append((target_port, command, -1, -1, 0, 0))
+            return SymbolTableHandler._error_reply()
         if command == ADS_READ_STATE:
+            self.requests.append((target_port, command, -1, -1, 0, 0))
+            if target_port == 10000:
+                return SymbolTableHandler._error_reply()
             return AmsResponseData(
                 b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
             )
         if command == ADS_READ:
             group, offset, size = struct.unpack_from("<III", data)
+            self.requests.append((target_port, command, group, offset, size, 0))
             if group == 122:  # FREAD：EOF 返回成功空负载（adstool 官方语义）
+                self.fread_calls += 1
+                if self.fail_fread_after is not None and self.fread_calls > self.fail_fread_after:
+                    return SymbolTableHandler._error_reply()
                 pos = self.handles.get(offset)
                 if pos is None:
                     return SymbolTableHandler._error_reply()  # 无效句柄
@@ -240,9 +302,14 @@ class FileServiceHandler:
                 return self._read_reply(chunk)
             return SymbolTableHandler._error_reply()
         if command != ADS_READ_WRITE:
+            self.requests.append((target_port, command, -1, -1, 0, 0))
             return SymbolTableHandler._error_reply()
         group, offset, read_len, write_len = struct.unpack_from("<IIII", data)
+        self.requests.append((target_port, command, group, offset, read_len, write_len))
         if group == 122:  # FREAD（adslib 以 ReadWrite 下发，写侧为空）
+            self.fread_calls += 1
+            if self.fail_fread_after is not None and self.fread_calls > self.fail_fread_after:
+                return SymbolTableHandler._error_reply()
             pos = self.handles.get(offset)
             if pos is None:
                 return SymbolTableHandler._error_reply()
@@ -271,7 +338,7 @@ class FileServiceHandler:
             if not self.find_pending:
                 return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", 1804, 0))
             name = self.find_pending.pop(0).encode("cp1252")
-            entry = bytearray(322)
+            entry = bytearray(324)
             struct.pack_into("<II", entry, 0, offset + 1, 0)
             entry[48 : 48 + len(name)] = name
             return self._read_reply(bytes(entry))
@@ -283,39 +350,65 @@ class FileServiceHandler:
         return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), data)
 
 
-def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
+@pytest.mark.parametrize("method", ["auto", "file"])
+def test_file_service_over_real_ads_tcp(tmp_path: Path, method: str) -> None:
     """运行时符号表全部拒绝时，通过真实 ADS/TCP 的文件服务方案导出 TPY 符号。"""
     handler = FileServiceHandler()
     try:
         server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
     except OSError as exc:
-        pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
 
     try:
         server.start()
         plc = pyads.Connection(SERVER_AMS_NET_ID, SERVER_ADS_PORT, SERVER_IP)
         plc.open()
         plc.set_timeout(3000)
-        exporter = _load_exporter()
-        exporter.TRY_FULL_TABLE_FIRST = True
-        exporter.CHUNK_SIZES = (64,)
+        settings = load_config(
+            Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml"
+        )
+        settings.READ_METHOD = method
+        settings.TRY_FULL_TABLE_FIRST = True
+        settings.CHUNK_SIZES = (64,)
         output = tmp_path / "symbols.txt"
+
+        file_connections: list[pyads.Connection] = []
 
         def file_conn() -> pyads.Connection:
             conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
             conn.open()
             conn.set_timeout(3000)
+            file_connections.append(conn)
             return conn
 
-        count = exporter.export_symbols(plc, output, file_service_factory=file_conn)
-        plc.close()
+        count = export_symbols(plc, output, file_service_factory=file_conn, settings=settings)
 
         assert count == 2
         text = output.read_text(encoding="utf-8")
-        assert "source=file" in text
-        assert text.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
-        assert handler.closed  # 远端句柄已释放
+        assert text == "MAIN.temperature\nGVL.状态\n"
+        assert handler.closed and not handler.handles  # 远端句柄已释放
+        # 去掉 ReadState 探测后只建立一次文件服务连接，且导出后关闭。
+        assert len(file_connections) == 1
+        assert getattr(file_connections[0], "_port", None) is None
+
+        # 文件协议证据：FFILEFIND/FOPEN/FREAD/FCLOSE 全部经过 AMS port 10000。
+        file_requests = [item for item in handler.requests if item[0] == 10000]
+        assert {120, 121, 122, 133} <= {item[2] for item in file_requests}
+        assert all(item[1] != ADS_READ_STATE for item in file_requests)
+        find_first = next(item for item in file_requests if item[2] == 133 and item[3] == 1)
+        assert find_first[4] == 324  # sizeof(TcFileFindData)
+        fopen = next(item for item in file_requests if item[2] == 120)
+        assert fopen[3] == FILE_OPEN_FLAGS
+        assert fopen[4] == 4
+        assert fopen[5] == len(TPY_PATH.encode("cp1252"))
+        if method == "file":
+            assert set(handler.target_ports) == {10000}  # 完全不访问 Runtime
+        else:
+            assert SERVER_ADS_PORT in handler.target_ports
+            assert 10000 in handler.target_ports
     finally:
+        if "plc" in locals():
+            plc.close()
         server.close()
         if server.ident is not None:
             server.join(timeout=3)
@@ -328,12 +421,483 @@ def test_full_table_success_skips_chunk_fallback(
     """验证成功时不会继续尝试分段策略。"""
     handler, plc = server_and_connection
     handler.mode = "normal"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = True
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = True
+    settings.CHUNK_SIZES = (64,)
     output = tmp_path / "symbols.txt"
 
-    assert exporter.export_symbols(plc, output) == len(SYMBOL_NAMES)
+    assert export_symbols(plc, output, settings=settings) == len(SYMBOL_NAMES)
     assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
     assert handler.full_requests >= 1
     assert not any(offset > 0 for offset, _ in handler.data_reads)
+    # 整表读取按声明长度一次性请求，且不会访问 System Service 端口。
+    assert (
+        SERVER_ADS_PORT,
+        ADS_READ,
+        SYMBOL_DATA,
+        0,
+        len(handler.symbols),
+    ) in handler.requests
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}
+
+
+@pytest.mark.parametrize("method", ["full", "chunk"])
+def test_explicit_runtime_method(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+) -> None:
+    handler, plc = server_and_connection
+    handler.mode = "normal"
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    assert export_symbols(plc, output, settings=settings) == len(SYMBOL_NAMES)
+    assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
+    assert (handler.full_requests > 0) == (method == "full")
+    assert any(offset > 0 for offset, _ in handler.data_reads) == (method == "chunk")
+
+
+def test_explicit_full_failure_does_not_fallback(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+) -> None:
+    handler, plc = server_and_connection
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = "full"
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="指定 full"):
+        export_symbols(plc, output, settings=settings)
+    assert handler.full_requests == 1
+    assert not any(offset > 0 for offset, _ in handler.data_reads)
+    # 显式 full 失败后不得触发分段（非零偏移）或文件服务（port 10000）。
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}
+    assert output.read_text(encoding="utf-8") == "previous\n"
+    assert not output.with_name(output.name + ".partial").exists()
+
+
+def test_explicit_chunk_failure_does_not_fallback(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+) -> None:
+    """显式 chunk 失败时不尝试整表或文件服务，并保留原输出。"""
+    handler, plc = server_and_connection
+    handler.mode = "reject_offset"
+    settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = "chunk"
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="指定 chunk"):
+        export_symbols(plc, output, settings=settings)
+
+    assert handler.full_requests == 0  # 未触发整表读取
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 未触发文件服务
+    assert output.read_text(encoding="utf-8") == "previous\n"
+    assert not output.with_name(output.name + ".partial").exists()
+
+
+@pytest.mark.parametrize("method", ["file", "auto"])
+def test_cli_file_service_without_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """通过真实 TCP 验证 Runtime 不可用时的 CLI 文件服务路径。"""
+    caplog.set_level("INFO")
+    handler = FileServiceHandler()
+    handler.reject_runtime = True
+    server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    try:
+        server.start()
+        config = Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml"
+        raw = yaml.safe_load(config.read_text(encoding="utf-8"))
+        output = tmp_path / "symbols.txt"
+        raw.update(
+            PLC_IP=SERVER_IP,
+            PLC_AMS_NET_ID=SERVER_AMS_NET_ID,
+            PLC_AMS_PORT=SERVER_ADS_PORT,
+            READ_METHOD=method,
+            OUTPUT_FILENAME=str(output),
+            ADS_TIMEOUT_MS=1000,
+        )
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["ads-symbol-export", "--config", str(path)])
+        assert cli.main() == 0
+        assert output.read_text(encoding="utf-8").splitlines() == [
+            "MAIN.temperature",
+            "GVL.状态",
+        ]
+        assert "verification=unverified" in caplog.text
+        assert "source=file" in caplog.text
+        assert "remote=" in caplog.text
+        assert "runtime_count=None" in caplog.text
+        assert all(item[1] != ADS_READ_STATE for item in handler.requests if item[0] == 10000)
+        assert handler.closed and not handler.handles
+        assert 10000 in handler.target_ports
+        if method == "file":
+            assert set(handler.target_ports) == {10000}
+        else:
+            assert SERVER_ADS_PORT in handler.target_ports
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+def test_explicit_file_failure_does_not_touch_runtime(tmp_path: Path) -> None:
+    """显式 file 在文件服务不可用时明确失败，绝不转向 Runtime 读取。"""
+    handler = FileServiceHandler()
+    handler.reject_file = True
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+        settings.READ_METHOD = "file"
+        output = tmp_path / "symbols.txt"
+        output.write_text("previous\n", encoding="utf-8")
+
+        file_connections: list[pyads.Connection] = []
+
+        def file_conn() -> pyads.Connection:
+            conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
+            conn.open()
+            conn.set_timeout(1000)
+            file_connections.append(conn)
+            return conn
+
+        with pytest.raises(RuntimeError, match="指定 file") as err:
+            export_symbols(None, output, file_service_factory=file_conn, settings=settings)
+
+        assert "远端未发现 TPY/TMC 文件" in str(err.value)
+        # 实际 FFILEFIND 失败原因必须保留在诊断信息中。
+        assert "目录枚举失败" in str(err.value)
+        assert set(handler.target_ports) == {10000}  # 所有请求仅发往 System Service
+        assert len(file_connections) == 1
+        assert getattr(file_connections[0], "_port", None) is None  # 失败路径也释放连接
+        assert output.read_text(encoding="utf-8") == "previous\n"
+        assert not output.with_name(output.name + ".partial").exists()
+        assert not list(tmp_path.glob("ads_remote_*"))
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+def test_file_service_mid_stream_failure(tmp_path: Path) -> None:
+    """文件服务中途 ADS 错误必须上报、释放句柄、保留旧输出与无临时文件。"""
+    handler = FileServiceHandler()
+    handler.fail_fread_after = 2
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+        settings.CHUNK_SIZES = ()
+        settings.FILE_READ_CHUNK = 64
+        output = tmp_path / "symbols.txt"
+        output.write_text("previous\n", encoding="utf-8")
+
+        def file_conn() -> pyads.Connection:
+            conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
+            conn.open()
+            conn.set_timeout(1000)
+            return conn
+
+        with pytest.raises(RuntimeError, match="所有已启用的枚举策略") as err:
+            export_symbols(None, output, file_service_factory=file_conn, settings=settings)
+
+        assert "所有候选文件均不可用" in str(err.value)
+        assert handler.fread_calls > handler.fail_fread_after  # 确实在读取中途失败
+        assert handler.closed and not handler.handles  # 远端句柄已关闭
+        assert output.read_text(encoding="utf-8") == "previous\n"  # 旧输出未被覆盖
+        assert not output.with_name(output.name + ".partial").exists()
+        assert not list(tmp_path.glob("ads_remote_*"))  # 下载临时文件已删除
+        assert set(handler.target_ports) == {10000}
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+def test_server_resources_released() -> None:
+    """关闭后服务线程退出且 48898 端口可再次绑定，无残留监听。"""
+    handler = SymbolTableHandler(SYMBOL_NAMES, "normal")
+    server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    server.start()
+    try:
+        assert server.ident is not None
+    finally:
+        server.close()
+        server.join(timeout=3)
+
+    assert not server.is_alive()
+
+    replacement = AdsTestServer(
+        handler=SymbolTableHandler(SYMBOL_NAMES, "normal"),
+        ip_address=SERVER_IP,
+        logging=False,
+    )
+    replacement.start()
+    try:
+        assert replacement.ident is not None
+    finally:
+        replacement.close()
+        replacement.join(timeout=3)
+    assert not replacement.is_alive()
+
+
+@pytest.mark.parametrize("method", ["auto", "full", "chunk", "file"])
+def test_cli_subprocess_all_modes(tmp_path: Path, method: str) -> None:
+    """用独立子进程验证 export.py 与安装入口在四种模式下的端到端行为。"""
+    handler: SymbolTableHandler | FileServiceHandler
+    if method == "file":
+        file_handler = FileServiceHandler()
+        file_handler.reject_runtime = True
+        handler = file_handler
+    else:
+        handler = SymbolTableHandler(SYMBOL_NAMES, "normal")
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        assert _console_script().exists(), "安装后的 ads-symbol-export 入口缺失"
+        # 脚本入口与安装后入口都必须可用。
+        commands = [[sys.executable, str(_tool_dir() / "export.py")], [str(_console_script())]]
+        for index, command in enumerate(commands):
+            output = tmp_path / f"symbols-{index}.txt"
+            overrides: dict[str, object] = {
+                "PLC_IP": SERVER_IP,
+                "PLC_AMS_NET_ID": SERVER_AMS_NET_ID,
+                "PLC_AMS_PORT": SERVER_ADS_PORT,
+                "READ_METHOD": method,
+                "OUTPUT_FILENAME": str(output),
+                "ADS_TIMEOUT_MS": 1000,
+            }
+            if method == "chunk":
+                overrides["CHUNK_SIZES"] = [64]
+                overrides["TRY_FULL_TABLE_FIRST"] = False
+            if method == "file":
+                overrides["FILE_READ_CHUNK"] = 64
+            config = _config_with(tmp_path, f"config-{index}.yaml", **overrides)
+            result = _run_cli(command, config)
+
+            assert result.returncode == 0, result.stderr
+            data = output.read_bytes().decode("utf-8")
+            if method == "file":
+                assert "source=file" in result.stderr
+                assert "verification=unverified" in result.stderr
+                assert "remote=" in result.stderr
+                assert data.splitlines() == ["MAIN.temperature", "GVL.状态"]
+                assert "ads-file: 成功" in result.stderr
+            else:
+                assert data.splitlines() == list(SYMBOL_NAMES)
+                assert ("full-table" in result.stderr) == (method in ("auto", "full"))
+            if method == "chunk":
+                assert "chunk=64" in result.stderr
+                chunk_handler = handler
+                assert isinstance(chunk_handler, SymbolTableHandler)
+                assert any(offset > 0 for offset, _ in chunk_handler.data_reads)
+                assert all(size <= 64 for _, size in chunk_handler.data_reads)
+
+        if method == "file":
+            assert set(handler.target_ports) == {10000}  # Runtime 端口从未出现
+            assert all(
+                item[1] != ADS_READ_STATE for item in handler.requests if item[0] == 10000
+            )  # 不依赖 ReadState 前置探测
+        else:
+            assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 未访问文件服务
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+def test_cli_auto_falls_back_when_runtime_unreachable(tmp_path: Path) -> None:
+    """auto 在 Runtime 初始连接失败时，子进程仍能经文件服务成功导出。"""
+    handler = FileServiceHandler()
+    handler.reject_runtime = True
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        output = tmp_path / "symbols.txt"
+        config = _config_with(
+            tmp_path,
+            "config.yaml",
+            PLC_IP=SERVER_IP,
+            PLC_AMS_NET_ID=SERVER_AMS_NET_ID,
+            PLC_AMS_PORT=SERVER_ADS_PORT,
+            READ_METHOD="auto",
+            OUTPUT_FILENAME=str(output),
+            ADS_TIMEOUT_MS=1000,
+            FILE_READ_CHUNK=64,
+        )
+        result = _run_cli([sys.executable, str(_tool_dir() / "export.py")], config)
+
+        assert result.returncode == 0, result.stderr
+        assert "Runtime 初始连接失败" in result.stderr
+        data = output.read_bytes().decode("utf-8")
+        assert "source=file" in result.stderr
+        assert "verification=unverified" in result.stderr
+        assert "remote=" in result.stderr
+        assert data.splitlines() == ["MAIN.temperature", "GVL.状态"]
+        assert SERVER_ADS_PORT in handler.target_ports  # 尝试过 Runtime
+        assert 10000 in handler.target_ports  # 回退到文件服务
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+def test_cli_invalid_config_makes_no_requests(tmp_path: Path) -> None:
+    """非法配置在连接前被拒绝：服务端零请求，子进程非零退出。"""
+    handler = SymbolTableHandler(SYMBOL_NAMES, "normal")
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        raw = yaml.safe_load(
+            (_tool_dir() / "ads_symbol_export_v1.0.0.yaml").read_text(encoding="utf-8")
+        )
+        output = tmp_path / "symbols.txt"
+        raw["OUTPUT_FILENAME"] = str(output)
+        del raw["PLC_IP"]
+        config = tmp_path / "config.yaml"
+        config.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+        result = _run_cli([sys.executable, str(_tool_dir() / "export.py")], config)
+
+        assert result.returncode != 0
+        assert "配置字段不匹配" in result.stderr
+        assert handler.requests == []  # 未发出任何 ADS 请求
+        assert not output.exists()
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "method,try_full_first,expected_strategy",
+    [
+        ("full", True, "full-table"),
+        ("chunk", False, "chunk=64"),
+        ("auto", True, "full-table"),
+        ("auto", False, "chunk=64"),
+    ],
+)
+def test_empty_runtime_table(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+    try_full_first: bool,
+    expected_strategy: str,
+) -> None:
+    handler, plc = server_and_connection
+    handler.symbols = b""
+    handler.count = 0
+    settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.TRY_FULL_TABLE_FIRST = try_full_first
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    outcomes: list[StrategyOutcome] = []
+    assert export_symbols(plc, output, settings=settings, outcomes=outcomes) == 0
+    assert output.read_bytes() == b""
+    assert not handler.data_reads
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}
+    assert len(outcomes) == 1
+    assert outcomes[0].ok and outcomes[0].name == expected_strategy
+    assert outcomes[0].count == 0
+    assert outcomes[0].source == "runtime"
+    assert outcomes[0].verification == "runtime_verified"
+    assert not output.with_name(output.name + ".partial").exists()
+
+
+@pytest.mark.parametrize("method", ["full", "chunk"])
+@pytest.mark.parametrize("count,payload", [(0, b"x"), (1, b"")])
+def test_inconsistent_empty_runtime_table(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+    count: int,
+    payload: bytes,
+) -> None:
+    handler, plc = server_and_connection
+    handler.count = count
+    handler.symbols = payload
+    settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="无效点表信息"):
+        export_symbols(plc, output, settings=settings)
+    assert output.read_bytes() == b"previous\n"
+    assert not handler.data_reads
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 不回退文件服务
+    assert not output.with_name(output.name + ".partial").exists()
+
+
+@pytest.mark.parametrize("method", ["full", "auto"])
+def test_cli_empty_runtime_table(tmp_path: Path, method: str) -> None:
+    """CLI 对合法空表退出 0，原子替换为零字节且不发送符号数据请求。"""
+    handler = SymbolTableHandler(SYMBOL_NAMES, "normal")
+    handler.symbols = b""
+    handler.count = 0
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        commands = [[sys.executable, str(_tool_dir() / "export.py")], [str(_console_script())]]
+        for index, command in enumerate(commands):
+            output = tmp_path / f"empty-{index}.txt"
+            output.write_text("previous\n", encoding="utf-8")
+            config = _config_with(
+                tmp_path,
+                f"empty-{index}.yaml",
+                PLC_IP=SERVER_IP,
+                PLC_AMS_NET_ID=SERVER_AMS_NET_ID,
+                PLC_AMS_PORT=SERVER_ADS_PORT,
+                READ_METHOD=method,
+                OUTPUT_FILENAME=str(output),
+                ADS_TIMEOUT_MS=1000,
+            )
+            result = _run_cli(command, config)
+
+            assert result.returncode == 0, result.stderr
+            assert output.read_bytes() == b""  # 原子替换为零字节
+            assert "已写入 0 个变量名" in result.stderr
+            assert not output.with_name(output.name + ".partial").exists()
+        assert not handler.data_reads  # 未发送 0xF00B 符号数据请求
+        assert set(handler.target_ports) == {SERVER_ADS_PORT}  # 未访问 System Service
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)

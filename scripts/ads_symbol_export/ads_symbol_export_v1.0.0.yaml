@@ -1,0 +1,25 @@
+# ADS 符号表导出配置；时间为 ms，长度为字节。
+schema_version: "1.0.0"
+file_version: "1.0.0"
+PLC_IP: "192.168.1.10"
+PLC_AMS_NET_ID: "192.168.1.10.1.1"  # 六段 0–255
+TWINCAT_VERSION: 2  # 2 或 3
+PLC_AMS_PORT: null  # null: TC2=801, TC3=851；或 1–65535
+ADD_LOCAL_ROUTE: false  # Linux 不修改本地路由
+ADD_REMOTE_ROUTE_IF_NEEDED: false  # 仅提示，不修改远端路由
+ADS_TIMEOUT_MS: 5000  # 正整数
+RECONNECT_ATTEMPTS: 1  # 0–10
+READ_METHOD: auto  # auto/full/chunk/file
+TRY_FULL_TABLE_FIRST: true  # auto 模式；整表可能导致 PLC 内存不足
+CHUNK_SIZES: [4096, 1024, 256]  # 每块至少 33 字节
+MAX_SYMBOL_BYTES: 8589934592  # 安全上限
+OUTPUT_FILENAME: ads_symbols.txt  # 相对当前目录或绝对路径
+TEXT_ENCODING: utf-8  # 例如 cp1252
+LOG_EVERY: 1000  # 0 禁用进度日志
+CHECK_HOST_ENVIRONMENT: true
+FILE_SERVICE_ENABLED: true  # auto 模式
+TPY_SEARCH_PATHS: []  # 远端目录或 TPY/TMC 绝对路径列表
+FILE_READ_CHUNK: 65536  # 1 至 MAX_TPY_FILE_BYTES
+MAX_TPY_FILE_BYTES: 536870912  # 正整数
+FILE_FIND_MAX_ENTRIES: 4096  # 正整数
+REMOTE_PATH_ENCODING: cp1252
