@@ -61,7 +61,7 @@ services:
     manager: process
     target: collector-realtime
     process:
-      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-realtime_v1.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-realtime", "--collector-id", "collector-e2e-realtime", "--grpc-host", "127.0.0.1", "--grpc-port", "52051"]
+      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-realtime_v2.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-realtime", "--collector-id", "collector-e2e-realtime", "--grpc-host", "127.0.0.1", "--grpc-port", "52051"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
       log_file: "/var/lib/wind-hub/e2e-final/logs/collector-realtime.log"
@@ -70,7 +70,7 @@ services:
     manager: process
     target: collector-reliable
     process:
-      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-reliable_v1.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-reliable", "--collector-id", "collector-e2e-reliable", "--grpc-host", "127.0.0.1", "--grpc-port", "52054"]
+      argv: ["/usr/bin/python3", "-m", "collector.main", "--config", "/opt/wind-hub/src/configs/services/service_collector-e2e-reliable_v2.0.0.yaml", "--state-directory", "/var/lib/wind-hub/e2e-final/collector-reliable", "--collector-id", "collector-e2e-reliable", "--grpc-host", "127.0.0.1", "--grpc-port", "52054"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
       log_file: "/var/lib/wind-hub/e2e-final/logs/collector-reliable.log"
@@ -94,7 +94,7 @@ services:
     manager: process
     target: sink
     process:
-      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/opt/wind-hub/src", "--service-file", "configs/services/service_sink-e2e_v1.0.0.yaml"]
+      argv: ["/usr/bin/python3", "-m", "sink_service.main", "--config-root", "/opt/wind-hub/src", "--service-file", "configs/services/service_sink-e2e_v2.0.0.yaml"]
       cwd: "/opt/wind-hub/src"
       state_dir: "/var/lib/wind-hub/e2e-final/cli-processes"
       log_file: "/var/lib/wind-hub/e2e-final/logs/sink.log"
