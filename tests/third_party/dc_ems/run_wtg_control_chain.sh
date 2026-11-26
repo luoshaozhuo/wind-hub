@@ -14,11 +14,11 @@ case "${1:-}" in
             --nats-url "${DCEMS_CONTROL_NATS_URL:-nats://127.0.0.1:14223}"
         ;;
     --check)
-        python -m pytest -q \
-            tests/third_party/dc_ems/test_control_chain_config.py \
-            tests/third_party/dc_ems/test_dcems_control_output_contract.py \
-            tests/third_party/dc_ems/test_wtg_control_chain_config.py
         bash tests/third_party/dc_ems/run_control_chain.sh --check
+        python -m pytest -q \
+            tests/third_party/dc_ems/test_dcems_control_output_contract.py \
+            tests/third_party/dc_ems/test_wtg_control_chain_config.py \
+            tests/third_party/dc_ems/test_wtg_dcems_seed.py
         ;;
     --up|--down)
         bash tests/third_party/dc_ems/run_control_chain.sh "$1"
