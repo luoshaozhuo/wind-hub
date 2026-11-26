@@ -11,6 +11,8 @@ from urllib.request import urlopen
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
+from tests.third_party.dc_ems.websocket_observer import observe
+
 
 @pytest.fixture(scope="module", autouse=True)
 def live_only() -> None:
@@ -112,8 +114,6 @@ def test_dcems_websocket_upgrades_through_local_proxy() -> None:
 
 def test_dcems_websocket_contains_live_ten_device_values() -> None:
     """真 Server 内存键必须连续变化；排除仅 Gateway 响应而 DCEMS 未采集。"""
-    from tests.third_party.dc_ems.websocket_observer import observe
-
     host = os.environ.get("DCEMS_WEB_HOST", "127.0.0.1")
     port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
     observed = observe(host, port, seconds=16.0)
