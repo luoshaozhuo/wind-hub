@@ -289,6 +289,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._wide_query = wide_query
         self._grouped_query = WideGroupedHistoryService(
             history=wide_query,
+            aggregation=wide_aggregation,
             resolver=point_tables,
             type_mapping=config.tdengine.type_mapping,
             cursor_secret=cursor_secret,
