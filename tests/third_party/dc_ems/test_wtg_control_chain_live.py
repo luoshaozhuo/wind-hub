@@ -124,6 +124,22 @@ def test_fc16_wtg_setpoint_reaches_dg_in_si_units(
     assert command["point_id"] == point
     assert _assert_applied(command_id, generation_id) > 0
 
+    # Gateway2 接收的是归一化后的 SI 工程量，不是 Gateway1 的 kW/kvar。
+    executor = ModbusTcpClient("127.0.0.1", port=15421, timeout=5)
+    try:
+        assert executor.connect()
+        for _ in range(100):
+            applied = executor.read_holding_registers(register, count=2, device_id=1)
+            if not applied.isError() and applied.registers == _words_cdab(expected_si):
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail(
+                f"Gateway2 {point} did not publish SI value {expected_si}"
+            )
+    finally:
+        executor.close()
+
     # 真正的转换证据来自 Commander/DG 回执；不能把源端 450 当作 W。
     evidence = {
         "modbus_register": register,
@@ -133,6 +149,7 @@ def test_fc16_wtg_setpoint_reaches_dg_in_si_units(
         "request_id": request_id,
         "command_id": command_id,
         "dg_state": "APPLIED",
+        "gateway2_si_readback": expected_si,
     }
     out = root / "state" / f"wtg-{point}-evidence.json"
     out.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
