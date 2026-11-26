@@ -19,7 +19,7 @@ services:
         target: /etc/nginx/conf.d/default.conf
         read_only: true
       - type: bind
-        source: ${DCEMS_RELEASE_DIR:?set the absolute third_party/dc-ems path}/app/web
+        source: ${DCEMS_TEST_WEB:?set absolute path to the staged Web assets}
         target: /usr/share/nginx/html/dc-ems
         read_only: true
     depends_on:
