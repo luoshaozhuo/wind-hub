@@ -12,6 +12,7 @@ SOURCE = Path(__file__).resolve().parent / "config"
 TEMPLATES = ROOT / "deploy" / "config_roots" / "e2e-final" / "templates"
 
 ASSETS = {
+    "business_points_standard_v1.6.0.yaml": "templates",
     "point_table_dcems_wtg_random_v1.0.0.yaml": "templates/point_tables",
     "device_model_dcems_wtg_random_v1.0.0.yaml": "templates/device_models",
     "site_dcems-smoke_v1.0.0.yaml": "instances",
