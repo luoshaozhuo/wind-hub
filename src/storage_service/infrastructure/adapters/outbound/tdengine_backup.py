@@ -13,10 +13,12 @@ import os
 import re
 import shutil
 from contextlib import suppress
+from dataclasses import asdict
 from pathlib import Path
 
 from storage_service.application.config import StorageConfig
 from storage_service.domain.wide_schema import WideSchema
+from storage_service.infrastructure.adapters.outbound.configuration_archive import ImmutableConfigArchive
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
@@ -29,9 +31,15 @@ class NativeBackupError(RuntimeError):
 class NativeTDengineBackup:
     """Invoke taosdump using an exact argv and controlled output directory."""
 
-    def __init__(self, *, config: StorageConfig, metadata: MetadataStore) -> None:
+    def __init__(
+        self, *,
+        config: StorageConfig,
+        metadata: MetadataStore,
+        archive: ImmutableConfigArchive,
+    ) -> None:
         self._config = config
         self._metadata = metadata
+        self._archive = archive
 
     @staticmethod
     def _database_for_farm(wind_farm_id: str) -> str:
@@ -125,13 +133,65 @@ class NativeTDengineBackup:
         if await asyncio.to_thread(self._output_size, path, self._config.backup.max_bytes):
             raise NativeBackupError("native backup exceeded configured byte budget")
 
+        # Native backup is not restorable without the immutable physical
+        # schema dependency closure. Snapshot the content-addressed YAML first.
+        archive_identities = await asyncio.to_thread(
+            self._archive.snapshot_for_backup,
+            destination=path / "configuration-archive",
+            max_bytes=self._config.backup.max_bytes,
+        )
+        bindings = tuple(
+            binding for binding in self._metadata.list_device_bindings()
+            if binding.wind_farm_id == wind_farm_id
+        )
+        semantic = self._metadata.list_semantic_pins()
+        required: set[tuple[str, str, str]] = set()
+        if not bindings:
+            raise NativeBackupError("historical device binding closure is unavailable")
+        for binding in bindings:
+            pin = semantic.get(binding.point_table_id)
+            if pin is None:
+                raise NativeBackupError("historical PointTable semantic pin is unavailable")
+            required.update((
+                ("device", binding.device_config_id, binding.device_version_id),
+                ("device_model", binding.model.config_id, binding.model.version_id),
+                ("point_table", pin[0][0], pin[0][1]),
+            ))
+            if pin[1] is not None:
+                required.add(("business_points", pin[1][0], pin[1][1]))
+        if not required.issubset({
+            (kind, config_id, version_id)
+            for kind, config_id, version_id, _sha in archive_identities
+        }):
+            # Archived files are addressed by Repository version_id, not
+            # the human-readable file_version. Never replace with latest.
+            raise NativeBackupError(
+                "historical device/model/point-table closure is missing from backup"
+            )
         manifest, bytes_written, digest = await asyncio.to_thread(
-            self._verify_backup,
-            path,
-            database,
+            self._verify_backup, path, database,
         )
         if bytes_written > self._config.backup.max_bytes:
             raise NativeBackupError("native backup exceeded configured byte budget")
+        manifest["historical_configuration"] = {
+            "documents": [
+                {
+                    "config_type": kind,
+                    "config_id": config_id,
+                    "version_id": version,
+                    "yaml_sha256": digest,
+                }
+                for kind, config_id, version, digest in archive_identities
+            ],
+            "device_bindings": [asdict(binding) for binding in bindings],
+            "semantic_pins": {
+                binding.point_table_id: {
+                    "point_table": semantic[binding.point_table_id][0],
+                    "business_points": semantic[binding.point_table_id][1],
+                }
+                for binding in bindings
+            },
+        }
         manifest["wide_schema_ownership"] = [
             {
                 "name": item.name,
