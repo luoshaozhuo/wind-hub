@@ -911,9 +911,15 @@ class ConfigurationApplication:
         if not roots or len(roots) > self.limits.max_dependencies:
             raise ValueError("exact version roots must be nonempty and bounded")
         version_ids: list[str] = []
+        seen_versions: set[str] = set()
+        seen_identities: set[ConfigIdentity] = set()
         for identity, version_id in roots:
             if not version_id:
                 raise ValueError("exact version_id is required")
+            if version_id in seen_versions or identity in seen_identities:
+                raise ValueError("exact roots must have distinct versions and identities")
+            seen_versions.add(version_id)
+            seen_identities.add(identity)
             if self.repository.get_version_identity(version_id) != identity:
                 raise RepositoryConflictError("exact root version and identity disagree")
             version_ids.append(version_id)
@@ -926,6 +932,13 @@ class ConfigurationApplication:
                 self.repository.get_version(identity, version_id=version_id)
                 for identity, version_id in roots
             )
+        returned_versions = [str(record["version_id"]) for record in records]
+        if (
+            len(returned_versions) > self.limits.max_dependencies
+            or len(set(returned_versions)) != len(returned_versions)
+            or not seen_versions.issubset(returned_versions)
+        ):
+            raise RepositoryConflictError("incomplete or duplicate exact version closure")
         result = self._unique_export_paths(
             tuple(self._restore(row, revision_id=0) for row in records)
         )
