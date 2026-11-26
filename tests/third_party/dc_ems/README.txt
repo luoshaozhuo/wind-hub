@@ -1,113 +1,141 @@
-DCEMS 十台风机随机数据独立联测
-==============================
+DCEMS 隔离联测操作说明
+=======================
 
-基线：wind-hub main@9a17dcc2；第三方发布包 third_party/dc-ems。
-目标：DG(random,10) -> Gateway(Modbus) -> DCEMS Server -> Web。
-数据源只通过真实 Gateway 工业协议进入 DCEMS。BusinessPoint 变量名
-只是 Gateway 点表中的名称，Modbus 读写仍由区号、偏移、类型及字序决定。
+适用分支：feat/dcems-gateway-smoke-20261126
+约束：不改 src/、configs/、third_party/dc-ems 原始发布内容。
+所有提交的测试专用 YAML / CSV：
+  tests/third_party/dc-ems/config/
+所有测试 Python、Shell、Compose Overlay：
+  tests/third_party/dc_ems/
+运行时文件：run/dcems-smoke/（已被 .gitignore 忽略）。
 
-一、生成 wind-hub 配置
------------------------
-export WIND_HUB_DCE_GENERATOR_GATEWAY_TOKEN='<本地独立随机32位以上令牌>'
-export WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN='<本地独立随机32位以上令牌>'
-export WIND_HUB_DCE_GENERATOR_CLI_TOKEN='<本地独立随机32位以上令牌>'
+范围：10 台随机风机 + 复用首台 Gateway 的升压站与调频逻辑设备。
+数据：DG random -> Gateway 真实 Modbus -> DCEMS Server -> Web。
+AGC/PFR 算法的 FactoryPoints 外部目标目前没有确认的工业协议入口，
+因此首轮只验收数据采集与 Web 实时显示；控制算法默认关闭。
+不得将本轮数据烟雾 PASS 等同于完整 AGC/PFR/Commander 闭环 PASS。
+
+一、静态配置与源码约定检查
+--------------------------
+在 wind-hub 根目录、正确的 Python 虚拟环境中执行：
+
+export PYTHONPATH="$PWD/src:$PWD"
+python -m pytest -q \
+  tests/third_party/dc_ems/test_seed_contract.py \
+  tests/third_party/dc_ems/test_prepare_seed.py \
+  tests/third_party/dc_ems/test_config_smoke.py \
+  tests/third_party/dc_ems/test_auxiliary_signals.py \
+  tests/third_party/dc_ems/test_external_signals.py \
+  tests/third_party/dc_ems/test_prepare_web.py \
+  tests/third_party/dc_ems/test_prepare_runtime.py \
+  tests/third_party/dc_ems/test_official_loader.py
+
+其中 test_official_loader.py 强制使用生产 SharedDocument/Gateway/DG Loader
+解析全部精确版本引用与随机模型，不是简单 YAML 语法测试。
+失败应阻断部署，不应跳过或修改 src/、configs/。
+
+二、准备随机 DG 和 Gateway
+--------------------------
+# 以下三个 Bearer 令牌必须在本地生成，不可写入 Git。
+export WIND_HUB_DCE_GENERATOR_GATEWAY_TOKEN="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export WIND_HUB_DCE_GENERATOR_CLI_TOKEN="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+
 bash tests/third_party/dc_ems/run_windhub.sh --prepare
 bash tests/third_party/dc_ems/run_windhub.sh --check
 bash tests/third_party/dc_ems/run_windhub.sh --up
 
-配置固定为 10 台 DCEMS_WTG01..10，端口 15221..15230。
-正式 PointTable 的 wind_speed 为 1.3.0 (FC04, F32, ABCD)。
-首台 Gateway 还提供 sim_plant_active_power=1.3.2 (W),
-sim_plant_reactive_power=1.3.4 (var),
-primary_frequency_mode=1.1.0 (FC02, bool)。
-DCEMS 逻辑升压站 powAct/powReact 分别通过 coe=0.001 换算为 kW/kVar，
-逻辑调频设备 isFreMode 更新 emsIsFreMod。机组总数仍为10台；
-这两个辅助对象复用 Gateway01，不属于新增风机。
-以上仍不代表49个历史变量及完整AGC/调频算法已经覆盖。
+对应设备 DCEMS_WTG01..10；监听 127.0.0.1:15221..15230。
+Gateway 点键为正式 BusinessPoint 变量名：
+  wind_speed = 1.3.0, FC04 F32 ABCD, m/s（每台）
+  sim_plant_active_power = 1.3.2, FC04 F32 ABCD, W（首台）
+  sim_plant_reactive_power = 1.3.4, FC04 F32 ABCD, var（首台）
+  primary_frequency_mode = 1.1.0, FC02 bool（首台）
+Power 的 0.001 系数在 DCEMS edgeaddrset 将 W/var 转为 kW/kVar。
+Modbus 地址只作为协议契约，变量名并不进入 Modbus 报文。
+首台随机 P/Q 是独立试验激励，不是 10 台机组功率之和。
 
-二、生成与上述 Gateway 配置一致的 DCEMS 数据库种子
--------------------------------------------------
-mkdir -p run/dcems-smoke
-export DCEMS_LICENSE_CODE='<本机真实合法授权码>'
+三、生成独立 DCEMS 数据库和 Web 资源
+-----------------------------------
+本地发布包中应已有合法的 .env、JKS、Server/Web/DB 镜像和授权。
+不要从 GitHub 下载大型镜像，也不要覆盖旧数据库。
+
+python -m tests.third_party.dc_ems.prepare_runtime \
+  --source third_party/dc-ems \
+  --output run/dcems-smoke/docker
+
+python -m tests.third_party.dc_ems.prepare_web \
+  --output run/dcems-smoke/web
+
+# 许可证只能来自本机合法授权，不得硬编码进测试源码。
+export DCEMS_LICENSE_CODE='<本机 DCEMS 合法授权码>'
 python -m tests.third_party.dc_ems.prepare_seed \
-    --seed third_party/dc-ems/app/server/data.json \
-    --mapping tests/third_party/dc-ems/config/mapping_random_smoke.csv \
-    --gateway-point-table run/dcems-smoke/configs/templates/point_tables/point_table_dcems_wtg_random_v1.0.0.yaml \
-    --smoke-subset --with-auxiliary --device-count 10 \
-    --output run/dcems-smoke/data.json \
-    --gateway-host 127.0.0.1 --gateway-port 15221
+  --seed third_party/dc-ems/app/server/data.json \
+  --mapping tests/third_party/dc-ems/config/mapping_random_smoke.csv \
+  --gateway-point-table run/dcems-smoke/configs/templates/point_tables/point_table_dcems_wtg_random_v1.0.0.yaml \
+  --smoke-subset --with-auxiliary --device-count 10 \
+  --gateway-host 127.0.0.1 --gateway-port 15221 \
+  --output run/dcems-smoke/data.json
 unset DCEMS_LICENSE_CODE
 
-派生文件保存在 run/ 下，使用 10 台设备、10 个 Gateway 地址、
-10 个风机复用一份风机点表，仅保留 emsWinSpd；
-另派生 device_type=1 的升压站和 device_type=2 的调频信号逻辑设备，
-共 12 条 DCEMS 逻辑设备记录和 10 个物理 Modbus 通道。
-不能直接修改 third_party/dc-ems/app/server/data.json。
-初次部署必须使用全新隔离数据库卷。历史数据库不会因更换种子自动重置。
-Web 登录所需账户数据来自本地隔离种子，不得把种子、令牌、许可证提交 Git。
+派生 DB 含 10 台 WTG、1 台逻辑升压站、1 台逻辑调频设备，
+合计 12 条 DCEMS 设备记录、10 个 Gateway 协议通道。
+原发布数据仍保留，不得把带证书/账户/许可证的 run/ 文件提交。
+源代码已核对 SyzDevice.powAct/powReact 与 YctpDevice.isFreMode 更新路径。
 
-三、启动 DCEMS 的本地容器
-------------------------
-确保本地 image、数据库连接配置、有效授权、JKS 都存在。
-实际镜像标签由 third_party/dc-ems/VERSION 的 release_version 生成：
-dc-ems-server:<release_version>、dc-ems-web:<release_version>，
-及 dc-ems-timescaledb:2.7.0-pg14。
-无需把大型镜像上传 GitHub。
-# 发布包前端 WebSocket 地址在 localhost 下写死旧内网地址；只修隔离运行副本。
-python -m tests.third_party.dc_ems.prepare_web \
-    --output run/dcems-smoke/web
-export DCEMS_TEST_WEB="$(pwd)/run/dcems-smoke/web"
+四、启动独立 DCEMS 数据库、Server、Web 容器
+-------------------------------------------
+原 dc-ems 默认数据库、服务端和 Web 端口为 5432/443。
+执行前确认本机对应端口不被其他业务占用；
+Docker Compose 项目固定 dcems-smoke，独立 volume，
+DB_NAME 固定 dcems_smoke，禁止复用旧业务数据库。
+
 export DCEMS_ALLOW_LOCAL_SMOKE=1
-export DCEMS_TEST_SEED="$(pwd)/run/dcems-smoke/data.json"
+export DCEMS_TEST_SEED="$PWD/run/dcems-smoke/data.json"
+export DCEMS_TEST_WEB="$PWD/run/dcems-smoke/web"
+export DCEMS_RUNTIME_DIR="$PWD/run/dcems-smoke/docker"
 bash tests/third_party/dc_ems/run_local.sh --check
 bash tests/third_party/dc_ems/run_local.sh --up
 
-Web： http://127.0.0.1:18080/dc-ems/
-先运行 python -m tests.third_party.dc_ems.audit_external_signals
---seed run/dcems-smoke/data.json --require-closed 来查看未关闭接口（预期退出2）。
-Server 默认为 HTTPS 443；测试 Web 由 Nginx 在 18080 代理。
-注意：第三方容器使用 host network，先检查 443、5432、18080
-和 15221..15230 端口不冲突。
+启动脚本根据 third_party/dc-ems/VERSION 的 release_version
+寻找 dc-ems-server、dc-ems-web 的镜像标签，不执行 Docker pull。
+Web: http://127.0.0.1:18080/dc-ems/
+Server: https://127.0.0.1:443 （自签名证书仅测试用途）。
+Web 运行副本将旧硬编码 WebSocket 内网 IP 改为当前 origin，
+不修改原始 Java JAR 或 Web 构建包。
 
-四、执行测试
-------------
-PYTHONPATH=src python -m pytest \
-    tests/third_party/dc_ems/test_seed_contract.py \
-    tests/third_party/dc_ems/test_prepare_seed.py \
-    tests/third_party/dc_ems/test_auxiliary_signals.py \
-    tests/third_party/dc_ems/test_external_signals.py \
-    tests/third_party/dc_ems/test_config_smoke.py \
-    tests/third_party/dc_ems/test_prepare_web.py -q
+五、真实协议与 WebSocket 动态检查
+----------------------------------
+export DCEMS_LIVE=1
+export DCEMS_GATEWAY_HOST=127.0.0.1
+export DCEMS_GATEWAY_PORT=15221
+export DCEMS_WEB_HOST=127.0.0.1
+export DCEMS_WEB_PORT=18080
+python -m pytest -q tests/third_party/dc_ems/test_live_smoke.py
 
-DCEMS_LIVE=1 python -m pytest \
-    tests/third_party/dc_ems/test_live_smoke.py -q
+验收内容：
+- 10 台风机各自在 FC04 风速寄存器有动态值；
+- 首台 Gateway 的 FC04 站控 P/Q 与 FC02 调频模式存在；
+- Web 静态页面和 API 代理可达，WebSocket 返回 101；
+- 实际发送订阅报文并核实 DCEMS Server 对 10 台风机的数据有更新；
+- DCEMS SUBSTATION 和 PFR 模式的实际 WebSocket 数据存在；
+- 人工登录 Web，确认 10 台机组显示及全场界面，不以页面 HTTP 200 冒充通过。
 
-当前动态协议测试覆盖 10 台风机的风速读数，页面测试仅验证 Web 静态页与
-API 代理未返回 502/504，并验证 WebSocket 101 握手。尚未实现浏览器登录后 10 台实时点逐点比对、
-DCEMS Web 控制按钮 -> Modbus 写请求 -> Commander -> DG 的执行闭环。
-因此当前状态为 IMPLEMENTATION_IN_PROGRESS，不能声称全部指令收发 PASS。
+六、AGC/一次调频限制及停止
+--------------------------
+审查算法真实消费者：
+emsGridDispatchAct = AGC 有功目标（kW）；
+emsFreDst = 一次调频目标功率（kW），不是 Hz 频率；
+emsDeltapValue = 一次调频增量功率（kW）。
+这几个 FactoryPoints 的工业协议生产者尚未核实。
+因此初始种子中 emsActPowerEnable、emsReactPowerEnable、
+bFreCtrlEnableFlag 均为 false，不能验收 DCEMS 自动控制回写。
+audit_external_signals.py 会报告阻断项，禁止绕过 Gateway 注入。
 
-五、清理
---------
+停机：
 bash tests/third_party/dc_ems/run_windhub.sh --down
-容器使用同一套 compose 文件执行 down；不要默认 down -v 删除数据库卷。
+bash tests/third_party/dc_ems/run_local.sh --down
 
-禁止把 SCADA Redis 同步当作外部实时数据来源。本地镜像存在不代表当前
-远端开发环境已执行任何运行时测试。
-
-六、AGC和一次调频源码核对
----------------------------
-源代码：dc-ems/main 的 ConfigLoader、SyzDevice、YctpDevice、
-FactoryPoints、EmsDispatcher、ActPowerFun、FreActPowerFun。
-当前可经设备Modbus采集更新：emsSyzAct、emsSyzReact、emsIsFreMod。
-尚无已证实的设备协议→FactoryPoints 更新：emsGridDispatchAct (AGC目标,
-kW)、emsFreDst (一次调频目标功率,kW)、emsDeltapValue (功率增量,kW)。
-grid_frequency (Hz) 不能代替 emsFreDst；需要另行确定频率→功率转换逻辑。
-由于这些目标尚无接口，本轮禁止声明AGC/一次调频控制闭环PASS。
-
-七、第一阶段安全门禁
---------------------
-派生数据库暂将 emsActPowerEnable、emsReactPowerEnable、bFreCtrlEnableFlag
-设为 false，防止未配齐 AGC/PFR 目标和实际控制回路时产生意外控制请求。
-这只影响随机采集/展示烟雾测试；待工业协议 AGC 和调频目标生产实现完成，
-才能针对独立控制测试场景显式启用。不得把禁用控制的烟雾测试判定为指令闭环 PASS。
+禁止 docker compose down -v（会删除隔离数据库和验收证据）。
+如出现 Web 200 但 WebSocket 不更新、配置 Loader 失败或容器退出，
+结论均为 BLOCKED，必须保存日志、配置哈希与第一处失败堆栈交给生产代码整改。
