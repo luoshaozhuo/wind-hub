@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Protocol
 
-from storage_service.domain.errors import HistoryReplayUnavailableError
+from storage_service.domain.errors import HistoryReplayUnavailableError, WideTableNotCreatedError
 from storage_service.domain.quality_bitmap import PointQuality
 from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import WideSchema
@@ -278,12 +278,15 @@ class WideHistoryQueryService:
         more = False
         async with self._query_lease():
             async with asyncio.timeout(self._timeout):
-                await self._backend.verify_existing_wide_table(
-                    schema,
-                    wind_farm_id=filter_.wind_farm_id,
-                    device_id=filter_.device_id,
-                    device_type=device_type,
-                )
+                try:
+                    await self._backend.verify_existing_wide_table(
+                        schema,
+                        wind_farm_id=filter_.wind_farm_id,
+                        device_id=filter_.device_id,
+                        device_type=device_type,
+                    )
+                except WideTableNotCreatedError:
+                    return WideHistoryPage((), "", True, schema.fingerprint)
                 while scanned < 10000:
                     limit = min(filter_.limit + 1, 10000 - scanned)
                     request = WideHistoryFilter(
@@ -369,12 +372,15 @@ class WideHistoryQueryService:
         )
         async with self._query_lease():
             async with asyncio.timeout(self._timeout):
-                await self._backend.verify_existing_wide_table(
-                    schema,
-                    wind_farm_id=filter_.wind_farm_id,
-                    device_id=filter_.device_id,
-                    device_type=device_type,
-                )
+                try:
+                    await self._backend.verify_existing_wide_table(
+                        schema,
+                        wind_farm_id=filter_.wind_farm_id,
+                        device_id=filter_.device_id,
+                        device_type=device_type,
+                    )
+                except WideTableNotCreatedError:
+                    return WideHistoryPage((), "", True, schema.fingerprint)
                 rows = tuple(await self._backend.fetch_wide_history(schema, request))
         if not self._read_available():
             raise HistoryReplayUnavailableError(
