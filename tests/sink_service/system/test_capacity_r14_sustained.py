@@ -176,7 +176,9 @@ def _decode_capacity_row(payload: bytes) -> WideRecord:
     )
 
 
-async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> dict[str, Any]:
+async def _audit_duplicates(
+    harness: SinkSystemHarness, total_values: int, baseline_offsets: dict[int, int]
+) -> dict[str, Any]:
     """全量读 topic，按设备、等级、采样时间审计完整设备行重复身份。"""
     audit = AIOKafkaConsumer(
         harness.kafka_topic,
@@ -199,15 +201,22 @@ async def _audit_duplicates(harness: SinkSystemHarness, total_values: int) -> di
                 break
         identities: dict[tuple[str, str, str, int], int] = {}
         payload_bytes = 0
+        scanned_records = 0
         for record in records:
+            scanned_records += 1
+            if record.offset < baseline_offsets.get(record.partition, 0):
+                continue
             payload_bytes += len(record.value)
             row = _decode_capacity_row(record.value)
             key = (row.wind_farm_id, row.device_id, row.data_level.value, row.sample_time_us)
             identities[key] = identities.get(key, 0) + 1
         dupes = {key: count for key, count in identities.items() if count > 1}
         return {
+            "audit_baseline_offsets": baseline_offsets,
+            "audit_scanned_records": scanned_records,
             "audit_payload_bytes": payload_bytes,
-            "audit_total_records": len(records),
+            "audit_total_records": len(identities)
+            + sum(count - 1 for count in identities.values()),
             "audit_distinct_identities": len(identities),
             "audit_duplicate_identities": len(dupes),
             "audit_duplicate_record_excess": sum(c - 1 for c in dupes.values()),
@@ -793,7 +802,9 @@ class TestR14SustainedCapacity:
 
                 # Offset 总数无法暴露“缺失 + 重复”的抵消；每个工况都按
                 # farm/device/level/sample_time 身份做全量计数闭合。
-                result["duplicate_audit"] = await _audit_duplicates(sink_harness, confirmed_values)
+                result["duplicate_audit"] = await _audit_duplicates(
+                    sink_harness, confirmed_values, baseline_partitions
+                )
                 result["zero_loss"] = (
                     result["duplicate_audit"]["audit_distinct_identities"] == published_batches
                 )
