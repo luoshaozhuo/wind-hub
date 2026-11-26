@@ -50,6 +50,10 @@ compose=(
 printf 'DCEMS smoke: preflight OK; image content and runtime not validated\n'
 
 if [[ "$1" == "--up" ]]; then
+    if docker volume inspect dcems-smoke_database >/dev/null 2>&1 &&
+        [[ "${DCEMS_SMOKE_ALLOW_REUSE:-}" != "1" ]]; then
+        fail "existing dcems-smoke DB volume: set DCEMS_SMOKE_ALLOW_REUSE=1 only after checking seed/version"
+    fi
     "${compose[@]}" up -d --pull never
     printf 'Web entry: http://127.0.0.1:18080/dc-ems/\n'
     printf 'Run: DCEMS_LIVE=1 pytest tests/third_party/dc_ems/test_live_smoke.py -q\n'
