@@ -13,8 +13,8 @@ from collector.infrastructure.config.validation import (
 )
 from core.configuration.deployment import parse_deployment
 from core.configuration.local_selection import select_local_service
-from data_generator.infrastructure.config.service_settings import load_settings
-from industrial_gateway.infrastructure.config.resolution import load_gateway
+from data_generator.infrastructure.config.service_settings import load_settings  # type: ignore[import-untyped]
+from industrial_gateway.infrastructure.config.resolution import load_gateway  # type: ignore[import-untyped]
 from sink_service.infrastructure.config_io import read_snapshot
 
 from tests.third_party.dc_ems.prepare_full_chain import STATION_POINTS
