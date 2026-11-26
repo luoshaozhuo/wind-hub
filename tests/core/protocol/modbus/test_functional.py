@@ -190,3 +190,86 @@ async def test_modbus_read_plan_cache_reuse_eviction_and_reload() -> None:
     assert driver._read_plan_cache.get(key) == cached
     assert ("p39",) not in driver._read_plan_cache
     assert all("p40" not in plan_key for plan_key in driver._read_plan_cache)
+
+
+@pytest.mark.asyncio
+async def test_gap_rejection_falls_back_and_caches_safe_read_plan() -> None:
+    """严格 Modbus Server 拒绝跨空洞读取后，连续地址计划可被复用。"""
+    from core.application.errors import ProtocolError
+    from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.domain.identities import PointTableId
+    from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+    points = {
+        "first": _point("first", address=0),
+        "second": _point("second", address=6),
+    }
+    table = PointTable(PointTableId("sparse"), Protocol("modbus"), points)
+    driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
+
+    class StrictSession:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def is_open(self) -> bool:
+            return True
+
+        async def read(
+            self, register_type: str, address: int, count: int, slave_id: int
+        ) -> list[int]:
+            assert register_type == "holding" and slave_id == 1
+            self.calls.append((address, count))
+            if count > 1:
+                raise ProtocolError("Modbus exception response: IllegalDataAddress")
+            return [address + 100]
+
+    session = StrictSession()
+    driver._session = session
+    first = await driver.read_many(["first", "second"])
+    assert [sample.value for sample in first] == [100, 106]
+    assert session.calls == [(0, 7), (0, 1), (6, 1)]
+    assert [[p.point_id for p in group] for group in driver._read_plan_cache[
+        ("first", "second")
+    ]] == [["first"], ["second"]]
+    second = await driver.read_many(["first", "second"])
+    assert [sample.value for sample in second] == [100, 106]
+    assert session.calls[-2:] == [(0, 1), (6, 1)]
+    assert session.calls.count((0, 7)) == 1
+
+
+@pytest.mark.asyncio
+async def test_gap_read_does_not_retry_connection_failure() -> None:
+    """链路级错误不应被误识别为服务器拒绝地址并产生额外读请求。"""
+    from core.application.errors import ProtocolConnectionError
+    from core.domain import ConnectionEndpoint, PointTable, Protocol
+    from core.domain.identities import PointTableId
+    from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+    table = PointTable(
+        PointTableId("sparse-failure"),
+        Protocol("modbus"),
+        {
+            "first": _point("first", address=0),
+            "second": _point("second", address=6),
+        },
+    )
+    driver = ModbusDriver(ConnectionEndpoint("127.0.0.1", 502), table, {})
+
+    class BrokenSession:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def is_open(self) -> bool:
+            return True
+
+        async def read(
+            self, register_type: str, address: int, count: int, slave_id: int
+        ) -> list[int]:
+            self.calls += 1
+            raise ProtocolConnectionError("connection lost")
+
+    session = BrokenSession()
+    driver._session = session
+    with pytest.raises(ProtocolConnectionError, match="connection lost"):
+        await driver.read_many(["first", "second"])
+    assert session.calls == 1
