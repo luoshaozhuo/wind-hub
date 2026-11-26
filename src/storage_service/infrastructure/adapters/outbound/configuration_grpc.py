@@ -27,7 +27,7 @@ from storage_service.application.config import (
     StorageConfig,
     load_storage_config,
 )
-from storage_service.application.ingestion import ConfigHistoryUnavailableError
+from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ImmutableConfigArchive,
     RepositoryDocument,
