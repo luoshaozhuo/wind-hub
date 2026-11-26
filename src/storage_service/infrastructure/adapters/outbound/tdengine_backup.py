@@ -168,6 +168,20 @@ class NativeTDengineBackup:
             raise NativeBackupError(
                 "historical device/model/point-table closure is missing from backup"
             )
+        if registrations != await asyncio.to_thread(
+            self._metadata.list_ready_wide_tables, database=database
+        ):
+            raise NativeBackupError(
+                "wide physical table ownership changed while backup was running"
+            )
+        current_bindings = tuple(
+            binding for binding in self._metadata.list_device_bindings()
+            if binding.wind_farm_id == wind_farm_id
+        )
+        if current_bindings != bindings or self._metadata.list_semantic_pins() != semantic:
+            raise NativeBackupError(
+                "historical configuration identity changed during native backup"
+            )
         manifest, bytes_written, digest = await asyncio.to_thread(
             self._verify_backup, path, database,
         )
