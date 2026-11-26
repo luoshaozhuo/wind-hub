@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -98,11 +99,12 @@ def build_seed(
         for row in seed["sysconfig"]
         if not (row["groupName"] in {"sync", "watch"} and "redis" in str(row["itemName"]).lower())
     ]
+    license_code = os.environ.get("DCEMS_LICENSE_CODE", "")
     for row in seed["emsConfig"]:
         if row["varPath"] in {"iWTUnits", "iLineCount"}:
             row["val"] = "1"
         if row["varPath"] == "license":
-            row["val"] = ""
+            row["val"] = license_code
     return seed
 
 
