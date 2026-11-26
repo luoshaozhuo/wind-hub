@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -85,3 +86,24 @@ async def test_station_power_and_primary_frequency_mode_over_gateway() -> None:
         assert len(power_samples) >= 2, "station active power did not change"
     finally:
         client.close()
+
+
+
+def test_dcems_websocket_upgrades_through_local_proxy() -> None:
+    """验证真实 /api/ws 反向代理完成 101 Upgrade，非仅页面静态资源可达。"""
+    host = os.environ.get("DCEMS_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
+    handshake = (
+        "GET /api/ws HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Connection: Upgrade\r\n"
+        "Upgrade: websocket\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "\r\n"
+    )
+    with socket.create_connection((host, port), timeout=8) as client:
+        client.settimeout(8)
+        client.sendall(handshake.encode("ascii"))
+        result = client.recv(4096)
+    assert b"101 Switching Protocols" in result, result[:256]
