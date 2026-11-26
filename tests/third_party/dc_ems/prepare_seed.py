@@ -130,6 +130,12 @@ def build_seed(
             row["val"] = str(device_count)
         if row["varPath"] == "iLineCount":
             row["val"] = "1"
+        if row["varPath"] in {
+            "emsActPowerEnable",
+            "emsReactPowerEnable",
+            "bFreCtrlEnableFlag",
+        }:
+            row["val"] = "false"
         if row["varPath"] == "license":
             row["val"] = license_code
     return seed
