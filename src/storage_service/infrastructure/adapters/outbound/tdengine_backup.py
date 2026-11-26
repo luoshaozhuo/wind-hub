@@ -241,7 +241,128 @@ class NativeTDengineBackup:
             os.fsync(directory)
         finally:
             os.close(directory)
-        return task_id, total_bytes, digest
+        verified_size, verified_digest = await asyncio.to_thread(
+            self.verify_manifest, path, database=database
+        )
+        if verified_size != total_bytes or verified_digest != digest:
+            raise NativeBackupError("post-write backup manifest verification failed")
+        return task_id, verified_size, verified_digest
+
+    @staticmethod
+    def verify_manifest(path: Path, *, database: str) -> tuple[int, str]:
+        """Verify file bytes and historical YAML closure before permitting restore."""
+        if path.is_symlink() or not path.is_dir():
+            raise NativeBackupError("backup directory is not trusted")
+        manifest_file = path / "storage_manifest.json"
+        if manifest_file.is_symlink() or not manifest_file.is_file():
+            raise NativeBackupError("native backup manifest is missing or unsafe")
+        try:
+            manifest = json.loads(manifest_file.read_bytes())
+        except (OSError, ValueError, TypeError) as exc:
+            raise NativeBackupError("native backup manifest is malformed") from exc
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("database") != database
+            or manifest.get("manifest_schema_version") != 1
+        ):
+            raise NativeBackupError("native backup manifest identity mismatch")
+        claimed = manifest.get("sha256")
+        if not isinstance(claimed, str) or re.fullmatch(r"[0-9a-f]{64}", claimed) is None:
+            raise NativeBackupError("native backup digest is invalid")
+        unsigned = {key: value for key, value in manifest.items() if key != "sha256"}
+        actual = hashlib.sha256(
+            json.dumps(
+                unsigned, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if actual != claimed:
+            raise NativeBackupError("native backup manifest digest mismatch")
+        entries = manifest.get("files")
+        if not isinstance(entries, list) or not entries:
+            raise NativeBackupError("native backup file index missing")
+        listed: set[str] = set()
+        total = 0
+        for item in entries:
+            if (
+                not isinstance(item, list) or len(item) != 3
+                or not isinstance(item[0], str)
+                or type(item[1]) is not int or item[1] < 0
+                or not isinstance(item[2], str)
+                or re.fullmatch(r"[0-9a-f]{64}", item[2]) is None
+            ):
+                raise NativeBackupError("native backup file entry malformed")
+            name, size, digest = item
+            pure = Path(name)
+            if (
+                pure.is_absolute() or ".." in pure.parts
+                or name == "storage_manifest.json"
+                or not pure.parts or name in listed
+            ):
+                raise NativeBackupError("native backup file path invalid")
+            listed.add(name)
+            file = path / name
+            if file.is_symlink() or not file.is_file():
+                raise NativeBackupError("native backup file missing or unsafe")
+            with file.open("rb") as stream:
+                actual_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if file.stat().st_size != size or actual_digest != digest:
+                raise NativeBackupError("native backup file hash or size mismatch")
+            total += size
+        if total != manifest.get("total_bytes"):
+            raise NativeBackupError("native backup total byte count mismatch")
+        actual_files: set[str] = set()
+        for file in path.rglob("*"):
+            if file.is_symlink() or not (file.is_dir() or file.is_file()):
+                raise NativeBackupError("native backup contains unsafe file")
+            if file.is_file():
+                actual_files.add(file.relative_to(path).as_posix())
+        if actual_files != listed | {"storage_manifest.json"}:
+            raise NativeBackupError("native backup file index is incomplete")
+        history = manifest.get("historical_configuration")
+        if not isinstance(history, dict) or not isinstance(history.get("documents"), list):
+            raise NativeBackupError("historical configuration backup index missing")
+        if not isinstance(history.get("device_bindings"), list) or not isinstance(
+            history.get("semantic_pins"), dict
+        ):
+            raise NativeBackupError("historical configuration bindings missing")
+        for ref in history["documents"]:
+            if not isinstance(ref, dict) or set(ref) != {
+                "config_type", "config_id", "version_id", "yaml_sha256"
+            }:
+                raise NativeBackupError("historical configuration entry malformed")
+            values = tuple(ref.values())
+            if any(not isinstance(value, str) or not value for value in values):
+                raise NativeBackupError("historical configuration identity invalid")
+            identity = json.dumps(
+                [
+                    ref["config_type"], ref["config_id"],
+                    ref["version_id"], ref["yaml_sha256"],
+                ], ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+            folder = hashlib.sha256(identity).hexdigest()
+            yaml_path = f"configuration-archive/{folder}/document.yaml"
+            metadata_path = f"configuration-archive/{folder}/manifest.json"
+            if yaml_path not in listed or metadata_path not in listed:
+                raise NativeBackupError("historical configuration files unavailable")
+            if hashlib.sha256((path / yaml_path).read_bytes()).hexdigest() != ref["yaml_sha256"]:
+                raise NativeBackupError("historical YAML content digest mismatch")
+        ownership = manifest.get("wide_schema_ownership")
+        if not isinstance(ownership, list) or not ownership:
+            raise NativeBackupError("wide physical ownership index missing")
+        for obj in ownership:
+            if not isinstance(obj, dict) or set(obj) != {
+                "name", "full_sha256", "schema_fingerprint", "identity_json"
+            }:
+                raise NativeBackupError("wide physical ownership entry malformed")
+            if (
+                not isinstance(obj["name"], str)
+                or not obj["name"].startswith(database + ".")
+                or hashlib.sha256(obj["identity_json"].encode("utf-8")).hexdigest()
+                != obj["full_sha256"]
+            ):
+                raise NativeBackupError("wide physical ownership digest mismatch")
+        return total + manifest_file.stat().st_size, actual
 
     @staticmethod
     def _output_size(path: Path, limit: int) -> bool:
