@@ -8,7 +8,8 @@ import hashlib
 import hmac
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -195,7 +196,22 @@ class WideHistoryQueryService:
         self._max_range_days = max_range_days
         self._timeout = timeout_ms / 1000
         self._limiter = asyncio.Semaphore(max_concurrent)
+        self._active_queries = 0
         self._read_available = read_available or (lambda: True)
+
+    @property
+    def active_queries(self) -> int:
+        """Number of in-flight physical wide-table reads."""
+        return self._active_queries
+
+    @asynccontextmanager
+    async def _query_lease(self) -> AsyncIterator[None]:
+        async with self._limiter:
+            self._active_queries += 1
+            try:
+                yield
+            finally:
+                self._active_queries -= 1
 
     @staticmethod
     def _validate_rows(
@@ -251,7 +267,7 @@ class WideHistoryQueryService:
         scanned = 0
         complete = False
         more = False
-        async with self._limiter:
+        async with self._query_lease():
             async with asyncio.timeout(self._timeout):
                 await self._backend.verify_existing_wide_table(
                     schema,
@@ -346,7 +362,7 @@ class WideHistoryQueryService:
             limit=filter_.limit + 1,
             after_time_us=last,
         )
-        async with self._limiter:
+        async with self._query_lease():
             async with asyncio.timeout(self._timeout):
                 await self._backend.verify_existing_wide_table(
                     schema,
