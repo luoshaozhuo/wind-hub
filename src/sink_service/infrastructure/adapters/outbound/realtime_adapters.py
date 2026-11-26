@@ -279,7 +279,7 @@ _KafkaConfirmation = tuple[list[_KafkaSlice], Any, float]
 
 
 class KafkaOutput:
-    """Broker-confirmed messages, using the unchanged upstream DeliveryPoint JSON."""
+    """Broker-confirmed Kafka JSON v3 device rows with partition-local batching."""
 
     def __init__(
         self,
