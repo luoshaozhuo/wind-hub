@@ -72,6 +72,9 @@ async def test_reliable_sink_preserves_data_level_and_sample_identity(
                 device_type="wtg",
                 point_table_id="point_table_modbus_wtg_sim_v1.0.0",
                 task_id="real-collector-task",
+                device_config_id="device_farm-a_v1.0.0",
+                sample_time=datetime.now(UTC),
+                expected_point_ids=("p000",),
             )
             deadline = asyncio.get_running_loop().time() + 30
             while producer.pubacked < 1 and asyncio.get_running_loop().time() < deadline:
@@ -155,6 +158,9 @@ async def test_modbus_tcp_native_register_bytes_reach_kafka_and_storage(
                 device_type="wtg",
                 point_table_id="point_table_modbus_wtg_sim_v1.0.0",
                 task_id="modbus-fc03-source",
+                device_config_id="device_farm-a_v1.0.0",
+                sample_time=sample.timestamp,
+                expected_point_ids=("speed",),
             )
             deadline = asyncio.get_running_loop().time() + 30
             while publisher.pubacked < 1 and asyncio.get_running_loop().time() < deadline:
