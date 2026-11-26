@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE = Path(__file__).resolve().parent / "config"
+SOURCE = Path(__file__).resolve().parents[1] / "dc-ems" / "config"
 TEMPLATES = ROOT / "deploy" / "config_roots" / "e2e-final" / "templates"
 
 ASSETS = {
