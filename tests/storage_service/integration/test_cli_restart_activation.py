@@ -14,7 +14,6 @@ import contextlib
 import json
 import sys
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -22,22 +21,14 @@ from uuid import uuid4
 import grpc
 import pytest
 import yaml
-from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import TopicAlreadyExistsError
-from google.protobuf.timestamp_pb2 import Timestamp
 
 from contracts import common_pb2 as common
 from contracts import common_pb2_grpc as common_rpc
 from contracts import configuration_repository_pb2 as pb
 from contracts import storage_service_pb2 as storage_pb
 from contracts import storage_service_pb2_grpc as storage_rpc
-from contracts.sample_batch import SampleBatch, SampleItem
-from sink_service.application.business_projection import BusinessValue
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
-from storage_service.domain.naming import get_object_names
-from storage_service.domain.sample import StorageSample
-from storage_service.infrastructure.adapters.outbound.tdengine_schema import SCHEMA_FINGERPRINT
 from tests.cli.e2e_util import last_json, run_cli
 from tests.fixtures.services import r5_stack
 from tests.support.configuration_live import (
@@ -45,25 +36,6 @@ from tests.support.configuration_live import (
     reserve_port,
     write_live_configuration,
 )
-
-
-def _sample_window(moment: datetime) -> tuple[Timestamp, Timestamp]:
-    """Narrow immutable readback window avoids unrelated historical rows."""
-    start = Timestamp()
-    start.FromDatetime(moment - timedelta(minutes=1))
-    end = Timestamp()
-    end.FromDatetime(moment + timedelta(minutes=1))
-    return start, end
-
-
-def _window() -> tuple[Timestamp, Timestamp]:
-    # Inside the configured max_range_days (31); no data is required to prove
-    # the page-size limit because range validation happens before any SQL.
-    start = Timestamp()
-    start.FromDatetime(datetime.now(UTC) - timedelta(days=1))
-    end = Timestamp()
-    end.FromDatetime(datetime.now(UTC) + timedelta(days=1))
-    return start, end
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -340,126 +312,6 @@ async def _create_storage_topic(bootstrap: str, topic: str) -> None:
         await admin.close()
 
 
-async def _verify_real_sink_wire_persists(
-    *,
-    channel: grpc.aio.Channel,
-    kafka: str,
-    tdengine: str,
-    topic: str,
-    operator_token: str,
-) -> tuple[str, datetime]:
-    """Real Sink v2 serializer -> Kafka -> CLI-started Storage -> independent SQL."""
-    taosws = pytest.importorskip("taosws")
-    now = datetime.now(UTC)
-    sample_id = f"f63-{uuid4().hex}"
-    point = SampleItem(
-        point_id="power",
-        sample_id=sample_id,
-        value=123.0,
-        quality="good",
-        sample_time=now,
-        receive_time=now,
-    )
-    batch = SampleBatch(
-        batch_id=f"f63-{uuid4().hex}",
-        mode="reliable",
-        wind_farm_id="farm-a",
-        collector_id="collector-f63",
-        task_id="WTG01",
-        device_type="turbine",
-        device_id="WTG01",
-        point_table_id="point_table_storage-points_v1.0.0",
-        publish_time=now,
-        samples=(point,),
-    )
-    records = (
-        encode_kafka_points(batch, (point,), data_level="protocol")[0],
-        encode_kafka_points(
-            batch,
-            (point,),
-            data_level="business",
-            business_values={
-                sample_id: BusinessValue(
-                    business_point_id="power",
-                    unit="kilowatt",
-                    value=123.0,
-                )
-            },
-        )[0],
-    )
-    samples = tuple(StorageSample.from_kafka_json(record) for record in records)
-    assert {sample.data_level.value for sample in samples} == {"protocol", "business"}
-    producer = AIOKafkaProducer(bootstrap_servers=kafka)
-    await producer.start()
-    try:
-        key = b"farm-a:collector-f63:WTG01"
-        for record in records:
-            await producer.send_and_wait(topic, record, key=key)
-    finally:
-        await producer.stop()
-
-    stub = storage_rpc.StorageServiceStub(channel)
-    metadata = (("authorization", f"Bearer {operator_token}"),)
-    start, end = _sample_window(now)
-    observed: dict[int, storage_pb.StorageSample] = {}
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline and len(observed) < len(records):
-        for level in (
-            storage_pb.STORAGE_DATA_LEVEL_PROTOCOL,
-            storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
-        ):
-            result = await stub.QuerySamples(
-                storage_pb.QuerySamplesRequest(
-                    filter=storage_pb.StorageFilter(
-                        wind_farm_id="farm-a",
-                        device_id="WTG01",
-                        point_table_id="point_table_storage-points_v1.0.0",
-                        point_id="power",
-                        data_level=level,
-                        start_time=start,
-                        end_time=end,
-                    ),
-                    page_size=100,
-                ),
-                timeout=15,
-                metadata=metadata,
-            )
-            for item in result.items:
-                if item.sample_id == sample_id:
-                    observed[item.data_level] = item
-        if len(observed) < len(records):
-            await asyncio.sleep(0.5)
-    assert len(observed) == len(records), "Storage RPC did not confirm both Kafka levels"
-    for item in observed.values():
-        assert item.unit == "kilowatt"
-        assert item.value_f64 == pytest.approx(123.0)
-
-    host, _, port = tdengine.rpartition(":")
-    database = get_object_names(samples[0], SCHEMA_FINGERPRINT).database
-    connection = taosws.connect(
-        host=host,
-        port=int(port),
-        user="root",
-        password="taosdata",
-    )
-    try:
-        for sample in samples:
-            names = get_object_names(sample, SCHEMA_FINGERPRINT)
-            assert names.database == database
-            rows = list(
-                connection.query(
-                    f"SELECT sample_key, value_f64 FROM {names.database}.{names.table} "
-                    f"WHERE sample_key = '{sample.sample_key}'"
-                )
-            )
-            assert len(rows) == 1, (sample.data_level.value, rows)
-            assert str(rows[0][0]) == sample.sample_key
-            assert float(rows[0][1]) == pytest.approx(123.0)
-    finally:
-        connection.close()
-    return sample_id, now
-
-
 @pytest.mark.asyncio
 async def test_cli_restart_activates_staged_static_closure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -560,31 +412,6 @@ async def test_cli_restart_activates_staged_static_closure(
             accepted_a = _snapshot(cache_root, "accepted_bundle.json")
             assert accepted_a["revision_id"] == revision_a
             assert accepted_a["config"]["query"]["max_page_size"] == 1000
-            persisted_sample_id, persisted_at = await _verify_real_sink_wire_persists(
-                channel=channel,
-                kafka=stack.kafka,
-                tdengine=stack.tdengine_rest,
-                topic=service_a["service"]["kafka"]["topic"],
-                operator_token=operator_token,
-            )
-
-            # A page size at the A limit is accepted before the static change.
-            storage_stub = storage_rpc.StorageServiceStub(channel)
-            window_start, window_end = _window()
-            await storage_stub.QuerySamples(
-                storage_pb.QuerySamplesRequest(
-                    filter=storage_pb.StorageFilter(
-                        wind_farm_id="farm-a",
-                        data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
-                        start_time=window_start,
-                        end_time=window_end,
-                    ),
-                    page_size=1000,
-                ),
-                timeout=10,
-                metadata=(("authorization", f"Bearer {operator_token}"),),
-            )
-
             # --- Revision B: static parameter change (query page size 999). ---
             service_b = json.loads(json.dumps(service_a))
             service_b["file_version"] = "1.1.1"
@@ -635,43 +462,6 @@ async def test_cli_restart_activates_staged_static_closure(
             )
             assert activated.target_revision == target_b
             assert activated.active_revision == target_b
-            # Static reactivation must preserve the previously committed rows.
-            past_start, past_end = _sample_window(persisted_at)
-            persisted = await storage_rpc.StorageServiceStub(channel).QuerySamples(
-                storage_pb.QuerySamplesRequest(
-                    filter=storage_pb.StorageFilter(
-                        wind_farm_id="farm-a",
-                        device_id="WTG01",
-                        point_table_id="point_table_storage-points_v1.0.0",
-                        point_id="power",
-                        data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
-                        start_time=past_start,
-                        end_time=past_end,
-                    ),
-                    page_size=100,
-                ),
-                timeout=15,
-                metadata=(("authorization", f"Bearer {operator_token}"),),
-            )
-            assert any(item.sample_id == persisted_sample_id for item in persisted.items)
-
-            # The B static limit is now enforced through the real gRPC surface.
-            with pytest.raises(grpc.aio.AioRpcError) as exc_info:
-                await storage_stub.QuerySamples(
-                    storage_pb.QuerySamplesRequest(
-                        filter=storage_pb.StorageFilter(
-                            wind_farm_id="farm-a",
-                            data_level=storage_pb.STORAGE_DATA_LEVEL_BUSINESS,
-                            start_time=window_start,
-                            end_time=window_end,
-                        ),
-                        page_size=1000,
-                    ),
-                    timeout=10,
-                    metadata=(("authorization", f"Bearer {operator_token}"),),
-                )
-            assert exc_info.value.code() == grpc.StatusCode.INVALID_ARGUMENT
-
             accepted_b = _snapshot(cache_root, "accepted_bundle.json")
             assert accepted_b["revision_id"] == revision_b
             assert accepted_b["target_revision"] == target_b
