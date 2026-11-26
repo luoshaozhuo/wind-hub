@@ -69,3 +69,29 @@ def test_servicer_exposes_no_legacy_point_query() -> None:
     assert "QuerySamples" not in StorageServicer.__dict__
     assert not hasattr(StorageServicer, "_aggregate_page")
     assert not hasattr(StorageServicer, "_decode_aggregate_cursor")
+
+
+def test_retired_tdengine_methods_are_not_exposed() -> None:
+    from storage_service.infrastructure.adapters.outbound.tdengine_backend import TDengineBackend
+
+    for name in (
+        "ensure_tables",
+        "fetch_content_hashes",
+        "insert_batch",
+        "fetch_history",
+        "_ensure_tables_sync",
+        "_fetch_history_sync",
+        "_decode_record",
+    ):
+        assert not hasattr(TDengineBackend, name), name
+
+
+def test_config_resolver_does_not_offer_point_sample_compatibility() -> None:
+    from storage_service.infrastructure.adapters.outbound.configuration_archive import (
+        ConfigurationPointTableResolver,
+    )
+
+    assert not hasattr(ConfigurationPointTableResolver, "require_exact_versions")
+    assert not hasattr(ConfigurationPointTableResolver, "get_unit")
+    assert hasattr(ConfigurationPointTableResolver, "resolve_wide_schema")
+    assert hasattr(ConfigurationPointTableResolver, "get_wide_unit")
