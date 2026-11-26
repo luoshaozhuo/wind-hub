@@ -22,14 +22,14 @@ def test_exact_bundle_rejects_identity_mismatch_before_loading_closure() -> None
     repo.get_version_identity.return_value = ConfigIdentity("device", "another-device")
     with pytest.raises(RepositoryConflictError, match="disagree"):
         app.get_exact_bundle(((ConfigIdentity("device", "wtg001"), "historical-sha"),))
-    repo.get_version_closure.assert_not_called()
+    repo.get_version_closure_snapshot.assert_not_called()
 
 
 def test_exact_bundle_uses_pinned_version_not_current_recommendation() -> None:
     app, repo = _application()
     identity = ConfigIdentity("device", "wtg001")
     repo.get_version_identity.return_value = identity
-    repo.get_version_closure.return_value = ({"version_id": "historical-sha"},)
+    repo.get_version_closure_snapshot.return_value = (7, ({"version_id": "historical-sha"},))
     output = SimpleNamespace(
         relative_path="device.yaml",
         version_id="historical-sha",
@@ -37,7 +37,7 @@ def test_exact_bundle_uses_pinned_version_not_current_recommendation() -> None:
     )
     app._restore = Mock(return_value=output)
     assert app.get_exact_bundle(((identity, "historical-sha"),)) == (output,)
-    repo.get_version_closure.assert_called_once_with(
+    repo.get_version_closure_snapshot.assert_called_once_with(
         ["historical-sha"], max_versions=16
     )
     repo.get_bundle_versions.assert_not_called()
@@ -57,7 +57,7 @@ def test_exact_bundle_rejects_incomplete_or_duplicate_closure(
     app, repo = _application()
     identity = ConfigIdentity("device", "wtg001")
     repo.get_version_identity.return_value = identity
-    repo.get_version_closure.return_value = returned
+    repo.get_version_closure_snapshot.return_value = (7, returned)
     with pytest.raises(RepositoryConflictError, match="incomplete or duplicate"):
         app.get_exact_bundle(((identity, "historical-sha"),))
 
@@ -78,7 +78,7 @@ def test_exact_bundle_rejects_duplicate_roots(
     app, repo = _application()
     with pytest.raises(ValueError, match="distinct versions and identities"):
         app.get_exact_bundle(roots)
-    repo.get_version_closure.assert_not_called()
+    repo.get_version_closure_snapshot.assert_not_called()
 
 
 @pytest.mark.parametrize("roots", [(), ((ConfigIdentity("device", "a"), ""),)])
