@@ -238,6 +238,7 @@ class WideGroupedHistoryService:
             json.dumps(identity_data, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return resolved, digest
+
     async def query(
         self,
         *,
@@ -308,3 +309,81 @@ class WideGroupedHistoryService:
             index += 1
             inner = ""
         return GroupedWidePage((), "", True)
+
+    async def aggregate(
+        self,
+        *,
+        selector: GroupedWideSelector,
+        operation: str,
+        window_ms: int,
+        page_size: int,
+        page_token: str = "",
+    ) -> GroupedWideAggregatePage:
+        """Aggregate each physical family separately with a signed outer cursor."""
+        if type(page_size) is not int or not 1 <= page_size <= self._max_page_size:
+            raise ValueError("grouped aggregate page size exceeds limit")
+        if operation not in {"count", "min", "max", "avg"}:
+            raise ValueError("unsupported grouped aggregation")
+        if type(window_ms) is not int or not 1 <= window_ms <= 31 * 86_400_000:
+            raise ValueError("grouped aggregate window is invalid")
+        resolved, digest = await self._resolve_groups(
+            selector, page_size=page_size, kind=operation, window_ms=window_ms
+        )
+        if not resolved:
+            if page_token:
+                raise ValueError("grouped aggregate cursor references unavailable schemas")
+            return GroupedWideAggregatePage((), "", True)
+        index = 0
+        inner = ""
+        horizon = min(selector.end_time_us, time.time_ns() // 1000)
+        if page_token:
+            index, inner, horizon = self._decode_cursor(
+                page_token, digest=digest, total=len(resolved), selector=selector
+            )
+        if horizon <= selector.start_time_us:
+            return GroupedWideAggregatePage((), "", True)
+
+        while index < len(resolved):
+            identity, schema, device_type = resolved[index]
+            points = selector.point_ids or tuple(column.point_id for column in schema.columns)
+            filter_ = WideHistoryFilter(
+                wind_farm_id=identity.wind_farm_id,
+                device_id=identity.device_id,
+                device_config_id=identity.device_config_id,
+                data_level=selector.data_level,
+                start_time_us=selector.start_time_us,
+                end_time_us=horizon,
+                point_ids=points,
+                qualities=selector.qualities,
+                limit=min(200, self._max_page_size),
+            )
+            page = await self._aggregation.page(
+                schema=schema,
+                filter_=filter_,
+                device_type=device_type,
+                operation=operation,
+                window_ms=window_ms,
+                page_size=page_size,
+                page_token=inner,
+            )
+            # Aggregation pages use a snapshot-bound cursor; the next
+            # physical family starts with a fresh independent snapshot.
+            next_index = index + 1 if page.complete else index
+            next_inner = "" if page.complete else page.next_page_token
+            finished = next_index >= len(resolved)
+            token = (
+                ""
+                if finished
+                else self._encode_cursor(
+                    digest=digest,
+                    index=next_index,
+                    inner=next_inner,
+                    horizon=horizon,
+                )
+            )
+            if page.rows or not page.complete:
+                group = GroupedWideAggregate(identity, device_type, schema, page.rows)
+                return GroupedWideAggregatePage((group,), token, finished)
+            index += 1
+            inner = ""
+        return GroupedWideAggregatePage((), "", True)
