@@ -43,7 +43,16 @@ def test_random_scenario_targets_exact_gateway_business_names() -> None:
     assert {row["device_id"] for row in bindings} == {
         row["device_id"] for row in scenario["devices"]
     }
-    assert all(row["variable_mapping"] == {"wind_speed": "wind_speed"} for row in bindings)
+    assert bindings[0]["variable_mapping"] == {
+        "wind_speed": "wind_speed",
+        "sim_plant_active_power": "sim_plant_active_power",
+        "sim_plant_reactive_power": "sim_plant_reactive_power",
+        "primary_frequency_mode": "primary_frequency_mode",
+    }
+    assert all(
+        row["variable_mapping"] == {"wind_speed": "wind_speed"}
+        for row in bindings[1:]
+    )
     point_table = _read("point_table_dcems_wtg_random_v1.0.0.yaml")
     point = point_table["points"]["wind_speed"]
     assert point["business_point_id"] == "wind_speed"
