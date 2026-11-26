@@ -1,0 +1,73 @@
+# Gateway point key 由 BusinessPoint 名称组成；DCEMS 通过实际 Modbus 地址读取。
+schema_version: 3
+file_version: "1.0.0"
+service_id: gateway-dcems-smoke
+config_sources:
+  instances: {devices: dcems-smoke}
+grpc: {listen_host: "127.0.0.1", listen_port: 52073, max_active_rpcs: 64, request_max_bytes: 2097152}
+security:
+  callers:
+    - {caller_id: generator, token_env: WIND_HUB_DCE_GENERATOR_GATEWAY_TOKEN, permissions: [inject, read]}
+    - {caller_id: operator, token_env: WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN, permissions: [read, lifecycle, diagnose]}
+servers:
+  - server_id: dcems-gw-01
+    device_id: DCEMS_WTG01
+    listen_host: "127.0.0.1"
+    listen_port: 15221
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-02
+    device_id: DCEMS_WTG02
+    listen_host: "127.0.0.1"
+    listen_port: 15222
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-03
+    device_id: DCEMS_WTG03
+    listen_host: "127.0.0.1"
+    listen_port: 15223
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-04
+    device_id: DCEMS_WTG04
+    listen_host: "127.0.0.1"
+    listen_port: 15224
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-05
+    device_id: DCEMS_WTG05
+    listen_host: "127.0.0.1"
+    listen_port: 15225
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-06
+    device_id: DCEMS_WTG06
+    listen_host: "127.0.0.1"
+    listen_port: 15226
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-07
+    device_id: DCEMS_WTG07
+    listen_host: "127.0.0.1"
+    listen_port: 15227
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-08
+    device_id: DCEMS_WTG08
+    listen_host: "127.0.0.1"
+    listen_port: 15228
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-09
+    device_id: DCEMS_WTG09
+    listen_host: "127.0.0.1"
+    listen_port: 15229
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+  - server_id: dcems-gw-10
+    device_id: DCEMS_WTG10
+    listen_host: "127.0.0.1"
+    listen_port: 15230
+    desired_state: START
+    control: {enabled: false, target: {kind: none}, mappings: []}
+metrics: {window_seconds: 60, collect_interval_ms: 1000}
