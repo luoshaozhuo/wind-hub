@@ -1498,7 +1498,7 @@ flowchart TD
     F --> G["Gateway→Commander→DG执行及反馈"]
 ```
 
-`tests/third_party/dc_ems/config/external_signals_dcems_v1.0.0.yaml` 是本附录的机器可读逐点需求，`audit_external_signals.py` 对派生数据库执行静态门禁。报告中的 `BOUND` 只表示 **设备/点表存在**，不代表动态值正确进入算法；`UNPROVEN_FACTORY_INPUT` 必须保留阻断，不允许在风机点表中创建同名变量绕过。
+`tests/third_party/dc-ems/config/external_signals_dcems_v1.0.0.yaml` 是本附录的机器可读逐点需求，`audit_external_signals.py` 对派生数据库执行静态门禁。报告中的 `BOUND` 只表示 **设备/点表存在**，不代表动态值正确进入算法；`UNPROVEN_FACTORY_INPUT` 必须保留阻断，不允许在风机点表中创建同名变量绕过。
 
 ### F.4 测试规模与优先级
 
