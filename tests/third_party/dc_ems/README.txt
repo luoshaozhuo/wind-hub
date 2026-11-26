@@ -154,7 +154,7 @@ export DCEMS_WEB_PASSWORD='<从本机隔离种子的 admin 记录读取>'
 若本机 Chromium 共享库已由 Conda 提供，可在当前 Shell 设置：
 export LD_LIBRARY_PATH="$HOME/miniconda3/envs/wind-hub/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-六、AGC/一次调频限制及停止
+六、AGC/AVC/一次调频限制及停止
 --------------------------
 审查算法真实消费者：
 emsGridDispatchAct = AGC 有功目标（kW）；
@@ -162,9 +162,14 @@ emsGridDispatchReact = AVC 无功目标（kVar）；
 emsFreDst = 一次调频目标功率（kW），不是 Hz 频率；
 emsDeltapValue = 一次调频增量功率（kW）。
 这几个 FactoryPoints 的工业协议生产者尚未核实。
+种子派生要求三个自动控制使能配置分别存在且唯一，否则拒绝生成。
 因此初始种子中 emsActPowerEnable、emsReactPowerEnable、
 bFreCtrlEnableFlag 均为 false，不能验收 DCEMS 自动控制回写。
 audit_external_signals.py 会报告阻断项，禁止绕过 Gateway 注入。
+本轮保持 PFR 输入为 false。false→true→false 动态测试须在证明
+调频目标入口及控制禁用机制后另行实施，禁止提前触发不完整的控制算法。
+线下复测须保存 Server 周期异常计数、历史表/视图清单及历史查询结果；
+不得通过直接写 DB 或修改第三方源码掩盖原始发布缺陷。
 
 停机：
 bash tests/third_party/dc_ems/run_windhub.sh --down

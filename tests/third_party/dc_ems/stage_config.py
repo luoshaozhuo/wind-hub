@@ -29,7 +29,7 @@ def stage(target: Path) -> None:
         raise FileExistsError(f"configuration root already exists: {target}")
     if not TEMPLATES.is_dir():
         raise FileNotFoundError(TEMPLATES)
-    if target.resolve() == ROOT or target.resolve() == ROOT:
+    if target.resolve() == ROOT:
         raise ValueError("configuration root cannot be the repository root")
     target.mkdir(parents=True)
     shutil.copytree(TEMPLATES, target / "templates")

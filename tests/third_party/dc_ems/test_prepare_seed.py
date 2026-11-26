@@ -100,3 +100,28 @@ def test_csv_input_rejects_duplicates(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="duplicate"):
         load_mapping(mapping)
+
+
+
+@pytest.mark.parametrize(
+    "missing_flag", ["emsActPowerEnable", "emsReactPowerEnable", "bFreCtrlEnableFlag"]
+)
+def test_missing_control_enable_flag_rejected(
+    original: dict[str, Any], bindings: dict[str, dict[str, str]], missing_flag: str
+) -> None:
+    """缺少自动控制禁用配置时不得生成测试种子。"""
+    original["emsConfig"] = [
+        row for row in original["emsConfig"] if row["varPath"] != missing_flag
+    ]
+    with pytest.raises(ValueError, match="control enable flag"):
+        build_seed(original, bindings, "127.0.0.1", 15221)
+
+
+def test_duplicate_control_enable_flag_rejected(
+    original: dict[str, Any], bindings: dict[str, dict[str, str]]
+) -> None:
+    """重复的控制配置不得通过种子派生。"""
+    row = next(row for row in original["emsConfig"] if row["varPath"] == "emsActPowerEnable")
+    original["emsConfig"].append(copy.deepcopy(row))
+    with pytest.raises(ValueError, match="control enable flag"):
+        build_seed(original, bindings, "127.0.0.1", 15221)

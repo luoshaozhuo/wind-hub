@@ -12,6 +12,7 @@ from typing import Any, cast
 import yaml
 
 REQUIRED_COLUMNS = frozenset({"dcems_var_path", "business_point_id", "modbus_addr"})
+CONTROL_FLAGS = frozenset({"emsActPowerEnable", "emsReactPowerEnable", "bFreCtrlEnableFlag"})
 
 
 def load_mapping(path: Path) -> dict[str, dict[str, str]]:
@@ -144,6 +145,13 @@ def build_seed(
             row["val"] = "false"
         if row["varPath"] == "license":
             row["val"] = license_code
+    flags = [row for row in seed["emsConfig"] if row["varPath"] in CONTROL_FLAGS]
+    if len(flags) != len(CONTROL_FLAGS) or {
+        row["varPath"] for row in flags
+    } != CONTROL_FLAGS:
+        raise ValueError("smoke seed must contain exactly one of each control enable flag")
+    if any(row["val"] != "false" for row in flags):
+        raise ValueError("automatic control must be disabled in smoke seed")
     return cast(dict[str, Any], seed)
 
 
