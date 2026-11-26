@@ -58,6 +58,9 @@ def test_wtg_dcems_loader_and_control_contract(tmp_path: Path) -> None:
     assert all(item.value_scale == 1000.0 for item in mappings.values())
 
     points = source.variables
+    table = _read(
+        config / "templates/point_tables/point_table_modbus_wtg_dcems_control_v1.2.0.yaml"
+    )
     assert points["active_power_setpoint"].address["address"] == 41557
     assert points["reactive_power_setpoint"].address["address"] == 41555
     for point_id in mappings:
@@ -65,7 +68,7 @@ def test_wtg_dcems_loader_and_control_contract(tmp_path: Path) -> None:
         assert point.address["register_type"] == "holding"
         assert point.address["word_order"] == "little_endian"
         assert point.data_type == "float32"
-        assert point.unit in {"watt", "var"}
+        assert table["points"][point_id]["unit"] in {"watt", "var"}
 
     simulation = loaded_execution.servers["gw-wtg-sim01"]
     assert simulation.settings.control.enabled
