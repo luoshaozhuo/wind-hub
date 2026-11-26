@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from storage_service.application.config import TypeMapping
+from storage_service.application.wide_aggregate import WideAggregateRow, WideAggregationService
 from storage_service.application.wide_query import (
     WideHistoryFilter,
     WideHistoryQueryService,
@@ -91,6 +92,21 @@ class GroupedWidePage:
     complete: bool
 
 
+@dataclass(frozen=True, slots=True)
+class GroupedWideAggregate:
+    identity: WideIdentity
+    device_type: str
+    schema: WideSchema
+    rows: tuple[WideAggregateRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GroupedWideAggregatePage:
+    groups: tuple[GroupedWideAggregate, ...]
+    next_page_token: str
+    complete: bool
+
+
 class WideGroupedHistoryService:
     """Read one physical family per page without merging independent schemas."""
 
@@ -98,6 +114,7 @@ class WideGroupedHistoryService:
         self,
         *,
         history: WideHistoryQueryService,
+        aggregation: WideAggregationService,
         resolver: WideGroupedResolver,
         type_mapping: TypeMapping,
         cursor_secret: bytes,
@@ -113,6 +130,7 @@ class WideGroupedHistoryService:
         ):
             raise ValueError("grouped history requires bounded resources and cursor key")
         self._history = history
+        self._aggregation = aggregation
         self._resolver = resolver
         self._type_mapping = type_mapping
         self._key = cursor_secret
@@ -159,16 +177,16 @@ class WideGroupedHistoryService:
         except (TypeError, ValueError, UnicodeError, IndexError) as exc:
             raise ValueError("malformed grouped history cursor") from exc
 
-    async def query(
+    async def _resolve_groups(
         self,
-        *,
         selector: GroupedWideSelector,
+        *,
         page_size: int,
-        page_token: str = "",
-    ) -> GroupedWidePage:
+        kind: str,
+        window_ms: int,
+    ) -> tuple[list[tuple[WideIdentity, WideSchema, str]], str]:
+        """Resolve the immutable physical families and bind pagination to them."""
         selector.validate()
-        if type(page_size) is not int or not 1 <= page_size <= self._max_page_size:
-            raise ValueError("grouped history page size exceeds limit")
         identities = self._resolver.list_wide_identities(
             wind_farm_id=selector.wind_farm_id,
             device_ids=selector.device_ids,
@@ -197,11 +215,6 @@ class WideGroupedHistoryService:
             if len(resolved) > self._max_groups:
                 raise ValueError("grouped history exceeds configured schema group limit")
         resolved.sort(key=lambda group: (group[1].fingerprint, group[0].device_id))
-        if not resolved:
-            if page_token:
-                raise ValueError("grouped history cursor references unavailable schemas")
-            return GroupedWidePage((), "", True)
-
         identity_data = (
             selector.wind_farm_id,
             selector.device_ids,
@@ -214,6 +227,8 @@ class WideGroupedHistoryService:
             selector.end_time_us,
             selector.schema_fingerprint,
             page_size,
+            kind,
+            window_ms,
             tuple(
                 (identity.device_id, identity.device_config_id, schema.fingerprint)
                 for identity, schema, _device_type in resolved
@@ -222,6 +237,24 @@ class WideGroupedHistoryService:
         digest = hashlib.sha256(
             json.dumps(identity_data, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
+        return resolved, digest
+    async def query(
+        self,
+        *,
+        selector: GroupedWideSelector,
+        page_size: int,
+        page_token: str = "",
+    ) -> GroupedWidePage:
+        selector.validate()
+        if type(page_size) is not int or not 1 <= page_size <= self._max_page_size:
+            raise ValueError("grouped history page size exceeds limit")
+        resolved, digest = await self._resolve_groups(
+            selector, page_size=page_size, kind="query", window_ms=0
+        )
+        if not resolved:
+            if page_token:
+                raise ValueError("grouped history cursor references unavailable schemas")
+            return GroupedWidePage((), "", True)
         index = 0
         inner = ""
         horizon = min(selector.end_time_us, time.time_ns() // 1000)
