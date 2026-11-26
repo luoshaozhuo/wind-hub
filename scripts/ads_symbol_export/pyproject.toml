@@ -9,19 +9,21 @@ description = "Standalone TwinCAT ADS symbol name exporter"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "pyads==3.6.0",
-]
-
-# ADS OCX 方案（实验性）仅 Windows 需要；平台标记保证 Linux 环境不受影响。
-[project.optional-dependencies]
-ocx = [
-    "pywin32; sys_platform == 'win32'",
+    "PyYAML>=6,<7",
 ]
 
 [project.scripts]
-ads-symbol-export = "export:main"
+ads-symbol-export = "ads_export.cli:main"
 
 [tool.setuptools]
-py-modules = ["export"]
+packages = ["ads_export"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+markers = [
+    "integration: actual component integration",
+    "real_service: real software service",
+    "ads: ADS protocol",
+    "network: uses TCP sockets",
+]

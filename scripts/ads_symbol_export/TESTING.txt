@@ -48,11 +48,11 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
     分段读取、EOF、关闭句柄、TPY/TMC 解析及输出来源标记。
 
 验收要求：上述测试全部 PASSED，0 failed、0 errors、0 skipped。
-端口不可用可能导致现有测试 skip；skip 不能计为集成测试通过。
+端口不可用直接导致测试失败；skip 不能计为集成测试通过。
 测试退出码为 0 也不能替代 skipped 数量检查。
 
 5. 单元测试
-  python -m pytest tests/test_export.py tests/test_connection.py tests/test_strategies.py -v -rs --junitxml=test-results/unit.xml
+  python -m pytest tests/test_config.py tests/test_export.py tests/test_connection.py tests/test_strategies.py -v -rs --junitxml=test-results/unit.xml
 
 该组使用 Fake/Mock，不证明实际 ADS/TCP 通信可用。
 
@@ -75,12 +75,14 @@ PY
 保存 pytest 输出及 XML 文件，记录 Git HEAD（在仓库内 git rev-parse HEAD）、
 Python 版本（python --version）和 pyads 版本（python -m pip show pyads）。
 
-8. 本轮重构后的补充验收要求（尚未实现，不计为当前测试覆盖）
-  - YAML 配置加载、非法值拒绝，配置错误不发出 ADS 请求。
-  - full/chunk/file 各自通过真实 ADS/TCP 执行，指定方法失败不跨策略回退。
-  - file 方式验证远端文件读取、来源标记及资源释放。
-  - 删除 OCX 代码、依赖及测试，并检查不存在旧配置入口。
-重构提交后更新本说明的实际测试清单及执行命令。
+8. 新增验收场景
+  test_explicit_runtime_method[full/chunk]：真实 TCP 显式整表或分段。
+  test_explicit_full_failure_does_not_fallback：整表失败且不回退，原文件保留。
+  test_file_service_over_real_ads_tcp[auto/file]：自动及显式文件服务读取。
+  test_config.py：YAML 合法/非法配置，非法配置不得建立 ADS 连接。
+  所有集成测试必须运行，不接受 skip。
+  配置文件：ads_symbol_export_v1.0.0.yaml。
+  实际脚本命令：python export.py --config ads_symbol_export_v1.0.0.yaml
 
 9. 现场 PLC 验证（独立于模拟测试）
 模拟服务通过不代表所有 TwinCAT 固件都支持非零 IndexOffset 或文件服务。

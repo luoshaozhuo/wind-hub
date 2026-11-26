@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-import importlib.util
 import struct
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -17,6 +15,11 @@ import pyads
 import pytest
 from pyads.testserver import AdsTestServer
 from pyads.testserver.handler import AmsResponseData
+
+from ads_export.config import load_config
+from ads_export.strategies import export_symbols
+
+pytestmark = [pytest.mark.integration, pytest.mark.real_service, pytest.mark.ads, pytest.mark.network]
 
 # ==================== 测试配置 ====================
 SERVER_IP = "127.0.0.1"
@@ -37,17 +40,6 @@ ADS_REJECT = 0x701
 def _err_bytes(code: int) -> bytes:
     """AmsResponseData.error_code 需要 4 字节小端 bytes，而非 int。"""
     return struct.pack("<I", code)
-
-
-def _load_exporter() -> Any:
-    path = Path(__file__).resolve().parents[1] / "export.py"
-    spec = importlib.util.spec_from_file_location("_ads_export_integration", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # dataclass 解析字符串注解时需要在 sys.modules 中找到模块
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _encode_symbol(name: str) -> bytes:
@@ -129,7 +121,7 @@ def server_and_connection() -> Iterator[tuple[SymbolTableHandler, pyads.Connecti
     try:
         server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
     except OSError as exc:
-        pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
 
     try:
         # Linux 下 pyads 自带的 AdsLib 以 IP:48898 直连测试服务，
@@ -153,12 +145,12 @@ def test_full_table_error_then_chunk_fallback(
 ) -> None:
     """整表请求返回 ADS 错误后，实际 ADS/TCP 分段请求成功。"""
     handler, plc = server_and_connection
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = True
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = True
+    settings.CHUNK_SIZES = (64,)
     output = tmp_path / "symbols.txt"
 
-    result = exporter.export_symbols(plc, output)
+    result = export_symbols(plc, output, settings=settings)
 
     assert result == len(SYMBOL_NAMES)
     assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
@@ -173,14 +165,14 @@ def test_offset_unsupported_does_not_overwrite_file(
     """PLC 不支持偏移时，应报告失败并保留原文件。"""
     handler, plc = server_and_connection
     handler.mode = "reject_offset"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = False
-    exporter.CHUNK_SIZES = (64, 40)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = False
+    settings.CHUNK_SIZES = (64, 40)
     output = tmp_path / "symbols.txt"
     output.write_text("previous\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
-        exporter.export_symbols(plc, output)
+        export_symbols(plc, output, settings=settings)
 
     assert output.read_text(encoding="utf-8") == "previous\n"
     assert not output.with_name(output.name + ".partial").exists()
@@ -192,12 +184,12 @@ def test_server_ignores_offset_is_detected(
 ) -> None:
     handler, plc = server_and_connection
     handler.mode = "ignore_offset"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = False
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = False
+    settings.CHUNK_SIZES = (64,)
 
     with pytest.raises(RuntimeError, match="字节偏移"):
-        exporter.export_symbols(plc, tmp_path / "symbols.txt")
+        export_symbols(plc, tmp_path / "symbols.txt", settings=settings)
 
 
 TPY_CONTENT = (
@@ -283,22 +275,24 @@ class FileServiceHandler:
         return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), data)
 
 
-def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
+@pytest.mark.parametrize("method", ["auto", "file"])
+def test_file_service_over_real_ads_tcp(tmp_path: Path, method: str) -> None:
     """运行时符号表全部拒绝时，通过真实 ADS/TCP 的文件服务方案导出 TPY 符号。"""
     handler = FileServiceHandler()
     try:
         server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
     except OSError as exc:
-        pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+        pytest.fail(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
 
     try:
         server.start()
         plc = pyads.Connection(SERVER_AMS_NET_ID, SERVER_ADS_PORT, SERVER_IP)
         plc.open()
         plc.set_timeout(3000)
-        exporter = _load_exporter()
-        exporter.TRY_FULL_TABLE_FIRST = True
-        exporter.CHUNK_SIZES = (64,)
+        settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+        settings.READ_METHOD = method
+        settings.TRY_FULL_TABLE_FIRST = True
+        settings.CHUNK_SIZES = (64,)
         output = tmp_path / "symbols.txt"
 
         def file_conn() -> pyads.Connection:
@@ -307,8 +301,7 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
             conn.set_timeout(3000)
             return conn
 
-        count = exporter.export_symbols(plc, output, file_service_factory=file_conn)
-        plc.close()
+        count = export_symbols(plc, output, file_service_factory=file_conn, settings=settings)
 
         assert count == 2
         text = output.read_text(encoding="utf-8")
@@ -316,6 +309,8 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
         assert text.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
         assert handler.closed  # 远端句柄已释放
     finally:
+        if "plc" in locals():
+            plc.close()
         server.close()
         if server.ident is not None:
             server.join(timeout=3)
@@ -328,12 +323,46 @@ def test_full_table_success_skips_chunk_fallback(
     """验证成功时不会继续尝试分段策略。"""
     handler, plc = server_and_connection
     handler.mode = "normal"
-    exporter = _load_exporter()
-    exporter.TRY_FULL_TABLE_FIRST = True
-    exporter.CHUNK_SIZES = (64,)
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.TRY_FULL_TABLE_FIRST = True
+    settings.CHUNK_SIZES = (64,)
     output = tmp_path / "symbols.txt"
 
-    assert exporter.export_symbols(plc, output) == len(SYMBOL_NAMES)
+    assert export_symbols(plc, output, settings=settings) == len(SYMBOL_NAMES)
     assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
     assert handler.full_requests >= 1
     assert not any(offset > 0 for offset, _ in handler.data_reads)
+
+
+@pytest.mark.parametrize("method", ["full", "chunk"])
+def test_explicit_runtime_method(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+) -> None:
+    handler, plc = server_and_connection
+    handler.mode = "normal"
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    assert export_symbols(plc, output, settings=settings) == len(SYMBOL_NAMES)
+    assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
+    assert (handler.full_requests > 0) == (method == "full")
+    assert any(offset > 0 for offset, _ in handler.data_reads) == (method == "chunk")
+
+
+def test_explicit_full_failure_does_not_fallback(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+) -> None:
+    handler, plc = server_and_connection
+    settings = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = "full"
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="指定 full"):
+        export_symbols(plc, output, settings=settings)
+    assert handler.full_requests == 1
+    assert not any(offset > 0 for offset, _ in handler.data_reads)
+    assert output.read_text(encoding="utf-8") == "previous\n"
