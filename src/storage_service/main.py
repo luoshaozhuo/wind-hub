@@ -200,6 +200,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     backup=NativeTDengineBackup(
                         config=bundle.configuration,
                         metadata=metadata,
+                        archive=archive,
                     ),
                 )
                 watcher = StorageConfigurationWatcher(
