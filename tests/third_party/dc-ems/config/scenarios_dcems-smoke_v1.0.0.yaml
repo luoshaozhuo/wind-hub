@@ -1,0 +1,73 @@
+# 十台风速各自随机变化；由 Data Generator 主动注入 Gateway。
+schema_version: 1
+file_version: "1.0.0"
+scenarios:
+  - scenario_id: dcems-random-ten
+    version: "1.0.0"
+    description: "ten WTG deterministic random wind speeds"
+    source: {kind: simulation, interval_seconds: 0.5, seed: 42}
+    models:
+      dcems-random:
+        kind: random
+        seed: 42
+        rules:
+          wind_speed: {distribution: uniform, minimum: 4.0, maximum: 18.0}
+          sim_plant_active_power: {distribution: uniform, minimum: 400000.0, maximum: 1200000.0}
+          sim_plant_reactive_power: {distribution: uniform, minimum: -250000.0, maximum: 250000.0}
+          primary_frequency_mode: {distribution: bernoulli, probability: 0.35, hold_steps: 8}
+    devices:
+      - {device_id: DCEMS_WTG01, model_ref: dcems-random, points: [wind_speed, sim_plant_active_power, sim_plant_reactive_power, primary_frequency_mode]}
+      - {device_id: DCEMS_WTG02, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG03, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG04, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG05, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG06, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG07, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG08, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG09, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG10, model_ref: dcems-random, points: [wind_speed]}
+    gateways:
+      - gateway_id: dcems-gw-01
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG01
+        variable_mapping:
+          wind_speed: wind_speed
+          sim_plant_active_power: sim_plant_active_power
+          sim_plant_reactive_power: sim_plant_reactive_power
+          primary_frequency_mode: primary_frequency_mode
+      - gateway_id: dcems-gw-02
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG02
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-03
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG03
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-04
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG04
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-05
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG05
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-06
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG06
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-07
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG07
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-08
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG08
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-09
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG09
+        variable_mapping: {wind_speed: wind_speed}
+      - gateway_id: dcems-gw-10
+        endpoint: "127.0.0.1:52073"
+        device_id: DCEMS_WTG10
+        variable_mapping: {wind_speed: wind_speed}
