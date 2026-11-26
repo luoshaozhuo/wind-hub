@@ -157,6 +157,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     type_mapping=bundle.configuration.tdengine.type_mapping,
                     max_batch_rows=bundle.configuration.tdengine.ingestion.batch_max_rows,
                     max_batch_bytes=bundle.configuration.tdengine.ingestion.batch_max_bytes,
+                    writer_count=bundle.configuration.tdengine.ingestion.writer_count,
                 )
                 consumer = KafkaStorageConsumer(
                     configuration=bundle.configuration,
