@@ -11,6 +11,7 @@ from tests.third_party.dc_ems.audit_external_signals import SIGNALS, audit
 from tests.third_party.dc_ems.auxiliary_seed import append_auxiliary_devices
 from tests.third_party.dc_ems.prepare_seed import build_seed, load_mapping
 from tests.third_party.dc_ems.stage_config import SOURCE
+from tests.third_party.dc_ems.validate_gateway_mapping import validate
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +48,26 @@ def test_station_and_pfr_mode_are_bound_via_real_gateway_addresses() -> None:
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
     assert status["pfr_target_power"] == "UNPROVEN_FACTORY_INPUT"
     assert report["all_external_inputs_bound"] is False
+    table = yaml.safe_load(
+        (SOURCE / "point_table_dcems_wtg_random_v1.0.0.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    validate(expanded, mapping, table)
+    flags = {
+        item["varPath"]: item["val"]
+        for item in expanded["emsConfig"]
+        if item["varPath"] in {
+            "emsActPowerEnable",
+            "emsReactPowerEnable",
+            "bFreCtrlEnableFlag",
+        }
+    }
+    assert flags == {
+        "emsActPowerEnable": "false",
+        "emsReactPowerEnable": "false",
+        "bFreCtrlEnableFlag": "false",
+    }
 
 
 def test_gateway_types_and_units_are_correct() -> None:
