@@ -11,6 +11,9 @@ from storage_service.application.offsets import PartitionOffsets
 from storage_service.application.wide_ingestion import WideIngestionService
 from storage_service.domain.wide_record import WideDataLevel
 from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
+from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+    TDengineSchemaConflictError,
+)
 
 
 def _mapping() -> TypeMapping:
@@ -106,3 +109,42 @@ async def test_unknown_write_blocks_and_fences_offset() -> None:
     assert offsets.next_commit_offset == 0
     metrics.record_unknown.assert_called_once()
     evidence.block_partition.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_deterministic_schema_conflict_is_not_unknown_io() -> None:
+    service, backend, evidence, metrics = _service()
+    backend.ensure_wide_table.side_effect = TDengineSchemaConflictError(
+        "immutable physical PointTable conflicts with persisted schema"
+    )
+    offsets = PartitionOffsets(partition=2, generation=8, next_commit_offset=0)
+    with pytest.raises(TDengineSchemaConflictError):
+        await service.process(
+            generation=8, offsets=offsets,
+            records=[_record(0, value=10)],
+        )
+    assert offsets.next_commit_offset == 0
+    backend.insert_wide_batch.assert_not_awaited()
+    evidence.block_partition.assert_not_called()
+    metrics.record_unknown.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "rows, bytes_limit",
+    [(1001, 8388608), (1000, 8388609)],
+)
+def test_ingestion_rejects_out_of_contract_stmt2_batch_limits(
+    rows: int, bytes_limit: int,
+) -> None:
+    valid, backend, evidence, metrics = _service()
+    with pytest.raises(ValueError, match="bounded authorized resources"):
+        WideIngestionService(
+            storage=backend,
+            resolver=valid._resolver,
+            evidence=evidence,
+            metrics=metrics,
+            allowed_wind_farms=frozenset({"farm"}),
+            type_mapping=_mapping(),
+            max_batch_rows=rows,
+            max_batch_bytes=bytes_limit,
+        )
