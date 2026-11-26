@@ -61,8 +61,8 @@ def encode_kafka_wide(
     joins points across sample times or invents values for absent samples.
     """
     _require_protocol(data_level)
-    if not device_config_id:
-        raise ValueError("exact Device Instance version identity required")
+    if not device_config_id or device_config_id != batch.device_config_id:
+        raise ValueError("exact Device Instance version must match the source batch")
     encode_kafka_wide_key(batch.wind_farm_id, batch.device_id)
     if not items or not physical_points or len(set(physical_points)) != len(physical_points):
         raise ValueError("complete physical point set required")
@@ -79,8 +79,8 @@ def encode_kafka_wide(
     if len(by_point) != len(items) or set(by_point) != set(physical_points):
         raise ValueError("incomplete or non-unique device-wide physical point set")
     timestamps = {item.sample_time for item in items}
-    if len(timestamps) != 1:
-        raise ValueError("device-wide points do not share one logical sample_time")
+    if timestamps != {batch.sample_time}:
+        raise ValueError("device-wide points must share the batch logical sample_time")
     points: dict[str, list[object]] = {}
     for point_id in physical_points:
         item = by_point[point_id]
