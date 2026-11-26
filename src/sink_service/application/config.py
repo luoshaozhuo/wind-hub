@@ -206,8 +206,8 @@ def _validate_sink(
         if output.get("acks") != "all" or output.get("enable_idempotence") is not True:
             raise ConfigurationError(f"sinks.{sink_id}: Kafka broker ACK contract mismatch")
         linger_ms = output.get("linger_ms", 0)
-        if type(linger_ms) is not int or linger_ms != 0:
-            raise ConfigurationError(f"sinks.{sink_id}: Kafka linger_ms must be 0")
+        if type(linger_ms) is not int or not 0 <= linger_ms <= 10:
+            raise ConfigurationError(f"sinks.{sink_id}: Kafka linger_ms must be 0..10")
         expect_positive_int(output.get("max_batch_size", 131072), f"sinks.{sink_id}.max_batch_size")
     elif kind == "gateway":
         endpoint = expect_nonempty_str(connection.get("endpoint"), f"sinks.{sink_id}.endpoint")
