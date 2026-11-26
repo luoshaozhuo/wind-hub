@@ -7,6 +7,7 @@ enabling this path in production. It never substitutes a CSV file for a backup.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import json
 import os
@@ -26,6 +27,11 @@ from storage_service.infrastructure.adapters.outbound.configuration_archive impo
 from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
 
 _SAFE_IDENTIFIER = re.compile(r"[0-9a-f]{32}\Z")
+
+
+def _claim_controlling_tty() -> None:
+    """Child-only ioctl after start_new_session; no Python locks or I/O."""
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
 class NativeBackupError(RuntimeError):
@@ -118,6 +124,8 @@ class NativeTDengineBackup:
                     stdin=slave,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                    preexec_fn=_claim_controlling_tty,
                 )
             finally:
                 os.close(slave)
