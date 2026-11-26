@@ -74,3 +74,25 @@ Gateway2 协议回读。APPLIED 证明模型控制输入执行；不等于电厂
      全新隔离根，并设置 DCEMS_CONTROL_TIMEOUT_ROUND=1；不得与主验收同根顺序执行。
   3. DG `readonly` 身份复用 WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN，仅提供
      variables_read，用于负向鉴权；不得据此声明生产令牌权限模型。
+
+
+下一阶段：DCEMS 真实控制输出审查（2026-11-27）
+--------------------------------------------
+新增离线合同：
+  tests/third_party/dc-ems/config/dcems_control_output_contract_v1.0.0.yaml
+验证入口：
+  python -m pytest -q tests/third_party/dc_ems/test_dcems_control_output_contract.py
+
+dc-ems/main 的 DataGetterModbusImpl.control() 确实使用已绑定 isCtrl 点
+向外部风机 Gateway 下发 Modbus；IEC104 的 control() 直接返回 false。
+原始 DCEMS 发布种子共 9 个单机写点，其中有功 ctrlActPow 使用
+1.4.41557，无功 ctrlReActPow 使用 1.4.41555；均为 32 位浮点 CDAB。
+两个目标分别拟映射 wind-hub WTG 的 active_power_setpoint /
+reactive_power_setpoint，DCEMS kW/kvar 对应 DG W/var，须乘以 1000。
+当前 Gateway Modbus codec 仅负责数据类型和字序，并不执行 scale
+换算。上述候选映射标为 PROPOSED_UNVERIFIED，禁止直接运行成
+已验证控制入口，更不能用 PPC_SIM01.agc_enable 代替风机级输出。
+
+真实 DCEMS Server 发出的 FC16 报文、设备绑定、单位换算、Commander
+执行以及 WTG 物理响应均尚未由本阶段审查证明。下一步须在隔离根内
+明确转换边界并补真实协议测试后才能解除该阻断。
