@@ -53,8 +53,6 @@ class WideHistoryFilter:
         ):
             raise ValueError("wide query pagination cursor is invalid")
         if self.qualities:
-            if len(self.point_ids) != 1:
-                raise ValueError("quality filtering requires exactly one selected physical point")
             if len(set(self.qualities)) != len(self.qualities) or any(
                 type(q) is not int or not 0 <= q <= 3 for q in self.qualities
             ):
@@ -272,7 +270,7 @@ class WideHistoryQueryService:
         last: int | None,
         horizon: int,
     ) -> WideHistoryPage:
-        """Bounded one-field quality scan with lossless cursor advancement."""
+        """Bounded multi-point quality scan retaining complete projected rows."""
         accepted: list[WideHistoryRow] = []
         cursor = last
         scanned = 0
@@ -305,7 +303,7 @@ class WideHistoryQueryService:
                     self._validate_rows(rows, filter_=filter_, last=cursor, horizon=horizon)
                     for row in rows:
                         scanned += 1
-                        if int(row.points[0][2]) in filter_.qualities:
+                        if any(int(quality) in filter_.qualities for _, _, quality in row.points):
                             if len(accepted) >= filter_.limit:
                                 more = True
                                 break
