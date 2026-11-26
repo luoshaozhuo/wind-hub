@@ -194,6 +194,36 @@ def guarded(
     return call
 
 
+def _wide_selector(source: pb.StorageFilter) -> GroupedWideSelector:
+    """Convert the frozen v2 filter without accepting legacy narrow fields."""
+    levels = {
+        pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
+        pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
+        pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
+    }
+    level = levels.get(source.data_level)
+    if (
+        level is None
+        or not source.HasField("start_time")
+        or not source.HasField("end_time")
+    ):
+        raise QueryRejectedError("Storage query requires level and UTC time range")
+    return GroupedWideSelector(
+        wind_farm_id=source.wind_farm_id,
+        device_ids=tuple(source.device_ids),
+        device_type=source.device_type,
+        point_table_id=source.point_table_id,
+        data_level=level,
+        point_ids=tuple(source.point_ids),
+        qualities=tuple(int(quality) for quality in source.qualities),
+        start_time_us=_us(source.start_time),
+        end_time_us=_us(source.end_time),
+        schema_fingerprint=(
+            source.schema_fingerprint if source.HasField("schema_fingerprint") else ""
+        ),
+    )
+
+
 def _set_wide_value(target: pb.StorageValue, value: object, sql_type: str) -> None:
     """Bind one physical value without changing signedness or NULL presence."""
     if value is None:
@@ -451,32 +481,8 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._auth.require(context, permission="storage.read", farm=source.wind_farm_id)
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Storage Kafka replay is not settled")
-        levels = {
-            pb.STORAGE_DATA_LEVEL_RAW: WideDataLevel.RAW,
-            pb.STORAGE_DATA_LEVEL_PROTOCOL: WideDataLevel.PROTOCOL,
-            pb.STORAGE_DATA_LEVEL_BUSINESS: WideDataLevel.BUSINESS,
-        }
-        level = levels.get(source.data_level)
-        if (
-            level is None
-            or not source.HasField("start_time")
-            or not source.HasField("end_time")
-        ):
-            raise QueryRejectedError("Storage query requires level and UTC time range")
-        selector = GroupedWideSelector(
-            wind_farm_id=source.wind_farm_id,
-            device_ids=tuple(source.device_ids),
-            device_type=source.device_type,
-            point_table_id=source.point_table_id,
-            data_level=level,
-            point_ids=tuple(source.point_ids),
-            qualities=tuple(int(quality) for quality in source.qualities),
-            start_time_us=_us(source.start_time),
-            end_time_us=_us(source.end_time),
-            schema_fingerprint=(
-                source.schema_fingerprint if source.HasField("schema_fingerprint") else ""
-            ),
-        )
+        selector = _wide_selector(source)
+        level = selector.data_level
         page = await self._grouped_query.query(
             selector=selector,
             page_size=request.page_size or 200,
