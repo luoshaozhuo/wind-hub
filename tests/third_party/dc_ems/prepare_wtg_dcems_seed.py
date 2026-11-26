@@ -13,7 +13,7 @@ from tests.third_party.dc_ems.prepare_wtg_control_chain import CONTROL_PORT
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "third_party/dc-ems/app/server/data.json"
 DCEMS_DEVICE_ID = "WTG01"
-PROTOCOL_POINTS = frozenset({"emsWinSpd", "ctrlActPow", "ctrlReActPow"})
+PROTOCOL_POINTS = frozenset({"ctrlActPow", "ctrlReActPow"})
 CONTROL_FLAGS = frozenset(
     {"emsActPowerEnable", "emsReactPowerEnable", "bFreCtrlEnableFlag"}
 )
