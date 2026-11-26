@@ -19,7 +19,7 @@ from storage_service.application.config import (
     load_storage_config,
 )
 from storage_service.application.ingestion_contract import ConfigHistoryUnavailableError
-from storage_service.domain.sample import StorageSample
+from storage_service.domain.wide_record import WideDataLevel
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
     ImmutableConfigArchive,
@@ -113,29 +113,13 @@ def _document(table_id: str, version_id: str) -> RepositoryDocument:
     )
 
 
-def _sample(table_id: str) -> StorageSample:
-    return StorageSample.from_kafka_json(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "wind_farm_id": "farm-1",
-                "collector_id": "collector-1",
-                "task_id": "task-1",
-                "batch_id": "batch-1",
-                "device_type": "turbine",
-                "device_id": "device-1",
-                "point_table_id": table_id,
-                "point_id": "rotor_speed",
-                "business_point_id": "",
-                "sample_id": f"sample-{table_id}",
-                "data_level": "protocol",
-                "quality": "good",
-                "unit": "m/s",
-                "value": 1.5,
-                "sample_time": "2026-01-01T00:00:00Z",
-                "publish_time": "2026-01-01T00:00:00Z",
-            }
-        ).encode()
+async def _unit(
+    resolver: ConfigurationPointTableResolver, table_id: str,
+) -> str:
+    return await resolver.get_wide_unit(
+        point_table_id=table_id,
+        point_id="rotor_speed",
+        data_level=WideDataLevel.PROTOCOL,
     )
 
 
@@ -275,12 +259,14 @@ async def test_unknown_point_table_reconciles_then_retries_original_identity(
         )
 
     resolver.set_refresh_hook(refresh)
-    sample = _sample(NEW)
-    await resolver.require_exact_versions([sample])
+    with pytest.raises(ConfigHistoryUnavailableError, match="immutable PointTable"):
+        await _unit(resolver, NEW)
+    assert refreshes == 0
 
+    await refresh()
+    assert await _unit(resolver, NEW) == "m/s"
     assert refreshes == 1
     assert fetcher.calls == [("point_table", "turbine", "v2")]
-    assert sample.point_table_id == NEW
 
 
 async def test_configuration_failure_and_missing_target_fail_closed(tmp_path: Path) -> None:
@@ -295,15 +281,15 @@ async def test_configuration_failure_and_missing_target_fail_closed(tmp_path: Pa
         raise TimeoutError("Configuration unavailable")
 
     resolver.set_refresh_hook(unavailable)
-    with pytest.raises(ConfigHistoryUnavailableError, match="refresh failed"):
-        await resolver.require_exact_versions([_sample(NEW)])
+    with pytest.raises(ConfigHistoryUnavailableError, match="immutable PointTable"):
+        await _unit(resolver, NEW)
 
     async def no_target() -> None:
         return None
 
     resolver.set_refresh_hook(no_target)
-    with pytest.raises(ConfigHistoryUnavailableError, match="no pinned immutable version"):
-        await resolver.require_exact_versions([_sample(NEW)])
+    with pytest.raises(ConfigHistoryUnavailableError, match="immutable PointTable"):
+        await _unit(resolver, NEW)
 
 
 async def test_concurrent_partitions_and_periodic_hint_share_one_pull(tmp_path: Path) -> None:
@@ -322,8 +308,8 @@ async def test_concurrent_partitions_and_periodic_hint_share_one_pull(tmp_path: 
     )
 
     tasks = [
-        asyncio.create_task(resolver.require_exact_versions([_sample(NEW)])),
-        asyncio.create_task(resolver.require_exact_versions([_sample(OTHER)])),
+        asyncio.create_task(watcher.refresh_now()),
+        asyncio.create_task(watcher.refresh_now()),
         asyncio.create_task(watcher.refresh_now()),
     ]
     await asyncio.wait_for(client.entered.wait(), timeout=1)
@@ -352,7 +338,8 @@ async def test_same_name_versions_and_archive_fallback_remain_exact(tmp_path: Pa
         device_bindings=_bindings(pins),
     )
 
-    await resolver.require_exact_versions([_sample(OLD), _sample(NEW)])
+    assert await _unit(resolver, OLD) == "m/s"
+    assert await _unit(resolver, NEW) == "m/s"
     assert fetcher.calls == [("point_table", "turbine", "v1"), ("point_table", "turbine", "v2")]
 
 
@@ -375,7 +362,7 @@ async def test_yaml_identity_and_same_revision_mutation_are_rejected(tmp_path: P
         device_bindings=_bindings({OLD: ("turbine", "v1")}),
     )
     with pytest.raises(ConfigHistoryUnavailableError, match="identity is inconsistent"):
-        await resolver.require_exact_versions([_sample(OLD)])
+        await _unit(resolver, OLD)
 
     changed_config = _config().model_copy(
         update={"query": _config().query.model_copy(update={"max_page_size": 999})}
@@ -423,9 +410,9 @@ async def test_restart_required_keeps_verified_old_closure(tmp_path: Path) -> No
     assert [bundle.revision_id for bundle in snapshot.pending] == [2]
     assert metadata.pins == {}
     assert snapshot.stored == []
-    await resolver.require_exact_versions([_sample(OLD)])
-    with pytest.raises(ConfigHistoryUnavailableError, match="no pinned immutable version"):
-        await resolver.require_exact_versions([_sample(NEW)])
+    assert await _unit(resolver, OLD) == "m/s"
+    with pytest.raises(ConfigHistoryUnavailableError, match="immutable PointTable"):
+        await _unit(resolver, NEW)
 
 
 async def test_demand_failure_updates_health_without_poisoning_next_refresh(
