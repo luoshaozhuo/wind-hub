@@ -56,7 +56,8 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
   test_full_table_error_then_chunk_fallback        ADS-04 整表失败回退分段
   test_file_service_over_real_ads_tcp[auto]        ADS-03/05 自动转入文件服务
   test_file_service_over_real_ads_tcp[file]        ADS-03/12 显式文件服务，
-                                                   所有请求仅 AMS port 10000
+                                                   所有请求仅 AMS port 10000，
+                                                   System Service 拒绝 ReadState 仍成功
   test_offset_unsupported_does_not_overwrite_file  ADS-06 拒绝非零偏移失败保旧文件
   test_server_ignores_offset_is_detected           ADS-07 忽略偏移被识别
   test_explicit_full_failure_does_not_fallback     ADS-08 失败不触发分段/文件
@@ -69,6 +70,10 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
   test_cli_auto_falls_back_when_runtime_unreachable ADS-13 Runtime 初始连接失败回退
   test_cli_invalid_config_makes_no_requests        ADS-05 非法配置零请求
   test_server_resources_released                   ADS-15 服务线程退出、端口可重绑
+  test_empty_runtime_table                         合法空表 full/chunk/auto 成功，
+                                                   无符号数据请求、无回退
+  test_inconsistent_empty_runtime_table            count/total 不一致失败保旧文件
+  所有 file 成功场景验证纯名称输出，CLI 日志保留来源、路径及验证等级。
 
 验收要求：上述测试全部 PASSED，0 failed、0 errors、0 skipped。
 端口不可用直接导致测试失败；skip 不能计为集成测试通过。
@@ -119,7 +124,7 @@ CLI 子进程场景由上节集成测试覆盖：四种模式均通过独立进�
 
 独立部署验证：
   tmp=$(mktemp -d)
-  cp -r scripts/ads_symbol_export "$tmp/"
+  cp -r . "$tmp/ads_symbol_export"
   cd "$tmp/ads_symbol_export"
   python -m venv .venv && . .venv/bin/activate
   python -m pip install -e ".[dev]"

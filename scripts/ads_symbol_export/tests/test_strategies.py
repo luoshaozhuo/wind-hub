@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ads_export import connection, file_service, runtime
+from ads_export import file_service, runtime
 from ads_export.config import Settings
 from ads_export.strategies import StrategyOutcome, export_symbols
 
@@ -170,8 +170,7 @@ def test_file_service_reads_tpy(
 
     assert count == 3
     text = output.read_text(encoding="utf-8")
-    assert "source=file" in text and "verification=count_matched" in text
-    assert text.splitlines()[-3:] == names
+    assert text.splitlines() == names
     outcome = [o for o in outcomes if o.name == "ads-file"][0]
     assert outcome.ok and outcome.source == "file"
     assert outcome.verification == "count_matched"  # 数量一致，不声称内容一致
@@ -234,7 +233,7 @@ def test_large_file_read_in_chunks(
     assert count == 50
     reader = [c for c in conns if c.read_calls][0]
     assert reader.read_calls > 1  # 确实分段读取
-    assert output.read_text(encoding="utf-8").splitlines()[-50:] == names
+    assert output.read_text(encoding="utf-8").splitlines() == names
 
 
 # ---------- 6. 文件符号与运行时不一致 ----------
@@ -258,7 +257,7 @@ def test_file_runtime_mismatch_marks_unverified(
     assert count == 2
     outcome = [o for o in outcomes if o.name == "ads-file"][0]
     assert outcome.ok and outcome.verification == "unverified"
-    assert "verification=unverified" in output.read_text(encoding="utf-8")
+    assert output.read_text(encoding="utf-8").splitlines() == ["MAIN.a", "MAIN.b"]
 
 
 # ---------- 9. 顺序执行与提前停止 ----------
@@ -391,7 +390,7 @@ def test_tpy_utf8_symbol_names(
         settings=settings,
     )
     assert count == 2
-    assert output.read_text(encoding="utf-8").splitlines()[-2:] == names
+    assert output.read_text(encoding="utf-8").splitlines() == names
 
 
 # ---------- 显式读取方法：指定模式不允许跨策略回退 ----------
@@ -403,10 +402,12 @@ def test_read_method_full_only(
     monkeypatch.setattr(
         runtime, "_export_in_chunks", MagicMock(side_effect=AssertionError("unexpected chunk"))
     )
-    monkeypatch.setattr(
-        connection, "_probe_file_service", MagicMock(side_effect=AssertionError("unexpected file"))
+    file_factory = MagicMock(side_effect=AssertionError("unexpected file"))
+    result = export_symbols(
+        plc, tmp_path / "symbols.txt", read_method="full", settings=settings,
+        file_service_factory=file_factory,
     )
-    result = export_symbols(plc, tmp_path / "symbols.txt", read_method="full", settings=settings)
+    file_factory.assert_not_called()
     assert result == 2
     assert (tmp_path / "symbols.txt").read_text(encoding="utf-8").splitlines() == names
 
@@ -419,13 +420,15 @@ def test_read_method_chunk_only(
     monkeypatch.setattr(
         runtime, "_export_full_table", MagicMock(side_effect=AssertionError("unexpected full"))
     )
-    monkeypatch.setattr(
-        connection, "_probe_file_service", MagicMock(side_effect=AssertionError("unexpected file"))
-    )
+    file_factory = MagicMock(side_effect=AssertionError("unexpected file"))
     settings.CHUNK_SIZES = (64,)
     assert (
-        export_symbols(plc, tmp_path / "symbols.txt", read_method="chunk", settings=settings) == 2
+        export_symbols(
+            plc, tmp_path / "symbols.txt", read_method="chunk", settings=settings,
+            file_service_factory=file_factory,
+        ) == 2
     )
+    file_factory.assert_not_called()
 
 
 def test_read_method_invalid_rejected_before_connection(
@@ -447,13 +450,15 @@ def test_read_method_full_failure_does_not_fallback(
         runtime, "_export_full_table", MagicMock(side_effect=RuntimeError("read error"))
     )
     chunk = MagicMock()
-    file_probe = MagicMock()
+    file_factory = MagicMock()
     monkeypatch.setattr(runtime, "_export_in_chunks", chunk)
-    monkeypatch.setattr(connection, "_probe_file_service", file_probe)
     with pytest.raises(RuntimeError, match="指定 full 方法读取失败"):
-        export_symbols(object(), tmp_path / "symbols.txt", read_method="full", settings=settings)
+        export_symbols(
+            object(), tmp_path / "symbols.txt", read_method="full", settings=settings,
+            file_service_factory=file_factory,
+        )
     chunk.assert_not_called()
-    file_probe.assert_not_called()
+    file_factory.assert_not_called()
 
 
 def test_read_method_file_only_skips_runtime_exports(
@@ -493,7 +498,7 @@ def test_file_size_limit_boundary(
         )
         == 2
     )
-    assert output.read_text(encoding="utf-8").splitlines()[-2:] == names
+    assert output.read_text(encoding="utf-8").splitlines() == names
 
     settings.MAX_TPY_FILE_BYTES = len(content) - 1
     output.write_text("previous\n", encoding="utf-8")

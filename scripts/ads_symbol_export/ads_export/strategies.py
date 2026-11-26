@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import connection, file_service, runtime
+from . import file_service, runtime
 from .config import Settings, validate_method
 from .connection import _ConnectionManager
 from .runtime import _SYMBOL_HEADER_SIZE
@@ -127,11 +127,6 @@ def _run_strategies(ctx: _RunContext) -> int:
         unavailable = "文件服务方案已在配置中禁用"
     elif factory is None:
         unavailable = "未提供 System Service 连接工厂"
-    if not unavailable:
-        assert factory is not None
-        reachable, unavailable = connection._probe_file_service(factory)
-        if reachable:
-            unavailable = ""
     if method in ("auto", "file") and unavailable:
         outcomes.append(StrategyOutcome("ads-file", False, "file", reason=unavailable))
     elif method in ("auto", "file"):

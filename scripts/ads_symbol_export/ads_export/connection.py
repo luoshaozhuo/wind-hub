@@ -81,19 +81,6 @@ def _probe_runtime(plc: pyads.Connection, settings: Settings) -> dict[str, Any]:
     return info
 
 
-def _probe_file_service(factory: Callable[[], Any]) -> tuple[bool, str]:
-    """动态检测：ADS 文件服务是否可访问；成功建立即关闭。"""
-    conn = None
-    try:
-        conn = factory()
-        conn.read_state()
-        return True, ""
-    except Exception as exc:
-        return False, f"ADS 文件服务不可达：{type(exc).__name__}: {exc}"
-    finally:
-        _safe_close(conn)
-
-
 class _ConnectionManager:
     """统一管理当前实际 ADS 连接的所有权与重连。
 

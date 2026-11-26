@@ -300,7 +300,7 @@ def test_fread_short_read_then_clean_eof(
         MagicMock(), output, file_service_factory=lambda: conn, settings=settings
     )
     assert count == 2
-    assert output.read_text(encoding="utf-8").splitlines()[-2:] == ["MAIN.a", "MAIN.b"]
+    assert output.read_text(encoding="utf-8").splitlines() == ["MAIN.a", "MAIN.b"]
     assert conn.closed_handles == [1] and conn.conn_closed
 
 
@@ -370,9 +370,10 @@ def test_same_count_different_names_not_content_matched(
     assert verify(["A"], None, None) == "unverified"
 
 
-def test_count_matched_header_in_output(
-    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+def test_count_matched_metadata_in_logs(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level("INFO")
     settings.CHUNK_SIZES = ()
     content = _tpy(["MAIN.x", "MAIN.y"])  # 与运行时数量一致但名称无法证实
     conn = ScriptedFileConn([content, b""], content)
@@ -398,8 +399,11 @@ def test_count_matched_header_in_output(
         == 2
     )
     text = output.read_text(encoding="utf-8")
-    assert "verification=count_matched" in text
-    assert "content_matched" not in text
+    assert text == "MAIN.x\nMAIN.y\n"
+    assert "source=file" in caplog.text
+    assert "remote=" in caplog.text
+    assert "verification=count_matched" in caplog.text
+    assert outcomes[-1].verification == "count_matched"
 
 
 # ---------- 13. _try_open_plc 异常清理 ----------

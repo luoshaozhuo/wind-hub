@@ -30,7 +30,7 @@ def _read_bytes(plc: pyads.Connection, group: int, offset: int, length: int) -> 
 def _read_symbol_table_info(plc: pyads.Connection, settings: Settings) -> tuple[int, int]:
     data = _read_bytes(plc, _SYMBOL_INFO_GROUP, 0, 8)
     count, total = struct.unpack_from("<II", data)
-    if count == 0 or total < count * (_SYMBOL_HEADER_SIZE + 3):
+    if (count == 0) != (total == 0) or total < count * (_SYMBOL_HEADER_SIZE + 3):
         raise ValueError(f"无效点表信息: count={count}, size={total}")
     if total > settings.MAX_SYMBOL_BYTES:
         raise ValueError(f"点表长度 {total} 超过安全上限 {settings.MAX_SYMBOL_BYTES}")
@@ -62,13 +62,11 @@ def _parse_symbol_entry(data: bytearray, settings: Settings) -> tuple[str, int] 
     return name, length
 
 
-def _atomic_write_lines(output: Path, lines: list[str], header: tuple[str, ...] = ()) -> None:
+def _atomic_write_lines(output: Path, lines: list[str]) -> None:
     """写入临时文件后原子替换；失败不触碰既有输出。"""
     temp = output.with_name(output.name + ".partial")
     try:
         with temp.open("w", encoding="utf-8", newline="\n") as handle:
-            for line in header:
-                handle.write("# " + line + "\n")
             for line in lines:
                 handle.write(line + "\n")
         temp.replace(output)
@@ -117,6 +115,9 @@ def _export_in_chunks(
     _LOG.info("PLC symbols: %d, upload bytes: %d", count, total)
     if chunk_size < _SYMBOL_HEADER_SIZE + 3:
         raise ValueError("chunk_size 太小")
+    if count == 0:
+        _atomic_write_lines(output, [])
+        return 0
     # 以重叠窗口验证 IndexOffset 真的是字节偏移，不接受返回首块的伪支持。
     probe_length = min(64, total - 1, chunk_size - 1)
     if probe_length < 16:

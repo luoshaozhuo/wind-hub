@@ -325,15 +325,12 @@ def _export_via_file_service(
                     _LOG.info("远端文件不可用 %s: %s: %s", remote, type(exc).__name__, exc)
                     continue
                 verification = _verify_file_names(names, runtime_count, runtime_names)
-                _atomic_write_lines(
-                    output,
-                    names,
-                    header=(
-                        "source=file (ADS 文件服务读取的 TPY/TMC，非运行时符号表)",
-                        f"remote={remote}",
-                        f"verification={verification}"
-                        + ("" if runtime_count is None else f" (runtime_count={runtime_count})"),
-                    ),
+                _atomic_write_lines(output, names)
+                _LOG.info(
+                    "source=file, remote=%s, verification=%s, runtime_count=%s",
+                    remote,
+                    verification,
+                    runtime_count,
                 )
                 if verification != VERIFICATION_CONTENT_MATCHED:
                     _LOG.warning("文件来源结果验证等级：%s", verification)

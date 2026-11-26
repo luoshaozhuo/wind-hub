@@ -21,7 +21,7 @@ from pyads.testserver.handler import AmsResponseData
 
 from ads_export import cli
 from ads_export.config import load_config
-from ads_export.strategies import export_symbols
+from ads_export.strategies import StrategyOutcome, export_symbols
 
 pytestmark = [
     pytest.mark.integration,
@@ -282,6 +282,8 @@ class FileServiceHandler:
             return SymbolTableHandler._error_reply()
         if command == ADS_READ_STATE:
             self.requests.append((target_port, command, -1, -1, 0, 0))
+            if target_port == 10000:
+                return SymbolTableHandler._error_reply()
             return AmsResponseData(
                 b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
             )
@@ -380,13 +382,13 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path, method: str) -> None:
 
         assert count == 2
         text = output.read_text(encoding="utf-8")
-        assert "source=file" in text
-        assert text.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
+        assert text == "MAIN.temperature\nGVL.状态\n"
         assert handler.closed and not handler.handles  # 远端句柄已释放
 
         # 文件协议证据：FFILEFIND/FOPEN/FREAD/FCLOSE 全部经过 AMS port 10000。
         file_requests = [item for item in handler.requests if item[0] == 10000]
         assert {120, 121, 122, 133} <= {item[2] for item in file_requests}
+        assert all(item[1] != ADS_READ_STATE for item in file_requests)
         find_first = next(item for item in file_requests if item[2] == 133 and item[3] == 1)
         assert find_first[4] == 324  # sizeof(TcFileFindData)
         fopen = next(item for item in file_requests if item[2] == 120)
@@ -497,8 +499,10 @@ def test_cli_file_service_without_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     method: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """通过真实 TCP 验证 Runtime 不可用时的 CLI 文件服务路径。"""
+    caplog.set_level("INFO")
     handler = FileServiceHandler()
     handler.reject_runtime = True
     server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
@@ -519,11 +523,14 @@ def test_cli_file_service_without_runtime(
         path.write_text(yaml.safe_dump(raw), encoding="utf-8")
         monkeypatch.setattr("sys.argv", ["ads-symbol-export", "--config", str(path)])
         assert cli.main() == 0
-        assert output.read_text(encoding="utf-8").splitlines()[-2:] == [
+        assert output.read_text(encoding="utf-8").splitlines() == [
             "MAIN.temperature",
             "GVL.状态",
         ]
-        assert "verification=unverified" in output.read_text(encoding="utf-8")
+        assert "verification=unverified" in caplog.text
+        assert "source=file" in caplog.text
+        assert "remote=" in caplog.text
+        assert all(item[1] != ADS_READ_STATE for item in handler.requests if item[0] == 10000)
         assert handler.closed and not handler.handles
         assert 10000 in handler.target_ports
         if method == "file":
@@ -561,7 +568,7 @@ def test_explicit_file_failure_does_not_touch_runtime(tmp_path: Path) -> None:
         with pytest.raises(RuntimeError, match="指定 file") as err:
             export_symbols(None, output, file_service_factory=file_conn, settings=settings)
 
-        assert "ADS 文件服务不可达" in str(err.value)
+        assert "远端未发现 TPY/TMC 文件" in str(err.value)
         assert set(handler.target_ports) == {10000}  # 所有请求仅发往 System Service
         assert output.read_text(encoding="utf-8") == "previous\n"
         assert not output.with_name(output.name + ".partial").exists()
@@ -679,8 +686,10 @@ def test_cli_subprocess_all_modes(tmp_path: Path, method: str) -> None:
             assert result.returncode == 0, result.stderr
             data = output.read_bytes().decode("utf-8")
             if method == "file":
-                assert "source=file" in data
-                assert data.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
+                assert "source=file" in result.stderr
+                assert "verification=unverified" in result.stderr
+                assert "remote=" in result.stderr
+                assert data.splitlines() == ["MAIN.temperature", "GVL.状态"]
                 assert "ads-file: 成功" in result.stderr
             else:
                 assert data.splitlines() == list(SYMBOL_NAMES)
@@ -730,8 +739,10 @@ def test_cli_auto_falls_back_when_runtime_unreachable(tmp_path: Path) -> None:
         assert result.returncode == 0, result.stderr
         assert "Runtime 初始连接失败" in result.stderr
         data = output.read_bytes().decode("utf-8")
-        assert "source=file" in data
-        assert data.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
+        assert "source=file" in result.stderr
+        assert "verification=unverified" in result.stderr
+        assert "remote=" in result.stderr
+        assert data.splitlines() == ["MAIN.temperature", "GVL.状态"]
         assert SERVER_ADS_PORT in handler.target_ports  # 尝试过 Runtime
         assert 10000 in handler.target_ports  # 回退到文件服务
     finally:
@@ -769,3 +780,64 @@ def test_cli_invalid_config_makes_no_requests(tmp_path: Path) -> None:
         server.close()
         if server.ident is not None:
             server.join(timeout=3)
+
+
+
+@pytest.mark.parametrize(
+    "method,try_full_first,expected_strategy",
+    [
+        ("full", True, "full-table"),
+        ("chunk", False, "chunk=64"),
+        ("auto", True, "full-table"),
+        ("auto", False, "chunk=64"),
+    ],
+)
+def test_empty_runtime_table(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+    try_full_first: bool,
+    expected_strategy: str,
+) -> None:
+    handler, plc = server_and_connection
+    handler.symbols = b""
+    handler.count = 0
+    settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.TRY_FULL_TABLE_FIRST = try_full_first
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    outcomes: list[StrategyOutcome] = []
+    assert export_symbols(plc, output, settings=settings, outcomes=outcomes) == 0
+    assert output.read_bytes() == b""
+    assert not handler.data_reads
+    assert set(handler.target_ports) == {SERVER_ADS_PORT}
+    assert len(outcomes) == 1
+    assert outcomes[0].ok and outcomes[0].name == expected_strategy
+    assert outcomes[0].count == 0
+    assert not output.with_name(output.name + ".partial").exists()
+
+
+@pytest.mark.parametrize("method", ["full", "chunk"])
+@pytest.mark.parametrize("count,payload", [(0, b"x"), (1, b"")])
+def test_inconsistent_empty_runtime_table(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+    method: str,
+    count: int,
+    payload: bytes,
+) -> None:
+    handler, plc = server_and_connection
+    handler.count = count
+    handler.symbols = payload
+    settings = load_config(_tool_dir() / "ads_symbol_export_v1.0.0.yaml")
+    settings.READ_METHOD = method
+    settings.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    output.write_text("previous\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="无效点表信息"):
+        export_symbols(plc, output, settings=settings)
+    assert output.read_bytes() == b"previous\n"
+    assert not handler.data_reads
+    assert not output.with_name(output.name + ".partial").exists()

@@ -10,6 +10,10 @@ READ_METHOD: auto
 指定方法失败不会跨方法回退。TRY_FULL_TABLE_FIRST 和 FILE_SERVICE_ENABLED
 仅在 auto 模式下控制是否尝试该方法。auto 在 Runtime 初次连接失败时，
 若文件服务已启用，也可直接尝试文件服务。
+文件服务直接执行查找/打开/读取请求，不要求 ReadState 支持。
+所有模式均输出 UTF-8 纯变量名列表，每行一个名称，无标题或注释。
+文件来源、远端路径及验证等级通过日志记录。
+Runtime 合法空符号表（count=0, total=0）成功输出零字节文件，不回退。
 
 运行：
   cd scripts/ads_symbol_export
