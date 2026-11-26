@@ -141,12 +141,16 @@ class NativeTDengineBackup:
             }
             for item in registrations
         ]
+        # The manifest digest covers all physical files and ownership metadata,
+        # excluding only its own digest field.
+        manifest.pop("sha256", None)
         digest = hashlib.sha256(
             json.dumps(
                 manifest, ensure_ascii=False, sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
+        manifest["sha256"] = digest
         manifest_file = path / "storage_manifest.json"
         with manifest_file.open("x", encoding="utf-8") as stream:
             os.fchmod(stream.fileno(), 0o600)
