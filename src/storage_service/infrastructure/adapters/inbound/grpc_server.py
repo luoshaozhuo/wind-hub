@@ -54,10 +54,6 @@ from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
 T = TypeVar("T")
 _LOG = logging.getLogger(__name__)
 
-_AGGREGATE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024
-_AGGREGATE_SNAPSHOT_MAX_ENTRIES = 16
-
-
 def _date(us: int) -> Timestamp:
     result = Timestamp()
     result.FromDatetime(datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=us))
@@ -280,7 +276,6 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._config_revisions = config_revisions
         self._metrics = metrics
         self._started_at = datetime.now(UTC)
-        self._aggregate_snapshots: dict[str, tuple[float, str, tuple[bytes, ...]]] = {}
 
     @guarded
     async def GetServiceInfo(
@@ -696,237 +691,15 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: pb.QueryAggregatesRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> pb.QueryAggregatesResponse:
-        if request.HasField("wide_filter"):
-            if request.HasField("filter"):
-                raise QueryRejectedError("cannot mix wide and legacy aggregate filters")
-            self._auth.require(
-                context, permission="storage.read",
-                farm=request.wide_filter.wind_farm_id,
-            )
-            if self._consumer.recovering:
-                raise HistoryReplayUnavailableError("Kafka history replay is not settled")
-            return await self._query_wide_aggregates(request)
-        self._auth.require(context, permission="storage.read", farm=request.filter.wind_farm_id)
-        if self._consumer.recovering:
-            await context.abort(
-                grpc.StatusCode.UNAVAILABLE,
-                "Storage history is unavailable during Kafka replay reconciliation",
-            )
-        filter_ = _filter(request.filter)
-        if request.aggregation not in (
-            pb.STORAGE_AGGREGATION_COUNT,
-            pb.STORAGE_AGGREGATION_MIN,
-            pb.STORAGE_AGGREGATION_MAX,
-            pb.STORAGE_AGGREGATION_AVG,
-        ):
-            raise QueryRejectedError("aggregation must select count/min/max/avg")
-        if not filter_.device_type:
-            raise QueryRejectedError("aggregation requires an explicit device_type")
-        if not filter_.device_id or not filter_.point_table_id:
-            raise QueryRejectedError("aggregation requires one device and one PointTable")
-        if request.window_ms == 0 or request.window_ms > 31 * 86400000:
-            raise QueryRejectedError("aggregation window must be 1ms..31 days")
-        page_size = request.page_size or 200
-        if not 1 <= page_size <= self._config.query.max_page_size:
-            raise QueryRejectedError("aggregate page_size exceeds configured bound")
-        snapshot_id, start_index = self._decode_aggregate_cursor(request, filter_)
-        if snapshot_id:
-            cached = self._aggregate_snapshots.get(snapshot_id)
-            if (
-                cached is None
-                or cached[0] < time.time()
-                or (cached[1] != self._aggregate_fingerprint(request, filter_))
-            ):
-                raise QueryRejectedError("aggregate snapshot expired or unavailable")
-            return self._aggregate_page(
-                request, filter_, snapshot_id, cached[2], start_index, page_size
-            )
-        # This bounded implementation never returns a partial aggregate as complete.
-        # If the record budget is exceeded, callers must narrow the time window.
-        result: dict[tuple[int, str, str, str, str], list[float]] = {}
-        counts: dict[tuple[int, str, str, str, str], tuple[int, int]] = {}
-        offset = ""
-        scanned = 0
-        while True:
-            page = await self._query.query(filter_, page_size=1000, page_token=offset)
-            for row in page.rows:
-                scanned += 1
-                if scanned > 10000:
-                    await context.abort(
-                        grpc.StatusCode.RESOURCE_EXHAUSTED,
-                        "narrow the aggregate query window",
-                    )
-                key = (
-                    (row.ts_us // (request.window_ms * 1000)) * (request.window_ms * 1000),
-                    row.point_id,
-                    row.business_point_id,
-                    row.identity[3],
-                    row.identity[2],
-                )
-                valid, missing = counts.get(key, (0, 0))
-                if row.value_kind == pb.STORAGE_VALUE_KIND_MISSING:
-                    missing += 1
-                elif row.quality == "good":
-                    if row.value_kind not in (
-                        pb.STORAGE_VALUE_KIND_INT64,
-                        pb.STORAGE_VALUE_KIND_UINT64,
-                        pb.STORAGE_VALUE_KIND_DOUBLE,
-                    ):
-                        raise QueryRejectedError("aggregate includes a nonnumeric sample")
-                    numeric = float(cast(int | float, row.value))
-                    if (
-                        row.value_kind != pb.STORAGE_VALUE_KIND_DOUBLE
-                        and abs(int(cast(int, row.value))) > 2**53
-                    ):
-                        raise QueryRejectedError("aggregate would lose integer precision")
-                    result.setdefault(key, []).append(numeric)
-                    valid += 1
-                counts[key] = (valid, missing)
-            if page.complete:
-                break
-            offset = page.next_page_token
-        ordered = sorted(counts)
-        if start_index > len(ordered):
-            raise QueryRejectedError("aggregate cursor is beyond available results")
-        response = pb.QueryAggregatesResponse()
-        for key in ordered:
-            begin, point_id, business_id, table_id, _device_id = key
-            good_count, missing_count = counts[key]
-            item = response.items.add(
-                point_id=point_id,
-                business_point_id=business_id,
-                point_table_id=table_id,
-                data_level=request.filter.data_level,
-                good_count=good_count,
-                missing_count=missing_count,
-            )
-            item.window_start.CopyFrom(_date(begin))
-            item.window_end.CopyFrom(_date(begin + request.window_ms * 1000))
-            item.unit = await self._point_tables.get_unit(
-                point_table_id=table_id,
-                point_id=point_id,
-                business_point_id=business_id,
-                data_level=filter_.data_level,
-            )
-            values = result.get(key, [])
-            if request.aggregation == pb.STORAGE_AGGREGATION_COUNT:
-                item.result = float(good_count)
-            elif values:
-                import math
-
-                if request.aggregation == pb.STORAGE_AGGREGATION_MIN:
-                    item.result = min(values)
-                elif request.aggregation == pb.STORAGE_AGGREGATION_MAX:
-                    item.result = max(values)
-                else:
-                    item.result = math.fsum(values) / len(values)
-        if len(response.items) <= page_size:
-            return response
-        # Materialize one bounded immutable result, preventing later Kafka
-        # backfill from changing page membership or previously computed sums.
-        rows = tuple(item.SerializeToString() for item in response.items)
-        snapshot_bytes = sum(map(len, rows))
-        if snapshot_bytes > _AGGREGATE_SNAPSHOT_MAX_BYTES:
-            raise QueryRejectedError("aggregate snapshot exceeds memory budget")
-        now = time.time()
-        self._aggregate_snapshots = {
-            key: value for key, value in self._aggregate_snapshots.items() if value[0] > now
-        }
-        cached_bytes = sum(sum(map(len, value[2])) for value in self._aggregate_snapshots.values())
-        while self._aggregate_snapshots and (
-            len(self._aggregate_snapshots) >= _AGGREGATE_SNAPSHOT_MAX_ENTRIES
-            or cached_bytes + snapshot_bytes > _AGGREGATE_SNAPSHOT_MAX_BYTES
-        ):
-            oldest = min(
-                self._aggregate_snapshots, key=lambda key: self._aggregate_snapshots[key][0]
-            )
-            cached_bytes -= sum(map(len, self._aggregate_snapshots[oldest][2]))
-            del self._aggregate_snapshots[oldest]
-        snapshot_id = uuid.uuid4().hex
-        self._aggregate_snapshots[snapshot_id] = (
-            now + 900,
-            self._aggregate_fingerprint(request, filter_),
-            rows,
+        if request.HasField("filter") or not request.HasField("wide_filter"):
+            raise QueryRejectedError("wide aggregate requires the exact device filter")
+        self._auth.require(
+            context, permission="storage.read",
+            farm=request.wide_filter.wind_farm_id,
         )
-        return self._aggregate_page(request, filter_, snapshot_id, rows, 0, page_size)
-
-    def _aggregate_page(
-        self,
-        request: pb.QueryAggregatesRequest,
-        filter_: HistoryFilter,
-        snapshot_id: str,
-        rows: tuple[bytes, ...],
-        index: int,
-        page_size: int,
-    ) -> pb.QueryAggregatesResponse:
-        if index >= len(rows):
-            raise QueryRejectedError("aggregate cursor is beyond the snapshot")
-        response = pb.QueryAggregatesResponse()
-        for row in rows[index : index + page_size]:
-            response.items.add().ParseFromString(row)
-        if index + page_size < len(rows):
-            response.next_page_token = self._encode_aggregate_cursor(
-                request, filter_, snapshot_id, index + page_size
-            )
-        return response
-
-    def _aggregate_fingerprint(
-        self, request: pb.QueryAggregatesRequest, filter_: HistoryFilter
-    ) -> str:
-        payload = json.dumps(
-            [filter_.fingerprint(), request.aggregation, request.window_ms],
-            separators=(",", ":"),
-        ).encode()
-        return hashlib.sha256(payload).hexdigest()
-
-    def _encode_aggregate_cursor(
-        self,
-        request: pb.QueryAggregatesRequest,
-        filter_: HistoryFilter,
-        snapshot_id: str,
-        index: int,
-    ) -> str:
-        data = json.dumps(
-            [
-                self._aggregate_fingerprint(request, filter_),
-                snapshot_id,
-                index,
-                int(time.time()) + 900,
-            ],
-            separators=(",", ":"),
-        ).encode()
-        signature = hmac.digest(self._secret, data, "sha256")
-        return base64.urlsafe_b64encode(signature + data).decode("ascii")
-
-    def _decode_aggregate_cursor(
-        self, request: pb.QueryAggregatesRequest, filter_: HistoryFilter
-    ) -> tuple[str, int]:
-        if not request.page_token:
-            return "", 0
-        if len(request.page_token) > 4096:
-            raise QueryRejectedError("aggregate cursor exceeds 4 KiB")
-        try:
-            packed = base64.b64decode(request.page_token.encode(), altchars=b"-_", validate=True)
-            signature, raw = packed[:32], packed[32:]
-            if len(signature) != 32 or not hmac.compare_digest(
-                signature, hmac.digest(self._secret, raw, "sha256")
-            ):
-                raise QueryRejectedError("aggregate cursor signature invalid")
-            identity, snapshot_id, index, expires = json.loads(raw)
-            if (
-                identity != self._aggregate_fingerprint(request, filter_)
-                or not isinstance(snapshot_id, str)
-                or len(snapshot_id) != 32
-                or type(index) is not int
-                or index < 0
-                or type(expires) is not int
-                or expires < time.time()
-            ):
-                raise QueryRejectedError("aggregate cursor expired or bound to another request")
-            return snapshot_id, index
-        except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
-            raise QueryRejectedError("aggregate cursor malformed") from exc
-
+        if self._consumer.recovering:
+            raise HistoryReplayUnavailableError("Kafka history replay is not settled")
+        return await self._query_wide_aggregates(request)
     @guarded
     async def CreateExport(
         self,
