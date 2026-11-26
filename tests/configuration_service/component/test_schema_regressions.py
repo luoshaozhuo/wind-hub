@@ -244,7 +244,7 @@ def test_service_v3_is_new_and_does_not_mutate_v2() -> None:
     schemas = {
         item.schema_version: item for item in iter_schemas() if item.config_type == "service"
     }
-    assert set(schemas) == {1, 2, 3}
+    assert set(schemas) == {1, 2, 3, 6}
     assert (
         "certificate_identity"
         in schemas[1].fields["properties"]["security"]["properties"]["callers"]["items"][
@@ -259,6 +259,52 @@ def test_service_v3_is_new_and_does_not_mutate_v2() -> None:
     assert "tls" not in v3["grpc"]["properties"]
     assert "ca_cert" not in v3["security"]["properties"]
     assert "token_env" in v3["security"]["properties"]["callers"]["items"]["required"]
+
+
+def test_service_v6_preserves_legacy_schemas_and_restricts_tokens() -> None:
+    schemas = {
+        item.schema_version: item for item in iter_schemas() if item.config_type == "service"
+    }
+    v3 = schemas[3].fields["properties"]
+    v6 = schemas[6].fields["properties"]
+    assert schemas[3].schema_version == 3
+    assert "tls" not in v6["grpc"]["properties"]
+    assert v6["security"]["properties"]["callers"]["items"]["properties"]["token_env"] == {
+        "type": "string",
+        "pattern": r"env:[A-Z_][A-Z0-9_]*",
+    }
+    assert v3["security"]["properties"]["callers"]["items"]["properties"]["token_env"] == {
+        "type": "string",
+        "pattern": r"[A-Z_][A-Z0-9_]*",
+    }
+    assert schemas[6].fields["additionalProperties"] is False
+    assert "service_id" in schemas[6].fields["required"]
+
+
+@pytest.mark.parametrize("token", ["TOKEN", "env:lowercase", "env:1BAD"])
+def test_service_v6_rejects_invalid_token_references(token: str) -> None:
+    schema = next(
+        item.fields for item in iter_schemas()
+        if item.config_type == "service" and item.schema_version == 6
+    )
+    with pytest.raises(ValueError):
+        ConfigurationApplication._validate_schema(
+            {
+                "schema_version": 6,
+                "file_version": "1.0.0",
+                "service_id": "storage",
+                "security": {
+                    "callers": [
+                        {
+                            "caller_id": "storage-reader",
+                            "token_env": token,
+                            "permissions": ["query"],
+                        }
+                    ]
+                },
+            },
+            schema,
+        )
 
 
 def test_service_v3_accepts_strict_simulation_mapping() -> None:
