@@ -153,12 +153,11 @@ class WideIngestionService:
         No offset becomes confirmed until every grouped write has returned
         successfully. A partial write therefore replays the entire prefix.
         """
-        groups: dict[tuple[str, str, str, str], list[_Validated]] = {}
+        groups: dict[tuple[str, str, str], list[_Validated]] = {}
         for entry in pending:
             key = (
                 entry.row.wind_farm_id,
                 entry.row.device_id,
-                entry.row.device_config_id,
                 entry.schema.fingerprint,
             )
             groups.setdefault(key, []).append(entry)
