@@ -306,7 +306,10 @@ def storage_wide_capacity_config(harness: EightServiceHarness) -> tuple[str, ...
         raise ValueError("STORAGE_WIDE_WRITER_COUNT must be 1, 2, 4, or 8")
     storage_service_path = harness.root / "configs" / "services" / "service_storage-e2e_v2.0.0.yaml"
     storage_service = yaml.safe_load(storage_service_path.read_text(encoding="utf-8"))
-    storage_service["service"]["tdengine"]["ingestion"]["writer_count"] = writer_count
+    tdengine = storage_service["service"]["tdengine"]
+    tdengine["ingestion"]["writer_count"] = writer_count
+    tdengine["max_inflight_sql"] = max(tdengine["max_inflight_sql"], writer_count)
+    tdengine["max_connections"] = max(tdengine["max_connections"], writer_count)
     storage_service_path.write_text(yaml.safe_dump(storage_service, sort_keys=False))
     return devices
 
@@ -491,6 +494,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
     devices = _wide_devices()
     cycles = int(os.environ.get("STORAGE_WIDE_CYCLES", "600"))
     rate_per_device = int(os.environ.get("STORAGE_WIDE_RATE_PER_DEVICE", "10"))
+    writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
     drain_timeout = float(os.environ.get("STORAGE_WIDE_DRAIN_TIMEOUT_SECONDS", "900"))
     if cycles <= 0 or rate_per_device <= 0 or rate_per_device > 1000:
         raise ValueError("positive cycles and a rate in [1, 1000] are required")
@@ -731,7 +735,9 @@ def test_storage_single_instance_500_point_device_row_capacity(
             "cycles_per_device": cycles,
             "points_per_complete_row": _WIDE_POINT_COUNT,
             "rate_per_device_rows_per_second": rate_per_device,
-            "writer_count": int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4")),
+            "writer_count": writer_count,
+            "max_inflight_sql": max(4, writer_count),
+            "max_connections": max(8, writer_count),
             "target_rows_per_second": target_rows_per_second,
             "expected_rows": total_rows,
             "expected_points": total_rows * _WIDE_POINT_COUNT,
