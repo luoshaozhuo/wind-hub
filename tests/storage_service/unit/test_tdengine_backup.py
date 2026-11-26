@@ -132,7 +132,7 @@ def _backup(
         ("device_model", "wind", "model-repo-v1"),
         ("point_table", "wind", "table-repo-v1"),
     ):
-        body = b"schema_version: 1\\nfile_version: 1.0.0\\n"
+        body = b"schema_version: 1\nfile_version: 1.0.0\n"
         archive.persist(
             RepositoryDocument(
                 config_type=kind,
