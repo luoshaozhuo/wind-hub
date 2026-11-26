@@ -183,3 +183,63 @@ bash tests/third_party/dc_ems/run_local.sh --down
 禁止 docker compose down -v（会删除隔离数据库和验收证据）。
 如出现 Web 200 但 WebSocket 不更新、配置 Loader 失败或容器退出，
 结论均为 BLOCKED，必须保存日志、配置哈希与第一处失败堆栈交给生产代码整改。
+
+
+七、完整测量链路（不依赖 DCEMS Docker 镜像）
+------------------------------------------
+本工作包独立于上面的单 Gateway Smoke。不得以它的结果替代 DCEMS Server/Web 验收。
+
+真实链路：
+  DG random → Gateway2(15221..15230) → Collector → NATS Realtime
+  → Sink GatewayOutput → Gateway1(15121..15130) → Modbus 客户端
+  DCEMS 恢复后必须读取 Gateway1，不能直连 Gateway2。
+
+本轮采用 10 台 WTG。WTG01 包含 9 个风机测点及 3 个站控/调频模拟点，
+WTG02..10 只包含 9 个风机测点；Source/Target 设备端口和组相互独立。
+Sink 的 10 条 Delivery 分别映射到 Gateway1 十个 gateway_id；没有反向采集，
+不允许使用同一个目标 gateway_id 造成串台。站控 P/Q 仍为独立随机量，
+不是全场功率物理求和；PFR 模式保持 false，自动控制始终关闭。
+
+准备一个新的 run/dcems-measurement，不能复用旧 dcems-smoke 配置：
+  bash tests/third_party/dc_ems/run_full_chain.sh --prepare
+
+给测试专用环境设置至少 32 字符、各自不同的认证令牌（不得写入仓库）：
+  WIND_HUB_DCE_GENERATOR_GATEWAY_TOKEN
+  WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN
+  WIND_HUB_DCE_GENERATOR_CLI_TOKEN
+  WIND_HUB_DCE_TARGET_OPERATOR_TOKEN
+  WIND_HUB_DCE_TARGET_SINK_TOKEN
+  WIND_HUB_SINK_CLI_TOKEN
+
+Sink Gateway 专用令牌必须与目标 Gateway 的 inject-only 令牌相同：
+  export WIND_HUB_GATEWAY_SINK_TOKEN="$WIND_HUB_DCE_TARGET_SINK_TOKEN"
+
+独立 NATS 测试服务须提前由线下测试基础设施启动，默认 loopback 4222。
+本脚本不会启动、下载或清理任何 Docker 资源，也不会连接生产 NATS。
+在专用隔离环境中依次执行：
+  bash tests/third_party/dc_ems/run_full_chain.sh --check
+  bash tests/third_party/dc_ems/run_full_chain.sh --up
+
+必须确认 Sink 十条 Delivery 实际为 RUNNING、Collector 任务实际为 RUNNING，
+之后才允许进行完整测量链路复测；CLI 启动成功并不等于业务就绪。
+若 --up 中途失败须先 --down 并检查各进程日志。
+
+独立 Modbus 源端/目标端对账：
+  export DCEMS_MEASUREMENT_LIVE=1
+  python -m pytest -q tests/third_party/dc_ems/test_full_chain_live.py
+
+离线生产 Loader 和配置覆盖验证：
+  python -m pytest -q tests/third_party/dc_ems/test_full_chain_config.py
+
+输出数据：run/dcems-measurement/evidence/source-target-reconciliation.json
+关停：
+  bash tests/third_party/dc_ems/run_full_chain.sh --down
+
+DCEMS 运行环境恢复后，派生 DCEMS 数据库种子时将
+prepare_seed.py 的 --gateway-port 设置为 15121，指向 Gateway1。
+原单 Gateway 烟雾测试使用 15221，不能混用其端口或已有数据库种子。
+不修改 DCEMS 发布 JAR、镜像或第三方源码。
+
+未验证：本轮未在当前开发环境运行五服务完整链路；
+所有新建配置和真实 Modbus 对账必须由 Claude 以正式 CLI、
+真实 NATS 与生产 Loader 完成独立复测，不能据静态生成判 PASS。
