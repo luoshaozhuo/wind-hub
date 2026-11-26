@@ -419,7 +419,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 raise ValueError("exact_roots cannot be combined with roots/revision_id")
             if not request.HasField("include_dependencies") or not dependencies:
                 raise ValueError("exact_roots require complete dependencies")
-            resolved_roots = []
+            resolved_roots: list[tuple[ConfigIdentity, str]] = []
             for root in exact:
                 identity = _identity(root.config_id)
                 if not root.version_id and not root.file_version:
@@ -431,7 +431,7 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                         raise RepositoryConflictError("exact root selectors disagree")
                     version_id = pinned
                 resolved_roots.append((identity, version_id))
-            result = self.app.get_exact_bundle(
+            revision_id, result = self.app.get_exact_bundle_snapshot(
                 tuple(resolved_roots), include_dependencies=True
             )
             for root, (identity, version_id) in zip(exact, resolved_roots, strict=True):
@@ -442,7 +442,6 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                     for item in result
                 ):
                     raise RepositoryConflictError("exact root content digest mismatch")
-            revision_id = 0
         else:
             if not request.roots or not request.HasField("revision_id"):
                 raise ValueError("roots and revision_id are required together")
