@@ -100,6 +100,8 @@ def main() -> None:
                         required=True)
     args = parser.parse_args()
     output = args.output.resolve()
+    if (ROOT / "run").resolve() not in output.parents:
+        raise ValueError("DCEMS derived seed must be written under wind-hub run/")
     if output == SOURCE.resolve():
         raise ValueError("refuse to overwrite published DCEMS seed")
     if output.exists():
