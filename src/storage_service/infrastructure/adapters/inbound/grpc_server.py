@@ -309,7 +309,7 @@ def _verify_export_file(root: Path, record: TaskRecord) -> str:
     """Recheck a completed export before disclosing a trusted artifact path."""
     if (
         root.is_symlink()
-        or re.fullmatch(r"[0-9a-f]{32}\\.(csv|json|zip)", record.artifact_id) is None
+        or re.fullmatch(r"[0-9a-f]{32}\.(csv|json|zip)", record.artifact_id) is None
     ):
         raise RuntimeError("Storage export artifact identity is invalid")
     artifact = root / record.artifact_id
