@@ -100,9 +100,17 @@ unset DCEMS_LICENSE_CODE
 执行前确认本机对应端口不被其他业务占用；
 Docker Compose 项目固定 dcems-smoke，独立 volume，
 DB_NAME 固定 dcems_smoke，禁止复用旧业务数据库。
-若 dcems-smoke_database 卷已存在，启动会拒绝静默复用。
-只有核实该卷就是本次测试且无需重新导入种子时，才允许本地设置
-DCEMS_SMOKE_ALLOW_REUSE=1；禁止直接删除其他 Compose 项目的数据库卷。
+本轮将设备 ID 从 DCEMS_WTG01..10 改为 WTG01..10（辅助设备 SUBSTATION、PFR）。
+旧 run/dcems-smoke/configs 和 run/dcems-smoke/data.json 不会自动更新；
+请先停止本测试全部进程，并将旧运行产物归档，再重新执行 --prepare、
+prepare_runtime.py、prepare_seed.py 和 prepare_web.py。
+旧隔离数据库卷内仍是旧设备 ID，不能设置 DCEMS_SMOKE_ALLOW_REUSE=1
+绕过本次重新导入。线下人员应先核对 volume 标签确属
+com.docker.compose.project=dcems-smoke、备份必要证据，之后仅清理
+本测试专用卷并让新空卷导入新的 data.json；不得清理其他项目的卷。
+重新启动后必须检查设备表含 WTG01..10 且不含 DCEMS_WTGxx。
+只有后续重复运行且确认数据库与当前派生种子一致时，才允许设置
+DCEMS_SMOKE_ALLOW_REUSE=1。
 
 export DCEMS_ALLOW_LOCAL_SMOKE=1
 export DCEMS_TEST_SEED="$PWD/run/dcems-smoke/data.json"
