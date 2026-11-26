@@ -419,15 +419,29 @@ class RepositoryServicer(rpc.ConfigurationRepositoryServiceServicer):
                 raise ValueError("exact_roots cannot be combined with roots/revision_id")
             if not request.HasField("include_dependencies") or not dependencies:
                 raise ValueError("exact_roots require complete dependencies")
-            if any(
-                not root.version_id or root.file_version or root.content_sha256
-                for root in exact
-            ):
-                raise ValueError("exact_roots require only config_id and version_id")
+            resolved_roots = []
+            for root in exact:
+                identity = _identity(root.config_id)
+                if not root.version_id and not root.file_version:
+                    raise ValueError("exact_roots require version_id or file_version")
+                version_id = root.version_id
+                if root.file_version:
+                    pinned = self.app.repository.resolve_version(identity, root.file_version)
+                    if version_id and version_id != pinned:
+                        raise RepositoryConflictError("exact root selectors disagree")
+                    version_id = pinned
+                resolved_roots.append((identity, version_id))
             result = self.app.get_exact_bundle(
-                tuple((_identity(root.config_id), root.version_id) for root in exact),
-                include_dependencies=True,
+                tuple(resolved_roots), include_dependencies=True
             )
+            for root, (identity, version_id) in zip(exact, resolved_roots, strict=True):
+                if root.content_sha256 and not any(
+                    item.identity == identity
+                    and item.version_id == version_id
+                    and item.content_sha256 == root.content_sha256
+                    for item in result
+                ):
+                    raise RepositoryConflictError("exact root content digest mismatch")
             revision_id = 0
         else:
             if not request.roots or not request.HasField("revision_id"):
