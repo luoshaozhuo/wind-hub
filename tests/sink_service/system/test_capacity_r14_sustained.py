@@ -197,6 +197,7 @@ async def _audit_duplicates(
         enable_auto_commit=False,
     )
     await audit.start()
+    stop_error = ""
     try:
         records: list[Any] = []
         deadline = time.monotonic() + 300
@@ -220,7 +221,7 @@ async def _audit_duplicates(
             key = (row.wind_farm_id, row.device_id, row.data_level.value, row.sample_time_us)
             identities[key] = identities.get(key, 0) + 1
         dupes = {key: count for key, count in identities.items() if count > 1}
-        return {
+        result = {
             "audit_baseline_offsets": baseline_offsets,
             "audit_scanned_records": scanned_records,
             "audit_payload_bytes": payload_bytes,
@@ -230,9 +231,15 @@ async def _audit_duplicates(
             "audit_duplicate_identities": len(dupes),
             "audit_duplicate_record_excess": sum(c - 1 for c in dupes.values()),
             "audit_max_occurrence": max(dupes.values(), default=1),
+            "audit_stop_error": stop_error,
         }
     finally:
-        await audit.stop()
+        try:
+            await asyncio.wait_for(audit.stop(), timeout=30)
+        except (KafkaError, TimeoutError) as exc:
+            stop_error = type(exc).__name__
+            result["audit_stop_error"] = stop_error
+    return result
 
 
 async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, Any]:
@@ -269,7 +276,7 @@ async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, An
             if len({partition for _seq, partition in items}) != 1
             or any(a[0] >= b[0] for a, b in zip(items, items[1:], strict=False))
         }
-        return {
+        result = {
             "scanned_records": scanned,
             "devices_observed": len(observed),
             "minimum_sequences_per_device": min(
@@ -280,9 +287,14 @@ async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, An
                 for device, items in observed.items()
             },
             "order_or_partition_violations": violations,
+            "order_stop_error": "",
         }
     finally:
-        await audit.stop()
+        try:
+            await asyncio.wait_for(audit.stop(), timeout=30)
+        except (KafkaError, TimeoutError) as exc:
+            result["order_stop_error"] = type(exc).__name__
+    return result
 
 
 class TestR14SustainedCapacity:
@@ -824,6 +836,7 @@ class TestR14SustainedCapacity:
                     result["duplicate_audit"]["audit_total_records"]
                     == confirmed_values // POINTS_PER_BATCH
                     and result["zero_loss"]
+                    and not result["duplicate_audit"]["audit_stop_error"]
                 )
                 result["confirmed_payload_mb_total"] = round(
                     result["duplicate_audit"]["audit_payload_bytes"] / 1e6, 3
@@ -856,6 +869,7 @@ class TestR14SustainedCapacity:
                 assert order_audit["devices_observed"] == DEGREE, result
                 assert order_audit["minimum_sequences_per_device"] >= 2, result
                 assert not order_audit["order_or_partition_violations"], result
+                assert not order_audit["order_stop_error"], result
                 assert result["drained"], result
                 assert confirmed_values >= published_values, result
                 audit = result["duplicate_audit"]
