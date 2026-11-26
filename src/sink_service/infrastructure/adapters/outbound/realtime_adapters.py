@@ -472,10 +472,10 @@ class KafkaOutput:
         """Submit ready writes in FIFO order, without waiting for earlier ACKs."""
         queue = self._partition_queues[partition]
         try:
-            # Give already runnable device writes a chance to join the Builder.
-            # There is no timer-based linger and no additional admission quota.
-            await asyncio.sleep(self._linger_ms / 1000)
             while queue:
+                # Coalesce every submission wave, not only the first one.
+                # The source device lock continues to own its pending write.
+                await asyncio.sleep(self._linger_ms / 1000)
                 requests = queue[:]
                 queue.clear()
                 try:
