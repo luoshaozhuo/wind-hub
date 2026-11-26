@@ -27,6 +27,9 @@ from storage_service.domain.wide_record import (
 )
 from storage_service.domain.wide_row import bind_wide_row
 from storage_service.domain.wide_schema import WideSchema
+from storage_service.infrastructure.adapters.outbound.tdengine_backend import (
+    TDengineSchemaConflictError,
+)
 
 
 class WideSchemaResolver(Protocol):
@@ -87,8 +90,9 @@ class WideIngestionService:
         max_row_bytes: int = 65536,
     ) -> None:
         if (
-            not allowed_wind_farms or max_batch_rows < 1
-            or max_batch_bytes < 4096 or max_row_bytes < 1024
+            not allowed_wind_farms or not 1 <= max_batch_rows <= 1000
+            or not 4096 <= max_batch_bytes <= 8388608
+            or max_row_bytes < 1024
         ):
             raise ValueError("wide ingestion requires bounded authorized resources")
         self._storage = storage
@@ -175,6 +179,10 @@ class WideIngestionService:
                     device_type=first.device_type,
                 )
                 await self._storage.insert_wide_batch(first.schema, ordered_rows)
+            except TDengineSchemaConflictError:
+                # Deterministic physical conflict: preserve its own evidence
+                # and never classify it as an uncertain connector write.
+                raise
             except (RuntimeError, TimeoutError, OSError) as exc:
                 self._metrics.record_unknown()
                 # A connector error may follow partial durable STMT2 writes.
