@@ -84,6 +84,7 @@ async def test_common_service_uses_bearer_and_reports_only_real_capabilities(
         status = await stub.GetServiceStatus(common.Empty(), metadata=metadata)
         assert status.health == "HEALTHY"
         capabilities = await stub.GetCapabilities(common.Empty(), metadata=metadata)
+        assert "QueryWideRows" in capabilities.rpc_names
         assert "QuerySamples" in capabilities.rpc_names
         assert "PushConfigSnapshot" not in capabilities.rpc_names
 
@@ -275,6 +276,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         assert authenticated_status.target_revision == "a" * 64
         assert authenticated_status.active_revision == "b" * 64
         capabilities = await common_stub.GetCapabilities(common.Empty())
+        assert "QueryWideRows" in capabilities.rpc_names
         assert "QuerySamples" in capabilities.rpc_names
 
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
