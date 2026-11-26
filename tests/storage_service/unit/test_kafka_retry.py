@@ -12,7 +12,7 @@ from aiokafka import TopicPartition
 from aiokafka.errors import KafkaConnectionError
 
 from storage_service.application.config import load_storage_config
-from storage_service.application.ingestion import (
+from storage_service.application.ingestion_contract import (
     IngestionBlockedError,
     KafkaRecord,
     WriteUnconfirmedError,
