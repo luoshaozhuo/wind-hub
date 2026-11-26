@@ -550,6 +550,9 @@ class TestR14SustainedCapacity:
                     if pending == 0:
                         break
                     await asyncio.sleep(0.5)
+                # 终局前受控停止生产写入，防止顺序审计期间的新确认让
+                # final_offset、final_pending 与全量身份审计互相错位。
+                await sink_harness.stop()
                 await consumer._client.force_metadata_update()  # noqa: SLF001
                 final_infos = await _consumer_infos(sink_harness)
                 final_pending = {
