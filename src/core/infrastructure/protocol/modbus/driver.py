@@ -309,7 +309,7 @@ class ModbusDriver:
 
     async def _read_group(
         self, session: _ModbusSession, group: Sequence[ModbusPoint]
-    ) -> list[tuple[Sequence[ModbusPoint], Sequence[int | bool], datetime]]:
+    ) -> list[tuple[Sequence[ModbusPoint], Sequence[object], datetime]]:
         """Retry only a rejected gapped read as contiguous requests.
 
         A Modbus exception response can mean that the server rejects an
@@ -328,7 +328,7 @@ class ModbusDriver:
             contiguous = group_consecutive_reads(group, max_gap=0)
             if len(contiguous) == 1:
                 raise
-            results: list[tuple[Sequence[ModbusPoint], Sequence[int | bool], datetime]] = []
+            results: list[tuple[Sequence[ModbusPoint], Sequence[object], datetime]] = []
             for subgroup in contiguous:
                 point = subgroup[0]
                 sub_start = point.address
@@ -379,14 +379,20 @@ class ModbusDriver:
             else:
                 self._read_plan_cache.move_to_end(key)
             samples: dict[ModbusPoint, ProtocolSample] = {}
+            safe_groups: list[tuple[ModbusPoint, ...]] = []
             for group in groups:
                 for subgroup, raw, received_at in await self._read_group(session, group):
+                    safe_groups.append(tuple(subgroup))
                     start = subgroup[0].address
                     for point in subgroup:
                         offset = point.address - start
                         samples[point] = _sample(
                             point, raw[offset : offset + point.count], received_at
                         )
+            # Remember an accepted contiguous plan after an IllegalDataAddress
+            # response; do not trigger the same invalid merged read every cycle.
+            if len(safe_groups) > len(groups) and key in self._read_plan_cache:
+                self._read_plan_cache[key] = tuple(safe_groups)
             return tuple(samples[point] for point in points)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
