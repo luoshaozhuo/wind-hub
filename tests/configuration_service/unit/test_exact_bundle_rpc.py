@@ -61,13 +61,13 @@ def test_exact_bundle_requires_explicit_closure_and_selector(
     app = Mock()
     with pytest.raises(ValueError):
         _invoke(request, app)
-    app.get_exact_bundle.assert_not_called()
+    app.get_exact_bundle_snapshot.assert_not_called()
 
 
 def test_exact_bundle_accepts_fixed_file_version_and_validates_digest() -> None:
     app = Mock()
     app.repository.resolve_version.return_value = "fixed-version"
-    app.get_exact_bundle.return_value = (_document(),)
+    app.get_exact_bundle_snapshot.return_value = (7, (_document(),))
     response = _invoke(
         pb.GetConfigBundleRequest(
             exact_roots=[_root(file_version="1.2.3", sha="fixed-content")],
@@ -78,10 +78,11 @@ def test_exact_bundle_accepts_fixed_file_version_and_validates_digest() -> None:
     app.repository.resolve_version.assert_called_once_with(
         ConfigIdentity("device", "wtg001"), "1.2.3"
     )
-    app.get_exact_bundle.assert_called_once_with(
+    app.get_exact_bundle_snapshot.assert_called_once_with(
         ((ConfigIdentity("device", "wtg001"), "fixed-version"),),
         include_dependencies=True,
     )
+    assert response.revision_id == 7
     assert len(response.files) == 1
     assert response.files[0].version_id == "fixed-version"
 
@@ -98,7 +99,7 @@ def test_exact_bundle_rejects_inconsistent_pins(
 ) -> None:
     app = Mock()
     app.repository.resolve_version.return_value = "fixed-version"
-    app.get_exact_bundle.return_value = (_document(),)
+    app.get_exact_bundle_snapshot.return_value = (7, (_document(),))
     with pytest.raises(RepositoryConflictError, match=message):
         _invoke(
             pb.GetConfigBundleRequest(
