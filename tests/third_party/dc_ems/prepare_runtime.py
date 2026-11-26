@@ -27,8 +27,10 @@ def read_env(path: Path) -> dict[str, str]:
             continue
         name, sep, value = line.partition("=")
         name = name.strip()
+        if name.startswith("REDIS_") and sep:
+            continue
         if not sep or name not in ALLOWED or name in result or not value:
-            if name in {"PEER_HOST", "LICENSE_CODE"} and sep:
+            if name in {"PEER_HOST", "LICENSE_CODE"} and sep and name not in result:
                 result[name] = value
                 continue
             raise ValueError(f"invalid or unknown environment item: {name!r}")
