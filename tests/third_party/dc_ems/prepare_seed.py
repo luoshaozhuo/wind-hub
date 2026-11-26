@@ -30,6 +30,8 @@ def load_mapping(path: Path) -> dict[str, dict[str, str]]:
                 "business_point_id": business,
                 "modbus_addr": address,
             }
+            if row.get("high_bit", "").strip():
+                mappings[name]["high_bit"] = row["high_bit"].strip()
     return mappings
 
 
@@ -38,6 +40,8 @@ def build_seed(
     mapping: dict[str, dict[str, str]],
     host: str,
     port: int,
+    *,
+    allow_subset: bool = False,
 ) -> dict[str, Any]:
     """从历史种子派生单机测试数据，保持原业务变量身份。"""
     if not host or not 1 <= port <= 65535:
@@ -48,10 +52,13 @@ def build_seed(
 
     points = seed["edgeaddrset"]
     point_names = {str(point["varPath"]) for point in points}
-    if point_names != set(mapping):
+    if (not allow_subset and point_names != set(mapping)) or not set(mapping) <= point_names:
         missing = sorted(point_names - set(mapping))
         extra = sorted(set(mapping) - point_names)
         raise ValueError(f"business mapping not closed: missing={missing}, extra={extra}")
+    if allow_subset:
+        points = [point for point in points if str(point["varPath"]) in mapping]
+        seed["edgeaddrset"] = points
 
     # DCEMS 历史点表将部分读写变量映射到同一物理地址。
     # Gateway 的 RegisterMap 禁止地址重叠，必须将这些别名折叠为
@@ -71,8 +78,14 @@ def build_seed(
     for point in points:
         name = str(point["varPath"])
         actual = mapping[name]["modbus_addr"]
-        if actual != point["addr"]:
+        if not allow_subset and actual != point["addr"]:
             raise ValueError(f"address mismatch for {name}: {actual} != {point['addr']}")
+        segments = actual.split(".")
+        if len(segments) != 3 or not all(value.isdecimal() for value in segments):
+            raise ValueError(f"invalid Modbus address: {actual}")
+        point["addr"] = actual
+        if allow_subset and "high_bit" in mapping[name]:
+            point["highBit"] = int(mapping[name]["high_bit"])
 
     device = seed["devices"][0]
     device["deviceId"] = "dcems-wtg-01"
@@ -116,14 +129,24 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gateway-host", required=True)
     parser.add_argument("--gateway-port", type=int, required=True)
+    parser.add_argument("--smoke-subset", action="store_true")
+    parser.add_argument("--gateway-point-table", type=Path, required=True)
     args = parser.parse_args()
     original = json.loads(args.seed.read_text(encoding="utf-8"))
+    mapping = load_mapping(args.mapping)
     derived = build_seed(
         original,
-        load_mapping(args.mapping),
+        mapping,
         args.gateway_host,
         args.gateway_port,
+        allow_subset=args.smoke_subset,
     )
+    import yaml
+
+    from tests.third_party.dc_ems.validate_gateway_mapping import validate
+
+    point_table = yaml.safe_load(args.gateway_point_table.read_text(encoding="utf-8"))
+    validate(derived, mapping, point_table)
     if args.output.resolve() == args.seed.resolve():
         raise ValueError("refuse to overwrite packaged data.json")
     if args.output.exists():
