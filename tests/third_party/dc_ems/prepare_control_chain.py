@@ -59,7 +59,8 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     _write(config / "instances" / "scenarios_e2e-final_v1.0.0.yaml", scenarios)
 
     devices = _read(SOURCE / "instances" / "device_e2e-final_v1.0.1.yaml")
-    for index, device_id in enumerate(("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01")):
+    physical_devices = ("WTG_SIM01", "PV_SIM01", "BESS_SIM01", "GRID_SIM01", "PPC_SIM01")
+    for index, device_id in enumerate(physical_devices):
         devices["devices"][device_id]["endpoint"]["port"] = 15421 + index
     _write(config / "instances" / "device_e2e-final_v1.0.1.yaml", devices)
 
@@ -112,12 +113,16 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     definitions = {
         "gateway": ("industrial_gateway.main", "gateway-dcems-control-execution", EXECUTION_GRPC,
                     ["--project-root", str(config)], "WIND_HUB_E2E_GATEWAY_OPERATOR_TOKEN"),
-        "gateway-target": ("industrial_gateway.main", "gateway-dcems-control-ingress", INGRESS_GRPC,
-                           ["--project-root", str(config)], "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"),
+        "gateway-target": (
+            "industrial_gateway.main", "gateway-dcems-control-ingress", INGRESS_GRPC,
+            ["--project-root", str(config)], "WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN",
+        ),
         "commander": ("commander", "commander-dcems-control", COMMANDER_GRPC, [],
                       "WIND_HUB_E2E_GATEWAY_COMMANDER_TOKEN"),
-        "data-generator": ("data_generator.main", "data-generator-dcems-control", GENERATOR_GRPC, [],
-                           "WIND_HUB_E2E_GENERATOR_CLI_TOKEN"),
+        "data-generator": (
+            "data_generator.main", "data-generator-dcems-control", GENERATOR_GRPC, [],
+            "WIND_HUB_E2E_GENERATOR_CLI_TOKEN",
+        ),
     }
     services: dict[str, Any] = {}
     for name, (module, service_id, port, extra, token_env) in definitions.items():
@@ -128,7 +133,10 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
             "target": name,
             "token_env": token_env,
             "process": {
-                "argv": [sys.executable, "-m", module, "--config", str(config / "services" / filename), *extra],
+                "argv": [
+                    sys.executable, "-m", module, "--config",
+                    str(config / "services" / filename), *extra,
+                ],
                 "cwd": str(ROOT),
                 "state_dir": str(runtime / "cli-processes"),
                 "log_file": str(runtime / f"{name}.log"),
