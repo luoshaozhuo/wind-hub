@@ -153,6 +153,9 @@ class _QuotaWriter:
         physical_started = time.monotonic()
         try:
             await asyncio.wait_for(self._sink_quota.acquire(), timeout=self._timeout)
+        except TimeoutError:
+            self._global_quota.release()
+            return BatchOutcome((), (), "physical Sink I/O quota exhausted")
         except BaseException:
             self._global_quota.release()
             raise
