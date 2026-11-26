@@ -1,0 +1,18 @@
+# 单测点简化联测：BusinessPoint 变量名映射到 Modbus 协议地址。
+schema_version: 1
+file_version: "1.0.0"
+template_id: dcems_wtg_random
+config_sources:
+  - {config_type: units, config_id: standard, file_version: "1.2.0"}
+  - {config_type: business_points, config_id: standard, file_version: "1.5.0"}
+protocol: modbus
+points:
+  wind_speed:
+    business_point_id: wind_speed
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 0, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: meter_per_second
+    scale: 1.0
+    offset: 0.0
+    description: "DCEMS 10 台随机风速"
