@@ -246,6 +246,43 @@ async def test_timeout_kills_and_reaps_taosdump(
     _assert_reaped(_read_pid(root, task_id))
 
 
+def _fd_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+@pytest.mark.parametrize("mode", ["normal", "hang"])
+async def test_pty_fds_are_closed_after_success_and_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    backup, root = _backup(tmp_path, monkeypatch, mode=mode)
+    task_id = uuid.uuid4().hex
+    before = _fd_count()
+    if mode == "normal":
+        await backup.backup(task_id=task_id, wind_farm_id="farm-1")
+    else:
+        running = asyncio.create_task(backup.backup(task_id=task_id, wind_farm_id="farm-1"))
+        await _wait_for_pid(root, task_id)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+    assert _fd_count() == before
+
+
+async def test_pty_fds_are_closed_when_subprocess_start_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup, _root = _backup(tmp_path, monkeypatch, mode="normal")
+
+    async def fail_start(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("injected subprocess start failure")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fail_start)
+    before = _fd_count()
+    with pytest.raises(OSError, match="injected subprocess start failure"):
+        await backup.backup(task_id=uuid.uuid4().hex, wind_farm_id="farm-1")
+    assert _fd_count() == before
+
+
 async def test_backup_manifest_verifier_rejects_avro_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
