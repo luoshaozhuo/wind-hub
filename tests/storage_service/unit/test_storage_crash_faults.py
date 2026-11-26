@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def _bundle(revision: int) -> StorageBundle:
     config = load_storage_config(
-        (ROOT / "configs/services/service_storage-main_v1.1.0.yaml").read_bytes()
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
     return StorageBundle(
         configuration=config,
