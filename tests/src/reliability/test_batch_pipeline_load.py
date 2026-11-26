@@ -100,7 +100,7 @@ async def test_realtime_30_devices_10hz_load_counts_close_and_tasks_released(
         capacity=8192,
         max_samples_per_batch=100,
         # 放大 TTL 隔离容量/对账语义；默认 500ms TTL 的过期丢弃由
-        # tests/src/component/test_collector/test_publisher_v2.py 专门验证。
+        # tests/src/component/test_collector/test_publisher.py 专门验证。
         max_staleness_ms=30_000,
     )
     tasks_before = len(asyncio.all_tasks())
