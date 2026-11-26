@@ -112,7 +112,7 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     commander["simulation_targets"]["WTG_SIM01"] = target
     _write(commander_path, commander)
 
-    cli_path = config / "state" / "cli.yaml"
+    cli_path = config.parent / "state" / "cli.yaml"
     cli = _read(cli_path)
     cli["network_probe"]["industrial_tcp_ports"].append(CONTROL_PORT)
     _write(cli_path, cli)
