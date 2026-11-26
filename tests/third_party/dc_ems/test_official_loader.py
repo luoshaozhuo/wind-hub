@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from core.configuration.deployment import parse_deployment
 from core.configuration.local_selection import select_local_service
 from data_generator.infrastructure.config.service_settings import load_settings
@@ -17,8 +19,6 @@ def test_official_config_loaders_accept_ten_device_smoke(tmp_path: Path) -> None
     root = tmp_path / "dcems-smoke"
     stage(root)
     deployment = root / "deployments" / "deployment_dcems-smoke_v1.0.0.yaml"
-    import yaml
-
     selected = parse_deployment(yaml.safe_load(deployment.read_text(encoding="utf-8")))
     assert selected.deployment_id == "dcems-smoke"
     assert len(selected.services) == 2
