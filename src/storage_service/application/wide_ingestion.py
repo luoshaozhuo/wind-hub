@@ -205,6 +205,7 @@ class WideIngestionService:
     ) -> IngestResult:
         pending: list[_Validated] = []
         pending_bytes = 0
+        pending_physical_bytes = 0
         accepted = 0
         for source in records:
             if source.partition != offsets.partition:
@@ -218,6 +219,7 @@ class WideIngestionService:
                 )
                 pending.clear()
                 pending_bytes = 0
+                pending_physical_bytes = 0
             offsets.observe(generation=generation, offset=source.offset)
             if len(source.value) > self._max_bytes:
                 self._block(source, "KAFKA_WIDE_RECORD_EXCEEDS_BATCH_BUDGET")
@@ -229,8 +231,25 @@ class WideIngestionService:
                         pending, offsets=offsets, generation=generation
                     )
                 self._block(source, f"WIDE_RECORD_INVALID: {exc}")
+            # Kafka payload size is not the STMT2 in-memory column budget.
+            # Use the worst-case physical width from the pinned TDengine schema.
+            row_bytes = validated.schema.declared_row_bytes
+            if row_bytes > self._max_bytes:
+                if pending:
+                    accepted += await self._flush(
+                        pending, offsets=offsets, generation=generation
+                    )
+                self._block(source, "TDENGINE_WIDE_ROW_EXCEEDS_BATCH_BUDGET")
+            if pending and pending_physical_bytes + row_bytes > self._max_bytes:
+                accepted += await self._flush(
+                    pending, offsets=offsets, generation=generation
+                )
+                pending.clear()
+                pending_bytes = 0
+                pending_physical_bytes = 0
             pending.append(validated)
             pending_bytes += len(source.value)
+            pending_physical_bytes += row_bytes
         if pending:
             accepted += await self._flush(
                 pending, offsets=offsets, generation=generation
