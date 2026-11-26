@@ -50,7 +50,6 @@ def _server(
     return build_storage_grpc_server(
         config=config,
         metadata=cast(Any, object()),
-        query=cast(Any, object()),
         wide_query=cast(Any, object()),
         wide_aggregation=cast(Any, object()),
         jobs=cast(Any, object()),
@@ -85,7 +84,7 @@ async def test_common_service_uses_bearer_and_reports_only_real_capabilities(
         assert status.health == "HEALTHY"
         capabilities = await stub.GetCapabilities(common.Empty(), metadata=metadata)
         assert "QueryWideRows" in capabilities.rpc_names
-        assert "QuerySamples" in capabilities.rpc_names
+        assert "QuerySamples" not in capabilities.rpc_names
         assert "PushConfigSnapshot" not in capabilities.rpc_names
 
         with pytest.raises(grpc.aio.AioRpcError) as unsupported:
@@ -214,7 +213,6 @@ async def test_retry_blocked_partition_stale_offset_returns_failed_precondition(
     server = build_storage_grpc_server(
         config=config,
         metadata=cast(Any, object()),
-        query=cast(Any, object()),
         wide_query=cast(Any, object()),
         wide_aggregation=cast(Any, object()),
         jobs=cast(Any, object()),
@@ -277,7 +275,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         assert authenticated_status.active_revision == "b" * 64
         capabilities = await common_stub.GetCapabilities(common.Empty())
         assert "QueryWideRows" in capabilities.rpc_names
-        assert "QuerySamples" in capabilities.rpc_names
+        assert "QuerySamples" not in capabilities.rpc_names
 
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
             await common_stub.GetServiceInfo(
@@ -290,7 +288,7 @@ async def test_opt_in_anonymous_status_is_redacted_and_does_not_grant_read_acces
         assert denied.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
         with pytest.raises(grpc.aio.AioRpcError) as denied_query:
-            await storage_stub.QuerySamples(storage_pb.QuerySamplesRequest())
+            await storage_stub.QueryWideRows(storage_pb.QueryWideRowsRequest())
         assert denied_query.value.code() == grpc.StatusCode.UNAUTHENTICATED
     finally:
         await channel.close()
