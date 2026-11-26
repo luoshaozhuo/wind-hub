@@ -95,3 +95,26 @@ def test_config_resolver_does_not_offer_point_sample_compatibility() -> None:
     assert not hasattr(ConfigurationPointTableResolver, "get_unit")
     assert hasattr(ConfigurationPointTableResolver, "resolve_wide_schema")
     assert hasattr(ConfigurationPointTableResolver, "get_wide_unit")
+
+
+def test_production_storage_contains_no_point_history_implementation() -> None:
+    from pathlib import Path
+    import re
+
+    src = Path(__file__).resolve().parents[3] / "src" / "storage_service"
+    forbidden = (
+        re.compile(r"\\bStorageSample\\b"),
+        re.compile(r"\\bHistoryQueryService\\b"),
+        re.compile(r"\\bQuerySamples\\b"),
+        re.compile(r"\\bfetch_content_hashes\\b"),
+        re.compile(r"\\bensure_tables\\b"),
+        re.compile(r"\\binsert_batch\\b"),
+        re.compile(r"\\bIngestionService\\b"),
+        re.compile(r"storage_service\\.domain\\.sample"),
+    )
+    offenders = [
+        path.relative_to(src).as_posix()
+        for path in src.rglob("*.py")
+        if any(pattern.search(path.read_text(encoding="utf-8")) for pattern in forbidden)
+    ]
+    assert not offenders, f"retired point-history code paths: {sorted(offenders)}"
