@@ -87,7 +87,7 @@ class ReliableDeliveryEngine:
         """Implemented by the JetStream metadata adapter."""
         raise NotImplementedError
 
-    async def _encode_kafka_points(
+    async def _encode_kafka_wide(
         self, batch: SampleBatch, items: tuple[SampleItem, ...]
     ) -> tuple[bytes, ...]:
         """Implemented by the Kafka output serialization adapter."""
@@ -120,7 +120,7 @@ class ReliableDeliveryEngine:
         items: tuple[SampleItem, ...],
     ) -> tuple[bytes, ...]:
         """Keep source ownership while a historical mapping is fetched and verified."""
-        task = asyncio.create_task(self._encode_kafka_points(batch, items))
+        task = asyncio.create_task(self._encode_kafka_wide(batch, items))
         interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
         try:
             while not task.done():
