@@ -239,6 +239,10 @@ async def _audit_duplicates(
         except (KafkaError, TimeoutError) as exc:
             stop_error = type(exc).__name__
             result["audit_stop_error"] = stop_error
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            result["audit_stop_error"] = "CancelledError"
     return result
 
 
@@ -294,6 +298,10 @@ async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, An
             await asyncio.wait_for(audit.stop(), timeout=30)
         except (KafkaError, TimeoutError) as exc:
             result["order_stop_error"] = type(exc).__name__
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            result["order_stop_error"] = "CancelledError"
     return result
 
 
