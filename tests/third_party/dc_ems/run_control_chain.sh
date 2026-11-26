@@ -55,9 +55,12 @@ required=(
     WIND_HUB_E2E_GATEWAY_GENERATOR_TOKEN
     WIND_HUB_E2E_GENERATOR_CLI_TOKEN
 )
+declare -A seen_tokens=()
 for name in "${required[@]}"; do
     value="${!name:-}"
     [[ "${#value}" -ge 32 ]] || fail "missing or short token: ${name}"
+    [[ -z "${seen_tokens[$value]:-}" ]] || fail "duplicate token reference: ${name}"
+    seen_tokens["$value"]="$name"
 done
 python - "${CONFIG}" <<'PY'
 import socket
