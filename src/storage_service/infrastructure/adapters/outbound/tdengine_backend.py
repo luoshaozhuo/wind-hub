@@ -894,6 +894,12 @@ class TDengineBackend:
         """
         if not records:
             return
+        limits = self._config.tdengine.ingestion
+        if (
+            len(records) > limits.batch_max_rows
+            or len(records) * schema.declared_row_bytes > limits.batch_max_bytes
+        ):
+            raise ValueError("wide STMT2 batch exceeds physical row/byte budget")
         first = records[0]
         if any(
             row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
