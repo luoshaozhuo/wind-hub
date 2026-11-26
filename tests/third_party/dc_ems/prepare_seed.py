@@ -145,6 +145,7 @@ def main() -> None:
     parser.add_argument("--gateway-port", type=int, required=True)
     parser.add_argument("--device-count", type=int, default=10)
     parser.add_argument("--smoke-subset", action="store_true")
+    parser.add_argument("--with-auxiliary", action="store_true")
     parser.add_argument("--gateway-point-table", type=Path, required=True)
     args = parser.parse_args()
     original = json.loads(args.seed.read_text(encoding="utf-8"))
@@ -163,6 +164,17 @@ def main() -> None:
 
     point_table = yaml.safe_load(args.gateway_point_table.read_text(encoding="utf-8"))
     validate(derived, mapping, point_table)
+    if args.with_auxiliary:
+        from tests.third_party.dc_ems.auxiliary_seed import append_auxiliary_devices
+
+        required = {
+            "sim_plant_active_power",
+            "sim_plant_reactive_power",
+            "primary_frequency_mode",
+        }
+        if not required <= set(point_table["points"]):
+            raise ValueError("Gateway PointTable lacks station or PFR source points")
+        derived = append_auxiliary_devices(derived)
     if args.output.resolve() == args.seed.resolve():
         raise ValueError("refuse to overwrite packaged data.json")
     if args.output.exists():
