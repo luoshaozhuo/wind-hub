@@ -32,6 +32,8 @@ grep -q "location.protocol" "${DCEMS_TEST_WEB}/static/js/app.4ad853ce.js" || fai
 [[ -f "${DEPLOY_CONFIG_DIR}/db.property" ]] || fail "isolated db.property missing"
 [[ -f "${DEPLOY_CONFIG_DIR}/ssl/dc-ems.jks" ]] || fail "isolated JKS missing"
 [[ -f "${DEPLOY_CONFIG_DIR}/log4j.properties" ]] || fail "isolated log4j missing"
+grep -q "^DB_NAME=dcems_smoke$" "${DEPLOY_CONFIG_DIR}/../dcems.env" || fail "refuse non-isolated database name"
+grep -q "/dcems_smoke?" "${DEPLOY_CONFIG_DIR}/db.property" || fail "refuse non-isolated JDBC connection"
 
 for image in "${SERVER_IMAGE}" "${WEB_IMAGE}" "dc-ems-timescaledb:2.7.0-pg14"; do
     docker image inspect "${image}" >/dev/null 2>&1 || fail "missing local image: ${image}"
