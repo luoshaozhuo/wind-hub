@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import struct
+import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -255,37 +256,38 @@ def test_browser_ten_turbines_are_numeric_and_refresh() -> None:
             page.goto(f"http://{host}:{port}/dc-ems/#/AGC/index")
             page.get_by_text("单机视图", exact=True).click()
             page.wait_for_timeout(5000)
+            device_ids = [f"WTG{index:02d}" for index in range(1, 11)]
+            samples: dict[str, list[float]] = {device_id: [] for device_id in device_ids}
             rows: dict[str, str] = {}
-            for index in range(1, 11):
-                device_id = f"WTG{index:02d}"
-                rows[device_id] = (
-                    page.locator(".el-table__body-wrapper tr")
-                    .filter(has_text=device_id)
-                    .first.inner_text()
-                )
-            first = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", rows["WTG01"])
-            assert first, f"WTG01 has no numeric browser wind value: {rows['WTG01']}"
-            page.wait_for_timeout(2500)
-            refreshed = (
-                page.locator(".el-table__body-wrapper tr")
-                .filter(has_text="WTG01")
-                .first.inner_text()
-            )
-            second = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", refreshed)
+            deadline = time.monotonic() + 20.0
+            while time.monotonic() < deadline:
+                for device_id in device_ids:
+                    row = page.locator(".el-table__body-wrapper tr").filter(
+                        has=page.get_by_text(device_id, exact=True)
+                    )
+                    if row.count() != 1:
+                        continue
+                    rows[device_id] = row.inner_text(timeout=1000)
+                    match = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", rows[device_id])
+                    if match:
+                        samples[device_id].append(float(match.group(1)))
+                if all(len(set(values)) >= 2 for values in samples.values()):
+                    break
+                page.wait_for_timeout(500)
             page.screenshot(path=str(evidence_dir / "browser-ten-turbines.png"), full_page=True)
             (evidence_dir / "browser-ten-turbines.json").write_text(
                 json.dumps(
-                    {"initial_rows": rows, "wtg01_refreshed_row": refreshed},
+                    {"last_rows": rows, "wind_speed_samples": samples},
                     ensure_ascii=False,
                     indent=2,
                 ),
                 encoding="utf-8",
             )
-            assert second and second.group(1) != first.group(1), "WTG01 browser value is frozen"
-            for device_id, row in rows.items():
-                assert re.search(
-                    r"-?\d+(?:\.\d+)?\s*m/s", row
-                ), f"browser has no numeric wind speed for {device_id}: {row}"
+            missing = [device_id for device_id, values in samples.items() if not values]
+            frozen = [
+                device_id for device_id, values in samples.items() if len(set(values)) == 1
+            ]
+            assert not missing and not frozen, f"missing={missing}, frozen={frozen}"
         finally:
             browser.close()
 
@@ -323,6 +325,25 @@ def test_browser_station_power_is_visible_and_refreshes() -> None:
                 ), f"browser station value frozen: {label}"
         finally:
             browser.close()
+
+
+def test_factory_primary_frequency_mode_matches_false_input() -> None:
+    """独立区分设备布尔值与全场变量，不允许缺失键冒充 false。"""
+    host = os.environ.get("DCEMS_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
+    keys = ["PFR_isFreMode", "fp_emsIsFreMod"]
+    observed = observe(host, port, seconds=12.0, keys=keys)
+    evidence_dir = Path(os.environ.get("DCEMS_EVIDENCE_DIR", "run/dcems-smoke/evidence"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "pfr-factory-values.json").write_text(
+        json.dumps(
+            {key: sorted(observed.get(key, set())) for key in keys},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    for key in keys:
+        assert observed.get(key) == {"false"}, f"unexpected or missing PFR value: {key}"
 
 
 def test_browser_primary_frequency_mode_matches_false_input() -> None:

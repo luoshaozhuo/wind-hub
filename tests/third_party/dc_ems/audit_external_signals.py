@@ -1,4 +1,4 @@
-"""核查 DCEMS AGC 与一次调频输入的真实工业协议绑定，不产生假阳性。"""
+"""核查 DCEMS AGC、AVC 与一次调频输入的真实工业协议绑定，不产生假阳性。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ def audit(seed: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
             eligible = [device for device in devices if str(device.get("deviceType")) == category]
             bound = bool(
                 field
-                and any(
+                and eligible
+                and all(
                     any(
                         point.get("setId") == device.get("addrSet")
                         and point.get("varPath") == field

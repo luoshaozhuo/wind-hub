@@ -24,6 +24,8 @@ def test_dcems_historical_seed_missing_agc_frequency_inputs() -> None:
     assert status["plant_reactive_power"] == "MISSING_DEVICE_OR_POINT"
     assert status["pfr_mode"] == "MISSING_DEVICE_OR_POINT"
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
+    assert status["avc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
+    assert status["avc_enabled"] == "INTERNAL_CONFIG"
     assert status["pfr_target_power"] == "UNPROVEN_FACTORY_INPUT"
     assert status["grid_frequency"] == "UNPROVEN_FACTORY_INPUT"
     assert result["all_external_inputs_bound"] is False
@@ -39,3 +41,17 @@ def test_algorithm_input_is_not_proven_by_fake_same_named_edge_point() -> None:
     result = audit(document, contract)
     status = {item["id"]: item["status"] for item in result["records"]}
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
+
+
+
+def test_partial_device_binding_is_not_complete() -> None:
+    """同类型设备必须全部具有测点绑定。"""
+    document = json.loads(SEED.read_text(encoding="utf-8"))
+    contract = yaml.safe_load(SIGNALS.read_text(encoding="utf-8"))
+    device = dict(document["devices"][0])
+    device["deviceId"] = "UNBOUND"
+    device["addrSet"] = max(int(point["setId"]) for point in document["edgeaddrset"]) + 1
+    document["devices"].append(device)
+    result = audit(document, contract)
+    status = {item["id"]: item["status"] for item in result["records"]}
+    assert status["wt_wind_speed"] == "MISSING_DEVICE_OR_POINT"

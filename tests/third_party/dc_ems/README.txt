@@ -145,7 +145,8 @@ python -m pytest -q tests/third_party/dc_ems/test_live_smoke.py
 - 实际发送订阅报文并核实 DCEMS Server 对 10 台风机的数据有更新；
 - 并发读取 Gateway 与 WebSocket，逐台数值对账并检查 W/var→kW/kVar；
 - DCEMS SUBSTATION 和 PFR 模式的实际 WebSocket 数据存在；
-- Playwright Chromium 真实登录并逐行检查十机数值、持续刷新、站控 P/Q 和调频 false；
+- Playwright Chromium 真实登录并逐行检查十机数值及各自持续刷新、站控 P/Q 和调频 false；
+- 独立订阅 PFR_isFreMode 与 fp_emsIsFreMod，缺失或非 false 均判失败；
 - 不以页面 HTTP 200、WebSocket 101 或 Modbus ACK 冒充业务通过。
 
 浏览器口令仅通过当前 Shell 注入，不得写入 Git：
@@ -157,6 +158,7 @@ export LD_LIBRARY_PATH="$HOME/miniconda3/envs/wind-hub/lib${LD_LIBRARY_PATH:+:$L
 --------------------------
 审查算法真实消费者：
 emsGridDispatchAct = AGC 有功目标（kW）；
+emsGridDispatchReact = AVC 无功目标（kVar）；
 emsFreDst = 一次调频目标功率（kW），不是 Hz 频率；
 emsDeltapValue = 一次调频增量功率（kW）。
 这几个 FactoryPoints 的工业协议生产者尚未核实。
