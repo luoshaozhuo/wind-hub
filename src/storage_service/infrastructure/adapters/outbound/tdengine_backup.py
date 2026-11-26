@@ -109,17 +109,21 @@ class NativeTDengineBackup:
         # so the credential is not reflected into subprocess output.
         master, slave = pty.openpty()
         try:
-            attributes = termios.tcgetattr(slave)
-            attributes[3] &= ~termios.ECHO
-            termios.tcsetattr(slave, termios.TCSANOW, attributes)
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=slave,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        finally:
-            os.close(slave)
+            try:
+                attributes = termios.tcgetattr(slave)
+                attributes[3] &= ~termios.ECHO
+                termios.tcsetattr(slave, termios.TCSANOW, attributes)
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdin=slave,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            finally:
+                os.close(slave)
+        except BaseException:
+            os.close(master)
+            raise
         try:
             watcher = asyncio.create_task(self._watch_output(process, path))
             try:
