@@ -920,14 +920,12 @@ class ConfigurationApplication:
             raise ValueError("exact version roots must be nonempty and bounded")
         version_ids: list[str] = []
         seen_versions: set[str] = set()
-        seen_identities: set[ConfigIdentity] = set()
         for identity, version_id in roots:
             if not version_id:
                 raise ValueError("exact version_id is required")
-            if version_id in seen_versions or identity in seen_identities:
-                raise ValueError("exact roots must have distinct versions and identities")
+            if version_id in seen_versions:
+                raise ValueError("exact roots must have distinct version IDs")
             seen_versions.add(version_id)
-            seen_identities.add(identity)
             if self.repository.get_version_identity(version_id) != identity:
                 raise RepositoryConflictError("exact root version and identity disagree")
             version_ids.append(version_id)
