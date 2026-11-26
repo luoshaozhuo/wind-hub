@@ -9,7 +9,7 @@ export WIND_HUB_DEPLOYMENT_ID=dcems-measurement
 export WIND_HUB_DEPLOYMENT_VERSION=1.0.0
 unset WIND_HUB_CONFIGURATION_ENDPOINT WIND_HUB_CONFIGURATION_NATS_SERVERS
 
-BASE="${ROOT}/run/dcems-measurement"
+BASE="${DCEMS_MEASUREMENT_ROOT:-${ROOT}/run/dcems-measurement}"
 CONFIG="${BASE}/configs"
 STATE="${BASE}/state"
 CLI="${STATE}/cli.yaml"
@@ -18,7 +18,8 @@ fail() { printf 'DCEMS measurement: %s\n' "$*" >&2; exit 1; }
 case "${1:-}" in
     --prepare)
         python -m tests.third_party.dc_ems.prepare_full_chain --output "${BASE}" \
-            --nats-url "${DCEMS_MEASUREMENT_NATS_URL:-nats://127.0.0.1:14222}"
+            --nats-url "${DCEMS_MEASUREMENT_NATS_URL:-nats://127.0.0.1:14222}" \
+            --read-merge-max-gap "${DCEMS_MEASUREMENT_READ_GAP:-0}"
         python -m tests.third_party.dc_ems.prepare_full_chain_cli \
             --config-root "${CONFIG}" --runtime-dir "${STATE}"
         exit 0

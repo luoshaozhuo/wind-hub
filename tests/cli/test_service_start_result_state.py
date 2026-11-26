@@ -40,6 +40,17 @@ def test_unconfirmed_process_is_never_success(command: str) -> None:
     }
     assert Runtime._result_state(command, failed_stage) == ("UNKNOWN", 3)
 
+    not_running = {
+        "process": {
+            "confirmed": True,
+            "running": False,
+            "state": "STOPPED",
+            "stages": [{"operation": "start", "confirmed": True}],
+        },
+        "business": {"health": "READY"},
+    }
+    assert Runtime._result_state(command, not_running) == ("UNKNOWN", 3)
+
 
 def test_service_status_still_reports_unhealthy_business() -> None:
     """Reporting a successful start cannot mask a later health failure."""

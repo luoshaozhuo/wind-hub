@@ -83,6 +83,20 @@ def test_full_chain_refuses_overwrite(tmp_path: Path) -> None:
         prepare(root)
 
 
+def test_prepare_supports_production_default_gap(tmp_path: Path) -> None:
+    """整改验证必须能在生产默认 gap=8 下生成同一隔离配置。"""
+    root = tmp_path / "dcems-measurement"
+    config = prepare(root, read_merge_max_gap=8)
+    check(root)
+    devices = yaml.safe_load(
+        (config / "instances" / "device_dcems-source_v1.0.0.yaml").read_text(encoding="utf-8")
+    )["devices"]
+    assert all(
+        value["overrides"]["protocol_options"]["read_merge_max_gap"] == 8
+        for value in devices.values()
+    )
+
+
 def test_identity_scenario_has_distinct_constants(tmp_path: Path) -> None:
     """防串台激励必须让每台风机具有唯一且可断言的静态差异。"""
     root = tmp_path / "dcems-measurement"

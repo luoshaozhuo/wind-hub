@@ -34,7 +34,12 @@ def _write(path: Path, document: dict[str, Any]) -> None:
     )
 
 
-def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
+def prepare(
+    root: Path,
+    *,
+    nats_url: str = "nats://127.0.0.1:14222",
+    read_merge_max_gap: int = 0,
+) -> Path:
     """创建独立配置树；所有输入来自仓库中已发布的隔离样板。"""
     root = root.resolve()
     if root.exists():
@@ -84,7 +89,7 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14222") -> Path:
         # 关闭跨空洞合并，只按点表实际地址发起读取。
         device["overrides"] = {
             **device.get("overrides", {}),
-            "protocol_options": {"read_merge_max_gap": 0},
+            "protocol_options": {"read_merge_max_gap": read_merge_max_gap},
         }
     _write(instance_dir / "device_dcems-source_v1.0.0.yaml", source_devices)
 
@@ -285,8 +290,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--nats-url", default="nats://127.0.0.1:14222")
+    parser.add_argument("--read-merge-max-gap", type=int, default=0)
     args = parser.parse_args()
-    print(prepare(args.output, nats_url=args.nats_url))
+    print(
+        prepare(
+            args.output,
+            nats_url=args.nats_url,
+            read_merge_max_gap=args.read_merge_max_gap,
+        )
+    )
 
 
 if __name__ == "__main__":

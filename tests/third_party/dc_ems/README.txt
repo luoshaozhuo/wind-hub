@@ -271,7 +271,8 @@ prepare_seed.py 的 --gateway-port 设置为 15121，指向 Gateway1。
 ------------------------------------
 本项目安全设计要求 Data Generator 丢失 Gateway 注入租约后 fail-closed 停止输出。
 Gateway2 重新启动、Collector Task 恢复 RUNNING 并不意味着 DG 自动恢复生成。
-必须使用正式 CLI 显式重新启动场景，并核实确认批次重新增加：
+失败生成仍持有目标所有权（RESOURCE_BUSY），须先用 CLI 停止该 generation，
+再重新启动场景，并核实确认批次重新增加：
   python -m cli.main --config run/dcems-measurement/state/cli.yaml \
     data-generator start dcems-random-ten --yes
 随后确认 Collector NATS 发布恢复、Sink 十条 Delivery RUNNING，并在
