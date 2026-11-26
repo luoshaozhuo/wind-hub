@@ -96,7 +96,7 @@ def build_seed(
     servers = []
     for index in range(device_count):
         device = seed["devices"][index]
-        device["deviceId"] = f"dcems-wtg-{index + 1:02d}"
+        device["deviceId"] = f"DCEMS_WTG{index + 1:02d}"
         device["deviceName"] = f"DCEMS WTG {index + 1:02d}"
         device["serverId"] = index + 1
         device["addrSet"] = points[0]["setId"]
