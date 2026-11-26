@@ -201,6 +201,7 @@ Sink 的 10 条 Delivery 分别映射到 Gateway1 十个 gateway_id；没有反�
 不是全场功率物理求和；PFR 模式保持 false，自动控制始终关闭。
 
 准备一个新的 run/dcems-measurement，不能复用旧 dcems-smoke 配置：
+  export DCEMS_MEASUREMENT_NATS_URL=nats://127.0.0.1:14222
   bash tests/third_party/dc_ems/run_full_chain.sh --prepare
 
 给测试专用环境设置至少 32 字符、各自不同的认证令牌（不得写入仓库）：
@@ -214,7 +215,8 @@ Sink 的 10 条 Delivery 分别映射到 Gateway1 十个 gateway_id；没有反�
 Sink Gateway 专用令牌必须与目标 Gateway 的 inject-only 令牌相同：
   export WIND_HUB_GATEWAY_SINK_TOKEN="$WIND_HUB_DCE_TARGET_SINK_TOKEN"
 
-独立 NATS 测试服务须提前由线下测试基础设施启动，默认 loopback 4222。
+独立 NATS 测试服务须提前由线下测试基础设施启动，默认 loopback 14222；
+不得复用常规 4222 端口或连接生产 NATS。
 本脚本不会启动、下载或清理任何 Docker 资源，也不会连接生产 NATS。
 在专用隔离环境中依次执行：
   bash tests/third_party/dc_ems/run_full_chain.sh --check
