@@ -172,3 +172,49 @@ def test_modbus_to_commander_to_generator_applied() -> None:
     }
     target = base / "state" / "control-evidence.json"
     target.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+
+
+
+def test_wrong_bearer_cannot_query_gateway1() -> None:
+    """非法令牌不得访问 Gateway1 管理事件；Modbus 本身不具有 Bearer 认证。"""
+    channel = grpc.insecure_channel("127.0.0.1:52174")
+    try:
+        stub = common_rpc.CommonServiceStub(channel)
+        with pytest.raises(grpc.RpcError) as raised:
+            stub.GetEvents(
+                common.GetEventsRequest(page_size=10),
+                metadata=(("authorization", "Bearer invalid-" + "x" * 40),),
+                timeout=5,
+            )
+        assert raised.value.code() in {
+            grpc.StatusCode.UNAUTHENTICATED,
+            grpc.StatusCode.PERMISSION_DENIED,
+        }
+    finally:
+        channel.close()
+
+
+def test_commander_request_idempotency_and_conflict() -> None:
+    """重复 request_id 仅复用原命令，不允许同键变更控制值。"""
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    revision = _cli("commander", "device", "PPC_SIM01")["data"]["device"]["revision"]
+    request_id = f"dcems-control-{uuid4().hex}"
+    expiry = (datetime.now(UTC) + timedelta(minutes=2)).isoformat()
+    base_args = (
+        "commander", "write", "PPC_SIM01", "agc_enable", "1",
+        "--expected-revision", str(revision),
+        "--expires-at", expiry,
+        "--request-id", request_id,
+        "--yes",
+    )
+    first = _cli(*base_args)["data"]
+    assert first["accepted"] is True
+    replay = _cli(*base_args)["data"]
+    assert replay["command_id"] == first["command_id"]
+    conflict_args = list(base_args)
+    conflict_args[4] = "0"
+    conflict = _cli(*conflict_args, check=False)
+    assert conflict["status"] == "FAILURE"
+    assert conflict["error_code"] == "ALREADY_EXISTS"
