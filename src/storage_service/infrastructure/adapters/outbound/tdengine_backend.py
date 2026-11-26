@@ -23,7 +23,7 @@ from typing import Any, Protocol, TypeVar, cast
 
 from storage_service.application.config import StorageConfig
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryRow
-from storage_service.domain.errors import TDengineSchemaConflictError
+from storage_service.domain.errors import TDengineSchemaConflictError, WideTableNotCreatedError
 from storage_service.domain.naming import StorageObjectNames
 from storage_service.domain.quality_bitmap import unpack_quality_bitmap
 from storage_service.domain.wide_record import WideDataLevel, WideRecord
@@ -679,6 +679,22 @@ class TDengineBackend:
                 fingerprint=schema.fingerprint,
                 identity_sha256=digest,
             )
+        except WideTableNotCreatedError:
+            # Missing registry is not sufficient evidence of a missing physical
+            # table. A foreign table with the same name must fail closed.
+            with self._borrow_connection(lease=lease) as (connection, _driver):
+                lease.remaining()
+                observed = list(
+                    connection.query(
+                        "SELECT table_name FROM information_schema.ins_tables "
+                        f"WHERE db_name = '{database}' AND table_name = '{table}'"
+                    )
+                )
+            if observed:
+                raise TDengineSchemaConflictError(
+                    "unregistered physical wide table already exists"
+                ) from None
+            raise
         except MetadataConflictError as exc:
             raise TDengineSchemaConflictError(
                 "historical wide table ownership cannot be proven"
