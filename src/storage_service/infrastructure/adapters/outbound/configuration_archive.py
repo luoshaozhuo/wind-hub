@@ -740,6 +740,39 @@ class ConfigurationPointTableResolver:
         self._exact_binding_cache[cache_key] = binding
         return binding
 
+    def list_wide_identities(
+        self,
+        *,
+        wind_farm_id: str,
+        device_ids: tuple[str, ...],
+        point_table_id: str,
+        device_type: str,
+        data_level: WideDataLevel,
+    ) -> tuple[WideIdentity, ...]:
+        """Enumerate pinned historical device versions for grouped wide reads."""
+        if not wind_farm_id:
+            raise ValueError("wide history requires an explicit wind farm")
+        if len(set(device_ids)) != len(device_ids) or any(not item for item in device_ids):
+            raise ValueError("wide history device selector is invalid")
+        selected = set(device_ids)
+        identities = {
+            (
+                binding.wind_farm_id,
+                binding.device_id,
+                f"device_{binding.device_config_id}_v{binding.device_file_version}",
+            )
+            for candidates in self._device_bindings.values()
+            for binding in candidates
+            if binding.wind_farm_id == wind_farm_id
+            and (not selected or binding.device_id in selected)
+            and (not point_table_id or binding.point_table_id == point_table_id)
+            and (not device_type or binding.device_type_id == device_type)
+        }
+        return tuple(
+            WideIdentity(farm, config_id, device, data_level)
+            for farm, device, config_id in sorted(identities)
+        )
+
     def wide_device_type(self, identity: WideIdentity | WideRecord) -> str:
         """Return the authoritative pinned DeviceModel type for a Kafka identity."""
         return self._wide_binding(identity).device_type_id
