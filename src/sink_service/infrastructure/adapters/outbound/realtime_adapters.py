@@ -10,12 +10,10 @@ import json
 import struct
 import time
 from collections import OrderedDict
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Protocol, cast
-from zlib import crc32
 
 from pymodbus.datastore import ModbusServerContext
 
@@ -376,21 +374,10 @@ class KafkaOutput:
             self._producer = None
 
     async def write_batch(self, samples: tuple[DeliveryPoint, ...]) -> BatchOutcome:
-        """Preserve the existing point-object interface for other callers."""
-        stripes = tuple(
-            sorted(
-                {
-                    crc32(
-                        ":".join(
-                            (sample.wind_farm_id, sample.collector_id, sample.device_id)
-                        ).encode("utf-8")
-                    )
-                    % len(self._device_locks)
-                    for sample in samples
-                }
-            )
-        )
-        return await self._write_records(samples, key=None, stripes=stripes)
+        """Reject non-v3 point-oriented writes; Kafka requires encoded device rows."""
+        if not samples:
+            return BatchOutcome((), ())
+        return BatchOutcome((), (), "Kafka requires encoded complete device-wide records")
 
     async def write_encoded_batch(
         self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int
@@ -621,81 +608,6 @@ class KafkaOutput:
             for request in requests:
                 if not request.result.done():
                     request.result.cancel()
-
-    async def _write_records(
-        self,
-        records: tuple[DeliveryPoint, ...] | tuple[bytes, ...],
-        *,
-        key: bytes | None,
-        stripes: tuple[int, ...],
-    ) -> BatchOutcome:
-        # All device locks are acquired in stable order; broker confirmation
-        # futures are owned until settled, even after any cache invalidation.
-        async with AsyncExitStack() as ownership:
-            for stripe in stripes:
-                await ownership.enter_async_context(self._device_locks[stripe])
-            if self._producer is None:
-                return BatchOutcome((), (), "Kafka output is not connected")
-            pending: list[tuple[int, Any, float]] = []
-            failures: list[str] = []
-            failed_attempts = 0
-            for index, item in enumerate(records):
-                try:
-                    started = time.perf_counter()
-                    if key is None:
-                        raise ConfigurationError(
-                            "Kafka requires explicitly encoded Reliable records and record key"
-                        )
-                    record_key = key
-                    payload = cast(bytes, item)
-                    partition = self._partition_cache.get(record_key)
-                    confirmation = await self._producer.send(
-                        self._topic,
-                        key=record_key,
-                        value=payload,
-                        partition=partition,
-                    )
-                except Exception as exc:
-                    failed_attempts += 1
-                    failures.append(f"Kafka sample {index} not queued: {exc}")
-                    break
-                # No submitted confirmation future may be abandoned because
-                # broker metadata invalidated the partition cache.
-                pending.append((index, confirmation, started))
-                if partition is None:
-                    try:
-                        resolved = self._producer._partition(
-                            self._topic, None, record_key, None, record_key, None
-                        )
-                    except Exception:
-                        self._partition_cache.clear()
-                    else:
-                        self._partition_cache[record_key] = resolved
-                        if len(self._partition_cache) > 10000:
-                            self._partition_cache.popitem(last=False)
-                elif record_key in self._partition_cache:
-                    self._partition_cache.move_to_end(record_key)
-            delivered: list[int] = []
-            latencies: list[float] = []
-            for index, confirmation, started in pending:
-                try:
-                    await confirmation
-                except Exception as exc:
-                    failed_attempts += 1
-                    failures.append(f"Kafka sample {index} not confirmed: {exc}")
-                else:
-                    delivered.append(index)
-                    latencies.append((time.perf_counter() - started) * 1000)
-            result = tuple(delivered)
-            return BatchOutcome(
-                delivered=result,
-                settled=result,
-                error="; ".join(failures),
-                successful_attempts=len(delivered),
-                failed_attempts=failed_attempts,
-                successful_latencies_ms=tuple(latencies),
-            )
-
 
 class _RegisterImage:
     """Single event-loop-owned register image, atomically replaced per batch."""
