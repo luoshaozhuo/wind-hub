@@ -625,7 +625,9 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         )
         if self._consumer.recovering:
             raise HistoryReplayUnavailableError("Storage replay began during aggregation")
-        response = pb.QueryAggregatesResponse(next_page_token=page.next_page_token)
+        response = pb.QueryAggregatesResponse(
+            next_page_token=page.next_page_token, complete=page.complete
+        )
         for family in page.groups:
             physical = {column.point_id: column for column in family.schema.columns}
             for row in family.rows:
