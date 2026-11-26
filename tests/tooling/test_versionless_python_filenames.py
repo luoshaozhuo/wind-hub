@@ -7,7 +7,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-_VERSIONED_PYTHON = re.compile(r"_v[0-9]+(?:_[0-9]+)*\\.py$")
+_VERSIONED_PYTHON = re.compile(r"_v[0-9]+(?:_[0-9]+)*\.py$")
 
 
 @pytest.mark.parametrize("directory", ["src", "tests", "scripts"])
