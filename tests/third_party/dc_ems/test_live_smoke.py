@@ -38,22 +38,25 @@ def test_web_api_does_not_return_gateway_error() -> None:
         assert exc.code not in {502, 503, 504}
 
 
+@pytest.mark.parametrize("device_index", range(10))
 @pytest.mark.asyncio
-async def test_gateway_modbus_random_input_changes() -> None:
+async def test_gateway_modbus_random_input_changes(device_index: int) -> None:
     """真实 Gateway 端口应暴露动态随机数据，不用内存对象作真值。"""
     host = os.environ.get("DCEMS_GATEWAY_HOST", "127.0.0.1")
-    port = int(os.environ.get("DCEMS_GATEWAY_PORT", "15221"))
+    port = int(os.environ.get("DCEMS_GATEWAY_PORT", "15221")) + device_index
     # 专用烟雾配置：业务点 wind_speed = 1.3.0，F32 ABCD。\n    address = 0
     client = AsyncModbusTcpClient(host, port=port, timeout=3)
     connected = await client.connect()
     assert connected, "Gateway Modbus TCP endpoint unavailable"
     try:
         observations: set[tuple[int, ...]] = set()
-        for _ in range(8):
+        for _ in range(4):
             result = await client.read_input_registers(address, count=2, device_id=1)
             assert not result.isError(), f"Modbus exception: {result}"
             observations.add(tuple(result.registers))
-            await asyncio.sleep(0.4)
-        assert len(observations) >= 2, "random source did not update Gateway wind speed"
+            await asyncio.sleep(0.6)
+        assert len(observations) >= 2, (
+            f"wind speed frozen at Gateway {device_index + 1}: {observations}"
+        )
     finally:
         client.close()
