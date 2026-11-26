@@ -693,7 +693,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             export_format=request.export_format,
             owner_id=owner,
         )
-        return _task(record)
+        return await self._export_task_response(record)
 
     @guarded
     async def GetExportTask(
@@ -706,7 +706,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "export task not visible")
         self._auth.require(context, permission="storage.export", farm=record.wind_farm_id)
-        return _task(record)
+        return await self._export_task_response(record)
 
     @guarded
     async def CreateBackup(
@@ -733,7 +733,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 context, permission="storage.backup", farm=request.wind_farm_id
             ),
         )
-        return _task(record)
+        return await self._backup_task_response(record)
 
     @guarded
     async def GetBackupTask(
@@ -746,7 +746,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         if record is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "backup task not visible")
         self._auth.require(context, permission="storage.backup", farm=record.wind_farm_id)
-        return _task(record)
+        return await self._backup_task_response(record)
 
     @guarded
     async def GetStorageStats(
