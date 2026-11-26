@@ -107,3 +107,22 @@ def test_dcems_websocket_upgrades_through_local_proxy() -> None:
         client.sendall(handshake.encode("ascii"))
         result = client.recv(4096)
     assert b"101 Switching Protocols" in result, result[:256]
+
+
+
+def test_dcems_websocket_contains_live_ten_device_values() -> None:
+    """真 Server 内存键必须连续变化；排除仅 Gateway 响应而 DCEMS 未采集。"""
+    from tests.third_party.dc_ems.websocket_observer import observe
+
+    host = os.environ.get("DCEMS_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
+    observed = observe(host, port, seconds=16.0)
+    for index in range(1, 11):
+        key = f"DCEMS_WTG{index:02d}_emsWinSpd"
+        assert len(observed.get(key, set())) >= 2, f"DCEMS not refreshing {key}"
+    for key in (
+        "DCEMS_SUBSTATION_powAct",
+        "DCEMS_SUBSTATION_powReact",
+        "DCEMS_PFR_isFreMode",
+    ):
+        assert observed.get(key), f"DCEMS signal never sampled: {key}"
