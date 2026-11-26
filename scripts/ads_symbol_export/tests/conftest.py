@@ -13,6 +13,7 @@ import pytest
 from ads_export import connection, file_service, runtime
 from ads_export.config import Settings, load_config
 
+
 @pytest.fixture
 def settings() -> Settings:
     result = load_config(Path(__file__).resolve().parents[1] / "ads_symbol_export_v1.0.0.yaml")
@@ -23,14 +24,17 @@ def settings() -> Settings:
 @pytest.fixture
 def fake_ads(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     module = types.ModuleType("pyads")
-    module.PLCTYPE_BYTE = ctypes.c_ubyte
-    module.Connection = MagicMock()
-    module.add_route = MagicMock()
-    module.add_route_to_plc = MagicMock()
+    module.__dict__.update(
+        PLCTYPE_BYTE=ctypes.c_ubyte,
+        Connection=MagicMock(),
+        add_route=MagicMock(),
+        add_route_to_plc=MagicMock(),
+    )
     monkeypatch.setitem(sys.modules, "pyads", module)
     for target in (connection, runtime, file_service):
         monkeypatch.setattr(target, "pyads", module)
     return module
+
 
 @pytest.fixture(autouse=True)
 def restore_runtime_functions(monkeypatch: pytest.MonkeyPatch) -> None:

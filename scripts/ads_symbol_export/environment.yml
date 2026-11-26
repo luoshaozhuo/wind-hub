@@ -6,6 +6,5 @@ dependencies:
   - pip
   - setuptools
   - wheel
-  - pytest
   - pip:
-      - -e .
+      - -e .[dev]

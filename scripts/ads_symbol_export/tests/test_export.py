@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import ctypes
+import platform
+import shutil
 import struct
+import types
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-import types
 
-from ads_export import connection, file_service, runtime
+from ads_export import connection, runtime
 from ads_export.config import Settings
 from ads_export.strategies import export_symbols
 
@@ -30,7 +33,7 @@ class FakePLC:
         self.count = count
         self.requests: list[tuple[int, int, int]] = []
 
-    def read(self, group: int, offset: int, datatype: object, *, return_ctypes: bool) -> object:
+    def read(self, group: int, offset: int, datatype: Any, *, return_ctypes: bool) -> Any:
         assert return_ctypes
         length = ctypes.sizeof(datatype)
         self.requests.append((group, offset, length))
@@ -42,7 +45,9 @@ class FakePLC:
         return datatype.from_buffer_copy(result)
 
 
-def test_streams_across_record_boundaries(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_streams_across_record_boundaries(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     payload = _entry("A.x") + _entry("B.中文") + _entry("C.z")
     plc = FakePLC(payload, 3)
     settings.CHUNK_SIZES = (35,)
@@ -64,14 +69,18 @@ def test_inconsistent_count_preserves_existing_file(
     assert not (tmp_path / "symbols.txt.partial").exists()
 
 
-def test_corrupt_symbol_header_fails(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_corrupt_symbol_header_fails(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     payload = bytearray(_entry("A.x"))
     struct.pack_into("<I", payload, 0, 10)
     with pytest.raises(RuntimeError, match="非法"):
         export_symbols(FakePLC(bytes(payload), 1), tmp_path / "bad.txt", settings=settings)
 
 
-def test_successful_connection_does_not_add_remote_route(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_successful_connection_does_not_add_remote_route(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     settings.ADD_REMOTE_ROUTE_IF_NEEDED = True
     settings.ADD_LOCAL_ROUTE = False
     plc = fake_ads.Connection.return_value
@@ -81,7 +90,9 @@ def test_successful_connection_does_not_add_remote_route(settings: Settings, fak
     plc.close.assert_not_called()
 
 
-def test_remote_route_disabled_on_failed_connection(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_remote_route_disabled_on_failed_connection(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     settings.ADD_REMOTE_ROUTE_IF_NEEDED = False
     plc = fake_ads.Connection.return_value
     plc.read_state.side_effect = RuntimeError("no route")
@@ -91,7 +102,9 @@ def test_remote_route_disabled_on_failed_connection(settings: Settings, fake_ads
     fake_ads.add_route_to_plc.assert_not_called()
 
 
-def test_fallback_to_smaller_chunk(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_fallback_to_smaller_chunk(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     payload = _entry("First.x") + _entry("Second.y")
     original = runtime._read_bytes
 
@@ -127,7 +140,9 @@ def test_all_strategies_fail_without_replacing_output(
 
 
 @pytest.mark.parametrize(("version", "expected_port"), [(2, 801), (3, 851)])
-def test_twincat_version_port(settings: Settings, fake_ads: types.ModuleType, version: int, expected_port: int) -> None:
+def test_twincat_version_port(
+    settings: Settings, fake_ads: types.ModuleType, version: int, expected_port: int
+) -> None:
     settings.TWINCAT_VERSION = version
     settings.PLC_AMS_PORT = None
     settings.ADD_LOCAL_ROUTE = False
@@ -141,7 +156,9 @@ def test_invalid_twincat_version(settings: Settings, fake_ads: types.ModuleType)
         connection._open_connection(settings)
 
 
-def test_full_table_is_first_and_skips_chunks(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_full_table_is_first_and_skips_chunks(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     payload = _entry("A.x") + _entry("B.y")
     plc = FakePLC(payload, 2)
     settings.TRY_FULL_TABLE_FIRST = True
@@ -160,9 +177,7 @@ def test_full_table_failure_falls_back_to_chunks(
     payload = _entry("A.x")
     plc = FakePLC(payload, 1)
 
-    def reject_full_read(
-        group: int, offset: int, datatype: object, *, return_ctypes: bool
-    ) -> object:
+    def reject_full_read(group: int, offset: int, datatype: Any, *, return_ctypes: bool) -> Any:
         if group == 0xF00B and ctypes.sizeof(datatype) >= len(payload):
             plc.requests.append((group, offset, ctypes.sizeof(datatype)))
             raise RuntimeError("PLC out of memory")
@@ -209,9 +224,9 @@ def test_disable_full_table(settings: Settings, fake_ads: types.ModuleType, tmp_
 def test_environment_detection_does_not_modify_plc(
     settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(connection.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(connection.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(connection.shutil, "which", lambda name: None)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(shutil, "which", lambda name: None)
     connection._inspect_environment(settings)
     fake_ads.Connection.assert_not_called()
     fake_ads.add_route_to_plc.assert_not_called()

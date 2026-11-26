@@ -9,18 +9,19 @@ from __future__ import annotations
 import ctypes
 import struct
 import sys
+import types
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-import types
 
-from ads_export import connection, file_service, runtime
+from ads_export import connection, file_service
 from ads_export.config import Settings
-from ads_export.strategies import export_symbols
+from ads_export.strategies import StrategyOutcome, export_symbols
 
 
-def _env(os_name: str):
+def _env(os_name: str) -> connection.StaticEnvironment:
     return connection.StaticEnvironment(
         os_name=os_name,
         arch="x86_64",
@@ -31,8 +32,6 @@ def _env(os_name: str):
         twincat_version=2,
         ams_net_id="192.168.1.10.1.1",
         ads_port=801,
-
-
     )
 
 
@@ -91,7 +90,9 @@ def test_route_retry_failure_not_repeated(settings: Settings, fake_ads: types.Mo
 
 # ---------- 4. PLC 离线/超时：不得盲目修改路由 ----------
 @pytest.mark.parametrize("os_name", ["Windows", "Linux"])
-def test_offline_or_timeout_never_touches_route(settings: Settings, fake_ads: types.ModuleType, os_name: str) -> None:
+def test_offline_or_timeout_never_touches_route(
+    settings: Settings, fake_ads: types.ModuleType, os_name: str
+) -> None:
     settings.ADD_LOCAL_ROUTE = True
     fake_ads.Connection.return_value = _failing_plc(TimeoutError("tcp connect timed out"))
     with pytest.raises(TimeoutError):
@@ -151,7 +152,7 @@ class CloseablePLC:
         self.count = count
         self.closed = False
 
-    def read(self, group: int, offset: int, datatype: object, *, return_ctypes: bool) -> object:
+    def read(self, group: int, offset: int, datatype: Any, *, return_ctypes: bool) -> Any:
         assert return_ctypes
         length = ctypes.sizeof(datatype)
         if group == 0xF00F:
@@ -176,7 +177,9 @@ def _entry(name: str) -> bytes:
     return bytes(header) + body
 
 
-def test_reconnected_connection_is_released(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_reconnected_connection_is_released(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     payload = _entry("A.x")
     dead = MagicMock()
     dead.read.side_effect = RuntimeError("connection lost")
@@ -185,11 +188,7 @@ def test_reconnected_connection_is_released(settings: Settings, fake_ads: types.
     settings.TRY_FULL_TABLE_FIRST = True
     settings.CHUNK_SIZES = (64,)
 
-    assert (
-        export_symbols(
-            dead, tmp_path / "s.txt", reconnect=lambda: fresh, settings=settings)
-        == 1
-    )
+    assert export_symbols(dead, tmp_path / "s.txt", reconnect=lambda: fresh, settings=settings) == 1
     assert fresh.closed  # 重连创建的连接归工具所有，结束后释放
     dead.close.assert_called()  # 失效旧连接在替换时被关闭
 
@@ -203,11 +202,7 @@ def test_caller_connection_not_closed_by_default(
     assert not plc.closed  # 外部传入连接归调用方所有
 
     plc2 = CloseablePLC(_entry("A.x"), 1)
-    assert (
-        export_symbols(
-            plc2, tmp_path / "s2.txt", owns_connection=True, settings=settings)
-        == 1
-    )
+    assert export_symbols(plc2, tmp_path / "s2.txt", owns_connection=True, settings=settings) == 1
     assert plc2.closed  # 显式移交所有权后才由工具释放
 
 
@@ -224,8 +219,7 @@ def test_failed_reconnect_stops_using_dead_connection(
         raise RuntimeError("plc unreachable")
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
-        export_symbols(
-            dead, tmp_path / "s.txt", reconnect=reconnect, settings=settings)
+        export_symbols(dead, tmp_path / "s.txt", reconnect=reconnect, settings=settings)
     # 失效连接上只发生过整表方案的首次读取，chunk 两档均未再发送请求
     assert dead.read.call_count == 1
 
@@ -251,11 +245,11 @@ class ScriptedFileConn:
         self,
         group: int,
         offset: int,
-        read_type: object,
+        read_type: Any,
         value: bytes,
-        write_type: object,
+        write_type: Any,
         return_ctypes: bool = False,
-    ) -> object:
+    ) -> Any:
         if group == 120:  # FOPEN
             self.handles[1] = 0
             assert read_type is not None
@@ -272,7 +266,7 @@ class ScriptedFileConn:
                 err.err_code = 1804  # type: ignore[attr-defined]
                 raise err
             name = self._pending.pop(0).encode("cp1252")
-            data = bytearray(322)
+            data = bytearray(324)
             struct.pack_into("<II", data, 0, offset + 1, 0)
             data[48 : 48 + len(name)] = name
             assert read_type is not None
@@ -294,22 +288,25 @@ def _tpy(names: list[str]) -> bytes:
     ).encode()
 
 
-def test_fread_short_read_then_clean_eof(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_fread_short_read_then_clean_eof(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     settings.CHUNK_SIZES = ()
     content = _tpy(["MAIN.a", "MAIN.b"])
     # 三次短读 + b"" EOF；任何一段都不能被当作错误
     conn = ScriptedFileConn([content[:5], content[5:20], content[20:], b""], content)
     output = tmp_path / "symbols.txt"
     count = export_symbols(
-        MagicMock(),
-        output,
-        file_service_factory=lambda: conn, settings=settings)
+        MagicMock(), output, file_service_factory=lambda: conn, settings=settings
+    )
     assert count == 2
     assert output.read_text(encoding="utf-8").splitlines()[-2:] == ["MAIN.a", "MAIN.b"]
     assert conn.closed_handles == [1] and conn.conn_closed
 
 
-def test_fread_mid_error_is_not_eof(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_fread_mid_error_is_not_eof(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     settings.CHUNK_SIZES = ()
     content = _tpy(["MAIN.a", "MAIN.b"])
     err = RuntimeError("ads timeout")
@@ -319,26 +316,24 @@ def test_fread_mid_error_is_not_eof(settings: Settings, fake_ads: types.ModuleTy
     output.write_text("previous\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略") as exc:
-        export_symbols(
-            MagicMock(),
-            output,
-            file_service_factory=lambda: conn, settings=settings)
+        export_symbols(MagicMock(), output, file_service_factory=lambda: conn, settings=settings)
     assert "ads timeout" in str(exc.value)  # 错误如实上报，不当作 EOF
     assert output.read_text(encoding="utf-8") == "previous\n"  # 不覆盖旧文件
     assert conn.closed_handles == [1]  # 句柄在异常路径同样释放
     assert not list(tmp_path.glob("ads_remote_*"))  # 临时文件已删除
 
 
-def test_fread_invalid_handle_fails(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_fread_invalid_handle_fails(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     settings.CHUNK_SIZES = ()
     err = RuntimeError("invalid handle")
     err.err_code = 0x706  # type: ignore[attr-defined]
     conn = ScriptedFileConn([err], b"")
     with pytest.raises(RuntimeError, match="invalid handle"):
         export_symbols(
-            MagicMock(),
-            tmp_path / "s.txt",
-            file_service_factory=lambda: conn, settings=settings)
+            MagicMock(), tmp_path / "s.txt", file_service_factory=lambda: conn, settings=settings
+        )
 
 
 # ---------- 11. 真流式解析：禁止整表加载 ----------
@@ -375,13 +370,15 @@ def test_same_count_different_names_not_content_matched(
     assert verify(["A"], None, None) == "unverified"
 
 
-def test_count_matched_header_in_output(settings: Settings, fake_ads: types.ModuleType, tmp_path: Path) -> None:
+def test_count_matched_header_in_output(
+    settings: Settings, fake_ads: types.ModuleType, tmp_path: Path
+) -> None:
     settings.CHUNK_SIZES = ()
     content = _tpy(["MAIN.x", "MAIN.y"])  # 与运行时数量一致但名称无法证实
     conn = ScriptedFileConn([content, b""], content)
 
     class CountPLC:
-        def read(self, group: int, offset: int, datatype: object, *, return_ctypes: bool) -> object:
+        def read(self, group: int, offset: int, datatype: Any, *, return_ctypes: bool) -> Any:
             assert group == 0xF00F
             return datatype.from_buffer_copy(struct.pack("<II", 2, 100))
 
@@ -389,13 +386,15 @@ def test_count_matched_header_in_output(settings: Settings, fake_ads: types.Modu
             return (5, 0)
 
     output = tmp_path / "symbols.txt"
-    outcomes: list = []
+    outcomes: list[StrategyOutcome] = []
     assert (
         export_symbols(
             CountPLC(),
             output,
             file_service_factory=lambda: conn,
-            outcomes=outcomes, settings=settings)
+            outcomes=outcomes,
+            settings=settings,
+        )
         == 2
     )
     text = output.read_text(encoding="utf-8")
@@ -413,7 +412,9 @@ def test_open_failure_closes_connection(settings: Settings, fake_ads: types.Modu
     plc.close.assert_called_once()
 
 
-def test_set_timeout_failure_closes_connection(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_set_timeout_failure_closes_connection(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     plc = MagicMock()
     plc.set_timeout.side_effect = RuntimeError("timeout config failed")
     fake_ads.Connection.return_value = plc
@@ -422,7 +423,9 @@ def test_set_timeout_failure_closes_connection(settings: Settings, fake_ads: typ
     plc.close.assert_called_once()
 
 
-def test_read_state_failure_closes_connection(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_read_state_failure_closes_connection(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     plc = MagicMock()
     plc.read_state.side_effect = RuntimeError("state failed")
     fake_ads.Connection.return_value = plc
@@ -431,7 +434,9 @@ def test_read_state_failure_closes_connection(settings: Settings, fake_ads: type
     plc.close.assert_called_once()
 
 
-def test_cleanup_error_does_not_mask_original(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_cleanup_error_does_not_mask_original(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     plc = MagicMock()
     plc.read_state.side_effect = RuntimeError("original error")
     plc.close.side_effect = RuntimeError("cleanup error")
@@ -440,7 +445,9 @@ def test_cleanup_error_does_not_mask_original(settings: Settings, fake_ads: type
         connection._try_open_plc(801, settings)
 
 
-def test_success_returns_connection_without_close(settings: Settings, fake_ads: types.ModuleType) -> None:
+def test_success_returns_connection_without_close(
+    settings: Settings, fake_ads: types.ModuleType
+) -> None:
     plc = _ok_plc()
     fake_ads.Connection.return_value = plc
     assert connection._try_open_plc(801, settings) is plc
@@ -461,10 +468,7 @@ def test_unusable_reconnect_candidate_closed_immediately(
     settings.CHUNK_SIZES = (64,)
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
-        export_symbols(
-            dead,
-            tmp_path / "s.txt",
-            reconnect=lambda: bad_candidate, settings=settings)
+        export_symbols(dead, tmp_path / "s.txt", reconnect=lambda: bad_candidate, settings=settings)
     bad_candidate.close.assert_called_once()  # 探活失败的新连接立即释放
     # chunk 未在失效对象上发送请求
     bad_candidate.read.assert_not_called()
@@ -486,7 +490,9 @@ def test_file_service_continues_after_unrecoverable_runtime(
         dead,
         tmp_path / "s.txt",
         reconnect=MagicMock(side_effect=RuntimeError("unreachable")),
-        file_service_factory=lambda: conn, settings=settings)
+        file_service_factory=lambda: conn,
+        settings=settings,
+    )
     assert count == 1
 
 
@@ -506,15 +512,25 @@ def _install_fake_dll(
     settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch, fn: object
 ) -> None:
     pyads_ex = types.ModuleType("pyads.pyads_ex")
-    pyads_ex._adsDLL = types.SimpleNamespace(AdsSyncReadWriteReqEx2=fn)
+    pyads_ex.__dict__["_adsDLL"] = types.SimpleNamespace(AdsSyncReadWriteReqEx2=fn)
     monkeypatch.setitem(sys.modules, "pyads.pyads_ex", pyads_ex)
-    fake_ads.pyads_ex = pyads_ex
+    fake_ads.__dict__["pyads_ex"] = pyads_ex
 
 
 def test_fread_exact_returns_actual_bytes(
     settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def dll(port, p_addr, group, offset, read_len, p_buf, write_len, w_data, p_bytes):
+    def dll(
+        port: Any,
+        p_addr: Any,
+        group: Any,
+        offset: Any,
+        read_len: Any,
+        p_buf: Any,
+        write_len: Any,
+        w_data: Any,
+        p_bytes: Any,
+    ) -> int:
         assert group.value == 122 and offset.value == 7
         assert read_len.value == 16 and write_len.value == 0
         ctypes.memmove(p_buf, b"abc", 3)
@@ -525,8 +541,10 @@ def test_fread_exact_returns_actual_bytes(
     assert file_service._fread_exact(_FakeDllConn(), 7, 16) == b"abc"
 
 
-def test_fread_exact_clean_eof(settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    def dll(*args: object) -> int:
+def test_fread_exact_clean_eof(
+    settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def dll(*args: Any) -> int:
         args[-1].contents.value = 0  # 成功且 0 字节 = EOF
         return 0
 
@@ -544,7 +562,7 @@ def test_fread_exact_ads_error_raises(
 
     monkeypatch.setattr(fake_ads, "ADSError", FakeAdsError, raising=False)
 
-    def dll(*args: object) -> int:
+    def dll(*args: Any) -> int:
         return 0x701
 
     _install_fake_dll(settings, fake_ads, monkeypatch, dll)
@@ -555,7 +573,7 @@ def test_fread_exact_ads_error_raises(
 def test_fread_exact_rejects_overflow_bytes_read(
     settings: Settings, fake_ads: types.ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def dll(*args: object) -> int:
+    def dll(*args: Any) -> int:
         args[-1].contents.value = 17  # 超过 16 字节缓冲区
         return 0
 

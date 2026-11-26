@@ -105,7 +105,9 @@ def _export_full_table(plc: pyads.Connection, output: Path, settings: Settings) 
 
 
 # ==================== 方案 2：ADS Chunk 分段 ====================
-def _export_in_chunks(plc: pyads.Connection, output: Path, chunk_size: int, settings: Settings) -> int:
+def _export_in_chunks(
+    plc: pyads.Connection, output: Path, chunk_size: int, settings: Settings
+) -> int:
     """使用指定小块大小逐次读取符号表，失败时丢弃当前结果。
 
     注意：客户端发送小块请求不代表 PLC 内部不构造全表；

@@ -34,6 +34,7 @@ class StrategyOutcome:
             )
         return f"{self.name}: {self.reason}"
 
+
 @dataclass
 class _RunContext:
     conn: _ConnectionManager
@@ -43,16 +44,14 @@ class _RunContext:
     outcomes: list[StrategyOutcome] = field(default_factory=list)
     read_method: str = "auto"
 
+
 def _run_strategies(ctx: _RunContext) -> int:
     """按优先级执行方案，成功即停；每个方案独立管理连接与资源。"""
     outcomes = ctx.outcomes
     settings = ctx.settings
     method = ctx.read_method
 
-    def record(name: str, source: str, run: Callable[[], int], available: str = "") -> int | None:
-        if available:
-            outcomes.append(StrategyOutcome(name, False, source, reason=available))
-            return None
+    def record(name: str, source: str, run: Callable[[], int]) -> int | None:
         try:
             count = run()
         except Exception as exc:
@@ -70,7 +69,9 @@ def _run_strategies(ctx: _RunContext) -> int:
     ):
         _LOG.warning("先尝试读取完整符号表；已知部分 PLC 存在内存溢出风险")
         result = record(
-            "full-table", "runtime", lambda: runtime._export_full_table(ctx.conn.current, ctx.output, settings)
+            "full-table",
+            "runtime",
+            lambda: runtime._export_full_table(ctx.conn.current, ctx.output, settings),
         )
         if result is not None:
             return result
@@ -90,11 +91,11 @@ def _run_strategies(ctx: _RunContext) -> int:
             if chunk_size < _SYMBOL_HEADER_SIZE + 3:
                 outcomes.append(StrategyOutcome(f"chunk={chunk_size}", False, reason="配置值过小"))
                 continue
-            result = record(
-                f"chunk={chunk_size}",
-                "runtime",
-                lambda s=chunk_size: runtime._export_in_chunks(ctx.conn.current, ctx.output, s, settings),
-            )
+
+            def run_chunk(size: int = chunk_size) -> int:
+                return runtime._export_in_chunks(ctx.conn.current, ctx.output, size, settings)
+
+            result = record(f"chunk={chunk_size}", "runtime", run_chunk)
             if result is not None:
                 return result
             # 区分协议拒绝与连接失效；失效连接不得继续发送请求
@@ -109,7 +110,9 @@ def _run_strategies(ctx: _RunContext) -> int:
         outcomes.append(StrategyOutcome("chunk", False, reason="连接不可用，跳过分段方案"))
 
     if method == "chunk":
-        raise RuntimeError("指定 chunk 方法读取失败：\n" + "\n".join(o.describe() for o in outcomes))
+        raise RuntimeError(
+            "指定 chunk 方法读取失败：\n" + "\n".join(o.describe() for o in outcomes)
+        )
 
     # 方案 3：ADS 文件服务（独立 System Service 端口，PLC Runtime 失效也可尝试）
     runtime_count: int | None = None

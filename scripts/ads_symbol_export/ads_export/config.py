@@ -51,19 +51,28 @@ def load_config(path: Path) -> Settings:
     if raw.pop("schema_version") != "1.0.0":
         raise ValueError("schema_version 不支持")
     version = raw.pop("file_version")
-    if not isinstance(version, str) or len(version.split(".")) != 3 or not all(
-        part.isdecimal() for part in version.split(".")
+    if (
+        not isinstance(version, str)
+        or len(version.split(".")) != 3
+        or not all(part.isdecimal() for part in version.split("."))
     ):
         raise ValueError("file_version 必须为三段数字版本")
     for key in (
-        "ADD_LOCAL_ROUTE", "ADD_REMOTE_ROUTE_IF_NEEDED", "TRY_FULL_TABLE_FIRST",
-        "CHECK_HOST_ENVIRONMENT", "FILE_SERVICE_ENABLED",
+        "ADD_LOCAL_ROUTE",
+        "ADD_REMOTE_ROUTE_IF_NEEDED",
+        "TRY_FULL_TABLE_FIRST",
+        "CHECK_HOST_ENVIRONMENT",
+        "FILE_SERVICE_ENABLED",
     ):
         if type(raw[key]) is not bool:
             raise ValueError(f"{key} 必须为布尔值")
     for key in (
-        "PLC_IP", "PLC_AMS_NET_ID", "READ_METHOD", "OUTPUT_FILENAME",
-        "TEXT_ENCODING", "REMOTE_PATH_ENCODING",
+        "PLC_IP",
+        "PLC_AMS_NET_ID",
+        "READ_METHOD",
+        "OUTPUT_FILENAME",
+        "TEXT_ENCODING",
+        "REMOTE_PATH_ENCODING",
     ):
         if not isinstance(raw[key], str) or not raw[key].strip():
             raise ValueError(f"{key} 必须为非空字符串")
@@ -72,8 +81,14 @@ def load_config(path: Path) -> Settings:
     if len(parts) != 6 or not all(p.isdecimal() and 0 <= int(p) <= 255 for p in parts):
         raise ValueError("PLC_AMS_NET_ID 必须为六段 0–255 数字")
     for key in (
-        "TWINCAT_VERSION", "ADS_TIMEOUT_MS", "RECONNECT_ATTEMPTS", "MAX_SYMBOL_BYTES",
-        "LOG_EVERY", "FILE_READ_CHUNK", "MAX_TPY_FILE_BYTES", "FILE_FIND_MAX_ENTRIES",
+        "TWINCAT_VERSION",
+        "ADS_TIMEOUT_MS",
+        "RECONNECT_ATTEMPTS",
+        "MAX_SYMBOL_BYTES",
+        "LOG_EVERY",
+        "FILE_READ_CHUNK",
+        "MAX_TPY_FILE_BYTES",
+        "FILE_FIND_MAX_ENTRIES",
     ):
         minimum = 0 if key in ("LOG_EVERY", "RECONNECT_ATTEMPTS") else 1
         if type(raw[key]) is not int or raw[key] < minimum:

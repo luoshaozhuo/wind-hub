@@ -10,11 +10,16 @@ ADS Symbol Export — Linux 独立测试说明
   cd scripts/ads_symbol_export
   conda create -n ads-symbol-export python=3.11 pip -y
   conda activate ads-symbol-export
-  python -m pip install -e . pytest
+  python -m pip install -e ".[dev]"
+  python --version
+  python -m pip show pyads PyYAML
+  python -m pip check
   python -c "import pyads; from pyads.testserver import AdsTestServer"
 
 已有环境时，只需激活并重新执行 pip install。
-安装使用项目 pyproject.toml 中锁定的 pyads 版本。
+pyproject.toml 的 dev 组锁定 pytest / ruff / mypy / types-PyYAML；
+运行依赖锁定 pyads==3.6.0 与 PyYAML>=6,<7。
+工具不依赖 wind-hub 主程序、src/ 或其服务。
 
 3. 确认 ADS/TCP 端口可用
   ss -ltn 'sport = :48898'
@@ -25,7 +30,17 @@ ADS Symbol Export — Linux 独立测试说明
 运行时 AMS port 801，System Service AMS port 10000。
 AMS port 与 TCP port 不是同一概念。
 
-4. 真实 ADS/TCP 集成测试（必须执行）
+4. 静态检查（在工具目录执行）
+  python -m compileall -q export.py ads_export tests
+  python -m ruff check .
+  python -m ruff format --check .
+  python -m mypy export.py ads_export tests
+
+Ruff 与 mypy 均使用本目录 pyproject.toml 的配置（line-length 100、
+select E/F/I/N/W/UP/B/C4/SIM；mypy strict）。仅对未发布类型声明的
+第三方 pyads 模块跳过导入分析，生产代码仍按 strict 检查。
+
+5. 真实 ADS/TCP 集成测试（必须执行）
   mkdir -p test-results
   python -m pytest tests/test_ads_testserver.py -v -rs --junitxml=test-results/ads-tcp.xml
 
@@ -35,31 +50,43 @@ pytest 自动启动 pyads.testserver.AdsTestServer，在独立线程监听本地
 运行时符号表和文件服务使用不同测试场景，依次启动模拟服务。
 
 当前测试场景：
-  test_full_table_success_skips_chunk_fallback
-    整表读取成功，验证导出内容，无分段偏移请求。
-  test_full_table_error_then_chunk_fallback
-    整表返回 ADS 错误，自动回退到分段，检查非零偏移请求及导出内容。
-  test_offset_unsupported_does_not_overwrite_file
-    服务端拒绝非零偏移，导出失败，原输出不被覆盖。
-  test_server_ignores_offset_is_detected
-    服务端忽略偏移，客户端识别伪分段支持。
-  test_file_service_over_real_ads_tcp
-    运行时表拒绝读取，转入 System Service，验证文件查找、打开、
-    分段读取、EOF、关闭句柄、TPY/TMC 解析及输出来源标记。
+  test_full_table_success_skips_chunk_fallback     ADS-01 整表成功且不继续分段
+  test_explicit_runtime_method[full]               ADS-01/08 显式整表成功
+  test_explicit_runtime_method[chunk]              ADS-02/09 显式分段成功
+  test_full_table_error_then_chunk_fallback        ADS-04 整表失败回退分段
+  test_file_service_over_real_ads_tcp[auto]        ADS-03/05 自动转入文件服务
+  test_file_service_over_real_ads_tcp[file]        ADS-03/12 显式文件服务，
+                                                   所有请求仅 AMS port 10000
+  test_offset_unsupported_does_not_overwrite_file  ADS-06 拒绝非零偏移失败保旧文件
+  test_server_ignores_offset_is_detected           ADS-07 忽略偏移被识别
+  test_explicit_full_failure_does_not_fallback     ADS-08 失败不触发分段/文件
+  test_explicit_chunk_failure_does_not_fallback    ADS-09 失败不触发整表/文件
+  test_explicit_file_failure_does_not_touch_runtime ADS-10 文件不可用明确失败
+  test_file_service_mid_stream_failure             ADS-14 中途故障、释放句柄、保旧输出
+  test_cli_file_service_without_runtime[file/auto] ADS-11/13 CLI 文件服务路径
+  test_cli_subprocess_all_modes[auto/full/chunk/file] ADS-11/12/13 子进程 CLI，
+                                                   同时验证 export.py 与安装入口
+  test_cli_auto_falls_back_when_runtime_unreachable ADS-13 Runtime 初始连接失败回退
+  test_cli_invalid_config_makes_no_requests        ADS-05 非法配置零请求
+  test_server_resources_released                   ADS-15 服务线程退出、端口可重绑
 
 验收要求：上述测试全部 PASSED，0 failed、0 errors、0 skipped。
 端口不可用直接导致测试失败；skip 不能计为集成测试通过。
 测试退出码为 0 也不能替代 skipped 数量检查。
 
-5. 单元测试
+6. 单元测试
   python -m pytest tests/test_config.py tests/test_export.py tests/test_connection.py tests/test_strategies.py -v -rs --junitxml=test-results/unit.xml
 
 该组使用 Fake/Mock，不证明实际 ADS/TCP 通信可用。
+覆盖：合法/非法/缺失/未知配置字段、非法配置不建立连接、UTF-8 与 CP1252
+符号名、跨 Chunk 记录解析、长度与声明数量一致性、连接失败/重连/资源所有权、
+FREAD 短读/EOF/中途错误/无效句柄、文件大小上限边界、原子替换与失败保护、
+显式模式隔离、自动回退顺序、文件来源验证等级。
 
-6. 全部测试（串行）
+7. 全部测试（串行）
   python -m pytest tests -v -rs --junitxml=test-results/all.xml
 
-7. 检查测试结果
+8. 检查测试结果
   python - <<'PY'
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -75,18 +102,31 @@ PY
 保存 pytest 输出及 XML 文件，记录 Git HEAD（在仓库内 git rev-parse HEAD）、
 Python 版本（python --version）和 pyads 版本（python -m pip show pyads）。
 
-8. 新增验收场景
-  test_explicit_runtime_method[full/chunk]：真实 TCP 显式整表或分段。
-  test_explicit_full_failure_does_not_fallback：整表失败且不回退，原文件保留。
-  test_file_service_over_real_ads_tcp[auto/file]：自动及显式文件服务读取。
-  test_cli_file_service_without_runtime[file/auto]：真实 TCP CLI 文件服务；
-    file 不访问 Runtime，auto 在 Runtime 初始连接失败后仍可导出。
-  test_config.py：YAML 合法/非法配置，非法配置不得建立 ADS 连接。
-  所有集成测试必须运行，不接受 skip。
-  配置文件：ads_symbol_export_v1.0.0.yaml。
-  实际脚本命令：python export.py --config ads_symbol_export_v1.0.0.yaml
+9. 三轮稳定性复测
+连续执行三次集成测试，排除启动/停止、端口释放及线程清理的偶发问题：
+  for i in 1 2 3; do
+    python -m pytest tests/test_ads_testserver.py -q -rs \
+      --junitxml=test-results/ads-tcp-round${i}.xml
+  done
+每轮都应为 0 failed、0 errors、0 skipped；测试结束后 ss -ltn 不应存在 48898 监听。
 
-9. 现场 PLC 验证（独立于模拟测试）
+10. CLI 端到端与独立部署
+CLI 子进程场景由上节集成测试覆盖：四种模式均通过独立进程执行
+`python export.py --config <config>`，并同时执行安装入口
+`ads-symbol-export --config <config>`；检查退出码、日志中的实际读取方法、
+输出内容与 UTF-8 编码、服务端收到的 AMS port/IndexGroup/IndexOffset/请求长度、
+失败后无残留临时文件。
+
+独立部署验证：
+  tmp=$(mktemp -d)
+  cp -r scripts/ads_symbol_export "$tmp/"
+  cd "$tmp/ads_symbol_export"
+  python -m venv .venv && . .venv/bin/activate
+  python -m pip install -e ".[dev]"
+  python -m pytest tests -q -rs
+复制后的目录不得依赖仓库根、src/ 或其他 wind-hub 模块。
+
+11. 现场 PLC 验证（独立于模拟测试）
 模拟服务通过不代表所有 TwinCAT 固件都支持非零 IndexOffset 或文件服务。
 现场先确认目标 IP、AMS Net ID、端口及路由，经设备负责人许可后测试；
 整表读取可能导致部分 PLC 内存不足，优先评估风险。

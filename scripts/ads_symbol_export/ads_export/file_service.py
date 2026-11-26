@@ -31,7 +31,10 @@ _FOPEN_ENSURE_DIR = 0x40
 _FOPEN_READ_FLAGS = _FOPEN_READ | _FOPEN_BINARY | _FOPEN_ENSURE_DIR
 _FFILEFIND_GENERIC = 1
 _FFIND_END = 1804
-_FFIND_DATA_SIZE = 322
+# TcFileFindData：hFile(4) + dwFileAttributes(4) + nReserved1(40) +
+# cFileName[260] + unused[14] + nReserved2(2)，与 Beckhoff AdsLib 的
+# sizeof(TcFileFindData) 一致。
+_FFIND_DATA_SIZE = 324
 _DIR_ATTR = 0x10
 
 
@@ -48,7 +51,7 @@ def _fread_exact(conn: Any, handle: int, size: int) -> bytes:
     """
     adr = getattr(conn, "_adr", None)
     port = getattr(conn, "_port", None)
-    if port is not None and hasattr(adr, "amsAddrStruct"):
+    if port is not None and adr is not None and hasattr(adr, "amsAddrStruct"):
         from pyads import pyads_ex
 
         # ABI 依据（pyads 3.6.0 锁定版本）：amsAddrStruct() 返回 AmsAddr 持有的
@@ -80,6 +83,7 @@ def _fread_exact(conn: Any, handle: int, size: int) -> bytes:
         return bytes(fread(handle, size))
     raise RuntimeError("无法获取 FREAD 实际字节数：连接对象缺少底层接口")
 
+
 class AdsFileService:
     """TwinCAT System Service (AMS port 10000) 只读文件客户端。
 
@@ -103,7 +107,7 @@ class AdsFileService:
             pyads.PLCTYPE_BYTE * len(payload),
             return_ctypes=True,
         )
-        handle = struct.unpack("<I", bytes(raw))[0]
+        handle = int(struct.unpack("<I", bytes(raw))[0])
         self._open_handles.append(handle)
         return handle
 
@@ -145,7 +149,9 @@ class AdsFileService:
                 raise ValueError(f"FFILEFIND 响应长度异常: {len(data)}")
             offset, attrs = struct.unpack_from("<II", data)
             name_raw = data[48:308].split(b"\0", 1)[0]
-            entries.append((name_raw.decode(self._settings.REMOTE_PATH_ENCODING), bool(attrs & _DIR_ATTR)))
+            entries.append(
+                (name_raw.decode(self._settings.REMOTE_PATH_ENCODING), bool(attrs & _DIR_ATTR))
+            )
             write = (b"", pyads.PLCTYPE_BYTE * 0)
 
     def close_all(self) -> None:
@@ -186,7 +192,9 @@ def _find_remote_symbol_files(fs: AdsFileService, settings: Settings) -> list[st
     return candidates
 
 
-def _download_remote_file(fs: AdsFileService, path: str, dest_dir: Path, settings: Settings) -> Path:
+def _download_remote_file(
+    fs: AdsFileService, path: str, dest_dir: Path, settings: Settings
+) -> Path:
     """分段下载远端文件到本地临时文件，不一次性加载全部内容。
 
     EOF 仅以 read_chunk 返回 b"" 判定（adstool 官方语义）；
@@ -201,13 +209,17 @@ def _download_remote_file(fs: AdsFileService, path: str, dest_dir: Path, setting
     try:
         with temp:
             while True:
-                if downloaded + settings.FILE_READ_CHUNK > settings.MAX_TPY_FILE_BYTES:
-                    raise ValueError(f"远端文件超过安全上限 {settings.MAX_TPY_FILE_BYTES} 字节")
-                chunk = fs.read_chunk(handle, settings.FILE_READ_CHUNK)
+                # 多读 1 字节仅用于确认是否还有数据：恰好等于上限的文件合法，
+                # 超过上限一个字节即失败，避免误拒边界值。
+                remaining = settings.MAX_TPY_FILE_BYTES + 1 - downloaded
+                request = min(settings.FILE_READ_CHUNK, remaining)
+                chunk = fs.read_chunk(handle, request)
                 if not chunk:
                     break  # 正常 EOF
                 temp.write(chunk)
                 downloaded += len(chunk)
+                if downloaded > settings.MAX_TPY_FILE_BYTES:
+                    raise ValueError(f"远端文件超过安全上限 {settings.MAX_TPY_FILE_BYTES} 字节")
     except Exception:
         Path(temp.name).unlink(missing_ok=True)
         raise
@@ -233,6 +245,7 @@ def _parse_tpy_tmc_names(path: Path) -> list[str]:
     try:
         for _event, elem in ET.iterparse(str(path), events=("end",)):
             if elem.tag.rsplit("}", 1)[-1] != "Symbol":
+                # 子元素（如 <Name>）须保留到 Symbol 结束事件再读取，不能提前清理。
                 continue
             name = elem.get("Name") or elem.get("name")
             if not name:

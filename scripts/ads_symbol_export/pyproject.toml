@@ -12,8 +12,37 @@ dependencies = [
     "PyYAML>=6,<7",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+    "mypy>=1.11",
+    "types-PyYAML>=6",
+]
+
 [project.scripts]
 ads-symbol-export = "ads_export.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+# 工具目录自带 __init__.py 且可独立安装，按当前目录解析包根，
+# 避免同一文件被识别为 ads_export 与 ads_symbol_export.ads_export 两个模块。
+explicit_package_bases = true
+
+# pyads 3.6.0 未发布 py.typed 或类型声明；仅跳过该第三方模块的导入分析，
+# 生产代码自身仍按 strict 检查，不通过全局 ignore 掩盖问题。
+[[tool.mypy.overrides]]
+module = ["pyads", "pyads.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.setuptools]
 packages = ["ads_export"]

@@ -35,7 +35,11 @@ class StaticEnvironment:
 
 
 def _default_ads_port(settings: Settings) -> int:
-    return settings.PLC_AMS_PORT if settings.PLC_AMS_PORT is not None else (801 if settings.TWINCAT_VERSION == 2 else 851)
+    return (
+        settings.PLC_AMS_PORT
+        if settings.PLC_AMS_PORT is not None
+        else (801 if settings.TWINCAT_VERSION == 2 else 851)
+    )
 
 
 def _inspect_environment(settings: Settings) -> StaticEnvironment:
@@ -59,6 +63,7 @@ def _inspect_environment(settings: Settings) -> StaticEnvironment:
     )
     # 不用客户端系统推断 PLC 操作系统；远端信息只来自 ADS 动态探测。
     return env
+
 
 def _probe_runtime(plc: pyads.Connection, settings: Settings) -> dict[str, Any]:
     """动态检测：需要已建立的 PLC 连接。"""
@@ -87,6 +92,7 @@ def _probe_file_service(factory: Callable[[], Any]) -> tuple[bool, str]:
         return False, f"ADS 文件服务不可达：{type(exc).__name__}: {exc}"
     finally:
         _safe_close(conn)
+
 
 class _ConnectionManager:
     """统一管理当前实际 ADS 连接的所有权与重连。
@@ -146,6 +152,7 @@ class _ConnectionManager:
         if self._owned:
             _safe_close(self.current)
             self._owned = False
+
 
 def _safe_close(conn: Any) -> None:
     if conn is None:

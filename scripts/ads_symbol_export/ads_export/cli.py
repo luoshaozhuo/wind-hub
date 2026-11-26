@@ -7,7 +7,12 @@ import logging
 from pathlib import Path
 
 from .config import DEFAULT_CONFIG, load_config
-from .connection import _default_file_service_factory, _inspect_environment, _open_connection, _probe_runtime
+from .connection import (
+    _default_file_service_factory,
+    _inspect_environment,
+    _open_connection,
+    _probe_runtime,
+)
 from .strategies import StrategyOutcome, export_symbols
 
 _LOG = logging.getLogger(__name__)
@@ -36,10 +41,13 @@ def main() -> int:
             _LOG.info("PLC 动态信息：%s", _probe_runtime(plc, settings))
 
     total = export_symbols(
-        plc, destination, settings=settings,
+        plc,
+        destination,
+        settings=settings,
         reconnect=lambda: _open_connection(settings, env),
         file_service_factory=factory,
-        outcomes=outcomes, owns_connection=plc is not None,
+        outcomes=outcomes,
+        owns_connection=plc is not None,
     )
     for outcome in outcomes:
         _LOG.info("%s", outcome.describe())
