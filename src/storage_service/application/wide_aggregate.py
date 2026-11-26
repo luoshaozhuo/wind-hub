@@ -8,7 +8,7 @@ import hmac
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 
 from storage_service.application.wide_query import WideHistoryFilter, WideHistoryQueryService
@@ -57,6 +57,7 @@ class WideAggregateRow:
     missing_count: int
     result: int | float | None
     result_kind: int  # 0=missing, 1=signed, 2=unsigned, 3=double
+    valid_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,14 +178,17 @@ class WideAggregationService:
             raise ValueError("wide min/max/avg requires numeric columns")
         # Values are kept per bounded window only; no raw row buffer.
         values: dict[tuple[int, str], list[int | float]] = {}
-        counts: dict[tuple[int, str], tuple[int, int]] = {}
+        counts: dict[tuple[int, str], tuple[int, int, int]] = {}
+        # Scan unfiltered rows: quality selection must not change diagnostic counts.
+        scan_filter = replace(filter_, qualities=())
+        accepted_qualities = set(filter_.qualities) if filter_.qualities else {int(PointQuality.GOOD)}
         cursor = ""
         visited: set[str] = set()
         scanned = 0
         while True:
             page = await self._history.query(
                 schema=schema,
-                filter_=filter_,
+                filter_=scan_filter,
                 device_type=device_type,
                 page_token=cursor,
             )
@@ -199,16 +203,19 @@ class WideAggregationService:
                     )
                     if key not in counts and len(counts) >= self._max_groups:
                         raise RuntimeError("wide aggregate group budget exceeded")
-                    good, missing = counts.get(key, (0, 0))
-                    if int(quality) == PointQuality.NOT_COLLECTED or value is None:
+                    good, missing, valid = counts.get(key, (0, 0, 0))
+                    if value is None:
                         missing += 1
-                    elif int(quality) == PointQuality.GOOD:
-                        if operation != "count":
-                            values.setdefault(key, []).append(
-                                _numeric_value(value, by_point[point_id].sql_type)
-                            )
-                        good += 1
-                    counts[key] = (good, missing)
+                    else:
+                        if int(quality) == int(PointQuality.GOOD):
+                            good += 1
+                        if int(quality) in accepted_qualities:
+                            if operation != "count":
+                                values.setdefault(key, []).append(
+                                    _numeric_value(value, by_point[point_id].sql_type)
+                                )
+                            valid += 1
+                    counts[key] = (good, missing, valid)
             if page.complete:
                 break
             if not page.next_page_token or page.next_page_token in visited:
@@ -216,13 +223,13 @@ class WideAggregationService:
             visited.add(page.next_page_token)
             cursor = page.next_page_token
         result: list[WideAggregateRow] = []
-        for (start, point_id), (good, missing) in sorted(counts.items()):
+        for (start, point_id), (good, missing, valid) in sorted(counts.items()):
             physical = by_point[point_id].sql_type
             entries = values.get((start, point_id), ())
             actual: int | float | None = None
             kind = 0
             if operation == "count":
-                actual, kind = good, 2
+                actual, kind = valid, 2
             elif entries:
                 if operation == "min":
                     actual = min(entries)
@@ -251,6 +258,7 @@ class WideAggregationService:
                     end_us=start + window_ms * 1000,
                     good_count=good,
                     missing_count=missing,
+                    valid_count=valid,
                     result=actual,
                     result_kind=kind,
                 )
@@ -270,7 +278,11 @@ class WideAggregationService:
     ) -> WideAggregatePage:
         if type(page_size) is not int or not 1 <= page_size <= self._page_size:
             raise ValueError("wide aggregate page size exceeds configured limit")
-        filter_.validate(schema, maximum=self._page_size)
+        replace(filter_, qualities=()).validate(schema, maximum=self._page_size)
+        if len(set(filter_.qualities)) != len(filter_.qualities) or any(
+            type(quality) is not int or not 0 <= quality <= 3 for quality in filter_.qualities
+        ):
+            raise ValueError("wide aggregate quality filter contains invalid states")
         if filter_.after_time_us is not None:
             raise ValueError("wide aggregate requires signed pagination only")
         if not self._history.read_available():
