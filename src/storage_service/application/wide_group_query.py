@@ -138,6 +138,10 @@ class WideGroupedHistoryService:
         self._max_groups = max_groups
         self._max_row_bytes = max_row_bytes
 
+    def read_available(self) -> bool:
+        """Expose the same Kafka replay visibility fence to grouped exports."""
+        return self._history.read_available()
+
     def _encode_cursor(
         self, *, digest: str, index: int, inner: str, horizon: int
     ) -> str:
