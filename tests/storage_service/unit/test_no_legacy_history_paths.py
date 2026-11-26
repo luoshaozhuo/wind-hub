@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from contracts import storage_service_pb2 as pb
-from storage_service.application.query import QueryRejectedError
+from storage_service.domain.errors import QueryRejectedError
 from storage_service.infrastructure.adapters.inbound.grpc_server import StorageServicer
 
 
