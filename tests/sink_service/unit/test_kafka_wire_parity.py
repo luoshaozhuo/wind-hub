@@ -138,3 +138,14 @@ def test_business_projection_uses_business_point_identity() -> None:
 def test_invalid_sample_batch_is_rejected_upstream(bad_payload: bytes) -> None:
     with pytest.raises(Exception):  # noqa: BLE001, B017 - strict upstream payload boundary
         SampleBatch.decode(bad_payload, mode="reliable")
+
+
+def test_sink_exposes_only_device_wide_history_encoder() -> None:
+    from sink_service.application.reliable_engine import ReliableDeliveryEngine
+    from sink_service.infrastructure.adapters.outbound import kafka_wire
+    from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
+
+    assert callable(kafka_wire.encode_kafka_wide)
+    assert not hasattr(kafka_wire, "encode_kafka_points")
+    assert not hasattr(ReliableDeliveryEngine, "_encode_kafka_points")
+    assert hasattr(ReliableDeliveryRuntime, "_encode_kafka_wide")
