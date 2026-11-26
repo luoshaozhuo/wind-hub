@@ -52,12 +52,21 @@ def build_seed(
         extra = sorted(set(mapping) - point_names)
         raise ValueError(f"business mapping not closed: missing={missing}, extra={extra}")
 
-    business_ids = [row["business_point_id"] for row in mapping.values()]
-    if len(set(business_ids)) != len(business_ids):
-        raise ValueError("BusinessPoint identifiers must be one-to-one")
+    # DCEMS 历史点表将部分读写变量映射到同一物理地址。
+    # Gateway 的 RegisterMap 禁止地址重叠，必须将这些别名折叠为
+    # 单个业务点 ID；不同地址不得共用一个业务点 ID。
+    address_to_business: dict[str, str] = {}
+    business_to_address: dict[str, str] = {}
+    for name, row in mapping.items():
+        address = row["modbus_addr"]
+        business = row["business_point_id"]
+        if address in address_to_business and address_to_business[address] != business:
+            raise ValueError(f"aliases disagree at {address}: {name}")
+        if business in business_to_address and business_to_address[business] != address:
+            raise ValueError(f"business point reused across addresses: {business}")
+        address_to_business[address] = business
+        business_to_address[business] = address
 
-    # 禁止以同址重叠点默默覆盖。DCEMS 的读/写同址变量有意保留，
-    # 需要在 Gateway PointTable 中显式共享地址；映射文件需逐项校对。
     for point in points:
         name = str(point["varPath"])
         actual = mapping[name]["modbus_addr"]
