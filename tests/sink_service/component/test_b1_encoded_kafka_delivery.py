@@ -5,9 +5,8 @@
 - Kafka Reliable 完全跳过逐点 DeliveryPoint 构造，只调
   write_encoded_batch；非 Kafka 目标只调旧 write_batch，且旧 adapter
   不需要/不暴露预编码接口；
-- 500 点边界与超 500 点拆批、子批间 InProgress 续租、选择器筛选后的
-  索引与 received/delivered 记账；
-- 预编码 payload 与正式 Outbound Kafka Adapter 编码逐字节相等，key/stripe
+- 500/1024 点设备行必须一次输出且严格拒绝不完整选择；
+- v3 预编码 payload 与正式 Outbound Kafka Adapter 编码逐字节相等，key/stripe
   与 KafkaOutput 的设备锁语义一致；
 - UNKNOWN settle、permanent 拒绝、adapter 失败均不伪造成功。
 """
@@ -24,9 +23,10 @@ import pytest
 from contracts.sample_batch import SampleBatch, SampleItem
 from sink_service.application.delivery_definition import DeliveryDefinition
 from sink_service.application.realtime import BatchOutcome
-from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_points
+from sink_service.infrastructure.adapters.outbound.kafka_wire import encode_kafka_wide
 from sink_service.infrastructure.config_io import validate_snapshot
 from sink_service.infrastructure.reliable_runtime import ReliableDeliveryRuntime
+from storage_service.domain.wide_record import WideRecord
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
     snapshot_docs,
@@ -140,6 +140,8 @@ def _batch(points: int) -> SampleBatch:
         device_type="wind_turbine",
         device_id=DEVICE,
         point_table_id="point_table_wtg_sim_v1.0.0",
+        device_config_id="device_farm-a_v1.0.0",
+        sample_time=now,
         publish_time=now,
         samples=tuple(
             SampleItem(
@@ -155,55 +157,60 @@ def _batch(points: int) -> SampleBatch:
     )
 
 
-def _encoded(batch: SampleBatch, items: tuple[SampleItem, ...]) -> tuple[bytes, ...]:
-    return encode_kafka_points(batch, items, data_level="protocol")
+def _encoded(batch: SampleBatch) -> tuple[bytes, ...]:
+    return (
+        encode_kafka_wide(
+            batch,
+            batch.samples,
+            device_config_id=batch.device_config_id,
+            physical_points=tuple(item.point_id for item in batch.samples),
+            data_level="protocol",
+        ),
+    )
 
 
-def test_kafka_target_uses_only_preencoded_interface_with_byte_identical_payloads() -> None:
+def test_kafka_target_emits_one_complete_device_row() -> None:
     adapter = _RecordingAdapter()
     port = _port(kafka_target=True, adapter=adapter)
     batch = _batch(500)
     message = _FakeJetStreamMessage()
 
     assert asyncio.run(port._deliver_batch(message, batch)) is True
-
     assert len(adapter.encoded_calls) == 1
     payloads, key, stripe = adapter.encoded_calls[0]
     assert adapter.legacy_calls == []
-    assert message.in_progress_calls == 0  # 单批无需续租
-    assert key == f"{FARM}:{COLLECTOR}:{DEVICE}".encode()
-    # 进程重启稳定的设备锁亲和：crc32（非随机化 hash）。
+    assert message.in_progress_calls == 0
+    assert key == f"{FARM}:{DEVICE}".encode()
     assert stripe == crc32(key) % 128
-    # 与权威批量编码器逐字节相等
-    expected = _encoded(batch, batch.samples)
-    assert len(payloads) == 500
-    assert all(payloads[i] == expected[i] for i in range(500))
+    assert payloads == _encoded(batch)
+    row = WideRecord.from_kafka_json(
+        payloads[0], physical_points=tuple(item.point_id for item in batch.samples),
+    )
+    assert len(row.values) == 500
     assert port.received_total == 500
-    assert port.delivered_total == 500
-    assert port.write_success_total == 500
+    assert port.delivered_total == 1
+    assert port.write_success_total == 1
 
 
-def test_more_than_500_points_split_with_heartbeat_between_subbatches() -> None:
+def test_1024_points_are_not_split_into_partial_kafka_rows() -> None:
     adapter = _RecordingAdapter()
     port = _port(kafka_target=True, adapter=adapter)
-    # SampleBatch 契约上限 1024 点；1024 仍可验证 500 边界三段拆分
-    batch = _batch(1024)
     message = _FakeJetStreamMessage()
+    batch = _batch(1024)
 
     assert asyncio.run(port._deliver_batch(message, batch)) is True
-
-    assert [len(call[0]) for call in adapter.encoded_calls] == [500, 500, 24]
-    assert message.in_progress_calls == 2  # 仅子批之间续租
+    assert len(adapter.encoded_calls) == 1
+    assert len(adapter.encoded_calls[0][0]) == 1
+    assert message.in_progress_calls == 0
+    assert len(WideRecord.from_kafka_json(
+        adapter.encoded_calls[0][0][0],
+        physical_points=tuple(item.point_id for item in batch.samples),
+    ).values) == 1024
     assert port.received_total == 1024
-    assert port.delivered_total == 1024
-    assert port.write_success_total == 1024
-    # 第二批首个 payload 仍是正确的第 500 点（子批索引不错位）
-    expected = _encoded(batch, batch.samples)
-    assert adapter.encoded_calls[1][0][0] == expected[500]
-    assert adapter.encoded_calls[2][0][-1] == expected[1023]
+    assert port.delivered_total == 1
 
 
-def test_non_kafka_target_never_calls_preencoded_interface() -> None:
+def test_non_kafka_target_uses_point_adapter_without_wide_encoding() -> None:
     adapter = _LegacyOnlyAdapter()
     port = _port(kafka_target=False, adapter=adapter)
 
@@ -213,59 +220,50 @@ def test_non_kafka_target_never_calls_preencoded_interface() -> None:
     assert port.delivered_total == 500
 
 
-def test_point_selector_filters_before_encoding_and_accounting() -> None:
+def test_kafka_target_refuses_point_subset_without_partial_write() -> None:
     snapshot = validate_snapshot(snapshot_files(_docs(points=["p001", "p002"])))
     adapter = _RecordingAdapter()
     port = ReliableDeliveryRuntime(DEFINITION, snapshot, pool=object())
     port._adapter = adapter
     port._kafka_target = True
 
-    batch = _batch(10)
-    assert asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), batch)) is True
-    payloads, _key, _stripe = adapter.encoded_calls[0]
-    selected = tuple(item for item in batch.samples if item.point_id in {"p001", "p002"})
-    assert len(payloads) == 2
-    assert list(payloads) == list(_encoded(batch, selected))
-    assert port.received_total == 2
-    assert port.delivered_total == 2
+    with pytest.raises(ValueError, match="complete device samples"):
+        asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), _batch(10)))
+    assert adapter.encoded_calls == []
+    assert adapter.legacy_calls == []
+    assert port.delivered_total == 0
 
 
-def test_adapter_failure_is_not_reported_as_success() -> None:
-    failure = BatchOutcome((), (), "Kafka sample 2 not queued: boom")
-    adapter = _RecordingAdapter(outcome=failure)
+def test_kafka_failure_does_not_report_device_cycle_success() -> None:
+    adapter = _RecordingAdapter(outcome=BatchOutcome((), (), "not queued"))
     port = _port(kafka_target=True, adapter=adapter)
-
     assert asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), _batch(5))) is False
     assert port.delivered_total == 0
     assert port.write_success_total == 0
 
 
-def test_kafka_target_rejects_permanent_point_classification() -> None:
-    outcome = BatchOutcome(
-        delivered=(0,),
-        settled=(0, 1),
-        error="",
-        successful_attempts=1,
-        permanent=(1,),
+def test_kafka_rejects_permanent_point_classification() -> None:
+    adapter = _RecordingAdapter(
+        outcome=BatchOutcome(
+            delivered=(), settled=(0,), error="", successful_attempts=0,
+            permanent=(0,),
+        ),
     )
-    adapter = _RecordingAdapter(outcome=outcome)
     port = _port(kafka_target=True, adapter=adapter)
-
     with pytest.raises(RuntimeError, match="permanent point failures"):
         asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), _batch(2)))
 
 
-def test_unknown_outcome_falls_back_to_settle() -> None:
+def test_unknown_kafka_write_remains_unconfirmed_after_settle() -> None:
     class _UncertainAdapter(_RecordingAdapter):
         async def write_encoded_batch(
-            self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int
+            self, payloads: tuple[bytes, ...], *, key: bytes, stripe: int,
         ) -> BatchOutcome:
             self.encoded_calls.append((payloads, key, stripe))
             return BatchOutcome((), (), "Sink I/O result uncertain; waiting for settlement")
 
     adapter = _UncertainAdapter()
     port = _port(kafka_target=True, adapter=adapter)
-    # settle() 返回 None 时保留原 UNKNOWN 结果，不得记成功
     assert asyncio.run(port._deliver_batch(_FakeJetStreamMessage(), _batch(3))) is False
     assert adapter.settle_calls == 1
     assert port.delivered_total == 0
