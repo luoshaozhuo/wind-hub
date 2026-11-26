@@ -286,6 +286,10 @@ class WideHistoryQueryService:
                         device_type=device_type,
                     )
                 except WideTableNotCreatedError:
+                    if not self._read_available():
+                        raise HistoryReplayUnavailableError(
+                            "Kafka replay began while confirming absent wide table"
+                        ) from None
                     return WideHistoryPage((), "", True, schema.fingerprint)
                 while scanned < 10000:
                     limit = min(filter_.limit + 1, 10000 - scanned)
@@ -380,6 +384,10 @@ class WideHistoryQueryService:
                         device_type=device_type,
                     )
                 except WideTableNotCreatedError:
+                    if not self._read_available():
+                        raise HistoryReplayUnavailableError(
+                            "Kafka replay began while confirming absent wide table"
+                        ) from None
                     return WideHistoryPage((), "", True, schema.fingerprint)
                 rows = tuple(await self._backend.fetch_wide_history(schema, request))
         if not self._read_available():
