@@ -12,8 +12,11 @@ scenarios:
         seed: 42
         rules:
           wind_speed: {distribution: uniform, minimum: 4.0, maximum: 18.0}
+          sim_plant_active_power: {distribution: uniform, minimum: 400000.0, maximum: 1200000.0}
+          sim_plant_reactive_power: {distribution: uniform, minimum: -250000.0, maximum: 250000.0}
+          primary_frequency_mode: {distribution: bernoulli, probability: 0.35, hold_steps: 8}
     devices:
-      - {device_id: DCEMS_WTG01, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG01, model_ref: dcems-random, points: [wind_speed, sim_plant_active_power, sim_plant_reactive_power, primary_frequency_mode]}
       - {device_id: DCEMS_WTG02, model_ref: dcems-random, points: [wind_speed]}
       - {device_id: DCEMS_WTG03, model_ref: dcems-random, points: [wind_speed]}
       - {device_id: DCEMS_WTG04, model_ref: dcems-random, points: [wind_speed]}
@@ -27,7 +30,11 @@ scenarios:
       - gateway_id: dcems-gw-01
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG01
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping:
+          wind_speed: wind_speed
+          sim_plant_active_power: sim_plant_active_power
+          sim_plant_reactive_power: sim_plant_reactive_power
+          primary_frequency_mode: primary_frequency_mode
       - gateway_id: dcems-gw-02
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG02
