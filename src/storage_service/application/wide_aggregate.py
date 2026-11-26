@@ -176,8 +176,8 @@ class WideAggregationService:
             by_point[point_id].sql_type not in _INTEGER | _FLOAT for point_id in filter_.point_ids
         ):
             raise ValueError("wide min/max/avg requires numeric columns")
-        # Values are kept per bounded window only; no raw row buffer.
-        values: dict[tuple[int, str], list[int | float]] = {}
+        # Keep one streaming accumulator per window/point, not every source value.
+        aggregates: dict[tuple[int, str], int | float] = {}
         counts: dict[tuple[int, str], tuple[int, int, int]] = {}
         # Scan unfiltered rows: quality selection must not change diagnostic counts.
         scan_filter = replace(filter_, qualities=())
@@ -213,9 +213,27 @@ class WideAggregationService:
                             good += 1
                         if int(quality) in accepted_qualities:
                             if operation != "count":
-                                values.setdefault(key, []).append(
-                                    _numeric_value(value, by_point[point_id].sql_type)
-                                )
+                                physical = by_point[point_id].sql_type
+                                numeric = _numeric_value(value, physical)
+                                previous = aggregates.get(key)
+                                if operation == "min":
+                                    aggregates[key] = (
+                                        numeric if previous is None else min(previous, numeric)
+                                    )
+                                elif operation == "max":
+                                    aggregates[key] = (
+                                        numeric if previous is None else max(previous, numeric)
+                                    )
+                                elif physical in _INTEGER:
+                                    value_int = int(numeric)
+                                    total = (int(previous) if previous is not None else 0) + value_int
+                                    if abs(value_int) > 2**53 or abs(total) > 2**53:
+                                        raise ValueError("AVG would silently lose integer precision")
+                                    aggregates[key] = total
+                                else:
+                                    aggregates[key] = (
+                                        float(previous) if previous is not None else 0.0
+                                    ) + float(numeric)
                             valid += 1
                     counts[key] = (good, missing, valid)
             if page.complete:
@@ -227,25 +245,18 @@ class WideAggregationService:
         result: list[WideAggregateRow] = []
         for (start, point_id), (good, missing, valid) in sorted(counts.items()):
             physical = by_point[point_id].sql_type
-            entries = values.get((start, point_id), ())
             actual: int | float | None = None
             kind = 0
             if operation == "count":
                 actual, kind = valid, 2
-            elif entries:
-                if operation == "min":
-                    actual = min(entries)
-                elif operation == "max":
-                    actual = max(entries)
-                else:
-                    if physical in _INTEGER and (
-                        any(abs(v) > 2**53 for v in entries)
-                        or abs(sum(int(value) for value in entries)) > 2**53
-                    ):
-                        raise ValueError("AVG would silently lose integer precision")
-                    actual = sum(float(value) for value in entries) / len(entries)
+            elif (start, point_id) in aggregates:
+                accumulator = aggregates[(start, point_id)]
+                if operation == "avg":
+                    actual = float(accumulator) / valid
                     if not isfinite(actual):
                         raise ValueError("wide AVG result is not finite")
+                else:
+                    actual = accumulator
                 kind = (
                     3
                     if operation == "avg" or physical in _FLOAT
