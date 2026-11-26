@@ -9,6 +9,8 @@ import socket
 import struct
 import time
 from collections import defaultdict
+from collections.abc import Sequence
+from typing import Any
 
 
 def _read_exact(connection: socket.socket, length: int) -> bytes:
@@ -21,7 +23,7 @@ def _read_exact(connection: socket.socket, length: int) -> bytes:
     return bytes(payload)
 
 
-def _frame(connection: socket.socket) -> dict:
+def _frame(connection: socket.socket) -> dict[str, Any]:
     first, second = _read_exact(connection, 2)
     opcode = first & 15
     length = second & 127
@@ -40,7 +42,7 @@ def _frame(connection: socket.socket) -> dict:
     return result if isinstance(result, dict) else {}
 
 
-def _send_text(connection: socket.socket, value: dict) -> None:
+def _send_text(connection: socket.socket, value: dict[str, Any]) -> None:
     """WebSocket client frames must be masked (RFC 6455)."""
     payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
     mask = os.urandom(4)
@@ -54,12 +56,28 @@ def _send_text(connection: socket.socket, value: dict) -> None:
     connection.sendall(head + mask + masked)
 
 
-def observe(host: str, port: int, *, seconds: float = 14.0) -> dict[str, set[str]]:
-    """通过实际 DCEMS 内存键订阅所有十台风速及站控和调频信号。"""
-    keys = [f"DCEMS_WTG{index:02d}_emsWinSpd" for index in range(1, 11)]
-    keys.extend(
-        ["DCEMS_SUBSTATION_powAct", "DCEMS_SUBSTATION_powReact", "DCEMS_PFR_isFreMode"]
-    )
+def observe(
+    host: str,
+    port: int,
+    *,
+    seconds: float = 14.0,
+    keys: Sequence[str] | None = None,
+) -> dict[str, set[str]]:
+    """订阅真实 DCEMS 内存键；默认覆盖十机风速、工作模式及站控/调频。"""
+    if keys is None:
+        keys = [f"DCEMS_WTG{index:02d}_emsWinSpd" for index in range(1, 11)]
+        keys.extend(f"DCEMS_WTG{index:02d}_emsWorkMode" for index in range(1, 11))
+        keys.extend(
+            [
+                "DCEMS_SUBSTATION_powAct",
+                "DCEMS_SUBSTATION_powReact",
+                "DCEMS_PFR_isFreMode",
+            ]
+        )
+    else:
+        keys = list(keys)
+    if not keys:
+        raise ValueError("at least one DCEMS key is required")
     conn = socket.create_connection((host, port), timeout=6)
     try:
         conn.settimeout(6)
@@ -94,10 +112,7 @@ def observe(host: str, port: int, *, seconds: float = 14.0) -> dict[str, set[str
                 for key in keys:
                     if key in values and values[key] is not None:
                         observed[key].add(str(values[key]))
-            if all(len(observed[key]) >= 2 for key in keys[:10]) and all(
-                observed[key] for key in keys[10:]
-            ):
-                break
+            # 完整覆盖调用方窗口，避免提前退出造成协议采样与推送样本不重叠。
         return dict(observed)
     finally:
         conn.close()

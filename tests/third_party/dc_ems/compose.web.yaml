@@ -4,6 +4,11 @@
 name: dcems-smoke
 services:
   dc-ems-server:
+    network_mode: !reset ""
+    ports:
+      - "18443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - type: bind
         source: ${DCEMS_TEST_SEED:?set absolute path to derived data.json}
@@ -12,7 +17,9 @@ services:
   dc-ems-web:
     image: ${WEB_IMAGE:?set released DCEMS Web image tag}
     pull_policy: never
-    network_mode: host
+    network_mode: !reset ""
+    ports:
+      - "18080:18080"
     volumes:
       - type: bind
         source: ${DCEMS_TEST_DIR:?set the absolute tests/third_party/dc_ems path}/nginx.smoke.conf

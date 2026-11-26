@@ -16,24 +16,24 @@ required_signals:
     destination: emsSyzAct
     semantics: "并网点有功功率"
     unit: kilowatt
-    industrial_source: supported_unconfigured
-    first_stage: false
+    industrial_source: confirmed
+    first_stage: true
   - id: plant_reactive_power
     dcems_device_type: "1"
     dcems_field: powReact
     destination: emsSyzReact
     semantics: "并网点无功功率"
     unit: kilovar
-    industrial_source: supported_unconfigured
-    first_stage: false
+    industrial_source: confirmed
+    first_stage: true
   - id: pfr_mode
     dcems_device_type: "2"
     dcems_field: isFreMode
     destination: emsIsFreMod
     semantics: "一次调频激活模式"
     unit: none
-    industrial_source: supported_unconfigured
-    first_stage: false
+    industrial_source: confirmed
+    first_stage: true
   - id: agc_grid_target
     dcems_device_type: factory
     dcems_field: emsGridDispatchAct

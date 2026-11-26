@@ -8,9 +8,15 @@ import yaml
 
 from core.configuration.deployment import parse_deployment
 from core.configuration.local_selection import select_local_service
-from data_generator.infrastructure.config.service_settings import load_settings
-from industrial_gateway.assembly import assemble_gateway
-from industrial_gateway.infrastructure.config.resolution import load_gateway
+
+# 生产发行包未发布 py.typed；这里仍必须调用真实 Loader，不能换成 YAML 假解析。
+from data_generator.infrastructure.config.service_settings import (  # type: ignore[import-untyped]
+    load_settings,
+)
+from industrial_gateway.assembly import assemble_gateway  # type: ignore[import-untyped]
+from industrial_gateway.infrastructure.config.resolution import (  # type: ignore[import-untyped]
+    load_gateway,
+)
 from tests.third_party.dc_ems.stage_config import stage
 
 

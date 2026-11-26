@@ -6,7 +6,6 @@ import argparse
 import shutil
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = Path(__file__).resolve().parents[1] / "dc-ems" / "config"
 TEMPLATES = ROOT / "deploy" / "config_roots" / "e2e-final" / "templates"
@@ -30,7 +29,7 @@ def stage(target: Path) -> None:
         raise FileExistsError(f"configuration root already exists: {target}")
     if not TEMPLATES.is_dir():
         raise FileNotFoundError(TEMPLATES)
-    if target.resolve() == ROOT or ROOT == target.resolve():
+    if target.resolve() == ROOT or target.resolve() == ROOT:
         raise ValueError("configuration root cannot be the repository root")
     target.mkdir(parents=True)
     shutil.copytree(TEMPLATES, target / "templates")

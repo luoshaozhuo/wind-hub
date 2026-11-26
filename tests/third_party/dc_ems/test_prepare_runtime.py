@@ -33,7 +33,7 @@ def test_prepared_database_is_dedicated(tmp_path: Path) -> None:
     assert "REDIS_PASSWORD" not in environ
     assert "PEER_HOST=\n" in environ
     config = (destination / "config" / "db.property").read_text(encoding="utf-8")
-    assert "jdbc:postgresql://127.0.0.1:5432/dcems_smoke?" in config
+    assert "jdbc:postgresql://dc-ems-db:5432/dcems_smoke?" in config
     assert "legacy" not in config
     assert (destination / "dcems.env").stat().st_mode & 0o077 == 0
     with pytest.raises(FileExistsError):

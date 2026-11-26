@@ -16,6 +16,78 @@ points:
     scale: 1.0
     offset: 0.0
     description: "DCEMS 10 台随机风速"
+  sim_running_status:
+    business_point_id: sim_running_status
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 6, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: int32
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "DCEMS 工作模式，固定 32 表示自由发电"
+  sim_active_power:
+    business_point_id: sim_active_power
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 8, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: watt
+    scale: 1.0
+    offset: 0.0
+    description: "机组有功（W），DCEMS coe=0.001 转换 kW"
+  sim_reactive_power:
+    business_point_id: sim_reactive_power
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 10, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: var
+    scale: 1.0
+    offset: 0.0
+    description: "机组无功（var），DCEMS coe=0.001 转换 kVar"
+  device_fault_active:
+    business_point_id: device_fault_active
+    point_groups: [all, measurement]
+    address: {register_type: discrete_input, address: 1, count: 1, slave_id: 1}
+    data_type: bool
+    unit: none
+    scale: 1.0
+    offset: 0.0
+    description: "机组总体故障状态，安全随机场景固定 false"
+  active_power_limit:
+    business_point_id: active_power_limit
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 12, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: kilowatt
+    scale: 1.0
+    offset: 0.0
+    description: "机组额定有功上限反馈，与设备 capacity=2000 kW 一致"
+  generator_speed:
+    business_point_id: generator_speed
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 14, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: revolution_per_minute
+    scale: 1.0
+    offset: 0.0
+    description: "发电机转速"
+  blade_1_pitch_angle:
+    business_point_id: blade_1_pitch_angle
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 16, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "1 号叶片实际角度"
+  pitch_angle:
+    business_point_id: pitch_angle
+    point_groups: [all, measurement]
+    address: {register_type: input, address: 18, count: 2, slave_id: 1, word_order: big_endian}
+    data_type: float32
+    unit: degree
+    scale: 1.0
+    offset: 0.0
+    description: "最小变桨角度"
   sim_plant_active_power:
     business_point_id: sim_plant_active_power
     point_groups: [all, measurement]

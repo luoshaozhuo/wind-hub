@@ -13,7 +13,6 @@ from tests.third_party.dc_ems.prepare_seed import build_seed, load_mapping
 from tests.third_party.dc_ems.stage_config import SOURCE
 from tests.third_party.dc_ems.validate_gateway_mapping import validate
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SEED = ROOT / "third_party" / "dc-ems" / "app" / "server" / "data.json"
 
@@ -25,11 +24,10 @@ def test_station_and_pfr_mode_are_bound_via_real_gateway_addresses() -> None:
     expanded = append_auxiliary_devices(ten_wtg)
     assert len(expanded["devices"]) == 12
     assert len(expanded["edgeServers"]) == 10
-    assert len(expanded["edgeaddrset"]) == 4
-    assert {
-        str(item["deviceType"]) for item in expanded["devices"]
-    } == {"0", "1", "2"}
-    assert [(p["varPath"], p["addr"], p["coe"]) for p in expanded["edgeaddrset"][1:]] == [
+    assert len(expanded["edgeaddrset"]) == 12
+    assert {str(item["deviceType"]) for item in expanded["devices"]} == {"0", "1", "2"}
+    auxiliary = [p for p in expanded["edgeaddrset"] if p["setId"] in {2, 3}]
+    assert [(p["varPath"], p["addr"], p["coe"]) for p in auxiliary] == [
         ("powAct", "1.3.2", 0.001),
         ("powReact", "1.3.4", 0.001),
         ("isFreMode", "1.1.0", None),
@@ -48,34 +46,48 @@ def test_station_and_pfr_mode_are_bound_via_real_gateway_addresses() -> None:
     assert status["agc_grid_target"] == "UNPROVEN_FACTORY_INPUT"
     assert status["pfr_target_power"] == "UNPROVEN_FACTORY_INPUT"
     assert report["all_external_inputs_bound"] is False
+    home_points = {
+        row["varPath"]: row
+        for row in expanded["pagepoints"]
+        if row["pageId"] == "HomePage" and row["locationId"] == "allTableList"
+    }
+    assert home_points["emsSyzAct"]["unit"] == "kW"
+    assert home_points["emsSyzReact"]["unit"] == "kVar"
     table = yaml.safe_load(
-        (SOURCE / "point_table_dcems_wtg_random_v1.0.0.yaml").read_text(
-            encoding="utf-8"
-        )
+        (SOURCE / "point_table_dcems_wtg_random_v1.0.0.yaml").read_text(encoding="utf-8")
     )
     validate(expanded, mapping, table)
     flags = {
         item["varPath"]: item["val"]
         for item in expanded["emsConfig"]
-        if item["varPath"] in {
+        if item["varPath"]
+        in {
             "emsActPowerEnable",
             "emsReactPowerEnable",
             "bFreCtrlEnableFlag",
+            "kk_flag",
         }
     }
     assert flags == {
         "emsActPowerEnable": "false",
         "emsReactPowerEnable": "false",
         "bFreCtrlEnableFlag": "false",
+        "kk_flag": "false",
     }
 
 
 def test_gateway_types_and_units_are_correct() -> None:
     points = yaml.safe_load(
-        (SOURCE / "point_table_dcems_wtg_random_v1.0.0.yaml").read_text(
-            encoding="utf-8"
-        )
+        (SOURCE / "point_table_dcems_wtg_random_v1.0.0.yaml").read_text(encoding="utf-8")
     )["points"]
+    assert points["sim_running_status"]["data_type"] == "int32"
+    assert points["sim_running_status"]["address"]["address"] == 6
+    assert points["sim_active_power"]["unit"] == "watt"
+    assert points["sim_reactive_power"]["unit"] == "var"
+    assert points["device_fault_active"]["data_type"] == "bool"
+    assert points["active_power_limit"]["unit"] == "kilowatt"
+    assert points["generator_speed"]["unit"] == "revolution_per_minute"
+    assert points["blade_1_pitch_angle"]["unit"] == "degree"
     assert points["sim_plant_active_power"]["address"]["address"] == 2
     assert points["sim_plant_active_power"]["unit"] == "watt"
     assert points["sim_plant_reactive_power"]["address"]["address"] == 4

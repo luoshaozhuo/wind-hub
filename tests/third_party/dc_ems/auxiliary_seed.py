@@ -57,4 +57,27 @@ def append_auxiliary_devices(seed: dict[str, Any]) -> dict[str, Any]:
             pointName=name,
         )
         document["edgeaddrset"].append(point)
+
+    home_rows = [
+        row
+        for row in document["pagepoints"]
+        if row.get("pageId") == "HomePage" and row.get("locationId") == "allTableList"
+    ]
+    if not home_rows:
+        raise ValueError("HomePage monitoring template is missing")
+    next_order = max(int(row["orderNo"]) for row in home_rows) + 1
+    for var_path, point_name, unit in (
+        ("emsSyzAct", "升压站有功", "kW"),
+        ("emsSyzReact", "升压站无功", "kVar"),
+    ):
+        row = deepcopy(home_rows[0])
+        row.update(
+            id=None,
+            varPath=var_path,
+            pointName=point_name,
+            unit=unit,
+            orderNo=next_order,
+        )
+        next_order += 1
+        document["pagepoints"].append(row)
     return document

@@ -9,14 +9,10 @@ from typing import Any
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SEED = ROOT / "third_party/dc-ems/app/server/data.json"
 SIGNALS = (
-    Path(__file__).resolve().parents[1]
-    / "dc-ems"
-    / "config"
-    / "external_signals_dcems_v1.0.0.yaml"
+    Path(__file__).resolve().parents[1] / "dc-ems" / "config" / "external_signals_dcems_v1.0.0.yaml"
 )
 
 
@@ -58,11 +54,7 @@ def audit(seed: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
                 "expected": expected,
             }
         )
-    missing = [
-        item["id"]
-        for item in records
-        if item["status"] not in {"BOUND", "INTERNAL_CONFIG"}
-    ]
+    missing = [item["id"] for item in records if item["status"] not in {"BOUND", "INTERNAL_CONFIG"}]
     return {
         "records": records,
         "blocking_signals": missing,

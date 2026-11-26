@@ -9,7 +9,6 @@ import yaml
 
 from tests.third_party.dc_ems.audit_external_signals import SIGNALS, audit
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SEED = ROOT / "third_party/dc-ems/app/server/data.json"
 

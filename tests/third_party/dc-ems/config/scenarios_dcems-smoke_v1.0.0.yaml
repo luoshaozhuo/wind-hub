@@ -12,62 +12,78 @@ scenarios:
         seed: 42
         rules:
           wind_speed: {distribution: uniform, minimum: 4.0, maximum: 18.0}
+          sim_running_status: {distribution: constant, value: 32}
+          sim_active_power: {distribution: uniform, minimum: 200000.0, maximum: 1000000.0}
+          sim_reactive_power: {distribution: uniform, minimum: -100000.0, maximum: 100000.0}
+          device_fault_active: {distribution: constant, value: false}
+          active_power_limit: {distribution: constant, value: 2000.0}
+          generator_speed: {distribution: constant, value: 1500.0}
+          blade_1_pitch_angle: {distribution: constant, value: 5.0}
+          pitch_angle: {distribution: constant, value: 0.0}
           sim_plant_active_power: {distribution: uniform, minimum: 400000.0, maximum: 1200000.0}
           sim_plant_reactive_power: {distribution: uniform, minimum: -250000.0, maximum: 250000.0}
-          primary_frequency_mode: {distribution: bernoulli, probability: 0.35, hold_steps: 8}
+          primary_frequency_mode: {distribution: constant, value: false}
     devices:
-      - {device_id: DCEMS_WTG01, model_ref: dcems-random, points: [wind_speed, sim_plant_active_power, sim_plant_reactive_power, primary_frequency_mode]}
-      - {device_id: DCEMS_WTG02, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG03, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG04, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG05, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG06, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG07, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG08, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG09, model_ref: dcems-random, points: [wind_speed]}
-      - {device_id: DCEMS_WTG10, model_ref: dcems-random, points: [wind_speed]}
+      - {device_id: DCEMS_WTG01, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle, sim_plant_active_power, sim_plant_reactive_power, primary_frequency_mode]}
+      - {device_id: DCEMS_WTG02, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG03, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG04, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG05, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG06, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG07, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG08, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG09, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
+      - {device_id: DCEMS_WTG10, model_ref: dcems-random, points: [wind_speed, sim_running_status, sim_active_power, sim_reactive_power, device_fault_active, active_power_limit, generator_speed, blade_1_pitch_angle, pitch_angle]}
     gateways:
       - gateway_id: dcems-gw-01
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG01
         variable_mapping:
           wind_speed: wind_speed
+          sim_running_status: sim_running_status
+          sim_active_power: sim_active_power
+          sim_reactive_power: sim_reactive_power
+          device_fault_active: device_fault_active
+          active_power_limit: active_power_limit
+          generator_speed: generator_speed
+          blade_1_pitch_angle: blade_1_pitch_angle
+          pitch_angle: pitch_angle
           sim_plant_active_power: sim_plant_active_power
           sim_plant_reactive_power: sim_plant_reactive_power
           primary_frequency_mode: primary_frequency_mode
       - gateway_id: dcems-gw-02
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG02
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-03
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG03
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-04
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG04
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-05
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG05
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-06
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG06
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-07
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG07
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-08
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG08
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-09
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG09
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}
       - gateway_id: dcems-gw-10
         endpoint: "127.0.0.1:52073"
         device_id: DCEMS_WTG10
-        variable_mapping: {wind_speed: wind_speed}
+        variable_mapping: {wind_speed: wind_speed, sim_running_status: sim_running_status, sim_active_power: sim_active_power, sim_reactive_power: sim_reactive_power, device_fault_active: device_fault_active, active_power_limit: active_power_limit, generator_speed: generator_speed, blade_1_pitch_angle: blade_1_pitch_angle, pitch_angle: pitch_angle}

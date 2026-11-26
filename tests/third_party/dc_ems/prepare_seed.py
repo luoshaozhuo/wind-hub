@@ -7,10 +7,9 @@ import csv
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
-
 
 REQUIRED_COLUMNS = frozenset({"dcems_var_path", "business_point_id", "modbus_addr"})
 
@@ -19,7 +18,7 @@ def load_mapping(path: Path) -> dict[str, dict[str, str]]:
     """读取显式的 DCEMS→Gateway BusinessPoint 映射并拒绝重复。"""
     with path.open(encoding="utf-8", newline="") as stream:
         reader = csv.DictReader(stream)
-        if not reader.fieldnames or not REQUIRED_COLUMNS <= set(reader.fieldnames):
+        if not reader.fieldnames or not set(reader.fieldnames) >= REQUIRED_COLUMNS:
             raise ValueError("mapping needs dcems_var_path,business_point_id,modbus_addr")
         mappings: dict[str, dict[str, str]] = {}
         for row in reader:
@@ -34,6 +33,8 @@ def load_mapping(path: Path) -> dict[str, dict[str, str]]:
             }
             if row.get("high_bit", "").strip():
                 mappings[name]["high_bit"] = row["high_bit"].strip()
+            if row.get("coe", "").strip():
+                mappings[name]["coe"] = row["coe"].strip()
     return mappings
 
 
@@ -91,6 +92,8 @@ def build_seed(
         point["addr"] = actual
         if allow_subset and "high_bit" in mapping[name]:
             point["highBit"] = int(mapping[name]["high_bit"])
+        if allow_subset and "coe" in mapping[name]:
+            point["coe"] = float(mapping[name]["coe"])
 
     if len(seed["devices"]) < device_count or len(seed["edgeServers"]) < device_count:
         raise ValueError("historical seed has insufficient devices or channels")
@@ -136,11 +139,12 @@ def build_seed(
             "emsActPowerEnable",
             "emsReactPowerEnable",
             "bFreCtrlEnableFlag",
+            "kk_flag",
         }:
             row["val"] = "false"
         if row["varPath"] == "license":
             row["val"] = license_code
-    return seed
+    return cast(dict[str, Any], seed)
 
 
 def main() -> None:

@@ -6,7 +6,6 @@ import argparse
 import shutil
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE_WEB = ROOT / "third_party" / "dc-ems" / "app" / "web"
 BUNDLE_NAME = "app.4ad853ce.js"
@@ -16,10 +15,7 @@ LEGACY = (
     '"10.0.160.86:443":location.host.includes("127.0.0.1")?'
     '"10.0.0.2:443":location.host,"/api/ws")'
 )
-LOCAL = (
-    'baseUrl:(location.protocol==="https:"?"wss://":"ws://")'
-    '+location.host+"/api/ws"'
-)
+LOCAL = 'baseUrl:(location.protocol==="https:"?"wss://":"ws://")' '+location.host+"/api/ws"'
 
 
 def stage_web(source: Path, destination: Path) -> Path:

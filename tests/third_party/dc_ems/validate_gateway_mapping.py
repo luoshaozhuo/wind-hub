@@ -11,7 +11,6 @@ import yaml
 
 from tests.third_party.dc_ems.prepare_seed import load_mapping
 
-
 AREAS = {"0": "coil", "1": "discrete_input", "3": "input", "4": "holding"}
 TYPES = {"F": "float32", "I": "int32", "B": "bool"}
 AUXILIARY = {
@@ -73,6 +72,8 @@ def validate(
             order = "little_endian" if row.get("highBit") == 1 else "big_endian"
             if address.get("word_order", "big_endian") != order:
                 raise ValueError(f"{name}: word order mismatch")
+        if "coe" in target and row.get("coe") != float(target["coe"]):
+            raise ValueError(f"{name}: DCEMS engineering-unit conversion mismatch")
         if row.get("isCtrl") is True and area not in {"coil", "holding"}:
             raise ValueError(f"{name}: control is mapped to read-only register")
         previous = aliases.setdefault(target["modbus_addr"], business)

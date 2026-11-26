@@ -7,13 +7,22 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[3]
 SEED = ROOT / "third_party" / "dc-ems" / "app" / "server" / "data.json"
 REQUIRED = {
-    "emsConfig", "emsPoint", "turbPoint", "pagepoints", "syncdata",
-    "sysconfig", "edgeaddrset", "lineColors", "devices", "alarmConfigs",
-    "edgeServers", "powCurves", "userInfos",
+    "emsConfig",
+    "emsPoint",
+    "turbPoint",
+    "pagepoints",
+    "syncdata",
+    "sysconfig",
+    "edgeaddrset",
+    "lineColors",
+    "devices",
+    "alarmConfigs",
+    "edgeServers",
+    "powCurves",
+    "userInfos",
 }
 
 
@@ -21,7 +30,7 @@ REQUIRED = {
 def seed() -> dict[str, list[dict[str, object]]]:
     document = json.loads(SEED.read_text(encoding="utf-8"))
     assert isinstance(document, dict)
-    assert REQUIRED <= document.keys()
+    assert document.keys() >= REQUIRED
     for key in REQUIRED:
         assert isinstance(document[key], list), key
     return document

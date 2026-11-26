@@ -1,2 +1,10 @@
-dcems_var_path,business_point_id,modbus_addr,high_bit
-emsWinSpd,wind_speed,1.3.0,0
+dcems_var_path,business_point_id,modbus_addr,high_bit,coe
+emsWinSpd,wind_speed,1.3.0,0,
+emsWorkMode,sim_running_status,1.3.6,0,
+emsPowAct,sim_active_power,1.3.8,0,0.001
+emsPowReact,sim_reactive_power,1.3.10,0,0.001
+emsFaultState,device_fault_active,1.1.1,0,
+emsActPowerMaxSetFeedback,active_power_limit,1.3.12,0,
+emsGenRotateSpd,generator_speed,1.3.14,0,
+emsBladeAngle1,blade_1_pitch_angle,1.3.16,0,
+emsMinBladeAngle,pitch_angle,1.3.18,0,

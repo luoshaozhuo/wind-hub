@@ -7,14 +7,23 @@ import os
 import shutil
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE = ROOT / "third_party" / "dc-ems"
 DATABASE = "dcems_smoke"
 ALLOWED = {
-    "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT",
-    "HTTP_PORT", "HTTPS_PORT", "SERVER_PORT", "RMI_PORT",
-    "NODE_ROLE", "JKS_SAN", "PEER_HOST", "LICENSE_CODE",
+    "DB_NAME",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DB_HOST",
+    "DB_PORT",
+    "HTTP_PORT",
+    "HTTPS_PORT",
+    "SERVER_PORT",
+    "RMI_PORT",
+    "NODE_ROLE",
+    "JKS_SAN",
+    "PEER_HOST",
+    "LICENSE_CODE",
 }
 
 
@@ -49,7 +58,7 @@ def prepare(source: Path, destination: Path) -> None:
     environment = read_env(source / ".env")
     environment.update(
         DB_NAME=DATABASE,
-        DB_HOST="127.0.0.1",
+        DB_HOST="dc-ems-db",
         DB_PORT="5432",
         HTTP_PORT="18080",
         HTTPS_PORT="18443",
@@ -68,7 +77,7 @@ def prepare(source: Path, destination: Path) -> None:
     shutil.copyfile(jks, destination / "config" / "ssl" / "dc-ems.jks")
     shutil.copyfile(log, destination / "config" / "log4j.properties")
     con = (
-        "jdbc:postgresql://127.0.0.1:5432/"
+        "jdbc:postgresql://dc-ems-db:5432/"
         + DATABASE
         + "?currentSchema=public&timezone=Asia/Shanghai"
     )
