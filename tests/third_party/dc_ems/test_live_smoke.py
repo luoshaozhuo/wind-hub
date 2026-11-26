@@ -60,3 +60,28 @@ async def test_gateway_modbus_random_input_changes(device_index: int) -> None:
         )
     finally:
         client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_station_power_and_primary_frequency_mode_over_gateway() -> None:
+    """首台 Gateway 输出站控 P/Q 与调频模式；算法是否消费由独立测试验证。"""
+    host = os.environ.get("DCEMS_GATEWAY_HOST", "127.0.0.1")
+    port = int(os.environ.get("DCEMS_GATEWAY_PORT", "15221"))
+    client = AsyncModbusTcpClient(host, port=port, timeout=3)
+    assert await client.connect()
+    try:
+        power_samples: set[tuple[int, ...]] = set()
+        for _ in range(4):
+            p = await client.read_input_registers(2, count=2, device_id=1)
+            q = await client.read_input_registers(4, count=2, device_id=1)
+            mode = await client.read_discrete_inputs(0, count=1, device_id=1)
+            assert not p.isError()
+            assert not q.isError()
+            assert not mode.isError()
+            assert mode.bits[0] in (True, False)
+            power_samples.add(tuple(p.registers))
+            await asyncio.sleep(0.6)
+        assert len(power_samples) >= 2, "station active power did not change"
+    finally:
+        client.close()
