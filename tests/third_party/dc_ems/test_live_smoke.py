@@ -121,12 +121,12 @@ def test_dcems_websocket_contains_live_ten_device_values() -> None:
     port = int(os.environ.get("DCEMS_WEB_PORT", "18080"))
     observed = observe(host, port, seconds=16.0)
     for index in range(1, 11):
-        key = f"DCEMS_WTG{index:02d}_emsWinSpd"
+        key = f"WTG{index:02d}_emsWinSpd"
         assert len(observed.get(key, set())) >= 2, f"DCEMS not refreshing {key}"
     for key in (
-        "DCEMS_SUBSTATION_powAct",
-        "DCEMS_SUBSTATION_powReact",
-        "DCEMS_PFR_isFreMode",
+        "SUBSTATION_powAct",
+        "SUBSTATION_powReact",
+        "PFR_isFreMode",
     ):
         assert observed.get(key), f"DCEMS signal never sampled: {key}"
 
@@ -155,7 +155,7 @@ async def test_gateway_and_dcems_numeric_reconciliation() -> None:
         AsyncModbusTcpClient(gateway_host, port=gateway_port + index, timeout=3)
         for index in range(10)
     ]
-    wind_samples: dict[str, list[float]] = {f"DCEMS_WTG{index:02d}": [] for index in range(1, 11)}
+    wind_samples: dict[str, list[float]] = {f"WTG{index:02d}": [] for index in range(1, 11)}
     station_samples: dict[str, list[float]] = {"powAct": [], "powReact": []}
     gateway_modes: set[bool] = set()
     try:
@@ -168,7 +168,7 @@ async def test_gateway_and_dcems_numeric_reconciliation() -> None:
             )
             for index, result in enumerate(results, 1):
                 assert not result.isError(), f"WTG{index:02d} wind read failed: {result}"
-                wind_samples[f"DCEMS_WTG{index:02d}"].append(_float32(result.registers))
+                wind_samples[f"WTG{index:02d}"].append(_float32(result.registers))
             p, q, mode = await asyncio.gather(
                 clients[0].read_input_registers(2, count=2, device_id=1),
                 clients[0].read_input_registers(4, count=2, device_id=1),
@@ -194,11 +194,11 @@ async def test_gateway_and_dcems_numeric_reconciliation() -> None:
         }, f"unexpected DCEMS work mode: {device_id}"
     for key, scale in (("powAct", 0.001), ("powReact", 0.001)):
         matches[key] = _has_rounded_match(
-            station_samples[key], observed.get(f"DCEMS_SUBSTATION_{key}", set()), scale
+            station_samples[key], observed.get(f"SUBSTATION_{key}", set()), scale
         )
         assert matches[key], f"station unit conversion mismatch: {key}"
     assert gateway_modes == {False}, f"unsafe or unexpected PFR mode input: {gateway_modes}"
-    assert observed.get("DCEMS_PFR_isFreMode") == {"false"}
+    assert observed.get("PFR_isFreMode") == {"false"}
 
     evidence = {
         "wind": {
@@ -212,14 +212,14 @@ async def test_gateway_and_dcems_numeric_reconciliation() -> None:
         "station": {
             key: {
                 "gateway_w_or_var": station_samples[key],
-                "dcems_kw_or_kvar": sorted(observed.get(f"DCEMS_SUBSTATION_{key}", set())),
+                "dcems_kw_or_kvar": sorted(observed.get(f"SUBSTATION_{key}", set())),
                 "scale": 0.001,
                 "matched": matches[key],
             }
             for key in station_samples
         },
         "gateway_pfr_modes": sorted(gateway_modes),
-        "dcems_pfr_modes": sorted(observed.get("DCEMS_PFR_isFreMode", set())),
+        "dcems_pfr_modes": sorted(observed.get("PFR_isFreMode", set())),
     }
     evidence_dir = Path(os.environ.get("DCEMS_EVIDENCE_DIR", "run/dcems-smoke/evidence"))
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -257,18 +257,18 @@ def test_browser_ten_turbines_are_numeric_and_refresh() -> None:
             page.wait_for_timeout(5000)
             rows: dict[str, str] = {}
             for index in range(1, 11):
-                device_id = f"DCEMS_WTG{index:02d}"
+                device_id = f"WTG{index:02d}"
                 rows[device_id] = (
                     page.locator(".el-table__body-wrapper tr")
                     .filter(has_text=device_id)
                     .first.inner_text()
                 )
-            first = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", rows["DCEMS_WTG01"])
-            assert first, f"WTG01 has no numeric browser wind value: {rows['DCEMS_WTG01']}"
+            first = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", rows["WTG01"])
+            assert first, f"WTG01 has no numeric browser wind value: {rows['WTG01']}"
             page.wait_for_timeout(2500)
             refreshed = (
                 page.locator(".el-table__body-wrapper tr")
-                .filter(has_text="DCEMS_WTG01")
+                .filter(has_text="WTG01")
                 .first.inner_text()
             )
             second = re.search(r"(-?\d+(?:\.\d+)?)\s*m/s", refreshed)
