@@ -143,29 +143,24 @@ class WideIngestionService:
         offsets: PartitionOffsets,
         generation: int,
     ) -> int:
-        """Persist consecutive same-device/schema runs without reordering offsets."""
-        index = 0
-        while index < len(pending):
-            first = pending[index]
-            end = index + 1
+        """Batch interleaved device rows while preserving partition offset order.
+
+        No offset becomes confirmed until every grouped write has returned
+        successfully. A partial write therefore replays the entire prefix.
+        """
+        groups: dict[tuple[str, str, str, str], list[_Validated]] = {}
+        for entry in pending:
             key = (
-                first.row.wind_farm_id,
-                first.row.device_id,
-                first.schema.fingerprint,
+                entry.row.wind_farm_id,
+                entry.row.device_id,
+                entry.row.device_config_id,
+                entry.schema.fingerprint,
             )
-            while end < len(pending):
-                next_row = pending[end]
-                next_key = (
-                    next_row.row.wind_farm_id,
-                    next_row.row.device_id,
-                    next_row.schema.fingerprint,
-                )
-                if next_key != key:
-                    break
-                end += 1
-            group = pending[index:end]
-            # If a device overwrites the same timestamp in this Kafka batch,
-            # bind only its latest complete row, ordered by final offset.
+            groups.setdefault(key, []).append(entry)
+
+        for group in groups.values():
+            first = group[0]
+            # The largest Kafka offset wins for duplicate device timestamps.
             latest_by_time = {
                 entry.row.sample_time_us: (position, entry.row)
                 for position, entry in enumerate(group)
@@ -180,20 +175,22 @@ class WideIngestionService:
                 )
                 await self._storage.insert_wide_batch(first.schema, ordered_rows)
             except TDengineSchemaConflictError:
-                # Deterministic physical conflict: preserve its own evidence
-                # and never classify it as an uncertain connector write.
                 raise
             except (RuntimeError, TimeoutError, OSError) as exc:
                 self._metrics.record_unknown()
-                # A connector error may follow partial durable STMT2 writes.
-                # Freeze the Kafka partition and require isolated recovery.
-                self._block(first.source, f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}")
-            for item in group:
-                offsets.confirm(generation=generation, offset=item.source.offset)
+                # Prior groups may be durable, but none may advance the Kafka
+                # commit prefix. Replay is safe under timestamp-keyed writes.
+                self._block(
+                    pending[0].source,
+                    f"TDENGINE_WIDE_IO_UNKNOWN: {type(exc).__name__}",
+                )
             self._metrics.record_wide_persisted(
                 rows=len(ordered_rows), points_per_row=len(first.schema.columns)
             )
-            index = end
+
+        # Retain the original Kafka ordering when advancing the durable prefix.
+        for entry in pending:
+            offsets.confirm(generation=generation, offset=entry.source.offset)
         return len(pending)
 
     async def process(
