@@ -237,6 +237,8 @@ class WideGroupedHistoryService:
         while index < len(resolved):
             identity, schema, device_type = resolved[index]
             points = selector.point_ids or tuple(column.point_id for column in schema.columns)
+            # Reserve fourfold wire overhead for typed values and descriptors.
+            physical_page_limit = max(1, (2 * 1024 * 1024) // (4 * schema.declared_row_bytes))
             filter_ = WideHistoryFilter(
                 wind_farm_id=identity.wind_farm_id,
                 device_id=identity.device_id,
@@ -246,7 +248,7 @@ class WideGroupedHistoryService:
                 end_time_us=horizon,
                 point_ids=points,
                 qualities=selector.qualities,
-                limit=page_size,
+                limit=min(page_size, physical_page_limit),
             )
             page = await self._history.query(
                 schema=schema,
