@@ -11,61 +11,61 @@ security:
     - {caller_id: operator, token_env: WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN, permissions: [read, lifecycle, diagnose]}
 servers:
   - server_id: dcems-gw-01
-    device_id: DCEMS_WTG01
+    device_id: WTG01
     listen_host: "127.0.0.1"
     listen_port: 15221
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-02
-    device_id: DCEMS_WTG02
+    device_id: WTG02
     listen_host: "127.0.0.1"
     listen_port: 15222
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-03
-    device_id: DCEMS_WTG03
+    device_id: WTG03
     listen_host: "127.0.0.1"
     listen_port: 15223
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-04
-    device_id: DCEMS_WTG04
+    device_id: WTG04
     listen_host: "127.0.0.1"
     listen_port: 15224
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-05
-    device_id: DCEMS_WTG05
+    device_id: WTG05
     listen_host: "127.0.0.1"
     listen_port: 15225
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-06
-    device_id: DCEMS_WTG06
+    device_id: WTG06
     listen_host: "127.0.0.1"
     listen_port: 15226
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-07
-    device_id: DCEMS_WTG07
+    device_id: WTG07
     listen_host: "127.0.0.1"
     listen_port: 15227
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-08
-    device_id: DCEMS_WTG08
+    device_id: WTG08
     listen_host: "127.0.0.1"
     listen_port: 15228
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-09
-    device_id: DCEMS_WTG09
+    device_id: WTG09
     listen_host: "127.0.0.1"
     listen_port: 15229
     desired_state: START
     control: {enabled: false, target: {kind: none}, mappings: []}
   - server_id: dcems-gw-10
-    device_id: DCEMS_WTG10
+    device_id: WTG10
     listen_host: "127.0.0.1"
     listen_port: 15230
     desired_state: START
