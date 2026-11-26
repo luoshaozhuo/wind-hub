@@ -12,7 +12,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SEED = ROOT / "third_party/dc-ems/app/server/data.json"
-SIGNALS = Path(__file__).resolve().parent / "config/external_signals_dcems_v1.0.0.yaml"
+SIGNALS = (
+    Path(__file__).resolve().parents[1]
+    / "dc-ems"
+    / "config"
+    / "external_signals_dcems_v1.0.0.yaml"
+)
 
 
 def audit(seed: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
