@@ -16,9 +16,14 @@ bash tests/third_party/dc_ems/run_windhub.sh --check
 bash tests/third_party/dc_ems/run_windhub.sh --up
 
 配置固定为 10 台 DCEMS_WTG01..10，端口 15221..15230。
-正式 PointTable 只有一个可测量业务点 wind_speed，Modbus 地址 1.3.0
-(FC04，float32，ABCD)，每台随机风速独立变化。
-这是首轮随机采集烟雾测试，不代表 49 个 DCEMS 历史点已经覆盖。
+正式 PointTable 的 wind_speed 为 1.3.0 (FC04, F32, ABCD)。
+首台 Gateway 还提供 sim_plant_active_power=1.3.2 (W),
+sim_plant_reactive_power=1.3.4 (var),
+primary_frequency_mode=1.1.0 (FC02, bool)。
+DCEMS 逻辑升压站 powAct/powReact 分别通过 coe=0.001 换算为 kW/kVar，
+逻辑调频设备 isFreMode 更新 emsIsFreMod。机组总数仍为10台；
+这两个辅助对象复用 Gateway01，不属于新增风机。
+以上仍不代表49个历史变量及完整AGC/调频算法已经覆盖。
 
 二、生成与上述 Gateway 配置一致的 DCEMS 数据库种子
 -------------------------------------------------
@@ -28,13 +33,15 @@ python -m tests.third_party.dc_ems.prepare_seed \
     --seed third_party/dc-ems/app/server/data.json \
     --mapping tests/third_party/dc_ems/config/mapping_random_smoke.csv \
     --gateway-point-table run/dcems-smoke/configs/templates/point_tables/point_table_dcems_wtg_random_v1.0.0.yaml \
-    --smoke-subset --device-count 10 \
+    --smoke-subset --with-auxiliary --device-count 10 \
     --output run/dcems-smoke/data.json \
     --gateway-host 127.0.0.1 --gateway-port 15221
 unset DCEMS_LICENSE_CODE
 
 派生文件保存在 run/ 下，使用 10 台设备、10 个 Gateway 地址、
-共用一份 edgeaddrset 地址集，仅保留 emsWinSpd 一个采集变量。
+10 个风机复用一份风机点表，仅保留 emsWinSpd；
+另派生 device_type=1 的升压站和 device_type=2 的调频信号逻辑设备，
+共 12 条 DCEMS 逻辑设备记录和 10 个物理 Modbus 通道。
 不能直接修改 third_party/dc-ems/app/server/data.json。
 初次部署必须使用全新隔离数据库卷。历史数据库不会因更换种子自动重置。
 Web 登录所需账户数据来自本地隔离种子，不得把种子、令牌、许可证提交 Git。
@@ -49,6 +56,8 @@ bash tests/third_party/dc_ems/run_local.sh --check
 bash tests/third_party/dc_ems/run_local.sh --up
 
 Web： http://127.0.0.1:18080/dc-ems/
+先运行 python -m tests.third_party.dc_ems.audit_external_signals
+--seed run/dcems-smoke/data.json --require-closed 来查看未关闭接口（预期退出2）。
 Server 默认为 HTTPS 443；测试 Web 由 Nginx 在 18080 代理。
 注意：第三方容器使用 host network，先检查 443、5432、18080
 和 15221..15230 端口不冲突。
@@ -74,3 +83,13 @@ bash tests/third_party/dc_ems/run_windhub.sh --down
 
 禁止把 SCADA Redis 同步当作外部实时数据来源。本地镜像存在不代表当前
 远端开发环境已执行任何运行时测试。
+
+六、AGC和一次调频源码核对
+---------------------------
+源代码：dc-ems/main 的 ConfigLoader、SyzDevice、YctpDevice、
+FactoryPoints、EmsDispatcher、ActPowerFun、FreActPowerFun。
+当前可经设备Modbus采集更新：emsSyzAct、emsSyzReact、emsIsFreMod。
+尚无已证实的设备协议→FactoryPoints 更新：emsGridDispatchAct (AGC目标,
+kW)、emsFreDst (一次调频目标功率,kW)、emsDeltapValue (功率增量,kW)。
+grid_frequency (Hz) 不能代替 emsFreDst；需要另行确定频率→功率转换逻辑。
+由于这些目标尚无接口，本轮禁止声明AGC/一次调频控制闭环PASS。
