@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import hmac
 import json
 import logging
 import os
 import time
-import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from functools import wraps
