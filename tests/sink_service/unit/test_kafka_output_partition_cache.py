@@ -192,6 +192,8 @@ def _encoded(device: str, sample_ids: list[str]) -> tuple[bytes, ...]:
             device_type="wind_turbine",
             device_id=device,
             point_table_id="point_table_wtg_sim_v1.0.0",
+            device_config_id="device_farm-a_v1.0.0",
+            sample_time=now,
             publish_time=now,
             samples=(item,),
         )
