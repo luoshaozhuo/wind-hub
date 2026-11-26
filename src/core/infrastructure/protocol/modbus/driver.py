@@ -376,15 +376,31 @@ class ModbusDriver:
                 self._read_plan_cache.move_to_end(key)
             samples: dict[ModbusPoint, ProtocolSample] = {}
             safe_groups: list[tuple[ModbusPoint, ...]] = []
-            for group in groups:
-                for subgroup, raw, received_at in await self._read_group(session, group):
-                    safe_groups.append(tuple(subgroup))
-                    start = subgroup[0].address
-                    for point in subgroup:
-                        offset = point.address - start
-                        samples[point] = _sample(
-                            point, raw[offset : offset + point.count], received_at
+            try:
+                for group in groups:
+                    for subgroup, raw, received_at in await self._read_group(session, group):
+                        safe_groups.append(tuple(subgroup))
+                        start = subgroup[0].address
+                        for point in subgroup:
+                            offset = point.address - start
+                            samples[point] = _sample(
+                                point, raw[offset : offset + point.count], received_at
+                            )
+            except _ModbusIllegalDataAddressError:
+                # Never retain a merged span already rejected by the server.
+                # A contiguous fallback may fail on an individually invalid
+                # point; it must not return the samples read before failure.
+                self._read_plan_cache.pop(key, None)
+                if self._config.read_plan_cache_size > 0:
+                    contiguous = tuple(
+                        tuple(group)
+                        for group in group_consecutive_reads(
+                            tuple(dict.fromkeys(points)), max_gap=0
                         )
+                    )
+                    if contiguous != groups:
+                        self._read_plan_cache[key] = contiguous
+                raise
             # Remember an accepted contiguous plan after an IllegalDataAddress
             # response; do not trigger the same invalid merged read every cycle.
             if len(safe_groups) > len(groups) and key in self._read_plan_cache:

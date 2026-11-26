@@ -304,24 +304,28 @@ async def test_repeated_illegal_address_after_split_does_not_return_partial_succ
             await driver.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "production defect: a merged plan proven invalid stays cached when the "
-        "contiguous fallback also fails, so every cycle resends IllegalDataAddress"
-    ),
-)
 @pytest.mark.asyncio
 async def test_persistent_address_rejection_evicts_invalid_cached_plan() -> None:
-    """持续 IllegalDataAddress 后不得继续使用已被证明不可用的合并计划。"""
+    """失败的跨空洞合并计划不得留存；下一周期只允许读取连续区间。"""
     async with _WireServer(defined={0}) as server:
         driver = _driver(server.port, {"first": 0, "second": 6})
         await driver.connect()
         try:
             with pytest.raises(_ModbusIllegalDataAddressError):
                 await driver.read_many(["first", "second"])
-            assert ("first", "second") not in driver._read_plan_cache
+            key = ("first", "second")
+            assert [
+                [point.point_id for point in group]
+                for group in driver._read_plan_cache[key]
+            ] == [["first"], ["second"]]
             assert server.requests == [(3, 0, 7), (3, 0, 1), (3, 6, 1)]
+
+            with pytest.raises(_ModbusIllegalDataAddressError):
+                await driver.read_many(["first", "second"])
+            assert server.requests == [
+                (3, 0, 7), (3, 0, 1), (3, 6, 1), (3, 0, 1), (3, 6, 1)
+            ]
+            assert server.requests.count((3, 0, 7)) == 1
         finally:
             await driver.close()
 
