@@ -7,6 +7,7 @@ cd "${ROOT}"
 export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export WIND_HUB_DEPLOYMENT_ID=dcems-smoke
 export WIND_HUB_DEPLOYMENT_VERSION=1.0.0
+unset WIND_HUB_CONFIGURATION_ENDPOINT WIND_HUB_CONFIGURATION_NATS_SERVERS
 
 CONFIG_ROOT="${ROOT}/run/dcems-smoke/configs"
 STATE="${ROOT}/run/dcems-smoke/state"
@@ -25,6 +26,11 @@ if [[ "${1:-}" == "--prepare" ]]; then
 fi
 
 [[ -f "${CLI}" ]] || fail "run --prepare before --check/--up"
+if [[ "${1:-}" == "--down" ]]; then
+    python -m cli.main --config "${CLI}" service stop data-generator --yes || true
+    python -m cli.main --config "${CLI}" service stop gateway --yes || true
+    exit 0
+fi
 for env_name in WIND_HUB_DCE_GENERATOR_GATEWAY_TOKEN WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN WIND_HUB_DCE_GENERATOR_CLI_TOKEN; do
     value="${!env_name:-}"
     [[ "${#value}" -ge 32 ]] || fail "missing or short authentication token: ${env_name}"
@@ -41,10 +47,6 @@ case "${1:-}" in
         python -m cli.main --config "${CLI}" service start gateway --yes
         python -m cli.main --config "${CLI}" service start data-generator --yes
         python -m cli.main --config "${CLI}" data-generator start dcems-random-ten --yes
-        ;;
-    --down)
-        python -m cli.main --config "${CLI}" service stop data-generator --yes || true
-        python -m cli.main --config "${CLI}" service stop gateway --yes || true
         ;;
     *)
         fail "usage: $0 --prepare|--check|--up|--down"
