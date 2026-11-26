@@ -35,6 +35,10 @@ class MetadataConflictError(RuntimeError):
     """Existing durable ownership or request-id arguments conflict."""
 
 
+class WideTableNotCreatedError(LookupError):
+    """No durable physical table registration exists for this exact name."""
+
+
 class MetadataStore:
     """One SQLite owner, fenced by an exclusive OS lock for the process lifetime."""
 
@@ -265,6 +269,8 @@ class MetadataStore:
                 )
                 .fetchone()
             )
+        if row is None:
+            raise WideTableNotCreatedError("historical wide table was never registered")
         if row != (identity_sha256, fingerprint, "READY"):
             raise MetadataConflictError(
                 "wide historical table is not READY under the requested immutable identity"
