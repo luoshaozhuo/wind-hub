@@ -137,6 +137,9 @@ def test_collector_preserves_driver_payload_through_wide_wire() -> None:
         "WTG-f6", (sample,), device_type="WTG",
         point_table_id="point_table_storage-points_v1.0.0",
         task_id="collector-task-f6",
+        device_config_id=_DEVICE_VERSION,
+        sample_time=_MOMENT,
+        expected_point_ids=(_POINT,),
     )
     assert len(built) == 1
     decoded = SampleBatch.decode(built[0].encode(), "reliable", subject=built[0].subject())
