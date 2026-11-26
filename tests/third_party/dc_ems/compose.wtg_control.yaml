@@ -1,0 +1,36 @@
+# 单独的 dcems-wtg-control Compose 项目；只绑定本机端口，不复用 dcems-smoke。
+# 基础配置仍来自第三方不可变发布包，只有测试 Overlay 覆盖隔离属性。
+name: dcems-wtg-control
+services:
+  dc-ems-db:
+    ports: !override
+      - "127.0.0.1:15433:5432"
+  dc-ems-server:
+    network_mode: !reset ""
+    ports:
+      - "127.0.0.1:18453:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: ${DCEMS_WTG_SEED:?set absolute path to isolated data.json}
+        target: /opt/dc-ems/data.json
+        read_only: true
+  dc-ems-web:
+    image: ${WEB_IMAGE:?set locally available release image}
+    pull_policy: never
+    network_mode: !reset ""
+    ports:
+      - "127.0.0.1:18090:18080"
+    volumes:
+      - type: bind
+        source: ${DCEMS_TEST_DIR:?set test directory}/nginx.smoke.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+      - type: bind
+        source: ${DCEMS_WTG_WEB:?set isolated Web path}
+        target: /usr/share/nginx/html/dc-ems
+        read_only: true
+    depends_on:
+      - dc-ems-server
+    restart: "no"
