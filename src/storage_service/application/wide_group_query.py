@@ -8,6 +8,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
+from typing import Protocol
 
 from storage_service.application.config import TypeMapping
 from storage_service.application.wide_query import (
@@ -17,9 +18,30 @@ from storage_service.application.wide_query import (
 )
 from storage_service.domain.wide_record import WideDataLevel, WideIdentity
 from storage_service.domain.wide_schema import WideSchema
-from storage_service.infrastructure.adapters.outbound.configuration_archive import (
-    ConfigurationPointTableResolver,
-)
+
+
+class WideGroupedResolver(Protocol):
+    """Read-only immutable device versions and their physical schemas."""
+
+    def list_wide_identities(
+        self,
+        *,
+        wind_farm_id: str,
+        device_ids: tuple[str, ...],
+        point_table_id: str,
+        device_type: str,
+        data_level: WideDataLevel,
+    ) -> tuple[WideIdentity, ...]: ...
+
+    async def resolve_wide_schema(
+        self,
+        record: WideIdentity,
+        *,
+        type_mapping: TypeMapping,
+        max_row_bytes: int,
+    ) -> WideSchema: ...
+
+    def wide_device_type(self, identity: WideIdentity) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +98,7 @@ class WideGroupedHistoryService:
         self,
         *,
         history: WideHistoryQueryService,
-        resolver: ConfigurationPointTableResolver,
+        resolver: WideGroupedResolver,
         type_mapping: TypeMapping,
         cursor_secret: bytes,
         max_page_size: int = 1000,
