@@ -175,6 +175,7 @@ def main() -> None:
         if not required <= set(point_table["points"]):
             raise ValueError("Gateway PointTable lacks station or PFR source points")
         derived = append_auxiliary_devices(derived)
+        validate(derived, mapping, point_table)
     if args.output.resolve() == args.seed.resolve():
         raise ValueError("refuse to overwrite packaged data.json")
     if args.output.exists():
