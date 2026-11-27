@@ -7,7 +7,6 @@ the target-version DDL/driver Spike before the service is marked operational.
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
 import hashlib
 import json
 import logging
@@ -16,6 +15,7 @@ import queue
 import re
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
