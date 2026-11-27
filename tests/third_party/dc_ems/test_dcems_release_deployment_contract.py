@@ -73,3 +73,18 @@ def test_factorypoints_patch_covers_dispatch_and_statistics_nulls() -> None:
         "Boolean.TRUE.equals(GlobalData.FactoryConfig.emsReactAvoidCurrentOverFlowEnable.getVal())"
         in patch
     )
+
+
+def test_windturbo_patch_guards_work_mode() -> None:
+    """All known boxed work-mode comparisons are null-safe."""
+    patch = (
+        REPO_ROOT / "tests/third_party/dc_ems/patches/windturbo-null-workmode.patch"
+    ).read_text(encoding="utf-8")
+    assert patch.count("\n@@ ") == 7
+    for mode in (4, 8, 16, 32, 64):
+        assert f"Integer.valueOf({mode}).equals(emsWorkMode.getVal())" in patch or (
+            mode == 32 and "Integer.valueOf(32).equals(workMode)" in patch
+        )
+    assert "Boolean.TRUE.equals(isSample.getVal())" in patch
+    assert "Boolean.TRUE.equals(emsComState.getVal())" in patch
+    assert "Boolean.TRUE.equals(emsFaultState.getVal())" in patch
