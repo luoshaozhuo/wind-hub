@@ -7,7 +7,9 @@ the current process lifetime and must not be interpreted as all-time row totals.
 from __future__ import annotations
 
 import threading
+from collections import deque
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +21,15 @@ class StorageMetricSnapshot:
     persisted_rows: int = 0
     buffer_rows: int = 0
     buffer_bytes: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class StorageRuntimeEvent:
+    event_id: int
+    timestamp: datetime
+    severity: str
+    error_code: str
+    message: str
 
 
 class StorageRuntimeMetrics:
@@ -33,6 +44,8 @@ class StorageRuntimeMetrics:
         self._confirmed_records = 0
         self._buffer_rows = 0
         self._buffer_bytes = 0
+        self._next_event_id = 0
+        self._events: deque[StorageRuntimeEvent] = deque(maxlen=256)
 
     def record_persisted(self, count: int) -> None:
         if count < 0:
@@ -70,13 +83,39 @@ class StorageRuntimeMetrics:
             self._buffer_rows += rows
             self._buffer_bytes += byte_count
 
+    def _event(self, *, error_code: str, message: str) -> None:
+        """Called with the metrics lock held; retain bounded process-local evidence."""
+        self._next_event_id += 1
+        self._events.append(
+            StorageRuntimeEvent(
+                event_id=self._next_event_id,
+                timestamp=datetime.now(UTC),
+                severity="WARNING",
+                error_code=error_code,
+                message=message,
+            )
+        )
+
     def record_unknown(self) -> None:
         with self._lock:
             self._write_unknown += 1
+            self._event(
+                error_code="WRITE_UNKNOWN",
+                message="TDengine write outcome has not been confirmed",
+            )
 
     def record_schema_conflict(self) -> None:
         with self._lock:
             self._schema_conflicts += 1
+            self._event(
+                error_code="SCHEMA_CONFLICT",
+                message="Storage rejected a conflicting physical or historical schema",
+            )
+
+    def events(self) -> tuple[StorageRuntimeEvent, ...]:
+        """A snapshot of retained warnings, never an all-time event history."""
+        with self._lock:
+            return tuple(self._events)
 
     def snapshot(self) -> StorageMetricSnapshot:
         with self._lock:
