@@ -121,8 +121,14 @@ class StorageConfigurationWatcher:
         old = self._active.configuration.model_dump(exclude={"config_sources", "file_version"})
         new = updated.configuration.model_dump(exclude={"config_sources", "file_version"})
         if old != new:
-            # The process must keep running on the old active closure, while
-            # the verified target survives a restart or Configuration outage.
+            # The target is not activated here, but its immutable identities
+            # must already be compatible with the active historical archive.
+            self._resolver.validate_immutable_pins(
+                point_table_versions=updated.point_table_versions,
+                business_points_pin=updated.business_points_pin,
+                device_bindings=updated.device_bindings,
+            )
+            # Keep the old active closure until a controlled restart.
             await asyncio.to_thread(self._snapshot.store_target, updated)
             self.status = "RESTART_REQUIRED"
             _LOG.warning("Storage target requires controlled restart")
