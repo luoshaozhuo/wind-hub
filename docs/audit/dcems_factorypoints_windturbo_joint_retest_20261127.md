@@ -13,7 +13,9 @@
 | 分支 | `feat/dcems-gateway-smoke-20261126` |
 | 起始 HEAD | `a9b2b2009e1452b22d6c05ec53b02b144ee10e38`（fetch 后本地/远端一致） |
 | 核实的 2 个整改提交 | `ba56eea1`（WindTurbo 补丁）、`a9b2b200`（契约测试） |
-| 本轮修改 | 见第 10 节 |
+| 本轮测试修复与证据提交 | `c40df851` |
+| 报告提交（最终功能性 HEAD） | `c1590dd1` |
+| HEAD 元数据提交 | 仅更新本表、不改变裁决 |
 
 ## 2. PATCH_APPLY = PASS
 
