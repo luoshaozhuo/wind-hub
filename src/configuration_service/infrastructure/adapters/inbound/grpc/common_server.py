@@ -122,6 +122,7 @@ class CommonServicer(rpc.CommonServiceServicer):
                 "ListConfigVersions",
                 "GetConfig",
                 "GetConfigBundle",
+                "GetServiceConfigBundle",
                 "ListReferences",
                 "SetRecommendedVersion",
                 "DeprecateConfigVersion",
