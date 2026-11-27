@@ -104,13 +104,41 @@ ensure_nginx_ssl() {
     chmod 600 "${cert}" "${key}"
 }
 
+ensure_machine_id() {
+    # 绑定同一个持久机器身份，避免 WSL/容器缺少 SMBIOS 时重建容器导致授权失效。
+    local path="${ROOT}/config/machine-id"
+    if [[ ! -e "${path}" && -f "${ROOT}/.deploy-mode" ]]; then
+        # 旧容器已有授权时沿用其身份，绝不静默改成部署宿主机身份。
+        local server
+        server="$("${DOCKER}" ps -aq \
+            --filter label=com.docker.compose.project=dc-ems \
+            --filter label=com.docker.compose.service=dc-ems-server | head -n 1)"
+        [[ -n "${server}" ]] || fail '已有部署但无法读取原 Server 机器身份'
+        "${DOCKER}" cp "${server}:/etc/machine-id" "${path}" >/dev/null ||
+            fail '已有部署的 Server 机器身份无法迁移'
+    fi
+    if [[ ! -e "${path}" ]]; then
+        (umask 077
+            if [[ -s /etc/machine-id ]]; then
+                cat /etc/machine-id > "${path}"
+            else
+                tr -d '-' < /proc/sys/kernel/random/uuid > "${path}"
+            fi
+        ) || fail '无法建立持久机器身份'
+    fi
+    [[ -f "${path}" && ! -L "${path}" && -s "${path}" ]] ||
+        fail '机器身份文件缺失、为空或不是普通文件'
+    chmod 600 "${path}"
+}
+
 get_machine_code() {
-    # 在服务器容器内运行 dmidecode 获取主板 ID，然后通过 Java 生成机器码。
-    # 输出：RSA 加密后的机器码字符串，供管理员生成授权码。
+    # Server 和授权申请容器挂载同一持久机器身份，避免容器重建导致失配。
+    [[ -s "${ROOT}/config/machine-id" ]] || fail '持久机器身份缺失'
     "${DOCKER}" run --rm \
         --entrypoint /opt/java/openjdk/bin/java \
+        --mount "type=bind,source=${ROOT}/config/machine-id,target=/etc/machine-id,readonly" \
         "${SERVER_IMAGE}" \
-        -cp dc-ems.jar cn.hedpy.scada.license.LiscenceUtil machine-code DCEMS
+        -cp dc-ems.jar cn.hedpy.scada.license.LiscenceUtil machine-code DC-EMS
 }
 
 ensure_license() {
@@ -251,6 +279,7 @@ container_deploy() {
     ensure_env_file
     parse_env
     prepare_compose_env
+    ensure_machine_id
 
     # 已部署：跳过镜像加载、证书生成、容器启动，仅处理授权码更新
     if [[ -f "${ROOT}/.deploy-mode" ]]; then
