@@ -619,6 +619,16 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 + b',"points":'
             )
             encoded = prefix + point_payloads[cycle] + b"}"
+            if cycle == 0 and device == devices[0]:
+                # Validate the optimized producer against the same strict
+                # physical-row decoder used by Storage's audit path.
+                parsed = WideRecord.from_kafka_json(
+                    encoded, physical_points=_WIDE_POINT_IDS
+                )
+                assert parsed.device_id == device
+                assert parsed.values == tuple(
+                    _wide_value(index, cycle) for index in range(_WIDE_POINT_COUNT)
+                )
             send_started = time.perf_counter()
             confirmation = await producer.send_and_wait(
                 "windhub.e2e.history",
