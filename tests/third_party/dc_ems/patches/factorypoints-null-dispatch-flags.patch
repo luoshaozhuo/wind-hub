@@ -1,6 +1,6 @@
 --- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
 +++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
-@@ -1101,9 +1101,24 @@
+@@ -1101,9 +1101,20 @@
      private boolean checkIsLimit() {
          try {
 -            return (emsFacDispatchActEnabled.getVal() || emsGridDispatchActEnabled.getVal()
@@ -25,7 +25,7 @@
          } catch (Exception e) {
              log.error("check factory limit status error ", e);
              return false;
-@@ -1386,18 +1401,18 @@
+@@ -1386,17 +1397,18 @@
              actSetLimitTop += ifNull(wt.getEmsActSetLimitTurbo().getVal(), 0d);
              actLimitTop += ifNull(wt.getWOughtPower().getVal(), 0d);
              reaActlimitTop += ifNull(wt.getEmsTheoryReactPower().getVal(), 0d);
