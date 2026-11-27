@@ -1,6 +1,6 @@
 <h1 class="title">Contracts 软件设计</h1>
 
-<p class="subtitle">v1_48 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_48 · 20261125 · 宽表重构设计 · 20261127 实现状态与验收边界勘误</p>
 
 <style>
 body {
@@ -748,7 +748,7 @@ System Test 必须遵守以下规定：
 
 # 3. 范围、现行基线及接口总览
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**现行实现与验收边界（2026-11-27）**：当前开发分支的 NATS SampleBatch 已采用 `schema_version=4`（`src/contracts/sample_batch.py`），Sink→Kafka→Storage 设备宽表记录采用 `schema_version=3`（`src/sink_service/infrastructure/adapters/outbound/kafka_wire.py`、`src/storage_service/domain/wide_record.py`）。以下迁移基线 v3/v2 仅是历史说明，不代表现行 wire 契约；新旧格式不得混用。最新跨模块功能 11/11 PASS，但容量及最终生产验收 BLOCKED；详见 `docs/audit/storage_sink_capacity_retest_20261127.md`。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
