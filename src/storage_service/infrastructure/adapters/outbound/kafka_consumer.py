@@ -227,7 +227,7 @@ class KafkaStorageConsumer:
         """Never have more than one in-flight batch per assigned partition."""
         async with semaphore:
             state = self._assignments.get(tp)
-            if self._stop.is_set() or state is None or state.blocked or not messages:
+            if state is None or state.blocked or not messages:
                 return
             generation = state.generation
             retry_cursor = state.offsets.next_commit_offset
@@ -296,8 +296,7 @@ class KafkaStorageConsumer:
                     return
                 raise
             if (
-                self._stop.is_set()
-                or self._assignments.get(tp) is not state
+                self._assignments.get(tp) is not state
                 or generation != state.generation
                 or tp not in self._consumer.assignment()
             ):
@@ -320,8 +319,7 @@ class KafkaStorageConsumer:
             # The commit itself awaits broker I/O. Ownership may have changed
             # while it was in flight, so fence every subsequent local mutation.
             if (
-                self._stop.is_set()
-                or self._assignments.get(tp) is not state
+                self._assignments.get(tp) is not state
                 or generation != state.generation
                 or tp not in self._consumer.assignment()
             ):
@@ -668,8 +666,8 @@ class KafkaStorageConsumer:
         return sorted(result)
 
     def request_stop(self) -> None:
+        """Stop fetching; allow accepted writes to drain before closing Kafka."""
         self._stop.set()
-        self.revoke(set(self._assignments))
 
     async def stop(self) -> None:
         self.request_stop()
