@@ -366,15 +366,64 @@ class KafkaStorageConsumer:
 
         async def process_queue() -> None:
             nonlocal buffered_rows, buffered_bytes
+            deferred: (
+                tuple[
+                    list[tuple[TopicPartition, _AssignedPartition, list[KafkaRecord]]],
+                    int,
+                    int,
+                ]
+                | None
+            ) = None
             while True:
-                item = await queue.get()
+                if deferred is None:
+                    item = await queue.get()
+                else:
+                    item, deferred = deferred, None
                 if item is None:
                     queue.task_done()
                     return
                 workload, rows, byte_count = item
+                grouped = {tp: (owner, list(records)) for tp, owner, records in workload}
+                admitted = 1
+                stop_after_group = False
+                # Coalesce already-buffered consecutive polls, never across a
+                # generation boundary, an offset discontinuity or batch budget.
+                while rows < limits.batch_max_rows and byte_count < limits.batch_max_bytes:
+                    try:
+                        candidate = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    if candidate is None:
+                        queue.task_done()
+                        stop_after_group = True
+                        break
+                    additions, more_rows, more_bytes = candidate
+                    contiguous = all(
+                        tp not in grouped
+                        or (
+                            grouped[tp][0] is owner
+                            and records[0].offset == grouped[tp][1][-1].offset + 1
+                        )
+                        for tp, owner, records in additions
+                    )
+                    if (
+                        not contiguous
+                        or rows + more_rows > limits.batch_max_rows
+                        or byte_count + more_bytes > limits.batch_max_bytes
+                    ):
+                        deferred = candidate
+                        break
+                    for tp, owner, records in additions:
+                        if tp in grouped:
+                            grouped[tp][1].extend(records)
+                        else:
+                            grouped[tp] = (owner, list(records))
+                    admitted += 1
+                    rows += more_rows
+                    byte_count += more_bytes
                 try:
                     async with asyncio.TaskGroup() as group:
-                        for tp, owner, records in workload:
+                        for tp, (owner, records) in grouped.items():
                             current = self._assignments.get(tp)
                             if (
                                 current is not owner
@@ -393,7 +442,10 @@ class KafkaStorageConsumer:
                     buffered_bytes -= byte_count
                     self._metrics.change_buffer(rows=-rows, byte_count=-byte_count)
                     space_available.set()
-                    queue.task_done()
+                    for _ in range(admitted):
+                        queue.task_done()
+                if stop_after_group:
+                    return
 
         worker = asyncio.create_task(process_queue(), name="storage-kafka-dispatch")
         poll: asyncio.Task[Any] | None = None
