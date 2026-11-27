@@ -690,6 +690,7 @@ async def test_run_polls_next_batch_before_first_write_finishes(
             self.polls += 1
             if self.polls <= 2:
                 if self.polls == 2:
+                    await first_started.wait()
                     second_polled.set()
                 offset = self.polls - 1
                 return {
@@ -758,6 +759,7 @@ async def test_queued_suffix_discarded_after_rebalance(
             self.polls += 1
             if self.polls <= 2:
                 if self.polls == 2:
+                    await started.wait()
                     second_polled.set()
                 return {
                     tp: [
@@ -822,6 +824,8 @@ async def test_run_coalesces_contiguous_buffered_poll_suffix(
         async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
             self.polls += 1
             if self.polls <= 3:
+                if self.polls == 2:
+                    await first_started.wait()
                 if self.polls == 3:
                     third_polled.set()
                 return {
@@ -891,6 +895,8 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
         async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
             self.polls += 1
             if self.polls <= 3:
+                if self.polls == 2:
+                    await writing.wait()
                 if self.polls == 3:
                     fetched_three.set()
                 return {
@@ -960,6 +966,7 @@ async def test_normal_stop_drains_admitted_batches_before_kafka_close(
             self.polls += 1
             if self.polls <= 2:
                 if self.polls == 2:
+                    await writing.wait()
                     fetched_two.set()
                 return {
                     tp: [
