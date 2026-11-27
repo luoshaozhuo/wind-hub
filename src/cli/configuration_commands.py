@@ -176,7 +176,8 @@ def list_configs(
     config_type: str = "",
     prefix: str = "",
     module_type: str = "",
-    page_size: int = 100,
+    revision_id: int | None = typer.Option(None, "--revision-id", min=0),
+    page_size: int = typer.Option(100, "--page-size", min=1, max=1000),
     page_token: str = "",
 ) -> None:
     _request(
@@ -187,6 +188,7 @@ def list_configs(
             module_type=module_type,
             page_size=page_size,
             page_token=page_token,
+            **({"revision_id": revision_id} if revision_id is not None else {}),
         ),
         service,
     )
@@ -198,6 +200,7 @@ def versions(
     config_id: str,
     service: str = "configuration",
     include_deprecated: bool = False,
+    page_size: int = typer.Option(100, "--page-size", min=1, max=1000),
     page_token: str = "",
 ) -> None:
     _request(
@@ -205,6 +208,7 @@ def versions(
         pb.ListConfigVersionsRequest(
             config_id=_identity(config_type, config_id),
             include_deprecated=include_deprecated,
+            page_size=page_size,
             page_token=page_token,
         ),
         service,
