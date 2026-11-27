@@ -7,6 +7,7 @@ import logging
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener, TopicPartition
 from aiokafka.errors import KafkaError
@@ -399,7 +400,7 @@ class KafkaStorageConsumer:
                     queue.task_done()
 
         worker = asyncio.create_task(process_queue(), name="storage-kafka-dispatch")
-        poll: asyncio.Task[object] | None = None
+        poll: asyncio.Task[Any] | None = None
         try:
             while not self._stop.is_set():
                 while (
@@ -476,7 +477,10 @@ class KafkaStorageConsumer:
                     raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
                 # Kafka can exceed fetch_max_bytes for the first large message.
                 # Before admitting such a poll, wait for older groups to drain.
-                while buffered_rows + rows_received > max_rows or buffered_bytes + bytes_received > max_bytes:
+                while (
+                    buffered_rows + rows_received > max_rows
+                    or buffered_bytes + bytes_received > max_bytes
+                ):
                     space_available.clear()
                     wake = asyncio.create_task(space_available.wait())
                     try:
