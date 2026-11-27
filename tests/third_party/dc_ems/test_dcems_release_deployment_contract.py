@@ -40,3 +40,18 @@ def test_modified_deployment_assets_have_matching_manifest() -> None:
     for relative in ("./deploy.sh", "./runtime/containerized/compose.yaml"):
         content = (RELEASE / relative).read_bytes()
         assert hashlib.sha256(content).hexdigest() == entries[relative]
+
+
+def test_factorypoints_patch_covers_dispatch_and_statistics_nulls() -> None:
+    """The source patch must guard both reported FactoryPoints failure paths."""
+    patch = (
+        REPO_ROOT
+        / "tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch"
+    ).read_text(encoding="utf-8")
+    assert "@@ -1101,9 +1101,20 @@" in patch
+    assert "@@ -1386,17 +1397,18 @@" in patch
+    assert "Boolean.TRUE.equals(emsFacDispatchActEnabled.getVal())" in patch
+    assert "actSend == null || actLoopRef == null" in patch
+    assert "limitCoe == null || contractCapacity == null" in patch
+    assert "double turbinePower = ifNull(wt.getEmsPowAct().getVal(), 0d)" in patch
+    assert "Boolean.TRUE.equals(wt.emsRunState.getVal())" in patch
