@@ -150,6 +150,39 @@ def gateway_read(gateway_id: str, variable_ids: list[str] = typer.Argument(...))
     )
 
 
+@gateway.command("watch")
+def gateway_watch(
+    gateway_id: str,
+    variable_ids: list[str] = typer.Argument(...),
+    interval: float = typer.Option(1.0, "--interval", min=0.1, max=60),
+    count: int = typer.Option(0, "--count", min=0, max=100000),
+) -> None:
+    """Poll Gateway-owned variable values without commanding a PLC read."""
+    import asyncio
+
+    from .main import _run, runtime
+
+    if len(variable_ids) != len(set(variable_ids)):
+        raise typer.BadParameter("variable IDs must be unique")
+
+    async def watch() -> dict[str, Any]:
+        observed = 0
+        while count == 0 or observed < count:
+            result = await invoke(
+                runtime(),
+                "gateway",
+                "ReadVariables",
+                {"gateway_id": gateway_id, "variable_ids": variable_ids},
+            )
+            runtime().present("gateway watch", result)
+            observed += 1
+            if count == 0 or observed < count:
+                await asyncio.sleep(interval)
+        return {"gateway_id": gateway_id, "observations": observed, "complete": True}
+
+    _run("gateway watch", watch())
+
+
 @gateway.command("update")
 def gateway_update(
     gateway_id: str,
