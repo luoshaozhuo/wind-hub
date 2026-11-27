@@ -342,15 +342,30 @@ def bundle(
 
 @configuration.command("bundle-exact")
 def bundle_exact(
-    config_type: str,
-    config_id: str,
-    version_id: str,
     output: Path,
+    exact_roots: list[str] = typer.Option(
+        ..., "--exact-root", help="Repeat TYPE:CONFIG_ID:VERSION_ID for each immutable root."
+    ),
     service: str = "configuration",
 ) -> None:
-    """Export an immutable historical configuration closure by repository version."""
-    if not version_id:
-        raise typer.BadParameter("exact repository version_id is required")
+    """Export one verified, shared closure of explicitly versioned roots."""
+    roots: list[pb.ConfigVersionRef] = []
+    identities: set[tuple[str, str, str]] = set()
+    for selector in exact_roots:
+        fields = selector.split(":", 2)
+        if len(fields) != 3 or any(not field.strip() for field in fields):
+            raise typer.BadParameter("--exact-root must be TYPE:CONFIG_ID:VERSION_ID")
+        config_type, config_id, version_id = fields
+        identity = (config_type, config_id, version_id)
+        if identity in identities:
+            raise typer.BadParameter("duplicate --exact-root identity")
+        identities.add(identity)
+        roots.append(
+            pb.ConfigVersionRef(
+                config_id=_identity(config_type, config_id),
+                version_id=version_id,
+            )
+        )
 
     async def invoke() -> dict[str, Any]:
         from cli.main import runtime
@@ -358,12 +373,7 @@ def bundle_exact(
         client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
         result = await client.GetConfigBundle(
             pb.GetConfigBundleRequest(
-                exact_roots=[
-                    pb.ConfigVersionRef(
-                        config_id=_identity(config_type, config_id),
-                        version_id=version_id,
-                    )
-                ],
+                exact_roots=roots,
                 include_dependencies=True,
             ),
             timeout=runtime().target(service).timeout,
