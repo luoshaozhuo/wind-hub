@@ -147,3 +147,23 @@ def test_stmt2_rejects_more_than_1000_rows_before_driver_allocation() -> None:
     with pytest.raises(ValueError, match="1000 physical rows"):
         bind_wide_columns(schema, (row,) * 1001, driver)
     driver.micros_timestamps_to_column.assert_not_called()
+
+
+def test_stmt2_exposes_real_stage_durations_without_changing_binding() -> None:
+    schema = _schema()
+    connection, driver = Mock(), _driver()
+    statement = connection.stmt2_statement.return_value
+    statement.execute.return_value = 1
+    stages: dict[str, float] = {}
+    write_wide_stmt2(
+        connection,
+        driver,
+        schema=schema,
+        records=[_record(schema, 0)],
+        device_types={"wtg_001": "wind"},
+        statement=statement,
+        stage_seconds=stages,
+    )
+    assert set(stages) == {"columns", "bind", "execute"}
+    assert all(0 <= duration < 10 for duration in stages.values())
+    statement.close.assert_not_called()
