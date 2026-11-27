@@ -1,0 +1,27 @@
+python3 scripts/dev.py env
+git fetch origin --prune
+git rev-parse HEAD
+git rev-parse origin/feat/storage-wide-table-completion-20261125
+git log --oneline --reverse 132d5ac2c7515f54a5156b72a254cfc491743b1b..origin/feat/storage-wide-table-completion-20261125
+python3 -m ruff check src tests
+python3 -m ruff format --check src tests
+python3 -m mypy src
+lint-imports
+python3 scripts/generate_rpc.py --check
+python3 -m pytest --collect-only -q
+python3 -m pytest -q tests/storage_service/unit tests/storage_service/component
+python3 -m pytest -q tests/sink_service/unit tests/sink_service/component
+python3 -m pytest -q tests/sink_service/unit/test_capacity_audit_shutdown.py
+STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=64 python3 -m pytest -q tests/storage_service/integration/test_storage_capacity_publisher.py
+STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 python3 -m pytest -q tests/storage_service/integration/test_storage_capacity_publisher.py
+STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=256 python3 -m pytest -q tests/storage_service/integration/test_storage_capacity_publisher.py
+STORAGE_WIDE_DEVICES=30 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=100 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=300 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+python3 docs/audit/storage_sink_capacity_retest_20261127_evidence/run_sink_matrix.py
+R14_DURATION_S=600 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_KAFKA_MAX_SAFE_INFLIGHT=16 R14_KAFKA_LINGER_MS=10 R14_KAFKA_PARTITIONS=4 R14_RESULT_DIR=docs/audit/storage_sink_capacity_retest_20261127_evidence python3 -m pytest -q tests/sink_service/system/test_capacity_r14_sustained.py
+python3 -m pytest -q tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py tests/system/e2e/eight_service/test_e2e_eight_service_raw.py tests/system/e2e/eight_service/test_e2e_eight_service_smoke.py tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py tests/system/e2e/eight_service/test_e2e_storage_history_operations.py
+python3 scripts/dev.py python scripts/ci_gate.py performance --output docs/audit/storage_sink_capacity_retest_20261127_evidence/performance.xml
+
+# Publisher-only tests did not start Storage. Formal Storage and Sink load tests were sequential.
+# Real TDengine is 3.3.6.13 and taos-ws-py is 0.7.1; no Mock replaces production timing.

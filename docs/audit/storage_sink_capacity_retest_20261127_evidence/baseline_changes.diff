@@ -1,0 +1,394 @@
+diff --git a/src/storage_service/application/wide_ingestion.py b/src/storage_service/application/wide_ingestion.py
+index 9a6c15ee5..4552c7c5c 100644
+--- a/src/storage_service/application/wide_ingestion.py
++++ b/src/storage_service/application/wide_ingestion.py
+@@ -133,7 +133,7 @@ class WideIngestionService:
+         )
+         row = WideRecord.from_parsed(
+             parsed,
+-            physical_points=tuple(column.point_id for column in schema.columns),
++            physical_points=schema.point_ids,
+         )
+         # Fail before DDL when any physical value is invalid or truncated.
+         bind_wide_row(row, schema)
+diff --git a/src/storage_service/domain/wide_row.py b/src/storage_service/domain/wide_row.py
+index d5fa08e55..d1cb6db59 100644
+--- a/src/storage_service/domain/wide_row.py
++++ b/src/storage_service/domain/wide_row.py
+@@ -35,7 +35,7 @@ def bind_wide_row(record: WideRecord, schema: WideSchema) -> BoundWideRow:
+     """Bind every column in physical order without coercion or field patching."""
+     if record.data_level != schema.data_level:
+         raise ValueError("wide-row data level differs from physical schema")
+-    if record.point_ids != tuple(column.point_id for column in schema.columns):
++    if record.point_ids != schema.point_ids:
+         raise ValueError("wide-row point set/order differs from physical schema")
+     if len(record.quality_bitmap) != schema.quality_bytes:
+         raise ValueError("wide-row quality bitmap length differs from physical schema")
+diff --git a/src/storage_service/domain/wide_schema.py b/src/storage_service/domain/wide_schema.py
+index eb62a65f6..d8556389c 100644
+--- a/src/storage_service/domain/wide_schema.py
++++ b/src/storage_service/domain/wide_schema.py
+@@ -9,7 +9,7 @@ from __future__ import annotations
+ import hashlib
+ import json
+ import re
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ 
+ from storage_service.domain.wide_record import WideDataLevel
+ 
+@@ -81,6 +81,12 @@ class WideSchema:
+     quality_bytes: int
+     declared_row_bytes: int
+     fingerprint: str
++    point_ids: tuple[str, ...] = field(init=False, repr=False, compare=False)
++
++    def __post_init__(self) -> None:
++        object.__setattr__(
++            self, "point_ids", tuple(column.point_id for column in self.columns)
++        )
+ 
+     @classmethod
+     def build(
+diff --git a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+index e1769215d..4e1621614 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
++++ b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+@@ -107,6 +107,15 @@ class TDengineBackend:
+         self._wide_device_types: dict[str, str] = {}
+         self._wide_statements: dict[int, OrderedDict[str, _PreparedStatement]] = {}
+         self._wide_current_database: dict[int, str] = {}
++        self._wide_stage_calls = 0
++        self._wide_stage_rows = 0
++        self._wide_stage_devices = 0
++        self._wide_stage_totals: dict[str, float] = {
++            "prepare": 0.0,
++            "columns": 0.0,
++            "bind": 0.0,
++            "execute": 0.0,
++        }
+         self._wide_unknown_tables: set[str] = set()
+         self._opening = False
+         self._closed = False
+@@ -632,6 +641,46 @@ class TDengineBackend:
+                 self._wide_unknown_tables.update(names)
+             raise
+ 
++    def _observe_wide_write(
++        self,
++        *,
++        rows: int,
++        devices: int,
++        stages: dict[str, float],
++    ) -> None:
++        """Log bounded aggregate stage timings without per-row log overhead."""
++        with self._lock:
++            self._wide_stage_calls += 1
++            self._wide_stage_rows += rows
++            self._wide_stage_devices += devices
++            for name in self._wide_stage_totals:
++                self._wide_stage_totals[name] += stages.get(name, 0.0)
++            if self._wide_stage_calls < 256:
++                return
++            calls = self._wide_stage_calls
++            rows_total = self._wide_stage_rows
++            devices_total = self._wide_stage_devices
++            averages = {
++                name: 1000 * elapsed / calls
++                for name, elapsed in self._wide_stage_totals.items()
++            }
++            self._wide_stage_calls = 0
++            self._wide_stage_rows = 0
++            self._wide_stage_devices = 0
++            for name in self._wide_stage_totals:
++                self._wide_stage_totals[name] = 0.0
++        _LOG.info(
++            "Storage STMT2 256-write window: rows=%d devices=%d "
++            "prepare_mean_ms=%.3f columns_mean_ms=%.3f "
++            "bind_mean_ms=%.3f execute_mean_ms=%.3f",
++            rows_total,
++            devices_total,
++            averages["prepare"],
++            averages["columns"],
++            averages["bind"],
++            averages["execute"],
++        )
++
+     def _insert_wide_batch_sync(
+         self,
+         *,
+@@ -643,6 +692,7 @@ class TDengineBackend:
+         database = schema.database_name(records[0].wind_farm_id)
+         stable = schema.supertable_name()
+         family = f"{database}.{stable}"
++        stages: dict[str, float] = {}
+         with self._borrow_connection(lease=lease) as (connection, driver):
+             lease.remaining()
+             connection_id = id(connection)
+@@ -663,9 +713,14 @@ class TDengineBackend:
+                 try:
+                     placeholders = ", ".join("?" for _ in range(len(schema.columns) + 2))
+                     tags = ", ".join("?" for _ in range(5))
+-                    candidate.prepare(
+-                        f"INSERT INTO ? USING {family} " f"TAGS ({tags}) VALUES ({placeholders})"
+-                    )
++                    prepare_started = time.perf_counter()
++                    try:
++                        candidate.prepare(
++                            f"INSERT INTO ? USING {family} "
++                            f"TAGS ({tags}) VALUES ({placeholders})"
++                        )
++                    finally:
++                        stages["prepare"] = time.perf_counter() - prepare_started
+                 except BaseException:
+                     candidate.close()
+                     raise
+@@ -687,6 +742,12 @@ class TDengineBackend:
+                 records=records,
+                 device_types=device_types,
+                 statement=statement,
++                stage_seconds=stages,
++            )
++            self._observe_wide_write(
++                rows=len(records),
++                devices=len(device_types),
++                stages=stages,
+             )
+ 
+     async def verify_existing_wide_table(
+diff --git a/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py b/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+index 35c071143..3e3a7c57e 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
++++ b/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+@@ -6,6 +6,7 @@ A prepared statement is not shared across threads or conflicting schema families
+ 
+ from __future__ import annotations
+ 
++import time
+ from collections.abc import Callable, Mapping, Sequence
+ from typing import Any, Protocol, cast
+ 
+@@ -87,6 +88,7 @@ def write_wide_stmt2(
+     records: Sequence[WideRecord],
+     device_types: Mapping[str, str],
+     statement: WideStmt2Statement | None = None,
++    stage_seconds: dict[str, float] | None = None,
+ ) -> None:
+     """Write verified multi-device wide rows in one prepared STMT2 execution.
+ 
+@@ -116,6 +118,7 @@ def write_wide_stmt2(
+     level_tag_fn = cast(Callable[..., Any], level_tag)
+     level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
+     bindings: list[object] = []
++    columns_started = time.perf_counter()
+     for device_id, group in by_device.items():
+         device_type = device_types[device_id]
+         if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
+@@ -134,6 +137,8 @@ def write_wide_stmt2(
+                 columns=columns,
+             )
+         )
++    if stage_seconds is not None:
++        stage_seconds["columns"] = time.perf_counter() - columns_started
+     owned = statement is None
+     active = statement if statement is not None else connection.stmt2_statement()
+     try:
+@@ -144,9 +149,19 @@ def write_wide_stmt2(
+                 f"INSERT INTO ? USING {database}.{schema.supertable_name()} "
+                 f"TAGS ({tags}) VALUES ({placeholders})"
+             )
+-        active.bind(bindings)
+-        if active.execute() < 0:
+-            raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
++        bind_started = time.perf_counter()
++        try:
++            active.bind(bindings)
++        finally:
++            if stage_seconds is not None:
++                stage_seconds["bind"] = time.perf_counter() - bind_started
++        execute_started = time.perf_counter()
++        try:
++            if active.execute() < 0:
++                raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
++        finally:
++            if stage_seconds is not None:
++                stage_seconds["execute"] = time.perf_counter() - execute_started
+     finally:
+         if owned:
+             active.close()
+diff --git a/tests/storage_service/unit/test_wide_backend_multitable.py b/tests/storage_service/unit/test_wide_backend_multitable.py
+index 1d9692849..0446035e8 100644
+--- a/tests/storage_service/unit/test_wide_backend_multitable.py
++++ b/tests/storage_service/unit/test_wide_backend_multitable.py
+@@ -127,3 +127,29 @@ async def test_unknown_multidevice_write_fences_every_table(
+         metadata.close()
+     statement.close.assert_called_once()
+     connection.close.assert_called_once()
++
++
++@pytest.mark.asyncio
++async def test_stmt2_stage_summary_is_bounded_to_256_writes(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++    caplog: pytest.LogCaptureFixture,
++) -> None:
++    backend, metadata, _connection, _statement = await _setup(tmp_path, monkeypatch)
++    try:
++        with caplog.at_level("INFO"):
++            for _ in range(256):
++                backend._observe_wide_write(
++                    rows=10,
++                    devices=2,
++                    stages={"prepare": 0.0, "columns": 0.002, "bind": 0.003, "execute": 0.004},
++                )
++        assert backend._wide_stage_calls == 0
++        assert backend._wide_stage_rows == 0
++        assert "rows=2560 devices=512" in caplog.text
++        assert "columns_mean_ms=2.000" in caplog.text
++        assert "bind_mean_ms=3.000" in caplog.text
++        assert "execute_mean_ms=4.000" in caplog.text
++    finally:
++        await backend.close()
++        metadata.close()
+diff --git a/tests/storage_service/unit/test_wide_schema.py b/tests/storage_service/unit/test_wide_schema.py
+index 4f0baf28e..93c7fb1ed 100644
+--- a/tests/storage_service/unit/test_wide_schema.py
++++ b/tests/storage_service/unit/test_wide_schema.py
+@@ -29,6 +29,8 @@ def test_column_order_uses_utf8_identity_not_input_order() -> None:
+     right = _build((b, a))
+     assert left == right
+     assert tuple(c.point_id for c in left.columns) == ("active_power", "wind_speed")
++    assert left.point_ids == ("active_power", "wind_speed")
++    assert left.point_ids is left.point_ids
+     assert left.quality_bytes == 1
+     assert left.columns[0].column_name.endswith("_v1_2_0")
+     assert left.fingerprint == right.fingerprint
+@@ -59,6 +61,9 @@ def test_wide_schema_500_fields_has_125_quality_bytes() -> None:
+     schema = _build(points)
+     assert schema.quality_bytes == 125
+     assert len(schema.columns) == 500
++    assert len(schema.point_ids) == 500
++    assert schema.point_ids[0] == "p_000"
++    assert schema.point_ids[-1] == "p_499"
+     assert schema.declared_row_bytes == 8 + 125 + 2 + 4 * 500
+ 
+ 
+diff --git a/tests/storage_service/unit/test_wide_stmt2.py b/tests/storage_service/unit/test_wide_stmt2.py
+index 1d2c1f136..3357a39b0 100644
+--- a/tests/storage_service/unit/test_wide_stmt2.py
++++ b/tests/storage_service/unit/test_wide_stmt2.py
+@@ -147,3 +147,23 @@ def test_stmt2_rejects_more_than_1000_rows_before_driver_allocation() -> None:
+     with pytest.raises(ValueError, match="1000 physical rows"):
+         bind_wide_columns(schema, (row,) * 1001, driver)
+     driver.micros_timestamps_to_column.assert_not_called()
++
++
++def test_stmt2_exposes_real_stage_durations_without_changing_binding() -> None:
++    schema = _schema()
++    connection, driver = Mock(), _driver()
++    statement = connection.stmt2_statement.return_value
++    statement.execute.return_value = 1
++    stages: dict[str, float] = {}
++    write_wide_stmt2(
++        connection,
++        driver,
++        schema=schema,
++        records=[_record(schema, 0)],
++        device_types={"wtg_001": "wind"},
++        statement=statement,
++        stage_seconds=stages,
++    )
++    assert set(stages) == {"columns", "bind", "execute"}
++    assert all(0 <= duration < 10 for duration in stages.values())
++    statement.close.assert_not_called()
+diff --git a/tests/system/e2e/eight_service/test_e2e_storage_capacity.py b/tests/system/e2e/eight_service/test_e2e_storage_capacity.py
+index ac9dd8bd1..60604aa03 100644
+--- a/tests/system/e2e/eight_service/test_e2e_storage_capacity.py
++++ b/tests/system/e2e/eight_service/test_e2e_storage_capacity.py
+@@ -507,6 +507,27 @@ def test_storage_single_instance_500_point_device_row_capacity(
+     database = WideSchema.database_name("e2e-final")
+     total_rows = len(devices) * cycles
+     target_rows_per_second = len(devices) * rate_per_device
++    producer_inflight = int(
++        os.environ.get(
++            "STORAGE_WIDE_PRODUCER_MAX_INFLIGHT",
++            str(256 if target_rows_per_second > 1000 else _WIDE_IN_FLIGHT_LIMIT),
++        )
++    )
++    if not 1 <= producer_inflight <= 512:
++        raise ValueError("Storage capacity producer in-flight must be in [1, 512]")
++    # Every device shares the same 500 physical values within a cycle. Build
++    # these immutable JSON fragments before the timed producer phase instead
++    # of reserializing 500 points for each of 300 devices.
++    point_payloads = tuple(
++        json.dumps(
++            {
++                point_id: [_wide_value(index, cycle), 1]
++                for index, point_id in enumerate(_WIDE_POINT_IDS)
++            },
++            separators=(",", ":"),
++        ).encode()
++        for cycle in range(cycles)
++    )
+     result_dir = Path(os.environ.get("STORAGE_WIDE_RESULT_DIR", "/tmp"))
+     result_dir.mkdir(parents=True, exist_ok=True)
+     writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
+@@ -595,19 +616,27 @@ def test_storage_single_instance_500_point_device_row_capacity(
+                 .isoformat(timespec="microseconds")
+                 .replace("+00:00", "Z")
+             )
+-            payload = {
+-                "schema_version": 3,
+-                "wind_farm_id": "e2e-final",
+-                "device_config_id": DEVICE_CONFIG_ID,
+-                "device_id": device,
+-                "data_level": "protocol",
+-                "sample_time": sample_time,
+-                "points": {
+-                    point_id: [_wide_value(index, cycle), 1]
+-                    for index, point_id in enumerate(_WIDE_POINT_IDS)
+-                },
+-            }
+-            encoded = json.dumps(payload, separators=(",", ":")).encode()
++            prefix = (
++                b'{"schema_version":3,"wind_farm_id":"e2e-final",'
++                b'"device_config_id":'
++                + json.dumps(DEVICE_CONFIG_ID).encode()
++                + b',"device_id":'
++                + json.dumps(device).encode()
++                + b',"data_level":"protocol","sample_time":'
++                + json.dumps(sample_time).encode()
++                + b',"points":'
++            )
++            encoded = prefix + point_payloads[cycle] + b"}"
++            if cycle == 0 and device == devices[0]:
++                # Validate the optimized producer against the same strict
++                # physical-row decoder used by Storage's audit path.
++                parsed = WideRecord.from_kafka_json(
++                    encoded, physical_points=_WIDE_POINT_IDS
++                )
++                assert parsed.device_id == device
++                assert parsed.values == tuple(
++                    _wide_value(index, cycle) for index in range(_WIDE_POINT_COUNT)
++                )
+             send_started = time.perf_counter()
+             confirmation = await producer.send_and_wait(
+                 "windhub.e2e.history",
+@@ -635,7 +664,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
+                     cycle = sequence // len(devices)
+                     sample_time_us = sample_start_us + cycle * interval_us
+                     pending.add(asyncio.create_task(publish_one(device, cycle, sample_time_us)))
+-                    if len(pending) >= _WIDE_IN_FLIGHT_LIMIT:
++                    if len(pending) >= producer_inflight:
+                         done, pending = await asyncio.wait(
+                             pending, return_when=asyncio.FIRST_COMPLETED
+                         )
+@@ -750,7 +779,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
+                 "acks": "all",
+                 "enable_idempotence": True,
+                 "key": "wind_farm_id:device_id",
+-                "max_test_tasks_in_flight": _WIDE_IN_FLIGHT_LIMIT,
++                "max_test_tasks_in_flight": producer_inflight,
+                 "acknowledged_rows": published_rows,
+                 "ack_latency_p95_ms": _nearest_rank_ms(ack_latencies, 0.95),
+                 "ack_latency_p99_ms": _nearest_rank_ms(ack_latencies, 0.99),

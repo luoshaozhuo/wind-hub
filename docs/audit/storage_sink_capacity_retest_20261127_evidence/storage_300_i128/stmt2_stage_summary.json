@@ -1,0 +1,84 @@
+{
+  "complete_256_write_windows": 9,
+  "observed_writes": 2304,
+  "rows_in_complete_windows": 166919,
+  "device_bindings": 157534,
+  "weighted_prepare_mean_ms": 0.0022788298516046705,
+  "weighted_columns_mean_ms": 34.417297557497946,
+  "weighted_bind_mean_ms": 8.070833086706726,
+  "weighted_execute_mean_ms": 10.61363286384414,
+  "windows": [
+    {
+      "rows": 27170,
+      "devices": 23328,
+      "prepare_mean_ms": 0.014,
+      "columns_mean_ms": 45.108,
+      "bind_mean_ms": 10.409,
+      "execute_mean_ms": 9.249
+    },
+    {
+      "rows": 19530,
+      "devices": 18331,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 35.874,
+      "bind_mean_ms": 8.84,
+      "execute_mean_ms": 17.323
+    },
+    {
+      "rows": 17427,
+      "devices": 16712,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 33.863,
+      "bind_mean_ms": 7.523,
+      "execute_mean_ms": 12.728
+    },
+    {
+      "rows": 16424,
+      "devices": 15962,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 29.857,
+      "bind_mean_ms": 6.748,
+      "execute_mean_ms": 6.473
+    },
+    {
+      "rows": 17242,
+      "devices": 16601,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 30.671,
+      "bind_mean_ms": 7.001,
+      "execute_mean_ms": 6.691
+    },
+    {
+      "rows": 17411,
+      "devices": 16737,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 30.58,
+      "bind_mean_ms": 7.553,
+      "execute_mean_ms": 6.679
+    },
+    {
+      "rows": 17290,
+      "devices": 16639,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 31.351,
+      "bind_mean_ms": 7.215,
+      "execute_mean_ms": 9.369
+    },
+    {
+      "rows": 16795,
+      "devices": 16259,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 31.48,
+      "bind_mean_ms": 7.33,
+      "execute_mean_ms": 12.895
+    },
+    {
+      "rows": 17630,
+      "devices": 16965,
+      "prepare_mean_ms": 0.0,
+      "columns_mean_ms": 34.383,
+      "bind_mean_ms": 8.492,
+      "execute_mean_ms": 13.821
+    }
+  ]
+}

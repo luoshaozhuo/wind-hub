@@ -1,0 +1,11 @@
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:633:26: F821 Undefined name `WideRecord`
+    |
+631 |                 # Validate the optimized producer against the same strict
+632 |                 # physical-row decoder used by Storage's audit path.
+633 |                 parsed = WideRecord.from_kafka_json(
+    |                          ^^^^^^^^^^ F821
+634 |                     encoded, physical_points=_WIDE_POINT_IDS
+635 |                 )
+    |
+
+Found 1 error.

@@ -1,0 +1,50 @@
+[
+  {
+    "case": "p1_c16",
+    "partitions": 1,
+    "max_safe_inflight": 16,
+    "returncode": 1,
+    "elapsed_seconds": 97.40494940898498,
+    "result_files": []
+  },
+  {
+    "case": "p1_c32",
+    "partitions": 1,
+    "max_safe_inflight": 32,
+    "returncode": 1,
+    "elapsed_seconds": 99.05371528299293,
+    "result_files": []
+  },
+  {
+    "case": "p1_c64",
+    "partitions": 1,
+    "max_safe_inflight": 64,
+    "returncode": 1,
+    "elapsed_seconds": 104.47531789899222,
+    "result_files": []
+  },
+  {
+    "case": "p4_c16",
+    "partitions": 4,
+    "max_safe_inflight": 16,
+    "returncode": 1,
+    "elapsed_seconds": 109.2475269229908,
+    "result_files": []
+  },
+  {
+    "case": "p4_c32",
+    "partitions": 4,
+    "max_safe_inflight": 32,
+    "returncode": 1,
+    "elapsed_seconds": 103.931447312003,
+    "result_files": []
+  },
+  {
+    "case": "p4_c64",
+    "partitions": 4,
+    "max_safe_inflight": 64,
+    "returncode": 1,
+    "elapsed_seconds": 108.39077192099649,
+    "result_files": []
+  }
+]

@@ -1,0 +1,26 @@
+INFO:aiokafka.consumer.subscription_state:Updating subscribed topics to: frozenset({'windhub.e2e.history'})
+INFO:aiokafka.consumer.consumer:Subscribed to topic(s): {'windhub.e2e.history'}
+ERROR:aiokafka.consumer.group_coordinator:Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Revoking previously assigned partitions set() for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Joined group 'storage-e2e' (generation 1) with member_id aiokafka-0.14.0-fa178f5f-ba52-43de-8a8f-c18508f80fb2
+INFO:aiokafka.consumer.group_coordinator:Elected group leader -- performing partition assignments using roundrobin
+INFO:aiokafka.consumer.group_coordinator:Successfully synced group storage-e2e with generation 1
+INFO:aiokafka.consumer.group_coordinator:Setting newly assigned partitions {TopicPartition(topic='windhub.e2e.history', partition=1), TopicPartition(topic='windhub.e2e.history', partition=2), TopicPartition(topic='windhub.e2e.history', partition=0)} for group storage-e2e
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=27170 devices=23328 prepare_mean_ms=0.014 columns_mean_ms=45.108 bind_mean_ms=10.409 execute_mean_ms=9.249
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=19530 devices=18331 prepare_mean_ms=0.000 columns_mean_ms=35.874 bind_mean_ms=8.840 execute_mean_ms=17.323
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=17427 devices=16712 prepare_mean_ms=0.000 columns_mean_ms=33.863 bind_mean_ms=7.523 execute_mean_ms=12.728
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=16424 devices=15962 prepare_mean_ms=0.000 columns_mean_ms=29.857 bind_mean_ms=6.748 execute_mean_ms=6.473
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=17242 devices=16601 prepare_mean_ms=0.000 columns_mean_ms=30.671 bind_mean_ms=7.001 execute_mean_ms=6.691
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=17411 devices=16737 prepare_mean_ms=0.000 columns_mean_ms=30.580 bind_mean_ms=7.553 execute_mean_ms=6.679
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=17290 devices=16639 prepare_mean_ms=0.000 columns_mean_ms=31.351 bind_mean_ms=7.215 execute_mean_ms=9.369
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=16795 devices=16259 prepare_mean_ms=0.000 columns_mean_ms=31.480 bind_mean_ms=7.330 execute_mean_ms=12.895
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=17630 devices=16965 prepare_mean_ms=0.000 columns_mean_ms=34.383 bind_mean_ms=8.492 execute_mean_ms=13.821
+INFO:aiokafka.consumer.group_coordinator:LeaveGroup request succeeded

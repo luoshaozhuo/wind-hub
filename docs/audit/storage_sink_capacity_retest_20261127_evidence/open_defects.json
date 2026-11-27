@@ -1,0 +1,34 @@
+[
+  {
+    "id": "STORAGE-CAPACITY-100-REGRESSION",
+    "severity": "P1",
+    "status": "PERFORMANCE_BLOCKED",
+    "summary": "Storage 100-device end-to-end rate regressed from the prior 954.699 to 925.434 rows/s, below the 950 rows/s threshold despite complete persistence.",
+    "evidence": "storage_100_i128/capacity.xml and storage_wide_500_devices_100_w2.json",
+    "handoff": "Preserve this regression; do not select the prior higher run as the current verdict."
+  },
+  {
+    "id": "STORAGE-CAPACITY-300",
+    "severity": "P1",
+    "status": "STORAGE_CAPACITY_BLOCKED",
+    "summary": "The independent producer reaches 2999.778 rows/s, but Storage persists only 1132.980 rows/s end-to-end, below 2850. Weighted production STMT2 column construction is 34.417ms per write.",
+    "evidence": "publisher_128.json; storage_300_i128/capacity.xml; storage.log; stmt2_stage_summary.json",
+    "handoff": "Optimize column construction and Storage consumption/scheduling without weakening data contracts or adding instances."
+  },
+  {
+    "id": "SINK-CAPACITY-600",
+    "severity": "P1",
+    "status": "PERFORMANCE_BLOCKED",
+    "summary": "All six short parameter cases fail; the p4/c16 600-second candidate reaches only 205.75 rows/s with +94.214 rows/s backlog and no drain.",
+    "evidence": "sink_matrix_summary.json; sink_600_p4_c16.xml; r14_capacity_d30_r300_c16_b131072_l10_p4_24fe02e09fee.json",
+    "handoff": "Continue production fetch/write/quota/submit/confirm remediation; keep the c16/p1 baseline and do not hide the failed matrix."
+  },
+  {
+    "id": "QUALIFICATION-NOT-RUN",
+    "severity": "QUALIFICATION",
+    "status": "NOT_RUN",
+    "summary": "1000 devices, simultaneous three-level capacity, real PLC and full DCEMS control loop remain unexecuted.",
+    "evidence": "Final report",
+    "handoff": "Execute after mandatory single-instance capacity and environment qualifications are available."
+  }
+]

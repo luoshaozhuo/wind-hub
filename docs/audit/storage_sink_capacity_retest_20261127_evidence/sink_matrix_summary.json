@@ -1,0 +1,62 @@
+[
+  {
+    "case": "p1_c16",
+    "partitions": 1,
+    "max_safe_inflight": 16,
+    "returncode": 1,
+    "elapsed_seconds": 113.90175486798398,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p1_c16/r14_capacity_d30_r300_c16_b131072_l10_p1_b3792dbcc86b.json"
+    ]
+  },
+  {
+    "case": "p1_c32",
+    "partitions": 1,
+    "max_safe_inflight": 32,
+    "returncode": 1,
+    "elapsed_seconds": 118.95756669799448,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p1_c32/r14_capacity_d30_r300_c32_b131072_l10_p1_437660212ad6.json"
+    ]
+  },
+  {
+    "case": "p1_c64",
+    "partitions": 1,
+    "max_safe_inflight": 64,
+    "returncode": 1,
+    "elapsed_seconds": 118.01221129999612,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p1_c64/r14_capacity_d30_r300_c64_b131072_l10_p1_a6818f895642.json"
+    ]
+  },
+  {
+    "case": "p4_c16",
+    "partitions": 4,
+    "max_safe_inflight": 16,
+    "returncode": 1,
+    "elapsed_seconds": 110.28854780300753,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p4_c16/r14_capacity_d30_r300_c16_b131072_l10_p4_963370e3b970.json"
+    ]
+  },
+  {
+    "case": "p4_c32",
+    "partitions": 4,
+    "max_safe_inflight": 32,
+    "returncode": 1,
+    "elapsed_seconds": 113.79863552900497,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p4_c32/r14_capacity_d30_r300_c32_b131072_l10_p4_9b6a952c262c.json"
+    ]
+  },
+  {
+    "case": "p4_c64",
+    "partitions": 4,
+    "max_safe_inflight": 64,
+    "returncode": 1,
+    "elapsed_seconds": 119.91017009998905,
+    "result_files": [
+      "docs/audit/storage_sink_capacity_retest_20261127_evidence/sink_matrix/p4_c64/r14_capacity_d30_r300_c64_b131072_l10_p4_703c1bc693e5.json"
+    ]
+  }
+]

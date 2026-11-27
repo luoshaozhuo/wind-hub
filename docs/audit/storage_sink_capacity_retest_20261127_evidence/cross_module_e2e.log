@@ -1,0 +1,13 @@
+...........                                                              [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_sink_capacity_retest_20261127_evidence/cross_module_e2e.xml -
+11 passed, 2 warnings in 227.55s (0:03:47)

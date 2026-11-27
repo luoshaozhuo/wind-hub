@@ -1,0 +1,9 @@
+.                                                                        [100%]
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:31: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_sink_capacity_retest_20261127_evidence/storage_30_i128/capacity.xml -
+1 passed, 1 warning in 82.21s (0:01:22)

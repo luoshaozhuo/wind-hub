@@ -1,0 +1,163 @@
+{
+  "cross_module_e2e.xml": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 227.544
+  },
+  "performance.xml": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.367
+  },
+  "publisher_128.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 17.082
+  },
+  "publisher_256.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 19.641
+  },
+  "publisher_64.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 21.652
+  },
+  "sink.xml": {
+    "tests": 428,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 6.043
+  },
+  "sink_600_p4_c16.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 780.378
+  },
+  "sink_matrix/p1_c16/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 113.168
+  },
+  "sink_matrix/p1_c32/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 118.046
+  },
+  "sink_matrix/p1_c64/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 117.035
+  },
+  "sink_matrix/p4_c16/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 109.154
+  },
+  "sink_matrix/p4_c32/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 112.89
+  },
+  "sink_matrix/p4_c64/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 119.079
+  },
+  "sink_matrix_invalid/p1_c16/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 96.769
+  },
+  "sink_matrix_invalid/p1_c32/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 98.328
+  },
+  "sink_matrix_invalid/p1_c64/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 103.691
+  },
+  "sink_matrix_invalid/p4_c16/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 108.34
+  },
+  "sink_matrix_invalid/p4_c32/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 103.061
+  },
+  "sink_matrix_invalid/p4_c64/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 107.568
+  },
+  "storage.xml": {
+    "tests": 282,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 3.058
+  },
+  "storage_100_i128/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 83.756
+  },
+  "storage_300_i128/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 179.316
+  },
+  "storage_30_i128/capacity.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 82.207
+  }
+}

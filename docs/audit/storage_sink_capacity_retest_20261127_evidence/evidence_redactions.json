@@ -1,0 +1,106 @@
+[
+  {
+    "path": "sink_600_p4_c16.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_600_p4_c16.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c64/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c64/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c32/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c32/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c16/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p1_c16/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c16/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c16/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c64/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c64/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c32/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix_invalid/p4_c32/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c64/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c64/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c32/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c32/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c16/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p1_c16/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c16/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c16/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c64/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c64/capacity.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c32/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_matrix/p4_c32/capacity.log",
+    "replacements": 1
+  }
+]
