@@ -1,0 +1,11 @@
+READY: image:dc-ems-server:1.1.4-583d5da
+READY: image:dc-ems-timescaledb:2.7.0-pg14
+READY: seed
+READY: runtime:env
+READY: runtime:db
+READY: runtime:jks
+READY: runtime:logging
+READY: license:configured
+UNVERIFIED: database:business_schema
+UNVERIFIED: server:actual_modbus_fc16
+READY_FOR_START_ATTEMPT=True

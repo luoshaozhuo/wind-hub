@@ -1,0 +1,13 @@
+## images
+dc-ems-server:1.1.4-583d5da 30779cafbfc6 2026-09-12 21:32:51 +0800 CST
+dc-ems-timescaledb:2.7.0-pg14 0f5553d37abb 2025-05-01 02:33:32 +0800 CST
+## server jar hash
+1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2  /opt/dc-ems/dc-ems.jar
+## html/data/log
+-rw-r--r-- 1 root root 154318 Sep 12 13:32 /opt/dc-ems/data.json
+-rw-r--r-- 1 root root   8408 Sep 12 13:32 /opt/dc-ems/html/index.html
+-rw-r--r-- 1 root root    754 Sep 12 13:32 /opt/dc-ems/log4j.properties
+## timescale version
+postgres (PostgreSQL) 14.17
+## image id
+sha256:30779cafbfc62090718db55e93c9bb857b2f7e831dad4ccc927cd8a137fe4e4e 2026-09-12T13:32:51.49120682Z

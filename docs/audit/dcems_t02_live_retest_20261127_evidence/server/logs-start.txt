@@ -1,0 +1,240 @@
+waiting for server to start....2026-11-27 06:24:51.143 UTC [41] LOG:  starting PostgreSQL 14.17 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit
+2026-11-27 06:24:51.146 UTC [41] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-27 06:24:51.160 UTC [42] LOG:  database system was shut down at 2026-11-27 06:24:50 UTC
+2026-11-27 06:24:51.165 UTC [41] LOG:  database system is ready to accept connections
+2026-11-27 06:24:51.166 UTC [48] LOG:  TimescaleDB background worker launcher connected to shared catalogs
+ done
+server started
+CREATE DATABASE
+
+
+/usr/local/bin/docker-entrypoint.sh: sourcing /docker-entrypoint-initdb.d/000_install_timescaledb.sh
+CREATE EXTENSION
+                      alter_job                      
+-----------------------------------------------------
+ (1,24:00:00,00:01:40,-1,01:00:00,f,,-infinity,,f,,)
+(1 row)
+
+2026-11-27 06:24:52.124 UTC [67] ERROR:  background worker "TimescaleDB Background Worker Scheduler for database 1" trying to connect to template database, exiting
+CREATE EXTENSION
+                      alter_job                      
+-----------------------------------------------------
+ (1,24:00:00,00:01:40,-1,01:00:00,f,,-infinity,,f,,)
+(1 row)
+
+CREATE EXTENSION
+                      alter_job                      
+-----------------------------------------------------
+ (1,24:00:00,00:01:40,-1,01:00:00,f,,-infinity,,f,,)
+(1 row)
+
+
+/usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/001_timescaledb_tune.sh
+[37;1mUsing postgresql.conf at this path:
+[0m/var/lib/postgresql/data/postgresql.conf
+
+[37;1mWriting backup to:
+[0m/tmp/timescaledb_tune.backup202611270624
+
+[37;1mRecommendations based on 7.36 GB of available memory and 16 CPUs for PostgreSQL 14
+shared_buffers = 1882MB
+effective_cache_size = 5648MB
+maintenance_work_mem = 964051kB
+work_mem = 1205kB
+timescaledb.max_background_workers = 16
+max_worker_processes = 35
+max_parallel_workers_per_gather = 8
+max_parallel_workers = 16
+wal_buffers = 16MB
+min_wal_size = 512MB
+default_statistics_target = 100
+random_page_cost = 1.1
+checkpoint_completion_target = 0.9
+max_locks_per_transaction = 128
+autovacuum_max_workers = 10
+autovacuum_naptime = 10
+default_toast_compression = lz4
+jit = off
+effective_io_concurrency = 256
+timescaledb.last_tuned = '2026-11-27T06:24:52Z'
+timescaledb.last_tuned_version = '0.18.0'
+[0m[37;1mSaving changes to: /var/lib/postgresql/data/postgresql.conf
+
+waiting for server to shut down...2026-11-27 06:24:52.543 UTC [41] LOG:  received fast shutdown request
+.2026-11-27 06:24:52.545 UTC [41] LOG:  aborting any active transactions
+2026-11-27 06:24:52.545 UTC [70] FATAL:  terminating background worker "TimescaleDB Background Worker Scheduler" due to administrator command
+2026-11-27 06:24:52.545 UTC [61] FATAL:  terminating background worker "TimescaleDB Background Worker Scheduler" due to administrator command
+2026-11-27 06:24:52.545 UTC [48] FATAL:  terminating background worker "TimescaleDB Background Worker Launcher" due to administrator command
+2026-11-27 06:24:52.547 UTC [41] LOG:  background worker "TimescaleDB Background Worker Launcher" (PID 48) exited with exit code 1
+2026-11-27 06:24:52.547 UTC [41] LOG:  background worker "logical replication launcher" (PID 49) exited with exit code 1
+2026-11-27 06:24:52.547 UTC [41] LOG:  background worker "TimescaleDB Background Worker Scheduler" (PID 70) exited with exit code 1
+2026-11-27 06:24:52.548 UTC [41] LOG:  background worker "TimescaleDB Background Worker Scheduler" (PID 61) exited with exit code 1
+2026-11-27 06:24:52.548 UTC [43] LOG:  shutting down
+2026-11-27 06:24:52.710 UTC [41] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+[0m2026-11-27 06:24:52.809 UTC [1] LOG:  starting PostgreSQL 14.17 on x86_64-pc-linux-musl, compiled by gcc (Alpine 13.2.1_git20240309) 13.2.1 20240309, 64-bit
+2026-11-27 06:24:52.810 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-11-27 06:24:52.820 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-11-27 06:24:52.831 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-27 06:24:52.844 UTC [84] LOG:  database system was shut down at 2026-11-27 06:24:52 UTC
+2026-11-27 06:24:52.867 UTC [1] LOG:  database system is ready to accept connections
+2026-11-27 06:24:52.868 UTC [90] LOG:  TimescaleDB background worker launcher connected to shared catalogs
+2026-11-27 06:24:57.227 UTC [102] ERROR:  relation "data.d_fp" does not exist at character 1402
+2026-11-27 06:24:57.227 UTC [102] STATEMENT:   create MATERIALIZED view  energy_report_view as SELECT
+		time_bucket ( '1 day', tm ) AS bucket,
+	 LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+		LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+	 LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+		LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+	 LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+		LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+	 LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+		LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+	 LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+		LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+	 LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+		LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+	 LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+		LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+	 LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+		LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+	FROM
+		DATA.d_fp 
+	GROUP BY
+		bucket 
+	ORDER BY
+		bucket DESC
+2026-11-27 06:24:57.877 UTC [102] ERROR:  relation "data.d_wtg01" does not exist at character 311
+2026-11-27 06:24:57.877 UTC [102] STATEMENT:  create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01
+2026-11-27 06:24:57.879 UTC [102] ERROR:  relation "data.d_wtg01" does not exist at character 333
+2026-11-27 06:24:57.879 UTC [102] STATEMENT:  create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01
+2026-11-27 06:24:57.880 UTC [102] ERROR:  relation "data.d_fp" does not exist at character 376
+2026-11-27 06:24:57.880 UTC [102] STATEMENT:  create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+2026-11-27 06:24:57.881 UTC [102] ERROR:  relation "data.d_fp" does not exist at character 396
+2026-11-27 06:24:57.881 UTC [102] STATEMENT:  create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+2026-11-27 06:24:57.882 UTC [102] ERROR:  relation "data.d_wtg01" does not exist at character 69
+2026-11-27 06:24:57.882 UTC [102] STATEMENT:  create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 1402 Query: drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.service.QueryService.createMaterializedView(QueryService.java:324)
+	at cn.hedpy.scada.ems.service.DbStructService.checkView(DbStructService.java:254)
+	at cn.hedpy.scada.ems.EmsApp.checkTableStruct(EmsApp.java:214)
+	at cn.hedpy.scada.ems.EmsApp.<init>(EmsApp.java:36)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:24)
+2026-11-27 06:24:57.877 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wt error ,sql:create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 311 Query: create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:193)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:24:57.879 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wt error ,sql:create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 333 Query: create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:194)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:24:57.880 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wf error ,sql:create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 376 Query: create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:195)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:24:57.881 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wf error ,sql:create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 396 Query: create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:197)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:24:57.882 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view data_wt error ,sql:create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 69 Query: create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:199)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:24:57.908 [ERROR][main][cn.hedpy.scada.ems.StartUp] 应用发生异常：授权码与服务不匹配，请将机器码提供至管理员，申请授权码 
+------机器码------
+<redacted-machine-code>
+------------------

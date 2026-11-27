@@ -1,0 +1,10 @@
+## tar sha256 vs MANIFEST
+5694498dfbfd6e6fd5ad6b9759674cd217f3084e9d34c8f49ccc527713427ac7  images/dc-ems-server.tar
+8a501f98cd6cad490fe99786991ad8dba88235b0834a7b1faa69e36fe68944b5  images/timescaledb.tar
+5694498dfbfd6e6fd5ad6b9759674cd217f3084e9d34c8f49ccc527713427ac7  ./images/dc-ems-server.tar
+8a501f98cd6cad490fe99786991ad8dba88235b0834a7b1faa69e36fe68944b5  ./images/timescaledb.tar
+## loaded image IDs
+sha256:30779cafbfc62090718db55e93c9bb857b2f7e831dad4ccc927cd8a137fe4e4e [dc-ems-server@sha256:30779cafbfc62090718db55e93c9bb857b2f7e831dad4ccc927cd8a137fe4e4e]
+sha256:0f5553d37abbe0f20bfe0a04dab5d1238955b5cda2711aba403090f95b6e51ff [dc-ems-timescaledb@sha256:0f5553d37abbe0f20bfe0a04dab5d1238955b5cda2711aba403090f95b6e51ff]
+## release image set
+server + timescaledb only; dc-ems-web is not exported by package_images.py and repo has no web tar

@@ -1,0 +1,20 @@
+{
+  "project": "dcems-wtg-control",
+  "release_version": "1.1.4-583d5da",
+  "checks": {
+    "image:dc-ems-server:1.1.4-583d5da": "READY",
+    "image:dc-ems-timescaledb:2.7.0-pg14": "READY",
+    "seed": "READY",
+    "runtime:env": "READY",
+    "runtime:db": "READY",
+    "runtime:jks": "READY",
+    "runtime:logging": "READY",
+    "license:configured": "READY",
+    "database:business_schema": "UNVERIFIED",
+    "server:actual_modbus_fc16": "UNVERIFIED"
+  },
+  "missing": [],
+  "ready_for_start_attempt": true,
+  "ready_for_T02_acceptance": false,
+  "note": "Schema and actual FC16 require an authorized live Server run."
+}

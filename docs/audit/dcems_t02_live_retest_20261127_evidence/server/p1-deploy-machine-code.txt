@@ -1,0 +1,8 @@
+# P1 reproduction: deploy.sh machine code uses DCEMS but app SYSCODE is DC-EMS
+third_party/dc-ems/deploy.sh:113:
+        -cp dc-ems.jar cn.hedpy.scada.license.LiscenceUtil machine-code DCEMS
+server G.java:57:
+    public static final String SYSCODE = "DC-EMS";
+## observed
+license generated from machine-code DCEMS -> Server log: 授权码与服务不匹配;
+license generated from Server-printed machine code (SYSCODE DC-EMS) -> Server started and Web/API ready.

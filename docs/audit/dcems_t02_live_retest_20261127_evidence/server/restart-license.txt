@@ -1,0 +1,2 @@
+ Container dcems-wtg-control-dc-ems-server-1 Restarting 
+ Container dcems-wtg-control-dc-ems-server-1 Started 

@@ -1,0 +1,7 @@
+ports released
+volumes preserved:
+dcems-wtg-control_cache
+dcems-wtg-control_database
+dcems-wtg-control_files
+dcems-wtg-control_logs
+dcems-wtg-control_models

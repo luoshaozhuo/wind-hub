@@ -16,5 +16,10 @@ services:
         source: ${DCEMS_WTG_SEED:?set absolute path to isolated data.json}
         target: /opt/dc-ems/data.json
         read_only: true
+      # WSL/容器无 dmidecode 时授权回退到 machine-id；固定隔离值使授权跨重启稳定。
+      - type: bind
+        source: ${DCEMS_WTG_MACHINE_ID:?set isolated machine-id path}
+        target: /etc/machine-id
+        read_only: true
 # 发布包只提供 Server 与 TimescaleDB 镜像；Server 镜像内含 html/，
 # 并在 HTTPS 443 同端口提供 /dc-ems 静态页与 /api。不得虚构 dc-ems-web 镜像。

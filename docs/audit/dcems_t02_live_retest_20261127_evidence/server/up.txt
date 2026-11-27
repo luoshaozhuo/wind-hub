@@ -1,0 +1,47 @@
+READY: image:dc-ems-server:1.1.4-583d5da
+READY: image:dc-ems-timescaledb:2.7.0-pg14
+READY: seed
+READY: runtime:env
+READY: runtime:db
+READY: runtime:jks
+READY: runtime:logging
+READY: license:configured
+UNVERIFIED: database:business_schema
+UNVERIFIED: server:actual_modbus_fc16
+READY_FOR_START_ATTEMPT=True
+ Network dcems-wtg-control_default Creating 
+ Network dcems-wtg-control_default Creating 
+ Volume dcems-wtg-control_files Creating 
+ Volume dcems-wtg-control_cache Creating 
+ Volume dcems-wtg-control_cache Creating 
+ Volume dcems-wtg-control_models Creating 
+ Volume dcems-wtg-control_database Creating 
+ Volume dcems-wtg-control_database Creating 
+ Volume dcems-wtg-control_files Creating 
+ Volume dcems-wtg-control_models Creating 
+ Volume dcems-wtg-control_logs Creating 
+ Volume dcems-wtg-control_logs Creating 
+ Volume dcems-wtg-control_cache Created 
+ Volume dcems-wtg-control_cache Created 
+ Volume dcems-wtg-control_logs Created 
+ Volume dcems-wtg-control_logs Created 
+ Volume dcems-wtg-control_database Created 
+ Volume dcems-wtg-control_database Created 
+ Volume dcems-wtg-control_files Created 
+ Volume dcems-wtg-control_files Created 
+ Volume dcems-wtg-control_models Created 
+ Volume dcems-wtg-control_models Created 
+ Network dcems-wtg-control_default Created 
+ Network dcems-wtg-control_default Created 
+ Container dcems-wtg-control-dc-ems-db-1 Creating 
+ Container dcems-wtg-control-dc-ems-db-1 Created 
+ Container dcems-wtg-control-dc-ems-server-1 Creating 
+ Container dcems-wtg-control-dc-ems-server-1 Created 
+ Container dcems-wtg-control-dc-ems-db-1 Starting 
+ Container dcems-wtg-control-dc-ems-db-1 Started 
+ Container dcems-wtg-control-dc-ems-db-1 Waiting 
+ Container dcems-wtg-control-dc-ems-db-1 Healthy 
+ Container dcems-wtg-control-dc-ems-server-1 Starting 
+ Container dcems-wtg-control-dc-ems-server-1 Started 
+WTG Control Web: https://127.0.0.1:18453/dc-ems/ (self-signed)
+Server readiness and Docker-to-Gateway TCP must be verified independently.

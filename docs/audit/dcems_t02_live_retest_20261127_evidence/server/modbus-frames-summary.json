@@ -1,0 +1,41 @@
+{
+  "fc16_write": [
+    {
+      "raw": "00300000000b0110a255000204000043e1",
+      "unit": 1,
+      "function_code": 16,
+      "address": 41557,
+      "quantity": 2,
+      "byte_count": 4,
+      "data_hex": "000043e1",
+      "decoded_cdab": 450.0
+    }
+  ],
+  "fc03_poll_sample": [
+    {
+      "raw": "0001000000060103a2530004",
+      "unit": 1,
+      "function_code": 3,
+      "address": 41555,
+      "quantity": 4
+    },
+    {
+      "raw": "0002000000060103a2530004",
+      "unit": 1,
+      "function_code": 3,
+      "address": 41555,
+      "quantity": 4
+    },
+    {
+      "raw": "0003000000060103a2530004",
+      "unit": 1,
+      "function_code": 3,
+      "address": 41555,
+      "quantity": 4
+    }
+  ],
+  "counts": {
+    "fc16_requests": 1,
+    "fc03_requests": 82
+  }
+}

@@ -1,0 +1,27 @@
+license_present|length
+t|172
+
+device|name|capacity|forbiden
+WTG01|isolated-DCEMS-WTG01|2000|f|f
+
+edge_server|ip|port|type
+1|host.docker.internal|15531|MODBUSTCP|500
+
+edge points
+ctrlReActPow|1.4.41555|F|1|t
+ctrlActPow|1.4.41557|F|1|t
+
+data tables
+d_fp
+d_fre
+d_inertia
+d_wtg01
+
+d_wtg01 rows
+668
+
+auto control flags
+bFreCtrlEnableFlag|false
+emsActPowerEnable|false
+emsReactPowerEnable|false
+

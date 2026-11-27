@@ -1,0 +1,1670 @@
+2026-11-27 06:26:56.032 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Starting...
+2026-11-27 06:26:56.220 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Start completed.
+2026-11-27 06:26:56.829 [ERROR][main][cn.hedpy.scada.ems.service.QueryService] create view energy_report_view error ,sql:drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 1402 Query: drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.service.QueryService.createMaterializedView(QueryService.java:324)
+	at cn.hedpy.scada.ems.service.DbStructService.checkView(DbStructService.java:254)
+	at cn.hedpy.scada.ems.EmsApp.checkTableStruct(EmsApp.java:214)
+	at cn.hedpy.scada.ems.EmsApp.<init>(EmsApp.java:36)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:24)
+2026-11-27 06:26:57.458 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wt error ,sql:create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 311 Query: create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:193)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:26:57.459 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wt error ,sql:create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 333 Query: create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:194)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:26:57.460 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wf error ,sql:create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 376 Query: create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:195)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:26:57.461 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wf error ,sql:create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 396 Query: create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:197)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:26:57.461 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view data_wt error ,sql:create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 69 Query: create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:199)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:26:57.489 [ERROR][main][cn.hedpy.scada.ems.StartUp] 应用发生异常：授权码与服务不匹配，请将机器码提供至管理员，申请授权码 
+------机器码------
+<redacted-machine-code>
+------------------
+2026-11-27 06:28:31.901 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Starting...
+2026-11-27 06:28:32.074 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Start completed.
+2026-11-27 06:28:32.295 [ERROR][main][cn.hedpy.scada.ems.service.QueryService] create view energy_report_view error ,sql:drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 1402 Query: drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.service.QueryService.createMaterializedView(QueryService.java:324)
+	at cn.hedpy.scada.ems.service.DbStructService.checkView(DbStructService.java:254)
+	at cn.hedpy.scada.ems.EmsApp.checkTableStruct(EmsApp.java:214)
+	at cn.hedpy.scada.ems.EmsApp.<init>(EmsApp.java:36)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:24)
+2026-11-27 06:28:32.825 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wt error ,sql:create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 311 Query: create or replace  view  pldata_power_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:193)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:28:32.827 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wt error ,sql:create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 333 Query: create or replace  view  pldata_repower_wt as select tm as 时间, 'isolated-DCEMS-WTG01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:194)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:28:32.828 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wf error ,sql:create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 376 Query: create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:195)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:28:32.830 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wf error ,sql:create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 396 Query: create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:197)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:28:32.831 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view data_wt error ,sql:create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01
+java.sql.SQLException: ERROR: relation "data.d_wtg01" does not exist
+  Position: 69 Query: create or replace  view  data_wt as select 'WTG01' as device,* from data.d_WTG01 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:199)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-27 06:28:32.855 [ INFO][main][cn.hedpy.scada.ems.EmsApp] RMI监听IP为空，正常模式启动
+2026-11-27 06:28:32.869 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15531
+2026-11-27 06:28:32.880 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:32.931 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:32.973 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA REDIS 连接未配置
+2026-11-27 06:28:32.973 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA 心跳连接未配置
+2026-11-27 06:28:33.139 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443
+2026-11-27 06:28:33.872 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:33.989 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:34.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:35.047 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:35.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:36.106 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:36.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:37.163 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:37.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:38.220 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:38.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:39.280 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:39.570 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:39.874 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:40.338 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:40.875 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:41.397 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:41.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:42.456 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:42.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:43.515 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:43.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:44.574 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:44.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:45.633 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:45.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:46.572 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:46.690 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:46.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:47.748 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:47.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:48.806 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:48.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:49.865 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:49.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:50.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:50.924 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:51.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:51.982 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:52.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:53.041 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:53.573 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:53.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:54.098 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:54.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:55.155 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:55.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:56.213 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:56.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:57.271 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:57.875 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:58.328 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:58.875 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:28:59.386 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:28:59.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:00.444 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:00.573 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:00.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:01.503 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:01.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:02.562 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:02.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:03.620 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:03.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:04.677 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:04.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:05.735 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:05.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:06.794 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:06.878 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:07.575 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:07.854 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:07.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:08.877 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:08.911 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusInitException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:158)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:328)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.init(TcpMaster.java:156)
+	... 2 more
+2026-11-27 06:29:09.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+Exception in thread "dataMain" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+Exception in thread "reactPow" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:29:34.125 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:29:34.160 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$m79EXo7OLGwC4AtOzwvTE.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:30:20.466 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:30:20.484 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$vwP7aeQjc/S5XxkCGAw15/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:30:20.507 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:30:20.520 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:30:21.413 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:30:21.444 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:30:21.996 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:30:22.005 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$WhloQ9D1BMOH2FJbqJg9l.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:30:22.031 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:30:22.033 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:31:07.229 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:31:07.237 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$uvHeqiwOinccFMAGRkCfF.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:31:07.256 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:31:07.259 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:31:11.733 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:31:11.747 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$PEqcDr.qVFWIWJlH.QKyF.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:31:11.766 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:31:11.770 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:31:12.677 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:31:12.688 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:31:13.243 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:31:13.363 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$6nsQIUDP5/ovPdYLFeW3u/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:31:13.385 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:31:13.385 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:33:21.441 [ INFO][Thread-5][cn.hedpy.scada.ems.StartUp] 程序退出中，保存数据至缓存
+2026-11-27 06:33:21.448 [ERROR][Thread-5][cn.hedpy.scada.ems.EmsApp] 停止WebManager失败
+java.lang.IllegalStateException: Shutdown in progress
+	at java.lang.ApplicationShutdownHooks.add(ApplicationShutdownHooks.java:66)
+	at java.lang.Runtime.addShutdownHook(Runtime.java:203)
+	at io.vertx.core.file.impl.FileCache.registerShutdownHook(FileCache.java:79)
+	at io.vertx.core.file.impl.FileCache.setupCache(FileCache.java:32)
+	at io.vertx.core.file.impl.FileResolverImpl.<init>(FileResolverImpl.java:66)
+	at io.vertx.core.impl.VertxBuilder.initFileResolver(VertxBuilder.java:334)
+	at io.vertx.core.impl.VertxBuilder.init(VertxBuilder.java:274)
+	at io.vertx.core.Vertx.vertx(Vertx.java:86)
+	at io.vertx.core.Vertx.vertx(Vertx.java:76)
+	at cn.hedpy.scada.ems.core.web.WebManager.stop(WebManager.java:35)
+	at cn.hedpy.scada.ems.EmsApp.stop(EmsApp.java:183)
+	at cn.hedpy.scada.ems.StartUp.lambda$main$0(StartUp.java:35)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:33:21.464 [ INFO][Thread-5][cn.hedpy.scada.ems.StartUp] 程序退出完成
+2026-11-27 06:33:23.032 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Starting...
+2026-11-27 06:33:23.226 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Start completed.
+2026-11-27 06:33:24.158 [ INFO][main][cn.hedpy.scada.ems.EmsApp] RMI监听IP为空，正常模式启动
+2026-11-27 06:33:24.178 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15532
+Exception in thread "dataMain" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:33:24.289 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA REDIS 连接未配置
+2026-11-27 06:33:24.289 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA 心跳连接未配置
+2026-11-27 06:33:24.461 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443
+Exception in thread "reactPow" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:33:47.783 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:33:47.829 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$QmX6ZEIj1ACXiuNhas8Pd.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:33:47.878 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:33:47.894 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:34:05.710 [ INFO][Thread-5][cn.hedpy.scada.ems.StartUp] 程序退出中，保存数据至缓存
+2026-11-27 06:34:10.195 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Starting...
+2026-11-27 06:34:10.384 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Start completed.
+2026-11-27 06:34:11.352 [ INFO][main][cn.hedpy.scada.ems.EmsApp] RMI监听IP为空，正常模式启动
+2026-11-27 06:34:11.370 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15531
+Exception in thread "dataMain" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:34:11.458 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA REDIS 连接未配置
+2026-11-27 06:34:11.458 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA 心跳连接未配置
+2026-11-27 06:34:11.624 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443
+Exception in thread "reactPow" java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-27 06:34:28.450 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:34:28.490 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$gHAhhzk03xTI6mvKnizy1/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:34:28.531 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:34:28.547 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:34:33.142 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:34:33.154 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$SYQReG0Qh/bSmTfcd3Fi9.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:34:33.174 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:34:33.177 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:34:34.144 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:34:34.153 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:34:34.709 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:34:34.721 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$nmedgFVDDtHI28KvQv5ef.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:34:34.747 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:34:34.747 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:35:28.015 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:35:28.023 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$c5Tn7b7YKU5.juncorUOC1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:35:28.043 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:35:28.047 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:35:32.602 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:35:32.610 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$5Nd4id3Sk4Pg4LkKQ7zIJ.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:35:32.627 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:35:32.633 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:35:33.574 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:35:33.581 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$gT4bAsf4WHkssmNOa9hHp0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:35:34.356 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:35:34.365 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:35:34.427 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:35:34.440 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$LIBGYoL0KTnzcf8JjaQDU/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:35:42.139 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:43.201 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:44.261 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:45.319 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:46.377 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:47.435 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:48.494 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:49.552 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:50.610 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:51.667 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:52.725 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:53.783 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:54.841 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:55.899 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:56.956 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:35:58.011 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:36:09.764 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:36:09.772 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$M1OGBuvpq3FkPRCFKqZda1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:36:09.792 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:36:09.796 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:36:14.346 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:36:14.354 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$eME6TmopaOwXnt1YavJLc1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:36:14.373 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:36:14.377 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:36:15.430 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:36:15.435 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$3Ma1s5utZeChTBaeGYKmc/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:36:15.977 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:36:15.983 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:36:16.532 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:36:16.537 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$KTquzn9t3/9K3vi7ZWZ3e0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:36:16.559 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:36:16.559 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:37:13.737 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:37:13.742 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$5zS/lEtdDXivrhz8qNhaH.":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:37:13.761 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:37:13.766 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:37:18.304 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:37:18.308 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$mn7hBqApXsDOrorQp2o9o/":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:37:18.324 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:37:18.328 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:37:19.268 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:37:19.273 [ INFO][vert-worker-pool-12][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$pTYIkVrWidFWKyNGmDRaj1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:37:19.355 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:37:19.360 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:37:19.909 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:37:19.931 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$tOB8bXIoXMyj5xJSdZo5s0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:37:19.954 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:37:19.954 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:38:15.701 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:15.706 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$rB4KtpV/pAVCeI/NUxspP1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:15.722 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:38:15.726 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:20.258 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:20.263 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$F1xowirsQ6jVeKVE0wB9x1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:20.280 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:38:20.283 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:21.212 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:21.216 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$e2fsbmJ9TWE.pwyBNgTxM0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:21.247 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:38:29.305 [ERROR][vert-worker-pool-0][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.control(DataGetterModbusImpl.java:288)
+	at cn.hedpy.scada.ems.core.web.routers.Configure.lambda$setParam$24(Configure.java:513)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:126)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.handle(BodyHandlerImpl.java:94)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.handle(BodyHandlerImpl.java:44)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at cn.hedpy.scada.ems.core.web.routers.LogRouter.lambda$accessLogPost$2(LogRouter.java:88)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:126)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl$BHandler.doEnd(BodyHandlerImpl.java:313)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl$BHandler.end(BodyHandlerImpl.java:290)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.lambda$handle$0(BodyHandlerImpl.java:86)
+	at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:100)
+	at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:63)
+	at io.vertx.core.http.impl.HttpEventHandler.handleEnd(HttpEventHandler.java:76)
+	at io.vertx.core.http.impl.Http1xServerRequest.onEnd(Http1xServerRequest.java:561)
+	at io.vertx.core.http.impl.Http1xServerRequest.handleEnd(Http1xServerRequest.java:544)
+	at io.vertx.core.impl.WorkerContext.lambda$execute$2(WorkerContext.java:104)
+	at io.vertx.core.impl.TaskQueue.run(TaskQueue.java:76)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.setValue(ModbusMaster.java:542)
+	at cn.hedpy.protocol.modbus.ModbusMaster.setValue(ModbusMaster.java:233)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.control(DataGetterModbusImpl.java:280)
+	... 27 more
+2026-11-27 06:38:29.306 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:29.360 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:38:30.417 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:255)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.sendFunctionGroup(ModbusMaster.java:506)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:439)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:330)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	... 5 more
+2026-11-27 06:38:36.345 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:38:36.349 [ INFO][vert-worker-pool-3][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:37.276 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:37.280 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 06:38:37.830 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:37.837 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$ckWtgotdveZEMI16okSx91":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:37.859 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:38:37.859 [ INFO][vert-worker-pool-7][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}

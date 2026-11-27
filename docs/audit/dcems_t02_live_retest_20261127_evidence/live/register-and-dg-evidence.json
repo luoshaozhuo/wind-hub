@@ -1,0 +1,50 @@
+{
+  "active": {
+    "gw1_41557": [
+      0,
+      17377
+    ],
+    "expected_cdab_450": [
+      0,
+      17377
+    ],
+    "gw2_41557": [
+      47616,
+      18651
+    ],
+    "expected_cdab_450000": [
+      47616,
+      18651
+    ]
+  },
+  "reactive": {
+    "gw1_41555": [
+      0,
+      17146
+    ],
+    "expected_cdab_125": [
+      0,
+      17146
+    ],
+    "gw2_41555": [
+      9216,
+      18420
+    ],
+    "expected_cdab_125000": [
+      9216,
+      18420
+    ]
+  },
+  "dcems-server-control-evidence": {
+    "generation_id": "ea24228e-d7de-4592-9f19-e46888cbe0de",
+    "command_id": "161f3307-96da-463c-8e18-0038db798a7c",
+    "dg_state": "APPLIED",
+    "effective_step": 6346
+  },
+  "dcems-server-reactive-evidence": {
+    "generation_id": "ea24228e-d7de-4592-9f19-e46888cbe0de",
+    "command_id": "cf1e8973-b5d3-4fc9-8a19-abd48bbf793e",
+    "dg_state": "APPLIED",
+    "effective_step": 6438
+  }
+}

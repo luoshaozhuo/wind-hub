@@ -21,6 +21,7 @@ export DCEMS_RELEASE_DIR="${RELEASE}"
 export DCEMS_TEST_DIR="${HERE}"
 export DCEMS_WTG_SEED="${RUNTIME}/data.json"
 export DEPLOY_CONFIG_DIR="${RUNTIME}/docker/config"
+export DCEMS_WTG_MACHINE_ID="${RUNTIME}/machine-id"
 VERSION="$(sed -n 's/^release_version=//p' "${RELEASE}/VERSION")"
 [[ -n "${VERSION}" ]] || fail "release version missing"
 export SERVER_IMAGE="${SERVER_IMAGE:-dc-ems-server:${VERSION}}"
@@ -63,6 +64,7 @@ python -m tests.third_party.dc_ems.preflight_wtg_dcems_server --root "${RUNTIME}
 [[ -f "${DCEMS_WTG_SEED}" ]] || fail "prepare separate control data.json first"
 [[ -f "${RUNTIME}/docker/dcems.env" ]] || fail "prepare isolated runtime first"
 [[ -f "${DEPLOY_CONFIG_DIR}/db.property" ]] || fail "isolated database config missing"
+[[ -f "${DCEMS_WTG_MACHINE_ID}" ]] || fail "prepare isolated machine-id first"
 grep -q '^DB_NAME=dcems_smoke$' "${RUNTIME}/docker/dcems.env" \
     || fail "unexpected database name"
 grep -q '/dcems_smoke?' "${DEPLOY_CONFIG_DIR}/db.property" \

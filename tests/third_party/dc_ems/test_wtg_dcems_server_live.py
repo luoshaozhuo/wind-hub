@@ -12,12 +12,16 @@ from typing import Any, cast
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import grpc
 import pytest
 from pymodbus.client import ModbusTcpClient
 
-from tests.third_party.dc_ems.test_control_chain_live import _cli, _events, _request_id
+from contracts import common_pb2 as common  # type: ignore[import-untyped]
+from contracts import industrial_gateway_pb2_grpc as gateway_rpc
+from tests.third_party.dc_ems.test_control_chain_live import _cli, _events, _request_id, _wait_port
 from tests.third_party.dc_ems.test_wtg_control_chain_live import (
     _assert_applied,
+    _read_power,
     _terminal_request,
     _words_cdab,
 )
@@ -26,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SERVER_URL = os.environ.get("DCEMS_WTG_SERVER_URL", "https://127.0.0.1:18453")
 CONTROL_DEVICE_ID = "WTG01"
 POWER_POINT = "ctrlActPow"
+REACTIVE_POINT = "ctrlReActPow"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -39,6 +44,32 @@ def require_server() -> None:
 
 def _base() -> Path:
     return Path(os.environ.get("DCEMS_CONTROL_ROOT", str(ROOT / "run" / "dcems-control-wtg")))
+
+
+def _generation_id() -> str:
+    return (_base() / "state" / "generation-id.txt").read_text(encoding="utf-8").strip()
+
+
+def _ingress_listener(action: str) -> None:
+    """Use the authorized Gateway1 management RPC so event API stays available."""
+    token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
+    channel = grpc.insecure_channel("127.0.0.1:52174")
+    try:
+        stub = gateway_rpc.IndustrialGatewayServiceStub(channel)
+        revision = stub.GetGateway(
+            common.ObjectId(id="dcems-control-ingress-wtg"),
+            metadata=(("authorization", f"Bearer {token}"),),
+            timeout=10,
+        ).gateway.revision
+        assert revision
+        result = getattr(stub, action)(
+            common.OperationRequest(id="dcems-control-ingress-wtg", expected_revision=revision),
+            metadata=(("authorization", f"Bearer {token}"),),
+            timeout=10,
+        )
+        assert result.accepted, result
+    finally:
+        channel.close()
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -91,11 +122,25 @@ def _set_param(token: str, values: dict[str, Any]) -> tuple[int, dict[str, Any]]
     return _request("/api/config/setParam", data=payload, token=token, method="POST")
 
 
-def _dcems_set_power(token: str, value_kw: float) -> dict[str, Any]:
+def _dcems_set_point(token: str, point: str, value: float) -> dict[str, Any]:
     """调用真实 DCEMS 控制参数入口；其成功回执不代表 Modbus 执行成功。"""
-    status, body = _set_param(token, {f"{CONTROL_DEVICE_ID}_{POWER_POINT}": value_kw})
+    status, body = _set_param(token, {f"{CONTROL_DEVICE_ID}_{point}": value})
     assert status == 200, status
     return body
+
+
+def _wait_physical_power(expected_w: float, *, timeout: float = 35.0) -> float:
+    """等待真实模型有功输出进入目标 ±1% 或 2 kW。"""
+    tolerance = max(abs(expected_w) * 0.01, 2000.0)
+    deadline = time.monotonic() + timeout
+    samples: list[float] = []
+    while time.monotonic() < deadline:
+        samples.append(_read_power(15421, 38))
+        recent = samples[-8:]
+        if len(recent) == 8 and all(abs(item - expected_w) <= tolerance for item in recent):
+            return sum(recent) / len(recent)
+        time.sleep(0.5)
+    pytest.fail(f"physical power did not settle to {expected_w} W: {samples[-8:]}")
 
 
 def _assert_no_new_protocol_write(prior: set[str]) -> None:
@@ -111,7 +156,7 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
     token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
     prior = {event.event_id for event in _events(token)}
     session = _login()
-    web_result = _dcems_set_power(session, 450.0)
+    web_result = _dcems_set_point(session, POWER_POINT, 450.0)
     assert web_result.get("code") == "200", web_result
 
     event_id = ""
@@ -128,7 +173,7 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
     assert request["request_id"] == event_id
     assert request["state"] == "SUCCEEDED", request
     assert request["io_settled"] is True, request
-    assert len(request["commands"]) == 1
+    assert len(request["commands"]) == 1, request
     command_id = str(request["commands"][0]["command_id"])
     command = _cli("commander", "result", command_id)["data"]
     assert command["device_id"] == "WTG_SIM01"
@@ -149,6 +194,7 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
     finally:
         gateway2.close()
 
+    physical_w = _wait_physical_power(450000.0)
     evidence = {
         "source": "dc-ems Server /api/config/setParam",
         "dcems_device_id": CONTROL_DEVICE_ID,
@@ -161,11 +207,106 @@ def test_real_dcems_server_wtg_power_command_reaches_dg() -> None:
         "commander_outcome": command["outcome"],
         "generator_state": "APPLIED",
         "gateway2_readback_w": 450000.0,
+        "physical_active_power_w": physical_w,
         "dcems_web_ack_is_not_execution_proof": True,
     }
     (base / "state" / "dcems-server-control-evidence.json").write_text(
         json.dumps(evidence, indent=2), encoding="utf-8"
     )
+
+
+def test_real_dcems_server_wtg_reactive_command_reaches_dg() -> None:
+    """真实 Server 125 kvar→125000 var，经 FC16 到达 DG 与 Gateway2。"""
+    base = _base()
+    generation_id = (base / "state" / "generation-id.txt").read_text(encoding="utf-8").strip()
+    token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
+    prior = {event.event_id for event in _events(token)}
+    session = _login()
+    web_result = _dcems_set_point(session, REACTIVE_POINT, 125.0)
+    assert web_result.get("code") == "200", web_result
+
+    event_id = ""
+    for _ in range(150):
+        event_id = _request_id(prior, token) or ""
+        if event_id:
+            break
+        time.sleep(0.1)
+    assert event_id, "DCEMS reactive control did not reach Gateway1"
+    request = _terminal_request(event_id)
+    assert request["state"] == "SUCCEEDED", request
+    assert request["io_settled"] is True, request
+    assert len(request["commands"]) == 1, request
+    command_id = str(request["commands"][0]["command_id"])
+    command = _cli("commander", "result", command_id)["data"]
+    assert command["device_id"] == "WTG_SIM01"
+    assert command["point_id"] == "reactive_power_setpoint"
+    assert command["outcome"] == "CONFIRMED_SUCCESS"
+    assert _assert_applied(command_id, generation_id) > 0
+
+    gateway2 = ModbusTcpClient("127.0.0.1", port=15421, timeout=5)
+    try:
+        assert gateway2.connect()
+        for _ in range(100):
+            actual = gateway2.read_holding_registers(41555, count=2, device_id=1)
+            if not actual.isError() and actual.registers == _words_cdab(125000.0):
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("Gateway2 did not publish 125000 var after DCEMS control")
+    finally:
+        gateway2.close()
+
+    evidence = {
+        "source": "dc-ems Server /api/config/setParam",
+        "dcems_device_id": CONTROL_DEVICE_ID,
+        "windhub_device_id": "WTG_SIM01",
+        "dcems_point_id": REACTIVE_POINT,
+        "commanded_kvar": 125.0,
+        "expected_dg_var": 125000.0,
+        "gateway_event_id": event_id,
+        "commander_command_id": command_id,
+        "commander_outcome": command["outcome"],
+        "generator_state": "APPLIED",
+        "gateway2_readback_var": 125000.0,
+        "dcems_web_ack_is_not_execution_proof": True,
+    }
+    (base / "state" / "dcems-server-reactive-evidence.json").write_text(
+        json.dumps(evidence, indent=2), encoding="utf-8"
+    )
+
+
+def test_dcems_gateway_disconnect_is_observable_and_recoverable() -> None:
+    """Gateway1 失联时 Web 仍回“控制成功”但无 FC16；恢复后控制可用。"""
+    session = _login()
+    token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
+    _ingress_listener("StopGateway")
+    _wait_port(15531, opened=False)
+    prior = {event.event_id for event in _events(token)}
+    body = _dcems_set_point(session, POWER_POINT, 450.0)
+    assert body.get("code") == "200", body  # 源码限制：Web 忽略 getter.control 返回值。
+    time.sleep(2.0)
+    assert _request_id(prior, token) is None, "downed Gateway1 still received a protocol write"
+
+    _ingress_listener("StartGateway")
+    _wait_port(15531, opened=True)
+    time.sleep(5.0)  # 等待 Server 重新完成 FC03 轮询并置位 comOk。
+    prior = {event.event_id for event in _events(token)}
+    body = _dcems_set_point(session, POWER_POINT, 450.0)
+    assert body.get("code") == "200", body
+    event_id = ""
+    for _ in range(150):
+        event_id = _request_id(prior, token) or ""
+        if event_id:
+            break
+        time.sleep(0.1)
+    assert event_id, "control did not recover after Gateway1 restart"
+    request = _terminal_request(event_id)
+    assert request["state"] == "SUCCEEDED", request
+    assert len(request["commands"]) == 1, request
+    command_id = str(request["commands"][0]["command_id"])
+    command = _cli("commander", "result", command_id)["data"]
+    assert command["outcome"] == "CONFIRMED_SUCCESS", command
+    assert _assert_applied(command_id, _generation_id()) > 0
 
 
 def test_dcems_login_rejects_wrong_password() -> None:

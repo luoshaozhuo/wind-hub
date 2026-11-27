@@ -1,0 +1,61 @@
+2026-11-27 06:37:19.931 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$tOB8bXIoXMyj5xJSdZo5s0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:37:19.954 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 06:37:19.954 [ INFO][vert-worker-pool-16][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 06:38:15.701 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:15.706 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$rB4KtpV/pAVCeI/NUxspP1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:15.722 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:38:15.726 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:20.258 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:20.263 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$F1xowirsQ6jVeKVE0wB9x1":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:20.280 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 06:38:20.283 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:21.212 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] GET:/api/login?auth=<redacted>
+2026-11-27 06:38:21.216 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=<redacted> DATA:{"code":"200","msg":"登陆成功","data":{"<redacted-session>$e2fsbmJ9TWE.pwyBNgTxM0":{"id":1,"userName":"admin","userAcount":"admin","passwd":null,"ctrlPasswd":"","role":"admin","passErrCount":-1,"accountLockTm":null}}}
+2026-11-27 06:38:21.247 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 06:38:29.305 [ERROR][vert-worker-pool-0][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.control(DataGetterModbusImpl.java:288)
+	at cn.hedpy.scada.ems.core.web.routers.Configure.lambda$setParam$24(Configure.java:513)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:126)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.handle(BodyHandlerImpl.java:94)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.handle(BodyHandlerImpl.java:44)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at cn.hedpy.scada.ems.core.web.routers.LogRouter.lambda$accessLogPost$2(LogRouter.java:88)
+	at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)
+	at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:126)
+	at io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:201)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl$BHandler.doEnd(BodyHandlerImpl.java:313)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl$BHandler.end(BodyHandlerImpl.java:290)
+	at io.vertx.ext.web.handler.impl.BodyHandlerImpl.lambda$handle$0(BodyHandlerImpl.java:86)
+	at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:100)
+	at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:63)
+	at io.vertx.core.http.impl.HttpEventHandler.handleEnd(HttpEventHandler.java:76)
+	at io.vertx.core.http.impl.Http1xServerRequest.onEnd(Http1xServerRequest.java:561)
+	at io.vertx.core.http.impl.Http1xServerRequest.handleEnd(Http1xServerRequest.java:544)
+	at io.vertx.core.impl.WorkerContext.lambda$execute$2(WorkerContext.java:104)
+	at io.vertx.core.impl.TaskQueue.run(TaskQueue.java:76)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.net.ConnectException: Connection refused (Connection refused)
+	at java.net.PlainSocketImpl.socketConnect(Native Method)
+	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:350)
+	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+	at java.net.Socket.connect(Socket.java:607)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.openConnection(TcpMaster.java:290)
+	at cn.hedpy.protocol.modbus.ip.tcp.TcpMaster.sendImpl(TcpMaster.java:238)
+	at cn.hedpy.protocol.modbus.ModbusMaster.send(ModbusMaster.java:147)
+	at cn.hedpy.protocol.modbus.ModbusMaster.setValue(ModbusMaster.java:542)
+	at cn.hedpy.protocol.modbus.ModbusMaster.setValue(ModbusMaster.java:233)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.control(DataGetterModbusImpl.java:280)
+	... 27 more
+2026-11-27 06:38:29.306 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 06:38:29.360 [ERROR][MODBUSTCP-dcems-wtg-control-isolated][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15531
+cn.hedpy.protocol.modbus.exception.ModbusTransportException: java.net.ConnectException: Connection refused (Connection refused)
