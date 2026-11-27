@@ -90,19 +90,37 @@ class GatewaySimulationSession:
             return ProtocolWriteResult(spec.point_id, WriteOutcome.UNKNOWN, "GATEWAY_NO_REVISION")
         timestamp = Timestamp()
         timestamp.FromDatetime(expiry)
-        response = await client.ExecuteSimulationCommand(
-            gateway.SimulationCommandRequest(
-                gateway_id=self._target.gateway_id,
-                device_id=spec.device_id,
-                point_id=spec.point_id,
-                value=encode_scalar(spec.value),
-                request_id=command.command_id,
-                expected_revision=revision,
-                expires_at=timestamp,
-            ),
-            timeout=max(0.001, (expiry - datetime.now(UTC)).total_seconds()),
-            metadata=self._metadata,
-        )
+        try:
+            response = await client.ExecuteSimulationCommand(
+                gateway.SimulationCommandRequest(
+                    gateway_id=self._target.gateway_id,
+                    device_id=spec.device_id,
+                    point_id=spec.point_id,
+                    value=encode_scalar(spec.value),
+                    request_id=command.command_id,
+                    expected_revision=revision,
+                    expires_at=timestamp,
+                ),
+                timeout=max(0.001, (expiry - datetime.now(UTC)).total_seconds()),
+                metadata=self._metadata,
+            )
+        except grpc.aio.AioRpcError as exc:
+            # The Gateway rejects these contracts before dispatching any
+            # Generator input. Transport/deadline errors remain UNKNOWN.
+            if exc.code() in {
+                grpc.StatusCode.INVALID_ARGUMENT,
+                grpc.StatusCode.PERMISSION_DENIED,
+                grpc.StatusCode.UNAUTHENTICATED,
+                grpc.StatusCode.FAILED_PRECONDITION,
+                grpc.StatusCode.ABORTED,
+                grpc.StatusCode.NOT_FOUND,
+            }:
+                return ProtocolWriteResult(
+                    spec.point_id, WriteOutcome.CONFIRMED_FAILURE, exc.code().name
+                )
+            return ProtocolWriteResult(
+                spec.point_id, WriteOutcome.UNKNOWN, exc.code().name
+            )
         if not response.accepted and response.state == "REJECTED":
             return ProtocolWriteResult(
                 spec.point_id, WriteOutcome.CONFIRMED_FAILURE, response.error_code
