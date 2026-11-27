@@ -53,9 +53,7 @@ async def _setup(
     config = load_storage_config(
         (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
     )
-    engine = config.tdengine.model_copy(
-        update={"max_connections": 1, "max_inflight_sql": 1}
-    )
+    engine = config.tdengine.model_copy(update={"max_connections": 1, "max_inflight_sql": 1})
     config = config.model_copy(update={"tdengine": engine})
     metadata = MetadataStore(tmp_path / "metadata.sqlite3")
     metadata.open()
@@ -98,9 +96,7 @@ async def test_multi_device_statement_prepared_once_per_connection(
         assert statement.bind.call_count == 2
         assert len(statement.bind.call_args.args[0]) == 2
         assert statement.execute.call_count == 2
-        connection.execute.assert_called_once_with(
-            f"USE {schema.database_name('farm')}"
-        )
+        connection.execute.assert_called_once_with(f"USE {schema.database_name('farm')}")
     finally:
         await backend.close()
         metadata.close()
@@ -122,8 +118,7 @@ async def test_unknown_multidevice_write_fences_every_table(
             )
         database = schema.database_name("farm")
         assert backend._wide_unknown_tables == {
-            f"{database}.{schema.subtable_name(device)}"
-            for device in ("wtg001", "wtg002")
+            f"{database}.{schema.subtable_name(device)}" for device in ("wtg001", "wtg002")
         }
         with pytest.raises(TDengineSchemaConflictError, match="UNKNOWN"):
             await backend.insert_wide_batch(schema, [_record(schema, "wtg001", 1)])

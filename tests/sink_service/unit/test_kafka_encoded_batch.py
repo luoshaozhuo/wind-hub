@@ -428,9 +428,7 @@ async def test_partition_wave_respects_only_needed_coalescing_delay(
     monkeypatch.setattr(realtime_adapters.asyncio, "sleep", tracked_sleep)
     loop = asyncio.get_running_loop()
     result: asyncio.Future[Any] = loop.create_future()
-    output._partition_queues[3] = [
-        _KafkaWrite(KEY, (b"x" * 160,), result, time.perf_counter())
-    ]
+    output._partition_queues[3] = [_KafkaWrite(KEY, (b"x" * 160,), result, time.perf_counter())]
     task = asyncio.create_task(output._drain_partition(3, output._producer))
     output._partition_workers[3] = task
     try:

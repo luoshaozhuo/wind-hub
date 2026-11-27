@@ -1149,9 +1149,7 @@ def test_td14_production_five_tag_multitable_stmt2(wide_probe: Probe) -> None:
             assert statement.execute() >= 0
         for device in range(2):
             rows = list(
-                probe.connection.query(
-                    f"SELECT * FROM {database}.production_d{device} ORDER BY ts"
-                )
+                probe.connection.query(f"SELECT * FROM {database}.production_d{device} ORDER BY ts")
             )
             assert len(rows) == 2
             for cycle, row in enumerate(rows):
@@ -1159,11 +1157,7 @@ def test_td14_production_five_tag_multitable_stmt2(wide_probe: Probe) -> None:
                     device * 1000 + cycle + point for point in range(_POINT_COUNT)
                 ]
                 assert bytes(row[-1]) == _QUALITY
-            tags = list(
-                probe.connection.query(
-                    f"SHOW TAGS FROM {database}.production_d{device}"
-                )
-            )
+            tags = list(probe.connection.query(f"SHOW TAGS FROM {database}.production_d{device}"))
             assert len(tags) == 5
             assert str(tags[3][5]) == "2"
     finally:

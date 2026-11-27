@@ -388,8 +388,7 @@ async def test_mixed_devices_and_schemas_group_deduplicate_and_parallelize() -> 
     result = await asyncio.wait_for(task, timeout=2)
 
     grouped = {
-        call.args[0].fingerprint: call.args[1]
-        for call in backend.insert_wide_batch.await_args_list
+        call.args[0].fingerprint: call.args[1] for call in backend.insert_wide_batch.await_args_list
     }
     original_group = grouped[schema_v1.fingerprint]
     assert tuple(row.values[0] for row in original_group) == (2, 3, 4)

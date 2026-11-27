@@ -171,9 +171,10 @@ class WideIngestionService:
                         raise TDengineSchemaConflictError(
                             "device type changed within one immutable wide batch"
                         )
-                    latest_by_device_time[
-                        (entry.row.device_id, entry.row.sample_time_us)
-                    ] = (position, entry.row)
+                    latest_by_device_time[(entry.row.device_id, entry.row.sample_time_us)] = (
+                        position,
+                        entry.row,
+                    )
                 for identity in devices.values():
                     await self._storage.ensure_wide_table(
                         first.schema,
@@ -181,9 +182,7 @@ class WideIngestionService:
                         device_id=identity.row.device_id,
                         device_type=identity.device_type,
                     )
-                ordered = tuple(
-                    row for _position, row in sorted(latest_by_device_time.values())
-                )
+                ordered = tuple(row for _position, row in sorted(latest_by_device_time.values()))
                 await self._storage.insert_wide_batch(first.schema, ordered)
                 return len(ordered), len(first.schema.columns)
 

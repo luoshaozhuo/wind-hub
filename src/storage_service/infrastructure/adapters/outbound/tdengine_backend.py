@@ -288,7 +288,9 @@ class TDengineBackend:
 
     def _close_cached_statements(self, connection: _TaosConnection) -> None:
         with self._lock:
-            statements = self._wide_statements.pop(id(connection), {})
+            statements: OrderedDict[str, _PreparedStatement] = self._wide_statements.pop(
+                id(connection), OrderedDict()
+            )
             self._wide_current_database.pop(id(connection), None)
         for statement in statements.values():
             try:
@@ -605,9 +607,7 @@ class TDengineBackend:
         if any(row.wind_farm_id != first.wind_farm_id for row in records):
             raise ValueError("wide STMT2 batch cannot mix wind farms")
         database = schema.database_name(first.wind_farm_id)
-        names = {
-            f"{database}.{schema.subtable_name(row.device_id)}" for row in records
-        }
+        names = {f"{database}.{schema.subtable_name(row.device_id)}" for row in records}
         with self._lock:
             if not names.issubset(self._verified_tables):
                 raise TDengineSchemaConflictError("wide target has not been verified")
@@ -654,22 +654,17 @@ class TDengineBackend:
                 with self._lock:
                     self._wide_current_database[connection_id] = database
             with self._lock:
-                cached = self._wide_statements.setdefault(
-                    connection_id, OrderedDict()
-                )
+                cached = self._wide_statements.setdefault(connection_id, OrderedDict())
                 statement = cached.get(family)
                 if statement is not None:
                     cached.move_to_end(family)
             if statement is None:
                 candidate = connection.stmt2_statement()
                 try:
-                    placeholders = ", ".join(
-                        "?" for _ in range(len(schema.columns) + 2)
-                    )
+                    placeholders = ", ".join("?" for _ in range(len(schema.columns) + 2))
                     tags = ", ".join("?" for _ in range(5))
                     candidate.prepare(
-                        f"INSERT INTO ? USING {family} "
-                        f"TAGS ({tags}) VALUES ({placeholders})"
+                        f"INSERT INTO ? USING {family} " f"TAGS ({tags}) VALUES ({placeholders})"
                     )
                 except BaseException:
                     candidate.close()

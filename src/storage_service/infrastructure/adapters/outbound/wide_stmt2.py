@@ -6,8 +6,8 @@ A prepared statement is not shared across threads or conflicting schema families
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Protocol, cast
 
 from storage_service.domain.wide_record import WideRecord
 from storage_service.domain.wide_row import bind_wide_row
@@ -111,6 +111,9 @@ def write_wide_stmt2(
     level_tag = getattr(driver, "int_to_tag", None)
     if not all(callable(fn) for fn in (builder, varchar_tag, level_tag)):
         raise RuntimeError("taosws connector lacks dynamic STMT2 binding API")
+    builder_fn = cast(Callable[..., Any], builder)
+    varchar_tag_fn = cast(Callable[..., Any], varchar_tag)
+    level_tag_fn = cast(Callable[..., Any], level_tag)
     level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
     bindings: list[object] = []
     for device_id, group in by_device.items():
@@ -119,14 +122,14 @@ def write_wide_stmt2(
             raise ValueError("device STMT2 TAG exceeds declared width")
         columns = bind_wide_columns(schema, group, driver)
         bindings.append(
-            builder(
+            builder_fn(
                 table_name=schema.subtable_name(device_id),
                 tags=[
-                    varchar_tag(device_id),
-                    varchar_tag(device_type),
-                    varchar_tag(schema.point_table_id),
-                    level_tag(level),
-                    varchar_tag(schema.fingerprint),
+                    varchar_tag_fn(device_id),
+                    varchar_tag_fn(device_type),
+                    varchar_tag_fn(schema.point_table_id),
+                    level_tag_fn(level),
+                    varchar_tag_fn(schema.fingerprint),
                 ],
                 columns=columns,
             )
