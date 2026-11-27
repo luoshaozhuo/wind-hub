@@ -1,6 +1,6 @@
 <h1 class="title">Sink Service 软件设计</h1>
 
-<p class="subtitle">v1_80 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_80 · 20261125 · 宽表重构设计 · 20261127 实现状态与验收边界勘误</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不新增逐模块目标通知 RPC；NATS 广播只作为唤醒信号，Repository 查询和周期对账是权威来源。
 
@@ -753,7 +753,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**现行实现与验收边界（2026-11-27）**：当前开发分支已采用 NATS SampleBatch v4 和设备级 Kafka JSON v3，Storage 宽表写入已实现并完成部分验证；原迁移前 v3/v2 仅为历史基线。可靠交付的 ACK、重试、DLQ、UNKNOWN 防护及 Offset 安全契约不得因容量限制削弱。最新 Sink 六组参数矩阵和 600 秒容量均 BLOCKED，正式长测 Kafka 确认吞吐 205.75 行/s、积压斜率 +94.214 行/s；已确认关闭测试 PASS，未排空不能声称零丢失或生产 READY。证据见 `docs/audit/storage_sink_capacity_retest_20261127.md`。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
