@@ -3451,7 +3451,7 @@ Adapter 的并发声明必须同时覆盖 Producer 对象复用、设备 Key 到
 | PROTOCOL | Driver 完成协议字节序、数据类型等解码后的标量；尚未应用 PointTable scale/offset、工程或标准单位换算 | 目标同步 SampleBatch 来源身份与标量验证 | 源 `point_id`，`business_point_id=null`，`unit=null` |
 | BUSINESS | PROTOCOL 经历史 PointTable scale/offset、BusinessPoint 映射及 Units 标准换算的结果 | 必须有 `point_table_id` 对应的不可变完整依赖闭包；无法验证时不交付 | 同时保留来源 `point_id` 与标准 `business_point_id`、`unit` |
 
-**迁移基线与目标**：当前代码使用 NATS v3/Kafka v2；目标为 Contracts §11.6/§11.9 同步设备批。BUSINESS 仍需按可信历史配置闭包及受控 approved_point_table_manifests 验证现场语义批准，缺失、网络失败或摘要冲突不得降级或回退推荐版；复用 Core 类型及单位换算，64 位整数无损。RAW 仅使用真实原始载荷；实际 ADS/IEC104/Modbus 各功能码的可用性由独立实测裁定，未验收不得宣称支持。
+**迁移基线与当前实现（2026-11-27）**：旧 NATS v3/Kafka v2 是迁移前基线；当前实现采用 Contracts §11.6/§11.9 规定的 NATS v4/Kafka v3 同步设备批。BUSINESS 仍需按可信历史配置闭包及受控 approved_point_table_manifests 验证现场语义批准，缺失、网络失败或摘要冲突不得降级或回退推荐版；复用 Core 类型及单位换算，64 位整数无损。RAW 仅使用真实原始载荷；实际 ADS/IEC104/Modbus 各功能码的可用性由独立实测裁定，未验收不得宣称支持。
 
 每条 Kafka Record 必须携带 `data_level`；Storage 按 `raw=1`、`protocol=2`、`business=3` 存储且不进行二次解码。原始身份、质量、时间、`sample_id`、`point_table_id` 在转换中不得覆盖。Reliable 源 ACK 只在目标持久确认后进行；未知结果保持 JetStream 重投语义。历史重放必须使用随消息固定的 `point_table_id`，不得切换至 Configuration 当前推荐版本。
 
