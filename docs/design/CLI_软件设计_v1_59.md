@@ -1886,7 +1886,7 @@ stateDiagram-v2
 ```text
 wind-hub [--config CLI_YAML] [--format table|json] [COMMAND ...]
   service    list | info | status | capabilities | start | stop | restart
-  config     publish | get | diff
+  config     publish | get | diff | list | versions | bundle | bundle-exact | service-bundle | revision | point-table-bundle | references | recommend | deprecate | stats | backup | backup-status
   collector  devices | device | points | point | tasks | task | start | stop | latest | watch | metrics | events | publishing
   commander  devices | device | points | write | batch | result | request-result | recover-device | metrics | events
   sink       deliveries | delivery | start | stop | metrics | events
@@ -2009,7 +2009,7 @@ Message      : Process restarted; service readiness not confirmed
 - **更新策略**：配置快照先完整获取、校验、持久缓存；Service 判断热更与静态字段。一个不允许混用的依赖单元应原子替换或整体延期，不能把新的 PointTable 与旧控制映射拼接。广播丢失由启动/重连/周期查询补偿；重复、乱序通知不得回退到旧目标。
 - **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
 
-CLI 不新增 `config activate`；操作员通过编辑 Deployment YAML 并执行 `config publish --root` 一次发布。CLI 查询显示每个 Service 的目标/活动闭包摘要、已选 Service/Instance 版本、是否需要重启及已有的错误诊断信息。
+CLI 不新增 `config activate`；操作员通过编辑 Deployment YAML 并执行 `config publish --root` 一次发布。`config service-bundle DEPLOYMENT_ID SERVICE_ID` 通过 Repository 查询选定的精确闭包及 target_revision，`service status SERVICE` 查询实际 active_revision 与业务状态；操作员需比较二者，不能将发布成功解释为自动激活。
 
 
 ### 2026-11-21 Deployment 与模块配置应用约束（规范性修订）
@@ -2394,7 +2394,7 @@ CLI 对输入值的解析须使用 `ListVariables` 的逻辑类型：bool 仅接
 
 ## 11.1 配置文件范围
 
-CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、受控授权令牌引用、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。CLI 当前仍提供 `config push` / `config apply`，两者调用 CommonService 的本地快照 RPC；**不能据此修改 Configuration Repository 已发布的业务 Service/Instance/Template**。业务配置的唯一正式发布入口为 `config publish --root`，Repository 查询使用 `config get`，`config diff` 只作诊断。现有命令是否可绕过 Repository 需做真实代码安全审查。
+CLI 自身只有一套可独立加载的配置，例如 `cli.yaml`。其内容是 Service gRPC 地址、受控授权令牌引用、输出及运行管理目标映射；CLI **不依赖 Collector/Commander/Sink 等 `configs/` 业务配置树启动**。CLI 不提供 `config push` / `config apply` 业务写入口；CommonService 的旧 Push/Apply RPC 不具备修改 Configuration Repository 已发布业务配置的权威。业务配置的唯一正式发布入口为 `config publish --root`，Repository 查询使用 `config get`，`config diff` 只作诊断。现有命令是否可绕过 Repository 需做真实代码安全审查。
 
 ## 11.2 CLI 配置示例（目标字段）
 
