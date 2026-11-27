@@ -396,6 +396,10 @@ class TDengineBackend:
                 raise TDengineSchemaConflictError(
                     "wide DDL I/O is unresolved; require process isolation"
                 )
+            if target in self._verified_tables:
+                if self._wide_device_types.get(target) != device_type:
+                    raise TDengineSchemaConflictError("verified wide device type differs")
+                return
         try:
             await self._run_bounded(
                 self._ensure_wide_table_sync,
