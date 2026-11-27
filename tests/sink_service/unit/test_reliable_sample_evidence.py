@@ -282,3 +282,27 @@ async def test_kafka_stage_timings_are_attributed_to_the_owning_delivery() -> No
     assert port.kafka_confirm_seconds_total == pytest.approx(0.04)
     assert port.metrics["kafka_timed_writes_total"] == 1.0
     assert port.metrics["kafka_confirm_seconds_total"] == pytest.approx(0.04)
+
+
+async def test_protocol_encoding_avoids_redundant_scheduled_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Protocol rows have no remote lookup; encode without a second task."""
+    import json
+    from unittest.mock import Mock
+
+    port = _port(_FakeKafkaAdapter(BatchOutcome(delivered=(), settled=())))
+    port._data_level = "protocol"
+    message = _FakeMessage()
+    batch = _batch([("p1", "s1"), ("p2", "s2")])
+    forbidden_task = Mock(side_effect=AssertionError("inline encoding created a task"))
+    monkeypatch.setattr(
+        "sink_service.application.reliable_engine.asyncio.create_task", forbidden_task
+    )
+    encoded = await port._encode_with_heartbeat(message, batch, batch.samples)
+    assert len(encoded) == 1
+    payload = json.loads(encoded[0])
+    assert payload["device_id"] == _DEVICE
+    assert set(payload["points"]) == {"p1", "p2"}
+    assert message.extends == 0
+    forbidden_task.assert_not_called()
