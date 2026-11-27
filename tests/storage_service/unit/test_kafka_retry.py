@@ -919,8 +919,12 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
         await asyncio.wait_for(fetched_three.wait(), timeout=2)
         await asyncio.sleep(0)
         release.set()
-        with pytest.raises(ExceptionGroup, match="injected fatal processing error"):
+        with pytest.raises(ExceptionGroup) as raised:
             await asyncio.wait_for(task, timeout=2)
+        assert any(
+            isinstance(exc, RuntimeError) and "injected fatal" in str(exc)
+            for exc in raised.value.exceptions
+        )
         snapshot = consumer._metrics.snapshot()
         assert snapshot.buffer_rows == 0
         assert snapshot.buffer_bytes == 0
