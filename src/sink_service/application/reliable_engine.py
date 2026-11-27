@@ -120,6 +120,10 @@ class ReliableDeliveryEngine:
         items: tuple[SampleItem, ...],
     ) -> tuple[bytes, ...]:
         """Keep source ownership while a historical mapping is fetched and verified."""
+        if self._data_level != "business":
+            # RAW/PROTOCOL encoding contains no awaits or remote history reads.
+            # Avoid a separate scheduled task on the high-rate hot path.
+            return await self._encode_kafka_wide(batch, items)
         task = asyncio.create_task(self._encode_kafka_wide(batch, items))
         interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
         try:
