@@ -7,6 +7,7 @@ the target-version DDL/driver Spike before the service is marked operational.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 import hashlib
 import json
 import logging
@@ -104,7 +105,8 @@ class TDengineBackend:
         self._ddl_lock = threading.RLock()
         self._verified_tables: set[str] = set()
         self._wide_device_types: dict[str, str] = {}
-        self._wide_statements: dict[int, dict[str, _PreparedStatement]] = {}
+        self._wide_statements: dict[int, OrderedDict[str, _PreparedStatement]] = {}
+        self._wide_current_database: dict[int, str] = {}
         self._wide_unknown_tables: set[str] = set()
         self._opening = False
         self._closed = False
@@ -287,6 +289,7 @@ class TDengineBackend:
     def _close_cached_statements(self, connection: _TaosConnection) -> None:
         with self._lock:
             statements = self._wide_statements.pop(id(connection), {})
+            self._wide_current_database.pop(id(connection), None)
         for statement in statements.values():
             try:
                 statement.close()
@@ -642,9 +645,21 @@ class TDengineBackend:
         family = f"{database}.{stable}"
         with self._borrow_connection(lease=lease) as (connection, driver):
             lease.remaining()
+            connection_id = id(connection)
             with self._lock:
-                cached = self._wide_statements.setdefault(id(connection), {})
+                current_database = self._wide_current_database.get(connection_id)
+            if current_database != database:
+                lease.remaining()
+                connection.execute(f"USE {database}")
+                with self._lock:
+                    self._wide_current_database[connection_id] = database
+            with self._lock:
+                cached = self._wide_statements.setdefault(
+                    connection_id, OrderedDict()
+                )
                 statement = cached.get(family)
+                if statement is not None:
+                    cached.move_to_end(family)
             if statement is None:
                 candidate = connection.stmt2_statement()
                 try:
@@ -660,7 +675,11 @@ class TDengineBackend:
                     candidate.close()
                     raise
                 with self._lock:
-                    self._wide_statements[id(connection)][family] = candidate
+                    cached = self._wide_statements[connection_id]
+                    if len(cached) >= 32:
+                        _expired_family, expired_statement = cached.popitem(last=False)
+                        expired_statement.close()
+                    cached[family] = candidate
                 statement = candidate
             write_wide_stmt2(
                 connection,
