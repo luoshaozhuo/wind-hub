@@ -37,6 +37,7 @@ from contracts import (
     collector_pb2,
     commander_pb2,
     common_pb2,
+    configuration_repository_pb2,
     data_generator_pb2,
     industrial_gateway_pb2,
     sink_service_pb2,
@@ -44,6 +45,7 @@ from contracts import (
 
 _PB2_MODULES = (
     common_pb2,
+    configuration_repository_pb2,
     collector_pb2,
     commander_pb2,
     sink_service_pb2,

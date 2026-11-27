@@ -26,6 +26,11 @@ async def _echo(request: bytes, context: Any) -> bytes:
         ("GetServiceInfo", _TOKEN, {"variables_read"}, grpc.StatusCode.OK),
         ("GetServiceInfo", "", {"variables_read"}, grpc.StatusCode.UNAUTHENTICATED),
         ("StartGeneration", _TOKEN, {"variables_read"}, grpc.StatusCode.PERMISSION_DENIED),
+        ("StartGeneration", _TOKEN, {"variables_update"}, grpc.StatusCode.PERMISSION_DENIED),
+        ("StopGeneration", _TOKEN, {"variables_update"}, grpc.StatusCode.PERMISSION_DENIED),
+        ("StartGeneration", _TOKEN, {"generation_manage"}, grpc.StatusCode.OK),
+        ("StopGeneration", _TOKEN, {"generation_manage"}, grpc.StatusCode.OK),
+        ("UpdateVariables", _TOKEN, {"generation_manage"}, grpc.StatusCode.PERMISSION_DENIED),
         ("PushConfigSnapshot", _TOKEN, {"variables_read"}, grpc.StatusCode.PERMISSION_DENIED),
         ("GetInputExecution", _TOKEN, {"variables_read"}, grpc.StatusCode.PERMISSION_DENIED),
         ("GetInputExecution", _TOKEN, {"variables_update"}, grpc.StatusCode.OK),
@@ -48,6 +53,8 @@ async def test_all_rpc_methods_require_scope(
                     for name in (
                         "GetServiceInfo",
                         "StartGeneration",
+                        "StopGeneration",
+                        "UpdateVariables",
                         "PushConfigSnapshot",
                         "GetInputExecution",
                     )

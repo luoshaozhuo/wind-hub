@@ -227,7 +227,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
     """Gateway 在冻结模板上执行合并：继承保留、remove_points 生效、子表覆盖优先。"""
     _inheritance_tree(tmp_path)
     _dump(
-        tmp_path / "templates" / "units_standard.yaml",
+        tmp_path / "templates" / "units_standard_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -236,11 +236,11 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
         },
     )
     _dump(
-        tmp_path / "templates" / "business_points_standard.yaml",
+        tmp_path / "templates" / "business_points_standard_v1.0.0.yaml",
         {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
     )
     _dump(
-        tmp_path / "instances" / "devices.yaml",
+        tmp_path / "instances" / "device_inheritance-test_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
@@ -255,17 +255,34 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
             },
         },
     )
-    service_path = tmp_path / "service.yaml"
     _dump(
-        service_path,
+        tmp_path / "deployments" / "deployment_inheritance-test_v1.0.0.yaml",
         {
             "schema_version": 1,
             "file_version": "1.0.0",
-            "config_sources": {
-                "instances": {"devices": "instances/devices.yaml"},
-                "templates": {"root": "templates"},
-            },
+            "deployment_id": "inheritance-test",
+            "services": {"gateway-test": {"config_id": "gateway-test", "file_version": "1.0.0"}},
+            "instances": {"device": {"inheritance-test": {"file_version": "1.0.0"}}},
+        },
+    )
+    service_path = tmp_path / "services" / "service_gateway-test_v1.0.0.yaml"
+    _dump(
+        service_path,
+        {
+            "schema_version": 2,
+            "file_version": "1.0.0",
+            "service_id": "gateway-test",
+            "config_sources": {"instances": {"devices": "inheritance-test"}},
             "grpc": {"listen_host": "127.0.0.1", "listen_port": 1504},
+            "security": {
+                "callers": [
+                    {
+                        "caller_id": "operator",
+                        "token_env": "WIND_HUB_TEST_GATEWAY_TOKEN",
+                        "permissions": ["read", "lifecycle"],
+                    }
+                ]
+            },
             "servers": [
                 {
                     "server_id": "gw1",
@@ -278,6 +295,7 @@ def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path
                         "target": {
                             "kind": "commander",
                             "endpoint": "127.0.0.1:1505",
+                            "token_env": "WIND_HUB_TEST_COMMANDER_TOKEN",
                         },
                         "mappings": [
                             {"variable_id": "p1", "target_point_id": "p1"},

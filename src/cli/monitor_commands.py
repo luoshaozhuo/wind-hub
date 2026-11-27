@@ -40,7 +40,8 @@ def _monitor(
 
     async def one() -> dict[str, Any]:
         if object_id:
-            return await invoke(runtime(), service, _OBJECT_METHODS[service], {"id": object_id})
+            values = {"device_id": object_id} if service == "collector" else {"id": object_id}
+            return await invoke(runtime(), service, _OBJECT_METHODS[service], values)
         return await request_common(service, "GetServiceStatus", {})
 
     async def task() -> dict[str, Any]:

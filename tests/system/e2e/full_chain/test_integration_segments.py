@@ -30,20 +30,23 @@ from contracts.scalar_codec import decode_scalar, encode_scalar
 from tests.cli.test_r1f3_strict_cli_e2e import ADMIN_TOKEN
 
 from .conftest import (
-    REPO_CONFIGS,
+    COMMANDER_MAINTENANCE_TOKEN_ENV,
+    GATEWAY_COMMANDER_TOKEN_ENV,
+    GATEWAY_GENERATOR_TOKEN_ENV,
+    GENERATOR_GATEWAY_TOKEN_ENV,
     SINK_TARGET_POINT,
     FullChainHarness,
     wait_sink_modbus_float,
 )
 from .integration_segments import (
     DualBatchObserver,
+    bearer_channel,
     correlate_source,
     fixed_batch,
     float_words,
     generator_channel,
     kafka_consumer,
     load_yaml,
-    mtls_channel,
     number,
     publish_batch,
     read_modbus_float,
@@ -93,7 +96,9 @@ async def _stop_generation(harness: FullChainHarness) -> None:
 
 async def _metric_values(runtime: Runtime, service: str) -> dict[str, float]:
     reply = await common_rpc.CommonServiceStub(runtime.channel(service)).GetMetrics(
-        common.GetMetricsRequest(), timeout=runtime.target(service).timeout
+        common.GetMetricsRequest(),
+        timeout=runtime.target(service).timeout,
+        metadata=runtime.get_rpc_metadata(service, "GetMetrics"),
     )
     return {metric.name: float(metric.value) for metric in reply.metrics}
 
@@ -365,7 +370,13 @@ async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
             timeout=60,
             match=lambda item: utc_time(item["sample_time"]) >= selected_rt.sample_time,
         )
-        kafka_sample = await wait_kafka_sample(consumer, selected_hist.sample_id)
+        kafka_sample = await wait_kafka_sample(
+            consumer,
+            device_id="WTG_SIM01",
+            point_id="wind_speed",
+            sample_time=selected_hist.sample_time,
+            value=number(selected_hist.value),
+        )
         for item in (redis_sample, kafka_sample):
             assert item["device_id"] == "WTG_SIM01"
             assert item["point_id"] == "wind_speed"
@@ -377,7 +388,7 @@ async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
                 number(item["value"]),
             )
         assert redis_sample["collector_id"] == harness.rt_collector
-        assert kafka_sample["collector_id"] == harness.reliable_collector
+        assert kafka_sample["device_config_id"] == "device_full-chain-e2e_v1.0.0"
         await _stop_generation(harness)
         for config in (harness.cli_rt, harness.cli_rel):
             await harness.cli_call(config, "collector", "stop", "WTG_SIM01", "--yes")
@@ -392,7 +403,7 @@ async def test_i03_dual_observers_metrics_sequences_and_sink_outputs(
             - before_hist.get("collector.publisher.pubacked", 0),
             js_sequences=sequences,
             redis_sample_id=redis_sample["sample_id"],
-            kafka_sample_id=kafka_sample["sample_id"],
+            kafka_sample_time=kafka_sample["sample_time"],
             rt_batch_id=rt_batches[-1].batch.batch_id,
             hist_batch_id=hist_batches[-1].batch.batch_id,
         )
@@ -436,7 +447,13 @@ async def test_i04_fixed_v2_batches_reach_four_real_outputs(
             timeout=60,
             match=lambda item: item.get("sample_id") == rt_id,
         )
-        kafka_sample = await wait_kafka_sample(consumer, hist_id)
+        kafka_sample = await wait_kafka_sample(
+            consumer,
+            device_id="WTG_SIM01",
+            point_id="wind_speed",
+            sample_time=source_time,
+            value=271.5,
+        )
         gateway_sample = await wait_gateway_value(
             harness, harness.cli_rt, "gw-wtg_sim01", SINK_TARGET_POINT, 314.25
         )
@@ -444,7 +461,7 @@ async def test_i04_fixed_v2_batches_reach_four_real_outputs(
             harness.sink_modbus_port, 314.25, timeout=60
         )
         assert redis_sample["sample_id"] == rt_id
-        assert kafka_sample["sample_id"] == hist_id
+        assert kafka_sample["schema_version"] == 3
         assert redis_sample["value"] == 314.25
         assert kafka_sample["value"] == 271.5
         assert utc_time(redis_sample["sample_time"]) == source_time
@@ -491,10 +508,10 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
 ) -> None:
     harness = full_chain
     table = load_yaml(
-        REPO_CONFIGS
+        harness.plant
         / "templates"
         / "point_tables"
-        / "point_table_modbus_plant_controller_sim_v1.0.0.yaml"
+        / "point_table_modbus_plant_controller_sim_e2e_v1.0.0.yaml"
     )["points"]
     enable_address = int(table["agc_enable"]["address"]["address"])
     power_address = int(table["agc_power_setpoint"]["address"]["address"])
@@ -524,24 +541,30 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
         accepted = await _audit_events(audit_queue, {"agc_enable", "agc_power_setpoint"})
         command_ids = {str(event["command_id"]) for event in accepted}
         assert len(command_ids) == 2
-        gateway_cert, gateway_key = harness.pki["clients"]["gateway"]
-        async with mtls_channel(
-            harness.endpoints["data-generator"], harness.pki["ca"], gateway_cert, gateway_key
-        ) as channel:
+        async with (
+            bearer_channel(
+                harness.endpoints["commander"], harness.tokens[GATEWAY_COMMANDER_TOKEN_ENV]
+            ) as commander_channel,
+            bearer_channel(
+                harness.endpoints["data-generator"], harness.tokens[GATEWAY_GENERATOR_TOKEN_ENV]
+            ) as channel,
+        ):
+            commander_stub = cmd_rpc.CommanderServiceStub(commander_channel)
             for event in accepted:
                 command_id = str(event["command_id"])
-                completed = await harness.poll(
-                    harness.cli_rt,
-                    "commander",
-                    "result",
-                    command_id,
-                    predicate=lambda item: item.get("state")
-                    in {"SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"},
-                    timeout=60,
-                )
-                assert completed["state"] == "SUCCEEDED"
-                assert completed["outcome"] == "CONFIRMED_SUCCESS"
-                assert completed["io_settled"] is True
+                deadline = asyncio.get_running_loop().time() + 60
+                while True:
+                    completed = await commander_stub.GetCommandResult(
+                        cmd.GetCommandResultRequest(command_id=command_id), timeout=10
+                    )
+                    if completed.state in {"SUCCEEDED", "FAILED", "UNKNOWN", "INTERRUPTED"}:
+                        break
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise AssertionError(f"command result timeout: {command_id}")
+                    await asyncio.sleep(0.1)
+                assert completed.state == "SUCCEEDED"
+                assert completed.outcome == "CONFIRMED_SUCCESS"
+                assert completed.io_settled is True
                 execution = await dg_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
                     dg.GetInputExecutionRequest(generation_id=generation_id, request_id=command_id),
                     timeout=10,
@@ -582,12 +605,11 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
         )
         assert first_result["outcome"] == "CONFIRMED_SUCCESS"
 
-        pki = harness.plant / "commander-pki"
         deadline = Timestamp()
         deadline.FromDatetime(datetime.now(UTC) + timedelta(minutes=2))
         unauthorized_id = f"r4e-i05-unauthorized-{uuid4().hex}"
-        async with mtls_channel(
-            harness.endpoints["commander"], pki / "ca.crt", pki / "viewer.crt", pki / "viewer.key"
+        async with bearer_channel(
+            harness.endpoints["commander"], harness.tokens[COMMANDER_MAINTENANCE_TOKEN_ENV]
         ) as channel:
             with pytest.raises(grpc.aio.AioRpcError) as error:
                 await cmd_rpc.CommanderServiceStub(channel).SubmitCommand(
@@ -683,10 +705,9 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             harness.modbus_ports["WTG_SIM01"], 400, holding=True
         )
 
-        cert, key = target.pki["clients"]["lease-a"]
-        channel_a = mtls_channel(target.endpoint, target.pki["ca"], cert, key)
-        cert_b, key_b = target.pki["clients"]["lease-b"]
-        channel_b = mtls_channel(target.endpoint, target.pki["ca"], cert_b, key_b)
+        token = harness.tokens[GENERATOR_GATEWAY_TOKEN_ENV]
+        channel_a = bearer_channel(target.endpoint, token)
+        channel_b = bearer_channel(target.endpoint, harness.gateway_sink_token)
         channels.extend((channel_a, channel_b))
         stubs = {
             "lease-a": gateway_rpc.IndustrialGatewayServiceStub(channel_a),
@@ -716,23 +737,30 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
             < 1e-3
         )
 
-        source_cert, source_key = harness.pki["clients"]["cli"]
-        source_channel = mtls_channel(
-            harness.gw_grpc_endpoint, harness.pki["ca"], source_cert, source_key
+        source_channel = bearer_channel(
+            harness.gw_grpc_endpoint, harness.tokens[GENERATOR_GATEWAY_TOKEN_ENV]
         )
         channels.append(source_channel)
         source_stub = gateway_rpc.IndustrialGatewayServiceStub(source_channel)
         source_owner = f"r4e-i07-source-{uuid4().hex}"
-        source_claim = await source_stub.ClaimTargets(
-            gateway.ClaimTargetsRequest(
-                gateway_id="gw-wtg_sim01",
-                owner_id=source_owner,
-                variable_ids=[SINK_TARGET_POINT],
-                action="ACQUIRE",
-                lease_ms=30000,
-            ),
-            timeout=10,
-        )
+        claim_deadline = asyncio.get_running_loop().time() + 60
+        while True:
+            source_claim = await source_stub.ClaimTargets(
+                gateway.ClaimTargetsRequest(
+                    gateway_id="gw-wtg_sim01",
+                    owner_id=source_owner,
+                    variable_ids=[SINK_TARGET_POINT],
+                    action="ACQUIRE",
+                    lease_ms=30000,
+                ),
+                timeout=10,
+            )
+            if source_claim.accepted:
+                break
+            assert source_claim.error_code == "TARGET_CLAIMED", source_claim
+            if asyncio.get_running_loop().time() >= claim_deadline:
+                raise AssertionError(f"source Gateway lease was not released: {source_claim}")
+            await asyncio.sleep(0.2)
         assert source_claim.accepted is True, source_claim
         source_release_token = source_claim.lease_token
         source_updates = await source_stub.UpdateVariables(
@@ -892,9 +920,8 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
         )
     finally:
         if source_release_token:
-            source_cert, source_key = harness.pki["clients"]["cli"]
-            async with mtls_channel(
-                harness.gw_grpc_endpoint, harness.pki["ca"], source_cert, source_key
+            async with bearer_channel(
+                harness.gw_grpc_endpoint, harness.tokens[GENERATOR_GATEWAY_TOKEN_ENV]
             ) as source_cleanup_channel:
                 await gateway_rpc.IndustrialGatewayServiceStub(source_cleanup_channel).ClaimTargets(
                     gateway.ClaimTargetsRequest(
@@ -907,9 +934,7 @@ async def test_i07_target_sink_mapping_release_and_lease_fencing(
                     timeout=5,
                 )
         if release_token:
-            identity = "lease-b" if release_owner.endswith("lease-b") else "lease-a"
-            cert, key = target.pki["clients"][identity]
-            channel = mtls_channel(target.endpoint, target.pki["ca"], cert, key)
+            channel = bearer_channel(target.endpoint, token)
             try:
                 await gateway_rpc.IndustrialGatewayServiceStub(channel).ClaimTargets(
                     gateway.ClaimTargetsRequest(

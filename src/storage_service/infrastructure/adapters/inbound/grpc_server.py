@@ -507,6 +507,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
             path = "storage/target_bundle.json"
             if request.candidate_id and request.candidate_id != bundle.target_revision:
                 raise QueryRejectedError("unknown Storage restart target")
+            if self._config_revisions is not None:
+                target, active = self._config_revisions()
+                if bundle.target_revision != target or target == active:
+                    raise QueryRejectedError("Storage snapshot is not a current restart target")
         else:
             raise QueryRejectedError("invalid Storage snapshot scope")
         checksum = hashlib.sha256(content).hexdigest()
@@ -564,9 +568,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         )
         result = common.GetMetricsResponse()
         for name, value, unit in values:
-            metric = result.metrics.add(
-                name=name, value=float(value), unit=unit, window_ms=0
-            )
+            metric = result.metrics.add(name=name, value=float(value), unit=unit, window_ms=0)
             metric.sampled_at.CopyFrom(sampled_at)
         return result
 

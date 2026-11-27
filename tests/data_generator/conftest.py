@@ -128,6 +128,11 @@ def write_service_yaml(
                     "token_env": "WIND_HUB_TEST_DG_CALLER_TOKEN",
                     "permissions": ["variables_read", "variables_update"],
                 },
+                {
+                    "caller_id": "lifecycle-manager",
+                    "token_env": "WIND_HUB_TEST_DG_MANAGER_TOKEN",
+                    "permissions": ["variables_read", "generation_manage"],
+                },
             ],
         },
         "buffer": {"max_batches": 128, "max_points_per_batch": 1000},
@@ -201,6 +206,7 @@ def _generator_auth_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WIND_HUB_TEST_DG_GATEWAY_TOKEN", "test-out-" + "a" * 40)
     monkeypatch.setenv("WIND_HUB_TEST_DG_CLI_TOKEN", "test-cli-" + "b" * 40)
     monkeypatch.setenv("WIND_HUB_TEST_DG_CALLER_TOKEN", "test-caller-" + "c" * 40)
+    monkeypatch.setenv("WIND_HUB_TEST_DG_MANAGER_TOKEN", "test-manager-" + "d" * 40)
 
 
 @pytest.fixture
@@ -1009,7 +1015,7 @@ async def dg_server(
         await server.start()
         channel = grpc.aio.insecure_channel(
             bind,
-            interceptors=[_BearerInterceptor(os.environ.get("WIND_HUB_TEST_DG_CLI_TOKEN", ""))],
+            interceptors=[_BearerInterceptor(os.environ.get("WIND_HUB_TEST_DG_MANAGER_TOKEN", ""))],
         )
         await channel.channel_ready()
         harness = DataGeneratorHarness(
@@ -1121,9 +1127,11 @@ def metric_map(metrics_response: Any) -> dict[str, float]:
     return {item.name: item.value for item in metrics_response.metrics}
 
 
-async def dg_stubs(bind: str) -> tuple[grpc.aio.Channel, Any, Any]:
-    """独立服务进程的真实 gRPC 客户端（DG 6 + Common 9 同一信道）。"""
-    token = os.environ.get("WIND_HUB_TEST_DG_CLI_TOKEN", "")
+async def dg_stubs(
+    bind: str, *, token_env: str = "WIND_HUB_TEST_DG_MANAGER_TOKEN"
+) -> tuple[grpc.aio.Channel, Any, Any]:
+    """独立服务进程客户端；默认使用独立生命周期管理身份。"""
+    token = os.environ.get(token_env, "")
     channel = grpc.aio.insecure_channel(bind, interceptors=[_BearerInterceptor(token)])
     try:
         await asyncio.wait_for(channel.channel_ready(), timeout=15.0)

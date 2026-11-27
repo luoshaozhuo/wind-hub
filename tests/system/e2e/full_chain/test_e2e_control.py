@@ -80,18 +80,12 @@ async def test_e2e_04_ppc_control_applied(full_chain: Any, point_id: str, value:
         assert completed["io_settled"] is True
         # Generator evidence is scoped to the authenticated Gateway caller and
         # the durable Commander command ID passed through the control chain.
-        gateway_cert, gateway_key = harness.pki["clients"]["gateway"]
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=harness.pki["ca"].read_bytes(),
-            private_key=gateway_key.read_bytes(),
-            certificate_chain=gateway_cert.read_bytes(),
-        )
-        async with grpc.aio.secure_channel(
-            harness.endpoints["data-generator"], credentials
-        ) as channel:
+        token = harness.tokens["WIND_HUB_TEST_GATEWAY_GENERATOR_TOKEN"]
+        async with grpc.aio.insecure_channel(harness.endpoints["data-generator"]) as channel:
             execution = await dg_rpc.DataGeneratorServiceStub(channel).GetInputExecution(
                 dg.GetInputExecutionRequest(generation_id=generation_id, request_id=command_id),
                 timeout=10,
+                metadata=(("authorization", f"Bearer {token}"),),
             )
         assert execution.request_id == command_id
         assert execution.state == "APPLIED"

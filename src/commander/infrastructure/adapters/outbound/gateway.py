@@ -23,6 +23,27 @@ from core.application.protocol_contract import (
     WriteOutcome,
 )
 
+_CONFIRMED_GATEWAY_REJECTIONS = frozenset(
+    {
+        grpc.StatusCode.INVALID_ARGUMENT,
+        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNAUTHENTICATED,
+        grpc.StatusCode.FAILED_PRECONDITION,
+        grpc.StatusCode.ABORTED,
+        grpc.StatusCode.ALREADY_EXISTS,
+        grpc.StatusCode.NOT_FOUND,
+    }
+)
+
+
+def _rpc_error_result(point_id: str, exc: grpc.aio.AioRpcError) -> ProtocolWriteResult:
+    outcome = (
+        WriteOutcome.CONFIRMED_FAILURE
+        if exc.code() in _CONFIRMED_GATEWAY_REJECTIONS
+        else WriteOutcome.UNKNOWN
+    )
+    return ProtocolWriteResult(point_id, outcome, exc.code().name)
+
 
 class GatewaySimulationSession:
     """A command-aware write session; never exposes raw protocol writing."""
@@ -80,11 +101,14 @@ class GatewaySimulationSession:
         if expiry <= datetime.now(UTC):
             return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_FAILURE, "EXPIRED")
         # Gateway is the authority for its running configuration revision.
-        gateway_info = await client.GetGateway(
-            common_pb2.ObjectId(id=self._target.gateway_id),
-            timeout=3.0,
-            metadata=self._metadata,
-        )
+        try:
+            gateway_info = await client.GetGateway(
+                common_pb2.ObjectId(id=self._target.gateway_id),
+                timeout=3.0,
+                metadata=self._metadata,
+            )
+        except grpc.aio.AioRpcError as exc:
+            return _rpc_error_result(spec.point_id, exc)
         revision = gateway_info.gateway.revision
         if not revision:
             return ProtocolWriteResult(spec.point_id, WriteOutcome.UNKNOWN, "GATEWAY_NO_REVISION")
@@ -107,22 +131,8 @@ class GatewaySimulationSession:
                 metadata=self._metadata,
             )
         except grpc.aio.AioRpcError as exc:
-            # The Gateway rejects these contracts before dispatching any
-            # Generator input. Transport/deadline errors remain UNKNOWN.
-            if exc.code() in {
-                grpc.StatusCode.INVALID_ARGUMENT,
-                grpc.StatusCode.PERMISSION_DENIED,
-                grpc.StatusCode.UNAUTHENTICATED,
-                grpc.StatusCode.FAILED_PRECONDITION,
-                grpc.StatusCode.ABORTED,
-                grpc.StatusCode.NOT_FOUND,
-            }:
-                return ProtocolWriteResult(
-                    spec.point_id, WriteOutcome.CONFIRMED_FAILURE, exc.code().name
-                )
-            return ProtocolWriteResult(
-                spec.point_id, WriteOutcome.UNKNOWN, exc.code().name
-            )
+            # Deterministic Gateway rejections are failures; I/O stays UNKNOWN.
+            return _rpc_error_result(spec.point_id, exc)
         if not response.accepted and response.state == "REJECTED":
             return ProtocolWriteResult(
                 spec.point_id, WriteOutcome.CONFIRMED_FAILURE, response.error_code
@@ -143,14 +153,17 @@ class GatewaySimulationSession:
             remaining = (expiry - datetime.now(UTC)).total_seconds()
             if remaining <= 0:
                 break
-            response = await client.GetSimulationExecutionResult(
-                gateway.SimulationExecutionQuery(
-                    gateway_id=self._target.gateway_id,
-                    request_id=command.command_id,
-                ),
-                timeout=remaining,
-                metadata=self._metadata,
-            )
+            try:
+                response = await client.GetSimulationExecutionResult(
+                    gateway.SimulationExecutionQuery(
+                        gateway_id=self._target.gateway_id,
+                        request_id=command.command_id,
+                    ),
+                    timeout=remaining,
+                    metadata=self._metadata,
+                )
+            except grpc.aio.AioRpcError as exc:
+                return _rpc_error_result(spec.point_id, exc)
         if response.accepted and response.state == "APPLIED":
             return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_SUCCESS)
         if not response.accepted and response.state == "REJECTED":

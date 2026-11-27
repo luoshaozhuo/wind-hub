@@ -53,6 +53,38 @@ def test_events_pagination_and_redaction(cli_env: object) -> None:
     assert call.request.page_token == "p1"
 
 
+@pytest.mark.parametrize("service", ("collector", "commander", "sink", "gateway", "data-generator"))
+def test_events_time_range_and_filter_all_services(cli_env: object, service: str) -> None:
+    cli_env.server.respond_value(
+        cli_env.server.method_path("CommonService", "GetEvents"),
+        common_pb2.GetEventsResponse(),
+    )
+
+    result = cli_env.subprocess_invoke(
+        service,
+        "events",
+        "--from-time",
+        "2026-11-27T00:00:00Z",
+        "--to-time",
+        "2026-11-27T01:00:00Z",
+        "--filter",
+        "severity=WARN",
+        "--page-size",
+        "7",
+        "--page-token",
+        "p1",
+    )
+
+    assert result.exit_code == 0, result.stdout
+    call = cli_env.server.calls[-1]
+    assert call.request.from_time.ToJsonString() == "2026-11-27T00:00:00Z"
+    assert call.request.to_time.ToJsonString() == "2026-11-27T01:00:00Z"
+    assert call.request.filter == "severity=WARN"
+    assert call.request.page_size == 7
+    assert call.request.page_token == "p1"
+    assert any(key in {"authorization", "x-windhub-admin-token"} for key, _value in call.metadata)
+
+
 def test_publishing_status_roundtrip(cli_env: object) -> None:
     """UC-16：collector publishing 经真实 mTLS 往返，请求 channel 透传。"""
     server = cli_env.server

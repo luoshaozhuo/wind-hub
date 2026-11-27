@@ -79,19 +79,12 @@ async def test_e2e_04_request_replay_and_unauthorized_control(full_chain: Any) -
         assert conflict["status"] == "FAILURE"
         assert conflict["error_code"] == "ALREADY_EXISTS"
 
-        # The viewer certificate chains to the live server CA, but it is not in
-        # the configured control caller set.  Authentication/authorization must
-        # fail before any command can be accepted.
-        pki = harness.plant / "commander-pki"
-        credentials = grpc.ssl_channel_credentials(
-            root_certificates=(pki / "ca.crt").read_bytes(),
-            private_key=(pki / "viewer.key").read_bytes(),
-            certificate_chain=(pki / "viewer.crt").read_bytes(),
-        )
         deadline = Timestamp()
         deadline.FromDatetime(datetime.now(UTC) + timedelta(minutes=2))
+        # A well-formed Bearer credential that is absent from the live caller
+        # set must fail closed before any command can be accepted.
         unauthorized_id = f"e2e-unauthorized-{uuid4()}"
-        async with grpc.aio.secure_channel(harness.endpoints["commander"], credentials) as channel:
+        async with grpc.aio.insecure_channel(harness.endpoints["commander"]) as channel:
             stub = cmd_rpc.CommanderServiceStub(channel)
             with pytest.raises(grpc.aio.AioRpcError) as exc_info:
                 await stub.SubmitCommand(
@@ -104,6 +97,7 @@ async def test_e2e_04_request_replay_and_unauthorized_control(full_chain: Any) -
                         request_id=unauthorized_id,
                     ),
                     timeout=10,
+                    metadata=(("authorization", f"Bearer {uuid4().hex}"),),
                 )
             assert exc_info.value.code() in {
                 grpc.StatusCode.UNAUTHENTICATED,

@@ -24,10 +24,26 @@ from nats.aio.msg import Msg
 
 from cli.runtime import Runtime
 from contracts.sample_batch import SampleBatch, SampleItem
+from sink_service.infrastructure.config_io import read_snapshot
+from sink_service.infrastructure.persistence.config_repository import GenerationStore
 from tests.cli.test_r1f3_strict_cli_e2e import _write_cli
-from tests.support.gateway import reserve_port
+from tests.sink_service._stage1_fixtures import SINKS_INSTANCE
+from tests.support.gateway import _BearerInterceptor, reserve_port
 
-from .conftest import FARM, REPO_ROOT, SRC, FullChainHarness, _dump, _load, _write_gateway_service
+from .conftest import (
+    COMMANDER_GATEWAY_TOKEN_ENV,
+    FARM,
+    GATEWAY_CLI_TOKEN_ENV,
+    GATEWAY_COMMANDER_TOKEN_ENV,
+    GATEWAY_GENERATOR_TOKEN_ENV,
+    GENERATOR_GATEWAY_TOKEN_ENV,
+    REPO_ROOT,
+    SRC,
+    FullChainHarness,
+    _dump,
+    _load,
+    _write_gateway_service,
+)
 
 
 def utc_time(raw: str) -> datetime:
@@ -54,20 +70,13 @@ def number(raw: object) -> float:
     return result
 
 
-def mtls_channel(endpoint: str, ca: Path, cert: Path, key: Path) -> grpc.aio.Channel:
-    return grpc.aio.secure_channel(
-        endpoint,
-        grpc.ssl_channel_credentials(
-            root_certificates=ca.read_bytes(),
-            private_key=key.read_bytes(),
-            certificate_chain=cert.read_bytes(),
-        ),
-    )
+def bearer_channel(endpoint: str, token: str) -> grpc.aio.Channel:
+    """Open a loopback channel that authenticates every unary RPC with Bearer."""
+    return grpc.aio.insecure_channel(endpoint, interceptors=(_BearerInterceptor(token),))
 
 
 def generator_channel(harness: FullChainHarness) -> grpc.aio.Channel:
-    cert, key = harness.pki["clients"]["generator"]
-    return mtls_channel(harness.gw_grpc_endpoint, harness.pki["ca"], cert, key)
+    return bearer_channel(harness.gw_grpc_endpoint, harness.tokens[GENERATOR_GATEWAY_TOKEN_ENV])
 
 
 def fixed_batch(
@@ -83,7 +92,7 @@ def fixed_batch(
     collector = harness.rt_collector if mode == "realtime" else harness.reliable_collector
     suffix = uuid4().hex
     return SampleBatch(
-        schema_version=3,
+        schema_version=4,
         batch_id=f"r4e-{mode}-{suffix}",
         mode=mode,  # type: ignore[arg-type]
         wind_farm_id=FARM,
@@ -91,7 +100,9 @@ def fixed_batch(
         task_id=f"r4e-fixed-{mode}",
         device_type="wtg",
         device_id=device_id,
-        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
+        point_table_id="point_table_modbus_wtg_sim_e2e_v1.0.0",
+        device_config_id="device_full-chain-e2e_v1.0.0",
+        sample_time=source_time,
         publish_time=datetime.now(UTC),
         samples=(
             SampleItem(
@@ -136,17 +147,48 @@ async def kafka_consumer(harness: FullChainHarness, label: str) -> AIOKafkaConsu
 
 
 async def wait_kafka_sample(
-    consumer: AIOKafkaConsumer, sample_id: str, timeout: float = 60
+    consumer: AIOKafkaConsumer,
+    *,
+    device_id: str,
+    point_id: str,
+    sample_time: datetime,
+    value: float,
+    timeout: float = 60,
 ) -> dict[str, Any]:
+    """Read the actual device-wide JSON v3 shape without inventing sample IDs."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         records = await consumer.getmany(timeout_ms=1000, max_records=500)
         for partition_records in records.values():
             for record in partition_records:
                 item = json.loads(record.value)
-                if item.get("sample_id") == sample_id:
-                    return item
-    raise AssertionError(f"Kafka sample not observed: {sample_id}")
+                if (
+                    item.get("schema_version") != 3
+                    or item.get("device_id") != device_id
+                    or item.get("sample_time") is None
+                    or utc_time(item["sample_time"]) != sample_time
+                ):
+                    continue
+                point = item.get("points", {}).get(point_id)
+                if (
+                    isinstance(point, list)
+                    and len(point) == 2
+                    and isinstance(point[0], int | float)
+                    and abs(float(point[0]) - value) <= 1e-6
+                ):
+                    return {
+                        "schema_version": item["schema_version"],
+                        "device_config_id": item["device_config_id"],
+                        "device_id": device_id,
+                        "point_id": point_id,
+                        "sample_time": item["sample_time"],
+                        "value": point[0],
+                        "quality": point[1],
+                        "data_level": item["data_level"],
+                    }
+    raise AssertionError(
+        f"Kafka v3 sample not observed: {device_id}.{point_id} at {sample_time.isoformat()}"
+    )
 
 
 async def wait_gateway_value(
@@ -250,37 +292,25 @@ async def _export_sink_snapshot(harness: FullChainHarness, directory: Path) -> s
     return str(exported["data"]["revision"])
 
 
-async def _push_apply_sink_snapshot(
-    harness: FullChainHarness, directory: Path, expected_revision: str
-) -> str:
-    pushed = await harness.cli_call(
+async def _restart_sink(harness: FullChainHarness) -> None:
+    """Commit a test-owned static closure while the sole Sink writer is stopped."""
+    assert harness.sink is not None
+    await harness.cli.service(harness.cli_rt, "stop", "sink")
+    store = GenerationStore(harness.sink.root)
+    selected = store.selected_service_path()
+    previous = store.load(selected)
+    candidate = read_snapshot(harness.sink.root, harness.sink.root / selected)
+    store.commit(candidate, previous.revision, old=previous)
+    restarted = await harness.cli.service(harness.cli_rt, "start", "sink")
+    assert restarted["data"]["process"]["confirmed"] is True
+    await harness.poll(
         harness.cli_rt,
-        "config",
-        "push",
         "sink",
-        str(directory),
-        "--expected-revision",
-        expected_revision,
+        "delivery",
+        "gateway_output",
+        predicate=lambda data: data.get("delivery", {}).get("actual_state") == "RUNNING",
+        timeout=60,
     )
-    assert pushed["data"]["valid"] is True, pushed
-    candidate_id = str(pushed["data"]["candidate_id"])
-    applied = await harness.cli_call(
-        harness.cli_rt,
-        "config",
-        "apply",
-        "sink",
-        candidate_id,
-        "--expected-revision",
-        expected_revision,
-        "--yes",
-        check=False,
-    )
-    assert applied["status"] in {"SUCCESS", "PARTIAL"}, applied
-    assert applied["data"]["file_commit"] == applied["data"]["effective_revision"], applied
-    assert all(
-        item["status"] in {"APPLIED", "SUCCESS"} for item in applied["data"]["apply_results"]
-    ), applied
-    return str(applied["data"]["effective_revision"])
 
 
 @dataclass(slots=True)
@@ -291,7 +321,6 @@ class TargetGateway:
     endpoint: str
     grpc_port: int
     modbus_port: int
-    pki: dict[str, Any]
     cli_config: Path
     original_sinks: bytes
     original_snapshot: Path
@@ -310,28 +339,15 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
     import shutil
 
     shutil.copytree(harness.plant, plant)
-    certs = plant / "gateway-pki" / "certs"
-    clients = {
-        name: (certs / f"client-{name}.crt", certs / f"client-{name}.key")
-        for name in ("cli", "gateway", "generator", "sink", "commander")
-    }
-    clients["lease-a"] = clients["cli"]
-    clients["lease-b"] = clients["generator"]
-    pki = {
-        "ca": certs / "ca.crt",
-        "server_crt": certs / "server.crt",
-        "server_key": certs / "server.key",
-        "clients": clients,
-    }
     grpc_port = reserve_port()
     modbus_port = reserve_port()
     sink_listener_port = reserve_port()
     # Reuse the harness Sink token so the existing Sink process can authenticate
     # to the target gateway's loopback Bearer listener without a process restart.
     sink_token = harness.gateway_sink_token
-    service_path = _write_gateway_service(plant, grpc_port=grpc_port, pki=pki)
+    service_path = _write_gateway_service(plant, grpc_port=grpc_port)
     document = _load(service_path)
-    # Dual-listener: mTLS management port plus a loopback-only Sink Bearer port.
+    # Dual loopback listeners use the same Bearer caller policy as the source.
     document["grpc"]["sink_listener_port"] = sink_listener_port
     servers = [item for item in document["servers"] if item["device_id"] == "WTG_SIM01"]
     assert len(servers) == 1
@@ -359,7 +375,19 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             str(plant),
         ],
         cwd=plant,
-        env={"WIND_HUB_GATEWAY_SINK_TOKEN": sink_token},
+        env={
+            "WIND_HUB_GATEWAY_SINK_TOKEN": sink_token,
+            **{
+                name: harness.tokens[name]
+                for name in (
+                    GATEWAY_CLI_TOKEN_ENV,
+                    GENERATOR_GATEWAY_TOKEN_ENV,
+                    COMMANDER_GATEWAY_TOKEN_ENV,
+                    GATEWAY_GENERATOR_TOKEN_ENV,
+                    GATEWAY_COMMANDER_TOKEN_ENV,
+                )
+            },
+        },
     )
     endpoint = f"127.0.0.1:{grpc_port}"
     sink_endpoint = f"127.0.0.1:{sink_listener_port}"
@@ -371,20 +399,19 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         collector="collector_realtime",
         endpoints=endpoints,
         processes=harness.cli.processes,
-        gateway_pki=pki,
-        commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
+        collector_pki=harness.pki,
     )
     cli_document = _load(cli_config)
     cli_document["services"][service_name] = {
         "grpc_endpoint": endpoint,
-        "tls_profile": "gateway",
+        "token_env": GATEWAY_CLI_TOKEN_ENV,
         "manager": "process",
         "target": service_name,
         "process": harness.cli.processes[service_name],
     }
     _dump(cli_config, cli_document)
 
-    sinks_path = harness.sink.root / "configs" / "instances" / "sinks.yaml"
+    sinks_path = harness.sink.root / SINKS_INSTANCE
     target = TargetGateway(
         harness=harness,
         root=root,
@@ -392,7 +419,6 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
         endpoint=endpoint,
         grpc_port=grpc_port,
         modbus_port=modbus_port,
-        pki=pki,
         cli_config=cli_config,
         original_sinks=sinks_path.read_bytes(),
         original_snapshot=root / "original-sink-snapshot",
@@ -415,34 +441,27 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
             timeout=60,
         )
 
-        original_revision = await _export_sink_snapshot(harness, target.original_snapshot)
-        candidate_snapshot = root / "target-sink-candidate"
-        candidate_revision = await _export_sink_snapshot(harness, candidate_snapshot)
-        assert candidate_revision == original_revision
-        candidate_sinks = next(candidate_snapshot.rglob("sinks.yaml"))
-        sinks = _load(candidate_sinks)
+        await _export_sink_snapshot(harness, target.original_snapshot)
+        sinks = _load(sinks_path)
         connection = sinks["sinks"]["gateway_sink"]["connection"]
-        # Route through the target gateway's loopback Sink Bearer listener,
-        # not its mTLS management port (the Sink GatewayOutput is plaintext).
+        # Route through the target gateway's dedicated loopback Sink listener.
         connection["endpoint"] = sink_endpoint
         connection["gateway_id"] = "gw-wtg_sim01"
-        _dump(candidate_sinks, sinks)
-        await _push_apply_sink_snapshot(harness, candidate_snapshot, candidate_revision)
+        _dump(sinks_path, sinks)
+        await _restart_sink(harness)
         _write_cli(
             harness.cli_rt,
             collector="collector_realtime",
             endpoints=harness.endpoints,
             processes=harness.cli.processes,
-            gateway_pki=harness.pki,
-            commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
+            collector_pki=harness.pki,
         )
         _write_cli(
             harness.cli_rel,
             collector="collector_reliable",
             endpoints=harness.endpoints,
             processes=harness.cli.processes,
-            gateway_pki=harness.pki,
-            commander_pki=type("Pki", (), {"tmp": harness.plant / "commander-pki"})(),
+            collector_pki=harness.pki,
         )
         return target
     except BaseException:
@@ -453,10 +472,11 @@ async def start_target_gateway(harness: FullChainHarness) -> TargetGateway:
 async def stop_target_gateway(target: TargetGateway) -> None:
     harness = target.harness
     if target.original_snapshot.is_dir():
+        target.sinks_path.write_bytes(target.original_sinks)
         with contextlib.suppress(Exception):
-            current = await _export_sink_snapshot(harness, target.root / "restore-revision")
-            await _push_apply_sink_snapshot(harness, target.original_snapshot, current)
-    target.sinks_path.write_bytes(target.original_sinks)
+            await _restart_sink(harness)
+    else:
+        target.sinks_path.write_bytes(target.original_sinks)
     harness.cli.processes["sink"] = target.original_sink_process
     harness.cli_rt.write_bytes(target.original_cli_rt)
     harness.cli_rel.write_bytes(target.original_cli_rel)
@@ -498,13 +518,13 @@ __all__ = [
     "SRC",
     "Runtime",
     "TargetGateway",
+    "bearer_channel",
     "correlate_source",
     "fixed_batch",
     "float_words",
     "generator_channel",
     "kafka_consumer",
     "load_yaml",
-    "mtls_channel",
     "number",
     "publish_batch",
     "read_modbus_float",

@@ -26,9 +26,9 @@ async def _revision(stub) -> str:  # noqa: ANN001
     return str(response.revision)
 
 
-async def _denied_push(common_stub, revision: str, files) -> None:  # noqa: ANN001
+async def _denied_push(writer_common, revision: str, files) -> None:  # noqa: ANN001
     with pytest.raises(grpc.aio.AioRpcError) as exc:
-        await common_stub.PushConfigSnapshot(
+        await writer_common.PushConfigSnapshot(
             common.PushConfigSnapshotRequest(expected_revision=revision, files=files)
         )
     assert exc.value.code() is grpc.StatusCode.FAILED_PRECONDITION
@@ -46,6 +46,9 @@ async def test_get_push_apply(start_real_gateway, configs_root, dg_subprocess) -
     )
     bind, _process = await dg_subprocess(service_path)
     channel, dg_stub, common_stub = await dg_stubs(bind)
+    writer_channel, _writer_dg, writer_common = await dg_stubs(
+        bind, token_env="WIND_HUB_TEST_DG_CLI_TOKEN"
+    )
     try:
         revision = await _revision(common_stub)
         disk = await common_stub.GetConfigSnapshot(common.GetConfigSnapshotRequest(scope=DISK))
@@ -62,9 +65,9 @@ async def test_get_push_apply(start_real_gateway, configs_root, dg_subprocess) -
         assert started.accepted, started.message
 
         # A local writer cannot introduce or activate another Scenario version.
-        await _denied_push(common_stub, revision, list(disk.files))
+        await _denied_push(writer_common, revision, list(disk.files))
         with pytest.raises(grpc.aio.AioRpcError) as exc:
-            await common_stub.ApplyConfigSnapshot(
+            await writer_common.ApplyConfigSnapshot(
                 common.ApplyConfigSnapshotRequest(
                     candidate_id="not-published", expected_revision=revision
                 )
@@ -80,6 +83,7 @@ async def test_get_push_apply(start_real_gateway, configs_root, dg_subprocess) -
         )
         assert stopped.accepted
     finally:
+        await writer_channel.close()
         await channel.close()
 
 
@@ -97,6 +101,9 @@ async def test_invalid_candidate_and_conflict(
     )
     bind, _process = await dg_subprocess(service_path)
     channel, dg_stub, common_stub = await dg_stubs(bind)
+    writer_channel, _writer_dg, writer_common = await dg_stubs(
+        bind, token_env="WIND_HUB_TEST_DG_CLI_TOKEN"
+    )
     try:
         revision = await _revision(common_stub)
         disk = await common_stub.GetConfigSnapshot(common.GetConfigSnapshotRequest(scope=DISK))
@@ -104,10 +111,10 @@ async def test_invalid_candidate_and_conflict(
             dg.StartGenerationRequest(scenario_id="demo-random", expected_revision=revision)
         )
         assert started.accepted
-        await _denied_push(common_stub, "stale-revision", list(disk.files))
-        await _denied_push(common_stub, revision, list(disk.files))
+        await _denied_push(writer_common, "stale-revision", list(disk.files))
+        await _denied_push(writer_common, revision, list(disk.files))
         with pytest.raises(grpc.aio.AioRpcError) as exc:
-            await common_stub.ApplyConfigSnapshot(
+            await writer_common.ApplyConfigSnapshot(
                 common.ApplyConfigSnapshotRequest(
                     candidate_id="does-not-exist", expected_revision=revision
                 )
@@ -123,6 +130,7 @@ async def test_invalid_candidate_and_conflict(
         state = await dg_stub.GetGeneration(common.ObjectId(id=started.generation_id))
         assert state.generation.actual_state in {"STARTING", "RUNNING"}
     finally:
+        await writer_channel.close()
         await channel.close()
 
 

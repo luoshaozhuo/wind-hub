@@ -50,9 +50,7 @@ def _single_diagnose(
 
 
 @collector.command("device")
-def collector_device(
-    device_id: str, output: Path | None = typer.Option(None, "--output")
-) -> None:
+def collector_device(device_id: str, output: Path | None = typer.Option(None, "--output")) -> None:
     _single_diagnose("collector", device_id, output)
 
 

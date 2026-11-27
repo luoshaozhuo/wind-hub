@@ -39,6 +39,8 @@ REPOSITORY_ONLY_LEAVES = frozenset(
         "config versions",
         "config revision",
         "config bundle",
+        "config bundle-exact",
+        "config service-bundle",
         "config point-table-bundle",
         "config references",
         "config recommend",
@@ -154,6 +156,8 @@ async def test_e2e_08_executes_all_51_formal_rpcs(
     monkeypatch.setenv("WIND_HUB_COLLECTOR_ADMIN_TOKEN", ADMIN_TOKEN)
     assert full_chain.sink is not None
     monkeypatch.setenv("WIND_HUB_SINK_CLI_TOKEN", full_chain.sink.auth_tokens["admin"])
+    for token_env, token in full_chain.tokens.items():
+        monkeypatch.setenv(token_env, token)
     runtime = Runtime(full_chain.cli_rt, "json")
     values = _requests(full_chain)
     evidence: list[dict[str, Any]] = []
@@ -295,6 +299,29 @@ async def test_e2e_08_executes_all_73_cli_leaves(full_chain: FullChainHarness) -
     await execute("gateway status", "gateway", "status", "gw-wtg_sim01")
     await execute("gateway variables", "gateway", "variables", "gw-wtg_sim01")
     await execute("gateway read", "gateway", "read", "gw-wtg_sim01", "wind_speed")
+    await execute(
+        "gateway watch",
+        "gateway",
+        "watch",
+        "gw-wtg_sim01",
+        "wind_speed",
+        "--count",
+        "1",
+    )
+    await execute(
+        "gateway renew",
+        "gateway",
+        "renew",
+        "gw-wtg_sim01",
+        "wind_speed",
+        "--owner-id",
+        "cli",
+        "--lease-token-env",
+        "WIND_HUB_TEST_GATEWAY_CLI_TOKEN",
+        "--yes",
+    )
+    for service in ("collector", "gateway", "commander", "sink", "data-generator"):
+        await execute(f"monitor {service}", "monitor", service)
     await execute("gateway metrics", "gateway", "metrics", "--scope", "e2e", "--window-ms", "1000")
     await execute("gateway events", "gateway", "events", "--page-size", "1")
     await execute(

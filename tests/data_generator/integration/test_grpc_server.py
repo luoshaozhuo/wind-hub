@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 
 import grpc
 import pytest
 
 from contracts import common_pb2 as common
+from contracts import common_pb2_grpc as common_rpc
 from contracts import data_generator_pb2 as dg
 from data_generator.infrastructure.persistence.snapshots import file_sha256
+from tests.support.gateway import _BearerInterceptor
 
 from ..conftest import ship_scenarios_document
 
@@ -143,25 +146,31 @@ async def test_cancelled_retired_push_does_not_block_other_rpcs(
         for item in disk.files
     ]
 
-    async def push_once() -> None:
-        await harness.common.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(
-                expected_revision=disk.revision,
-                files=files,
-            )
-        )
+    async with grpc.aio.insecure_channel(
+        harness.bind,
+        interceptors=[_BearerInterceptor(os.environ.get("WIND_HUB_TEST_DG_CLI_TOKEN", ""))],
+    ) as writer_channel:
+        writer_common = common_rpc.CommonServiceStub(writer_channel)
 
-    first = asyncio.ensure_future(push_once())
-    await asyncio.sleep(0.1)  # 确保请求已到达服务端并持有配置锁
-    first.cancel()
-    with contextlib.suppress(asyncio.CancelledError, grpc.RpcError):
-        await first
-    # The retired writer must fail closed and must not block subsequent RPCs.
-    with pytest.raises(grpc.RpcError) as denied:
-        await harness.common.PushConfigSnapshot(
-            common.PushConfigSnapshotRequest(expected_revision=disk.revision, files=files)
-        )
-    assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        async def push_once() -> None:
+            await writer_common.PushConfigSnapshot(
+                common.PushConfigSnapshotRequest(
+                    expected_revision=disk.revision,
+                    files=files,
+                )
+            )
+
+        first = asyncio.ensure_future(push_once())
+        await asyncio.sleep(0.1)  # 确保请求已到达服务端并持有配置锁
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError, grpc.RpcError):
+            await first
+        # The retired writer must fail closed and must not block subsequent RPCs.
+        with pytest.raises(grpc.RpcError) as denied:
+            await writer_common.PushConfigSnapshot(
+                common.PushConfigSnapshotRequest(expected_revision=disk.revision, files=files)
+            )
+        assert denied.value.code() == grpc.StatusCode.FAILED_PRECONDITION
     # A cancelled retired write cannot seize the configuration lock.
     info = await harness.common.GetServiceInfo(common.Empty())
     assert info.service_id == "data_generator"

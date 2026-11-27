@@ -43,11 +43,17 @@ class ScriptedGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         execute_accepted: bool = True,
         evidence: list[gw.SimulationCommandResponse] | None = None,
         revision: str = "rev-42",
+        get_gateway_error: grpc.StatusCode | None = None,
+        execute_error: grpc.StatusCode | None = None,
+        query_error: grpc.StatusCode | None = None,
     ) -> None:
         self._execute_state = execute_state
         self._execute_accepted = execute_accepted
         self._evidence = list(evidence or [])
         self._revision = revision
+        self._get_gateway_error = get_gateway_error
+        self._execute_error = execute_error
+        self._query_error = query_error
         self.execute_calls: list[gw.SimulationCommandRequest] = []
         self.query_calls: list[gw.SimulationExecutionQuery] = []
 
@@ -63,6 +69,8 @@ class ScriptedGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
         self, request: common.ObjectId, context: grpc.aio.ServicerContext
     ) -> gw.GetGatewayResponse:
         await self._authorize(context)
+        if self._get_gateway_error is not None:
+            await context.abort(self._get_gateway_error, "scripted GetGateway failure")
         return gw.GetGatewayResponse(
             gateway=gw.Gateway(gateway_id=request.id, revision=self._revision)
         )
@@ -72,6 +80,8 @@ class ScriptedGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
     ) -> gw.SimulationCommandResponse:
         await self._authorize(context)
         self.execute_calls.append(request)
+        if self._execute_error is not None:
+            await context.abort(self._execute_error, "scripted Execute failure")
         return gw.SimulationCommandResponse(
             request_id=request.request_id,
             accepted=self._execute_accepted,
@@ -85,6 +95,8 @@ class ScriptedGatewayService(gw_rpc.IndustrialGatewayServiceServicer):
     ) -> gw.SimulationCommandResponse:
         await self._authorize(context)
         self.query_calls.append(request)
+        if self._query_error is not None:
+            await context.abort(self._query_error, "scripted query failure")
         if self._evidence:
             response = self._evidence.pop(0)
             return response
@@ -199,6 +211,81 @@ async def test_unknown_execution_never_settles_success(tmp_path: Path) -> None:
         assert result.outcome is WriteOutcome.UNKNOWN
         assert result.message == "EXECUTION_QUERY_FAILED"
         assert len(service.execute_calls) == 1
+    finally:
+        await session.close()
+        await server.stop(1.0)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (grpc.StatusCode.ABORTED, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.ALREADY_EXISTS, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.UNAVAILABLE, WriteOutcome.UNKNOWN),
+        (grpc.StatusCode.DEADLINE_EXCEEDED, WriteOutcome.UNKNOWN),
+    ],
+)
+async def test_get_gateway_rpc_errors_are_classified_without_execute(
+    tmp_path: Path, status: grpc.StatusCode, expected: WriteOutcome
+) -> None:
+    service = ScriptedGatewayService(get_gateway_error=status)
+    session, service, server = await _start(tmp_path, service)
+    try:
+        result = await session.write_authorized(_command(f"cmd-get-{status.name}"))
+        assert result.outcome is expected
+        assert result.message == status.name
+        assert service.execute_calls == []
+    finally:
+        await session.close()
+        await server.stop(1.0)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (grpc.StatusCode.ABORTED, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.ALREADY_EXISTS, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.UNAVAILABLE, WriteOutcome.UNKNOWN),
+        (grpc.StatusCode.DEADLINE_EXCEEDED, WriteOutcome.UNKNOWN),
+    ],
+)
+async def test_execute_rpc_errors_are_classified_without_retry(
+    tmp_path: Path, status: grpc.StatusCode, expected: WriteOutcome
+) -> None:
+    service = ScriptedGatewayService(execute_error=status)
+    session, service, server = await _start(tmp_path, service)
+    try:
+        result = await session.write_authorized(_command(f"cmd-exec-{status.name}"))
+        assert result.outcome is expected
+        assert result.message == status.name
+        assert len(service.execute_calls) == 1
+        assert service.query_calls == []
+    finally:
+        await session.close()
+        await server.stop(1.0)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (grpc.StatusCode.ABORTED, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.ALREADY_EXISTS, WriteOutcome.CONFIRMED_FAILURE),
+        (grpc.StatusCode.UNAVAILABLE, WriteOutcome.UNKNOWN),
+        (grpc.StatusCode.DEADLINE_EXCEEDED, WriteOutcome.UNKNOWN),
+    ],
+)
+async def test_query_rpc_errors_are_classified_without_resubmission(
+    tmp_path: Path, status: grpc.StatusCode, expected: WriteOutcome
+) -> None:
+    service = ScriptedGatewayService(query_error=status)
+    session, service, server = await _start(tmp_path, service)
+    try:
+        result = await session.write_authorized(_command(f"cmd-query-{status.name}"))
+        assert result.outcome is expected
+        assert result.message == status.name
+        assert len(service.execute_calls) == 1
+        assert len(service.query_calls) == 1
+        assert service.execute_calls[0].request_id == service.query_calls[0].request_id
     finally:
         await session.close()
         await server.stop(1.0)

@@ -83,8 +83,11 @@ class StorageBundleSnapshot:
         return bundle, self._encode(bundle)
 
     def export_target(self) -> tuple[StorageBundle, bytes]:
-        """Return the validated pending target without activating it."""
+        """Return only a pending target newer than the verified active closure."""
+        accepted = self.load()
         bundle = self.load_target()
+        if bundle.revision_id <= accepted.revision_id:
+            raise ConfigHistoryUnavailableError("no unactivated Storage target is available")
         return bundle, self._encode(bundle)
 
     def _store_at(self, path: Path, bundle: StorageBundle) -> None:

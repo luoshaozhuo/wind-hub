@@ -25,6 +25,10 @@ _SETPOINT_TABLE = """\
 schema_version: 1
 template_id: modbus_wtg
 file_version: 1.0.0
+config_sources:
+  - config_type: business_points
+    config_id: standard
+    file_version: "1.0.0"
 protocol: modbus
 points:
   setpoint_power:
@@ -48,13 +52,12 @@ business_points:
 """
 
 _SERVICE_YAML = """\
-schema_version: 1
+schema_version: 2
 file_version: 1.0.0
+service_id: commander
 config_sources:
   instances:
-    devices: config/instances/devices.yaml
-  templates:
-    root: config/templates
+    devices: reload-test
 dispatcher:
   max_concurrency: 100
   max_pending_per_device: 10
@@ -79,9 +82,6 @@ protocol:
   version: 1.1.0
 point_table:
   id: modbus_wtg
-  version: 1.0.0
-task:
-  id: turbine_all
   version: 1.0.0
 protocol_options:
   slave_id: 1
@@ -112,7 +112,7 @@ def _build_tree(tmp_root: Path, port_a: int, port_b: int) -> tuple[Path, Path]:
     root = tmp_root / "config"
     copytree(_REPO_CONFIGS / "instances", root / "instances")
     copytree(_REPO_CONFIGS / "templates", root / "templates")
-    (root / "instances" / "devices.yaml").write_text(
+    (root / "instances" / "device_reload-test_v1.0.0.yaml").write_text(
         _devices_document(port_a, port_b), encoding="utf-8"
     )
     (root / "templates/device_models/device_model_modbus_wtg_v1.0.0.yaml").write_text(
@@ -121,15 +121,31 @@ def _build_tree(tmp_root: Path, port_a: int, port_b: int) -> tuple[Path, Path]:
     (root / "templates/point_tables/point_table_modbus_wtg_v1.0.0.yaml").write_text(
         _SETPOINT_TABLE, encoding="utf-8"
     )
-    (root / "templates/business_points_standard.yaml").write_text(
+    (root / "templates/business_points_standard_v1.0.0.yaml").write_text(
         _BUSINESS_POINTS, encoding="utf-8"
     )
-    service_yaml = tmp_root / "commander.yaml"
+    manifest_path = root / "deployments" / "deployment_reload-test_v1.0.0.yaml"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        "schema_version: 1\nfile_version: '1.0.0'\n"
+        "deployment_id: reload-test\n"
+        "services:\n  commander:\n    config_id: commander\n"
+        "    file_version: '1.0.0'\n"
+        "instances:\n  device:\n    reload-test:\n"
+        "      file_version: '1.0.0'\n",
+        encoding="utf-8",
+    )
+    service_yaml = root / "services" / "service_commander_v1.0.0.yaml"
+    service_yaml.parent.mkdir(parents=True, exist_ok=True)
     service_yaml.write_text(
         _SERVICE_YAML.format(sqlite_path=str(tmp_root / "state" / "cmd.db")),
         encoding="utf-8",
     )
     return root, service_yaml
+
+
+def _devices_file(root: Path) -> Path:
+    return root / "instances" / "device_reload-test_v1.0.0.yaml"
 
 
 def _manager(
@@ -154,9 +170,7 @@ async def test_full_reload_preserves_verified_candidate_manifest(tmp_path: Path)
     initial = manager.documents
     assert initial.source_manifest  # 启动即持有非空、可验证的单一来源清单
 
-    (root / "instances" / "devices.yaml").write_text(
-        _devices_document(5031, 5032), encoding="utf-8"
-    )
+    _devices_file(root).write_text(_devices_document(5031, 5032), encoding="utf-8")
     report = await manager.reload()
 
     assert report.blocked == ()
@@ -175,9 +189,7 @@ async def test_fully_blocked_reload_keeps_old_manifest_and_revision(tmp_path: Pa
     manager = _manager(service_yaml, block_all)
     initial = manager.documents
 
-    (root / "instances" / "devices.yaml").write_text(
-        _devices_document(5041, 5042), encoding="utf-8"
-    )
+    _devices_file(root).write_text(_devices_document(5041, 5042), encoding="utf-8")
     report = await manager.reload()
 
     assert set(report.blocked) == {"WT-A", "WT-B"}
@@ -199,9 +211,7 @@ async def test_partial_reload_emits_empty_manifest_without_fabricating_source(
     initial_fp_a = manager.device_revision("WT-A")
     initial_fp_b = manager.device_revision("WT-B")
 
-    (root / "instances" / "devices.yaml").write_text(
-        _devices_document(5051, 5052), encoding="utf-8"
-    )
+    _devices_file(root).write_text(_devices_document(5051, 5052), encoding="utf-8")
     report = await manager.reload()
 
     # WT-A 热生效、WT-B 阻断保留旧绑定：混合代际。

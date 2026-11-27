@@ -16,7 +16,13 @@ import pytest
 
 from cli.runtime import Runtime
 from cli.service_rpc import invoke
-from contracts import collector_pb2, commander_pb2, common_pb2, common_pb2_grpc
+from contracts import (
+    collector_pb2,
+    commander_pb2,
+    common_pb2,
+    common_pb2_grpc,
+    industrial_gateway_pb2,
+)
 from tests.cli.conftest import _write_certs
 
 pytestmark = pytest.mark.contract
@@ -217,3 +223,57 @@ async def test_mtls_rejects_untrusted_client(
     with pytest.raises(grpc.aio.AioRpcError):
         await stub.GetServiceInfo(common_pb2.Empty(), timeout=3)
     await channel.close()
+
+
+def test_gateway_watch_uses_bounded_nonoverlapping_reads(cli_env: Any) -> None:
+    cli_env.server.respond_value(
+        _path(cli_env.server, "IndustrialGatewayService", "ReadVariables"),
+        industrial_gateway_pb2.ReadVariablesResponse(gateway_id="gw"),
+    )
+
+    result = cli_env.invoke(
+        "gateway", "watch", "gw", "v1", "v2", "--count", "2", "--interval", "0.1"
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert result.json()["data"]["observations"] == 2
+    calls = [call for call in cli_env.server.calls if call.path.endswith("/ReadVariables")]
+    assert len(calls) == 2
+    assert all(call.request.gateway_id == "gw" for call in calls)
+    assert all(list(call.request.variable_ids) == ["v1", "v2"] for call in calls)
+
+
+def test_gateway_renew_uses_env_token_and_authorized_identity(
+    cli_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lease_token = "test-only-lease-token-not-for-production"
+    monkeypatch.setenv("TEST_ONLY_LEASE_TOKEN", lease_token)
+    cli_env.server.respond_value(
+        _path(cli_env.server, "IndustrialGatewayService", "ClaimTargets"),
+        industrial_gateway_pb2.ClaimTargetsResponse(accepted=True),
+    )
+
+    result = cli_env.invoke(
+        "gateway",
+        "renew",
+        "gw",
+        "v1",
+        "v2",
+        "--owner-id",
+        "owner",
+        "--lease-token-env",
+        "TEST_ONLY_LEASE_TOKEN",
+        "--lease-ms",
+        "1234",
+        "--yes",
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert result.json()["data"]["renewed"] is True
+    assert lease_token not in result.stdout
+    call = cli_env.server.calls[-1]
+    assert call.request.action == "RENEW"
+    assert call.request.lease_token == lease_token
+    assert call.request.lease_ms == 1234
+    assert list(call.request.variable_ids) == ["v1", "v2"]
+    assert any(key == "authorization" for key, _value in call.metadata)

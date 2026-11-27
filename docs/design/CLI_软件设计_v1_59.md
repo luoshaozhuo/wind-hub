@@ -2021,7 +2021,7 @@ CLI 全量发布后 Configuration 保存版本和目标 Deployment 并广播修�
 
 
 ```text
-wind-hub> config get service collector-realtime --output ./collector_snapshot
+wind-hub> config get collector-realtime --scope disk --output ./collector_snapshot
 Service : collector
 Snapshot: disk
 Files   : 14

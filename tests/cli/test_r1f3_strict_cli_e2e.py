@@ -65,6 +65,7 @@ def _write_cli(
     endpoints: dict[str, str],
     processes: dict[str, dict[str, Any]],
     collector_pki: dict[str, object],
+    generator_manager_token_env: str = "",
 ) -> Path:
     clients = cast(dict[str, tuple[Path, Path]], collector_pki["clients"])
     collector_cert, collector_key = clients["cli"]
@@ -93,6 +94,11 @@ def _write_cli(
             row["tls_profile"] = "collector"
         else:
             row["token_env"] = token_envs[name]
+        if name == "data-generator" and generator_manager_token_env:
+            row["method_token_envs"] = {
+                "StartGeneration": generator_manager_token_env,
+                "StopGeneration": generator_manager_token_env,
+            }
         services[name] = row
     services["collector"] = {
         "grpc_endpoint": endpoints[collector],
@@ -586,10 +592,12 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
         generator_gateway_token = os.urandom(32).hex()
         gateway_sink_management_token = os.urandom(32).hex()
         dg_cli_token = os.urandom(32).hex()
+        dg_manager_token = os.urandom(32).hex()
         commander_ops_token = os.urandom(32).hex()
         harness.auth_tokens = {
             "WIND_HUB_TEST_GATEWAY_CLI_TOKEN": gateway_cli_token,
             "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+            "WIND_HUB_TEST_DG_MANAGER_TOKEN": dg_manager_token,
             "WIND_HUB_TEST_COMMANDER_OPS_TOKEN": commander_ops_token,
         }
         harness.register_process(
@@ -619,6 +627,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             env={
                 "WIND_HUB_TEST_DG_GATEWAY_TOKEN": generator_gateway_token,
                 "WIND_HUB_TEST_DG_CLI_TOKEN": dg_cli_token,
+                "WIND_HUB_TEST_DG_MANAGER_TOKEN": dg_manager_token,
                 "WIND_HUB_TEST_DG_CALLER_TOKEN": os.urandom(32).hex(),
             },
         )
@@ -677,6 +686,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             endpoints=endpoints,
             processes=harness.processes,
             collector_pki=pki,
+            generator_manager_token_env="WIND_HUB_TEST_DG_MANAGER_TOKEN",
         )
         _write_cli(
             harness.cli_reliable,
@@ -684,6 +694,7 @@ async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) 
             endpoints=endpoints,
             processes=harness.processes,
             collector_pki=pki,
+            generator_manager_token_env="WIND_HUB_TEST_DG_MANAGER_TOKEN",
         )
 
         for name in SERVICES:

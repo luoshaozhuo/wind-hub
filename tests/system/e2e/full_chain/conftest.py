@@ -14,10 +14,11 @@
 - 源真值来自 DG Recording JSONL（逐 generation 落盘），下游读回全部独立
   客户端（pymodbus、RESP2、aiokafka、Gateway gRPC），不读被测进程内部状态。
 
-设备清单双轨：DG 使用出厂 ``devices_sim.yaml`` 与原始物理点表；
-Gateway/Collector/Commander 使用派生的 ``devices_e2e.yaml`` 与 E2E 型号。
-其中 WTG E2E 点表单独追加 Sink 回写目标，物理输出点仍沿用出厂地址，
-避免将测试回写点误作为 DG 必须生成的物理量。
+设备清单双轨：DG 与 Gateway/Collector/Commander 分别使用 Deployment 精确选择的
+版本化 Device Instance；采集周期由独立 Collector Task Instance 声明。WTG E2E
+点表单独追加 Sink 回写目标，物理输出点仍沿用出厂地址，避免将测试回写点误作为
+DG 必须生成的物理量。Gateway/Generator/Commander 使用现行调用方令牌鉴权，
+Collector 管理面继续使用独立 mTLS。
 """
 
 from __future__ import annotations
@@ -47,12 +48,11 @@ from tests.cli.test_r1f3_strict_cli_e2e import (
     _provision_commander_audit,
     _write_cli,
 )
-from tests.commander.grpc_harness import build_pki
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import DELIVERIES_INSTANCE, SINKS_INSTANCE
+from tests.sink_service._stage1_fixtures import SERVICE_FILE as SINK_SERVICE_FILE
 from tests.sink_service.system.conftest import SinkSystemHarness
 from tests.support.collector_config_tree import _dump
-from tests.support.commander_mtls import write_commander_service
 from tests.support.gateway import reserve_port, write_mtls_pki
 
 SRC = Path(__file__).resolve().parents[4] / "src"
@@ -74,7 +74,35 @@ E2E_POINT_TABLES = {
     "WTG_SIM01": ("modbus_wtg_sim", "modbus_wtg_sim_e2e"),
     "PV_SIM01": ("modbus_pv_sim", "modbus_pv_sim_e2e"),
     "BESS_SIM01": ("modbus_bess_sim", "modbus_bess_sim_e2e"),
+    "GRID_SIM01": ("modbus_grid_sim", "modbus_grid_sim_e2e"),
+    "PPC_SIM01": ("modbus_plant_controller_sim", "modbus_plant_controller_sim_e2e"),
 }
+SINK_TARGET_DEVICES = {"WTG_SIM01", "PV_SIM01", "BESS_SIM01"}
+SIM_DEVICE_INSTANCE = "full-chain-sim"
+E2E_DEVICE_INSTANCE = "full-chain-e2e"
+TASK_INSTANCE = "full-chain"
+SCENARIO_INSTANCE = "full-chain"
+DEPLOYMENT_ID = "full-chain"
+SERVICE_VERSION = "1.0.0"
+BUSINESS_POINTS_VERSION = "1.5.1"
+GATEWAY_CLI_TOKEN_ENV = "WIND_HUB_TEST_GATEWAY_CLI_TOKEN"
+GENERATOR_CLI_TOKEN_ENV = "WIND_HUB_TEST_DG_CLI_TOKEN"
+GENERATOR_GATEWAY_TOKEN_ENV = "WIND_HUB_TEST_GENERATOR_GATEWAY_TOKEN"
+GATEWAY_GENERATOR_TOKEN_ENV = "WIND_HUB_TEST_GATEWAY_GENERATOR_TOKEN"
+COMMANDER_GATEWAY_TOKEN_ENV = "WIND_HUB_TEST_COMMANDER_GATEWAY_TOKEN"
+GATEWAY_COMMANDER_TOKEN_ENV = "WIND_HUB_TEST_GATEWAY_COMMANDER_TOKEN"
+COMMANDER_OPS_TOKEN_ENV = "WIND_HUB_TEST_COMMANDER_OPS_TOKEN"
+COMMANDER_MAINTENANCE_TOKEN_ENV = "WIND_HUB_TEST_COMMANDER_MAINTENANCE_TOKEN"
+TOKEN_ENVS = (
+    GATEWAY_CLI_TOKEN_ENV,
+    GENERATOR_CLI_TOKEN_ENV,
+    GENERATOR_GATEWAY_TOKEN_ENV,
+    GATEWAY_GENERATOR_TOKEN_ENV,
+    COMMANDER_GATEWAY_TOKEN_ENV,
+    GATEWAY_COMMANDER_TOKEN_ENV,
+    COMMANDER_OPS_TOKEN_ENV,
+    COMMANDER_MAINTENANCE_TOKEN_ENV,
+)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -85,13 +113,11 @@ def _load(path: Path) -> dict[str, Any]:
 
 def _factory_variable_mappings() -> dict[str, dict[str, str]]:
     """Load all source-to-Gateway point identities from the shipped scenario."""
-    shipped = _load(REPO_CONFIGS / "services" / "data-generator-sim.example.yaml")
-    scenarios = shipped.get("scenarios")
-    assert isinstance(scenarios, list) and scenarios, "factory simulation scenario is missing"
-    routes = scenarios[0].get("gateways")
+    shipped = _load(REPO_CONFIGS / "instances" / "scenarios_sim_v1.0.4.yaml")
+    routes = shipped["scenarios"][0]["gateways"]
     assert isinstance(routes, list), "factory Gateway routes are missing"
 
-    devices = _load(REPO_CONFIGS / "instances" / "devices_sim.yaml")["devices"]
+    devices = _load(REPO_CONFIGS / "instances" / "device_sim_v1.4.0.yaml")["devices"]
     mappings: dict[str, dict[str, str]] = {}
     for route in routes:
         device_id = route["device_id"]
@@ -208,24 +234,26 @@ def _plant_root(base: Path) -> Path:
 
 
 def _write_sim_devices(root: Path, modbus_ports: dict[str, int]) -> None:
-    """devices_sim 副本：endpoint 指向本用例 Gateway 下行 Modbus 监听端口。"""
-    document = _load(REPO_CONFIGS / "instances" / "devices_sim.yaml")
+    """Versioned Generator Device Instance with isolated Modbus endpoints."""
+    document = _load(REPO_CONFIGS / "instances" / "device_sim_v1.4.0.yaml")
+    document["file_version"] = SERVICE_VERSION
     for device_id in SIM_DEVICES:
         port = modbus_ports[device_id]
         document["devices"][device_id]["endpoint"]["port"] = port
     document["devices"][REPLAY_DEVICE] = {
         "name": "GW02 demo.csv replay device",
         "enabled": True,
-        "model": {"id": "e2e_gw02_replay", "version": "1.0.0"},
+        "group": "full_chain_replay",
+        "model": {"id": "dg_gw02_replay", "version": SERVICE_VERSION},
         "endpoint": {"host": "127.0.0.1", "port": modbus_ports[REPLAY_DEVICE]},
         "overrides": {},
     }
-    _dump(root / "instances" / "devices_sim.yaml", document)
+    _dump(root / "instances" / f"device_{SIM_DEVICE_INSTANCE}_v{SERVICE_VERSION}.yaml", document)
 
 
 def _write_e2e_devices(root: Path) -> None:
-    """Collector/Commander 设备清单：同端点、e2e 型号（带任务引用）。"""
-    document = _load(root / "instances" / "devices_sim.yaml")
+    """Versioned acquisition/control Device Instance with task-assignment groups."""
+    document = _load(root / "instances" / f"device_{SIM_DEVICE_INSTANCE}_v{SERVICE_VERSION}.yaml")
     devices = {}
     for device_id in E2E_DEVICES:
         source = document["devices"][device_id]
@@ -233,7 +261,8 @@ def _write_e2e_devices(root: Path) -> None:
         devices[device_id] = {
             "name": source["name"],
             "enabled": source["enabled"],
-            "model": {"id": model_id, "version": "1.0.0"},
+            "group": f"full_chain_{device_id.lower()}",
+            "model": {"id": model_id, "version": SERVICE_VERSION},
             "endpoint": {
                 "host": "127.0.0.1",
                 "port": int(source["endpoint"]["port"]),
@@ -241,131 +270,198 @@ def _write_e2e_devices(root: Path) -> None:
             "overrides": {},
         }
     _dump(
-        root / "instances" / "devices_e2e.yaml",
-        {"schema_version": 1, "file_version": "1.0.0", "devices": devices},
+        root / "instances" / f"device_{E2E_DEVICE_INSTANCE}_v{SERVICE_VERSION}.yaml",
+        {"schema_version": 1, "file_version": SERVICE_VERSION, "devices": devices},
     )
 
 
 def _write_e2e_models_and_tasks(root: Path, intervals: dict[str, float] | None = None) -> None:
-    """e2e 设备型号（sim 物理型号 + 任务引用）与逐设备任务模板。"""
-    model_source = {
-        "WTG_SIM01": "wtg_sim_physical",
-        "PV_SIM01": "pv_sim_physical",
-        "BESS_SIM01": "bess_sim_physical",
-        "GRID_SIM01": "grid_sim_physical",
-        "PPC_SIM01": "plant_controller_sim_physical",
-    }
-    for device_id, sim_model in model_source.items():
+    """Create pinned E2E models and a separate versioned Collector Task Instance."""
+    sim_devices = _load(
+        root / "instances" / f"device_{SIM_DEVICE_INSTANCE}_v{SERVICE_VERSION}.yaml"
+    )
+    for device_id in SIM_DEVICES:
+        model_ref = sim_devices["devices"][device_id]["model"]
         document = _load(
-            REPO_CONFIGS / "templates" / "device_models" / f"device_model_{sim_model}_v1.0.0.yaml"
+            REPO_CONFIGS
+            / "templates"
+            / "device_models"
+            / f"device_model_{model_ref['id']}_v{model_ref['version']}.yaml"
         )
         document["template_id"] = f"e2e_{device_id.lower()}"
+        document["file_version"] = SERVICE_VERSION
         if device_id in E2E_POINT_TABLES:
             # Sink 回写点只属于 Gateway/Collector 投影，不要求 DG 物理模型生成。
-            document["point_table"]["id"] = E2E_POINT_TABLES[device_id][1]
-        document["task"] = {"id": f"e2e_task_{device_id.lower()}", "version": "1.0.0"}
+            document["point_table"] = {
+                "id": E2E_POINT_TABLES[device_id][1],
+                "version": SERVICE_VERSION,
+            }
+        document.pop("task", None)
         _dump(
             root
             / "templates"
             / "device_models"
-            / f"device_model_e2e_{device_id.lower()}_v1.0.0.yaml",
+            / f"device_model_e2e_{device_id.lower()}_v{SERVICE_VERSION}.yaml",
             document,
         )
+    for prefix in ("dg", "e2e"):
+        model_id = f"{prefix}_gw02_replay"
+        table_id = f"modbus_{model_id}"
         _dump(
-            root / "templates" / "tasks" / f"task_e2e_task_{device_id.lower()}_v1.0.0.yaml",
+            root
+            / "templates"
+            / "device_models"
+            / f"device_model_{model_id}_v{SERVICE_VERSION}.yaml",
             {
                 "schema_version": 1,
-                "file_version": "1.0.0",
-                "template_id": f"e2e_task_{device_id.lower()}",
-                "point_group": "all",
-                "interval": (intervals or {}).get(device_id, 0.2),
-                "desired_state": "STOP",
+                "file_version": SERVICE_VERSION,
+                "template_id": model_id,
+                "name": "GW02 demo.csv replay device",
+                "device_type_id": "turbine",
+                "protocol": {"id": "modbus_tcp", "version": "1.1.0"},
+                "point_table": {"id": table_id, "version": SERVICE_VERSION},
             },
         )
-    _dump(
-        root / "templates" / "device_models" / "device_model_e2e_gw02_replay_v1.0.0.yaml",
-        {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "template_id": "e2e_gw02_replay",
-            "name": "GW02 demo.csv replay device",
-            "device_type_id": "turbine",
-            "protocol": {"id": "modbus_tcp", "version": "1.1.0"},
-            "point_table": {"id": "modbus_gw02_replay", "version": "1.0.0"},
-            "task": {"id": "e2e_task_gw02", "version": "1.0.0"},
-        },
-    )
-    _dump(
-        root / "templates" / "tasks" / "task_e2e_task_gw02_v1.0.0.yaml",
-        {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "template_id": "e2e_task_gw02",
+    tasks = {
+        f"full_chain_{device_id.lower()}": {
+            "group": f"full_chain_{device_id.lower()}",
             "point_group": "all",
-            "interval": (intervals or {}).get(REPLAY_DEVICE, 0.2),
+            "interval_ms": round((intervals or {}).get(device_id, 0.2) * 1000),
             "desired_state": "STOP",
-        },
-    )
+        }
+        for device_id in E2E_DEVICES
+    }
     _dump(
-        root / "templates" / "point_tables" / "point_table_modbus_gw02_replay_v1.0.0.yaml",
-        {
-            "schema_version": 1,
-            "file_version": "1.0.0",
-            "template_id": "modbus_gw02_replay",
-            "protocol": "modbus",
-            "points": {
-                "a02_dm_pitchangle1": {
-                    "business_point_id": "pitch_angle",
-                    "point_groups": ["all", "pitch"],
-                    "address": {
-                        "register_type": "input",
-                        "address": 0,
-                        "count": 2,
-                        "slave_id": 1,
-                    },
-                    "data_type": "float32",
-                    "unit": "degree",
-                    "scale": 1.0,
-                    "offset": 0.0,
-                    "description": "E2E projection of configs/history/demo.csv GW02 point",
-                }
-            },
-        },
+        root / "instances" / f"collector_tasks_{TASK_INSTANCE}_v{SERVICE_VERSION}.yaml",
+        {"schema_version": 1, "file_version": SERVICE_VERSION, "tasks": tasks},
     )
+    for prefix, business_version in (
+        ("dg", BUSINESS_POINTS_VERSION),
+        ("e2e", BUSINESS_POINTS_VERSION),
+    ):
+        table_id = f"modbus_{prefix}_gw02_replay"
+        _dump(
+            root / "templates" / "point_tables" / f"point_table_{table_id}_v{SERVICE_VERSION}.yaml",
+            {
+                "schema_version": 1,
+                "file_version": SERVICE_VERSION,
+                "template_id": table_id,
+                "protocol": "modbus",
+                "config_sources": [
+                    {
+                        "config_type": "units",
+                        "config_id": "standard",
+                        "file_version": "1.2.0",
+                    },
+                    {
+                        "config_type": "business_points",
+                        "config_id": "standard",
+                        "file_version": business_version,
+                    },
+                ],
+                "points": {
+                    "a02_dm_pitchangle1": {
+                        "business_point_id": "pitch_angle",
+                        "point_groups": ["all", "pitch"],
+                        "address": {
+                            "register_type": "input",
+                            "address": 0,
+                            "count": 2,
+                            "slave_id": 1,
+                        },
+                        "data_type": "float32",
+                        "unit": "degree",
+                        "scale": 1.0,
+                        "offset": 0.0,
+                        "description": "E2E projection of configs/history/demo.csv GW02 point",
+                    }
+                },
+            },
+        )
     # 三类物理设备使用各自扩展点表，避免 Sink 回写地址占用 DG 输入寄存器。
-    for source_id, target_id in E2E_POINT_TABLES.values():
+    for device_id, (source_id, target_id) in E2E_POINT_TABLES.items():
+        model_ref = sim_devices["devices"][device_id]["model"]
+        model = _load(
+            REPO_CONFIGS
+            / "templates"
+            / "device_models"
+            / f"device_model_{model_ref['id']}_v{model_ref['version']}.yaml"
+        )
+        source_version = model["point_table"]["version"]
         point_table = (
-            REPO_CONFIGS / "templates" / "point_tables" / f"point_table_{source_id}_v1.0.0.yaml"
+            REPO_CONFIGS
+            / "templates"
+            / "point_tables"
+            / f"point_table_{source_id}_v{source_version}.yaml"
         )
         document = _load(point_table)
         document["template_id"] = target_id
-        document["points"][SINK_TARGET_POINT] = {
-            "business_point_id": SINK_TARGET_POINT,
-            "point_groups": ["all"],
-            "address": {"register_type": "holding", "address": 400, "count": 2, "slave_id": 1},
-            "data_type": "float32",
-            "unit": "none",
-            "scale": 1.0,
-            "offset": 0.0,
-            "description": "E2E Sink GatewayOutput target",
-        }
+        document["file_version"] = SERVICE_VERSION
+        for source in document["config_sources"]:
+            if source["config_type"] == "business_points":
+                source["config_id"] = "standard"
+                source["file_version"] = BUSINESS_POINTS_VERSION
+        if device_id in SINK_TARGET_DEVICES:
+            document["points"][SINK_TARGET_POINT] = {
+                "business_point_id": SINK_TARGET_POINT,
+                "point_groups": ["all"],
+                "address": {
+                    "register_type": "holding",
+                    "address": 400,
+                    "count": 2,
+                    "slave_id": 1,
+                },
+                "data_type": "float32",
+                "unit": "none",
+                "scale": 1.0,
+                "offset": 0.0,
+                "description": "E2E Sink GatewayOutput target",
+            }
         _dump(
-            root / "templates" / "point_tables" / f"point_table_{target_id}_v1.0.0.yaml",
+            root
+            / "templates"
+            / "point_tables"
+            / f"point_table_{target_id}_v{SERVICE_VERSION}.yaml",
             document,
         )
-    business = _load(root / "templates" / "business_points_standard.yaml")
+    business = _load(root / "templates" / "business_points_standard_v1.5.0.yaml")
+    business["file_version"] = BUSINESS_POINTS_VERSION
     business["business_points"][SINK_TARGET_POINT] = {"data_type": "float32", "unit": "none"}
-    _dump(root / "templates" / "business_points_standard.yaml", business)
+    _dump(
+        root / "templates" / f"business_points_standard_v{BUSINESS_POINTS_VERSION}.yaml",
+        business,
+    )
+    for table_path in (root / "templates" / "point_tables").glob("*.yaml"):
+        table = _load(table_path)
+        changed = False
+        for source in table.get("config_sources", []):
+            if source.get("config_type") == "business_points":
+                source["file_version"] = BUSINESS_POINTS_VERSION
+                changed = True
+        if changed:
+            _dump(table_path, table)
+    for prefix, selected_version in (
+        ("business_points_standard", BUSINESS_POINTS_VERSION),
+        ("units_standard", "1.2.0"),
+    ):
+        for catalog in (root / "templates").glob(f"{prefix}_v*.yaml"):
+            if catalog.name != f"{prefix}_v{selected_version}.yaml":
+                catalog.unlink()
 
 
-def _write_collector_service(root: Path, filename: str, *, nats_url: str, delivery: str) -> Path:
-    document = _load(REPO_CONFIGS / "services" / "collector.yaml")
+def _write_collector_service(root: Path, service_id: str, *, nats_url: str, delivery: str) -> Path:
+    shipped = "service_collector-sim_v2.0.0.yaml"
+    if delivery == "reliable":
+        shipped = "service_collector-reliable_v2.0.0.yaml"
+    document = _load(REPO_CONFIGS / "services" / shipped)
+    document["service_id"] = service_id
+    document["file_version"] = SERVICE_VERSION
     document["config_sources"] = {
         "instances": {
-            "site": "instances/site.yaml",
-            "devices": "instances/devices_e2e.yaml",
-        },
-        "templates": {"root": "templates"},
+            "site": "example_site",
+            "devices": E2E_DEVICE_INSTANCE,
+            "tasks": TASK_INSTANCE,
+        }
     }
     document["messaging"]["servers"] = [nats_url]
     document["messaging"]["delivery"] = delivery
@@ -373,31 +469,43 @@ def _write_collector_service(root: Path, filename: str, *, nats_url: str, delive
         {"connect_timeout": 5.0, "read_timeout": 5.0, "shutdown_timeout": 10.0}
     )
     document["watchdog"] = {"interval": 0.5, "health_timeout": 0.5}
-    path = root / "services" / filename
+    path = root / "services" / f"service_{service_id}_v{SERVICE_VERSION}.yaml"
     _dump(path, document)
     return path
 
 
-def _write_gateway_service(root: Path, *, grpc_port: int, pki: dict[str, Any]) -> Path:
-    document = _load(REPO_CONFIGS / "services" / "industrial_gateway-sim.example.yaml")
-    document["config_sources"] = {
-        "instances": {"devices": "instances/devices_e2e.yaml"},
-        "templates": {"root": "templates"},
-    }
+def _write_gateway_service(root: Path, *, grpc_port: int) -> Path:
+    document = _load(REPO_CONFIGS / "services" / "service_gateway-e2e-source_v1.1.3.yaml")
+    service_id = "gateway-full-chain"
+    document["service_id"] = service_id
+    document["file_version"] = SERVICE_VERSION
+    document["config_sources"] = {"instances": {"devices": E2E_DEVICE_INSTANCE}}
     document["grpc"]["listen_port"] = grpc_port
-    document["grpc"]["tls"] = {
-        "enabled": True,
-        "ca_file": str(pki["ca"]),
-        "cert_file": str(pki["server_crt"]),
-        "key_file": str(pki["server_key"]),
+    document["security"] = {
+        "callers": [
+            {
+                "caller_id": "operator",
+                "token_env": GATEWAY_CLI_TOKEN_ENV,
+                "permissions": ["read", "lifecycle", "diagnose"],
+            },
+            {
+                "caller_id": "generator",
+                "token_env": GENERATOR_GATEWAY_TOKEN_ENV,
+                "permissions": ["inject", "read"],
+            },
+            {
+                "caller_id": "commander",
+                "token_env": COMMANDER_GATEWAY_TOKEN_ENV,
+                "permissions": ["simulation_execute", "read"],
+            },
+            {
+                "caller_id": "sink",
+                "token_env": "WIND_HUB_GATEWAY_SINK_TOKEN",
+                "permissions": ["inject"],
+            },
+        ]
     }
-    document["grpc"]["permissions"] = {
-        "cli": ["read", "lifecycle", "inject", "diagnose"],
-        "generator": ["inject", "read"],
-        "commander": ["simulation_execute", "read"],
-        "sink": ["inject", "read"],
-    }
-    path = root / "services" / "industrial_gateway.yaml"
+    path = root / "services" / f"service_{service_id}_v{SERVICE_VERSION}.yaml"
     _dump(path, document)
     return path
 
@@ -406,38 +514,129 @@ def _write_dg_service(
     root: Path,
     *,
     bind: str,
-    pki: dict[str, Any],
     scenarios: list[dict[str, Any]],
 ) -> Path:
-    document = _load(REPO_CONFIGS / "services" / "data-generator-sim.example.yaml")
+    document = _load(REPO_CONFIGS / "services" / "service_data-generator-sim_v1.3.2.yaml")
+    service_id = "data-generator-full-chain"
+    document["service_id"] = service_id
+    document["file_version"] = SERVICE_VERSION
     document["config_sources"] = {
-        "instances": {"site": "instances/site.yaml", "devices": "instances/devices_sim.yaml"},
-        "templates": {"root": "templates"},
+        "instances": {
+            "site": "example_site",
+            "devices": SIM_DEVICE_INSTANCE,
+            "scenarios": SCENARIO_INSTANCE,
+        }
     }
     document["service"]["grpc_bind"] = bind
-    clients = pki["clients"]
-    generator_crt, generator_key = clients["generator"]
-    document["output"]["gateway_tls"] = {
-        "ca_file": str(pki["ca"]),
-        "cert_file": str(generator_crt),
-        "key_file": str(generator_key),
-    }
+    document["output"]["gateway_token_env"] = GENERATOR_GATEWAY_TOKEN_ENV
     document["security"] = {
-        "tls": {
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(pki["server_crt"]),
-            "key_file": str(pki["server_key"]),
-        },
-        "permissions": {
-            "cli": ["variables_read", "variables_update"],
-            "gateway": ["variables_read", "variables_update"],
-        },
+        "callers": [
+            {
+                "caller_id": "cli",
+                "token_env": GENERATOR_CLI_TOKEN_ENV,
+                "permissions": ["variables_read", "variables_update", "generation_manage"],
+            },
+            {
+                "caller_id": "gateway",
+                "token_env": GATEWAY_GENERATOR_TOKEN_ENV,
+                "permissions": ["variables_read", "variables_update"],
+            },
+        ]
     }
     document["recording"] = {"enabled": True, "directory": "recording"}
-    document["scenarios"] = scenarios
-    path = root / "services" / "data-generator.yaml"
+    _dump(
+        root / "instances" / f"scenarios_{SCENARIO_INSTANCE}_v{SERVICE_VERSION}.yaml",
+        {"schema_version": 1, "file_version": SERVICE_VERSION, "scenarios": scenarios},
+    )
+    path = root / "services" / f"service_{service_id}_v{SERVICE_VERSION}.yaml"
     _dump(path, document)
     return path
+
+
+def _write_commander_service(
+    root: Path,
+    *,
+    grpc_port: int,
+    gateway_endpoint: str,
+    nats_url: str,
+    audit_stream: str,
+    audit_subject: str,
+) -> Path:
+    document = _load(REPO_CONFIGS / "services" / "service_commander-e2e_v1.1.0.yaml")
+    service_id = "commander-full-chain"
+    document["service_id"] = service_id
+    document["file_version"] = SERVICE_VERSION
+    document["config_sources"] = {"instances": {"devices": E2E_DEVICE_INSTANCE}}
+    document["grpc"]["listen_port"] = grpc_port
+    document["security"] = {
+        "callers": [
+            {
+                "caller_id": "ops",
+                "token_env": COMMANDER_OPS_TOKEN_ENV,
+                "permissions": ["query", "control", "reload", "recover"],
+            },
+            {
+                "caller_id": "maintenance",
+                "token_env": COMMANDER_MAINTENANCE_TOKEN_ENV,
+                "permissions": ["query", "reload", "recover"],
+            },
+            {
+                "caller_id": "gateway",
+                "token_env": GATEWAY_COMMANDER_TOKEN_ENV,
+                "permissions": ["query", "control"],
+            },
+        ]
+    }
+    document["simulation_targets"] = {
+        "PPC_SIM01": {
+            "gateway_id": "gw-ppc_sim01",
+            "endpoint": gateway_endpoint,
+            "token_env": COMMANDER_GATEWAY_TOKEN_ENV,
+        }
+    }
+    state_dir = root.parent / "commander-state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    document["repository"]["sqlite_path"] = str(state_dir / "events.db")
+    document["repository"]["max_storage_bytes"] = 1073741824
+    document["repository"]["reserved_storage_bytes"] = 67108864
+    document["audit"]["nats_servers"] = [nats_url]
+    document["audit"]["stream"] = audit_stream
+    document["audit"]["subject"] = audit_subject
+    path = root / "services" / f"service_{service_id}_v{SERVICE_VERSION}.yaml"
+    _dump(path, document)
+    return path
+
+
+def _write_deployment(root: Path) -> None:
+    service_ids = (
+        "gateway-full-chain",
+        "data-generator-full-chain",
+        "collector-full-chain-rt",
+        "collector-full-chain-reliable",
+        "commander-full-chain",
+    )
+    document = {
+        "schema_version": 1,
+        "file_version": SERVICE_VERSION,
+        "deployment_id": DEPLOYMENT_ID,
+        "services": {
+            service_id: {"config_id": service_id, "file_version": SERVICE_VERSION}
+            for service_id in service_ids
+        },
+        "instances": {
+            "site": {"example_site": {"file_version": "1.1.0"}},
+            "device": {
+                SIM_DEVICE_INSTANCE: {"file_version": SERVICE_VERSION},
+                E2E_DEVICE_INSTANCE: {"file_version": SERVICE_VERSION},
+            },
+            "collector_tasks": {TASK_INSTANCE: {"file_version": SERVICE_VERSION}},
+            "scenario": {SCENARIO_INSTANCE: {"file_version": SERVICE_VERSION}},
+        },
+    }
+    _dump(
+        root / "deployments" / f"deployment_{DEPLOYMENT_ID}_v{SERVICE_VERSION}.yaml",
+        document,
+    )
 
 
 class FullChainHarness:
@@ -459,6 +658,7 @@ class FullChainHarness:
         self.cli_rel: Path = root / "cli-reliable.yaml"
         self.sink: SinkSystemHarness | None = None
         self.pki: dict[str, Any] = {}
+        self.tokens: dict[str, str] = {}
         self.plant: Path = root / "plant-configs"
         # Data Generator resolves recording.directory against its service root,
         # which is the Full-chain temporary root rather than plant-configs.
@@ -506,7 +706,12 @@ class FullChainHarness:
     ) -> dict[str, Any]:
         # Test cases select a physical device; resolve its selected Task Instance
         # identity through the live Collector before issuing StartTask/StopTask.
-        if len(args) >= 3 and args[0] == "collector" and args[1] in {"start", "stop"}:
+        if (
+            len(args) >= 3
+            and args[0] == "collector"
+            and args[1] in {"start", "stop"}
+            and args[2] in SIM_DEVICES
+        ):
             device = await self.cli.cli(
                 config,
                 "collector",
@@ -514,7 +719,7 @@ class FullChainHarness:
                 args[2],
                 timeout=timeout,
                 check=True,
-                token=token,
+                token=ADMIN_TOKEN,
             )
             task_id = device["data"]["device"]["task_id"]
             assert task_id, f"Collector has no configured Task for {args[2]}"
@@ -641,19 +846,18 @@ def _build_and_start(
     _write_e2e_devices(plant)
     if bess_initial_soc is not None:
         bess_model = (
-            plant / "templates" / "device_models" / "device_model_bess_sim_physical_v1.0.0.yaml"
+            plant / "templates" / "device_models" / "device_model_bess_sim_physical_v1.2.0.yaml"
         )
         bess_document = _load(bess_model)
         bess_document["simulation"]["parameters"]["initial_soc"] = bess_initial_soc
         _dump(bess_model, bess_document)
 
-    pki = write_mtls_pki(
-        plant / "gateway-pki", ("cli", "gateway", "generator", "sink", "commander")
-    )
+    harness.tokens = {name: os.urandom(24).hex() for name in TOKEN_ENVS}
+    cli.auth_tokens.update(harness.tokens)
+    pki = write_mtls_pki(plant / "collector-pki", ("cli",))
     harness.pki = pki
-    clients = pki["clients"]
 
-    gateway_service = _write_gateway_service(plant, grpc_port=ports["gateway"], pki=pki)
+    gateway_service = _write_gateway_service(plant, grpc_port=ports["gateway"])
     gateway_document = _load(gateway_service)
     gateway_document["grpc"]["sink_listener_port"] = ports["gateway_sink"]
     servers = gateway_document["servers"]
@@ -686,21 +890,10 @@ def _build_and_start(
         )
     ]
     ppc["control"]["target"]["endpoint"] = harness.endpoints["commander"]
-    ppc["control"]["target"]["tls"] = {
-        "enabled": True,
-        "ca_file": str(plant / "commander-pki" / "ca.crt"),
-        "cert_file": str(plant / "commander-pki" / "ops.crt"),
-        "key_file": str(plant / "commander-pki" / "ops.key"),
-    }
-    gateway_crt, gateway_key = clients["gateway"]
+    ppc["control"]["target"]["token_env"] = GATEWAY_COMMANDER_TOKEN_ENV
     ppc["control"]["simulation"] = {
         "endpoint": harness.endpoints["data-generator"],
-        "tls": {
-            "enabled": True,
-            "ca_file": str(pki["ca"]),
-            "cert_file": str(gateway_crt),
-            "key_file": str(gateway_key),
-        },
+        "token_env": GATEWAY_GENERATOR_TOKEN_ENV,
         "scenario_id": "wind-plant-physical",
     }
     _dump(gateway_service, gateway_document)
@@ -708,16 +901,18 @@ def _build_and_start(
     dg_service = _write_dg_service(
         plant,
         bind=harness.endpoints["data-generator"],
-        pki=pki,
         scenarios=_build_scenarios(harness.gw_grpc_endpoint),
     )
 
     collector_services = {
         "collector_realtime": _write_collector_service(
-            plant, "collector-rt.yaml", nats_url=stack.nats, delivery="realtime"
+            plant, "collector-full-chain-rt", nats_url=stack.nats, delivery="realtime"
         ),
         "collector_reliable": _write_collector_service(
-            plant, "collector-hist.yaml", nats_url=stack.nats, delivery="reliable"
+            plant,
+            "collector-full-chain-reliable",
+            nats_url=stack.nats,
+            delivery="reliable",
         ),
     }
 
@@ -725,28 +920,15 @@ def _build_and_start(
     audit_stream = f"CMD_FULLCHAIN_{harness.token.upper()}"
     audit_subject = f"commander.fullchain.{harness.token}"
     asyncio.run(_provision_commander_audit(stack.nats, audit_stream, audit_subject))
-    (plant / "commander-pki").mkdir(parents=True, exist_ok=True)
-    commander_pki = build_pki(plant / "commander-pki")
-    commander_service = write_commander_service(
-        plant, plant, commander_pki, grpc_port=ports["commander"]
+    commander_service = _write_commander_service(
+        plant,
+        grpc_port=ports["commander"],
+        gateway_endpoint=harness.gw_grpc_endpoint,
+        nats_url=stack.nats,
+        audit_stream=audit_stream,
+        audit_subject=audit_subject,
     )
-    document = _load(commander_service)
-    document["config_sources"]["instances"]["devices"] = str(
-        plant / "instances" / "devices_e2e.yaml"
-    )
-    document["audit"]["nats_servers"] = [stack.nats]
-    document["audit"]["stream"] = audit_stream
-    document["audit"]["subject"] = audit_subject
-    document["simulation_targets"] = {
-        "PPC_SIM01": {
-            "gateway_id": "gw-ppc_sim01",
-            "endpoint": harness.gw_grpc_endpoint,
-            "ca_cert": str(pki["ca"]),
-            "client_cert": str(clients["commander"][0]),
-            "client_key": str(clients["commander"][1]),
-        }
-    }
-    _dump(commander_service, document)
+    _write_deployment(plant)
 
     # ---------------- sink ----------------
     sink = SinkSystemHarness(
@@ -765,7 +947,7 @@ def _build_and_start(
     sink.write_dual_channel_root(
         kafka_bootstrap=stack.kafka, redis_address=stack.redis, nats_url=stack.nats
     )
-    sink_service = sink.root / "configs" / "services" / "sink_service.yaml"
+    sink_service = sink.root / SINK_SERVICE_FILE
     sink_service_document = _load(sink_service)
     sink_service_document["wind_farm_id"] = FARM
     _dump(sink_service, sink_service_document)
@@ -850,7 +1032,7 @@ def _build_and_start(
     sinks_doc = _load(sink.root / SINKS_INSTANCE)
     sinks_doc["sinks"]["gateway_sink"] = {
         "template_id": "gateway_realtime",
-        "template_version": "1.0.0",
+        "template_version": "1.1.0",
         "connection": {
             "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
             "gateway_id": "gw-wtg_sim01",
@@ -867,7 +1049,7 @@ def _build_and_start(
         suffix = device_id.lower()
         sinks_doc["sinks"][f"gateway_sink_{suffix}"] = {
             "template_id": "gateway_realtime",
-            "template_version": "1.0.0",
+            "template_version": "1.1.0",
             "connection": {
                 "endpoint": f"127.0.0.1:{ports['gateway_sink']}",
                 "gateway_id": f"gw-{suffix}",
@@ -885,9 +1067,10 @@ def _build_and_start(
         }
     _dump(sink.root / SINKS_INSTANCE, sinks_doc)
     for template_name in ("gateway_realtime", "modbus_registers"):
-        source = REPO_CONFIGS / "templates" / "sinks" / f"sink_{template_name}_v1.0.0.yaml"
+        version = "1.1.0" if template_name == "gateway_realtime" else "1.0.0"
+        source = REPO_CONFIGS / "templates" / "sinks" / f"sink_{template_name}_v{version}.yaml"
         _dump(
-            sink.root / "configs" / "templates" / "sinks" / f"sink_{template_name}_v1.0.0.yaml",
+            sink.root / "configs" / "templates" / "sinks" / f"sink_{template_name}_v{version}.yaml",
             _load(source),
         )
     harness.record(
@@ -918,12 +1101,31 @@ def _build_and_start(
                 str(plant),
             ],
             plant,
-            {"WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token},
+            {
+                "WIND_HUB_GATEWAY_SINK_TOKEN": gateway_sink_token,
+                **{
+                    name: harness.tokens[name]
+                    for name in (
+                        GATEWAY_CLI_TOKEN_ENV,
+                        GENERATOR_GATEWAY_TOKEN_ENV,
+                        COMMANDER_GATEWAY_TOKEN_ENV,
+                        GATEWAY_GENERATOR_TOKEN_ENV,
+                        GATEWAY_COMMANDER_TOKEN_ENV,
+                    )
+                },
+            },
         ),
         "data-generator": (
             [python, "-m", "data_generator.main", "--config", str(dg_service)],
             plant,
-            {},
+            {
+                name: harness.tokens[name]
+                for name in (
+                    GENERATOR_CLI_TOKEN_ENV,
+                    GATEWAY_GENERATOR_TOKEN_ENV,
+                    GENERATOR_GATEWAY_TOKEN_ENV,
+                )
+            },
         ),
         "collector_realtime": (
             [
@@ -968,7 +1170,15 @@ def _build_and_start(
             common_env,
         ),
         "sink": (
-            [python, "-m", "sink_service.main", "--config-root", str(sink.root)],
+            [
+                python,
+                "-m",
+                "sink_service.main",
+                "--config-root",
+                str(sink.root),
+                "--service-file",
+                SINK_SERVICE_FILE,
+            ],
             sink.root,
             {
                 "WIND_HUB_SINK_CLI_TOKEN": sink.auth_tokens["admin"],
@@ -978,7 +1188,15 @@ def _build_and_start(
         "commander": (
             [python, "-m", "commander", "--config", str(commander_service)],
             SRC,
-            {},
+            {
+                name: harness.tokens[name]
+                for name in (
+                    COMMANDER_OPS_TOKEN_ENV,
+                    COMMANDER_MAINTENANCE_TOKEN_ENV,
+                    GATEWAY_COMMANDER_TOKEN_ENV,
+                    COMMANDER_GATEWAY_TOKEN_ENV,
+                )
+            },
         ),
     }
     for name in SERVICES:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,71 @@ async def test_stopped_generation_never_reports_applied(configs_root: Any) -> No
     assert evidence_state == "UNKNOWN"
     assert evidence_step == effective_step
     assert state.completed_step < effective_step
+
+    # STOP 后同指纹仍返回原有效步，不新增预留；异指纹始终确定性拒绝。
+    pending_before_replay = list(state.pending_inputs)
+    replay_step = await runtime.update_inputs(
+        generation_id,
+        DEVICE_ID,
+        CALLER,
+        "request-stop-001",
+        b"fingerprint-003",
+        {POINT_ID: 1700.0},
+    )
+    assert replay_step == effective_step
+    assert state.pending_inputs == pending_before_replay
+    with pytest.raises(GeneratorError, match="request_id already used with different input"):
+        await runtime.update_inputs(
+            generation_id,
+            DEVICE_ID,
+            CALLER,
+            "request-stop-001",
+            b"fingerprint-changed-after-stop",
+            {POINT_ID: 1750.0},
+        )
+
+
+async def test_applied_replay_and_query_survive_stop_and_revision_change(configs_root: Any) -> None:
+    runtime, generation_id = await _start_runtime(configs_root)
+    state = runtime.generations[generation_id]
+    effective_step = await runtime.update_inputs(
+        generation_id,
+        DEVICE_ID,
+        CALLER,
+        "request-applied-stop-001",
+        b"fingerprint-applied-stop",
+        {POINT_ID: 1720.0},
+    )
+    assert await _wait_evidence(runtime, generation_id, "request-applied-stop-001", "APPLIED") == (
+        "APPLIED",
+        effective_step,
+    )
+    await runtime.stop(generation_id, runtime.settings.revision)
+    runtime.settings = replace(runtime.settings, revision=runtime.settings.revision + "-next")
+
+    replay_step = await runtime.update_inputs(
+        generation_id,
+        DEVICE_ID,
+        CALLER,
+        "request-applied-stop-001",
+        b"fingerprint-applied-stop",
+        {POINT_ID: 1720.0},
+    )
+    assert replay_step == effective_step
+    assert state.pending_inputs == []
+    assert await runtime.get_input_execution(generation_id, CALLER, "request-applied-stop-001") == (
+        "APPLIED",
+        effective_step,
+    )
+    with pytest.raises(GeneratorError, match="request_id already used with different input"):
+        await runtime.update_inputs(
+            generation_id,
+            DEVICE_ID,
+            CALLER,
+            "request-applied-stop-001",
+            b"fingerprint-applied-stop-changed",
+            {POINT_ID: 1760.0},
+        )
 
 
 async def test_idempotent_replay_returns_same_reserved_step(configs_root: Any) -> None:

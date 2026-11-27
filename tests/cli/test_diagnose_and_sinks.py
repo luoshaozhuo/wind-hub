@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -79,6 +80,39 @@ def test_diagnose_pipeline_failure_is_exit1(cli_env: Any) -> None:
     result = cli_env.invoke("diagnose", "pipeline", "dev-1", "--sink-id", "delivery-dev1")
     assert result.exit_code == 1, result.stdout
     assert result.json()["status"] == "FAILURE"
+
+
+def test_diagnose_output_is_private_and_never_overwritten(cli_env: Any, tmp_path: Path) -> None:
+    cli_env.server.respond_value(_PATH, _diagnose_response("PASS", []))
+    output = tmp_path / "diagnose.json"
+
+    first = cli_env.invoke("diagnose", "commander", "dev-1", "--output", str(output))
+
+    assert first.exit_code == 0, first.stdout
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert json.loads(output.read_text(encoding="utf-8"))["overall_status"] == "PASS"
+    original = output.read_bytes()
+
+    second = cli_env.invoke("diagnose", "commander", "dev-1", "--output", str(output))
+
+    assert second.exit_code == 2
+    assert second.json()["error_code"] == "FileExistsError"
+    assert output.read_bytes() == original
+
+
+def test_diagnose_output_exception_uses_json_envelope(cli_env: Any, tmp_path: Path) -> None:
+    cli_env.server.respond_value(_PATH, _diagnose_response("PASS", []))
+
+    result = cli_env.invoke(
+        "diagnose",
+        "commander",
+        "dev-1",
+        "--output",
+        str(tmp_path / "missing" / "diagnose.json"),
+    )
+
+    assert result.exit_code == 2
+    assert result.json()["error_code"] == "ValueError"
 
 
 def test_sink_uses_single_service_identity(cli_env: Any) -> None:

@@ -14,6 +14,8 @@ PKI 在 tmp_path 独立生成，私钥仅存在于临时目录，不入库。
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -126,10 +128,12 @@ def _simulation_block(endpoint: str) -> dict[str, Any]:
     }
 
 
-async def _command_request(stub: Any, *, request_id: str) -> gw.SimulationCommandRequest:
+async def _command_request(
+    stub: Any, *, request_id: str, expires_in: float = 5.0
+) -> gw.SimulationCommandRequest:
     info = await stub.GetGateway(common.ObjectId(id=GATEWAY_ID))
     expires = Timestamp()
-    expires.FromDatetime(datetime.now(UTC) + timedelta(seconds=5))
+    expires.FromDatetime(datetime.now(UTC) + timedelta(seconds=expires_in))
     return gw.SimulationCommandRequest(
         gateway_id=GATEWAY_ID,
         device_id=DEVICE_ID,
@@ -156,7 +160,7 @@ async def chain(tmp_path: Path):
         tmp_path / "root",
         [spec],
         mtls={
-            COMMANDER_CN: ["simulation_execute", "read"],
+            COMMANDER_CN: ["simulation_execute", "read", "lifecycle"],
             "gw-reader": ["read"],
         },
         bootstrap_cn=COMMANDER_CN,
@@ -238,6 +242,56 @@ async def test_replayed_request_id_does_not_reexecute(chain: Any) -> None:
         assert first.state == "ACCEPTED"
         assert second.state == "ACCEPTED"
         assert second.execution_id == first.execution_id
+        assert len(generator.update_requests) == 1
+    finally:
+        await channel.close()
+
+
+async def test_replay_and_query_survive_stop_revision_change_and_expiry(chain: Any) -> None:
+    harness, generator = chain
+    channel = harness.mtls_channel(COMMANDER_CN)
+    try:
+        stub = gw_rpc.IndustrialGatewayServiceStub(channel)
+        request = await _command_request(stub, request_id="req-replay-state-001", expires_in=1.0)
+        accepted = await stub.ExecuteSimulationCommand(request)
+        assert accepted.state == "ACCEPTED"
+        assert (
+            await stub.GetSimulationExecutionResult(
+                gw.SimulationExecutionQuery(gateway_id=GATEWAY_ID, request_id=request.request_id)
+            )
+        ).state == "PENDING"
+        assert (
+            await stub.GetSimulationExecutionResult(
+                gw.SimulationExecutionQuery(gateway_id=GATEWAY_ID, request_id=request.request_id)
+            )
+        ).state == "APPLIED"
+
+        stopped = await stub.StopGateway(
+            common.OperationRequest(id=GATEWAY_ID, expected_revision=request.expected_revision)
+        )
+        assert stopped.accepted is True
+        harness.runtime.config = replace(
+            harness.runtime.config,
+            revision=harness.runtime.config.revision + "-next",
+        )
+        await asyncio.sleep(1.05)
+
+        replayed = await stub.ExecuteSimulationCommand(request)
+        assert replayed.execution_id == accepted.execution_id
+        assert replayed.state == "ACCEPTED"
+        queried = await stub.GetSimulationExecutionResult(
+            gw.SimulationExecutionQuery(gateway_id=GATEWAY_ID, request_id=request.request_id)
+        )
+        assert queried.state == "APPLIED"
+        assert queried.effective_step == 21
+
+        conflict = gw.SimulationCommandRequest()
+        conflict.CopyFrom(request)
+        conflict.value.CopyFrom(encode_scalar(1600.0))
+        rejected = await stub.ExecuteSimulationCommand(conflict)
+        assert rejected.accepted is False
+        assert rejected.state == "REJECTED"
+        assert rejected.error_code == "IDEMPOTENCY_CONFLICT"
         assert len(generator.update_requests) == 1
     finally:
         await channel.close()

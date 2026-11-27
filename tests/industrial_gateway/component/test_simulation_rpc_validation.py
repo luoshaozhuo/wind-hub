@@ -118,7 +118,7 @@ async def test_unmapped_point_is_permission_denied(harness: Any) -> None:
         await channel.close()
 
 
-async def test_expired_command_is_deadline_exceeded(harness: Any) -> None:
+async def test_expired_command_returns_rejected_expired(harness: Any) -> None:
     stub, channel = await _stub(harness, COMMANDER_CN)
     try:
         info = await stub.GetGateway(common.ObjectId(id=GATEWAY_ID))
@@ -131,9 +131,10 @@ async def test_expired_command_is_deadline_exceeded(harness: Any) -> None:
             expected_revision=info.gateway.revision,
             expires_at=_expires(-1.0),
         )
-        with pytest.raises(grpc.aio.AioRpcError) as error:
-            await stub.ExecuteSimulationCommand(request)
-        assert error.value.code() is grpc.StatusCode.DEADLINE_EXCEEDED
+        response = await stub.ExecuteSimulationCommand(request)
+        assert response.accepted is False
+        assert response.state == "REJECTED"
+        assert response.error_code == "EXPIRED"
     finally:
         await channel.close()
 

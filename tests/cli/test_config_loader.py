@@ -301,17 +301,17 @@ services:
     [
         (
             "e2e-final",
-            "service_cli-e2e_v1.1.7.yaml",
-            "1.1.7",
+            "service_cli-e2e_v1.1.9.yaml",
+            "1.1.9",
             "WIND_HUB_E2E_COMMANDER_MAINTENANCE_TOKEN",
         ),
         (
             "sim-a",
-            "service_cli-sim_v1.10.0.yaml",
-            "1.10.0",
+            "service_cli-sim_v1.10.1.yaml",
+            "1.10.1",
             "WIND_HUB_SIM_COMMANDER_MAINTENANCE_TOKEN",
         ),
-        ("prod-a", "service_cli_v1.4.0.yaml", "1.4.0", "WIND_HUB_COMMANDER_MAINTENANCE_TOKEN"),
+        ("prod-a", "service_cli_v1.4.1.yaml", "1.4.1", "WIND_HUB_COMMANDER_MAINTENANCE_TOKEN"),
     ],
 )
 def test_active_candidate_cli_transport(
