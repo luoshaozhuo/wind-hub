@@ -67,10 +67,10 @@ def _history_filter(
 
 @storage.command("samples")
 def query_samples(
-    wind_farm_id: str,
-    start_time: str,
-    end_time: str,
-    level: str = typer.Option(..., "--level"),
+    wind_farm_id: str = typer.Option(..., "--wind-farm-id"),
+    start_time: str = typer.Option(..., "--start-time"),
+    end_time: str = typer.Option(..., "--end-time"),
+    level: str = typer.Option(..., "--data-level"),
     device_ids: list[str] | None = typer.Option(None, "--device-id"),
     device_type: str = typer.Option("", "--device-type"),
     point_table_id: str = typer.Option("", "--point-table-id"),
@@ -108,7 +108,7 @@ def query_aggregates(
     start_time: str,
     end_time: str,
     level: str = typer.Option(..., "--level"),
-    operation: str = typer.Option("avg", "--operation"),
+    operation: str = typer.Option("avg", "--aggregation"),
     window_ms: int = typer.Option(60000, min=1),
     device_ids: list[str] | None = typer.Option(None, "--device-id"),
     device_type: str = typer.Option("", "--device-type"),
@@ -154,10 +154,10 @@ def query_aggregates(
 @storage.command("export")
 def create_export(
     request_id: str,
-    wind_farm_id: str,
-    start_time: str,
-    end_time: str,
-    level: str = typer.Option(..., "--level"),
+    wind_farm_id: str = typer.Option(..., "--wind-farm-id"),
+    start_time: str = typer.Option(..., "--start-time"),
+    end_time: str = typer.Option(..., "--end-time"),
+    level: str = typer.Option(..., "--data-level"),
     export_format: str = typer.Option("csv", "--format"),
     device_ids: list[str] | None = typer.Option(None, "--device-id"),
     device_type: str = typer.Option("", "--device-type"),
