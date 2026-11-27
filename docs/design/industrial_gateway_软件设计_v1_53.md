@@ -1867,7 +1867,7 @@ Gateway 的控制事件出口仅为 Commander，禁止按 `control.target.kind=d
 - 服务级/Server 级配置仅声明是否启用控制、Commander 正式 endpoint、鉴权、容量、超时及 `variable_id -> target_point_id` 映射；不保留 `data_generator` 直接转发的目标枚举或 `generation_binding`。
 - 无有效 Commander 目标的控制字段不得误报下游已执行；协议 Server 的 ACK 与 Commander 受理、最终执行分别报告。
 - Commander 裁决真实/仿真目标。真实目标使用 Core 协议 Client；仿真目标经正式的 Gateway 仿真执行 RPC 再将允许的模型输入交由 Data Generator。
-- **Contracts 前置条件**：现有 Gateway `UpdateVariables` 是数据注入接口，不得作为 Commander 仿真执行的替身。先定义专用的受授权仿真执行 RPC，包含 request_id、设备与测点、目标值、预期版本/有效期及明确结果查询/UNKNOWN 语义，再同步修改 Commander/Gateway/Data Generator 的契约实现。该能力未实现前必须标记 NOT_IMPLEMENTED，不得宣称完整仿真控制链路通过。
+- **现行 Contracts 与验收边界（2026-11-27）**：Gateway `UpdateVariables` 是数据注入接口，不得作为 Commander 仿真执行的替身。正式 `industrial_gateway.proto` 已定义 `ExecuteSimulationCommand` 和 `GetSimulationExecutionResult`，`data_generator.proto` 已定义 `UpdateVariables` 和 `GetInputExecution`，Gateway 入站服务已注册仿真执行 RPC；这仅证明接口与服务实现存在，不等于完整 DCEMS 控制闭环实测通过。真实 PLC 和完整 DCEMS 控制闭环仍为 NOT_RUN，UNKNOWN/幂等及授权语义必须经独立证据验收。
 
 ### 11.7.2 仿真执行接口、绑定与权威结果
 
