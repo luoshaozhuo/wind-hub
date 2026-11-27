@@ -166,7 +166,11 @@ class WideIngestionService:
                 devices: dict[str, _Validated] = {}
                 latest_by_device_time: dict[tuple[str, int], tuple[int, WideRecord]] = {}
                 for position, entry in enumerate(group):
-                    devices.setdefault(entry.row.device_id, entry)
+                    prior = devices.setdefault(entry.row.device_id, entry)
+                    if prior.device_type != entry.device_type:
+                        raise TDengineSchemaConflictError(
+                            "device type changed within one immutable wide batch"
+                        )
                     latest_by_device_time[
                         (entry.row.device_id, entry.row.sample_time_us)
                     ] = (position, entry.row)
