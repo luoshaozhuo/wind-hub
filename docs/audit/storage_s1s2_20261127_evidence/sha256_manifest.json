@@ -61,6 +61,11 @@
       "sha256": "6b8369b909e011d1ce148be677ec0b35c02be1a02ddf7e0f1beee0f56706e2f4"
     },
     {
+      "path": "backup_restore_verified_storage.log",
+      "bytes": 1956,
+      "sha256": "6d85aea9448e32c4607da75413dca1e5eb0350bd02cdab192a8d5a4c62b9b5fd"
+    },
+    {
       "path": "baseline_changes.diff",
       "bytes": 12620,
       "sha256": "8eadcb715b884a8c495c50722424d745ff5f9d678aafada4653c1711e3b248c2"
@@ -134,6 +139,11 @@
       "path": "cross_module_e2e.xml",
       "bytes": 11970,
       "sha256": "545fd41276b46e67ab247a42770c9e70937924bc0a43880817b994d7a716c434"
+    },
+    {
+      "path": "debug_taosdump_result.txt",
+      "bytes": 3235,
+      "sha256": "42d30b9f48b48711d27194f45d04de111fb0ebbc4874ac4ea3c1bb74196887d3"
     },
     {
       "path": "environment.json",
@@ -269,6 +279,11 @@
       "path": "performance.xml",
       "bytes": 1607,
       "sha256": "175ebb02fde151d86adb519f5faae347c557ef694cb607ba7bc15e76fdb31be5"
+    },
+    {
+      "path": "production_taosdump_result.txt",
+      "bytes": 3036,
+      "sha256": "460ba6d183d93be8e8aab34f8d42b29e2ebf6c5331c7d428d6e972f6e42eb0ea"
     },
     {
       "path": "protobuf.log",
