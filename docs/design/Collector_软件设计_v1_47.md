@@ -3106,7 +3106,7 @@ Collector 由 Core 协议驱动得到原生解码标量、质量和时间，不�
 
 Collector Task Instance 用 `group` 选择 Device Instance 中属于该组的设备集合；再逐台依据固定 DeviceModel/PointTable 解析 `device_type` 与 `point_table_id`；采集任务启动/热更时生成不可变采集计划并固定这些身份，禁止配置切换时将不同 PointTable 的数据混入同一批。若 PointTable、BusinessPoint 或 Units 的解释语义改变，应先发布新且不可变的 PointTable ID，再在采集安全边界切换计划。全局 Configuration `revision_id` 只用于运行配置生效和审计，**不进入采样数据包**；也不生成 `data_version`。
 
-当前 `src/contracts/sample_batch.py` 与 Collector BatchBuilder 发送严格 v3，并包含 `device_type` / `point_table_id`；重试及分批仍须维持样本身份和不可变历史解释规则。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
+当前 `src/contracts/sample_batch.py` 与 Collector BatchBuilder 发送严格 v4，并包含 `device_type` / `point_table_id`；重试及分批仍须维持样本身份和不可变历史解释规则。重发不改 `batch_id`、`sample_id` 与点表身份；任何无法解析的点表引用不得以最新版本猜测。
 
 ## 10.4 NATS 投递及可靠性边界
 
@@ -3345,7 +3345,7 @@ Common PushConfigSnapshot/ApplyConfigSnapshot 如仍存在于旧 Proto 或实现
 
 ## 11.8 Repository 修订与运行版本收敛
 
-Configuration Repository 是业务配置唯一的持久化写入方，候选暂存、原子发布、全局 CAS、历史追溯及文件不可变性均由其负责。Collector 不保留 Push/Apply 本地候选池、DISK 提交、file_commit、CURRENT manifest 或本地配置提交事务；旧 Common PushConfigSnapshot/ApplyConfigSnapshot 不能写入业务配置。
+Configuration Repository 是业务配置唯一的持久化写入方，候选暂存、原子发布、全局 CAS、历史追溯及文件不可变性均由其负责。Collector 不保留可独立发布业务配置的 Push/Apply 本地候选池或业务配置提交事务；旧 Common PushConfigSnapshot/ApplyConfigSnapshot 不能写入业务配置。但 `src/collector/infrastructure/config/snapshot_repository.py` 为离线可信恢复保存 candidate、generations 和 CURRENT 等本地运行快照元数据，此缓存不具有 Repository 发布权威。
 
 Collector 以最小引导的 deployment_id/service_id 查询 `GetServiceConfigBundle(deployment_id,service_id,revision_id=0)`，验证已发布闭包的身份、固定版本、内容摘要、设备/任务关联与权限。收到广播、周期对账和进程重启时采用同一查询路径；不按本地模板根或最大版本号搜索。完整目标闭包合法后按设备采集安全边界增量应用；不能安全热更的 Service 字段保持旧活动值并报告 `RESTART_REQUIRED`。
 
