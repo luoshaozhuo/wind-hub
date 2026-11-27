@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+import time
 
 import pytest
 
-from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
+from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput, _KafkaWrite
 from tests.sink_service.unit.kafka_producer_fake import (
     KEY,
     STRIPE,
@@ -394,3 +395,43 @@ async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
             await closing
         else:
             await output.close()
+
+
+async def test_full_partition_wave_does_not_wait_for_linger(
+    monkeypatch: pytest.MonkeyPatch,
+    producer_env: dict[str, Any],
+) -> None:
+    """A full physical write wave bypasses the configured coalescing delay."""
+    from sink_service.infrastructure.adapters.outbound import realtime_adapters
+
+    output = KafkaOutput(
+        servers=["127.0.0.1:9092"],
+        topic=TOPIC,
+        timeout_ms=10000,
+        linger_ms=10,
+        max_batch_size=160,
+    )
+    await output.open()
+    sleep = asyncio.sleep
+    delays: list[float] = []
+
+    async def tracked_sleep(delay: float) -> None:
+        delays.append(delay)
+        await sleep(0)
+
+    monkeypatch.setattr(realtime_adapters.asyncio, "sleep", tracked_sleep)
+    loop = asyncio.get_running_loop()
+    result: asyncio.Future[Any] = loop.create_future()
+    output._partition_queues[3] = [
+        _KafkaWrite(KEY, (b"x" * 160,), result, time.perf_counter())
+    ]
+    task = asyncio.create_task(output._drain_partition(3, output._producer))
+    output._partition_workers[3] = task
+    try:
+        await asyncio.wait_for(task, timeout=2)
+        await asyncio.wait_for(result, timeout=2)
+        assert result.result().delivered == (0,)
+        assert 0.01 not in delays
+        assert len(producer_env["producer"].submissions) == 1
+    finally:
+        await output.close()
