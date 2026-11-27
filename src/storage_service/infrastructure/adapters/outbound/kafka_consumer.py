@@ -77,7 +77,7 @@ class KafkaStorageConsumer:
             max_partition_fetch_bytes=min(
                 1048576,
                 configuration.tdengine.ingestion.batch_max_bytes,
-                configuration.tdengine.ingestion.buffer_max_bytes // 2
+                configuration.tdengine.ingestion.buffer_max_bytes // 2,
             ),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
@@ -220,9 +220,7 @@ class KafkaStorageConsumer:
         expected_owner: _AssignedPartition | None = None,
     ) -> None:
         """Process only under the ownership captured when the batch was fetched."""
-        await self._process_partition_inner(
-            tp, messages, semaphore, expected_owner=expected_owner
-        )
+        await self._process_partition_inner(tp, messages, semaphore, expected_owner=expected_owner)
 
     async def _process_partition_inner(
         self,
@@ -503,8 +501,7 @@ class KafkaStorageConsumer:
         try:
             while not self._stop.is_set():
                 while (
-                    buffered_rows + poll_rows > max_rows
-                    or buffered_bytes + poll_bytes > max_bytes
+                    buffered_rows + poll_rows > max_rows or buffered_bytes + poll_bytes > max_bytes
                 ):
                     space_available.clear()
                     wake = asyncio.create_task(space_available.wait())

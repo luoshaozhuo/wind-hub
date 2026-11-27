@@ -1068,9 +1068,7 @@ async def test_prefetched_batch_recheck_cursor_after_worker_permit(
     semaphore = asyncio.Semaphore(1)
     await semaphore.acquire()
     task = asyncio.create_task(
-        consumer._process_partition(
-            tp, [_record(tp, 3)], semaphore, expected_owner=owner
-        )
+        consumer._process_partition(tp, [_record(tp, 3)], semaphore, expected_owner=owner)
     )
     await asyncio.sleep(0)
     owner.offsets = PartitionOffsets(
@@ -1130,9 +1128,7 @@ async def test_run_applies_row_backpressure_while_writer_is_blocked(
     )
     tdengine = consumer._config.tdengine.model_copy(update={"ingestion": limits})
     kafka = consumer._config.kafka.model_copy(update={"max_poll_records": 1})
-    consumer._config = consumer._config.model_copy(
-        update={"kafka": kafka, "tdengine": tdengine}
-    )
+    consumer._config = consumer._config.model_copy(update={"kafka": kafka, "tdengine": tdengine})
     _own(consumer, tp)
     runner = asyncio.create_task(consumer.run())
     try:
