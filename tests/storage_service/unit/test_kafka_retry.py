@@ -1047,3 +1047,29 @@ async def test_prefetched_batch_rebalance_while_waiting_for_worker_permit(
     assert consumer._assignments[tp] is replacement
     assert ingestion.calls == []
     assert broker.commits == []
+
+
+async def test_prefetched_batch_recheck_cursor_after_worker_permit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A queued suffix cannot bypass a retry rewind while awaiting its permit."""
+    tp = TopicPartition(TOPIC, 0)
+    broker = _Consumer([tp])
+    ingestion = _Ingestion()
+    consumer = _build(monkeypatch, broker, ingestion)
+    owner = _own(consumer, tp, cursor=3)
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    task = asyncio.create_task(
+        consumer._process_partition(
+            tp, [_record(tp, 3)], semaphore, expected_owner=owner
+        )
+    )
+    await asyncio.sleep(0)
+    owner.offsets = PartitionOffsets(
+        partition=tp.partition, generation=owner.generation, next_commit_offset=2
+    )
+    semaphore.release()
+    await asyncio.wait_for(task, timeout=2)
+    assert ingestion.calls == []
+    assert broker.commits == []
