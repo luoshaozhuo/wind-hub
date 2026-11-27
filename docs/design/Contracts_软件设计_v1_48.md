@@ -1102,10 +1102,10 @@ Collector 负责协议数据采集及向 NATS/JetStream 发布，不负责 Sink 
 | 消息 | 目标字段号与类型 | 有效性 |
 |---|---|---|
 | `ConfigId` | `1 config_type:string`, `2 config_id:string` | 均非空；不使用文件名推断身份 |
-| `ConfigDocumentInput` | `1 config_id:ConfigId`, `2 file_name:string`, `3 yaml_bytes:bytes` | UTF-8、格式及大小校验 |
+| `ConfigDocumentInput` | `1 config_id:ConfigId`, `2 file_name:string`（保留字段号）, `3 yaml_bytes:bytes`, `4 relative_path:string` | 发布目录必须提供安全的 `relative_path`；`file_name` 不作为权威发布路径；UTF-8、格式及大小校验 |
 | `ConfigVersionRef` | `1 config_id:ConfigId`, `2 version_id:string`, `3 file_version:string`, `4 content_sha256:string` | 哈希 64 字符小写 hex |
 | `ValidationIssue` | `1 document_id:string`, `2 field_path:string`, `3 error_code:string`, `4 message:string` | 多个问题独立返回 |
-| `ConfigYamlDocument` | `1 config_id:ConfigId`, `2 version_id:string`, `3 schema_version:uint32`, `4 file_version:string`, `5 revision_id:uint64`, `6 file_name:string`, `7 yaml_bytes:bytes`, `8 content_sha256:string`, `9 yaml_sha256:string`, `10 schema_ref:string` | 唯一的完整 Header + YAML 正文 |
+| `ConfigYamlDocument` | `1 config_id:ConfigId`, `2 version_id:string`, `3 schema_version:uint32`, `4 file_version:string`, `5 revision_id:uint64`, `6 file_name:string`（保留字段号）, `7 yaml_bytes:bytes`, `8 content_sha256:string`, `9 yaml_sha256:string`, `10 schema_ref:string`, `11 relative_path:string` | 历史版本回传原始 YAML 与合法相对路径，禁止仅凭 `file_name` 拼接任意路径 |
 | `ReferenceEdge` | `1 source_version_id:string`, `2 target_version_id:string`, `3 relation:string`, `4 source_config_id:ConfigId`, `5 target_config_id:ConfigId` | 历史引用指向确定版本 |
 | `BackupTask` | `1 task_id:string`, `2 state:BackupState`, `3 created_at:Timestamp`, `4 finished_at:Timestamp`, `5 path:string`, `6 size_bytes:uint64`, `7 sha256:string`, `8 error_code:string`, `9 message:string`, `10 database_schema_version:uint32`, `11 integrity_verified:bool` | 未完成任务不能报告成功 |
 
