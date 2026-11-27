@@ -69,9 +69,12 @@ class KafkaStorageConsumer:
             enable_auto_commit=False,
             auto_offset_reset="earliest",
             max_poll_records=configuration.kafka.max_poll_records,
-            fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
+            fetch_max_bytes=min(
+                configuration.tdengine.ingestion.batch_max_bytes,
+                configuration.tdengine.ingestion.buffer_max_bytes // 2,
+            ),
             max_partition_fetch_bytes=min(
-                1048576, configuration.tdengine.ingestion.buffer_max_bytes
+                1048576, configuration.tdengine.ingestion.batch_max_bytes
             ),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
@@ -343,25 +346,99 @@ class KafkaStorageConsumer:
                     )
 
     async def run(self) -> None:
-        """Parallelize partitions, while each partition remains strictly FIFO."""
+        """Poll ahead into a bounded FIFO while preserving per-partition offset order.
+
+        One queue consumer processes whole poll groups in fetch order. Each group
+        retains the existing partition-level parallelism and generation fences.
+        """
+        limits = self._config.tdengine.ingestion
+        max_rows = limits.buffer_max_rows
+        max_bytes = limits.buffer_max_bytes
+        poll_rows = self._config.kafka.max_poll_records
+        poll_bytes = min(limits.batch_max_bytes, max_bytes // 2)
         semaphore = asyncio.Semaphore(self._config.kafka.max_partition_workers)
+        queue: asyncio.Queue[
+            tuple[list[tuple[TopicPartition, _AssignedPartition, list[KafkaRecord]]], int, int]
+            | None
+        ] = asyncio.Queue(maxsize=max_rows)
         stop_waiter = asyncio.create_task(self._stop.wait(), name="storage-stop-waiter")
+        space_available = asyncio.Event()
+        buffered_rows = 0
+        buffered_bytes = 0
+
+        async def process_queue() -> None:
+            nonlocal buffered_rows, buffered_bytes
+            while True:
+                item = await queue.get()
+                if item is None:
+                    queue.task_done()
+                    return
+                workload, rows, byte_count = item
+                try:
+                    async with asyncio.TaskGroup() as group:
+                        for tp, owner, records in workload:
+                            current = self._assignments.get(tp)
+                            if (
+                                current is not owner
+                                or current.blocked
+                                or records[0].offset != current.offsets.next_commit_offset
+                            ):
+                                # An old generation or an unconfirmed rewind must
+                                # not process the already-fetched suffix.
+                                continue
+                            group.create_task(
+                                self._process_partition(tp, records, semaphore),
+                                name=f"storage-partition-{tp.partition}",
+                            )
+                finally:
+                    buffered_rows -= rows
+                    buffered_bytes -= byte_count
+                    space_available.set()
+                    queue.task_done()
+
+        worker = asyncio.create_task(process_queue(), name="storage-kafka-dispatch")
+        poll: asyncio.Task[object] | None = None
         try:
             while not self._stop.is_set():
+                while (
+                    buffered_rows + poll_rows > max_rows
+                    or buffered_bytes + poll_bytes > max_bytes
+                ):
+                    space_available.clear()
+                    wake = asyncio.create_task(space_available.wait())
+                    try:
+                        done, _ = await asyncio.wait(
+                            (wake, worker, stop_waiter),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if worker in done:
+                            await worker
+                            raise RuntimeError("Storage Kafka dispatch exited unexpectedly")
+                        if stop_waiter in done:
+                            break
+                    finally:
+                        wake.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await wake
+                if self._stop.is_set():
+                    break
                 poll = asyncio.create_task(
                     self._consumer.getmany(
-                        timeout_ms=self._config.tdengine.ingestion.batch_wait_ms,
-                        max_records=self._config.kafka.max_poll_records,
+                        timeout_ms=limits.batch_wait_ms,
+                        max_records=poll_rows,
                     ),
                     name="storage-kafka-poll",
                 )
                 try:
-                    completed, _pending = await asyncio.wait(
-                        (poll, stop_waiter), return_when=asyncio.FIRST_COMPLETED
+                    completed, _ = await asyncio.wait(
+                        (poll, worker, stop_waiter),
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+                    if worker in completed:
+                        await worker
+                        raise RuntimeError("Storage Kafka dispatch exited unexpectedly")
                     if stop_waiter in completed:
                         if poll.done() and not poll.cancelled():
-                            # Drain a simultaneous poll failure during intentional STOP.
                             poll.exception()
                         break
                     batches = await poll
@@ -370,13 +447,13 @@ class KafkaStorageConsumer:
                         poll.cancel()
                         with suppress(asyncio.CancelledError):
                             await poll
-                if not batches:
-                    await asyncio.sleep(0)
-                    continue
+                    poll = None
+                workload: list[tuple[TopicPartition, _AssignedPartition, list[KafkaRecord]]] = []
+                rows_received = 0
                 bytes_received = 0
-                workload: list[tuple[TopicPartition, list[KafkaRecord]]] = []
                 for tp, batch in batches.items():
-                    if not batch:
+                    owner = self._assignments.get(tp)
+                    if not batch or owner is None or owner.blocked:
                         continue
                     records = [
                         KafkaRecord(
@@ -388,23 +465,52 @@ class KafkaStorageConsumer:
                         )
                         for message in batch
                     ]
+                    rows_received += len(records)
                     bytes_received += sum(len(record.value) for record in records)
-                    workload.append((tp, records))
-                if bytes_received > self._config.tdengine.ingestion.buffer_max_bytes:
-                    # Fatal fail-closed: do not commit any Kafka offsets.
+                    workload.append((tp, owner, records))
+                if not workload:
+                    continue
+                if rows_received > max_rows or bytes_received > max_bytes:
                     raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
-                # One task per partition and one poll per iteration means
-                # no duplicate in-flight writes to the same partition.
-                async with asyncio.TaskGroup() as group:
-                    for tp, records in workload:
-                        group.create_task(
-                            self._process_partition(tp, records, semaphore),
-                            name=f"storage-partition-{tp.partition}",
+                # Kafka can exceed fetch_max_bytes for the first large message.
+                # Before admitting such a poll, wait for older groups to drain.
+                while buffered_rows + rows_received > max_rows or buffered_bytes + bytes_received > max_bytes:
+                    space_available.clear()
+                    wake = asyncio.create_task(space_available.wait())
+                    try:
+                        done, _ = await asyncio.wait(
+                            (wake, worker, stop_waiter),
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
+                        if worker in done:
+                            await worker
+                            raise RuntimeError("Storage Kafka dispatch exited unexpectedly")
+                        if stop_waiter in done:
+                            break
+                    finally:
+                        wake.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await wake
+                if self._stop.is_set():
+                    break
+                queue.put_nowait((workload, rows_received, bytes_received))
+                buffered_rows += rows_received
+                buffered_bytes += bytes_received
         finally:
             stop_waiter.cancel()
             with suppress(asyncio.CancelledError):
                 await stop_waiter
+            if poll is not None and not poll.done():
+                poll.cancel()
+                with suppress(asyncio.CancelledError):
+                    await poll
+            if not worker.done():
+                await queue.put(None)
+                await worker
+            else:
+                # Retrieve an exception from the dispatcher when it terminated
+                # before a sentinel could be delivered.
+                worker.exception()
             await self._close_consumer()
 
     async def _close_consumer(self) -> None:
