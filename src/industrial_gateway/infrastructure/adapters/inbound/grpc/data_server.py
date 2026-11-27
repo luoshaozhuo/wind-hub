@@ -499,8 +499,15 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "control point not mapped")
             raise RuntimeError("abort unexpectedly returned") from None
         if expires_at <= datetime.now(UTC):
-            await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "command expired")
-            raise RuntimeError("abort unexpectedly returned") from None
+            return self._simulation_response(
+                SimulationOutcome(
+                    request_id=request.request_id,
+                    accepted=False,
+                    execution_id="",
+                    state="REJECTED",
+                    error_code="EXPIRED",
+                )
+            )
         outcome = await self._simulation.execute(command)
         return self._simulation_response(outcome)
 
