@@ -109,6 +109,7 @@ def _bind(
     timestamps: list[int],
     base: int,
     missing_first: bool = False,
+    tag: str | None = None,
 ) -> Any:
     """Build distinct changing values and the corresponding quality column."""
     driver = probe.driver
@@ -121,7 +122,8 @@ def _bind(
         columns.append(driver.big_ints_to_column(values))
     quality = bytes([0x54]) + _QUALITY[1:] if missing_first else _QUALITY
     columns.append(driver.varbinary_to_column([quality] * len(timestamps)))
-    return driver.stmt2_bind_param_view(table_name=table, tags=None, columns=columns)
+    tags = [driver.varchar_to_tag(tag)] if tag is not None else None
+    return driver.stmt2_bind_param_view(table_name=table, tags=tags, columns=columns)
 
 
 def _single_statement(probe: Probe, table: str) -> Any:
@@ -172,15 +174,8 @@ def test_td08_full_row_and_null_overwrite(wide_probe: Probe) -> None:
             )
             assert statement.execute() >= 0
         finally:
-            statement.close()
-        _assert_row(probe, "protocol_d0", ts, base, missing_first=missing)
-
-
-def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
-    """Probe dynamic table binding and repeated execute on one prepared object.
-
-    Unsupported syntax/API is a real failure, not a silent single-table fallback.
-    """
+          def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
+    """Probe the documented STMT2 dynamic-subtable form and statement reuse."""
     probe = wide_probe
     _create_family(probe, "protocol", "BIGINT")
     ts = time.time_ns() // 1000
@@ -188,7 +183,10 @@ def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
     probe.connection.execute(f"USE {probe.database}")
     statement = probe.connection.stmt2_statement()
     try:
-        statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+        statement.prepare(
+            f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 "
+            f"TAGS (?) VALUES ({placeholders})"
+        )
         for cycle in range(2):
             moment = ts + cycle * 100_000
             statement.bind(
@@ -196,6 +194,7 @@ def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
                     _bind(
                         probe,
                         table=f"protocol_d{device}",
+                        tag=f"wtg_{device:03d}",
                         timestamps=[moment],
                         base=cycle * 1000 + device * 10000,
                     )
@@ -209,6 +208,9 @@ def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
                     f"protocol_d{device}",
                     moment,
                     cycle * 1000 + device * 10000,
+                )
+    finally:
+        statement.close()         cycle * 1000 + device * 10000,
                 )
     finally:
         statement.close()
