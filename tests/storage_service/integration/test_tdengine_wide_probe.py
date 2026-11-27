@@ -418,7 +418,8 @@ def test_td01_single_table_native_baseline(wide_probe: Probe, record_property: A
     if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY") != "1":
         pytest.skip("enable D2 capacity matrix explicitly")
     probe = wide_probe
-    devices = 30
+    devices = int(os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_DEVICES", "30"))
+    assert devices in (30, 100, 300)
     workers = 4
     cycles = int(os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CYCLES", "600"))
     batch_cycles = 10
@@ -461,7 +462,7 @@ def test_td01_single_table_native_baseline(wide_probe: Probe, record_property: A
     [(2, 256), (4, 256), (8, 256), (4, 128), (4, 512)],
     indirect=True,
 )
-@pytest.mark.parametrize(("batch_cycles", "workers"), [(1, 1), (10, 1), (10, 4)])
+@pytest.mark.parametrize(("batch_cycles", "workers"), [(1, 1), (10, 1), (10, 2), (10, 4)])
 @pytest.mark.parametrize("concurrent_read", [False, True])
 def test_td01_td04_td05_td06_td10_capacity_matrix(
     wide_probe: Probe,
@@ -474,7 +475,8 @@ def test_td01_td04_td05_td06_td10_capacity_matrix(
     if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY") != "1":
         pytest.skip("enable D2 capacity matrix explicitly")
     probe = wide_probe
-    devices = 30
+    devices = int(os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_DEVICES", "30"))
+    assert devices in (30, 100, 300)
     cycles = int(os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CYCLES", "600"))
     assert 600 <= cycles <= 36_000
     _create_family(probe, "protocol", "BIGINT", devices=devices)
