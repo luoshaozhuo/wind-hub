@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import typer
 
-from .common_commands import _run_common, request_common
+from .common_commands import request_common
 
 diagnose = typer.Typer(help="Stage-based diagnostics, not merely TCP availability.")
 collector = typer.Typer(help="Collector device, publishing and IEC104 GI checks.")
@@ -30,11 +30,18 @@ def _save_evidence(output: Path, data: dict[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
-def _single_diagnose(service: str, target: str, output: Path | None) -> None:
+def _single_diagnose(
+    service: str,
+    target: str,
+    output: Path | None,
+    stages: list[str] | None = None,
+) -> None:
     from .main import _run
 
     async def probe() -> dict[str, Any]:
-        result = await request_common(service, "Diagnose", {"target_id": target})
+        result = await request_common(
+            service, "Diagnose", {"target_id": target, "stages": stages or []}
+        )
         if output is not None:
             await asyncio.to_thread(_save_evidence, output, result)
         return result
@@ -43,19 +50,21 @@ def _single_diagnose(service: str, target: str, output: Path | None) -> None:
 
 
 @collector.command("device")
-def collector_device(device_id: str) -> None:
-    _run_common("collector", "Diagnose", {"target_id": device_id, "stages": []})
+def collector_device(
+    device_id: str, output: Path | None = typer.Option(None, "--output")
+) -> None:
+    _single_diagnose("collector", device_id, output)
 
 
 @collector.command("pipeline")
-def collector_pipeline(device_id: str) -> None:
-    _run_common(
+def collector_pipeline(
+    device_id: str, output: Path | None = typer.Option(None, "--output")
+) -> None:
+    _single_diagnose(
         "collector",
-        "Diagnose",
-        {
-            "target_id": device_id,
-            "stages": ["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"],
-        },
+        device_id,
+        output,
+        stages=["NETWORK", "PROTOCOL", "ACQUISITION", "NATS", "BOUNDARY"],
     )
 
 
