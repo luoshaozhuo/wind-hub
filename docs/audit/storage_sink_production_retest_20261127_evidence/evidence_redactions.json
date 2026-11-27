@@ -1,0 +1,34 @@
+[
+  {
+    "path": "sink_600_c16_l10.xml",
+    "replacements": 1
+  },
+  {
+    "path": "cli.log",
+    "replacements": 1
+  },
+  {
+    "path": "tdengine_targeted.log",
+    "replacements": 2
+  },
+  {
+    "path": "cli.xml",
+    "replacements": 1
+  },
+  {
+    "path": "tdengine_targeted.xml",
+    "replacements": 2
+  },
+  {
+    "path": "sink_600_c16_l10.log",
+    "replacements": 1
+  },
+  {
+    "path": "sink_partition4/capacity.xml",
+    "replacements": 1
+  },
+  {
+    "path": "sink_partition4/capacity.log",
+    "replacements": 1
+  }
+]

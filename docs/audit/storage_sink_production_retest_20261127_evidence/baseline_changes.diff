@@ -1,0 +1,1032 @@
+diff --git a/src/sink_service/application/reliable_engine.py b/src/sink_service/application/reliable_engine.py
+index 913b024c9..c6fca5886 100644
+--- a/src/sink_service/application/reliable_engine.py
++++ b/src/sink_service/application/reliable_engine.py
+@@ -120,6 +120,10 @@ class ReliableDeliveryEngine:
+         items: tuple[SampleItem, ...],
+     ) -> tuple[bytes, ...]:
+         """Keep source ownership while a historical mapping is fetched and verified."""
++        if self._data_level != "business":
++            # RAW/PROTOCOL encoding contains no awaits or remote history reads.
++            # Avoid a separate scheduled task on the high-rate hot path.
++            return await self._encode_kafka_wide(batch, items)
+         task = asyncio.create_task(self._encode_kafka_wide(batch, items))
+         interval = max(0.5, self._snapshot.service["reliable"]["ack_wait_seconds"] / 3)
+         try:
+diff --git a/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py b/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
+index b62d063a4..991462b0e 100644
+--- a/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
++++ b/src/sink_service/infrastructure/adapters/outbound/realtime_adapters.py
+@@ -473,9 +473,17 @@ class KafkaOutput:
+         queue = self._partition_queues[partition]
+         try:
+             while queue:
+-                # Coalesce every submission wave, not only the first one.
+-                # The source device lock continues to own its pending write.
+-                await asyncio.sleep(self._linger_ms / 1000)
++                # A full native Builder should not wait through the linger
++                # window. Smaller waves still coalesce cross-device records.
++                # Include conservative per-record framing overhead: the actual
++                # BatchBuilder remains authoritative for exact capacity.
++                queued_bytes = sum(
++                    len(request.key) + len(payload) + 64
++                    for request in queue
++                    for payload in request.payloads
++                )
++                if queued_bytes < self._max_batch_size:
++                    await asyncio.sleep(self._linger_ms / 1000)
+                 requests = queue[:]
+                 queue.clear()
+                 try:
+diff --git a/src/storage_service/application/wide_ingestion.py b/src/storage_service/application/wide_ingestion.py
+index a3211cca6..f29d43d45 100644
+--- a/src/storage_service/application/wide_ingestion.py
++++ b/src/storage_service/application/wide_ingestion.py
+@@ -153,33 +153,39 @@ class WideIngestionService:
+         No offset becomes confirmed until every grouped write has returned
+         successfully. A partial write therefore replays the entire prefix.
+         """
+-        groups: dict[tuple[str, str, str], list[_Validated]] = {}
++        groups: dict[tuple[str, str], list[_Validated]] = {}
+         for entry in pending:
+-            key = (
+-                entry.row.wind_farm_id,
+-                entry.row.device_id,
+-                entry.schema.fingerprint,
+-            )
++            key = (entry.row.wind_farm_id, entry.schema.fingerprint)
+             groups.setdefault(key, []).append(entry)
+ 
+         async def persist_group(group: list[_Validated]) -> tuple[int, int]:
+-            # Each physical device group is one ordered STMT2 writer; groups
+-            # for different devices may run concurrently within one process.
++            # One STMT2 execute can bind multiple verified subtables belonging
++            # to the same immutable physical schema and database.
+             async with self._write_permits:
+                 first = group[0]
+-                latest_by_time = {
+-                    entry.row.sample_time_us: (position, entry.row)
+-                    for position, entry in enumerate(group)
+-                }
+-                ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
+-                await self._storage.ensure_wide_table(
+-                    first.schema,
+-                    wind_farm_id=first.row.wind_farm_id,
+-                    device_id=first.row.device_id,
+-                    device_type=first.device_type,
++                devices: dict[str, _Validated] = {}
++                latest_by_device_time: dict[tuple[str, int], tuple[int, WideRecord]] = {}
++                for position, entry in enumerate(group):
++                    prior = devices.setdefault(entry.row.device_id, entry)
++                    if prior.device_type != entry.device_type:
++                        raise TDengineSchemaConflictError(
++                            "device type changed within one immutable wide batch"
++                        )
++                    latest_by_device_time[
++                        (entry.row.device_id, entry.row.sample_time_us)
++                    ] = (position, entry.row)
++                for identity in devices.values():
++                    await self._storage.ensure_wide_table(
++                        first.schema,
++                        wind_farm_id=identity.row.wind_farm_id,
++                        device_id=identity.row.device_id,
++                        device_type=identity.device_type,
++                    )
++                ordered = tuple(
++                    row for _position, row in sorted(latest_by_device_time.values())
+                 )
+-                await self._storage.insert_wide_batch(first.schema, ordered_rows)
+-                return len(ordered_rows), len(first.schema.columns)
++                await self._storage.insert_wide_batch(first.schema, ordered)
++                return len(ordered), len(first.schema.columns)
+ 
+         # Await every in-flight physical write even if one fails. Canceling
+         # sibling STMT2 operations would create additional UNKNOWN outcomes.
+diff --git a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+index fdee617e8..3db96c377 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
++++ b/src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+@@ -15,6 +15,7 @@ import queue
+ import re
+ import threading
+ import time
++from collections import OrderedDict
+ from collections.abc import Callable, Iterator, Sequence
+ from concurrent.futures import Future, ThreadPoolExecutor
+ from contextlib import contextmanager, suppress
+@@ -103,6 +104,9 @@ class TDengineBackend:
+         self._lock = threading.RLock()
+         self._ddl_lock = threading.RLock()
+         self._verified_tables: set[str] = set()
++        self._wide_device_types: dict[str, str] = {}
++        self._wide_statements: dict[int, OrderedDict[str, _PreparedStatement]] = {}
++        self._wide_current_database: dict[int, str] = {}
+         self._wide_unknown_tables: set[str] = set()
+         self._opening = False
+         self._closed = False
+@@ -201,6 +205,7 @@ class TDengineBackend:
+             self._closed = True
+             self._driver = None
+             self._verified_tables.clear()
++            self._wide_device_types.clear()
+             lease = _OperationLease(self._config.tdengine.ingestion.write_timeout_ms)
+             # SQL 工作全部阻塞时，关闭仍须立即排空已空闲连接。
+             future = self._close_executor.submit(self._close_sync, lease=lease)
+@@ -224,6 +229,7 @@ class TDengineBackend:
+             pool_size = self._pool_size
+             self._driver = None
+             self._verified_tables.clear()
++            self._wide_device_types.clear()
+         first_error: Exception | None = None
+         for _ in range(pool_size):
+             try:
+@@ -233,6 +239,7 @@ class TDengineBackend:
+                     "cannot close TDengine: outstanding database operations"
+                 ) from exc
+             try:
++                self._close_cached_statements(conn)
+                 conn.close()
+             except Exception as exc:
+                 if first_error is None:
+@@ -279,8 +286,19 @@ class TDengineBackend:
+         except queue.Empty as exc:
+             raise TimeoutError("TDengine connection pool exhausted") from exc
+ 
++    def _close_cached_statements(self, connection: _TaosConnection) -> None:
++        with self._lock:
++            statements = self._wide_statements.pop(id(connection), {})
++            self._wide_current_database.pop(id(connection), None)
++        for statement in statements.values():
++            try:
++                statement.close()
++            except Exception:
++                _LOG.warning("failed to close prepared TDengine statement", exc_info=True)
++
+     def _discard_connection(self, connection: _TaosConnection) -> None:
+         try:
++            self._close_cached_statements(connection)
+             connection.close()
+         except Exception:
+             _LOG.warning("failed to close an unusable TDengine connection", exc_info=True)
+@@ -381,6 +399,10 @@ class TDengineBackend:
+                 raise TDengineSchemaConflictError(
+                     "wide DDL I/O is unresolved; require process isolation"
+                 )
++            if target in self._verified_tables:
++                if self._wide_device_types.get(target) != device_type:
++                    raise TDengineSchemaConflictError("verified wide device type differs")
++                return
+         try:
+             await self._run_bounded(
+                 self._ensure_wide_table_sync,
+@@ -507,6 +529,7 @@ class TDengineBackend:
+                 self._metadata.mark_ready(registration, verified=True)
+             with self._lock:
+                 self._verified_tables.add(qualified_name)
++                self._wide_device_types[qualified_name] = device_type
+ 
+     @staticmethod
+     def _verify_wide_table(
+@@ -569,11 +592,7 @@ class TDengineBackend:
+         schema: WideSchema,
+         records: Sequence[WideRecord],
+     ) -> None:
+-        """Perform a device-wide STMT2 write under the existing bounded I/O lease.
+-
+-        The caller must first create and verify the target physical table and
+-        immutable ownership metadata. This method never issues per-point SELECT.
+-        """
++        """Write a schema-family batch with one dynamic STMT2 execution."""
+         if not records:
+             return
+         limits = self._config.tdengine.ingestion
+@@ -583,31 +602,34 @@ class TDengineBackend:
+         ):
+             raise ValueError("wide STMT2 batch exceeds physical row/byte budget")
+         first = records[0]
+-        if any(
+-            row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
+-            for row in records
+-        ):
+-            raise ValueError("wide STMT2 batches must contain exactly one device")
+-        name = (
+-            f"{schema.database_name(first.wind_farm_id)}."
+-            f"{schema.subtable_name(first.device_id)}"
+-        )
++        if any(row.wind_farm_id != first.wind_farm_id for row in records):
++            raise ValueError("wide STMT2 batch cannot mix wind farms")
++        database = schema.database_name(first.wind_farm_id)
++        names = {
++            f"{database}.{schema.subtable_name(row.device_id)}" for row in records
++        }
+         with self._lock:
+-            if name not in self._verified_tables:
++            if not names.issubset(self._verified_tables):
+                 raise TDengineSchemaConflictError("wide target has not been verified")
+-            if name in self._wide_unknown_tables:
+-                raise TDengineSchemaConflictError(
+-                    "prior wide I/O remains UNKNOWN; restart only after old process isolation"
+-                )
++            if names.intersection(self._wide_unknown_tables):
++                raise TDengineSchemaConflictError("prior wide I/O remains UNKNOWN")
++            device_types = {
++                row.device_id: self._wide_device_types[
++                    f"{database}.{schema.subtable_name(row.device_id)}"
++                ]
++                for row in records
++            }
+         try:
+             await self._run_bounded(
+-                self._insert_wide_batch_sync, schema=schema, records=tuple(records)
++                self._insert_wide_batch_sync,
++                schema=schema,
++                records=tuple(records),
++                device_types=device_types,
+             )
+         except BaseException:
+-            # A connector exception is not proof that no rows were persisted.
+-            # Preserve the device fence until the old process/I/O is isolated.
++            # Multi-table STMT2 can partially persist before returning failure.
+             with self._lock:
+-                self._wide_unknown_tables.add(name)
++                self._wide_unknown_tables.update(names)
+             raise
+ 
+     def _insert_wide_batch_sync(
+@@ -615,16 +637,62 @@ class TDengineBackend:
+         *,
+         schema: WideSchema,
+         records: Sequence[WideRecord],
++        device_types: dict[str, str],
+         lease: _OperationLease,
+     ) -> None:
+-        first = records[0]
+-        name = (
+-            f"{schema.database_name(first.wind_farm_id)}."
+-            f"{schema.subtable_name(first.device_id)}"
+-        )
++        database = schema.database_name(records[0].wind_farm_id)
++        stable = schema.supertable_name()
++        family = f"{database}.{stable}"
+         with self._borrow_connection(lease=lease) as (connection, driver):
+             lease.remaining()
+-            write_wide_stmt2(connection, driver, table_name=name, schema=schema, records=records)
++            connection_id = id(connection)
++            with self._lock:
++                current_database = self._wide_current_database.get(connection_id)
++            if current_database != database:
++                lease.remaining()
++                connection.execute(f"USE {database}")
++                with self._lock:
++                    self._wide_current_database[connection_id] = database
++            with self._lock:
++                cached = self._wide_statements.setdefault(
++                    connection_id, OrderedDict()
++                )
++                statement = cached.get(family)
++                if statement is not None:
++                    cached.move_to_end(family)
++            if statement is None:
++                candidate = connection.stmt2_statement()
++                try:
++                    placeholders = ", ".join(
++                        "?" for _ in range(len(schema.columns) + 2)
++                    )
++                    tags = ", ".join("?" for _ in range(5))
++                    candidate.prepare(
++                        f"INSERT INTO ? USING {family} "
++                        f"TAGS ({tags}) VALUES ({placeholders})"
++                    )
++                except BaseException:
++                    candidate.close()
++                    raise
++                try:
++                    with self._lock:
++                        cached = self._wide_statements[connection_id]
++                        if len(cached) >= 32:
++                            _expired_family, expired_statement = cached.popitem(last=False)
++                            expired_statement.close()
++                        cached[family] = candidate
++                except BaseException:
++                    candidate.close()
++                    raise
++                statement = candidate
++            write_wide_stmt2(
++                connection,
++                driver,
++                schema=schema,
++                records=records,
++                device_types=device_types,
++                statement=statement,
++            )
+ 
+     async def verify_existing_wide_table(
+         self,
+@@ -720,6 +788,7 @@ class TDengineBackend:
+                 if full_name in self._wide_unknown_tables:
+                     raise TDengineSchemaConflictError("wide table became uncertain")
+                 self._verified_tables.add(full_name)
++                self._wide_device_types[full_name] = device_type
+ 
+     async def fetch_wide_history(
+         self,
+diff --git a/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py b/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+index d25a5f229..e55d8c8ef 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
++++ b/src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+@@ -6,7 +6,7 @@ A prepared statement is not shared across threads or conflicting schema families
+ 
+ from __future__ import annotations
+ 
+-from collections.abc import Sequence
++from collections.abc import Mapping, Sequence
+ from typing import Any, Protocol
+ 
+ from storage_service.domain.wide_record import WideRecord
+@@ -83,40 +83,67 @@ def write_wide_stmt2(
+     connection: WideStmt2Connection,
+     driver: object,
+     *,
+-    table_name: str,
+     schema: WideSchema,
+     records: Sequence[WideRecord],
++    device_types: Mapping[str, str],
++    statement: WideStmt2Statement | None = None,
+ ) -> None:
+-    """Write complete timestamp-keyed rows without read-before-write SELECT.
++    """Write verified multi-device wide rows in one prepared STMT2 execution.
+ 
+-    This synchronous method does not retry uncertain operations. The surrounding
+-    lease must preserve ownership until driver I/O returns or is isolated.
++    The connection pool owns any caller-supplied statement. Statements created
++    here are closed on success or failure.
+     """
+     if not records:
+         return
+     first = records[0]
+-    expected = (
+-        f"{schema.database_name(first.wind_farm_id)}." f"{schema.subtable_name(first.device_id)}"
+-    )
+-    if table_name != expected:
+-        raise ValueError("wide insert target differs from exact device schema identity")
+-    if any(
+-        row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
+-        for row in records
+-    ):
+-        raise ValueError("wide STMT2 batch cannot mix device identities")
+-    database, subtable = expected.split(".", 1)
+-    columns = bind_wide_columns(schema, records, driver)
+-    statement = connection.stmt2_statement()
++    database = schema.database_name(first.wind_farm_id)
++    if any(row.wind_farm_id != first.wind_farm_id for row in records):
++        raise ValueError("wide STMT2 batch cannot mix wind farms")
++    if len(records) > 1000:
++        raise ValueError("STMT2 device-wide batch exceeds 1000 physical rows")
++    by_device: dict[str, list[WideRecord]] = {}
++    for row in records:
++        if row.device_id not in device_types:
++            raise ValueError("STMT2 target lacks verified device type")
++        by_device.setdefault(row.device_id, []).append(row)
++    builder = getattr(driver, "stmt2_bind_param_view", None)
++    varchar_tag = getattr(driver, "varchar_to_tag", None)
++    level_tag = getattr(driver, "int_to_tag", None)
++    if not all(callable(fn) for fn in (builder, varchar_tag, level_tag)):
++        raise RuntimeError("taosws connector lacks dynamic STMT2 binding API")
++    level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
++    bindings: list[object] = []
++    for device_id, group in by_device.items():
++        device_type = device_types[device_id]
++        if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
++            raise ValueError("device STMT2 TAG exceeds declared width")
++        columns = bind_wide_columns(schema, group, driver)
++        bindings.append(
++            builder(
++                table_name=schema.subtable_name(device_id),
++                tags=[
++                    varchar_tag(device_id),
++                    varchar_tag(device_type),
++                    varchar_tag(schema.point_table_id),
++                    level_tag(level),
++                    varchar_tag(schema.fingerprint),
++                ],
++                columns=columns,
++            )
++        )
++    owned = statement is None
++    active = statement if statement is not None else connection.stmt2_statement()
+     try:
+-        placeholders = ", ".join("?" for _ in columns)
+-        statement.prepare(f"INSERT INTO {database}.{subtable} VALUES ({placeholders})")
+-        builder = getattr(driver, "stmt2_bind_param_view", None)
+-        if not callable(builder):
+-            raise RuntimeError("taosws connector lacks STMT2 column-binding API")
+-        binding = builder(table_name=None, tags=None, columns=columns)
+-        statement.bind([binding])
+-        if statement.execute() < 0:
++        if owned:
++            placeholders = ", ".join("?" for _ in range(len(schema.columns) + 2))
++            tags = ", ".join("?" for _ in range(5))
++            active.prepare(
++                f"INSERT INTO ? USING {database}.{schema.supertable_name()} "
++                f"TAGS ({tags}) VALUES ({placeholders})"
++            )
++        active.bind(bindings)
++        if active.execute() < 0:
+             raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
+     finally:
+-        statement.close()
++        if owned:
++            active.close()
+diff --git a/tests/sink_service/unit/test_kafka_encoded_batch.py b/tests/sink_service/unit/test_kafka_encoded_batch.py
+index 6d38c0c1e..219352073 100644
+--- a/tests/sink_service/unit/test_kafka_encoded_batch.py
++++ b/tests/sink_service/unit/test_kafka_encoded_batch.py
+@@ -18,11 +18,12 @@ R8 八项守卫的进程内回归保留在本文件与 test_kafka_attempt_counte
+ from __future__ import annotations
+ 
+ import asyncio
++import time
+ from typing import Any
+ 
+ import pytest
+ 
+-from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput
++from sink_service.infrastructure.adapters.outbound.realtime_adapters import KafkaOutput, _KafkaWrite
+ from tests.sink_service.unit.kafka_producer_fake import (
+     KEY,
+     STRIPE,
+@@ -394,3 +395,49 @@ async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
+             await closing
+         else:
+             await output.close()
++
++
++@pytest.mark.parametrize(
++    ("max_batch_size", "expect_linger"),
++    [(160, False), (1024, True)],
++)
++async def test_partition_wave_respects_only_needed_coalescing_delay(
++    monkeypatch: pytest.MonkeyPatch,
++    producer_env: dict[str, Any],
++    max_batch_size: int,
++    expect_linger: bool,
++) -> None:
++    """A full Builder flushes immediately; a partial wave still coalesces."""
++    from sink_service.infrastructure.adapters.outbound import realtime_adapters
++
++    output = KafkaOutput(
++        servers=["127.0.0.1:9092"],
++        topic=TOPIC,
++        timeout_ms=10000,
++        linger_ms=10,
++        max_batch_size=max_batch_size,
++    )
++    await output.open()
++    sleep = asyncio.sleep
++    delays: list[float] = []
++
++    async def tracked_sleep(delay: float) -> None:
++        delays.append(delay)
++        await sleep(0)
++
++    monkeypatch.setattr(realtime_adapters.asyncio, "sleep", tracked_sleep)
++    loop = asyncio.get_running_loop()
++    result: asyncio.Future[Any] = loop.create_future()
++    output._partition_queues[3] = [
++        _KafkaWrite(KEY, (b"x" * 160,), result, time.perf_counter())
++    ]
++    task = asyncio.create_task(output._drain_partition(3, output._producer))
++    output._partition_workers[3] = task
++    try:
++        await asyncio.wait_for(task, timeout=2)
++        await asyncio.wait_for(result, timeout=2)
++        assert result.result().delivered == (0,)
++        assert (0.01 in delays) is expect_linger
++        assert len(producer_env["producer"].submissions) == 1
++    finally:
++        await output.close()
+diff --git a/tests/sink_service/unit/test_reliable_sample_evidence.py b/tests/sink_service/unit/test_reliable_sample_evidence.py
+index ca5f42018..872aa8a4d 100644
+--- a/tests/sink_service/unit/test_reliable_sample_evidence.py
++++ b/tests/sink_service/unit/test_reliable_sample_evidence.py
+@@ -282,3 +282,27 @@ async def test_kafka_stage_timings_are_attributed_to_the_owning_delivery() -> No
+     assert port.kafka_confirm_seconds_total == pytest.approx(0.04)
+     assert port.metrics["kafka_timed_writes_total"] == 1.0
+     assert port.metrics["kafka_confirm_seconds_total"] == pytest.approx(0.04)
++
++
++async def test_protocol_encoding_avoids_redundant_scheduled_task(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Protocol rows have no remote lookup; encode without a second task."""
++    import json
++    from unittest.mock import Mock
++
++    port = _port(_FakeKafkaAdapter(BatchOutcome(delivered=(), settled=())))
++    port._data_level = "protocol"
++    message = _FakeMessage()
++    batch = _batch([("p1", "s1"), ("p2", "s2")])
++    forbidden_task = Mock(side_effect=AssertionError("inline encoding created a task"))
++    monkeypatch.setattr(
++        "sink_service.application.reliable_engine.asyncio.create_task", forbidden_task
++    )
++    encoded = await port._encode_with_heartbeat(message, batch, batch.samples)
++    assert len(encoded) == 1
++    payload = json.loads(encoded[0])
++    assert payload["device_id"] == _DEVICE
++    assert set(payload["points"]) == {"p1", "p2"}
++    assert message.extends == 0
++    forbidden_task.assert_not_called()
+diff --git a/tests/storage_service/integration/test_tdengine_wide_probe.py b/tests/storage_service/integration/test_tdengine_wide_probe.py
+index 00d9076b1..44aedba40 100644
+--- a/tests/storage_service/integration/test_tdengine_wide_probe.py
++++ b/tests/storage_service/integration/test_tdengine_wide_probe.py
+@@ -1097,3 +1097,74 @@ def test_td13_stmt2_conflict_unknown_and_ordered_replay(
+             "valid_rows_in_failed_request": 2,
+         },
+     )
++
++
++def test_td14_production_five_tag_multitable_stmt2(wide_probe: Probe) -> None:
++    """Exercise the real Storage tag shape, not the one-tag capability surrogate."""
++    probe = wide_probe
++    database = probe.database
++    columns = ", ".join(f"p{i:03d}_v1_0_0 BIGINT" for i in range(_POINT_COUNT))
++    probe.connection.execute(
++        f"CREATE STABLE {database}.production "
++        f"(ts TIMESTAMP, {columns}, quality VARBINARY(125)) "
++        "TAGS (device_id VARCHAR(128), device_type VARCHAR(64), "
++        "point_table_id VARCHAR(192), data_level TINYINT, "
++        "schema_fingerprint VARCHAR(64))"
++    )
++    probe.connection.execute(f"USE {database}")
++    placeholders = ", ".join("?" for _ in range(_POINT_COUNT + 2))
++    statement = probe.connection.stmt2_statement()
++    try:
++        statement.prepare(
++            f"INSERT INTO ? USING {database}.production "
++            f"TAGS (?, ?, ?, ?, ?) VALUES ({placeholders})"
++        )
++        start = time.time_ns() // 1000
++        for cycle in range(2):
++            bindings = []
++            for device in range(2):
++                timestamp = start + cycle * 100000
++                values = [
++                    probe.driver.micros_timestamps_to_column([timestamp]),
++                    *(
++                        probe.driver.big_ints_to_column([device * 1000 + cycle + point])
++                        for point in range(_POINT_COUNT)
++                    ),
++                    probe.driver.varbinary_to_column([_QUALITY]),
++                ]
++                bindings.append(
++                    probe.driver.stmt2_bind_param_view(
++                        table_name=f"production_d{device}",
++                        tags=[
++                            probe.driver.varchar_to_tag(f"wtg_{device:03d}"),
++                            probe.driver.varchar_to_tag("wind"),
++                            probe.driver.varchar_to_tag("point_table_v1"),
++                            probe.driver.int_to_tag(2),
++                            probe.driver.varchar_to_tag("a" * 64),
++                        ],
++                        columns=values,
++                    )
++                )
++            statement.bind(bindings)
++            assert statement.execute() >= 0
++        for device in range(2):
++            rows = list(
++                probe.connection.query(
++                    f"SELECT * FROM {database}.production_d{device} ORDER BY ts"
++                )
++            )
++            assert len(rows) == 2
++            for cycle, row in enumerate(rows):
++                assert list(row[1:-1]) == [
++                    device * 1000 + cycle + point for point in range(_POINT_COUNT)
++                ]
++                assert bytes(row[-1]) == _QUALITY
++            tags = list(
++                probe.connection.query(
++                    f"SHOW TAGS FROM {database}.production_d{device}"
++                )
++            )
++            assert len(tags) == 5
++            assert str(tags[3][5]) == "2"
++    finally:
++        statement.close()
+diff --git a/tests/storage_service/unit/test_wide_backend_multitable.py b/tests/storage_service/unit/test_wide_backend_multitable.py
+new file mode 100644
+index 000000000..c224ef4d1
+--- /dev/null
++++ b/tests/storage_service/unit/test_wide_backend_multitable.py
+@@ -0,0 +1,134 @@
++"""Production TDengine multi-device STMT2 connection reuse and UNKNOWN fencing."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any, cast
++from unittest.mock import Mock
++
++import pytest
++
++from storage_service.application.config import load_storage_config
++from storage_service.domain.errors import TDengineSchemaConflictError
++from storage_service.domain.wide_record import WideDataLevel, WideRecord
++from storage_service.domain.wide_schema import PhysicalPoint, WideSchema
++from storage_service.infrastructure.adapters.outbound.metadata_store import MetadataStore
++from storage_service.infrastructure.adapters.outbound.tdengine_backend import TDengineBackend
++
++ROOT = Path(__file__).resolve().parents[3]
++pytestmark = pytest.mark.unit
++
++
++def _schema() -> WideSchema:
++    return WideSchema.build(
++        point_table_id="point_table_wtg",
++        point_table_version="1.0.0",
++        data_level=WideDataLevel.PROTOCOL,
++        points=(PhysicalPoint("power", "INT"), PhysicalPoint("speed", "FLOAT")),
++        max_row_bytes=65536,
++    )
++
++
++def _record(schema: WideSchema, device: str, second: int) -> WideRecord:
++    payload = {
++        "schema_version": 3,
++        "wind_farm_id": "farm",
++        "device_config_id": "device_v1.0.0",
++        "device_id": device,
++        "data_level": "protocol",
++        "sample_time": f"2026-11-25T12:00:{second:02d}Z",
++        "points": {"power": [5, 1], "speed": [1.5, 1]},
++    }
++    return WideRecord.from_kafka_json(
++        json.dumps(payload).encode(),
++        physical_points=tuple(column.point_id for column in schema.columns),
++    )
++
++
++async def _setup(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> tuple[TDengineBackend, MetadataStore, Mock, Mock]:
++    config = load_storage_config(
++        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
++    )
++    engine = config.tdengine.model_copy(
++        update={"max_connections": 1, "max_inflight_sql": 1}
++    )
++    config = config.model_copy(update={"tdengine": engine})
++    metadata = MetadataStore(tmp_path / "metadata.sqlite3")
++    metadata.open()
++    driver, connection, statement = Mock(), Mock(), Mock()
++    connection.stmt2_statement.return_value = statement
++    statement.execute.return_value = 2
++    driver.connect.return_value = connection
++    driver.stmt2_bind_param_view.side_effect = lambda **kwargs: kwargs
++    monkeypatch.setenv("WIND_HUB_TDENGINE_USER", "root")
++    monkeypatch.setenv("WIND_HUB_TDENGINE_PASSWORD", "taosdata")
++    monkeypatch.setattr(
++        "storage_service.infrastructure.adapters.outbound.tdengine_backend.import_module",
++        lambda _: cast(Any, driver),
++    )
++    backend = TDengineBackend(config=config, metadata=metadata)
++    await backend.open()
++    schema = _schema()
++    database = schema.database_name("farm")
++    for device in ("wtg001", "wtg002"):
++        name = f"{database}.{schema.subtable_name(device)}"
++        backend._verified_tables.add(name)
++        backend._wide_device_types[name] = "wind"
++    return backend, metadata, connection, statement
++
++
++@pytest.mark.asyncio
++async def test_multi_device_statement_prepared_once_per_connection(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    backend, metadata, connection, statement = await _setup(tmp_path, monkeypatch)
++    schema = _schema()
++    try:
++        await backend.insert_wide_batch(
++            schema, [_record(schema, "wtg001", 0), _record(schema, "wtg002", 0)]
++        )
++        await backend.insert_wide_batch(
++            schema, [_record(schema, "wtg001", 1), _record(schema, "wtg002", 1)]
++        )
++        statement.prepare.assert_called_once()
++        assert statement.bind.call_count == 2
++        assert len(statement.bind.call_args.args[0]) == 2
++        assert statement.execute.call_count == 2
++        connection.execute.assert_called_once_with(
++            f"USE {schema.database_name('farm')}"
++        )
++    finally:
++        await backend.close()
++        metadata.close()
++    statement.close.assert_called_once()
++    connection.close.assert_called_once()
++
++
++@pytest.mark.asyncio
++async def test_unknown_multidevice_write_fences_every_table(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    backend, metadata, connection, statement = await _setup(tmp_path, monkeypatch)
++    schema = _schema()
++    statement.execute.side_effect = OSError("injected partial-success uncertainty")
++    try:
++        with pytest.raises(OSError, match="uncertainty"):
++            await backend.insert_wide_batch(
++                schema, [_record(schema, "wtg001", 0), _record(schema, "wtg002", 0)]
++            )
++        database = schema.database_name("farm")
++        assert backend._wide_unknown_tables == {
++            f"{database}.{schema.subtable_name(device)}"
++            for device in ("wtg001", "wtg002")
++        }
++        with pytest.raises(TDengineSchemaConflictError, match="UNKNOWN"):
++            await backend.insert_wide_batch(schema, [_record(schema, "wtg001", 1)])
++    finally:
++        await backend.close()
++        metadata.close()
++    statement.close.assert_called_once()
++    connection.close.assert_called_once()
+diff --git a/tests/storage_service/unit/test_wide_ingestion.py b/tests/storage_service/unit/test_wide_ingestion.py
+index 641f197d6..f4e5916ef 100644
+--- a/tests/storage_service/unit/test_wide_ingestion.py
++++ b/tests/storage_service/unit/test_wide_ingestion.py
+@@ -262,10 +262,30 @@ async def test_single_physical_row_exceeding_batch_limit_blocks_offset() -> None
+     assert evidence.block_partition.call_args.args[3] == ("TDENGINE_WIDE_ROW_EXCEEDS_BATCH_BUDGET")
+ 
+ 
++def _vary_schema_by_device(service: WideIngestionService) -> None:
++    """Force distinct immutable schema families for concurrency-oriented tests."""
++    base = service._resolver.resolve_wide_schema.return_value
++    schemas: dict[str, WideSchema] = {}
++
++    async def resolve(identity: WideIdentity, **_kwargs: object) -> WideSchema:
++        if identity.device_id not in schemas:
++            schemas[identity.device_id] = WideSchema.build(
++                point_table_id=f"{base.point_table_id}_{identity.device_id}",
++                point_table_version=base.point_table_version,
++                data_level=base.data_level,
++                points=(PhysicalPoint("power", "INT"), PhysicalPoint("wind_speed", "FLOAT")),
++                max_row_bytes=65536,
++            )
++        return schemas[identity.device_id]
++
++    service._resolver.resolve_wide_schema.side_effect = resolve
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("writer_count", [1, 2, 4, 8])
+ async def test_writer_count_bounds_parallel_group_writes(writer_count: int) -> None:
+     service, backend, _evidence, _metrics = _service(writer_count=writer_count)
++    _vary_schema_by_device(service)
+     group_count = writer_count * 2
+     release = asyncio.Event()
+     first_wave_started = asyncio.Event()
+@@ -368,17 +388,17 @@ async def test_mixed_devices_and_schemas_group_deduplicate_and_parallelize() ->
+     result = await asyncio.wait_for(task, timeout=2)
+ 
+     grouped = {
+-        (call.args[1][0].device_id, call.args[0].fingerprint): call.args[1]
++        call.args[0].fingerprint: call.args[1]
+         for call in backend.insert_wide_batch.await_args_list
+     }
+-    original_group = grouped[("wtg001", schema_v1.fingerprint)]
+-    assert tuple(row.values[0] for row in original_group) == (2, 3)
+-    assert len(grouped) == 3
+-    assert ("wtg002", schema_v1.fingerprint) in grouped
+-    assert ("wtg001", schema_v2.fingerprint) in grouped
++    original_group = grouped[schema_v1.fingerprint]
++    assert tuple(row.values[0] for row in original_group) == (2, 3, 4)
++    assert {row.device_id for row in original_group} == {"wtg001", "wtg002"}
++    assert len(grouped) == 2
++    assert grouped[schema_v2.fingerprint][0].device_id == "wtg001"
+     assert started_before_release == 2
+     assert peak == 2
+-    assert backend.insert_wide_batch.await_count == 3
++    assert backend.insert_wide_batch.await_count == 2
+     assert backend.ensure_wide_table.await_count == 3
+     assert result.next_commit_offset == 5
+ 
+@@ -386,6 +406,7 @@ async def test_mixed_devices_and_schemas_group_deduplicate_and_parallelize() ->
+ @pytest.mark.asyncio
+ async def test_one_failed_write_waits_for_all_started_peer_io_without_commit() -> None:
+     service, backend, evidence, metrics = _service(writer_count=3)
++    _vary_schema_by_device(service)
+     all_started = asyncio.Event()
+     failure_raised = asyncio.Event()
+     release = asyncio.Event()
+@@ -439,6 +460,7 @@ async def test_one_failed_write_waits_for_all_started_peer_io_without_commit() -
+ @pytest.mark.asyncio
+ async def test_unknown_write_precedes_concurrent_schema_conflict_without_commit() -> None:
+     service, backend, evidence, metrics = _service(writer_count=3)
++    _vary_schema_by_device(service)
+     all_started = asyncio.Event()
+     started: set[str] = set()
+     succeeded: set[str] = set()
+@@ -480,6 +502,7 @@ async def test_unknown_write_precedes_concurrent_schema_conflict_without_commit(
+ @pytest.mark.asyncio
+ async def test_cancellation_cleans_every_started_write_without_commit() -> None:
+     service, backend, evidence, metrics = _service(writer_count=3)
++    _vary_schema_by_device(service)
+     all_started = asyncio.Event()
+     never_finish = asyncio.Event()
+     started: set[str] = set()
+@@ -523,6 +546,7 @@ async def test_cancellation_cleans_every_started_write_without_commit() -> None:
+ @pytest.mark.asyncio
+ async def test_metrics_follow_all_group_success_and_offsets_confirm_contiguously() -> None:
+     service, backend, _evidence, metrics = _service(writer_count=3)
++    _vary_schema_by_device(service)
+     all_started = asyncio.Event()
+     release = asyncio.Event()
+     started: set[str] = set()
+diff --git a/tests/storage_service/unit/test_wide_stmt2.py b/tests/storage_service/unit/test_wide_stmt2.py
+index 7d7e8276d..1d2c1f136 100644
+--- a/tests/storage_service/unit/test_wide_stmt2.py
++++ b/tests/storage_service/unit/test_wide_stmt2.py
+@@ -1,4 +1,4 @@
+-"""STMT2 device-wide binding tests without running a TDengine service."""
++"""Dynamic multi-subtable STMT2 binding and prepared statement ownership."""
+ 
+ import json
+ from unittest.mock import Mock
+@@ -13,12 +13,22 @@ from storage_service.infrastructure.adapters.outbound.wide_stmt2 import (
+ )
+ 
+ 
+-def _record(schema: WideSchema, second: int) -> WideRecord:
++def _schema() -> WideSchema:
++    return WideSchema.build(
++        point_table_id="point_table_wtg",
++        point_table_version="1.0.0",
++        data_level=WideDataLevel.PROTOCOL,
++        points=(PhysicalPoint("a", "DOUBLE"), PhysicalPoint("b", "INT")),
++        max_row_bytes=65536,
++    )
++
++
++def _record(schema: WideSchema, second: int, *, device: str = "wtg_001") -> WideRecord:
+     payload = {
+         "schema_version": 3,
+         "wind_farm_id": "farm",
+         "device_config_id": "device_v1.0.0",
+-        "device_id": "wtg_001",
++        "device_id": device,
+         "data_level": "protocol",
+         "sample_time": f"2026-11-25T12:00:{second:02d}Z",
+         "points": {"a": [1.5, 1], "b": [None, 0]},
+@@ -29,77 +39,111 @@ def _record(schema: WideSchema, second: int) -> WideRecord:
+     )
+ 
+ 
+-def _schema() -> WideSchema:
+-    return WideSchema.build(
+-        point_table_id="point_table_wtg",
+-        point_table_version="1.0.0",
+-        data_level=WideDataLevel.PROTOCOL,
+-        points=(PhysicalPoint("a", "DOUBLE"), PhysicalPoint("b", "INT")),
+-        max_row_bytes=65536,
+-    )
+-
+-
+-def test_stmt2_binds_complete_rows_and_2bit_quality_column() -> None:
+-    schema = _schema()
+-    rows = [_record(schema, 0), _record(schema, 1)]
+-    connection = Mock()
++def _driver() -> Mock:
+     driver = Mock()
+     driver.micros_timestamps_to_column.side_effect = lambda data: ("ts", data)
+     driver.doubles_to_column.side_effect = lambda data: ("double", data)
+     driver.ints_to_column.side_effect = lambda data: ("int", data)
+     driver.varbinary_to_column.side_effect = lambda data: ("bytes", data)
++    driver.varchar_to_tag.side_effect = lambda value: ("varchar", value)
++    driver.int_to_tag.side_effect = lambda value: ("int", value)
+     driver.stmt2_bind_param_view.side_effect = lambda **kwargs: kwargs
+-    connection.stmt2_statement.return_value.execute.return_value = 2
++    return driver
++
++
++def test_stmt2_binds_multiple_devices_with_complete_identity_tags() -> None:
++    schema = _schema()
++    rows = [
++        _record(schema, 0),
++        _record(schema, 1),
++        _record(schema, 0, device="wtg_002"),
++    ]
++    connection = Mock()
++    driver = _driver()
++    statement = connection.stmt2_statement.return_value
++    statement.execute.return_value = 3
+     write_wide_stmt2(
+         connection,
+         driver,
+-        table_name=f"{schema.database_name('farm')}.{schema.subtable_name('wtg_001')}",
+         schema=schema,
+         records=rows,
++        device_types={"wtg_001": "wind", "wtg_002": "wind"},
+     )
+-    driver.varbinary_to_column.assert_called_once_with([b"\x01", b"\x01"])
+-    driver.ints_to_column.assert_called_once_with([None, None])
+-    statement = connection.stmt2_statement.return_value
+     statement.prepare.assert_called_once_with(
+-        f"INSERT INTO {schema.database_name('farm')}.{schema.subtable_name('wtg_001')} "
+-        "VALUES (?, ?, ?, ?)"
++        f"INSERT INTO ? USING {schema.database_name('farm')}.{schema.supertable_name()} "
++        "TAGS (?, ?, ?, ?, ?) VALUES (?, ?, ?, ?)"
+     )
+-    assert statement.bind.call_count == 1
++    params = statement.bind.call_args.args[0]
++    assert len(params) == 2
++    assert [x["table_name"] for x in params] == [
++        schema.subtable_name("wtg_001"),
++        schema.subtable_name("wtg_002"),
++    ]
++    assert len(params[0]["columns"][0][1]) == 2
++    assert len(params[1]["columns"][0][1]) == 1
++    assert params[0]["tags"] == [
++        ("varchar", "wtg_001"),
++        ("varchar", "wind"),
++        ("varchar", schema.point_table_id),
++        ("int", 2),
++        ("varchar", schema.fingerprint),
++    ]
++    driver.varbinary_to_column.assert_any_call([b"\x01", b"\x01"])
+     statement.close.assert_called_once()
+ 
+ 
+-def test_negative_affected_row_count_fails_and_closes_statement() -> None:
++def test_prepared_statement_is_reused_without_double_close() -> None:
++    schema = _schema()
++    statement, connection, driver = Mock(), Mock(), _driver()
++    statement.execute.return_value = 1
++    for second in (0, 1):
++        write_wide_stmt2(
++            connection,
++            driver,
++            schema=schema,
++            records=[_record(schema, second)],
++            device_types={"wtg_001": "wind"},
++            statement=statement,
++        )
++    statement.prepare.assert_not_called()
++    assert statement.execute.call_count == 2
++    statement.close.assert_not_called()
++    connection.stmt2_statement.assert_not_called()
++
++
++def test_negative_affected_count_closes_owned_statement() -> None:
+     schema = _schema()
+     conn = Mock()
+     conn.stmt2_statement.return_value.execute.return_value = -1
+-    driver = Mock()
+     with pytest.raises(RuntimeError, match="negative affected"):
+         write_wide_stmt2(
+             conn,
+-            driver,
+-            table_name=f"{schema.database_name('farm')}.{schema.subtable_name('wtg_001')}",
++            _driver(),
+             schema=schema,
+-            records=(_record(schema, 0),),
++            records=[_record(schema, 0)],
++            device_types={"wtg_001": "wind"},
+         )
+     conn.stmt2_statement.return_value.close.assert_called_once()
+ 
+ 
+-def test_refuses_unsafe_table_name() -> None:
+-    with pytest.raises(ValueError, match="exact device schema identity"):
++def test_rejects_unverified_device_before_driver_calls() -> None:
++    schema = _schema()
++    driver = _driver()
++    with pytest.raises(ValueError, match="verified device type"):
+         write_wide_stmt2(
+             Mock(),
+-            Mock(),
+-            table_name="wh_x;DROP.tb_a",
+-            schema=_schema(),
+-            records=(_record(_schema(), 0),),
++            driver,
++            schema=schema,
++            records=[_record(schema, 0)],
++            device_types={},
+         )
++    driver.micros_timestamps_to_column.assert_not_called()
+ 
+ 
+ def test_stmt2_rejects_more_than_1000_rows_before_driver_allocation() -> None:
+     schema = _schema()
+     row = _record(schema, 0)
+-    driver = Mock()
++    driver = _driver()
+     with pytest.raises(ValueError, match="1000 physical rows"):
+         bind_wide_columns(schema, (row,) * 1001, driver)
+     driver.micros_timestamps_to_column.assert_not_called()
+-    driver.doubles_to_column.assert_not_called()

@@ -1,0 +1,9 @@
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_sink_production_retest_20261127_evidence/sink_smoke.xml -
+4 passed, 1 warning in 22.74s

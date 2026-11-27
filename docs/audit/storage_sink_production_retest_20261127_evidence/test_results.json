@@ -1,0 +1,135 @@
+{
+  "backend_multitable_real.xml": {
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 43.699
+  },
+  "cli.xml": {
+    "tests": 287,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 54.204
+  },
+  "cli_final.xml": {
+    "tests": 287,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 88.159
+  },
+  "cli_strict.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 38.777
+  },
+  "collector.xml": {
+    "tests": 120,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 12.814
+  },
+  "configuration.xml": {
+    "tests": 487,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 291.937
+  },
+  "contracts_core.xml": {
+    "tests": 667,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 29.245
+  },
+  "cross_module_e2e.xml": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 217.41
+  },
+  "performance.xml": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.31
+  },
+  "sink.xml": {
+    "tests": 428,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.994
+  },
+  "sink_600_c16_l10.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 781.235
+  },
+  "sink_partition4/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 104.915
+  },
+  "sink_smoke.xml": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.73
+  },
+  "storage.xml": {
+    "tests": 280,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 3.098
+  },
+  "storage_100_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 81.99
+  },
+  "storage_300_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 208.003
+  },
+  "storage_30_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 80.541
+  },
+  "tdengine_targeted.xml": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 2,
+    "skipped": 0,
+    "seconds": 2.814
+  },
+  "tdengine_targeted_final.xml": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 8.017
+  }
+}

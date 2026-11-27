@@ -1,0 +1,8 @@
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:122: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:125: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:126: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:127: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:128: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py:129: error: "None" not callable  [misc]
+src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py:291: error: Need type annotation for "statements"  [var-annotated]
+Found 7 errors in 2 files (checked 494 source files)

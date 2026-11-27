@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="3" time="2.814" timestamp="2026-11-27T14:58:47.729059+08:00" hostname="boss"><testcase classname="tests.storage_service.integration.test_tdengine_wide_probe" name="test_td14_production_five_tag_multitable_stmt2" time="0.033"><error message="failed on setup with &quot;_taosws.QueryError: [0x0334] Internal error: `Out of dnodes`&quot;">request = &lt;SubRequest 'wide_probe' for &lt;Function test_td14_production_five_tag_multitable_stmt2&gt;&gt;
+
+    @pytest.fixture
+    def wide_probe(request: pytest.FixtureRequest) -&gt; Iterator[Probe]:
+        """Require explicit opt-in and the exact server and driver versions."""
+        if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_PROBE") != "1":
+            pytest.skip("enable isolated D2 probe explicitly")
+        endpoint = os.environ.get("WIND_HUB_TEST_TDENGINE_ENDPOINT")
+        password = [REDACTED_TEST_CREDENTIAL]"WIND_HUB_TEST_TDENGINE_PASSWORD")
+        if not endpoint or password is None:
+            pytest.fail("D2 requires a dedicated endpoint and credential")
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host or not port.isdecimal():
+            pytest.fail("expected TDengine host:port")
+        driver = pytest.importorskip("taosws")
+        assert version("taos-ws-py") == "0.7.1"
+        options = {
+            "user": os.environ.get("WIND_HUB_TDENGINE_USER", "root"),
+            "password": password,
+            "host": host,
+            "port": int(port),
+            "read_timeout": "10",
+        }
+        connection = driver.connect(**options)
+        vgroups, buffer_mb = getattr(request, "param", (4, 256))
+        assert vgroups in (2, 4, 8) and buffer_mb in (128, 256, 512)
+        database = "whd2_" + uuid.uuid4().hex
+        created = False
+        try:
+            assert list(connection.query("SELECT SERVER_VERSION()"))[0][0] == "3.3.6.13"
+&gt;           connection.execute(
+                f"CREATE DATABASE {database} PRECISION 'us' DURATION 30d KEEP 1095d "
+                f"VGROUPS {vgroups} BUFFER {buffer_mb} REPLICA 1 COMP 2 CACHEMODEL 'none' "
+                "WAL_LEVEL 2 WAL_FSYNC_PERIOD 0"
+            )
+E           _taosws.QueryError: [0x0334] Internal error: `Out of dnodes`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:72: QueryError</error></testcase><testcase classname="tests.storage_service.integration.test_tdengine_wide_probe" name="test_td02_td03_multitable_and_statement_reuse" time="0.005"><error message="failed on setup with &quot;_taosws.QueryError: [0x0334] Internal error: `Out of dnodes`&quot;">request = &lt;SubRequest 'wide_probe' for &lt;Function test_td02_td03_multitable_and_statement_reuse&gt;&gt;
+
+    @pytest.fixture
+    def wide_probe(request: pytest.FixtureRequest) -&gt; Iterator[Probe]:
+        """Require explicit opt-in and the exact server and driver versions."""
+        if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_PROBE") != "1":
+            pytest.skip("enable isolated D2 probe explicitly")
+        endpoint = os.environ.get("WIND_HUB_TEST_TDENGINE_ENDPOINT")
+        password = [REDACTED_TEST_CREDENTIAL]"WIND_HUB_TEST_TDENGINE_PASSWORD")
+        if not endpoint or password is None:
+            pytest.fail("D2 requires a dedicated endpoint and credential")
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host or not port.isdecimal():
+            pytest.fail("expected TDengine host:port")
+        driver = pytest.importorskip("taosws")
+        assert version("taos-ws-py") == "0.7.1"
+        options = {
+            "user": os.environ.get("WIND_HUB_TDENGINE_USER", "root"),
+            "password": password,
+            "host": host,
+            "port": int(port),
+            "read_timeout": "10",
+        }
+        connection = driver.connect(**options)
+        vgroups, buffer_mb = getattr(request, "param", (4, 256))
+        assert vgroups in (2, 4, 8) and buffer_mb in (128, 256, 512)
+        database = "whd2_" + uuid.uuid4().hex
+        created = False
+        try:
+            assert list(connection.query("SELECT SERVER_VERSION()"))[0][0] == "3.3.6.13"
+&gt;           connection.execute(
+                f"CREATE DATABASE {database} PRECISION 'us' DURATION 30d KEEP 1095d "
+                f"VGROUPS {vgroups} BUFFER {buffer_mb} REPLICA 1 COMP 2 CACHEMODEL 'none' "
+                "WAL_LEVEL 2 WAL_FSYNC_PERIOD 0"
+            )
+E           _taosws.QueryError: [0x0334] Internal error: `Out of dnodes`
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:72: QueryError</error></testcase><testcase classname="tests.storage_service.integration.test_tdengine_wide_probe" name="test_td07_partial_success_and_ordered_replay" time="2.691" /></testsuite></testsuites>

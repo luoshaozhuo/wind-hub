@@ -1,0 +1,7 @@
+Would reformat: src/storage_service/application/wide_ingestion.py
+Would reformat: src/storage_service/infrastructure/adapters/outbound/tdengine_backend.py
+Would reformat: tests/sink_service/unit/test_kafka_encoded_batch.py
+Would reformat: tests/storage_service/integration/test_tdengine_wide_probe.py
+Would reformat: tests/storage_service/unit/test_wide_backend_multitable.py
+Would reformat: tests/storage_service/unit/test_wide_ingestion.py
+6 files would be reformatted, 1113 files already formatted

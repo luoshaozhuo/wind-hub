@@ -1,0 +1,23 @@
+{
+  "python": "3.11.16",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "cpu_count": 20,
+  "packages": {
+    "pytest": "8.4.2",
+    "ruff": "0.8.6",
+    "mypy": "1.20.2",
+    "protobuf": "6.33.6",
+    "grpcio": "1.84.0",
+    "grpcio-tools": "1.81.1",
+    "mypy-protobuf": "5.1.0",
+    "aiokafka": "0.14.0",
+    "taos-ws-py": "0.7.1"
+  },
+  "docker": "29.2.1",
+  "tdengine": "3.3.6.13",
+  "taosdump": "3.3.6.13",
+  "kafka_image": "apache/kafka:3.9.1",
+  "nats_image": "nats:2.10-alpine",
+  "redis_image": "redis:7-alpine",
+  "performance_isolation": "One Sink/Storage application instance; native, Storage, Sink and cross-module load tests run sequentially"
+}

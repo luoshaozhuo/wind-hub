@@ -1,0 +1,94 @@
+........................................................................ [ 25%]
+........................................................................ [ 50%]
+........................................................................ [ 75%]
+..................F..........sssssssssss............................ss.  [100%]
+=================================== FAILURES ===================================
+____________ test_strict_cli_five_service_data_command_restart_e2e _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-182/test_strict_cli_five_service_d0')
+
+    @pytest.mark.asyncio
+    async def test_strict_cli_five_service_data_command_restart_e2e(tmp_path: Path) -> None:
+        """DG 起源双采集链与独立 Commander 写链均只用真实 CLI 操作。"""
+        token = [REDACTED_TEST_CREDENTIAL]
+        farm = "farm-a"
+        rt_collector = f"collector-rt-{token}"
+        reliable_collector = f"collector-hist-{token}"
+        device = "modbus-1"
+        point = "rotor_speed"
+        scenario = f"strict-cli-{token}"
+        value = 42.25
+        stack: r5_stack.R5Stack | None = None
+        # 采集链源头寄存器预置本用例期望值：rotor_speed=42.25（modbus-1）。
+        modbus = ModbusMockServer(port=reserve_port(), holding=_holding_registers(value, 800.0))
+        harness = StrictCliE2E(tmp_path)
+        sink: SinkSystemHarness | None = None
+        generation_id: str | None = None
+    
+        try:
+>           stack = await asyncio.to_thread(r5_stack.up_stack)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/cli/test_r1f3_strict_cli_e2e.py:326: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def up_stack() -> R5Stack:
+        """启动 R5 真实服务栈并完成应用层就绪确认。"""
+        if not docker_available():
+            raise R5StackError("docker CLI or daemon unavailable")
+    
+        import secrets
+    
+        project = f"wind-hub-r5-{secrets.token_hex(4)}"
+        ports = {
+            "R5_PROJECT": project,
+            "R5_NATS_PORT": str(free_port()),
+            "R5_NATS_MON_PORT": str(free_port()),
+            "R5_REDIS_PORT": str(free_port()),
+            "R5_TDENGINE_PORT": str(free_port()),
+            "R5_KAFKA_PORT": str(free_port()),
+        }
+        import os
+    
+        env = {**os.environ, **ports}
+        try:
+            result = _compose(project, env, "up", "-d", "--wait", "--wait-timeout", "180")
+            if result.returncode != 0:
+                _compose(project, env, "down", "-v", "--remove-orphans", timeout=60.0)
+>               raise R5StackError(
+                    f"docker compose up failed ({result.returncode}):\n"
+                    f"{result.stdout}\n{result.stderr}"
+                )
+E               tests.fixtures.services.r5_stack.R5StackError: docker compose up failed (1):
+E               
+E                Network wind-hub-r5-2a02df0c_default Creating 
+E                Network wind-hub-r5-2a02df0c_default Created 
+E                Container wind-hub-r5-2a02df0c-tdengine-1 Creating 
+E                Container wind-hub-r5-2a02df0c-nats-1 Creating 
+E                Container wind-hub-r5-2a02df0c-kafka-1 Creating 
+E                Container wind-hub-r5-2a02df0c-redis-1 Creating 
+E                Container wind-hub-r5-2a02df0c-nats-1 Created 
+E                Container wind-hub-r5-2a02df0c-tdengine-1 Created 
+E                Container wind-hub-r5-2a02df0c-redis-1 Created 
+E                Container wind-hub-r5-2a02df0c-kafka-1 Created 
+E                Container wind-hub-r5-2a02df0c-tdengine-1 Starting 
+E                Container wind-hub-r5-2a02df0c-kafka-1 Starting 
+E                Container wind-hub-r5-2a02df0c-redis-1 Starting 
+E                Container wind-hub-r5-2a02df0c-nats-1 Starting 
+E                Container wind-hub-r5-2a02df0c-kafka-1 Started 
+E                Container wind-hub-r5-2a02df0c-tdengine-1 Started 
+E                Container wind-hub-r5-2a02df0c-redis-1 Started 
+E               Error response from daemon: ports are not available: exposing port TCP 127.0.0.1:56233 -> 127.0.0.1:0: /forwards/expose returned unexpected status: 500
+
+tests/fixtures/services/r5_stack.py:170: R5StackError
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_sink_production_retest_20261127_evidence/cli.xml -
+=========================== short test summary info ============================
+FAILED tests/cli/test_r1f3_strict_cli_e2e.py::test_strict_cli_five_service_data_command_restart_e2e
+1 failed, 273 passed, 13 skipped in 54.21s

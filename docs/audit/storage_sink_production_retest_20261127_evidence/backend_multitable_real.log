@@ -1,0 +1,22 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.16, pytest-8.4.2, pluggy-1.6.0 -- /home/luosh/miniconda3/envs/wind-hub/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/luosh/wind-hub
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.14.5, asyncio-0.24.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 10 items
+
+tests/storage_service/integration/test_backend_multitable_real.py::test_same_family_multi_device_single_execute_with_complete_rows_and_tags PASSED [ 10%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_farm_schema_and_data_level_never_share_one_execute PASSED [ 20%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_same_device_timestamp_last_kafka_offset_overwrites_complete_row PASSED [ 30%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_statement_reuse_is_per_connection_and_schema PASSED [ 40%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_statement_lru_eviction_closes_only_least_recently_used PASSED [ 50%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_concurrent_connections_never_share_cached_statement PASSED [ 60%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_execute_timeout_fences_all_tables_without_offset_and_cleans_connection PASSED [ 70%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_partial_success_after_real_execute_is_unknown_and_not_committed PASSED [ 80%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_real_connection_loss_discards_cache_and_fences_without_offset PASSED [ 90%]
+tests/storage_service/integration/test_backend_multitable_real.py::test_repeated_open_close_releases_connections_statements_and_threads PASSED [100%]
+
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_sink_production_retest_20261127_evidence/backend_multitable_real.xml -
+============================= 10 passed in 43.70s ==============================
