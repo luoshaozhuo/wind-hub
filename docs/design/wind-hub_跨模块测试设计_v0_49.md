@@ -396,9 +396,9 @@ sequenceDiagram
 | Deployment | `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.0.yaml`；精确选择 9 个 Service 和 6 类 Instance |
 | Collector | `service_collector-e2e-realtime_v2.0.0.yaml`、`service_collector-e2e-reliable_v2.0.0.yaml`；独立身份和所选 Collector Task Instance |
 | Gateway | `service_gateway-e2e-source_v1.1.3.yaml`、`service_gateway-e2e-target_v1.1.1.yaml`；令牌鉴权、源协议 Server 和隔离输出目标 |
-| 模型/控制 | `service_data-generator-e2e_v1.1.1.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、隔离仿真场景和 PPC 控制映射 |
+| 模型/控制 | `service_data-generator-e2e_v1.1.2.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、隔离仿真场景和 PPC 控制映射 |
 | 派发/入库 | `service_sink-e2e_v2.0.0.yaml`、`service_storage-e2e_v2.0.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
-| CLI | `service_cli-e2e_v1.1.8.yaml`；隔离管理配置按当前部署选择使用，不依赖生产 CLI 容器状态 |
+| CLI | `service_cli-e2e_v1.1.9.yaml`；隔离管理配置按当前部署选择使用，不依赖生产 CLI 容器状态 |
 | Instance | `site_e2e-final_v1.0.0.yaml`、`device_e2e-final_v1.0.1.yaml`、`collector_tasks_e2e-final_v1.0.1.yaml`、`scenarios_e2e-final_v1.0.0.yaml`、`sinks_e2e-final_v1.0.3.yaml`、`deliveries_e2e-final_v1.0.2.yaml` |
 | 本地引导 | `deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml`、`deploy/e2e/storage_bootstrap_e2e_v1.0.0.yaml`；不参与 Configuration Repository 业务文件发布 |
 
