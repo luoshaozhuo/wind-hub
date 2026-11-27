@@ -386,6 +386,61 @@ def bundle_exact(
     _run("configuration bundle-exact", invoke())
 
 
+@configuration.command("service-bundle")
+def service_bundle(
+    deployment_id: str,
+    service_id: str,
+    revision_id: int = typer.Option(0, min=0, help="0 selects current published revision."),
+    service: str = "configuration",
+) -> None:
+    """Inspect an exact Deployment-selected closure without exposing its YAML contents."""
+    if not deployment_id.strip() or not service_id.strip():
+        raise typer.BadParameter("deployment_id and service_id are required")
+
+    async def invoke() -> dict[str, Any]:
+        from cli.main import runtime
+
+        client = rpc.ConfigurationRepositoryServiceStub(runtime().channel(service))
+        response = await client.GetServiceConfigBundle(
+            pb.GetServiceConfigBundleRequest(
+                deployment_id=deployment_id,
+                service_id=service_id,
+                revision_id=revision_id,
+            ),
+            timeout=runtime().target(service).timeout,
+            metadata=runtime().get_rpc_metadata(service, "GetServiceConfigBundle"),
+        )
+        files: list[dict[str, str]] = []
+        for document in response.files:
+            validate_relative_path(document.relative_path)
+            if hashlib.sha256(document.yaml_bytes).hexdigest() != document.yaml_sha256:
+                raise RuntimeError("Service closure YAML digest mismatch")
+            files.append(
+                {
+                    "config_type": document.config_id.config_type,
+                    "config_id": document.config_id.config_id,
+                    "file_version": document.file_version,
+                    "version_id": document.version_id,
+                    "relative_path": document.relative_path,
+                    "yaml_sha256": document.yaml_sha256,
+                }
+            )
+        if not files or not response.target_revision or not response.manifest_sha256:
+            raise RuntimeError("incomplete authoritative Service closure")
+        return {
+            "deployment_id": deployment_id,
+            "service_id": service_id,
+            "repository_revision_id": response.repository_revision_id,
+            "target_revision": response.target_revision,
+            "manifest_sha256": response.manifest_sha256,
+            "files": files,
+        }
+
+    from cli.main import _run
+
+    _run("configuration service-bundle", invoke())
+
+
 @configuration.command("revision")
 def current_revision(service: str = "configuration") -> None:
     """Read the authoritative current directory revision and manifest digest."""
