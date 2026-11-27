@@ -153,33 +153,35 @@ class WideIngestionService:
         No offset becomes confirmed until every grouped write has returned
         successfully. A partial write therefore replays the entire prefix.
         """
-        groups: dict[tuple[str, str, str], list[_Validated]] = {}
+        groups: dict[tuple[str, str], list[_Validated]] = {}
         for entry in pending:
-            key = (
-                entry.row.wind_farm_id,
-                entry.row.device_id,
-                entry.schema.fingerprint,
-            )
+            key = (entry.row.wind_farm_id, entry.schema.fingerprint)
             groups.setdefault(key, []).append(entry)
 
         async def persist_group(group: list[_Validated]) -> tuple[int, int]:
-            # Each physical device group is one ordered STMT2 writer; groups
-            # for different devices may run concurrently within one process.
+            # One STMT2 execute can bind multiple verified subtables belonging
+            # to the same immutable physical schema and database.
             async with self._write_permits:
                 first = group[0]
-                latest_by_time = {
-                    entry.row.sample_time_us: (position, entry.row)
-                    for position, entry in enumerate(group)
-                }
-                ordered_rows = tuple(row for _position, row in sorted(latest_by_time.values()))
-                await self._storage.ensure_wide_table(
-                    first.schema,
-                    wind_farm_id=first.row.wind_farm_id,
-                    device_id=first.row.device_id,
-                    device_type=first.device_type,
+                devices: dict[str, _Validated] = {}
+                latest_by_device_time: dict[tuple[str, int], tuple[int, WideRecord]] = {}
+                for position, entry in enumerate(group):
+                    devices.setdefault(entry.row.device_id, entry)
+                    latest_by_device_time[
+                        (entry.row.device_id, entry.row.sample_time_us)
+                    ] = (position, entry.row)
+                for identity in devices.values():
+                    await self._storage.ensure_wide_table(
+                        first.schema,
+                        wind_farm_id=identity.row.wind_farm_id,
+                        device_id=identity.row.device_id,
+                        device_type=identity.device_type,
+                    )
+                ordered = tuple(
+                    row for _position, row in sorted(latest_by_device_time.values())
                 )
-                await self._storage.insert_wide_batch(first.schema, ordered_rows)
-                return len(ordered_rows), len(first.schema.columns)
+                await self._storage.insert_wide_batch(first.schema, ordered)
+                return len(ordered), len(first.schema.columns)
 
         # Await every in-flight physical write even if one fails. Canceling
         # sibling STMT2 operations would create additional UNKNOWN outcomes.
