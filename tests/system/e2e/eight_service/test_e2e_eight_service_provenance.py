@@ -309,9 +309,18 @@ def test_eight_service_provenance_and_restart_readback(
     restarted = harness.cli("service", "restart", "storage", "--yes", timeout=120)
     assert restarted["status"] == "SUCCESS", restarted
     harness.wait_targets("storage")
-    recovered = _stored_points(_query(harness, start, end))
-    replayed = {timestamp: recovered[timestamp] for timestamp in source_times}
-    assert replayed == persisted
+    replay_deadline = time.monotonic() + 90
+    replayed: dict[int, tuple[float, int]] = {}
+    replay_error: Exception | None = None
+    while time.monotonic() < replay_deadline:
+        try:
+            recovered = _stored_points(_query(harness, start, end))
+            replayed = {timestamp: recovered[timestamp] for timestamp in source_times}
+            break
+        except (AssertionError, KeyError, ValueError) as error:
+            replay_error = error
+        time.sleep(1)
+    assert replayed == persisted, f"Storage restart replay did not converge: {replay_error}"
 
 
 @pytest.mark.parametrize(
