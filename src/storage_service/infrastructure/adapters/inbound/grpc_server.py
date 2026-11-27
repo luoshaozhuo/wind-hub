@@ -460,7 +460,16 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "RetryBlockedPartition",
             ],
             protocols=[],
-            features=["history-query", "csv-export", "native-backup", "kafka-ingestion"],
+            features=[
+                "history-query",
+                "csv-export",
+                "native-backup",
+                "kafka-ingestion",
+                "process-metrics",
+                "process-warning-events",
+                "verified-config-snapshot",
+                "limited-diagnostics",
+            ],
         )
 
     async def _unsupported_common(
