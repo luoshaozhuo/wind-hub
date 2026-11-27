@@ -133,7 +133,7 @@ class WideIngestionService:
         )
         row = WideRecord.from_parsed(
             parsed,
-            physical_points=tuple(column.point_id for column in schema.columns),
+            physical_points=schema.point_ids,
         )
         # Fail before DDL when any physical value is invalid or truncated.
         bind_wide_row(row, schema)
