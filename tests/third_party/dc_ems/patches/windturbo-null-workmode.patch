@@ -57,13 +57,16 @@
 +                    emsReactSetLimitTurbo.update(0d);
 +                } else {
 +                    double apparent = calCapacity / cosVal;
-                 double eReaPow = Math.sqrt(apparent * apparent - calCapacity * calCapacity);
+-                double eReaPow = Math.sqrt(apparent * apparent - calCapacity * calCapacity);
++                    double eReaPow = Math.sqrt(apparent * apparent - calCapacity * calCapacity);
 -                double curRea = Math.sqrt(Math.abs(apparent * apparent - emsPowAct.getVal() * emsPowAct.getVal()));
 +                    Double powActR = emsPowAct.getVal();
 +                    double powActRVal = powActR == null ? 0d : powActR;
 +                    double curRea = Math.sqrt(Math.abs(apparent * apparent - powActRVal * powActRVal));
-                 emsTheoryReactPower.update(min(min(eReaPow, FactoryConfig.ReaPowerSetMax.getVal()), curRea));
-                 emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
+-                emsTheoryReactPower.update(min(min(eReaPow, FactoryConfig.ReaPowerSetMax.getVal()), curRea));
+-                emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
++                    emsTheoryReactPower.update(min(min(eReaPow, FactoryConfig.ReaPowerSetMax.getVal()), curRea));
++                    emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
 +                }
 -            } else if (FactoryConfig.iCtrlReaLogicPoint.getVal() == 0) {
 -                emsTheoryReactPower.update(emsPowAct.getVal() * FactoryConfig.fcReaPowerRatio.getVal());
