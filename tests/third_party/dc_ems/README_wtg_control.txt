@@ -158,45 +158,36 @@ WTG 模型在超出 Cp 曲线最后一个叶尖速比点后采用连续且非增
 本文不将设备级测试结果外推为厂站 AGC/AVC/PFR 的验收结论。
 
 
-标准部署缺陷整改（当前 wind-hub 开发分支）
-----------------------------------------
-本分支已修订 third_party/dc-ems/deploy.sh 中的授权系统标识为
-DC-EMS；通过持久化 machine-id 让一次性机器码生成容器与正式
-Server 容器使用相同机器身份。同步更新 Compose 及 MANIFEST.sha256，
-不能再以修改前的发布包摘要作为修改后脚本的来源证明。
+DCEMS 不可变发布包与联测验收规则
+--------------------------------
+third_party/dc-ems 为第三方原始发布包，禁止修改其中任何文件。
+测试仅使用该版本原始 dc-ems.jar 与 dc-ems-server 镜像。
+所有 Java 源码补丁、派生 JAR、运行时 JAR 替换配置已删除。
+不得使用 DCEMS_WTG_PATCHED_JAR；不要重编译或覆盖第三方 Java 类。
 
-特别注意：本仓库的 third_party/dc-ems 为已构建发布包，仅包含
-dc-ems.jar，没有 FactoryPoints.java 的可编译源代码。FactoryPoints
-布尔、数值及状态空值修复已保存在
-tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch，
-此文件是供持有 DCEMS Java 源码的构建环境应用的补丁，不会改变
-现有 JAR 的行为。必须重新构建并独立验证合法发布包后，才能认定
-该 NPE 的正式发布缺陷关闭；不得将测试专用派生 JAR 视作已验收发布包。
+授权码、machine-id、数据库和现场配置仅在 wind-hub 隔离测试根中管理。
+machine-id 挂载由 tests/third_party/dc_ems/compose.wtg_control.yaml
+提供，发布 Compose 保持原样。原版 deploy.sh 如有自身问题，记录
+为第三方部署限制，不要修改第三方脚本或发布 MANIFEST。
 
- 
-联合补丁下一轮集中复测入口（2026-11-27）
-----------------------------------------
-现有两份源码补丁：
-  tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch
-  tests/third_party/dc_ems/patches/windturbo-null-workmode.patch
+DCEMS 已知可靠性风险（不作为 wind-hub 自身的独立阻断条件）：
+- FactoryPoints、WindTurbo 存在空值拆箱异常，可能跳过计算或杀死线程。
+- 功率因数为 0 可能造成无功计算 Infinity/NaN。
+- Web/API 返回 200 不一定表示 Commander/DG 已执行成功。
+- AGC/AVC/PFR 厂站级自动控制与长时间稳定性尚未完成验收。
 
-最新 WindTurbo 补丁新增 reaLogic==1 时功率因数非法值保护：
-cos 为 null、NaN、Infinity、非正数或大于 1 时，该分支无功
-理论值及设定上限采用 0，阻止这些非法输入导致除零与非有限结果。
-必须使用真实 WindTurbo 类补充 cos=0、非有限值、合法边界
-和 T02 的回归测试，不能仅凭文本契约断言判为 PASS。
+联测以实际工业协议数据、Gateway1、Commander、Gateway2、DG 的
+执行证据与物理响应作为通过标准。DCEMS 内部日志异常单独记录风险，
+不得因异常日志本身而阻断 wind-hub；若异常实际使目标链路或关键
+验收断言失败，则该测试仍必须判为 FAIL/BLOCKED，不能掩盖失败。
 
-先执行不依赖真实 Server 的检查：
+独立测试入口：
   bash -n third_party/dc-ems/deploy.sh
   python -m pytest -q tests/third_party/dc_ems/test_dcems_release_deployment_contract.py
   ruff check tests/third_party/dc_ems
   ruff format --check tests/third_party/dc_ems
   (cd third_party/dc-ems && sha256sum -c MANIFEST.sha256)
 
-使用与发布 JAR 对应的授权源码，在隔离工作副本分别执行
-patch --dry-run --fuzz=0、patch --fuzz=0、Maven 构建和行为测试。
-正式 Server 源码构建仍受 proface/models 源码及离线 Maven 依赖
-缺失阻断。保持测试专用派生 JAR 与正式发布 JAR/镜像隔离。
-完成此次功率因数保护的独立 Java 行为及真实运行回归后，才能
-将本轮最新补丁标记为 READY_FOR_RELEASE_PIPELINE。
-不得修改 wind-hub 当前开发分支以外的分支或创建 PR。
+只使用原始发布版执行真实 Server 和 T02 六项设备级测试，进一步开展
+真实测量接入与厂站级工业协议闭环测试。历史派生 JAR 测试报告仅
+作为诊断证据，不作为本项目后续部署或验收基线。
