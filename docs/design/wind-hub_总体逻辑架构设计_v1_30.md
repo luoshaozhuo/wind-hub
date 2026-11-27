@@ -1036,9 +1036,9 @@ Device Instance 增加 `group`，单台设备一个采集组；Collector 专属 
 
 | Deployment | 静态配置事实 | 限制 |
 |---|---|---|
-| prod-a v2.0.0 | `deploy/config_roots/prod-a/deployments/deployment_prod-a_v2.0.0.yaml` 明确选择 Collector、Commander、Gateway、Generator、Sink、Storage、CLI；Sink Kafka 与 Storage Topic 均为 `windhub-history` | GW2MW BusinessPoint 未取得 OEM 实际语义审批，不得直接激活生产 |
-| e2e-final v2.0.0 | 单独部署域选择数据链、控制链、CLI；Sink Kafka 与 Storage Topic 均为 `windhub.e2e.history` | 仅为隔离测试候选，不能推定生产激活或全容量通过 |
-| sim-a v2.0.0 | 当前 Deployment 不选择 Sink 或 Storage | 不得用 sim-a 单独证明 TDengine 全链路 |
+| prod-a v2.0.1 | `deploy/config_roots/prod-a/deployments/deployment_prod-a_v2.0.1.yaml` 明确选择 Collector、Commander、Gateway、Generator、Sink、Storage、CLI；Sink Kafka 与 Storage Topic 均为 `windhub-history` | GW2MW BusinessPoint 未取得 OEM 实际语义审批，不得直接激活生产 |
+| e2e-final v2.0.1 | 单独部署域选择数据链、控制链、CLI；Sink Kafka 与 Storage Topic 均为 `windhub.e2e.history` | 仅为隔离测试候选，不能推定生产激活或全容量通过 |
+| sim-a v2.0.1 | 当前 Deployment 不选择 Sink 或 Storage | 不得用 sim-a 单独证明 TDengine 全链路 |
 
 上述部署文件可能同时存在不同历史版本；不得依据目录扫描或按文件版本最大值自动选择生产活动配置。已有合法历史文件不因 D1 静态审查被删除。
 
