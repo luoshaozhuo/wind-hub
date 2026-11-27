@@ -1,6 +1,6 @@
 --- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
 +++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
-@@ -724,41 +724,48 @@
+@@ -724,41 +724,54 @@
              emsConverterRatio.update(100d);
          }
          // 机组容量（考虑单模）
@@ -51,14 +51,20 @@
 +            int reaLogicVal = reaLogic == null ? 0 : reaLogic;
 +            if (reaLogicVal == 1) {
 +                Double cosVal = cos.getVal();
-+                double apparent = calCapacity / (cosVal == null ? 0d : cosVal);
++                if (cosVal == null || !Double.isFinite(cosVal) || cosVal <= 0d || cosVal > 1d) {
++                    // Invalid power factor cannot yield a finite reactive-power limit.
++                    emsTheoryReactPower.update(0d);
++                    emsReactSetLimitTurbo.update(0d);
++                } else {
++                    double apparent = calCapacity / cosVal;
                  double eReaPow = Math.sqrt(apparent * apparent - calCapacity * calCapacity);
 -                double curRea = Math.sqrt(Math.abs(apparent * apparent - emsPowAct.getVal() * emsPowAct.getVal()));
-+                Double powActR = emsPowAct.getVal();
-+                double powActRVal = powActR == null ? 0d : powActR;
-+                double curRea = Math.sqrt(Math.abs(apparent * apparent - powActRVal * powActRVal));
++                    Double powActR = emsPowAct.getVal();
++                    double powActRVal = powActR == null ? 0d : powActR;
++                    double curRea = Math.sqrt(Math.abs(apparent * apparent - powActRVal * powActRVal));
                  emsTheoryReactPower.update(min(min(eReaPow, FactoryConfig.ReaPowerSetMax.getVal()), curRea));
                  emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
++                }
 -            } else if (FactoryConfig.iCtrlReaLogicPoint.getVal() == 0) {
 -                emsTheoryReactPower.update(emsPowAct.getVal() * FactoryConfig.fcReaPowerRatio.getVal());
 +            } else if (reaLogicVal == 0) {
@@ -66,7 +72,7 @@
                  emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
              } else {// 解耦版
                  emsTheoryReactPower.update(max(calCapacity * FactoryConfig.fcReaPowerRatio.getVal(), 0d));
-@@ -766,7 +773,9 @@
+@@ -766,7 +779,9 @@
              }
              emsPowReactLow.update(calPowReactLow());
          } else {
@@ -77,7 +83,7 @@
                  emsReaRun.update(4);
                  emsTheoryReactPower.update(0d);
                  emsPowReactLow.update(0d);
-@@ -774,8 +783,9 @@
+@@ -774,8 +789,9 @@
                  FixedReaPowerList.add(this);
                  AlterPower2List.remove(this);
              } else {// 解耦版
@@ -89,7 +95,7 @@
                      emsTheoryReactPower.update(max(calCapacity * FactoryConfig.fcReaPowerRatio.getVal(), 0d));
                      emsPowReactLow.update(calPowReactLow());
                      emsReaRun.update(1);
-@@ -790,7 +800,8 @@
+@@ -790,7 +806,8 @@
              }
          }
         
@@ -99,7 +105,7 @@
          {//只适用于解耦版
              emsReaRun.update(5);
              emsTheoryReactPower.update(0d);
-@@ -921,16 +932,17 @@
+@@ -921,16 +938,17 @@
       */
      private void emsWorkModeUpdate() {
          emsWorkMode.dataUpdate(fun(t -> {
@@ -121,7 +127,7 @@
                  add(FaultList);
                  theoryPowerMiddle.update(0d);
                  // mOughtPowerT.update(0d);
-@@ -939,7 +951,7 @@
+@@ -939,7 +957,7 @@
                  emsTurboStatusSiChuan.update(0);
                  emsTheoryReactPower.update(0d);
                  emsPowReactLow.update(0d);
@@ -130,7 +136,7 @@
                      emsFaultStateYunNan.update(true);
                      add(FaultNoMainList);
                      remove(FaultAndMainList);
-@@ -967,7 +979,9 @@
+@@ -967,7 +985,9 @@
      }
  
      private void calLimitState() {
@@ -141,7 +147,7 @@
          // emsActPowerSetInertia.getVal() >= capacity.getVal() &&
                  !emsAutoLimitState.getVal() && !emsLocalLimitState.getVal() && !emsRemoteLimitState.getVal();
          if (!free) {
-@@ -980,22 +994,22 @@
+@@ -980,22 +1000,22 @@
       * 计算状态山东
       */
      private void calRunStateShanDong(){
@@ -169,7 +175,7 @@
          //电压
          Double[] Vol =new Double[3];
          if(emsVoltageA.getVal() != null)
-@@ -1005,7 +1019,8 @@
+@@ -1005,7 +1025,8 @@
          if(emsVoltageC != null)
              Vol[2] = emsVoltageC.getVal();
          Arrays.sort(Vol);
@@ -179,7 +185,7 @@
              emsVoltageShanDong.update(0d);
          else
              emsVoltageShanDong.update(max(Vol[1],0.01d));
-@@ -1018,15 +1033,15 @@
+@@ -1018,15 +1039,15 @@
          //功率因数
          emsCosCoeShanDong.update(emsCosCoe.getVal());
          //机头风速
@@ -198,7 +204,7 @@
              
      }
      /**
-@@ -1038,15 +1053,17 @@
+@@ -1038,15 +1059,17 @@
              return;
          }
          boolean canAlter = false;
@@ -220,7 +226,7 @@
              }
          }
          inertiaLimitEnable.update(canAlter);
-@@ -1067,7 +1084,7 @@
+@@ -1067,7 +1090,7 @@
              return;
          }
          if (workMode == 32) {
@@ -229,7 +235,7 @@
                  add(tmpSampleList);
                  remove(minGenPowerList);
              } else {
-@@ -1109,10 +1126,14 @@
+@@ -1109,10 +1132,14 @@
          tp.update(0d);
          if (isSample.getVal() || forbidActPower.getVal()) {
              emsRun.update(4);
@@ -246,7 +252,7 @@
          } else {
              emsRun.update(2);
              emsActSetLimitTurbo.update(genRateActPower.getVal());
-@@ -1187,7 +1208,9 @@
+@@ -1187,7 +1214,9 @@
              emsRun.update(5);
              if(!(FactoryPoint.emsIsFreMod.getVal() && FactoryPoint.emsIsFreDeadTest.getVal() && isFreDeadNotControl.getVal() == 0))
                  tp.update(emsPowAct.getVal());
@@ -257,7 +263,7 @@
              emsNormalGenStateYunNan.update(true);
              NormalRunListYunNan.add(this);
              remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
-@@ -1200,7 +1223,9 @@
+@@ -1200,7 +1229,9 @@
          if (FactoryConfig.kk_flag.getVal() && emsLocalActPowerEnableState.getVal()) {
              emsRun.update(5);
              tp.update(emsPowAct.getVal());
@@ -268,7 +274,7 @@
              emsNormalGenStateYunNan.update(true);
              NormalRunListYunNan.add(this);
              remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
-@@ -1214,7 +1239,9 @@
+@@ -1214,7 +1245,9 @@
          if (emsUnControlledState.getVal()) {
              emsRun.update(5);
              tp.update(emsPowAct.getVal());
@@ -279,7 +285,7 @@
              emsNormalGenStateYunNan.update(true);
              NormalRunListYunNan.add(this);
              remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
-@@ -1231,7 +1258,8 @@
+@@ -1231,7 +1264,8 @@
              emsTurboStatus.update(0);
              tp.update(min(mOughtPowerT.getVal(), emsAutoLimitSetFeedback.getVal()));
              emsActSetLimitTurbo.update(min(emsAutoLimitSetFeedback.getVal(), genRateActPower.getVal()));
@@ -289,7 +295,7 @@
                  emsRun.update(-1);
                  UnsteadyAlterPowerList.add(this);
                  SteadyAlterPowerList.remove(this);
-@@ -1240,7 +1268,9 @@
+@@ -1240,7 +1274,9 @@
                  UnsteadyAlterPowerList.remove(this);
                  SteadyAlterPowerList.add(this);
              }
@@ -300,7 +306,7 @@
                  emsNormalGenStateYunNan.update(true);
                  add(NormalRunListYunNan);
                  remove(LimitListYunNan);
-@@ -1257,7 +1287,8 @@
+@@ -1257,7 +1293,8 @@
          emsTurboStatusSiChuan.update(1);
          emsTurboStatus.update(0);
          emsActSetLimitTurbo.update(genRateActPower.getVal());
@@ -310,7 +316,7 @@
              emsRun.update(-1);
              UnsteadyAlterPowerList.add(this);
              SteadyAlterPowerList.remove(this);
-@@ -1266,7 +1297,9 @@
+@@ -1266,7 +1303,9 @@
              SteadyAlterPowerList.add(this);
              UnsteadyAlterPowerList.remove(this);
          }
@@ -321,7 +327,7 @@
              emsNormalGenStateYunNan.update(true);
              NormalRunListYunNan.add(this);
          } else {
-@@ -1295,7 +1328,7 @@
+@@ -1295,7 +1334,7 @@
              RepairList.remove(this);
          }
  
@@ -330,7 +336,7 @@
              emsFaultOrMainState.update(true);
          } else {
              emsFaultOrMainState.update(false);
-@@ -1357,7 +1390,10 @@
+@@ -1357,7 +1396,10 @@
       * 大风/等风/无风
       */
      private void calWorkMode(Integer workMode) {
@@ -342,7 +348,7 @@
          if (workMode != 32 && !emsFaultOrMainState.getVal() && emsComState.getVal())
          {
              emsWaitStateShanDong.update(true);
-@@ -1630,7 +1666,7 @@
+@@ -1630,7 +1672,7 @@
          long curTm = System.currentTimeMillis();
          boolean gridTmOk = curTm - recentNoGridTm.getVal() > 30_000;
          boolean limitTmOk = curTm - recentNoLimitTm.getVal() > 30_000;
