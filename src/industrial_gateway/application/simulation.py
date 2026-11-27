@@ -56,6 +56,24 @@ class SimulationController:
         self._mutex = asyncio.Lock()
         self._target_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
+    async def replay(self, command: SimulationCommand) -> SimulationOutcome | None:
+        """Return an existing immutable request result without revalidating live state."""
+        key = (command.caller, command.gateway_id, command.request_id)
+        async with self._mutex:
+            existing = self._requests.get(key)
+            if existing is None:
+                return None
+            original, _execution_id, task = existing
+            if original != command:
+                return SimulationOutcome(
+                    request_id=command.request_id,
+                    accepted=False,
+                    execution_id="",
+                    state="REJECTED",
+                    error_code="IDEMPOTENCY_CONFLICT",
+                )
+        return await asyncio.shield(task)
+
     async def execute(self, command: SimulationCommand) -> SimulationOutcome:
         key = (command.caller, command.gateway_id, command.request_id)
         async with self._mutex:
