@@ -1073,3 +1073,70 @@ async def test_prefetched_batch_recheck_cursor_after_worker_permit(
     await asyncio.wait_for(task, timeout=2)
     assert ingestion.calls == []
     assert broker.commits == []
+
+
+async def test_run_applies_row_backpressure_while_writer_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Poll-ahead must stop at the configured row budget."""
+    tp = TopicPartition(TOPIC, 0)
+    first_started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _UnlimitedBroker(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            offset = self.polls
+            self.polls += 1
+            return {
+                tp: [
+                    SimpleNamespace(
+                        topic=tp.topic,
+                        partition=tp.partition,
+                        offset=offset,
+                        key=None,
+                        value=b"record",
+                    )
+                ]
+            }
+
+    class _Gated(_Ingestion):
+        async def process(
+            self,
+            *,
+            generation: int,
+            offsets: PartitionOffsets,
+            records: Sequence[KafkaRecord],
+        ) -> None:
+            if records[0].offset == 0:
+                first_started.set()
+                await release.wait()
+            await super().process(generation=generation, offsets=offsets, records=records)
+
+    broker = _UnlimitedBroker()
+    consumer = _build(monkeypatch, broker, _Gated())
+    limits = consumer._config.tdengine.ingestion.model_copy(update={"buffer_max_rows": 100})
+    tdengine = consumer._config.tdengine.model_copy(update={"ingestion": limits})
+    kafka = consumer._config.kafka.model_copy(update={"max_poll_records": 1})
+    consumer._config = consumer._config.model_copy(
+        update={"kafka": kafka, "tdengine": tdengine}
+    )
+    _own(consumer, tp)
+    runner = asyncio.create_task(consumer.run())
+    try:
+        await asyncio.wait_for(first_started.wait(), timeout=2)
+        async with asyncio.timeout(2):
+            while consumer._metrics.snapshot().buffer_rows < 100:
+                await asyncio.sleep(0)
+        await asyncio.sleep(0.02)
+        assert broker.polls == 100
+        assert consumer._metrics.snapshot().buffer_rows == 100
+        assert broker.commits == []
+    finally:
+        consumer.request_stop()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=3)
+    assert consumer._metrics.snapshot().buffer_rows == 0
