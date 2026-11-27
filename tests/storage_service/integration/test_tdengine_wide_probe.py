@@ -617,7 +617,7 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
             f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 "
             f"TAGS (?) VALUES ({placeholders})"
         )
-        with pytest.raises(probe.driver.ProgrammingError):
+        with pytest.raises(probe.driver.QueryError):
             statement.bind(
                 [
                     _bind(probe, table="protocol_d0", tag="wtg_000", timestamps=[ts], base=10),
@@ -753,7 +753,7 @@ def test_td09_compression_measurement(wide_probe: Probe, record_property: Any) -
     record_property("uncompressed_payload_bytes", cycles * (8 + _POINT_COUNT * 8 + 125))
     # Preserve raw server metadata so an independent reviewer can distinguish
     # compressed data, WAL, indexes and metadata rather than inventing a ratio.
-    usage = list(probe.connection.query(f"SHOW TABLE {probe.database}.protocol_d0 DISTRIBUTED"))
+    usage = list(probe.connection.query(f"SHOW {probe.database}.VGROUPS"))
     assert usage, "native storage statistics are required for TD09"
     record_property("native_storage_statistics", repr(usage))
 
