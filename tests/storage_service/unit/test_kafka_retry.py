@@ -1011,3 +1011,32 @@ async def test_normal_stop_drains_admitted_batches_before_kafka_close(
             await asyncio.gather(stopper, return_exceptions=True)
         if not runner.done():
             await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=2)
+
+
+async def test_prefetched_batch_rebalance_while_waiting_for_worker_permit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not reinterpret old queued records using a replacement generation."""
+    tp = TopicPartition(TOPIC, 0)
+    broker = _Consumer([tp])
+    ingestion = _Ingestion()
+    consumer = _build(monkeypatch, broker, ingestion)
+    old = _own(consumer, tp, generation=1)
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    task = asyncio.create_task(
+        consumer._process_partition(
+            tp,
+            [_record(tp, 0)],
+            semaphore,
+            expected_owner=old,
+        )
+    )
+    await asyncio.sleep(0)
+    consumer.revoke({tp})
+    replacement = _own(consumer, tp, generation=2)
+    semaphore.release()
+    await asyncio.wait_for(task, timeout=2)
+    assert consumer._assignments[tp] is replacement
+    assert ingestion.calls == []
+    assert broker.commits == []
