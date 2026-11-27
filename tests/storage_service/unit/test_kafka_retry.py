@@ -859,6 +859,9 @@ async def test_run_coalesces_contiguous_buffered_poll_suffix(
     try:
         await asyncio.wait_for(first_started.wait(), timeout=2)
         await asyncio.wait_for(third_polled.wait(), timeout=2)
+        async with asyncio.timeout(2):
+            while consumer._metrics.snapshot().buffer_rows < 3:
+                await asyncio.sleep(0)
         release_first.set()
         async with asyncio.timeout(2):
             while len(broker.commits) != 2:
@@ -917,7 +920,9 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
     try:
         await asyncio.wait_for(writing.wait(), timeout=2)
         await asyncio.wait_for(fetched_three.wait(), timeout=2)
-        await asyncio.sleep(0)
+        async with asyncio.timeout(2):
+            while consumer._metrics.snapshot().buffer_rows < 3:
+                await asyncio.sleep(0)
         release.set()
         with pytest.raises(ExceptionGroup) as raised:
             await asyncio.wait_for(task, timeout=2)
@@ -992,7 +997,9 @@ async def test_normal_stop_drains_admitted_batches_before_kafka_close(
     try:
         await asyncio.wait_for(writing.wait(), timeout=2)
         await asyncio.wait_for(fetched_two.wait(), timeout=2)
-        await asyncio.sleep(0)
+        async with asyncio.timeout(2):
+            while consumer._metrics.snapshot().buffer_rows < 2:
+                await asyncio.sleep(0)
         stopper = asyncio.create_task(consumer.stop())
         await asyncio.sleep(0)
         assert not stopper.done()
