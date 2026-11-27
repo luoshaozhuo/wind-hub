@@ -73,9 +73,9 @@ def inspect(root: Path, release: Path = RELEASE) -> dict[str, Any]:
         }
     docker_root = root / "docker"
     config = docker_root / "config"
+    # 发布包只导出 Server 与 TimescaleDB；Web 静态页由 Server 镜像内 html/ 提供。
     images = (
         f"dc-ems-server:{version}",
-        f"dc-ems-web:{version}",
         "dc-ems-timescaledb:2.7.0-pg14",
     )
     checks: dict[str, CHECK] = {}
@@ -83,7 +83,6 @@ def inspect(root: Path, release: Path = RELEASE) -> dict[str, Any]:
         checks[f"image:{name}"] = "READY" if _image_exists(name) else "MISSING"
     required = {
         "seed": root / "data.json",
-        "web:index": root / "web" / "index.html",
         "runtime:env": docker_root / "dcems.env",
         "runtime:db": config / "db.property",
         "runtime:jks": config / "ssl" / "dc-ems.jks",

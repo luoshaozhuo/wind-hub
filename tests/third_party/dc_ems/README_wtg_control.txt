@@ -63,16 +63,17 @@ dc-ems 发布源码的 DbStructService 包含首次建表与 data.json
 业务表已经正确建好。真实启动后核查 ems_config、device、
 edge_addr_set 等实际表与 WTG01/ctrlActPow/ctrlReActPow 记录。
 
-所需外部材料：匹配 VERSION 的三份官方预构建镜像
-dc-ems-server、dc-ems-web、dc-ems-timescaledb；发布配置副本
+所需外部材料：匹配 VERSION 的两份官方预构建镜像
+dc-ems-server、dc-ems-timescaledb；发布配置副本
 (.env、log4j.properties、SSL JKS 或由授权部署流程生成的 JKS)；
-合法 LICENSE_CODE。只允许从受信任发布包校验 MANIFEST.sha256
-后执行 docker load，禁止使用 docker build 或自动拉取未知镜像。
+合法 LICENSE_CODE。发布包不导出独立 dc-ems-web 镜像：Server 镜像
+内含 html/，在同一 HTTPS 443 上提供 /dc-ems 静态页与 /api。
+只允许从受信任发布包校验 MANIFEST.sha256 后执行 docker load，
+禁止使用 docker build 或自动拉取未知镜像。
 例如在完整受信任发布包目录中：
 
   (cd "$DCEMS_RELEASE_DIR" && sha256sum -c MANIFEST.sha256)
   docker load -i "$DCEMS_RELEASE_DIR/images/dc-ems-server.tar"
-  docker load -i "$DCEMS_RELEASE_DIR/images/dc-ems-web.tar"
   docker load -i "$DCEMS_RELEASE_DIR/images/timescaledb.tar"
 
 仅在文件已存在、校验通过且人工确认来源后执行；不存在则保持
@@ -89,16 +90,14 @@ T02=ENVIRONMENT_BLOCKED。不得生成或伪造 license。
     --source "$DCEMS_RELEASE_CONFIG_DIR" \
     --output "$DCEMS_CONTROL_ROOT/docker"
 
-  python -m tests.third_party.dc_ems.prepare_web \
-    --output "$DCEMS_CONTROL_ROOT/web"
-
 其中 DCEMS_RELEASE_CONFIG_DIR 应指向本机合法、完整的发布配置副本。
 必须使用与本机匹配的 DCEMS_LICENSE_CODE，不能伪造许可。
 数据文件包含可能敏感的账号字段，权限为 0600，不得提交。
 
 隔离 Compose 项目：dcems-wtg-control。
-本机绑定：DB :15433、Server :18453、Web :18090。
+本机绑定：DB :15433、Server/Web :18453（HTTPS，自签名证书）。
 独立数据库卷，禁止复用 dcems-smoke、生产 DB 或 Web 运行副本。
+Web/API 使用真实登录会话：GET /api/login 获取 token，后续请求携带 token 头。
 
   export DCEMS_ALLOW_LOCAL_SMOKE=1
   bash tests/third_party/dc_ems/run_wtg_dcems_server.sh --check

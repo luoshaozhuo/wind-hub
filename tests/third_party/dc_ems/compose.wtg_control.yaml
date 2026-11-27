@@ -16,21 +16,5 @@ services:
         source: ${DCEMS_WTG_SEED:?set absolute path to isolated data.json}
         target: /opt/dc-ems/data.json
         read_only: true
-  dc-ems-web:
-    image: ${WEB_IMAGE:?set locally available release image}
-    pull_policy: never
-    network_mode: !reset ""
-    ports:
-      - "127.0.0.1:18090:18080"
-    volumes:
-      - type: bind
-        source: ${DCEMS_TEST_DIR:?set test directory}/nginx.smoke.conf
-        target: /etc/nginx/conf.d/default.conf
-        read_only: true
-      - type: bind
-        source: ${DCEMS_WTG_WEB:?set isolated Web path}
-        target: /usr/share/nginx/html/dc-ems
-        read_only: true
-    depends_on:
-      - dc-ems-server
-    restart: "no"
+# 发布包只提供 Server 与 TimescaleDB 镜像；Server 镜像内含 html/，
+# 并在 HTTPS 443 同端口提供 /dc-ems 静态页与 /api。不得虚构 dc-ems-web 镜像。

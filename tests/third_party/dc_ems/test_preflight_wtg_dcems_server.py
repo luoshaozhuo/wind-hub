@@ -28,7 +28,7 @@ def test_preflight_reports_missing_release_assets_without_secrets(tmp_path: Path
     assert report["checks"]["database:business_schema"] == "UNVERIFIED"
     assert report["checks"]["server:actual_modbus_fc16"] == "UNVERIFIED"
     assert report["checks"]["license:configured"] == "MISSING"
-    assert len([key for key in report["checks"] if key.startswith("image:")]) == 3
+    assert len([key for key in report["checks"] if key.startswith("image:")]) == 2
 
 
 def test_preflight_does_not_treat_complete_files_as_executed_t02(
@@ -41,7 +41,6 @@ def test_preflight_does_not_treat_complete_files_as_executed_t02(
     root = tmp_path / "run"
     for relative in (
         "data.json",
-        "web/index.html",
         "docker/config/db.property",
         "docker/config/ssl/dc-ems.jks",
         "docker/config/log4j.properties",
