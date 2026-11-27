@@ -674,12 +674,16 @@ class TDengineBackend:
                 except BaseException:
                     candidate.close()
                     raise
-                with self._lock:
-                    cached = self._wide_statements[connection_id]
-                    if len(cached) >= 32:
-                        _expired_family, expired_statement = cached.popitem(last=False)
-                        expired_statement.close()
-                    cached[family] = candidate
+                try:
+                    with self._lock:
+                        cached = self._wide_statements[connection_id]
+                        if len(cached) >= 32:
+                            _expired_family, expired_statement = cached.popitem(last=False)
+                            expired_statement.close()
+                        cached[family] = candidate
+                except BaseException:
+                    candidate.close()
+                    raise
                 statement = candidate
             write_wide_stmt2(
                 connection,
