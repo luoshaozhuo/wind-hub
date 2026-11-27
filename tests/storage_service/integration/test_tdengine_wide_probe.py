@@ -602,12 +602,15 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
     statement = probe.connection.stmt2_statement()
     placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
     try:
-        statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+        statement.prepare(
+            f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 "
+            f"TAGS (?) VALUES ({placeholders})"
+        )
         with pytest.raises(probe.driver.ProgrammingError):
             statement.bind(
                 [
-                    _bind(probe, table="protocol_d0", timestamps=[ts], base=10),
-                    _bind(probe, table="nonexistent_d2", timestamps=[ts], base=20),
+                    _bind(probe, table="protocol_d0", tag="wtg_000", timestamps=[ts], base=10),
+                    _bind(probe, table="nonexistent_d2", tag="wtg_002", timestamps=[ts], base=20),
                 ]
             )
             statement.execute()
