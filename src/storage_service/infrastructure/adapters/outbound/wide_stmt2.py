@@ -108,8 +108,8 @@ def write_wide_stmt2(
         by_device.setdefault(row.device_id, []).append(row)
     builder = getattr(driver, "stmt2_bind_param_view", None)
     varchar_tag = getattr(driver, "varchar_to_tag", None)
-    tinyint_tag = getattr(driver, "tiny_int_to_tag", None)
-    if not all(callable(fn) for fn in (builder, varchar_tag, tinyint_tag)):
+    level_tag = getattr(driver, "int_to_tag", None)
+    if not all(callable(fn) for fn in (builder, varchar_tag, level_tag)):
         raise RuntimeError("taosws connector lacks dynamic STMT2 binding API")
     level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
     bindings: list[object] = []
@@ -125,7 +125,7 @@ def write_wide_stmt2(
                     varchar_tag(device_id),
                     varchar_tag(device_type),
                     varchar_tag(schema.point_table_id),
-                    tinyint_tag(level),
+                    level_tag(level),
                     varchar_tag(schema.fingerprint),
                 ],
                 columns=columns,
