@@ -43,6 +43,7 @@ pre code { color: inherit; background: transparent; }
 5. [Configuration 统一配置体系](#5-configuration-统一配置体系)
 6. [Ports & Adapters 模块架构规范](#6-ports--adapters-模块架构规范)
 7. [总体架构约束](#7-总体架构约束)
+8. [D1 设计与生产实现静态一致性核验](#8-d1-设计与生产实现静态一致性核验)
 
 ---
 
@@ -935,7 +936,7 @@ Commander 的指令幂等、独立隔离证明、fencing、SQLite 持久结果�
 Deployment 属于 Configuration Repository 的受管对象，不构成第四类业务配置；其作用是选择 Service 和 Instance 的不可变版本。一个服务只依赖 Instances，Instance 可通过固定版本依赖 Templates。模板内部必要的模板引用亦必须固定 ID/版本并校验无环。
 
 ```yaml
-# configs/deployments/deployment_prod-a_v1.3.0.yaml（当前真实示例）
+# configs/deployments/deployment_prod-a_v1.3.0.yaml（历史发布示例，非现行部署选择）
 # Deployment 为同一部署域原子选择所有 Service / Instance 的不可变版本。
 # schema_version: 1；file_version: MAJOR.MINOR.PATCH；deployment_id: 唯一部署身份。
 # services.<service_id>.config_id 必须与映射键一致；file_version 为精确版本。
@@ -1002,3 +1003,49 @@ Device Instance 增加 `group`，单台设备一个采集组；Collector 专属 
 ### 5.7.5 编码准入及变更边界
 协议文件统一归 `src/contracts`，Configuration 实现服务端；Core 负责固定版本闭包解析；CLI 负责全量发布及查询，服务模块只负责运行应用。删除旧的 Service 模板根目录、Task Template、基于文件路径选择 Instance 的解释器/测试/样例，不保留兼容分支。Configuration 引导不参加自身 Deployment 选择。应用配置、变量映射、协议点表、Reliable ACK、Commander fencing 等原有安全约束必须保持。
 
+
+
+---
+
+# 8. D1 设计与生产实现静态一致性核验
+
+## 8.1 审查基线与裁决边界（2026-11-27）
+
+本节对当前开发分支 \`feat/storage-wide-table-completion-20261125\` 的正式源码、Proto、生产候选 Deployment、模块设计与独立验收报告作一致性核对，不修改已有冻结业务语义。完整源码执行门禁、动态配置发布、真实服务运行和独立复测须按最终提交 SHA 另行执行；本节静态核查不能代替运行验收。
+
+规范优先级：已冻结的当前 Contracts/数据线格式和设计边界 → 现行生产实现与配置 → 绑定 SHA 的独立测试事实。发现设计文字误称历史协议为现行协议时，应更正文档；发现真正的实现缺陷时，应修复生产实现及相关调用方、测试和配置，不能以修改设计掩盖缺陷。
+
+## 8.2 跨模块契约核对表
+
+<p class="table-caption">表 8-1 D1 核查的生产契约及实现依据</p>
+
+| 契约 | 现行实现依据 | 静态结论与验收边界 |
+|---|---|---|
+| NATS 可靠/实时设备批 | \`src/contracts/sample_batch.py\`、\`src/collector/application/batch_builder.py\` | \`schema_version=4\`；显式 \`device_type\`、\`point_table_id\`、\`device_config_id\`；Quality 是字符串，样本与批次时间一致；Reliable 不拆完整行。静态契约存在；运行结果由独立报告裁决 |
+| Kafka 设备级宽表 | \`src/sink_service/infrastructure/adapters/outbound/kafka_wire.py\`、\`src/storage_service/domain/wide_record.py\` | \`schema_version=3\`；RAW/PROTOCOL 键为源 \`point_id\`、BUSINESS 键为 \`business_point_id\`；Quality 编码为 0～3，键绑定场站/设备；不可与 NATS 字段表示混淆 |
+| 宽表写入与 Offset | \`src/storage_service/application/wide_ingestion.py\`、\`application/offsets.py\` | 固定物理 Schema、跨设备 STMT2 分组、全物理组成功才确认、UNKNOWN 阻断与 Generation fencing；既有可靠性独立复测 PASS |
+| 历史配置闭包 | \`src/configuration_service/application/service.py\`、\`src/storage_service/infrastructure/adapters/outbound/configuration_archive.py\` | 不可变版本、历史版本精确解析、摘要验证与配置发布/服务激活分离；跨模块功能测试已覆盖部分场景，完整配置故障矩阵需独立复测 |
+| 服务配置状态 | \`src/contracts/common.proto\`、各服务 CommonService 入站 Adapter | \`GetServiceStatusResponse.target_revision\` 和 \`active_revision\` 为独立字段，不得把全局数值 Revision 当作活动闭包摘要；已核查 Collector、Commander、Gateway、Generator、Sink、Storage 映射 |
+| 控制执行 | \`src/contracts/commander.proto\`、\`industrial_gateway.proto\`、\`data_generator.proto\` | Commander 8 RPC、Gateway 10 RPC、Generator 9 RPC 均已在各自正式入站 Adapter 找到方法；仿真执行专用 RPC 已定义与注册，不能再标记未实现；完整 DCEMS 闭环 NOT_RUN |
+| 配置发布 | \`src/contracts/configuration_repository.proto\`、\`src/configuration_service/infrastructure/adapters/inbound/grpc/repository_server.py\` | Configuration Repository 15 RPC，已与 Servicer 方法列表逐项对照；发布不等于各服务活动配置完成切换 |
+| 数据访问与管理 RPC | \`src/contracts/collector.proto\`、\`sink_service.proto\`、\`storage_service.proto\`、相应入站 Adapter | Collector 11 RPC、Sink 4 RPC、Storage 9 RPC 均找到对应方法；CLI 叶子覆盖与实机授权需按测试清单复测，不能以 Servicer 存在直接断言通过 |
+
+## 8.3 部署配置与已知限制
+
+<p class="table-caption">表 8-2 生产候选配置核验</p>
+
+| Deployment | 静态配置事实 | 限制 |
+|---|---|---|
+| prod-a v2.0.0 | \`deploy/config_roots/prod-a/deployments/deployment_prod-a_v2.0.0.yaml\` 明确选择 Collector、Commander、Gateway、Generator、Sink、Storage、CLI；Sink Kafka 与 Storage Topic 均为 \`windhub-history\` | GW2MW BusinessPoint 未取得 OEM 实际语义审批，不得直接激活生产 |
+| e2e-final v2.0.0 | 单独部署域选择数据链、控制链、CLI；Sink Kafka 与 Storage Topic 均为 \`windhub.e2e.history\` | 仅为隔离测试候选，不能推定生产激活或全容量通过 |
+| sim-a v2.0.0 | 当前 Deployment 不选择 Sink 或 Storage | 不得用 sim-a 单独证明 TDengine 全链路 |
+
+上述部署文件可能同时存在不同历史版本；不得依据目录扫描或按文件版本最大值自动选择生产活动配置。已有合法历史文件不因 D1 静态审查被删除。
+
+## 8.4 D1 整改与尚未取得的证据
+
+当前分支已对 Storage 配置 Watcher 作定向修复：静态目标写入待重启快照前执行不可变历史身份校验；Watcher 被取消或异常退出时通过 \`finally\` 释放 NATS 连接。未改 STMT2、Kafka Offset、三等级语义和 RPC 字段。两项修复需要按最终提交 SHA 由独立测试验证，不得继承先前 HEAD 的 PASS。
+
+最新独立容量复测为 \`docs/audit/storage_sink_capacity_retest_20261127.md\`：跨模块功能 11/11 PASS；Storage 30 台 299.929 行/s PASS、100 台 925.434 行/s BLOCKED、300 台 1132.980 行/s BLOCKED；Sink 600 秒 205.75 行/s 且有持续积压，BLOCKED。三等级同时容量、1000 台探索、真实 PLC 和完整 DCEMS 控制闭环 NOT_RUN。
+
+**D1 静态核查与 D4/D5 生产资格必须分开**：上述审查可证明列明文件和接口的静态对照，不证明全部动态调用、配置激活竞态、可靠重放或真实现场控制均已验收。未独立执行的 Ruff、mypy、pytest、真实 RPC/CLI 和配置故障恢复测试均保持 NOT_RUN，未取得最终证据前不得宣称生产 READY。
