@@ -1385,7 +1385,7 @@ Configuration 的 `(config_type, document_schema_version)` 是不可变注册身
 
 ## 9.2 服务端输入校验与输出组装
 
-接口错误区分为两层：**候选文档内容校验失败**（YAML/Schema 结构、可定位字段错误）使用 `CreateCandidateResponse.valid=false` 和 `issues`，不创建持久候选；**RPC 请求契约错误**（空 `request_id`、缺少必填 presence、不支持的枚举值）返回 `INVALID_ARGUMENT`；配额超限返回 `RESOURCE_EXHAUSTED`；不可变 `file_version` 冲突返回 `ALREADY_EXISTS`；全局修订 CAS 冲突返回 `ABORTED`。所有业务拒绝不得通过未分类异常错误映射为 `INTERNAL`。
+接口错误区分为两层：**候选文档内容校验失败**（YAML/Schema 结构、可定位字段错误）使用 `CreateCandidateResponse.valid=false` 和 `issues`，不创建持久候选；**RPC 请求契约错误**（空 `request_id`、缺少必填 presence、不支持的枚举值）返回 `INVALID_ARGUMENT`；配额超限返回 `RESOURCE_EXHAUSTED`；不可变 `file_version` 冲突返回 `FAILED_PRECONDITION`（与当前 Repository gRPC 错误映射一致）；全局修订 CAS 冲突返回 `ABORTED`。所有业务拒绝不得通过未分类异常错误映射为 `INTERNAL`。
 
 
 
