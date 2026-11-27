@@ -4,7 +4,8 @@ DCEMS 真实风机控制出口 — 编码交付与集中测试入口
 独立开发分支：feat/dcems-gateway-smoke-20261126
 目标：真实 dc-ems Server HTTP 控制操作 -> Modbus TCP FC16 ->
 Gateway1 -> Commander -> Gateway2 -> DG 模型执行。
-不改 dc-ems 发布源码/JAR/镜像，不修改已验证的十机测量场景。
+不改 dc-ems Java 源码/JAR/镜像；当前分支已修订部署脚本，
+不修改已验证的十机测量场景。
 
 一、控制契约
 ------------
@@ -181,7 +182,7 @@ tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch，
 
 最新 WindTurbo 补丁新增 reaLogic==1 时功率因数非法值保护：
 cos 为 null、NaN、Infinity、非正数或大于 1 时，该分支无功
-理论值及设定上限采用 0，不允许 Infinity/NaN 继续传播。
+理论值及设定上限采用 0，阻止这些非法输入导致除零与非有限结果。
 必须使用真实 WindTurbo 类补充 cos=0、非有限值、合法边界
 和 T02 的回归测试，不能仅凭文本契约断言判为 PASS。
 
