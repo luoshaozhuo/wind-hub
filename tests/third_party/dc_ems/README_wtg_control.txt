@@ -129,9 +129,10 @@ DCEMS 源代码存在一个限制：Web setParam 忽略 getter.control()
 
 禁止 docker compose down -v；保留独立运行日志，绝不清理其他项目卷。
 
-已有独立验收：WTG_PHYSICS_PASS、WINDHUB_CONTROL_PASS。
-真实 DCEMS Server T02 未执行，仍为 ENVIRONMENT_BLOCKED。
-本轮新增发布资源预检及运行脚本调整，尚未进行新的集中测试。
+已有独立验收：WTG_PHYSICS_PASS、WINDHUB_CONTROL_PASS、T02_SERVER_PASS、
+DCEMS_CONTROL_E2E_PASS（仅风机设备级）。FactoryPoints 与 WindTurbo
+联合补丁已在测试专用派生 JAR 中通过 5 分钟以上真实 Server 运行和
+T02 六项回归；这不等于官方 JAR/镜像的正式发布验收。
 
 
 物理模型 P1 修复说明（2026-11-27）
@@ -152,7 +153,8 @@ WTG 模型在超出 Cp 曲线最后一个叶尖速比点后采用连续且非增
 稳定的低功率基线，再施加 650 kW 阶跃并记录稳定结果及完整
 过渡曲线。不得使用不足以完成真实变桨的 5 秒窗口评判稳态，
 也不得降低功率变化或安全保护的验收要求。
-本轮生产修改及模式初始化尚未运行独立集中复测。
+物理模型及模式初始化的独立复测结果，参见已归档的 T02 联测报告；
+本文不将设备级测试结果外推为厂站 AGC/AVC/PFR 的验收结论。
 
 
 标准部署缺陷整改（当前 wind-hub 开发分支）
@@ -164,8 +166,36 @@ Server 容器使用相同机器身份。同步更新 Compose 及 MANIFEST.sha256
 
 特别注意：本仓库的 third_party/dc-ems 为已构建发布包，仅包含
 dc-ems.jar，没有 FactoryPoints.java 的可编译源代码。FactoryPoints
-布尔调度使能空值修复已保存在
+布尔、数值及状态空值修复已保存在
 tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch，
 此文件是供持有 DCEMS Java 源码的构建环境应用的补丁，不会改变
 现有 JAR 的行为。必须重新构建并独立验证合法发布包后，才能认定
-该 NPE 的生产缺陷关闭；不得将本轮的补丁存在视为测试通过。
+该 NPE 的正式发布缺陷关闭；不得将测试专用派生 JAR 视作已验收发布包。
+
+ 
+联合补丁下一轮集中复测入口（2026-11-27）
+----------------------------------------
+现有两份源码补丁：
+  tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch
+  tests/third_party/dc_ems/patches/windturbo-null-workmode.patch
+
+最新 WindTurbo 补丁新增 reaLogic==1 时功率因数非法值保护：
+cos 为 null、NaN、Infinity、非正数或大于 1 时，该分支无功
+理论值及设定上限采用 0，不允许 Infinity/NaN 继续传播。
+必须使用真实 WindTurbo 类补充 cos=0、非有限值、合法边界
+和 T02 的回归测试，不能仅凭文本契约断言判为 PASS。
+
+先执行不依赖真实 Server 的检查：
+  bash -n third_party/dc-ems/deploy.sh
+  python -m pytest -q tests/third_party/dc_ems/test_dcems_release_deployment_contract.py
+  ruff check tests/third_party/dc_ems
+  ruff format --check tests/third_party/dc_ems
+  (cd third_party/dc-ems && sha256sum -c MANIFEST.sha256)
+
+使用与发布 JAR 对应的授权源码，在隔离工作副本分别执行
+patch --dry-run --fuzz=0、patch --fuzz=0、Maven 构建和行为测试。
+正式 Server 源码构建仍受 proface/models 源码及离线 Maven 依赖
+缺失阻断。保持测试专用派生 JAR 与正式发布 JAR/镜像隔离。
+完成此次功率因数保护的独立 Java 行为及真实运行回归后，才能
+将本轮最新补丁标记为 READY_FOR_RELEASE_PIPELINE。
+不得修改 wind-hub 当前开发分支以外的分支或创建 PR。
