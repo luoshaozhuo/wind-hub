@@ -18,8 +18,8 @@ R8 八项守卫的进程内回归保留在本文件与 test_kafka_attempt_counte
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 import time
+from typing import Any
 
 import pytest
 
