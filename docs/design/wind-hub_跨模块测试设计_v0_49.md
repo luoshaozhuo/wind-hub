@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 跨模块测试设计</h1>
 
-<p class="subtitle">v0_49 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v0_49 · 20261125 · 宽表重构设计 · 20261127 实现状态与验收边界勘误</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -165,7 +165,7 @@ $$
 
 # 3. 测试目标、范围与总体要求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**现行实现与验收边界（2026-11-27）**：当前开发分支已采用 NATS SampleBatch v4、Kafka 设备宽表 JSON v3 和 TDengine 宽表实现。本设计后续引用的早期 NOT_RUN、未发布候选及“尚未迁移”属于对应历史审查轮次记录，不得当作 2026-11-27 的最新全量测试结论。最新独立报告 `docs/audit/storage_sink_capacity_retest_20261127.md`：STATIC_GATES、STORAGE_STMT2_RELIABILITY、STORAGE_PUBLISHER_300、STORAGE_CAPACITY_30、SINK_SHUTDOWN PASS；跨模块功能用例 11/11 PASS；STORAGE_CAPACITY_100/300、SINK_PARAMETER_MATRIX、SINK_CAPACITY_600S、CROSS_MODULE_E2E（容量门禁）、PRODUCTION_READINESS BLOCKED。三数据等级同时容量、1000 台探索和完整 DCEMS 控制闭环 NOT_RUN。只允许按同一工况、同一 SHA 和可追溯证据升级验收状态。
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
