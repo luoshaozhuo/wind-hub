@@ -1512,7 +1512,7 @@ flowchart TB
 - **启动与回退**：重启按 Deployment 最新目标解析，失败时不报告 READY；可回滚 Deployment 至旧不可变版本（仍经过正常全量发布/CAS）。禁止默认用最新推荐版本代替引用丢失。
 
 ### 稳定闭包摘要
-以 `config_type/config_id/file_version/content_sha256` 作为有序元组，按 UTF-8 字节序排序并使用长度前缀串联后 SHA-256；此摘要用于单 Service 的目标/活动一致性，不包含无关 Service 的文件、不包含全局修订游标。所有引用按明确版本解析、循环与冲突必须拒绝。
+以 `config_type/config_id/file_version/content_sha256` 作为有序元组，按 UTF-8 字节序排序并使用长度前缀串联；`deployment_id`、`service_id` 作为身份绑定数据一并参与 SHA-256 摘要（见 `src/core/configuration/deployment.py`），不能省略。此摘要用于单 Service 的目标/活动一致性，不包含无关 Service 的文件、不包含全局修订游标。所有引用按明确版本解析、循环与冲突必须拒绝。
 
 
 ### 2026-11-21 统一配置契约（规范性修订）
