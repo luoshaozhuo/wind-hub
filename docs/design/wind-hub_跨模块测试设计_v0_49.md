@@ -389,7 +389,7 @@ sequenceDiagram
 
 ## 5.6 联测专用配置闭包与文件名规范（v0_39）
 
-**当前设计候选基线**：`deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v1.0.2.yaml`，其源配置位于 `configs/deployments/`；该候选依赖尚未注册的 Service Schema v3，必须在第二阶段代码准入后才能实际发布和运行。所有受测 Service 与 Instance 使用 `e2e` 或 `e2e-final` 独立逻辑身份；统一文件名 `<type>_<info>_v<MAJOR.MINOR.PATCH>.yaml`。Service 必须遵守正式 `service_<service-id>_v...` 前缀，不得擅自简化为缺少 `service_` 的文件名。E2E 文件不覆盖 `prod-a` 和 `sim-a` 的已发布版本；相同业务 Template 可以按原 SHA/版本引用，不复制第二份人工维护的型号或点表。
+**历史候选基线（非当前执行选择）**：原 e2e-final v1.0.2 与当时尚未注册的 Service Schema v3 属于前期方案。当前隔离执行候选已更新为 `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.0.yaml`，Service Schema v3 已在 `src/configuration_service/application/schema_catalog.py` 注册；是否实际发布、激活及通过仍以当前 SHA 的运行证据判断。所有受测 Service 与 Instance 使用 `e2e` 或 `e2e-final` 独立逻辑身份；统一文件名 `<type>_<info>_v<MAJOR.MINOR.PATCH>.yaml`。Service 必须遵守正式 `service_<service-id>_v...` 前缀，不得擅自简化为缺少 `service_` 的文件名。E2E 文件不覆盖 `prod-a` 和 `sim-a` 的已发布版本；相同业务 Template 可以按原 SHA/版本引用，不复制第二份人工维护的型号或点表。
 
 | 类别 | E2E 唯一配置及用途 |
 |---|---|
@@ -877,7 +877,7 @@ C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前�
 
 **令牌双端对应测试**：Gateway→Commander、Commander→Gateway、Gateway→Generator、Generator→Gateway、Sink→Gateway，每个路径分别验证发起方 Token 环境变量名与目标 Service 授权调用者配置完全匹配；Generator 出站凭据明确取 `output.gateway_token_env`，不是 `security.callers[]` 入站令牌。错误或缺失令牌拒绝，未授权调用无副作用。Gateway Sink Listener 仅 loopback、与管理口不同且 Sink Token 不允许管理 RPC；不存在真实鉴权实现时必须保持 STOP。
 
-新 e2e 的 Commander/Gateway 选择 `schema_version: 3`，该定义尚未在运行时代码中注册，因此本阶段仅允许进行静态设计/引用验证，实际 Repository Schema 门禁必然暂不满足，列入第二阶段代码与测试整改。不得通过回退旧 v1 证书配置、取消严格 Schema 或把未验证候选当生产已发布来绕过门禁。
+**历史缺口已整改（2026-11-27）**：Commander/Gateway 的 Service `schema_version: 3` 已在 Configuration `schema_catalog.py` 注册，不能再认为运行时代码必然不识别 v3；实际 Repository 发布与服务激活仍须绑定具体测试证据，不能凭静态注册即宣称通过。不得通过回退旧 v1 证书配置、取消严格 Schema 或把未验证候选当生产已发布来绕过门禁。
 
 **Schema v3 的后继安全整改**：Gateway-source/target@1.1.1 删除 `grpc.permissions` 重复权限源，权限仅由 `security.callers[]` 管理；CLI@1.1.2、e2e-final@1.0.4 精确引用。原 1.1.0/1.0.2 文件保留为未发布历史候选且不进入独立活动根。设计基线统计以 135 项台账为准；静态配置根 Blob 需按新选版复核。
 
