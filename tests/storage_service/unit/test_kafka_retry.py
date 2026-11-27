@@ -669,3 +669,140 @@ async def test_successive_full_batches_keep_prefetched_position(
     assert broker.seeks == []
     assert broker.commits == [{tp: 3}, {tp: 6}]
     assert state.offsets.next_commit_offset == 6
+
+
+async def test_run_polls_next_batch_before_first_write_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bounded poll queue must overlap Kafka fetching with TDengine I/O."""
+    from types import SimpleNamespace
+
+    tp = TopicPartition(TOPIC, 0)
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    second_polled = asyncio.Event()
+
+    class _PollingConsumer(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            self.polls += 1
+            if self.polls <= 2:
+                if self.polls == 2:
+                    second_polled.set()
+                offset = self.polls - 1
+                return {
+                    tp: [
+                        SimpleNamespace(
+                            topic=tp.topic,
+                            partition=tp.partition,
+                            offset=offset,
+                            key=None,
+                            value=b"record",
+                        )
+                    ]
+                }
+            await asyncio.sleep(0.01)
+            return {}
+
+    class _SlowIngestion(_Ingestion):
+        async def process(
+            self,
+            *,
+            generation: int,
+            offsets: PartitionOffsets,
+            records: Sequence[KafkaRecord],
+        ) -> None:
+            if records[0].offset == 0:
+                first_started.set()
+                await release_first.wait()
+            await super().process(generation=generation, offsets=offsets, records=records)
+
+    broker = _PollingConsumer()
+    ingestion = _SlowIngestion()
+    consumer = _build(monkeypatch, broker, ingestion)
+    _own(consumer, tp)
+    task = asyncio.create_task(consumer.run())
+    try:
+        await asyncio.wait_for(first_started.wait(), timeout=2)
+        await asyncio.wait_for(second_polled.wait(), timeout=2)
+        assert broker.commits == []
+        release_first.set()
+        async with asyncio.timeout(2):
+            while len(broker.commits) != 2:
+                await asyncio.sleep(0.01)
+        assert broker.commits == [{tp: 1}, {tp: 2}]
+        assert ingestion.calls == [(1, [0]), (1, [1])]
+    finally:
+        release_first.set()
+        consumer.request_stop()
+        await asyncio.wait_for(task, timeout=2)
+
+
+async def test_queued_suffix_discarded_after_rebalance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Queued old-generation data must never be committed by the new owner."""
+    from types import SimpleNamespace
+
+    tp = TopicPartition(TOPIC, 0)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    second_polled = asyncio.Event()
+
+    class _PollingConsumer(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            self.polls += 1
+            if self.polls <= 2:
+                if self.polls == 2:
+                    second_polled.set()
+                return {
+                    tp: [
+                        SimpleNamespace(
+                            topic=tp.topic,
+                            partition=tp.partition,
+                            offset=self.polls - 1,
+                            key=None,
+                            value=b"record",
+                        )
+                    ]
+                }
+            await asyncio.sleep(0.01)
+            return {}
+
+    class _Gated(_Ingestion):
+        async def process(
+            self,
+            *,
+            generation: int,
+            offsets: PartitionOffsets,
+            records: Sequence[KafkaRecord],
+        ) -> None:
+            started.set()
+            await release.wait()
+            await super().process(generation=generation, offsets=offsets, records=records)
+
+    broker = _PollingConsumer()
+    ingestion = _Gated()
+    consumer = _build(monkeypatch, broker, ingestion)
+    _own(consumer, tp)
+    task = asyncio.create_task(consumer.run())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        await asyncio.wait_for(second_polled.wait(), timeout=2)
+        consumer.revoke({tp})
+        _own(consumer, tp, generation=2)
+        release.set()
+        await asyncio.sleep(0.05)
+        assert broker.commits == []
+        assert ingestion.calls == [(1, [0])]
+    finally:
+        release.set()
+        consumer.request_stop()
+        await asyncio.wait_for(task, timeout=2)
