@@ -7,6 +7,7 @@ exercised; these probes establish native capabilities, not system acceptance.
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import statistics
@@ -17,7 +18,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from importlib.metadata import version
-from threading import Event
+from threading import Event, Thread
 from typing import Any
 
 import pytest
@@ -174,7 +175,10 @@ def test_td08_full_row_and_null_overwrite(wide_probe: Probe) -> None:
             )
             assert statement.execute() >= 0
         finally:
-          def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
+            statement.close()
+
+
+def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
     """Probe the documented STMT2 dynamic-subtable form and statement reuse."""
     probe = wide_probe
     _create_family(probe, "protocol", "BIGINT")
@@ -208,9 +212,6 @@ def test_td08_full_row_and_null_overwrite(wide_probe: Probe) -> None:
                     f"protocol_d{device}",
                     moment,
                     cycle * 1000 + device * 10000,
-                )
-    finally:
-        statement.close()         cycle * 1000 + device * 10000,
                 )
     finally:
         statement.close()
@@ -755,3 +756,344 @@ def test_td09_compression_measurement(wide_probe: Probe, record_property: Any) -
     usage = list(probe.connection.query(f"SHOW TABLE {probe.database}.protocol_d0 DISTRIBUTED"))
     assert usage, "native storage statistics are required for TD09"
     record_property("native_storage_statistics", repr(usage))
+
+
+_STAGE_CYCLES = 600
+_STAGE_BATCH_CYCLES = 10
+_STAGE_NAMES = ("build", "prepare", "bind", "execute")
+
+
+def _run_stmt2_stage_writer(
+    probe: Probe,
+    devices: list[int],
+    *,
+    start_us: int,
+) -> dict[str, list[float]]:
+    """Reuse one dynamic-subtable statement and time native stages separately."""
+    connection = probe.driver.connect(**probe.connection_options)
+    local = Probe(probe.driver, connection, probe.database, probe.connection_options)
+    timings = {name: [] for name in _STAGE_NAMES}
+    statement = None
+    try:
+        connection.execute(f"USE {probe.database}")
+        statement = connection.stmt2_statement()
+        placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+        started = time.perf_counter()
+        statement.prepare(
+            f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 "
+            f"TAGS (?) VALUES ({placeholders})"
+        )
+        timings["prepare"].append(time.perf_counter() - started)
+        for first in range(0, _STAGE_CYCLES, _STAGE_BATCH_CYCLES):
+            end = min(first + _STAGE_BATCH_CYCLES, _STAGE_CYCLES)
+            timestamps = [start_us + index * 100_000 for index in range(first, end)]
+            started = time.perf_counter()
+            bindings = [
+                _bind(
+                    local,
+                    table=f"protocol_d{device}",
+                    tag=f"wtg_{device:03d}",
+                    timestamps=timestamps,
+                    base=device * 1_000_000 + first,
+                )
+                for device in devices
+            ]
+            timings["build"].append(time.perf_counter() - started)
+            started = time.perf_counter()
+            statement.bind(bindings)
+            timings["bind"].append(time.perf_counter() - started)
+            started = time.perf_counter()
+            assert statement.execute() >= 0
+            timings["execute"].append(time.perf_counter() - started)
+    finally:
+        try:
+            if statement is not None:
+                statement.close()
+        finally:
+            connection.close()
+    return timings
+
+
+def _read_client_rss_mb() -> float:
+    with open("/proc/self/statm", encoding="ascii") as statm:
+        resident_pages = int(statm.read().split()[1])
+    return resident_pages * os.sysconf("SC_PAGE_SIZE") / 1e6
+
+
+def _sample_client_rss(stop: Event, samples: list[float]) -> None:
+    while not stop.is_set():
+        samples.append(_read_client_rss_mb())
+        stop.wait(0.05)
+
+
+def _latency_ms(values: list[float]) -> dict[str, float]:
+    """Use nearest-rank percentiles, including the single-prepare worker case."""
+    ordered = sorted(value * 1000 for value in values)
+    assert ordered
+    return {
+        f"p{percentile}": ordered[
+            min(len(ordered) - 1, max(0, int(len(ordered) * percentile / 100 + 0.999999) - 1))
+        ]
+        for percentile in (50, 95, 99)
+    }
+
+
+def _record_stage_evidence(record_property: Any, name: str, evidence: dict[str, Any]) -> None:
+    payload = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+    record_property(name, payload)
+    print(f"{name}={payload}")
+
+
+def _verify_stage_readback(probe: Probe, devices: int, start_us: int) -> None:
+    """Read every cycle and fully validate 500 points on one row per device."""
+    sentinel_points = (0, 1, 249, 498, 499)
+    selected_columns = ", ".join(f"p{point:03d}_v1_0_0" for point in sentinel_points)
+    for device in range(devices):
+        rows = probe.connection.query(
+            f"SELECT CAST(ts AS BIGINT), {selected_columns}, quality "
+            f"FROM {probe.database}.protocol_d{device} ORDER BY ts"
+        )
+        count = 0
+        for cycle, row in enumerate(rows):
+            assert int(row[0]) == start_us + cycle * 100_000
+            expected = [device * 1_000_000 + cycle + point for point in sentinel_points]
+            assert list(row[1:-1]) == expected
+            assert bytes(row[-1]) == _QUALITY
+            count += 1
+        assert count == _STAGE_CYCLES
+        middle = _STAGE_CYCLES // 2
+        _assert_row(
+            probe,
+            f"protocol_d{device}",
+            start_us + middle * 100_000,
+            device * 1_000_000 + middle,
+        )
+
+
+@pytest.mark.performance
+@pytest.mark.slow
+@pytest.mark.parametrize("devices", [30, 100, 300])
+@pytest.mark.parametrize("workers", [1, 2, 4])
+def test_td13_stmt2_dynamic_subtable_stage_matrix(
+    wide_probe: Probe,
+    devices: int,
+    workers: int,
+    record_property: Any,
+) -> None:
+    """Measure dynamic-subtable STMT2 independently of the legacy capacity matrix."""
+    if os.environ.get("WIND_HUB_TEST_TDENGINE_WIDE_CAPACITY") != "1":
+        pytest.skip("enable D2 capacity matrix explicitly")
+    probe = wide_probe
+    _create_family(probe, "protocol", "BIGINT", devices=0)
+    start_us = time.time_ns() // 1000 - _STAGE_CYCLES * 100_000
+    stripes = [list(range(worker, devices, workers)) for worker in range(workers)]
+    stop = Event()
+    rss_samples = [_read_client_rss_mb()]
+    sampler = Thread(target=_sample_client_rss, args=(stop, rss_samples), daemon=True)
+    cpu_start = os.times()
+    sampler.start()
+    try:
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_run_stmt2_stage_writer, probe, stripe, start_us=start_us)
+                for stripe in stripes
+            ]
+            results = [future.result() for future in futures]
+        elapsed = time.perf_counter() - started
+    finally:
+        stop.set()
+        sampler.join(timeout=5)
+    cpu_end = os.times()
+    rss_samples.append(_read_client_rss_mb())
+    assert not sampler.is_alive()
+    rows = devices * _STAGE_CYCLES
+    payload_bytes = rows * (8 + _POINT_COUNT * 8 + len(_QUALITY))
+    client_cpu_seconds = (cpu_end.user + cpu_end.system) - (cpu_start.user + cpu_start.system)
+    timings = {
+        name: [duration for result in results for duration in result[name]] for name in _STAGE_NAMES
+    }
+    evidence = {
+        "api": "INSERT INTO ? USING db.stable TAGS (?) VALUES (...)",
+        "batch_cycles": _STAGE_BATCH_CYCLES,
+        "client_cpu_one_core_percent": client_cpu_seconds / elapsed * 100,
+        "client_cpu_seconds": client_cpu_seconds,
+        "client_rss_peak_mb": max(rss_samples),
+        "cycles_per_device": _STAGE_CYCLES,
+        "devices": devices,
+        "driver_version": version("taos-ws-py"),
+        "elapsed_seconds": elapsed,
+        "latency_ms": {name: _latency_ms(timings[name]) for name in _STAGE_NAMES},
+        "mb_per_second": payload_bytes / elapsed / 1e6,
+        "mixed_subtables_per_statement": True,
+        "payload_bytes": payload_bytes,
+        "points_per_second": rows * _POINT_COUNT / elapsed,
+        "readback": "every device/all 600 cycles: ts, five sentinel points, quality; "
+        "one middle row per device: all 500 points and quality",
+        "rows": rows,
+        "rows_per_second": rows / elapsed,
+        "server_version": "3.3.6.13",
+        "statement_reuse": "one prepare per worker; 60 bind/execute batches",
+        "subtables_precreated": False,
+        "timing_boundary": "wall: worker connection/USE/prepare, column-view construction, "
+        "native bind/execute and executor join; excludes close and all readback; "
+        "prepare/bind/execute timings wrap only the named native call",
+        "workers": workers,
+    }
+    _verify_stage_readback(probe, devices, start_us)
+    evidence["readback_verified"] = True
+    _record_stage_evidence(record_property, "stmt2_stage_metrics", evidence)
+
+
+@pytest.mark.performance
+def test_td13_plain_multitable_sql_control(wide_probe: Probe, record_property: Any) -> None:
+    """Use ordinary multi-table SQL as a small independent STMT2 control."""
+    probe = wide_probe
+    devices = 3
+    cycles = 4
+    _create_family(probe, "protocol", "BIGINT", devices=0)
+    start_us = time.time_ns() // 1000 - cycles * 100_000
+    started = time.perf_counter()
+    table_clauses = []
+    for device in range(devices):
+        values = []
+        for cycle in range(cycles):
+            row = [str(start_us + cycle * 100_000)]
+            row.extend(str(device * 1_000_000 + cycle + point) for point in range(_POINT_COUNT))
+            row.append(f"'\\x{_QUALITY.hex()}'")
+            values.append("(" + ", ".join(row) + ")")
+        table_clauses.append(
+            f"{probe.database}.protocol_d{device} USING {probe.database}.protocol_v1_0_0 "
+            f"TAGS ('wtg_{device:03d}') VALUES " + ", ".join(values)
+        )
+    sql = "INSERT INTO " + " ".join(table_clauses)
+    build_seconds = time.perf_counter() - started
+    started = time.perf_counter()
+    assert probe.connection.execute(sql) >= 0
+    execute_seconds = time.perf_counter() - started
+    elapsed = build_seconds + execute_seconds
+    for device in range(devices):
+        for cycle in range(cycles):
+            _assert_row(
+                probe,
+                f"protocol_d{device}",
+                start_us + cycle * 100_000,
+                device * 1_000_000 + cycle,
+            )
+    rows = devices * cycles
+    payload_bytes = rows * (8 + _POINT_COUNT * 8 + len(_QUALITY))
+    _record_stage_evidence(
+        record_property,
+        "plain_sql_control_metrics",
+        {
+            "api": "ordinary multi-table SQL INSERT with USING/TAGS; no STMT2",
+            "build_seconds": build_seconds,
+            "cycles_per_device": cycles,
+            "devices": devices,
+            "elapsed_seconds": elapsed,
+            "execute_seconds": execute_seconds,
+            "mb_per_second": payload_bytes / elapsed / 1e6,
+            "payload_bytes": payload_bytes,
+            "points_per_second": rows * _POINT_COUNT / elapsed,
+            "readback_verified": "all rows/all 500 points and quality",
+            "rows": rows,
+            "rows_per_second": rows / elapsed,
+            "sql_bytes": len(sql.encode()),
+            "timing_boundary": "SQL literal construction plus one native execute; "
+            "excludes readback",
+        },
+    )
+
+
+def test_td13_stmt2_conflict_unknown_and_ordered_replay(
+    wide_probe: Probe, record_property: Any
+) -> None:
+    """Treat a failed native request as UNKNOWN, then replay valid writes in order."""
+    probe = wide_probe
+    _create_family(probe, "protocol", "BIGINT", devices=0)
+    probe.connection.execute(
+        f"CREATE STABLE {probe.database}.incompatible "
+        "(ts TIMESTAMP, payload INT) TAGS (device_id VARCHAR(64))"
+    )
+    probe.connection.execute(
+        f"CREATE TABLE {probe.database}.incompatible_d2 "
+        f"USING {probe.database}.incompatible TAGS ('wtg_002')"
+    )
+    ts = time.time_ns() // 1000
+    placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
+    sql = (
+        f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 " f"TAGS (?) VALUES ({placeholders})"
+    )
+    probe.connection.execute(f"USE {probe.database}")
+    statement = probe.connection.stmt2_statement()
+    failed_stage = "bind"
+    try:
+        statement.prepare(sql)
+        try:
+            statement.bind(
+                [
+                    _bind(probe, table="protocol_d0", tag="wtg_000", timestamps=[ts], base=10),
+                    _bind(
+                        probe,
+                        table="incompatible_d2",
+                        tag="wtg_002",
+                        timestamps=[ts],
+                        base=20,
+                    ),
+                    _bind(probe, table="protocol_d1", tag="wtg_001", timestamps=[ts], base=30),
+                ]
+            )
+            failed_stage = "execute"
+            statement.execute()
+        except probe.driver.Error as error:
+            native_error = {
+                "message": str(error),
+                "stage": failed_stage,
+                "type": type(error).__name__,
+            }
+        else:
+            pytest.fail("conflicting subtable unexpectedly succeeded")
+    finally:
+        statement.close()
+    observed = list(
+        probe.connection.query(
+            f"SELECT TBNAME, p000_v1_0_0 FROM {probe.database}.protocol_v1_0_0 WHERE ts = {ts}"
+        )
+    )
+    assert len(observed) in (0, 1, 2)
+    replay_order = [("protocol_d0", 110), ("protocol_d1", 120), ("protocol_d0", 130)]
+    statement = probe.connection.stmt2_statement()
+    try:
+        statement.prepare(sql)
+        for table, base in replay_order:
+            device = int(table.rsplit("d", 1)[1])
+            statement.bind(
+                [
+                    _bind(
+                        probe,
+                        table=table,
+                        tag=f"wtg_{device:03d}",
+                        timestamps=[ts],
+                        base=base,
+                    )
+                ]
+            )
+            assert statement.execute() >= 0
+    finally:
+        statement.close()
+    _assert_row(probe, "protocol_d0", ts, 130)
+    _assert_row(probe, "protocol_d1", ts, 120)
+    _record_stage_evidence(
+        record_property,
+        "stmt2_conflict_replay",
+        {
+            "client_result_after_native_error": "UNKNOWN",
+            "native_error": native_error,
+            "observed_rows_after_error": [list(row) for row in observed],
+            "partial_success_observed": 0 < len(observed) < 3,
+            "requested_subtables": 3,
+            "replay_order": [list(item) for item in replay_order],
+            "replay_verified": "protocol_d0=130, protocol_d1=120; all 500 points and quality",
+            "valid_rows_in_failed_request": 2,
+        },
+    )
