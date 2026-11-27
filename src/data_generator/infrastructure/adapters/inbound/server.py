@@ -678,7 +678,7 @@ def make_server(
     references: set[str] = set()
     resolved: list[str] = []
     identities: dict[str, tuple[str, frozenset[str]]] = {}
-    allowed = {"variables_read", "variables_update"}
+    allowed = {"variables_read", "variables_update", "generation_manage"}
     for caller in callers:
         if not isinstance(caller, dict) or set(caller) != {"caller_id", "token_env", "permissions"}:
             raise GeneratorError("invalid model security caller")
