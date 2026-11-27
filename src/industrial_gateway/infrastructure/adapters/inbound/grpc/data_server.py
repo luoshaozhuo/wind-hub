@@ -473,19 +473,7 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         ):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "invalid simulation command")
             raise RuntimeError("abort unexpectedly returned") from None
-        if request.expected_revision != self._runtime.config.revision:
-            await context.abort(grpc.StatusCode.ABORTED, "Gateway revision changed")
-            raise RuntimeError("abort unexpectedly returned") from None
-        if instance.lifecycle.status.actual.value != "RUNNING":
-            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Gateway not running")
-            raise RuntimeError("abort unexpectedly returned") from None
-        if request.point_id not in {mapping.target_point_id for mapping in control.mappings}:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "control point not mapped")
-            raise RuntimeError("abort unexpectedly returned") from None
         expires_at = request.expires_at.ToDatetime(tzinfo=UTC)
-        if expires_at <= datetime.now(UTC):
-            await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "command expired")
-            raise RuntimeError("abort unexpectedly returned") from None
         command = SimulationCommand(
             caller=_trusted_identity(context, self._runtime),
             gateway_id=request.gateway_id,
@@ -496,6 +484,23 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
             expected_revision=request.expected_revision,
             expires_at=expires_at,
         )
+        # Exact prior acceptance wins over changed runtime revision, STOP, or
+        # elapsed expiry; this must never submit the model input twice.
+        replay = await self._simulation.replay(command)
+        if replay is not None:
+            return self._simulation_response(replay)
+        if request.expected_revision != self._runtime.config.revision:
+            await context.abort(grpc.StatusCode.ABORTED, "Gateway revision changed")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if instance.lifecycle.status.actual.value != "RUNNING":
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Gateway not running")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if request.point_id not in {mapping.target_point_id for mapping in control.mappings}:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "control point not mapped")
+            raise RuntimeError("abort unexpectedly returned") from None
+        if expires_at <= datetime.now(UTC):
+            await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "command expired")
+            raise RuntimeError("abort unexpectedly returned") from None
         outcome = await self._simulation.execute(command)
         return self._simulation_response(outcome)
 
