@@ -1,0 +1,5 @@
+post-T02 (corrected run):
+NullPointerException total: 284
+thread death: 0
+reactStateCheck caught: 284
+checkIsLimit errors: 0

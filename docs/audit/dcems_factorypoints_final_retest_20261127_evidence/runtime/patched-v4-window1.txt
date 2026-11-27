@@ -1,0 +1,7 @@
+## runtime: derived patched jar v4 (checkIsLimit + calComOkValues + update callbacks + emsWorkMode guards)
+jar sha256: 8035f8bc657bef0bc5f7e744041374ea11237ee92ea57c37cfa4c749b08cebca
+window: up + 90s (before T02)
+NullPointerException count: 4
+check factory limit status error: 0
+thread death markers: 2
+2026-11-27 11:25:12.689 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443

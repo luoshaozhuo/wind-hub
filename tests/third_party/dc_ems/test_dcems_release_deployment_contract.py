@@ -45,13 +45,31 @@ def test_modified_deployment_assets_have_matching_manifest() -> None:
 def test_factorypoints_patch_covers_dispatch_and_statistics_nulls() -> None:
     """The source patch must guard both reported FactoryPoints failure paths."""
     patch = (
-        REPO_ROOT
-        / "tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch"
+        REPO_ROOT / "tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch"
     ).read_text(encoding="utf-8")
-    assert "@@ -1101,9 +1101,20 @@" in patch
-    assert "@@ -1386,17 +1397,18 @@" in patch
+    for header in (
+        "@@ -911,11 +911,11 @@",
+        "@@ -1014,11 +1014,11 @@",
+        "@@ -1089,21 +1089,32 @@",
+        "@@ -1128,7 +1139,8 @@",
+        "@@ -1148,7 +1160,8 @@",
+        "@@ -1332,14 +1345,14 @@",
+        "@@ -1347,9 +1360,9 @@",
+        "@@ -1386,17 +1399,18 @@",
+        "@@ -1415,7 +1429,7 @@",
+    ):
+        assert header in patch
+    assert sum(1 for line in patch.splitlines() if line.startswith("@@")) == 9
+    assert "t.emsWorkMode.getVal() != null" in patch
     assert "Boolean.TRUE.equals(emsFacDispatchActEnabled.getVal())" in patch
     assert "actSend == null || actLoopRef == null" in patch
     assert "limitCoe == null || contractCapacity == null" in patch
     assert "double turbinePower = ifNull(wt.getEmsPowAct().getVal(), 0d)" in patch
     assert "Boolean.TRUE.equals(wt.emsRunState.getVal())" in patch
+    # update-callback config null guards (detected by independent harness)
+    assert "ctrlPowerPoint != null && ctrlPowerPoint == 1" in patch
+    assert "ctrlReaPowerPoint != null && ctrlReaPowerPoint == 1" in patch
+    assert (
+        "Boolean.TRUE.equals(GlobalData.FactoryConfig.emsReactAvoidCurrentOverFlowEnable.getVal())"
+        in patch
+    )

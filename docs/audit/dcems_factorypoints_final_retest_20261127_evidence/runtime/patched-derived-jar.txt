@@ -1,0 +1,8 @@
+## A/B runtime: DERIVED PATCHED jar (release jar + patched FactoryPoints.class)
+derived jar sha256: 8717660cca607762dfb3d3e60cd6bd18af7fcc1c7acf6dcc2c198bb007f87798
+elapsed window: patched server up + 60s
+NullPointerException count: 0
+check factory limit status error count: 0
+thread death markers: 0
+--- license/web ---
+2026-11-27 11:12:28.308 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443

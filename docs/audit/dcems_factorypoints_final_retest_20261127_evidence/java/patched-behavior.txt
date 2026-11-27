@@ -1,0 +1,36 @@
+## patched v5 behavior (32 cases + residual)
+PASS cil_all_boolean_null_false
+PASS cil_all_false
+PASS cil_one_true_within_limit
+PASS cil_double_null_actSend
+PASS cil_double_null_actLoopRef
+PASS cil_double_null_limitCoe
+PASS cil_double_null_contractCapacity
+PASS cil_enabled_within
+PASS cil_enabled_over_limit
+PASS cil_disabled_doubles_null
+PASS cil_boundary_strict_less
+PASS cil_just_inside
+PASS cco_empty_list_no_npe
+PASS cco_empty_grid_count
+PASS cco_empty_act_sum
+PASS cco_power_null_no_npe
+PASS cco_power_null_sum_zero
+PASS cco_power_zero_sum_zero
+PASS cco_negative_raw
+PASS cco_negative_truncated
+PASS cco_abs_sum_nonneg
+PASS cco_positive_sum
+PASS cco_positive_abs_sum
+PASS cco_run_null_not_counted
+PASS cco_run_false_not_counted
+PASS cco_run_true_counted
+PASS cco_mixed_no_npe
+PASS cco_mixed_act_sum
+PASS cco_mixed_abs_sum
+PASS cco_mixed_grid_count
+PASS cco_mixed_grid_capacity
+PASS cco_mixed_avg
+RESIDUAL_OK none
+ALL_CASES_PASS
+exit=0

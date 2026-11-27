@@ -32,6 +32,11 @@ compose=(
     -f "${BASE}"
     -f "${OVERLAY}"
 )
+if [[ -n "${DCEMS_WTG_PATCHED_JAR:-}" ]]; then
+    # FactoryPoints 运行时复测：只读覆盖派生 JAR，不修改正式镜像。
+    [[ -f "${DCEMS_WTG_PATCHED_JAR}" ]] || fail "DCEMS_WTG_PATCHED_JAR not found"
+    compose+=( -f "${HERE}/compose.wtg_patched_jar.yaml" )
+fi
 
 cleanup_project() {
     # 资源缺失或 Compose 无法解析时，仅按项目标签清理容器与网络，绝不删除数据卷。

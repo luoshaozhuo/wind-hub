@@ -1,0 +1,22 @@
+## baseline (unpatched) behavior
+PASS cil_all_boolean_null_false
+PASS cil_all_false
+FAIL cil_one_true_within_limit -> false
+PASS cil_double_null_actSend
+PASS cil_double_null_actLoopRef
+PASS cil_double_null_limitCoe
+PASS cil_double_null_contractCapacity
+PASS cil_enabled_within
+PASS cil_enabled_over_limit
+PASS cil_disabled_doubles_null
+PASS cil_boundary_strict_less
+PASS cil_just_inside
+FAIL cco_empty_list_no_npe -> java.lang.NullPointerException
+PASS cco_empty_grid_count
+PASS cco_empty_act_sum
+FAIL cco_power_null_no_npe -> java.lang.NullPointerException
+PASS cco_power_null_sum_zero
+FAIL cco_power_zero_sum_zero -> 0.0 java.lang.NullPointerException
+FAIL cco_negative_raw -> -500.0
+FAIL cco_negative_truncated -> 0.0
+exit=1

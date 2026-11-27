@@ -1,0 +1,13 @@
+## runtime: derived patched jar v5 (corrected OR-chain guards)
+jar sha256: c9681ee0e9d5dc35a3c2aa9980c88ed68604695eed7c4e7949b53e4de0472b27
+window: up + 100s
+NullPointerException count: 112
+check factory limit status error: 0
+thread death markers: 0
+reactStateCheck caught errors: 112
+2026-11-27 11:29:50.515 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443
+post-T02 window:
+NullPointerException total: 187
+thread death: 0
+reactStateCheck caught: 187
+checkIsLimit errors: 0

@@ -1,0 +1,21 @@
+## patch dry-run fuzz=0 (repo-root -p1)
+checking file server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+fuzz0-dry-exit 0
+fuzz0-apply-exit 0
+## bash -n deploy.sh
+OK
+## ruff
+All checks passed!
+OK
+## ruff format
+40 files already formatted
+## pytest contract
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 121 warnings in 0.03s
+## MANIFEST
+MANIFEST OK
+## gen-license not in manifest
+0
+0 (not listed, admin tool outside release manifest)
+## mvn -o test (emslib v5)
+[INFO] BUILD SUCCESS

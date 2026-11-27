@@ -1,6 +1,48 @@
 --- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
 +++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
-@@ -1101,9 +1101,20 @@
+@@ -911,11 +911,11 @@
+         
+         emsUsePower2.update(
+             GlobalData.ComOkList.stream()
+-                    .mapToDouble(t -> (t.emsWorkMode.getVal() == 32) ? ifNull(t.wOughtPower.getVal(), 0d) : 0d)
++                    .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32) ? ifNull(t.wOughtPower.getVal(), 0d) : 0d)
+                     .sum());
+         emsUsePower0.update(
+                 GlobalData.ComOkList.stream()
+-                    .mapToDouble(t -> (t.emsWorkMode.getVal() == 32) ? ifNull(t.wOughtPower.getVal(), 0d) : 0d)
++                    .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32) ? ifNull(t.wOughtPower.getVal(), 0d) : 0d)
+                     .sum());
+         
+         if (GlobalData.FactoryConfig.emsUsePowerOptMode.getVal() == 0){
+@@ -1014,11 +1014,11 @@
+         if(emsLimitLowUseCalEnable.getVal() == 1){
+             emsUsePower2.update(
+                 0.2 * emsUsePower2.getVal() + 0.8 * emsUsePower2.getVal() + GlobalData.ComOkList.stream()
+-                        .mapToDouble(t -> (t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
++                        .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
+                         .sum());
+             emsUsePower0.update(
+                 0.2 * emsUsePower0.getVal() + 0.8 * emsUsePower0.getVal() +GlobalData.ComOkList.stream()
+-                        .mapToDouble(t -> (t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
++                        .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
+                         .sum());
+         }    
+     }
+@@ -1089,21 +1089,32 @@
+         if(emsLimitLowUseCalEnable.getVal() == 1){
+             emsUsePower2.update(
+                emsUsePower2.getVal()  + GlobalData.ComOkList.stream()
+-                        .mapToDouble(t -> (t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
++                        .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
+                         .sum());
+             emsUsePower0.update(
+                 emsUsePower0.getVal()  +GlobalData.ComOkList.stream()
+-                        .mapToDouble(t -> (t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
++                        .mapToDouble(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() < 32 && !t.emsFaultOrMainState.getVal()) ? ifNull(t.mOughtPowerT.getVal(), 0d) : 0d)
+                         .sum());
+         }   
+     }
+ 
      private boolean checkIsLimit() {
          try {
 -            return (emsFacDispatchActEnabled.getVal() || emsGridDispatchActEnabled.getVal()
@@ -25,7 +67,58 @@
          } catch (Exception e) {
              log.error("check factory limit status error ", e);
              return false;
-@@ -1386,17 +1397,18 @@
+@@ -1128,7 +1139,8 @@
+      */
+     private void factoryReactUpdate() {
+         emsFactoryReactSum.dataUpdate(CommonUtil.fun(t -> {
+-            if (GlobalData.FactoryConfig.iCtrlReaPowerPoint.getVal() == 1) {
++            Integer ctrlReaPowerPoint = GlobalData.FactoryConfig.iCtrlReaPowerPoint.getVal();
++            if (ctrlReaPowerPoint != null && ctrlReaPowerPoint == 1) {
+                 emsReActLoopRef.update(emsSyzReact.getVal());
+             } else {
+                 emsReActLoopRef.update(emsFactoryReactSum.getVal());
+@@ -1148,7 +1160,8 @@
+                 }
+                 emsActLoopRef.update(((Value10sAvg) emsFactoryActSum).getAvgVal2());
+             }
+-            if (GlobalData.FactoryConfig.iCtrlPowerPoint.getVal() == 1) {
++            Integer ctrlPowerPoint = GlobalData.FactoryConfig.iCtrlPowerPoint.getVal();
++            if (ctrlPowerPoint != null && ctrlPowerPoint == 1) {
+                 if (emsSyzAct.getVal() == null
+                         || emsFactoryActSum.getVal() - emsSyzAct.getVal() > 0.05
+                                 * GlobalData.FactoryConfig.fWFContractCapacity.getVal() && emsSyzAct.getVal() <= 0
+@@ -1332,14 +1345,14 @@
+         emsOpenCount.update(openTurbs.size());
+         emsOpenCapacity.update(openTurbs.stream().mapToDouble(t -> t.getCapacity().getVal()).sum());
+         //山东新增全场统计
+-        emsWaitCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> ((t.emsWorkMode.getVal() == 1 || t.emsWorkMode.getVal() == 2 || t.emsWorkMode.getVal() == 4 || t.emsWorkMode.getVal() == 8 || t.emsWorkMode.getVal() == 16) && !t.emsFaultOrMainState.getVal()))
++        emsWaitCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && (t.emsWorkMode.getVal() == 1 || t.emsWorkMode.getVal() == 2 || t.emsWorkMode.getVal() == 4 || t.emsWorkMode.getVal() == 8 || t.emsWorkMode.getVal() == 16) && !t.emsFaultOrMainState.getVal()))
+         .collect(Collectors.toList()).size());
+-        emsWaitCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> ((t.emsWorkMode.getVal() == 1 || t.emsWorkMode.getVal() == 2 || t.emsWorkMode.getVal() == 4 || t.emsWorkMode.getVal() == 8 || t.emsWorkMode.getVal() == 16) && !t.emsFaultOrMainState.getVal()))
++        emsWaitCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && (t.emsWorkMode.getVal() == 1 || t.emsWorkMode.getVal() == 2 || t.emsWorkMode.getVal() == 4 || t.emsWorkMode.getVal() == 8 || t.emsWorkMode.getVal() == 16) && !t.emsFaultOrMainState.getVal()))
+                 .mapToDouble(t -> t.getCapacity().getVal()).sum());
+ 
+-        emsRunCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() == 32 && !t.emsAutoLimitState.getVal() && !t.emsLocalLimitState.getVal() && !t.emsRemoteLimitState.getVal()))
++        emsRunCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32 && !t.emsAutoLimitState.getVal() && !t.emsLocalLimitState.getVal() && !t.emsRemoteLimitState.getVal()))
+         .collect(Collectors.toList()).size());
+-        emsRunCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() == 32 && !t.emsAutoLimitState.getVal() && !t.emsLocalLimitState.getVal() && !t.emsRemoteLimitState.getVal()))
++        emsRunCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32 && !t.emsAutoLimitState.getVal() && !t.emsLocalLimitState.getVal() && !t.emsRemoteLimitState.getVal()))
+         .mapToDouble(t -> t.getCapacity().getVal()).sum());
+ 
+         emsStopCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsFaultOrMainState.getVal()))
+@@ -1347,9 +1360,9 @@
+         emsStopCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsFaultOrMainState.getVal()))
+         .mapToDouble(t -> t.getCapacity().getVal()).sum());
+ 
+-        emsLimitCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() == 32 && (t.emsAutoLimitState.getVal() || t.emsLocalLimitState.getVal() || t.emsRemoteLimitState.getVal())))
++        emsLimitCountShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32 && (t.emsAutoLimitState.getVal() || t.emsLocalLimitState.getVal() || t.emsRemoteLimitState.getVal())))
+         .collect(Collectors.toList()).size());
+-        emsLimitCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() == 32 && (t.emsAutoLimitState.getVal() || t.emsLocalLimitState.getVal() || t.emsRemoteLimitState.getVal())))
++        emsLimitCapacityShanDong.update(GlobalData.ComOkList.stream().filter(t -> (t.emsWorkMode.getVal() != null && t.emsWorkMode.getVal() == 32 && (t.emsAutoLimitState.getVal() || t.emsLocalLimitState.getVal() || t.emsRemoteLimitState.getVal())))
+         .mapToDouble(t -> t.getCapacity().getVal()).sum());
+ 
+         emsComErrCountShanDong.update(GlobalData.ComErrList.size());
+@@ -1386,17 +1399,18 @@
              actSetLimitTop += ifNull(wt.getEmsActSetLimitTurbo().getVal(), 0d);
              actLimitTop += ifNull(wt.getWOughtPower().getVal(), 0d);
              reaActlimitTop += ifNull(wt.getEmsTheoryReactPower().getVal(), 0d);
@@ -51,3 +144,12 @@
                  gridCount++;
                  gridCapacity += ifNull(wt.getCapacity().getVal(), 0d);
              }
+@@ -1415,7 +1429,7 @@
+         emsReactLimitLow.update(max(reactPowerLow, 0));
+ 
+         emsReactCtrlTop.update(emsReactLimitTop.getVal());
+-        if (GlobalData.FactoryConfig.emsReactAvoidCurrentOverFlowEnable.getVal()) {
++        if (Boolean.TRUE.equals(GlobalData.FactoryConfig.emsReactAvoidCurrentOverFlowEnable.getVal())) {
+             emsReactCtrlLow.update(-emsReactLimitLow.getVal());
+         } else {
+             emsReactCtrlLow.update(-emsReactLimitTop.getVal() - 0.01d);

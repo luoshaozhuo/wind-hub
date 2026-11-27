@@ -1,0 +1,18 @@
+## A/B runtime: RELEASED jar (baseline)
+elapsed window: server up + 45s
+NullPointerException count: 103
+check factory limit status error count: 103
+dataMain/actPow/reactPow thread death markers: 0
+--- sample stack ---
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+--
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+--
