@@ -226,6 +226,7 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     cursor_secret=cursor_secret,
                     config_status=lambda: watcher.status,
                     config_revisions=lambda: (watcher.target_revision, watcher.active_revision),
+                    config_snapshot=snapshot,
                     metrics=metrics,
                 )
                 await consumer.start()
