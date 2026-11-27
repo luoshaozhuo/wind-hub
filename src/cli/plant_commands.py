@@ -319,6 +319,57 @@ async def _gateway_action(
     )
 
 
+@gateway.command("renew")
+def gateway_renew(
+    gateway_id: str,
+    variable_ids: list[str] = typer.Argument(...),
+    owner_id: str = typer.Option(..., "--owner-id"),
+    token_env: str = typer.Option(..., "--lease-token-env"),
+    lease_ms: int = typer.Option(30000, "--lease-ms", min=1000, max=60000),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Extend an existing authorized variable lease without exposing its token in argv."""
+    import os
+    import re
+
+    from .main import _run, runtime
+    from .safety import confirm_mutation
+
+    if (
+        not owner_id.strip()
+        or not variable_ids
+        or len(variable_ids) != len(set(variable_ids))
+        or re.fullmatch(r"[A-Z_][A-Z0-9_]*", token_env) is None
+    ):
+        raise typer.BadParameter("renew requires owner, unique variables and token environment")
+    confirm_mutation(f"Renew Gateway lease for {gateway_id}?", yes, command="gateway renew")
+
+    async def renew() -> dict[str, Any]:
+        secret = os.environ.get(token_env, "")
+        if not secret:
+            raise ValueError("Gateway lease token environment is unset")
+        outcome = await invoke(
+            runtime(),
+            "gateway",
+            "ClaimTargets",
+            {
+                "gateway_id": gateway_id,
+                "owner_id": owner_id,
+                "variable_ids": variable_ids,
+                "action": "RENEW",
+                "lease_token": secret,
+                "lease_ms": lease_ms,
+            },
+        )
+        if outcome.get("accepted") is not True:
+            raise PermissionError(
+                f"Gateway lease renewal rejected: {outcome.get('error_code', 'DENIED')}"
+            )
+        return {"gateway_id": gateway_id, "renewed": True, "variable_count": len(variable_ids)}
+
+    _run("gateway renew", renew())
+
+
 @gateway.command("start")
 def gateway_start(
     gateway_id: str,
