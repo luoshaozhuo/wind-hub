@@ -552,6 +552,9 @@ class KafkaStorageConsumer:
                     bytes_received += sum(len(record.value) for record in records)
                     workload.append((tp, owner, records))
                 if not workload:
+                    # Some client/fake implementations return empty fetches
+                    # immediately; never turn them into an event-loop hot spin.
+                    await asyncio.sleep(0)
                     continue
                 if rows_received > max_rows or bytes_received > max_bytes:
                     raise RuntimeError("Kafka fetched records exceed bounded Storage buffer")
