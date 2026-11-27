@@ -803,3 +803,69 @@ async def test_queued_suffix_discarded_after_rebalance(
         release.set()
         consumer.request_stop()
         await asyncio.wait_for(task, timeout=2)
+
+
+async def test_run_coalesces_contiguous_buffered_poll_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When an earlier write stalls, buffered later polls share one batch."""
+    tp = TopicPartition(TOPIC, 0)
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    third_polled = asyncio.Event()
+
+    class _PollingConsumer(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            self.polls += 1
+            if self.polls <= 3:
+                if self.polls == 3:
+                    third_polled.set()
+                return {
+                    tp: [
+                        SimpleNamespace(
+                            topic=tp.topic,
+                            partition=tp.partition,
+                            offset=self.polls - 1,
+                            key=None,
+                            value=b"record",
+                        )
+                    ]
+                }
+            await asyncio.sleep(0.01)
+            return {}
+
+    class _Gated(_Ingestion):
+        async def process(
+            self,
+            *,
+            generation: int,
+            offsets: PartitionOffsets,
+            records: Sequence[KafkaRecord],
+        ) -> None:
+            if records[0].offset == 0:
+                first_started.set()
+                await release_first.wait()
+            await super().process(generation=generation, offsets=offsets, records=records)
+
+    broker = _PollingConsumer()
+    ingestion = _Gated()
+    consumer = _build(monkeypatch, broker, ingestion)
+    _own(consumer, tp)
+    task = asyncio.create_task(consumer.run())
+    try:
+        await asyncio.wait_for(first_started.wait(), timeout=2)
+        await asyncio.wait_for(third_polled.wait(), timeout=2)
+        release_first.set()
+        async with asyncio.timeout(2):
+            while len(broker.commits) != 2:
+                await asyncio.sleep(0.01)
+        assert ingestion.calls == [(1, [0]), (1, [1, 2])]
+        assert broker.commits == [{tp: 1}, {tp: 3}]
+    finally:
+        release_first.set()
+        consumer.request_stop()
+        await asyncio.wait_for(task, timeout=2)
