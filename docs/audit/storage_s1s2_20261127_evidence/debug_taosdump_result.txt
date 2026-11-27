@@ -1,0 +1,130 @@
+========== arguments config =========
+TDengine Community Edition
+taosdump version: 3.3.6.13
+git: 1a3a182ba16ee188c0677fb6cd637b34c52f6bd7
+build: Linux-x64 2025-06-28 22:48:07 +0800
+host: 127.0.0.1
+user: root
+port: 55597
+outpath: /tmp/wh_debug_8511cac309d7461dbbabe63a1d5389ca/
+inpath: 
+resultFile: ./dump_result.txt
+all_databases: false
+databases: true
+databasesSeq: wh_debug
+schemaonly: false
+with_property: true
+avro codec: snappy
+data_batch: 16383
+thread_num: 8
+allow_sys: false
+escape_char: true
+loose_mode: false
+isDumpIn: false
+arg_list_len: 0
+debug_print: 0
+========== DUMP OUT ========== 
+# DumpOut start time: 2026-11-27 11:58:26
+
+============================== TOTAL STATISTICS ============================== 
+# total database count:     0
+# total super table count:  0
+# total child table count:  0
+# total row count:          0
+end time: 2026-11-27 11:58:29
+
+========== arguments config =========
+TDengine Community Edition
+taosdump version: 3.3.6.13
+git: 1a3a182ba16ee188c0677fb6cd637b34c52f6bd7
+build: Linux-x64 2025-06-28 22:48:07 +0800
+host: 127.0.0.1
+user: root
+port: 50297
+outpath: /tmp/wh_debug_7a48fdcbe0fc4aefb438eaae57930f49/
+inpath: 
+resultFile: ./dump_result.txt
+all_databases: false
+databases: true
+databasesSeq: wh_debug
+schemaonly: false
+with_property: true
+avro codec: snappy
+data_batch: 16383
+thread_num: 8
+allow_sys: false
+escape_char: true
+loose_mode: false
+isDumpIn: false
+arg_list_len: 0
+debug_print: 0
+========== DUMP OUT ========== 
+# DumpOut start time: 2026-11-27 12:00:49
+
+#### database:                       wh_debug
+
+============================== TOTAL STATISTICS ============================== 
+# total database count:     1
+# total super table count:  0
+# total child table count:  0
+# total row count:          0
+end time: 2026-11-27 12:00:49
+
+========== arguments config =========
+TDengine Community Edition
+taosdump version: 3.3.6.13
+git: 1a3a182ba16ee188c0677fb6cd637b34c52f6bd7
+build: Linux-x64 2025-06-28 22:48:07 +0800
+host: 127.0.0.1
+user: root
+port: 51987
+outpath: 
+inpath: /tmp/pytest-of-luosh/pytest-168/test_real_backup_and_taosdump_0/backups/38877f5871b545ceac99521a64d6d7ae
+resultFile: ./dump_result.txt
+all_databases: false
+databases: false
+databasesSeq: (null)
+schemaonly: false
+with_property: true
+avro codec: snappy
+data_batch: 16383
+thread_num: 8
+allow_sys: false
+escape_char: true
+loose_mode: false
+isDumpIn: true
+arg_list_len: 0
+debug_print: 0
+========== DUMP IN ========== 
+# DumpIn start time: 2026-11-27 12:12:23
+end time: 2026-11-27 12:12:23
+
+========== arguments config =========
+TDengine Community Edition
+taosdump version: 3.3.6.13
+git: 1a3a182ba16ee188c0677fb6cd637b34c52f6bd7
+build: Linux-x64 2025-06-28 22:48:07 +0800
+host: 127.0.0.1
+user: root
+port: 44243
+outpath: 
+inpath: /tmp/pytest-of-luosh/pytest-169/test_real_backup_and_taosdump_0/backups/61f446447b3843289de117d1742ff066
+resultFile: ./dump_result.txt
+all_databases: false
+databases: false
+databasesSeq: (null)
+schemaonly: false
+with_property: true
+avro codec: snappy
+data_batch: 16383
+thread_num: 8
+allow_sys: false
+escape_char: true
+loose_mode: false
+isDumpIn: true
+arg_list_len: 0
+debug_print: 0
+========== DUMP IN ========== 
+# DumpIn start time: 2026-11-27 12:14:05
+end time: 2026-11-27 12:14:05
+
