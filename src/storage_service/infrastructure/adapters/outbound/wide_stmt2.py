@@ -6,6 +6,7 @@ A prepared statement is not shared across threads or conflicting schema families
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
@@ -87,6 +88,7 @@ def write_wide_stmt2(
     records: Sequence[WideRecord],
     device_types: Mapping[str, str],
     statement: WideStmt2Statement | None = None,
+    stage_seconds: dict[str, float] | None = None,
 ) -> None:
     """Write verified multi-device wide rows in one prepared STMT2 execution.
 
@@ -116,6 +118,7 @@ def write_wide_stmt2(
     level_tag_fn = cast(Callable[..., Any], level_tag)
     level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
     bindings: list[object] = []
+    columns_started = time.perf_counter()
     for device_id, group in by_device.items():
         device_type = device_types[device_id]
         if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
@@ -134,6 +137,8 @@ def write_wide_stmt2(
                 columns=columns,
             )
         )
+    if stage_seconds is not None:
+        stage_seconds["columns"] = time.perf_counter() - columns_started
     owned = statement is None
     active = statement if statement is not None else connection.stmt2_statement()
     try:
@@ -144,9 +149,19 @@ def write_wide_stmt2(
                 f"INSERT INTO ? USING {database}.{schema.supertable_name()} "
                 f"TAGS ({tags}) VALUES ({placeholders})"
             )
-        active.bind(bindings)
-        if active.execute() < 0:
-            raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
+        bind_started = time.perf_counter()
+        try:
+            active.bind(bindings)
+        finally:
+            if stage_seconds is not None:
+                stage_seconds["bind"] = time.perf_counter() - bind_started
+        execute_started = time.perf_counter()
+        try:
+            if active.execute() < 0:
+                raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
+        finally:
+            if stage_seconds is not None:
+                stage_seconds["execute"] = time.perf_counter() - execute_started
     finally:
         if owned:
             active.close()
