@@ -216,20 +216,31 @@ class KafkaStorageConsumer:
         tp: TopicPartition,
         messages: list[KafkaRecord],
         semaphore: asyncio.Semaphore,
+        *,
+        expected_owner: _AssignedPartition | None = None,
     ) -> None:
-        """Process a single assigned partition without changing queue ownership."""
-        await self._process_partition_inner(tp, messages, semaphore)
+        """Process only under the ownership captured when the batch was fetched."""
+        await self._process_partition_inner(
+            tp, messages, semaphore, expected_owner=expected_owner
+        )
 
     async def _process_partition_inner(
         self,
         tp: TopicPartition,
         messages: list[KafkaRecord],
         semaphore: asyncio.Semaphore,
+        *,
+        expected_owner: _AssignedPartition | None,
     ) -> None:
-        """Never have more than one in-flight batch per assigned partition."""
+        """Fence a prefetched batch after its partition-worker permit is acquired."""
         async with semaphore:
             state = self._assignments.get(tp)
-            if state is None or state.blocked or not messages:
+            if (
+                state is None
+                or state.blocked
+                or not messages
+                or (expected_owner is not None and state is not expected_owner)
+            ):
                 return
             generation = state.generation
             retry_cursor = state.offsets.next_commit_offset
@@ -439,7 +450,9 @@ class KafkaStorageConsumer:
                                 # not process the already-fetched suffix.
                                 continue
                             group.create_task(
-                                self._process_partition(tp, records, semaphore),
+                                self._process_partition(
+                                    tp, records, semaphore, expected_owner=owner
+                                ),
                                 name=f"storage-partition-{tp.partition}",
                             )
                 finally:
