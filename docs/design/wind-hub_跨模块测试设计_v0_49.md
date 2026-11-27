@@ -393,18 +393,18 @@ sequenceDiagram
 
 | 类别 | E2E 唯一配置及用途 |
 |---|---|
-| Deployment | `deployment_e2e-final_v1.0.2.yaml`；选定 9 个 Service 和 6 类 Instance |
-| Collector | `service_collector-e2e-realtime_v1.0.0.yaml`、`service_collector-e2e-reliable_v1.0.0.yaml`；独立身份和 100 ms Task |
-| Gateway | `service_gateway-e2e-source_v1.1.0.yaml`、`service_gateway-e2e-target_v1.1.0.yaml`；令牌鉴权、5 个源协议 Server 和独立 WTG_SINK01 输出目标 |
-| 模型/控制 | `service_data-generator-e2e_v1.1.0.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、可配置 TI=0/固定种子、开启真值记录和 PPC 控制映射 |
-| 派发/入库 | `service_sink-e2e_v1.0.0.yaml`、`service_storage-e2e_v1.1.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
-| CLI | `service_cli-e2e_v1.1.0.yaml`；删除 mTLS Profile，所有业务服务通过 process manager 启动，不依赖生产 CLI 容器状态 |
-| Instance | `site_e2e-final_v1.0.0.yaml`、`device_e2e-final_v1.0.0.yaml`、`collector_tasks_e2e-final_v1.0.0.yaml`、`scenarios_e2e-final_v1.0.0.yaml`、`sinks_e2e-final_v1.0.1.yaml`、`deliveries_e2e-final_v1.0.1.yaml` |
+| Deployment | `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.0.yaml`；精确选择 9 个 Service 和 6 类 Instance |
+| Collector | `service_collector-e2e-realtime_v2.0.0.yaml`、`service_collector-e2e-reliable_v2.0.0.yaml`；独立身份和所选 Collector Task Instance |
+| Gateway | `service_gateway-e2e-source_v1.1.3.yaml`、`service_gateway-e2e-target_v1.1.1.yaml`；令牌鉴权、源协议 Server 和隔离输出目标 |
+| 模型/控制 | `service_data-generator-e2e_v1.1.1.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、隔离仿真场景和 PPC 控制映射 |
+| 派发/入库 | `service_sink-e2e_v2.0.0.yaml`、`service_storage-e2e_v2.0.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
+| CLI | `service_cli-e2e_v1.1.8.yaml`；隔离管理配置按当前部署选择使用，不依赖生产 CLI 容器状态 |
+| Instance | `site_e2e-final_v1.0.0.yaml`、`device_e2e-final_v1.0.1.yaml`、`collector_tasks_e2e-final_v1.0.1.yaml`、`scenarios_e2e-final_v1.0.0.yaml`、`sinks_e2e-final_v1.0.3.yaml`、`deliveries_e2e-final_v1.0.2.yaml` |
 | 本地引导 | `deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml`、`deploy/e2e/storage_bootstrap_e2e_v1.0.0.yaml`；不参与 Configuration Repository 业务文件发布 |
 
 **激活和隔离要求：** 测试执行器在临时工作目录中从正式 `configs/` 选取 E2E Deployment 所需的精确 Service/Instance/Template/BusinessPoint/Units/Protocol 原始 YAML，按相同路径装配**一次性发布根目录**；文件内容及 SHA-256 必须与源文件一致，不建立人工维护的复制模板。使用真实 `config publish --root` 发布该目录。任何运行时地址、令牌环境来源、Python 可执行文件或测试数据库目录调整均须生成新版本的临时 E2E Service/Instance，并更新临时 Deployment 精确选择；绝不能在已发布 `file_version` 上覆盖字节。令牌和独立测试库由 Fixture 准备，禁止引用或删除现场生产密钥/数据。源 Modbus 端口为 15221～15225，Sink Gateway 目标 15121；管理端口为 520xx 系列，Storage 为 52110；应在启动前检查占用并隔离。
 
-**三级数据的配置前置：** 正常基线 `deliveries_e2e-final_v1.0.1.yaml` 仅启用四类 Sink 对应的 PROTOCOL 测试 Delivery，初态 STOP，由 CLI 显式启动。BUSINESS 不能在未取得 Configuration `GetPointTableBundle` 的真实历史 manifest SHA-256 前配置虚构批准值；Fixture 必须先发布并查询真实闭包，生成新的候选 Delivery Instance/Service 文件版本、填充 `config_sync.approved_point_table_manifests` 与查询 Token，校验后再发布、执行 BUSINESS Golden Data 对账。独立 `delivery_e2e_business_history_v1.0.0.yaml` 是保留的受控实验 Template，非默认生效 Delivery。RAW 缺少未解码载荷的真实来源，当前 Sink 拒绝，因此只能做明确的拒绝测试或取得新增生产实现后再做正常数据链，不得用假 RAW Record 宣称 E2E PASS。
+**三级数据的配置前置：** 正常基线 当前 Deployment 选定的 `deliveries_e2e-final_v1.0.2.yaml` 仅启用四类 Sink 对应的 PROTOCOL 测试 Delivery，初态 STOP，由 CLI 显式启动。BUSINESS 不能在未取得 Configuration `GetPointTableBundle` 的真实历史 manifest SHA-256 前配置虚构批准值；Fixture 必须先发布并查询真实闭包，生成新的候选 Delivery Instance/Service 文件版本、填充 `config_sync.approved_point_table_manifests` 与查询 Token，校验后再发布、执行 BUSINESS Golden Data 对账。独立 `delivery_e2e_business_history_v1.0.0.yaml` 是保留的受控实验 Template，非默认生效 Delivery。RAW 必须验证 Driver 真实解码前载荷的来源；当前 Collector BatchBuilder 和 Sink Kafka v3 已具有 `raw_payload_hex` 传递与编码能力，无法提供原始载荷的设备仍必须拒绝，不得凭字段存在即宣布真实 RAW 链路通过，不得用假 RAW Record 宣称 E2E PASS。
 
 **每次联测前门禁：** 对 staged `configs/` 做严格 YAML 解析/重复键拒绝、`schema_version` 和文件名/ID/`file_version` 校验、Deployment→Service→Instance→Template→PointTable→BusinessPoint/Units 的固定版本引用检查、点表展开后的 BusinessPoint 唯一性以及入口 Schema 验证。使用正式 Configuration Candidate 的 Validate 和 Publish 记录最终修订、SHA 和全量成员；校验失败须保持旧修订且本次 E2E 不启动。不能把 schema-only 校验等同语义一致性。
 
@@ -492,7 +492,7 @@ I-04 的标准批次 Publisher 是**分段激励**；只有 E2E-07 通过完整 
 | E2E-09 生命周期 | CLI service manager 对六进程的合法 unit；Sink Main 管理双 Worker | start→status/READY→restart→status→stop；重复启停和服务单侧失败 | 每个 PID、READY、退出码、Worker 清退、无残留连接/僵尸进程；进程状态不代替业务就绪 |
 | E2E-10 故障恢复 | 隔离中间件、TDengine 与 Gateway/DG/Collector/Sink/Storage | 正常基线后逐项断 NATS/Redis/Kafka/Gateway/TDengine 并重启 | Reliable 重投、Realtime 覆盖、Storage Offset/UNKNOWN、配置与控制幂等；最终逐键落库对账 |
 | E2E-11 三级最终落地 | Storage、TDengine、三等级 Delivery 与固定点表闭包 | CLI 启完整链，三级分别派发、入库与查询 | PROTOCOL/BUSINESS 真实值准确；RAW 必须有来源证据，各等级单独裁决 |
-| E2E-12 存储持久性 | Kafka/Storage/TDengine、历史点表 v1/v2 | 同内容重放、同键异值、写确认丢失及 Storage 重启 | 不重复、不覆盖、连续 Offset、SQL 与 QuerySamples 一致，历史值不漂移 |
+| E2E-12 存储持久性 | Kafka/Storage/TDengine、历史点表 v1/v2 | 同内容重放、同键异值、写确认丢失及 Storage 重启 | 同内容重放不增行；同设备/Schema/时间戳的较大 Kafka Offset 完整覆盖（包括 NULL）；连续 Offset、SQL 与 QuerySamples 一致，历史版本解释不漂移 |
 
 **比较规则：** 每条数据必须带有设备 ID、点 ID、时间戳、质量与采集/生成身份。对不断变化的物理量，按已保存真值的时间窗匹配而不是将最新采集值与录制文件最后一步直接相减；对 TI=0 固定风速可以进行确定性绝对误差判定。误差阈值由点表的 scale、数据类型与协议编码精度确定并在用例中显式记录；不允许为使测试通过而临时调大阈值。
 
@@ -523,7 +523,7 @@ Storage 是完整链路的持久化终点，不是 Sink 的第五个适配器。
 
 CLI 先读取当前 `wind-hub --help` 与全部子级帮助，枚举**所有叶子命令**并逐条真实执行，所有业务操作必须通过 CLI；每项至少一项合法或规范拒绝场景。所有未执行 RPC/CLI 均保留在分母。无法由 CLI 覆盖但正式公开的 RPC 可用真实认证客户端调用，注明原因。
 
-当前严格 CLI 全链用例 `tests/cli/test_r1f3_strict_cli_e2e.py` 仅能作为 E2E-07/E2E-09 等场景的部分共享证据：它不等于 E2E-01～10、I-01～09 全覆盖。当前严格 CLI 测试已向 Collector 进程及 CLI 子进程配置一致的真实管理令牌，并验证正确、错误和缺失令牌；仍须在最终 HEAD 上复测，不关闭认证或记录令牌。`tests/system/e2e/full_chain/` 仅有包初始化文件，完整场景证据仍应按本设计逐项补齐。
+当前严格 CLI 全链用例 `tests/cli/test_r1f3_strict_cli_e2e.py` 仅能作为 E2E-07/E2E-09 等场景的部分共享证据：它不等于 E2E-01～10、I-01～09 全覆盖。当前严格 CLI 测试已向 Collector 进程及 CLI 子进程配置一致的真实管理令牌，并验证正确、错误和缺失令牌；仍须在最终 HEAD 上复测，不关闭认证或记录令牌。`tests/system/e2e/full_chain/` 已包含多份用例与 Fixture，但最新 D1 独立复测在装配阶段发现旧路径/安全字段失败；现有测试文件不等于完整场景执行通过。
 
 ~~~text
 cli_command_id,syntax,service,rpc_methods,case_id,config,expected_exit,observed_exit,status
@@ -584,7 +584,7 @@ recording:
 
 ## 9.4 全量目录快照、广播与模块独立生效专项
 
-**运行前提**：中间件和数据库由测试代码独立启动；所有业务模块和 CLI 命令均通过正式 CLI 作为进程管理/操作接口启动或执行，不使用测试直接调用 Application 层冒充 E2E。测试所用 `configs/` 是单一共享测试目录，包含真实和仿真设备实例、Service、PointTable、BusinessPoint/Units 与所有被引用的历史版本。
+**运行前提**：中间件和数据库由测试代码独立启动；所有业务模块和 CLI 命令均通过正式 CLI 作为进程管理/操作接口启动或执行，不使用测试直接调用 Application 层冒充 E2E。必须按隔离的 `deploy/config_roots/<root>/` 发布活动闭包（prod-a、sim-a、e2e-final 分开）；`configs/` 保存多版本历史及共享源码，不得作为单一活动发布根直接提交。
 
 | ID | 配置与进程 | 执行步骤（全部经 CLI） | 独立可验收证据 |
 |---|---|---|---|
@@ -609,7 +609,7 @@ Configuration 发布成功与每个业务模块的实际 `effective_revision` **
 | 验收项 | 激励及配置 | 独立观察与断言 |
 |---|---|---|
 | Collector Realtime | 固定设备实例及点表，CLI 启动多测点采集 | NATS Subject 与模式、场站、device_config_id、device_id 一致，公共采样时间，原始协议标量未做 scale/offset，严格契约 |
-| Collector Reliable | 同上，JetStream Durable 消费 | JSON 字段集、`schema_version=3`、样本质量/时间不变；无 `max_staleness_ms`；重放 `sample_id` 保持稳定 |
+| Collector Reliable | 同上，JetStream Durable 消费 | NATS SampleBatch v4 字段集、`schema_version=4`、Quality 字符串和采样时间不变；无 `max_staleness_ms`；重放 `sample_id` 保持稳定 |
 | RAW/PROTOCOL/BUSINESS | 三个 Delivery 分别显式设置 `output.data_level`，使用相同来源样本及固定历史闭包 | PROTOCOL 保留协议解码来源值，BUSINESS 严格按历史 PointTable/BusinessPoint/Units 标准化；RAW 必须提供可验证的真实来源载荷，来源不具备时显式标记 NOT_SUPPORTED/NOT_RUN；遗漏等级必须拒绝，不存在默认 BUSINESS |
 | Kafka/Redis | 启动真实目标，独立 Client 读取 | Kafka JSON v3 设备批、固定设备配置身份、等级、统一时间、源测点 value/quality、Key/Topic 与 ACK；Redis 独立按自身契约检查 |
 | Modbus/Gateway | 单独启用 Realtime Delivery，读取实际镜像/变量 | 输出地址编码和点位映射正确；不要求目标寄存器传输 JSON 元数据；保留 Gateway 租约和目标隔离 |
@@ -728,8 +728,8 @@ reason: "template only; not executed"
 ## 12.3 配置冻结阻断项
 
 1. **P1：GW2MW BusinessPoint 语义审定**。已新增 `business_points_standard_v1.5.0.yaml`（293+107=400 个候选定义）和 `point_table_ads_wtg_gw2mw_v1.2.0.yaml`（111 源 Point 对 111 不同 BusinessPoint），并升级 DeviceModel/Device Instance/Deployment 的**候选**版本；历史 `v1.1.0` 仍保留以便追溯。原 22 组重复身份的结构问题已在候选内消解，但全部相关 OEM Symbol、物理位置和命令/状态语义仍需现场批准，不能仅凭业务 ID 唯一就判 P1 CLOSED。完整逐点证据为 `docs/audit/gw2mw_businesspoint_semantic_mapping_candidate_20261123.csv`。
-2. **P1：现行生产 Deployment** `deployment_prod-a_v1.3.0.yaml` 尚未选择 Storage Service（仅 E2E 专用 Deployment 已选择）；若要冻结生产完整采集到存储的配置闭包，须按版本治理制定生产 Deployment 升级并独立验证，不能因为 E2E 通过就认定 prod-a 已具备完整链路。
-3. **P1：RAW** 当前 Sink 编码器缺少真实未解码载荷，三级全链验收不得宣称通过；BUSINESS 必须有真实批准历史 manifest，不能以全零或任意摘要充当信任证据。
+2. **历史 P1 已在候选配置结构上整改**：`deployment_prod-a_v1.3.0.yaml` 曾未选择 Storage；当前 `deploy/config_roots/prod-a/deployments/deployment_prod-a_v2.0.0.yaml` 已显式选择 Storage Service，但发布、活动配置和生产资格仍须以实际验收为准。
+3. **RAW/BUSINESS 审批边界**：当前 Collector/Sink 已有原始字节传输与 RAW 编码能力，但每个真实协议源仍须提供解码前载荷证据；BUSINESS 必须有真实批准历史 manifest，不能以全零或任意摘要充当信任证据。
 4. **P2：多版本目录/固定路径迁移**。旧生产文件头 `device_farm-a_v1.4.0.yaml` 仍引用 v1.3.0，新候选 `device_farm-a_v1.5.0.yaml` 已更正。配置根同时保留历史标准业务目录 v1.4.0 和候选 v1.5.0，仍存在固定文件名加载方及未固定旧依赖的 PointTable，正式完整目录发布前必须完成调用方同步与独立发布根的版本消歧；不可原地改写已经发布的历史内容。
 5. **验证状态：NOT_RUN**。本次为远程文件静态审查及 E2E 配置草案，尚未执行全目录 Publisher/Candidate、全部 Python Schema Loader、真实 CLI、Docker Broker/TDengine 和性能/故障联测；未经实测不得裁定 READY_TO_FREEZE。
 
