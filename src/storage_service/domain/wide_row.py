@@ -35,7 +35,7 @@ def bind_wide_row(record: WideRecord, schema: WideSchema) -> BoundWideRow:
     """Bind every column in physical order without coercion or field patching."""
     if record.data_level != schema.data_level:
         raise ValueError("wide-row data level differs from physical schema")
-    if record.point_ids != tuple(column.point_id for column in schema.columns):
+    if record.point_ids != schema.point_ids:
         raise ValueError("wide-row point set/order differs from physical schema")
     if len(record.quality_bitmap) != schema.quality_bytes:
         raise ValueError("wide-row quality bitmap length differs from physical schema")
