@@ -239,13 +239,13 @@ def _run_restore(command: list[str], env: dict[str, str], output_path: Path) -> 
     if pid == 0:
         os.execve(command[0], command, env)
     output = bytearray()
+    prompted = False
     status = 0
     deadline = time.monotonic() + 180
     try:
         attributes = termios.tcgetattr(master)
         attributes[3] &= ~termios.ECHO
         termios.tcsetattr(master, termios.TCSANOW, attributes)
-        os.write(master, (PASSWORD + "\n").encode("utf-8"))
         while True:
             ready, _, _ = select.select([master], [], [], 0.1)
             if ready:
@@ -258,6 +258,9 @@ def _run_restore(command: list[str], env: dict[str, str], output_path: Path) -> 
                 if not chunk:
                     break
                 output.extend(chunk)
+                if not prompted and b"Enter password:" in output:
+                    os.write(master, (PASSWORD + "\n").encode("utf-8"))
+                    prompted = True
                 if len(output) > 4 * 1024 * 1024:
                     raise AssertionError("taosdump restore output exceeded evidence budget")
             waited, status = os.waitpid(pid, os.WNOHANG)
@@ -272,6 +275,7 @@ def _run_restore(command: list[str], env: dict[str, str], output_path: Path) -> 
     finally:
         os.close(master)
         output_path.write_bytes(output)
+    assert prompted, "taosdump restore password prompt was not observed"
     assert PASSWORD.encode("utf-8") not in output
     assert os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, (
         status,
@@ -556,7 +560,7 @@ async def test_real_backup_and_taosdump_rename_restore(
         }
         restore_output = tmp_path / "taosdump-restore.log"
         await asyncio.to_thread(_run_restore, restore_command, restore_env, restore_output)
-        table = WideSchema.subtable_name(DEVICE)
+        table = manifest["wide_schema_ownership"][0]["name"].split(".", 1)[1]
         await asyncio.to_thread(_verify_restored, stack.tdengine_rest, restored_database, table)
         print(
             f"RESTORE_VERIFIED database={restored_database} table={table} "

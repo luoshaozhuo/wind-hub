@@ -40,6 +40,9 @@ import time
 
 mode = os.environ["TEST_TAOSDUMP_MODE"]
 out = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+time.sleep(0.05)
+sys.stderr.write("Enter password: ")
+sys.stderr.flush()
 sys.stdin.readline()
 pathlib.Path(os.environ["TEST_TAOSDUMP_PID_FILE"]).write_text(
     str(os.getpid()), encoding="ascii"

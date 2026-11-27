@@ -34,6 +34,37 @@ def _claim_controlling_tty() -> None:
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
+async def _pump_pty_input(master: int, password: str, process: asyncio.subprocess.Process) -> None:
+    """Drain terminal output and send the secret only after the password prompt."""
+    os.set_blocking(master, False)
+    prompted = False
+    tail = b""
+    while True:
+        try:
+            chunk = os.read(master, 4096)
+        except BlockingIOError:
+            if process.returncode is not None:
+                if not prompted:
+                    raise NativeBackupError("taosdump exited before its password prompt") from None
+                return
+            await asyncio.sleep(0.01)
+            continue
+        except OSError:
+            if not prompted:
+                raise NativeBackupError("taosdump password prompt is unavailable") from None
+            return
+        if not chunk:
+            if not prompted:
+                raise NativeBackupError("taosdump password prompt closed unexpectedly")
+            return
+        if prompted:
+            continue
+        tail = (tail + chunk)[-4096:]
+        if b"Enter password:" in tail:
+            os.write(master, (password + "\n").encode("utf-8"))
+            prompted = True
+
+
 class NativeBackupError(RuntimeError):
     """The native backup tool or its generated artifact cannot be trusted."""
 
@@ -122,8 +153,8 @@ class NativeTDengineBackup:
                 process = await asyncio.create_subprocess_exec(
                     *command,
                     stdin=slave,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stdout=slave,
+                    stderr=slave,
                     start_new_session=True,
                     preexec_fn=_claim_controlling_tty,
                 )
@@ -135,8 +166,11 @@ class NativeTDengineBackup:
         try:
             watcher = asyncio.create_task(self._watch_output(process, path))
             try:
-                os.write(master, (password + "\n").encode("utf-8"))
-                await asyncio.wait_for(process.wait(), timeout=self._config.backup.timeout_s)
+                await asyncio.wait_for(
+                    _pump_pty_input(master, password, process),
+                    timeout=self._config.backup.timeout_s,
+                )
+                await process.wait()
                 if watcher.done() and not watcher.cancelled():
                     watcher.result()
                 result = process.returncode
