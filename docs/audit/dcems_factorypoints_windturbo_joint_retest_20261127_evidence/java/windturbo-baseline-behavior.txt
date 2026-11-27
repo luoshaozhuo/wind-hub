@@ -1,0 +1,54 @@
+FAIL rsc_workmode_null_no_npe -> java.lang.NullPointerException
+FAIL rsc_workmode_4_no_npe -> java.lang.NullPointerException
+OBS rsc_mode4 emsReaRun=null;emsFaultStateYunNan=false;emsConverterRatio=100.0;
+FAIL rsc_workmode_8_no_npe -> java.lang.NullPointerException
+OBS rsc_mode8 emsReaRun=null;emsFaultStateYunNan=false;
+FAIL rsc_workmode_16_no_npe -> java.lang.NullPointerException
+FAIL rsc_workmode_32_no_npe -> java.lang.NullPointerException
+OBS rsc_mode32 emsReaRun=1;
+FAIL rsc_workmode_64_no_npe -> java.lang.NullPointerException
+FAIL rsc_isSample_null_no_npe -> java.lang.NullPointerException
+OBS rsc_issample_null emsReaRun=null;
+PASS wmu_comstate_false_no_npe
+FAIL wmu_comstate_null_no_npe -> java.lang.NullPointerException
+OBS wmu_comstate_null emsRunState=false;emsTurboStatus=null;
+FAIL wmu_faultstate_null_no_npe -> java.lang.NullPointerException
+OBS wmu_faultstate_null emsFaultOrMainState=false;emsTurboStatus=null;emsRunStateForShanDong=null;
+FAIL wmu_mode32_grid -> java.lang.NullPointerException run=false
+OBS wmu_mode32 emsRunState=false;emsTurboStatus=null;emsRunStateForShanDong=null;inertiaLimitEnable=false;
+FAIL wmu_mode64_fault -> java.lang.NullPointerException fault=true
+OBS wmu_mode64 emsFaultOrMainState=true;emsTurboStatus=3;emsFaultStateYunNan=false;
+FAIL wmu_mode8_no_npe -> java.lang.NullPointerException
+OBS wmu_mode8 emsRunState=false;emsTurboStatus=1;
+FAIL rsd_comstate_null_no_npe -> java.lang.NullPointerException
+OBS rsd_comstate_null emsRunStateForShanDong=null;emsCapacityShanDong=0.0;
+FAIL rsd_mode32_grid_state -> java.lang.NullPointerException state=1
+OBS rsd_mode32 emsRunStateForShanDong=1;emsCapacityShanDong=50.0;emsPowerActShanDong=1.0;
+FAIL rsd_mode4_no_npe -> java.lang.NullPointerException
+FAIL rsd_mode_null_no_npe -> java.lang.NullPointerException
+FAIL rsd_power_null_no_npe -> java.lang.NullPointerException
+OBS rsd_power_null emsRunStateForShanDong=2;emsPowerActShanDong=0.0;
+FAIL cia_mode_null_no_npe -> java.lang.NullPointerException
+OBS cia_mode_null inertiaLimitEnable=false;
+FAIL cia_power_null_no_npe -> java.lang.NullPointerException
+OBS cia_power_null inertiaLimitEnable=false;
+PASS cia_power_high_can_alter
+OBS cia_power_high inertiaLimitEnable=true;
+FAIL cwi_comstate_null_false -> THREW:java.lang.NullPointerException java.lang.NullPointerException
+OBS cwi_comstate_null THREW:java.lang.NullPointerException
+PASS cwi_comstate_false_false
+PASS cwi_grid_ready_true
+OBS cwi_ready true
+PASS cwi_mode4_false
+FAIL rsc_localonoff_null_power_no_npe -> java.lang.NullPointerException
+OBS rsc_localonoff emsReaRun=2;emsReactSetLimitTurbo=null;
+FAIL rsc_forbid_null_power_no_npe -> java.lang.NullPointerException
+FAIL rsc_cancrl_null_power_no_npe -> java.lang.NullPointerException
+FAIL rsc_realogo1_null_power_no_npe -> java.lang.NullPointerException
+FAIL rsc_realogo0_null_power_no_npe -> java.lang.NullPointerException
+FAIL mix_three_turbines_no_npe -> java.lang.NullPointerExceptionjava.lang.NullPointerExceptionjava.lang.NullPointerException
+PASS mix_grid_turbine_state_1
+PASS mix_offgrid_turbine_not_1
+FAIL mix_null_com_turbine_state_4 -> null
+OBS mix a=1 b=2 c=null
+FAILURES=27

@@ -80,7 +80,12 @@ def test_windturbo_patch_guards_work_mode() -> None:
     patch = (
         REPO_ROOT / "tests/third_party/dc_ems/patches/windturbo-null-workmode.patch"
     ).read_text(encoding="utf-8")
-    assert patch.count("\n@@ ") == 7
+    assert patch.count("\n@@ ") == 23
+    assert "Boolean.TRUE.equals(emsComState.getVal())" in patch
+    assert "Boolean.TRUE.equals(emsFaultState.getVal())" in patch
+    assert "reaLogic == null ? 0 : reaLogic" in patch
+    assert "emsWinSpd.getVal() == null ? 0d" in patch
+    assert "emsPowAct.getVal() == null ? 0d" in patch
     for mode in (4, 8, 16, 32, 64):
         assert f"Integer.valueOf({mode}).equals(emsWorkMode.getVal())" in patch or (
             mode == 32 and "Integer.valueOf(32).equals(workMode)" in patch

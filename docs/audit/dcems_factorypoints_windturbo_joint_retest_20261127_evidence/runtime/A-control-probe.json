@@ -1,0 +1,9 @@
+{
+  "phase": "A_released",
+  "setParam": "200",
+  "request_id": "76650a25f7e844c5923e0cacb7c9fe22",
+  "command_id": "adc06509-6722-4071-b8a2-885008f5a5e1",
+  "state": "SUCCEEDED",
+  "outcome": "CONFIRMED_SUCCESS",
+  "dg_step": 2298
+}

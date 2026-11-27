@@ -1,11 +1,85 @@
 --- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
 +++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
-@@ -748,3 +748,3 @@
+@@ -724,41 +724,48 @@
+             emsConverterRatio.update(100d);
+         }
+         // 机组容量（考虑单模）
+-        double calCapacity = emsConverterRatio.getVal() / 100 * capacity.getVal();
+-        if (FactoryConfig.emsReactCanCtrlEnable.getVal() && !emsReactCanCtrl.getVal()) {          
++        Double ratioVal = emsConverterRatio.getVal();
++        Double capacityVal = capacity.getVal();
++        double calCapacity = (ratioVal == null ? 0d : ratioVal) / 100 * (capacityVal == null ? 0d : capacityVal);
++        if (FactoryConfig.emsReactCanCtrlEnable.getVal() && !Boolean.TRUE.equals(emsReactCanCtrl.getVal())) {          
+                 emsReaRun.update(2);
+-                emsTheoryReactPower.update(emsPowReact.getVal());
+-                emsPowReactLow.update(emsPowReact.getVal());
+-                emsReactSetLimitTurbo.update(Math.abs(emsReactPowerMaxSetFeedback.getVal()));
++                emsTheoryReactPower.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++                emsPowReactLow.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++                emsReactSetLimitTurbo.update((emsReactPowerMaxSetFeedback.getVal() == null ? 0d : Math.abs(emsReactPowerMaxSetFeedback.getVal())));
+                 FixedReaPowerList.add(this);
+                 AlterPower2List.remove(this);    
+         } else if (forbidReActPower.getVal()) {
+             emsReaRun.update(3);
+-            emsTheoryReactPower.update(emsPowReact.getVal());
+-            emsPowReactLow.update(emsPowReact.getVal());
+-            emsReactSetLimitTurbo.update(Math.abs(emsPowReact.getVal()));
++            emsTheoryReactPower.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++            emsPowReactLow.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++            emsReactSetLimitTurbo.update((emsPowReact.getVal() == null ? 0d : Math.abs(emsPowReact.getVal())));
+             FixedReaPowerList.add(this);
+             AlterPower2List.remove(this);
+         } else if (emsLocalOnOff.getVal() || emsLimitReactPowerMonitor.getVal()) {
+             emsReaRun.update(2);
+-            emsTheoryReactPower.update(emsPowReact.getVal());
+-            emsPowReactLow.update(emsPowReact.getVal());
+-            emsReactSetLimitTurbo.update(Math.abs(emsReactPowerMaxSetFeedback.getVal()));
++            emsTheoryReactPower.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++            emsPowReactLow.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal());
++            emsReactSetLimitTurbo.update((emsReactPowerMaxSetFeedback.getVal() == null ? 0d : Math.abs(emsReactPowerMaxSetFeedback.getVal())));
+             FixedReaPowerList.add(this);
              AlterPower2List.remove(this);
 -        } else if (isSample.getVal() || emsWorkMode.getVal() == 32) {
 +        } else if (Boolean.TRUE.equals(isSample.getVal()) || Integer.valueOf(32).equals(emsWorkMode.getVal())) {
              emsReaRun.update(1);
-@@ -776,4 +776,5 @@
+             FixedReaPowerList.remove(this);
+             AlterPower2List.add(this);
+ 
+-            if (FactoryConfig.iCtrlReaLogicPoint.getVal() == 1) {
+-                double apparent = calCapacity / cos.getVal();
++            Integer reaLogic = FactoryConfig.iCtrlReaLogicPoint.getVal();
++            int reaLogicVal = reaLogic == null ? 0 : reaLogic;
++            if (reaLogicVal == 1) {
++                Double cosVal = cos.getVal();
++                double apparent = calCapacity / (cosVal == null ? 0d : cosVal);
+                 double eReaPow = Math.sqrt(apparent * apparent - calCapacity * calCapacity);
+-                double curRea = Math.sqrt(Math.abs(apparent * apparent - emsPowAct.getVal() * emsPowAct.getVal()));
++                Double powActR = emsPowAct.getVal();
++                double powActRVal = powActR == null ? 0d : powActR;
++                double curRea = Math.sqrt(Math.abs(apparent * apparent - powActRVal * powActRVal));
+                 emsTheoryReactPower.update(min(min(eReaPow, FactoryConfig.ReaPowerSetMax.getVal()), curRea));
+                 emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
+-            } else if (FactoryConfig.iCtrlReaLogicPoint.getVal() == 0) {
+-                emsTheoryReactPower.update(emsPowAct.getVal() * FactoryConfig.fcReaPowerRatio.getVal());
++            } else if (reaLogicVal == 0) {
++                emsTheoryReactPower.update((emsPowAct.getVal() == null ? 0d : emsPowAct.getVal()) * FactoryConfig.fcReaPowerRatio.getVal());
+                 emsReactSetLimitTurbo.update(emsTheoryReactPower.getVal());
+             } else {// 解耦版
+                 emsTheoryReactPower.update(max(calCapacity * FactoryConfig.fcReaPowerRatio.getVal(), 0d));
+@@ -766,7 +773,9 @@
+             }
+             emsPowReactLow.update(calPowReactLow());
+         } else {
+-            if (FactoryConfig.iCtrlReaLogicPoint.getVal() == 0 || FactoryConfig.iCtrlReaLogicPoint.getVal() == 1) {
++            Integer reaLogic2 = FactoryConfig.iCtrlReaLogicPoint.getVal();
++            int reaLogicVal2 = reaLogic2 == null ? 0 : reaLogic2;
++            if (reaLogicVal2 == 0 || reaLogicVal2 == 1) {
+                 emsReaRun.update(4);
+                 emsTheoryReactPower.update(0d);
+                 emsPowReactLow.update(0d);
+@@ -774,8 +783,9 @@
+                 FixedReaPowerList.add(this);
+                 AlterPower2List.remove(this);
              } else {// 解耦版
 -                if ((emsWorkMode.getVal() == 4 && !emsFaultState.getVal()) || emsWorkMode.getVal() == 8
 -                        || emsWorkMode.getVal() == 16) {
@@ -13,28 +87,267 @@
 +                        || Integer.valueOf(8).equals(emsWorkMode.getVal())
 +                        || Integer.valueOf(16).equals(emsWorkMode.getVal())) {
                      emsTheoryReactPower.update(max(calCapacity * FactoryConfig.fcReaPowerRatio.getVal(), 0d));
-@@ -928,3 +929,3 @@
+                     emsPowReactLow.update(calPowReactLow());
+                     emsReaRun.update(1);
+@@ -790,7 +800,8 @@
+             }
+         }
+        
+-        if( FactoryConfig.iCtrlReaLogicPoint.getVal() ==2 && FactoryConfig.emsConverterReaEnable.getVal() && !emsConverterReadyRun.getVal())
++        Integer reaLogic3 = FactoryConfig.iCtrlReaLogicPoint.getVal();
++        if( (reaLogic3 == null ? 0 : reaLogic3) ==2 && FactoryConfig.emsConverterReaEnable.getVal() && !emsConverterReadyRun.getVal())
+         {//只适用于解耦版
+             emsReaRun.update(5);
+             emsTheoryReactPower.update(0d);
+@@ -921,16 +932,17 @@
+      */
+     private void emsWorkModeUpdate() {
+         emsWorkMode.dataUpdate(fun(t -> {
+-            if (!emsComState.getVal()) {
++            if (!Boolean.TRUE.equals(emsComState.getVal())) {
+                 return;
+             }
+-            theoryPowerMiddle.update(mOughtPowerT.getVal());
++            Double oughtVal = mOughtPowerT.getVal();
++            theoryPowerMiddle.update(oughtVal == null ? 0d : oughtVal);
              Integer workMode = emsWorkMode.getVal();
 -            if (workMode != 32) {
 +            if (!Integer.valueOf(32).equals(workMode)) {
                  // 只要工作模式不为并网(32)，则一直更新这个时间
-@@ -941,3 +942,3 @@
+                 recentNoGridTm.update(System.currentTimeMillis());
+             }
+-            if (emsFaultState.getVal()) {
++            if (Boolean.TRUE.equals(emsFaultState.getVal())) {
+                 add(FaultList);
+                 theoryPowerMiddle.update(0d);
+                 // mOughtPowerT.update(0d);
+@@ -939,7 +951,7 @@
+                 emsTurboStatusSiChuan.update(0);
+                 emsTheoryReactPower.update(0d);
                  emsPowReactLow.update(0d);
 -                if (emsWorkMode.getVal() != 64) {
 +                if (!Integer.valueOf(64).equals(emsWorkMode.getVal())) {
                      emsFaultStateYunNan.update(true);
-@@ -989,3 +990,3 @@
+                     add(FaultNoMainList);
+                     remove(FaultAndMainList);
+@@ -967,7 +979,9 @@
+     }
+ 
+     private void calLimitState() {
+-        boolean free = emsActPowerMaxSetFeedback.getVal() >= capacity.getVal() &&
++        Double maxSetFb = emsActPowerMaxSetFeedback.getVal();
++        Double capFree = capacity.getVal();
++        boolean free = (maxSetFb == null ? 0d : maxSetFb) >= (capFree == null ? 0d : capFree) &&
+         // emsActPowerSetInertia.getVal() >= capacity.getVal() &&
+                 !emsAutoLimitState.getVal() && !emsLocalLimitState.getVal() && !emsRemoteLimitState.getVal();
+         if (!free) {
+@@ -980,22 +994,22 @@
+      * 计算状态山东
+      */
+     private void calRunStateShanDong(){
+-        if(!emsComState.getVal())
++        if(!Boolean.TRUE.equals(emsComState.getVal()))
+         {
+             emsRunStateForShanDong.update(4);
+         }else if(emsWaitStateShanDong.getVal()){
+             emsRunStateForShanDong.update(2);
+         }else if(emsFaultOrMainState.getVal()){
              emsRunStateForShanDong.update(3);
 -        }else if(emsWorkMode.getVal() == 32){
 +        }else if(Integer.valueOf(32).equals(emsWorkMode.getVal())){
              emsRunStateForShanDong.update(1);
-@@ -1040,3 +1041,3 @@
+         }
+         //容量
+-        emsCapacityShanDong.update(capacity.getVal()/1000);
++        emsCapacityShanDong.update((capacity.getVal() == null ? 0d : capacity.getVal())/1000);
+         //有功
+-        emsPowerActShanDong.update(max(emsPowAct.getVal()/1000,0d));
++        emsPowerActShanDong.update(max(emsPowAct.getVal() == null ? 0d : emsPowAct.getVal()/1000,0d));
+         //无功
+-        emseReaPowerActShanDong.update(emsPowReact.getVal()/1000);    
++        emseReaPowerActShanDong.update(emsPowReact.getVal() == null ? 0d : emsPowReact.getVal()/1000);    
+         //电压
+         Double[] Vol =new Double[3];
+         if(emsVoltageA.getVal() != null)
+@@ -1005,7 +1019,8 @@
+         if(emsVoltageC != null)
+             Vol[2] = emsVoltageC.getVal();
+         Arrays.sort(Vol);
+-        if(emsRunStateForShanDong.getVal() == 3)
++        Integer runStateShanDong = emsRunStateForShanDong.getVal();
++        if(runStateShanDong != null && runStateShanDong == 3)
+             emsVoltageShanDong.update(0d);
+         else
+             emsVoltageShanDong.update(max(Vol[1],0.01d));
+@@ -1018,15 +1033,15 @@
+         //功率因数
+         emsCosCoeShanDong.update(emsCosCoe.getVal());
+         //机头风速
+-        emsWinSpdShanDong.update(max(min(emsWinSpd.getVal(),100d),0d));
++        emsWinSpdShanDong.update(max(min(emsWinSpd.getVal() == null ? 0d : emsWinSpd.getVal(),100d),0d));
+         //机头风向
+         emsWinDirShanDong.update(emsWinDir.getVal() + 180);
+         //日发电量
+         emsdayEnergyShanDong.update(emsdayEnergy.getVal());
+         //发电机转速
+-        emsGenRotateSpdShanDong.update(max(min(emsGenRotateSpd.getVal(),2500),0));
++        emsGenRotateSpdShanDong.update(max(min(emsGenRotateSpd.getVal() == null ? 0d : emsGenRotateSpd.getVal(),2500),0));
+         //桨距角
+-        emsBladeAngleShanDong.update(max(min(emsBladeAngle1.getVal(),100),0));
++        emsBladeAngleShanDong.update(max(min(emsBladeAngle1.getVal() == null ? 0d : emsBladeAngle1.getVal(),100),0));
+             
+     }
+     /**
+@@ -1038,15 +1053,17 @@
+             return;
+         }
          boolean canAlter = false;
 -        if (emsWorkMode.getVal() == 32) {
+-            double actPower = emsPowAct.getVal();
 +        if (Integer.valueOf(32).equals(emsWorkMode.getVal())) {
-             double actPower = emsPowAct.getVal();
-@@ -1632,3 +1633,3 @@
++            Double powActVal = emsPowAct.getVal();
++            double actPower = powActVal == null ? 0d : powActVal;
+             // 自动降容
+             if (emsAutoLimitState.getVal()) {
+                 if (inertiaLimitValue.getVal() != null) {
+-                    canAlter = actPower < inertiaLimitValue.getVal() && actPower > 0.2 * capacity.getVal();
++                    canAlter = actPower < inertiaLimitValue.getVal()
++                        && actPower > 0.2 * (capacity.getVal() == null ? 0d : capacity.getVal());
+                 }
+             } else {
+-                canAlter = actPower > 0.2 * capacity.getVal();
++                canAlter = actPower > 0.2 * (capacity.getVal() == null ? 0d : capacity.getVal());
+             }
+         }
+         inertiaLimitEnable.update(canAlter);
+@@ -1067,7 +1084,7 @@
+             return;
+         }
+         if (workMode == 32) {
+-            if (isSample.getVal()) {
++            if (Boolean.TRUE.equals(isSample.getVal())) {
+                 add(tmpSampleList);
+                 remove(minGenPowerList);
+             } else {
+@@ -1109,10 +1126,14 @@
+         tp.update(0d);
+         if (isSample.getVal() || forbidActPower.getVal()) {
+             emsRun.update(4);
+-            emsActSetLimitTurbo.update(max(genRateActPower.getVal(), emsActPowerMaxSetFeedback.getVal()));
++            Double genRate = genRateActPower.getVal();
++            Double maxSetFb3 = emsActPowerMaxSetFeedback.getVal();
++            emsActSetLimitTurbo.update(max(genRate == null ? 0d : genRate, maxSetFb3 == null ? 0d : maxSetFb3));
+         } else if (emsLocalOnOff.getVal() || emsLimitActPowerMonitor.getVal() || (FactoryPoint.emsIsFreMod.getVal() && FactoryPoint.emsIsFreDeadTest.getVal() && isFreDeadNotControl.getVal() == 0)) {
+             emsRun.update(5);
+-            emsActSetLimitTurbo.update(max(genRateActPower.getVal(), emsActPowerMaxSetFeedback.getVal()));
++            Double genRate = genRateActPower.getVal();
++            Double maxSetFb3 = emsActPowerMaxSetFeedback.getVal();
++            emsActSetLimitTurbo.update(max(genRate == null ? 0d : genRate, maxSetFb3 == null ? 0d : maxSetFb3));
+         } else {
+             emsRun.update(2);
+             emsActSetLimitTurbo.update(genRateActPower.getVal());
+@@ -1187,7 +1208,9 @@
+             emsRun.update(5);
+             if(!(FactoryPoint.emsIsFreMod.getVal() && FactoryPoint.emsIsFreDeadTest.getVal() && isFreDeadNotControl.getVal() == 0))
+                 tp.update(emsPowAct.getVal());
+-            emsActSetLimitTurbo.update(max(genRateActPower.getVal(), emsActPowerMaxSetFeedback.getVal()));
++            Double genRate = genRateActPower.getVal();
++            Double maxSetFb3 = emsActPowerMaxSetFeedback.getVal();
++            emsActSetLimitTurbo.update(max(genRate == null ? 0d : genRate, maxSetFb3 == null ? 0d : maxSetFb3));
+             emsNormalGenStateYunNan.update(true);
+             NormalRunListYunNan.add(this);
+             remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
+@@ -1200,7 +1223,9 @@
+         if (FactoryConfig.kk_flag.getVal() && emsLocalActPowerEnableState.getVal()) {
+             emsRun.update(5);
+             tp.update(emsPowAct.getVal());
+-            emsActSetLimitTurbo.update(max(genRateActPower.getVal(), emsActPowerMaxSetFeedback.getVal()));
++            Double genRate = genRateActPower.getVal();
++            Double maxSetFb3 = emsActPowerMaxSetFeedback.getVal();
++            emsActSetLimitTurbo.update(max(genRate == null ? 0d : genRate, maxSetFb3 == null ? 0d : maxSetFb3));
+             emsNormalGenStateYunNan.update(true);
+             NormalRunListYunNan.add(this);
+             remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
+@@ -1214,7 +1239,9 @@
+         if (emsUnControlledState.getVal()) {
+             emsRun.update(5);
+             tp.update(emsPowAct.getVal());
+-            emsActSetLimitTurbo.update(max(genRateActPower.getVal(), emsActPowerMaxSetFeedback.getVal()));
++            Double genRate = genRateActPower.getVal();
++            Double maxSetFb3 = emsActPowerMaxSetFeedback.getVal();
++            emsActSetLimitTurbo.update(max(genRate == null ? 0d : genRate, maxSetFb3 == null ? 0d : maxSetFb3));
+             emsNormalGenStateYunNan.update(true);
+             NormalRunListYunNan.add(this);
+             remove(NormalRunSampleList, LimitListYunNan, FreeRunList,
+@@ -1231,7 +1258,8 @@
+             emsTurboStatus.update(0);
+             tp.update(min(mOughtPowerT.getVal(), emsAutoLimitSetFeedback.getVal()));
+             emsActSetLimitTurbo.update(min(emsAutoLimitSetFeedback.getVal(), genRateActPower.getVal()));
+-            if (diffPitchAngle.getVal() < FactoryConfig.fWTAngleDiff.getVal()) {
++            Double fwtAngleDiff = FactoryConfig.fWTAngleDiff.getVal();
++        if (diffPitchAngle.getVal() < (fwtAngleDiff == null ? 0d : fwtAngleDiff)) {
+                 emsRun.update(-1);
+                 UnsteadyAlterPowerList.add(this);
+                 SteadyAlterPowerList.remove(this);
+@@ -1240,7 +1268,9 @@
+                 UnsteadyAlterPowerList.remove(this);
+                 SteadyAlterPowerList.add(this);
+             }
+-            if (emsActPowerMaxSetFeedback.getVal() > capacity.getVal()) {
++            Double maxSetFb2 = emsActPowerMaxSetFeedback.getVal();
++        Double capDetail = capacity.getVal();
++        if ((maxSetFb2 == null ? 0d : maxSetFb2) > (capDetail == null ? 0d : capDetail)) {
+                 emsNormalGenStateYunNan.update(true);
+                 add(NormalRunListYunNan);
+                 remove(LimitListYunNan);
+@@ -1257,7 +1287,8 @@
+         emsTurboStatusSiChuan.update(1);
+         emsTurboStatus.update(0);
+         emsActSetLimitTurbo.update(genRateActPower.getVal());
+-        if (diffPitchAngle.getVal() < FactoryConfig.fWTAngleDiff.getVal()) {
++        Double fwtAngleDiff = FactoryConfig.fWTAngleDiff.getVal();
++        if (diffPitchAngle.getVal() < (fwtAngleDiff == null ? 0d : fwtAngleDiff)) {
+             emsRun.update(-1);
+             UnsteadyAlterPowerList.add(this);
+             SteadyAlterPowerList.remove(this);
+@@ -1266,7 +1297,9 @@
+             SteadyAlterPowerList.add(this);
+             UnsteadyAlterPowerList.remove(this);
+         }
+-        if (emsActPowerMaxSetFeedback.getVal() > capacity.getVal()) {
++        Double maxSetFb2 = emsActPowerMaxSetFeedback.getVal();
++        Double capDetail = capacity.getVal();
++        if ((maxSetFb2 == null ? 0d : maxSetFb2) > (capDetail == null ? 0d : capDetail)) {
+             emsNormalGenStateYunNan.update(true);
+             NormalRunListYunNan.add(this);
+         } else {
+@@ -1295,7 +1328,7 @@
+             RepairList.remove(this);
+         }
+ 
+-        if (emsFaultState.getVal() || workMode == 64) {
++        if (Boolean.TRUE.equals(emsFaultState.getVal()) || Integer.valueOf(64).equals(workMode)) {
+             emsFaultOrMainState.update(true);
+         } else {
+             emsFaultOrMainState.update(false);
+@@ -1357,7 +1390,10 @@
+      * 大风/等风/无风
+      */
+     private void calWorkMode(Integer workMode) {
+-        Double winSpd = emsWinSpd.getVal();
++        // 缺失的 SCADA 状态按字段声明默认值参与分类，避免拆箱异常中断调度统计。
++        workMode = workMode == null ? 0 : workMode;
++        Double winSpdRaw = emsWinSpd.getVal();
++        Double winSpd = winSpdRaw == null ? 0d : winSpdRaw;
+         if (workMode != 32 && !emsFaultOrMainState.getVal() && emsComState.getVal())
+         {
+             emsWaitStateShanDong.update(true);
+@@ -1630,7 +1666,7 @@
+         long curTm = System.currentTimeMillis();
+         boolean gridTmOk = curTm - recentNoGridTm.getVal() > 30_000;
          boolean limitTmOk = curTm - recentNoLimitTm.getVal() > 30_000;
 -        return emsComState.getVal() && emsWorkMode.getVal() == 32
 +        return Boolean.TRUE.equals(emsComState.getVal()) && Integer.valueOf(32).equals(emsWorkMode.getVal())
                  && gridTmOk
+                 && limitTmOk;
+     }

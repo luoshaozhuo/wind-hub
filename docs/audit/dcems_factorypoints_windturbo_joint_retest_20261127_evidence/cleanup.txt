@@ -1,0 +1,3 @@
+all ports released
+no test containers
+no test volumes

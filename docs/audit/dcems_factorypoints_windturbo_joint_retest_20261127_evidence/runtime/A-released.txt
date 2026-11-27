@@ -1,0 +1,15 @@
+## Runtime A: RELEASED jar (dc-ems-server:1.1.4-583d5da)
+released jar sha256: 1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2
+window: up + 60s+
+NullPointerException total: 6
+checkIsLimit NPE (check factory limit): 4
+reactStateCheck NPE: 0
+thread death (Exception in thread): 2
+--- sample NPE frames ---
+      4 at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+      4 at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+      4 at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+      2 at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:865)
+      2 at cn.hedpy.scada.emslib.entity.FactoryPoints.calComOkValues(FactoryPoints.java:1394)
+      1 at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+      1 at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)

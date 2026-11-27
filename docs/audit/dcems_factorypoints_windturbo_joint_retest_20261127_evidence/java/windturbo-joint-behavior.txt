@@ -1,0 +1,54 @@
+PASS rsc_workmode_null_no_npe
+PASS rsc_workmode_4_no_npe
+OBS rsc_mode4 emsReaRun=4;emsFaultStateYunNan=false;emsConverterRatio=100.0;
+PASS rsc_workmode_8_no_npe
+OBS rsc_mode8 emsReaRun=4;emsFaultStateYunNan=false;
+PASS rsc_workmode_16_no_npe
+PASS rsc_workmode_32_no_npe
+OBS rsc_mode32 emsReaRun=1;
+PASS rsc_workmode_64_no_npe
+PASS rsc_isSample_null_no_npe
+OBS rsc_issample_null emsReaRun=1;
+PASS wmu_comstate_false_no_npe
+PASS wmu_comstate_null_no_npe
+OBS wmu_comstate_null emsRunState=false;emsTurboStatus=null;
+PASS wmu_faultstate_null_no_npe
+OBS wmu_faultstate_null emsFaultOrMainState=false;emsTurboStatus=1;emsRunStateForShanDong=2;
+PASS wmu_mode32_grid
+OBS wmu_mode32 emsRunState=true;emsTurboStatus=0;emsRunStateForShanDong=1;inertiaLimitEnable=false;
+PASS wmu_mode64_fault
+OBS wmu_mode64 emsFaultOrMainState=true;emsTurboStatus=3;emsFaultStateYunNan=false;
+PASS wmu_mode8_no_npe
+OBS wmu_mode8 emsRunState=false;emsTurboStatus=1;
+PASS rsd_comstate_null_no_npe
+OBS rsd_comstate_null emsRunStateForShanDong=4;emsCapacityShanDong=50.0;
+PASS rsd_mode32_grid_state
+OBS rsd_mode32 emsRunStateForShanDong=1;emsCapacityShanDong=50.0;emsPowerActShanDong=1.0;
+PASS rsd_mode4_no_npe
+PASS rsd_mode_null_no_npe
+PASS rsd_power_null_no_npe
+OBS rsd_power_null emsRunStateForShanDong=2;emsPowerActShanDong=0.0;
+PASS cia_mode_null_no_npe
+OBS cia_mode_null inertiaLimitEnable=false;
+PASS cia_power_null_no_npe
+OBS cia_power_null inertiaLimitEnable=false;
+PASS cia_power_high_can_alter
+OBS cia_power_high inertiaLimitEnable=true;
+PASS cwi_comstate_null_false
+OBS cwi_comstate_null false
+PASS cwi_comstate_false_false
+PASS cwi_grid_ready_true
+OBS cwi_ready true
+PASS cwi_mode4_false
+PASS rsc_localonoff_null_power_no_npe
+OBS rsc_localonoff emsReaRun=2;emsReactSetLimitTurbo=0.0;
+PASS rsc_forbid_null_power_no_npe
+PASS rsc_cancrl_null_power_no_npe
+PASS rsc_realogo1_null_power_no_npe
+PASS rsc_realogo0_null_power_no_npe
+PASS mix_three_turbines_no_npe
+PASS mix_grid_turbine_state_1
+PASS mix_offgrid_turbine_not_1
+PASS mix_null_com_turbine_state_4
+OBS mix a=1 b=2 c=4
+ALL_CASES_PASS

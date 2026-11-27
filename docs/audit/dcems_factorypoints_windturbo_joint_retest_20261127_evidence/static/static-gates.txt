@@ -1,0 +1,21 @@
+## bash -n deploy.sh
+OK
+## ruff
+All checks passed!
+OK
+## ruff format
+40 files already formatted
+## pytest contract/preflight/prepare_runtime/seed
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+19 passed, 532 warnings in 0.20s
+## MANIFEST
+MANIFEST OK
+## compose base+overlay
+compose OK
+## patch fuzz0 joint dry-run
+factorypoints-null-dispatch-flags dry-run exit 0 checking file server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+factorypoints-null-dispatch-flags apply exit 0
+windturbo-null-workmode dry-run exit 0 checking file server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
+windturbo-null-workmode apply exit 0
+## mvn -o test (joint)
+[INFO] BUILD SUCCESS

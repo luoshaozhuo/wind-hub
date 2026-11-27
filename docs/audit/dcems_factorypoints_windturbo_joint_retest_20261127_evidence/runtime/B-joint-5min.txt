@@ -1,0 +1,9 @@
+## Runtime B: JOINT patched derived jar (FactoryPoints + WindTurbo)
+derived jar sha256: 1055d62a414f46f32f4e7988bcec73c47909c0319a17e4a66629bc0c00157944
+started: 2026-11-27T12:39:17.157177014Z  captured: 2026-11-27T12:44:15Z (>=5min)
+NullPointerException total: 292
+checkIsLimit NPE: 0
+reactStateCheck NPE: 292
+thread death (Exception in thread): 0
+https listened: 1
+license errors: 0

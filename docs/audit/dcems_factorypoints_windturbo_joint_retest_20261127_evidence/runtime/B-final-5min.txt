@@ -1,0 +1,16 @@
+## Runtime B final: JOINT derived jar 8ef25c4adba9c8464b7f3a6c0e3ea039764042487c113d7703c7db7190fb2e34
+started: 2026-11-27T12:50:32.702953473Z captured: 2026-11-27T12:55:38Z (>=5min)
+NullPointerException total: 0
+checkIsLimit NPE: 0
+reactStateCheck NPE: 0
+thread death: 0
+https listened: 1
+license errors: 0
+thread dataMain: NOT FOUND
+thread actPow: NOT FOUND
+thread reactPow: NOT FOUND
+thread check (container PID namespace):
+thread dataMain: ALIVE
+thread actPow: ALIVE
+thread reactPow: ALIVE
+java pid in container: 1  total threads: 77
