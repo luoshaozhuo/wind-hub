@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub Collector 软件设计</h1>
 
-<p class="subtitle">v1_47 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_47 · 20261125 · 20261127 实现契约与验收状态校核</p>
 
 > **集中配置契约**：本模块运行时配置由独立 Configuration Service 发布并作为全局权威来源；Configuration Service 在配置发布后通过 NATS Core 广播全局修订，本模块主动通过 Configuration Repository gRPC 拉取完整闭包。模块原有本地 Get/Push/ApplyConfigSnapshot 接口不承担配置库的发布与通知职责。不引入逐模块通知 RPC；由 Configuration 广播 revision 提示，Collector 独立对账。
 
@@ -751,11 +751,11 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**实现基线与验收状态（2026-11-27）**：当前开发分支已经实现 Collector→Sink NATS SampleBatch v4、Sink→Kafka→Storage JSON v3 和 TDengine 设备宽表；现行代码权威分别为 `src/contracts/sample_batch.py`、`src/sink_service/infrastructure/adapters/outbound/kafka_wire.py`、`src/storage_service/domain/wide_record.py` 及正式 Proto。本文其他日期的“迁移目标”“尚未执行”仅为对应设计/审查阶段的历史记录，不能代替最新测试证据。`docs/audit/storage_sink_capacity_retest_20261127.md` 的跨模块功能为 11/11 PASS，Storage 30 台容量 PASS，Storage 100/300 台、Sink 600 秒容量及整体生产资格 BLOCKED；完整 DCEMS 控制闭环、三等级同时容量及 1000 台探索 NOT_RUN。不得将单项 PASS 推定为全模块生产资格。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
-**迁移基线（非目标契约）**：现行代码为 NATS SampleBatch v3；本设计目标为 Contracts v4 与固定 Device Instance 身份。历史执行记录仅为迁移证据，不覆盖本设计目标。
+**迁移基线（历史）**：NATS SampleBatch v3 已由当前 v4 实现取代，固定 Device Instance 身份、`device_type` 和 `point_table_id` 均由生产 v4 批次显式携带并在消费端校验。
 
 Collector
 的业务是连接现场设备，采集配置允许的动态测点，对采样值进行标准化处理并向
@@ -3110,9 +3110,9 @@ Collector Task Instance 用 `group` 选择 Device Instance 中属于该组的设
 
 ## 10.4 NATS 投递及可靠性边界
 
-目标正式来源载荷为同步 SampleBatch，现行 v3 是迁移基线。历史 Schema v2 仅是迁移审计，不可据此重新构造当前消息；`config_revision_id` 不进入 SampleBatch。采集计划依据 Deployment→Service→Instance→Template 精确闭包，所有历史 PointTable 身份不可从“当前最新”推断。
+当前正式来源载荷为同步 SampleBatch v4，v3 仅是迁移前历史基线。历史 Schema v2 仅是迁移审计，不可据此重新构造当前消息；`config_revision_id` 不进入 SampleBatch。采集计划依据 Deployment→Service→Instance→Template 精确闭包，所有历史 PointTable 身份不可从“当前最新”推断。
 
-Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。现行 v3 为迁移基线；目标按 Contracts §11.6 携带固定 device_config_id 和统一 sample_time，每个同步设备采样事件独立成批，历史完整行超限不得拆分。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责目标确认，Collector 不将 PubAck 解释为目标入库成功。
+Realtime NATS Publish 返回仅表示本机提交；Reliable 以 JetStream PubAck 表示 Broker 确认。旧 v3 为迁移前历史基线；当前 v4 按 Contracts §11.6 携带固定 device_config_id、point_table_id、device_type 和统一 sample_time，每个同步设备采样事件独立成批，历史完整行超限不得拆分。当前未提供本地持久化队列，崩溃后内存未确认批次可能丢失；未知与确定失败分别计数。Sink 负责目标确认，Collector 不将 PubAck 解释为目标入库成功。
 
 ## 10.5 指标时间和历史职责
 
@@ -3201,7 +3201,7 @@ Task 不再定义在 Device Model，也不独立作为 templates/tasks；采集�
 
 
 
-**配置与数据契约：**目标按 Contracts SampleBatch v4 和固定 Configuration 闭包运行；v3 仅为现行迁移基线。Reliable Publish 以 JetStream PubAck 记账，不代替目标确认。batch_id/sample_id 进入队列前确定，重投保持不变；合法零 Delivery 匹配不改变采样语义。
+**配置与数据契约：**当前按 Contracts SampleBatch v4 和固定 Configuration 闭包运行；v3 仅为迁移前历史基线。Reliable Publish 以 JetStream PubAck 记账，不代替目标确认。batch_id/sample_id 进入队列前确定，重投保持不变；合法零 Delivery 匹配不改变采样语义。
 
 ## 11.1 三类配置与所有权
 
