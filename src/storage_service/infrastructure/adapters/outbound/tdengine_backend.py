@@ -103,6 +103,8 @@ class TDengineBackend:
         self._lock = threading.RLock()
         self._ddl_lock = threading.RLock()
         self._verified_tables: set[str] = set()
+        self._wide_device_types: dict[str, str] = {}
+        self._wide_statements: dict[int, dict[str, _PreparedStatement]] = {}
         self._wide_unknown_tables: set[str] = set()
         self._opening = False
         self._closed = False
@@ -201,6 +203,7 @@ class TDengineBackend:
             self._closed = True
             self._driver = None
             self._verified_tables.clear()
+            self._wide_device_types.clear()
             lease = _OperationLease(self._config.tdengine.ingestion.write_timeout_ms)
             # SQL 工作全部阻塞时，关闭仍须立即排空已空闲连接。
             future = self._close_executor.submit(self._close_sync, lease=lease)
@@ -224,6 +227,7 @@ class TDengineBackend:
             pool_size = self._pool_size
             self._driver = None
             self._verified_tables.clear()
+            self._wide_device_types.clear()
         first_error: Exception | None = None
         for _ in range(pool_size):
             try:
@@ -233,6 +237,7 @@ class TDengineBackend:
                     "cannot close TDengine: outstanding database operations"
                 ) from exc
             try:
+                self._close_cached_statements(conn)
                 conn.close()
             except Exception as exc:
                 if first_error is None:
@@ -279,8 +284,18 @@ class TDengineBackend:
         except queue.Empty as exc:
             raise TimeoutError("TDengine connection pool exhausted") from exc
 
+    def _close_cached_statements(self, connection: _TaosConnection) -> None:
+        with self._lock:
+            statements = self._wide_statements.pop(id(connection), {})
+        for statement in statements.values():
+            try:
+                statement.close()
+            except Exception:
+                _LOG.warning("failed to close prepared TDengine statement", exc_info=True)
+
     def _discard_connection(self, connection: _TaosConnection) -> None:
         try:
+            self._close_cached_statements(connection)
             connection.close()
         except Exception:
             _LOG.warning("failed to close an unusable TDengine connection", exc_info=True)
@@ -507,6 +522,7 @@ class TDengineBackend:
                 self._metadata.mark_ready(registration, verified=True)
             with self._lock:
                 self._verified_tables.add(qualified_name)
+                self._wide_device_types[qualified_name] = device_type
 
     @staticmethod
     def _verify_wide_table(
@@ -569,11 +585,7 @@ class TDengineBackend:
         schema: WideSchema,
         records: Sequence[WideRecord],
     ) -> None:
-        """Perform a device-wide STMT2 write under the existing bounded I/O lease.
-
-        The caller must first create and verify the target physical table and
-        immutable ownership metadata. This method never issues per-point SELECT.
-        """
+        """Write a schema-family batch with one dynamic STMT2 execution."""
         if not records:
             return
         limits = self._config.tdengine.ingestion
@@ -583,31 +595,34 @@ class TDengineBackend:
         ):
             raise ValueError("wide STMT2 batch exceeds physical row/byte budget")
         first = records[0]
-        if any(
-            row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
-            for row in records
-        ):
-            raise ValueError("wide STMT2 batches must contain exactly one device")
-        name = (
-            f"{schema.database_name(first.wind_farm_id)}."
-            f"{schema.subtable_name(first.device_id)}"
-        )
+        if any(row.wind_farm_id != first.wind_farm_id for row in records):
+            raise ValueError("wide STMT2 batch cannot mix wind farms")
+        database = schema.database_name(first.wind_farm_id)
+        names = {
+            f"{database}.{schema.subtable_name(row.device_id)}" for row in records
+        }
         with self._lock:
-            if name not in self._verified_tables:
+            if not names.issubset(self._verified_tables):
                 raise TDengineSchemaConflictError("wide target has not been verified")
-            if name in self._wide_unknown_tables:
-                raise TDengineSchemaConflictError(
-                    "prior wide I/O remains UNKNOWN; restart only after old process isolation"
-                )
+            if names.intersection(self._wide_unknown_tables):
+                raise TDengineSchemaConflictError("prior wide I/O remains UNKNOWN")
+            device_types = {
+                row.device_id: self._wide_device_types[
+                    f"{database}.{schema.subtable_name(row.device_id)}"
+                ]
+                for row in records
+            }
         try:
             await self._run_bounded(
-                self._insert_wide_batch_sync, schema=schema, records=tuple(records)
+                self._insert_wide_batch_sync,
+                schema=schema,
+                records=tuple(records),
+                device_types=device_types,
             )
         except BaseException:
-            # A connector exception is not proof that no rows were persisted.
-            # Preserve the device fence until the old process/I/O is isolated.
+            # Multi-table STMT2 can partially persist before returning failure.
             with self._lock:
-                self._wide_unknown_tables.add(name)
+                self._wide_unknown_tables.update(names)
             raise
 
     def _insert_wide_batch_sync(
@@ -615,16 +630,42 @@ class TDengineBackend:
         *,
         schema: WideSchema,
         records: Sequence[WideRecord],
+        device_types: dict[str, str],
         lease: _OperationLease,
     ) -> None:
-        first = records[0]
-        name = (
-            f"{schema.database_name(first.wind_farm_id)}."
-            f"{schema.subtable_name(first.device_id)}"
-        )
+        database = schema.database_name(records[0].wind_farm_id)
+        stable = schema.supertable_name()
+        family = f"{database}.{stable}"
         with self._borrow_connection(lease=lease) as (connection, driver):
             lease.remaining()
-            write_wide_stmt2(connection, driver, table_name=name, schema=schema, records=records)
+            with self._lock:
+                cached = self._wide_statements.setdefault(id(connection), {})
+                statement = cached.get(family)
+            if statement is None:
+                candidate = connection.stmt2_statement()
+                try:
+                    placeholders = ", ".join(
+                        "?" for _ in range(len(schema.columns) + 2)
+                    )
+                    tags = ", ".join("?" for _ in range(5))
+                    candidate.prepare(
+                        f"INSERT INTO ? USING {family} "
+                        f"TAGS ({tags}) VALUES ({placeholders})"
+                    )
+                except BaseException:
+                    candidate.close()
+                    raise
+                with self._lock:
+                    self._wide_statements[id(connection)][family] = candidate
+                statement = candidate
+            write_wide_stmt2(
+                connection,
+                driver,
+                schema=schema,
+                records=records,
+                device_types=device_types,
+                statement=statement,
+            )
 
     async def verify_existing_wide_table(
         self,
@@ -720,6 +761,7 @@ class TDengineBackend:
                 if full_name in self._wide_unknown_tables:
                     raise TDengineSchemaConflictError("wide table became uncertain")
                 self._verified_tables.add(full_name)
+                self._wide_device_types[full_name] = device_type
 
     async def fetch_wide_history(
         self,
