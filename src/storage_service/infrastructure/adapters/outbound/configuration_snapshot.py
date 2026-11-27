@@ -77,6 +77,16 @@ class StorageBundleSnapshot:
     def load_target(self) -> StorageBundle:
         return self._load_at(self._pending_path)
 
+    def export_accepted(self) -> tuple[StorageBundle, bytes]:
+        """Return the digest-verified accepted manifest, never an unchecked file."""
+        bundle = self.load()
+        return bundle, self._encode(bundle)
+
+    def export_target(self) -> tuple[StorageBundle, bytes]:
+        """Return the validated pending target without activating it."""
+        bundle = self.load_target()
+        return bundle, self._encode(bundle)
+
     def _store_at(self, path: Path, bundle: StorageBundle) -> None:
         if bundle.revision_id <= 0 or not bundle.point_table_versions or not bundle.device_bindings:
             raise ConfigHistoryUnavailableError("cannot persist an incomplete Storage snapshot")
