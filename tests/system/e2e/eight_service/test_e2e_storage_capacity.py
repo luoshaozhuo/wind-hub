@@ -22,6 +22,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from contracts import storage_service_pb2 as storage_pb
 from contracts import storage_service_pb2_grpc as storage_rpc
 from storage_service.domain.quality_bitmap import unpack_quality_bitmap
+from storage_service.domain.wide_record import WideRecord
 from storage_service.domain.wide_schema import WideSchema
 from tests.fixtures.services.r5_stack import R5StackError
 from tests.system.e2e.eight_service.conftest import EightServiceHarness, _ensure_topic
@@ -630,9 +631,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
             if cycle == 0 and device == devices[0]:
                 # Validate the optimized producer against the same strict
                 # physical-row decoder used by Storage's audit path.
-                parsed = WideRecord.from_kafka_json(
-                    encoded, physical_points=_WIDE_POINT_IDS
-                )
+                parsed = WideRecord.from_kafka_json(encoded, physical_points=_WIDE_POINT_IDS)
                 assert parsed.device_id == device
                 assert parsed.values == tuple(
                     _wide_value(index, cycle) for index in range(_WIDE_POINT_COUNT)

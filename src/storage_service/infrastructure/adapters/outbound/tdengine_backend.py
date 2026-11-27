@@ -661,8 +661,7 @@ class TDengineBackend:
             rows_total = self._wide_stage_rows
             devices_total = self._wide_stage_devices
             averages = {
-                name: 1000 * elapsed / calls
-                for name, elapsed in self._wide_stage_totals.items()
+                name: 1000 * elapsed / calls for name, elapsed in self._wide_stage_totals.items()
             }
             self._wide_stage_calls = 0
             self._wide_stage_rows = 0
