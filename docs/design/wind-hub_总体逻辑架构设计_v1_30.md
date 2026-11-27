@@ -1,6 +1,6 @@
 <h1 class="title">wind-hub 总体逻辑架构设计</h1>
 
-<p class="subtitle">v1_30 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_30 · 20261125 · 宽表重构设计 · 20261127 实现状态与验收边界勘误</p>
 
 <style>
 body { font-family: "Microsoft YaHei"; font-size: 16px; line-height: 1.75; color: #24292f; }
@@ -180,7 +180,7 @@ $$
 
 # 3. 系统边界与模块职责
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**现行实现与验收边界（2026-11-27）**：设备级宽表已在当前开发分支实现；Collector→Sink 使用严格 NATS SampleBatch v4，Sink→Kafka→Storage 使用设备级 JSON v3，物理模型以 Storage v1_14 为准。历史章节中“目标设计”“旧实现”“NOT_RUN”等表述仅代表当时审查时点，不可覆盖当前源码和复测事实。最新独立复测见 `docs/audit/storage_sink_capacity_retest_20261127.md`：跨模块功能 11/11 PASS，Storage 30 台容量 PASS，Storage 100/300 台与 Sink 600 秒容量 BLOCKED；三等级同时容量、1000 台探索及完整 DCEMS 闭环 NOT_RUN。设计符合性和生产资格仍需分别验收，严禁据单项功能 PASS 宣称生产就绪。
 
 **main 集成基线（2026-11-23）**：总体系统链路为 Collector→NATS/JetStream→Sink→Kafka→Storage。Sink 对外数据等级统一为 RAW/PROTOCOL/BUSINESS，协议解码与业务标准化的边界必须区分；Service→Instances→Templates 与 Deployment 是配置依赖权威。 旧分支的开发状态及历史适配方案不得替代已集成代码与当前协议。
 
