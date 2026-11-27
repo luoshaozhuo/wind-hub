@@ -239,7 +239,13 @@ class KafkaStorageConsumer:
                 state is None
                 or state.blocked
                 or not messages
-                or (expected_owner is not None and state is not expected_owner)
+                or (
+                    expected_owner is not None
+                    and (
+                        state is not expected_owner
+                        or messages[0].offset != state.offsets.next_commit_offset
+                    )
+                )
             ):
                 return
             generation = state.generation
