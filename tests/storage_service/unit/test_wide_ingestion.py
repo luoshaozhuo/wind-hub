@@ -262,10 +262,30 @@ async def test_single_physical_row_exceeding_batch_limit_blocks_offset() -> None
     assert evidence.block_partition.call_args.args[3] == ("TDENGINE_WIDE_ROW_EXCEEDS_BATCH_BUDGET")
 
 
+def _vary_schema_by_device(service: WideIngestionService) -> None:
+    """Force distinct immutable schema families for concurrency-oriented tests."""
+    base = service._resolver.resolve_wide_schema.return_value
+    schemas: dict[str, WideSchema] = {}
+
+    async def resolve(identity: WideIdentity, **_kwargs: object) -> WideSchema:
+        if identity.device_id not in schemas:
+            schemas[identity.device_id] = WideSchema.build(
+                point_table_id=f"{base.point_table_id}_{identity.device_id}",
+                point_table_version=base.point_table_version,
+                data_level=base.data_level,
+                points=(PhysicalPoint("power", "INT"), PhysicalPoint("wind_speed", "FLOAT")),
+                max_row_bytes=65536,
+            )
+        return schemas[identity.device_id]
+
+    service._resolver.resolve_wide_schema.side_effect = resolve
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("writer_count", [1, 2, 4, 8])
 async def test_writer_count_bounds_parallel_group_writes(writer_count: int) -> None:
     service, backend, _evidence, _metrics = _service(writer_count=writer_count)
+    _vary_schema_by_device(service)
     group_count = writer_count * 2
     release = asyncio.Event()
     first_wave_started = asyncio.Event()
@@ -368,17 +388,17 @@ async def test_mixed_devices_and_schemas_group_deduplicate_and_parallelize() -> 
     result = await asyncio.wait_for(task, timeout=2)
 
     grouped = {
-        (call.args[1][0].device_id, call.args[0].fingerprint): call.args[1]
+        call.args[0].fingerprint: call.args[1]
         for call in backend.insert_wide_batch.await_args_list
     }
-    original_group = grouped[("wtg001", schema_v1.fingerprint)]
-    assert tuple(row.values[0] for row in original_group) == (2, 3)
-    assert len(grouped) == 3
-    assert ("wtg002", schema_v1.fingerprint) in grouped
-    assert ("wtg001", schema_v2.fingerprint) in grouped
+    original_group = grouped[schema_v1.fingerprint]
+    assert tuple(row.values[0] for row in original_group) == (2, 3, 4)
+    assert {row.device_id for row in original_group} == {"wtg001", "wtg002"}
+    assert len(grouped) == 2
+    assert grouped[schema_v2.fingerprint][0].device_id == "wtg001"
     assert started_before_release == 2
     assert peak == 2
-    assert backend.insert_wide_batch.await_count == 3
+    assert backend.insert_wide_batch.await_count == 2
     assert backend.ensure_wide_table.await_count == 3
     assert result.next_commit_offset == 5
 
@@ -386,6 +406,7 @@ async def test_mixed_devices_and_schemas_group_deduplicate_and_parallelize() -> 
 @pytest.mark.asyncio
 async def test_one_failed_write_waits_for_all_started_peer_io_without_commit() -> None:
     service, backend, evidence, metrics = _service(writer_count=3)
+    _vary_schema_by_device(service)
     all_started = asyncio.Event()
     failure_raised = asyncio.Event()
     release = asyncio.Event()
@@ -439,6 +460,7 @@ async def test_one_failed_write_waits_for_all_started_peer_io_without_commit() -
 @pytest.mark.asyncio
 async def test_unknown_write_precedes_concurrent_schema_conflict_without_commit() -> None:
     service, backend, evidence, metrics = _service(writer_count=3)
+    _vary_schema_by_device(service)
     all_started = asyncio.Event()
     started: set[str] = set()
     succeeded: set[str] = set()
@@ -480,6 +502,7 @@ async def test_unknown_write_precedes_concurrent_schema_conflict_without_commit(
 @pytest.mark.asyncio
 async def test_cancellation_cleans_every_started_write_without_commit() -> None:
     service, backend, evidence, metrics = _service(writer_count=3)
+    _vary_schema_by_device(service)
     all_started = asyncio.Event()
     never_finish = asyncio.Event()
     started: set[str] = set()
@@ -523,6 +546,7 @@ async def test_cancellation_cleans_every_started_write_without_commit() -> None:
 @pytest.mark.asyncio
 async def test_metrics_follow_all_group_success_and_offsets_confirm_contiguously() -> None:
     service, backend, _evidence, metrics = _service(writer_count=3)
+    _vary_schema_by_device(service)
     all_started = asyncio.Event()
     release = asyncio.Event()
     started: set[str] = set()
