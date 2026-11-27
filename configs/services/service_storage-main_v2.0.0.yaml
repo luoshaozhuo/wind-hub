@@ -18,6 +18,7 @@
 # kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
 # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
 #   max_partition_workers [1,64] partitions; commit_interval_ms [100,10000] ms.
+#   shutdown_drain_timeout_ms [1000,600000] ms; bounded Kafka drain on STOP.
 # tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
 #   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
 #   database: precision us; duration 30d, keep 1095d; vgroups positive (4);
@@ -73,6 +74,7 @@ service:
     max_poll_records: 500
     max_partition_workers: 4
     commit_interval_ms: 1000
+    shutdown_drain_timeout_ms: 120000
   tdengine:
     endpoint: 127.0.0.1:6041
     credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
