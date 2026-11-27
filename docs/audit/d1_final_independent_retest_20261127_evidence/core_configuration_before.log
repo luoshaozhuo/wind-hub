@@ -1,0 +1,279 @@
+....FFFF..................                                               [100%]
+=================================== FAILURES ===================================
+_____ test_gateway_merges_inheritance_override_and_removal_on_frozen_docs ______
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_gateway_merges_inheritanc0')
+
+    def test_gateway_merges_inheritance_override_and_removal_on_frozen_docs(tmp_path: Path) -> None:
+        """Gateway 在冻结模板上执行合并：继承保留、remove_points 生效、子表覆盖优先。"""
+        _inheritance_tree(tmp_path)
+        _dump(
+            tmp_path / "templates" / "units_standard.yaml",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "quantities": {"dimensionless": {"base_unit": "1"}},
+                "units": {"1": {"symbol": "1", "quantity": "dimensionless"}},
+            },
+        )
+        _dump(
+            tmp_path / "templates" / "business_points_standard.yaml",
+            {"schema_version": 1, "file_version": "1.0.0", "business_points": {}},
+        )
+        _dump(
+            tmp_path / "instances" / "devices.yaml",
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "devices": {
+                    "WT01": {
+                        "name": "继承测试机组",
+                        "enabled": True,
+                        "model": {"id": "turbine", "version": "1.0.0"},
+                        "endpoint": {"host": "127.0.0.1", "port": 1502},
+                        "overrides": {"protocol_options": {"slave_id": 1}},
+                    }
+                },
+            },
+        )
+        service_path = tmp_path / "service.yaml"
+        _dump(
+            service_path,
+            {
+                "schema_version": 1,
+                "file_version": "1.0.0",
+                "config_sources": {
+                    "instances": {"devices": "instances/devices.yaml"},
+                    "templates": {"root": "templates"},
+                },
+                "grpc": {"listen_host": "127.0.0.1", "listen_port": 1504},
+                "servers": [
+                    {
+                        "server_id": "gw1",
+                        "device_id": "WT01",
+                        "listen_host": "127.0.0.1",
+                        "listen_port": 1503,
+                        "desired_state": "START",
+                        "control": {
+                            "enabled": True,
+                            "target": {
+                                "kind": "commander",
+                                "endpoint": "127.0.0.1:1505",
+                            },
+                            "mappings": [
+                                {"variable_id": "p1", "target_point_id": "p1"},
+                                {"variable_id": "p2", "target_point_id": "p2"},
+                            ],
+                        },
+                    }
+                ],
+                "metrics": {"window_seconds": 60, "collect_interval_ms": 1000},
+            },
+        )
+    
+>       gateway = load_gateway(service_path, project_root=tmp_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/core/configuration/test_point_table_inheritance_frozen.py:293: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+service_file = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_gateway_merges_inheritanc0/service.yaml')
+
+    def load_gateway(
+        service_file: str | Path,
+        *,
+        project_root: str | Path,
+        candidate_document: dict[str, Any] | None = None,
+    ) -> ResolvedGateway:
+        """Load explicitly named service and shared files without cwd defaults."""
+        root = Path(project_root).resolve(strict=True)
+        service_pathname = service_path(root, Path(service_file))
+        service_document = (
+            read_yaml(service_pathname) if candidate_document is None else candidate_document
+        )
+>       service = GatewayServiceConfig.model_validate(service_document)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       pydantic_core._pydantic_core.ValidationError: 6 validation errors for GatewayServiceConfig
+E       service_id
+E         Field required [type=missing, input_value={'schema_version': 1, 'fi...ect_interval_ms': 1000}}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       schema_version
+E         Value error, schema_version must be integer 2 or 3 [type=value_error, input_value=1, input_type=int]
+E           For further information visit https://errors.pydantic.dev/2.13/v/value_error
+E       config_sources.templates
+E         Extra inputs are not permitted [type=extra_forbidden, input_value={'root': 'templates'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden
+E       security
+E         Field required [type=missing, input_value={'schema_version': 1, 'fi...ect_interval_ms': 1000}}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       servers.0.control.target
+E         Value error, Commander target requires endpoint and token_env [type=value_error, input_value={'kind': 'commander', 'en...oint': '127.0.0.1:1505'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/value_error
+E       servers
+E         Tuple should have at least 1 item after validation, not 0 [type=too_short, input_value=[{'server_id': 'gw1', 'de...get_point_id': 'p2'}]}}], input_type=list]
+E           For further information visit https://errors.pydantic.dev/2.13/v/too_short
+
+src/industrial_gateway/infrastructure/config/resolution.py:196: ValidationError
+____________ test_full_reload_preserves_verified_candidate_manifest ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_full_reload_preserves_ver0')
+
+    async def test_full_reload_preserves_verified_candidate_manifest(tmp_path: Path) -> None:
+        root, service_yaml = _build_tree(tmp_path, 5021, 5022)
+>       manager = _manager(service_yaml, _allow_all)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/core/configuration/test_reload_source_manifest.py:153: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/src/core/configuration/test_reload_source_manifest.py:143: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/src/core/configuration/test_reload_source_manifest.py:141: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_full_reload_preserves_ver0/commander.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+__________ test_fully_blocked_reload_keeps_old_manifest_and_revision ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_fully_blocked_reload_keep0')
+
+    async def test_fully_blocked_reload_keeps_old_manifest_and_revision(tmp_path: Path) -> None:
+        root, service_yaml = _build_tree(tmp_path, 5021, 5022)
+    
+        async def block_all(devices: frozenset[str]) -> frozenset[str]:
+            return frozenset(devices)
+    
+>       manager = _manager(service_yaml, block_all)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/core/configuration/test_reload_source_manifest.py:175: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/src/core/configuration/test_reload_source_manifest.py:143: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/src/core/configuration/test_reload_source_manifest.py:141: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_fully_blocked_reload_keep0/commander.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+_____ test_partial_reload_emits_empty_manifest_without_fabricating_source ______
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_partial_reload_emits_empt0')
+
+    async def test_partial_reload_emits_empty_manifest_without_fabricating_source(
+        tmp_path: Path,
+    ) -> None:
+        root, service_yaml = _build_tree(tmp_path, 5021, 5022)
+    
+        async def block_b_only(devices: frozenset[str]) -> frozenset[str]:
+            return frozenset({"WT-B"}) & devices
+    
+>       manager = _manager(service_yaml, block_b_only)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/core/configuration/test_reload_source_manifest.py:197: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/src/core/configuration/test_reload_source_manifest.py:143: in _manager
+    manager.start()
+src/commander/application/config_manager.py:159: in start
+    settings = self._settings_loader()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/src/core/configuration/test_reload_source_manifest.py:141: in <lambda>
+    settings_loader=lambda: load_service_settings(service_yaml),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-luosh/pytest-245/test_partial_reload_emits_empt0/commander.yaml')
+
+    def load_service_settings(path: str | Path) -> ServiceSettings:
+        """Validate the v1_1 Commander service configuration; never hot-apply it."""
+        raw = read_yaml(Path(path))
+        _keys(
+            raw,
+            {
+                "schema_version",
+                "file_version",
+                "service_id",
+                "config_sources",
+                "grpc",
+                "security",
+                "dispatcher",
+                "repository",
+                "audit",
+                "timeouts",
+                "shutdown",
+                "simulation_targets",
+            },
+            "commander service",
+        )
+        if type(raw.get("schema_version")) is not int or raw["schema_version"] not in {2, 3}:
+>           raise ValueError("unsupported Commander service schema_version")
+E           ValueError: unsupported Commander service schema_version
+
+src/commander/infrastructure/config/service_settings.py:107: ValueError
+=========================== short test summary info ============================
+FAILED tests/src/core/configuration/test_point_table_inheritance_frozen.py::test_gateway_merges_inheritance_override_and_removal_on_frozen_docs
+FAILED tests/src/core/configuration/test_reload_source_manifest.py::test_full_reload_preserves_verified_candidate_manifest
+FAILED tests/src/core/configuration/test_reload_source_manifest.py::test_fully_blocked_reload_keeps_old_manifest_and_revision
+FAILED tests/src/core/configuration/test_reload_source_manifest.py::test_partial_reload_emits_empty_manifest_without_fabricating_source
+4 failed, 22 passed in 2.31s
