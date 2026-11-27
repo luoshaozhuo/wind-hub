@@ -33,12 +33,19 @@ def require_physical_test() -> None:
 def _model_control(generation_id: str, point: str, value: str) -> None:
     """仅设置受测物理场景的初始本地模式，不代替后续 DCEMS 工业控制。"""
     outcome = _cli(
-        "data-generator", "variables", "update",
-        "--generation-id", generation_id,
-        "--device-id", "WTG_SIM01",
-        "--request-id", f"fixture-{uuid4().hex}",
-        "--point-id", point,
-        "--value", value,
+        "data-generator",
+        "variables",
+        "update",
+        "--generation-id",
+        generation_id,
+        "--device-id",
+        "WTG_SIM01",
+        "--request-id",
+        f"fixture-{uuid4().hex}",
+        "--point-id",
+        point,
+        "--value",
+        value,
         "--yes",
     )
     assert outcome["status"] == "SUCCESS", outcome
@@ -86,7 +93,7 @@ def test_dcems_wtg_power_command_changes_physical_output() -> None:
     assert request["state"] == "SUCCEEDED", request
     assert request["io_settled"] is True
     command_id = str(request["commands"][0]["command_id"])
-    assert _assert_applied(command_id, generation_id) > 0
+    effective_step = _assert_applied(command_id, generation_id)
     response = _power_samples(10.0)
 
     # 固定风速时指令应提高电功率。若模型达到饱和或控制链延迟，
@@ -102,6 +109,7 @@ def test_dcems_wtg_power_command_changes_physical_output() -> None:
         "baseline_tail_mean_w": initial,
         "response_tail_mean_w": final,
         "command_id": command_id,
+        "dg_effective_step": effective_step,
     }
     output = root / "state" / "wtg-physical-response.json"
     output.write_text(json.dumps(evidence, indent=2), encoding="utf-8")

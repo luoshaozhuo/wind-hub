@@ -1,0 +1,77 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_dcems_wtg_power_command_changes_physical_output _____________
+
+    def test_dcems_wtg_power_command_changes_physical_output() -> None:
+        """固定输入条件后比较两段实际输出，排除只更新控制寄存器的假阳性。"""
+        root = Path(os.environ.get("DCEMS_CONTROL_ROOT", str(ROOT / "run/dcems-control-wtg")))
+        generation_id = (root / "state/generation-id.txt").read_text(encoding="utf-8").strip()
+        token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
+    
+        # 该物理模型在 mode=0 时不使用 active_power_setpoint。
+        # 设置为独立风机恒功率模式是测试前置条件，不修改生产默认策略。
+        _model_control(generation_id, "control_mode", "1")
+        _model_control(generation_id, "active_power_setpoint", "150000")
+        baseline = _power_samples(5.0)
+    
+        prior = {event.event_id for event in _events(token)}
+        client = ModbusTcpClient("127.0.0.1", port=CONTROL_PORT, timeout=5)
+        try:
+            assert client.connect()
+            sent = client.write_registers(41557, _words_cdab(650.0), device_id=1)
+            assert not sent.isError(), sent
+        finally:
+            client.close()
+        request_id = ""
+        for _ in range(100):
+            request_id = _request_id(prior, token) or ""
+            if request_id:
+                break
+            time.sleep(0.1)
+        assert request_id, "no Modbus control event"
+        request = _terminal_request(request_id)
+        assert request["state"] == "SUCCEEDED", request
+        assert request["io_settled"] is True
+        command_id = str(request["commands"][0]["command_id"])
+        effective_step = _assert_applied(command_id, generation_id)
+        response = _power_samples(10.0)
+    
+        # 固定风速时指令应提高电功率。若模型达到饱和或控制链延迟，
+        # 测试应报告真实证据而不是修改模型去凑结果。
+        initial = sum(baseline[-8:]) / len(baseline[-8:])
+        final = sum(response[-8:]) / len(response[-8:])
+        evidence = {
+            "initial_setpoint_w": 150000,
+            "dcems_protocol_setpoint_kw": 650.0,
+            "normalized_setpoint_w": 650000,
+            "baseline_power_w": baseline,
+            "response_power_w": response,
+            "baseline_tail_mean_w": initial,
+            "response_tail_mean_w": final,
+            "command_id": command_id,
+            "dg_effective_step": effective_step,
+        }
+        output = root / "state" / "wtg-physical-response.json"
+        output.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+>       assert final > initial + 20000, evidence
+E       AssertionError: {'baseline_power_w': [923908.6875, 626345.5, 444268.09375, 332504.96875, 263776.9375, 221459.921875, ...], 'baseline_t..._w': 8822.651863098145, 'command_id': '4b7613d1-c389-4a4d-9c3c-c21d28409afb', 'dcems_protocol_setpoint_kw': 650.0, ...}
+E       assert 0.0026594389128149487 > (8822.651863098145 + 20000)
+
+tests/third_party/dc_ems/test_wtg_physical_response_live.py:116: AssertionError
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 42 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/third_party/dc_ems/test_wtg_physical_response_live.py::test_dcems_wtg_power_command_changes_physical_output
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/third_party/dc_ems/test_wtg_physical_response_live.py::test_dcems_wtg_power_command_changes_physical_output
+1 failed, 44 warnings in 16.60s

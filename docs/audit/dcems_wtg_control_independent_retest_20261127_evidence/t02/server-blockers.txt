@@ -1,0 +1,10 @@
+server --check:
+DCEMS WTG Server: prepare isolated runtime first
+--- image inspect ---
+dc-ems-server:1.1.4-583d5da rc=1
+dc-ems-web:1.1.4-583d5da rc=1
+dc-ems-timescaledb:2.7.0-pg14 rc=1
+--- release artifacts ---
+ls: cannot access '/home/luo/dc-ems/release': No such file or directory
+--- site config ---
+(none above means missing)

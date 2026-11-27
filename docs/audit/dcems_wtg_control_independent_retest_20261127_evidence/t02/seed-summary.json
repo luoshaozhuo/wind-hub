@@ -1,0 +1,40 @@
+{
+  "devices": [
+    [
+      "WTG01",
+      "isolated-DCEMS-WTG01",
+      2000.0
+    ]
+  ],
+  "edgeServers": [
+    {
+      "name": "dcems-wtg-control-isolated",
+      "ip": "host.docker.internal",
+      "port": 15531,
+      "type": "MODBUSTCP",
+      "interval": 500
+    }
+  ],
+  "addresses": [
+    [
+      "ctrlReActPow",
+      "1.4.41555",
+      "F",
+      1,
+      true
+    ],
+    [
+      "ctrlActPow",
+      "1.4.41557",
+      "F",
+      1,
+      true
+    ]
+  ],
+  "control_flags": {
+    "bFreCtrlEnableFlag": "false",
+    "emsActPowerEnable": "false",
+    "emsReactPowerEnable": "false"
+  },
+  "license_configured": false
+}

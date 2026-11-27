@@ -50,10 +50,7 @@ def test_wtg_dcems_loader_and_control_contract(tmp_path: Path) -> None:
     source = loaded_ingress.servers["dcems-control-ingress-wtg"]
     assert source.settings.device_id == "WTG_SIM01"
     assert source.settings.listen_port == CONTROL_PORT
-    mappings = {
-        item.variable_id: item
-        for item in source.settings.control.mappings
-    }
+    mappings = {item.variable_id: item for item in source.settings.control.mappings}
     assert set(mappings) == {"active_power_setpoint", "reactive_power_setpoint"}
     assert all(item.value_scale == 1000.0 for item in mappings.values())
 
@@ -73,15 +70,12 @@ def test_wtg_dcems_loader_and_control_contract(tmp_path: Path) -> None:
     simulation = loaded_execution.servers["gw-wtg-sim01"]
     assert simulation.settings.control.enabled
     assert simulation.settings.control.simulation is not None
-    assert all(
-        item.value_scale == 1.0 for item in simulation.settings.control.mappings
-    )
+    assert all(item.value_scale == 1.0 for item in simulation.settings.control.mappings)
     assert command_settings.simulation_targets["WTG_SIM01"].gateway_id == "gw-wtg-sim01"
 
     scenarios = _read(config / "instances/scenarios_e2e-final_v1.0.0.yaml")
     scenario = next(
-        item for item in scenarios["scenarios"]
-        if item["scenario_id"] == "e2e-plant-physical"
+        item for item in scenarios["scenarios"] if item["scenario_id"] == "e2e-plant-physical"
     )
     wtg = next(item for item in scenario["devices"] if item["device_id"] == "WTG_SIM01")
     assert wtg["controller_mode"] == "local"
@@ -110,11 +104,13 @@ def test_scaled_integer_command_is_rejected_by_production_loader(tmp_path: Path)
     path = config / "services/service_gateway-dcems-control-ingress_v1.0.0.yaml"
     data = _read(path)
     wind = next(item for item in data["servers"] if item["device_id"] == "WTG_SIM01")
-    wind["control"]["mappings"] = [{
-        "variable_id": "control_mode",
-        "target_point_id": "control_mode",
-        "value_scale": 1000.0,
-    }]
+    wind["control"]["mappings"] = [
+        {
+            "variable_id": "control_mode",
+            "target_point_id": "control_mode",
+            "value_scale": 1000.0,
+        }
+    ]
     _write(path, data)
     with pytest.raises(ConfigError, match="floating-point"):
         load_gateway(path, project_root=config)

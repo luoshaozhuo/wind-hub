@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 import yaml
 
+from tests.third_party.dc_ems.prepare_wtg_control_chain import prepare
 from tests.third_party.dc_ems.prepare_wtg_dcems_seed import (
     CONTROL_FLAGS,
     DCEMS_DEVICE_ID,
@@ -16,15 +17,11 @@ from tests.third_party.dc_ems.prepare_wtg_dcems_seed import (
     SOURCE,
     build_seed,
 )
-from tests.third_party.dc_ems.prepare_wtg_control_chain import prepare
 
 
 def _staged_table(config: Path) -> dict[str, Any]:
     """读取生成根中的 WTG 目标点表。"""
-    path = (
-        config / "templates/point_tables/"
-        "point_table_modbus_wtg_dcems_control_v1.2.0.yaml"
-    )
+    path = config / "templates/point_tables/" "point_table_modbus_wtg_dcems_control_v1.2.0.yaml"
     return cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
@@ -42,7 +39,8 @@ def test_real_dcems_seed_has_minimal_control_surface(tmp_path: Path) -> None:
     assert seed["syncdata"] == []
     assert {
         item["varPath"]: item["val"]
-        for item in seed["emsConfig"] if item["varPath"] in CONTROL_FLAGS
+        for item in seed["emsConfig"]
+        if item["varPath"] in CONTROL_FLAGS
     } == {name: "false" for name in CONTROL_FLAGS}
 
     config = prepare(tmp_path / "dcems-control-wtg")

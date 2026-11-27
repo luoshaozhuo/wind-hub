@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 cd "${ROOT}"
 export PYTHONPATH="${ROOT}/src:${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-export DCEMS_CONTROL_ROOT="${DCEMS_WTG_CONTROL_ROOT:-${ROOT}/run/dcems-control-wtg}"
+export DCEMS_CONTROL_ROOT="${DCEMS_WTG_CONTROL_ROOT:-${DCEMS_CONTROL_ROOT:-${ROOT}/run/dcems-control-wtg}}"
 
 case "${1:-}" in
     --prepare)

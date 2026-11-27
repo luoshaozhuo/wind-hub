@@ -14,9 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "third_party/dc-ems/app/server/data.json"
 DCEMS_DEVICE_ID = "WTG01"
 PROTOCOL_POINTS = frozenset({"ctrlActPow", "ctrlReActPow"})
-CONTROL_FLAGS = frozenset(
-    {"emsActPowerEnable", "emsReactPowerEnable", "bFreCtrlEnableFlag"}
-)
+CONTROL_FLAGS = frozenset({"emsActPowerEnable", "emsReactPowerEnable", "bFreCtrlEnableFlag"})
 
 
 def build_seed(original: dict[str, Any], host: str) -> dict[str, Any]:
@@ -27,23 +25,16 @@ def build_seed(original: dict[str, Any], host: str) -> dict[str, Any]:
     if not seed.get("devices") or not seed.get("edgeServers"):
         raise ValueError("DCEMS seed has no devices or channels")
 
-    controls = [
-        point for point in seed["edgeaddrset"] if point.get("isCtrl") is True
-    ]
-    if not {"ctrlActPow", "ctrlReActPow"} <= {
-        point["varPath"] for point in controls
-    }:
+    controls = [point for point in seed["edgeaddrset"] if point.get("isCtrl") is True]
+    if not {"ctrlActPow", "ctrlReActPow"} <= {point["varPath"] for point in controls}:
         raise ValueError("published DCEMS control points unavailable")
     original_points = seed["edgeaddrset"]
-    selected = [
-        item for item in original_points if item["varPath"] in PROTOCOL_POINTS
-    ]
+    selected = [item for item in original_points if item["varPath"] in PROTOCOL_POINTS]
     if {item["varPath"] for item in selected} != PROTOCOL_POINTS:
         raise ValueError("required DCEMS Modbus read/write points missing")
     for item in selected:
-        if item["varPath"] in {"ctrlActPow", "ctrlReActPow"}:
-            if item.get("isCtrl") is not True or item.get("highBit") != 1:
-                raise ValueError("control must use original CDAB writable point")
+        if item.get("isCtrl") is not True or item.get("highBit") != 1:
+            raise ValueError("control must use original CDAB writable point")
 
     device = seed["devices"][0]
     device["deviceId"] = DCEMS_DEVICE_ID
@@ -68,7 +59,8 @@ def build_seed(original: dict[str, Any], host: str) -> dict[str, Any]:
     seed["edgeaddrset"] = selected
     seed["syncdata"] = []
     seed["sysconfig"] = [
-        item for item in seed["sysconfig"]
+        item
+        for item in seed["sysconfig"]
         if not (
             item.get("groupName") in {"sync", "watch"}
             and "redis" in str(item.get("itemName", "")).lower()
@@ -76,17 +68,13 @@ def build_seed(original: dict[str, Any], host: str) -> dict[str, Any]:
     ]
 
     for item in seed["emsConfig"]:
-        if item["varPath"] == "iWTUnits":
-            item["val"] = "1"
-        elif item["varPath"] == "iLineCount":
+        if item["varPath"] == "iWTUnits" or item["varPath"] == "iLineCount":
             item["val"] = "1"
         elif item["varPath"] in CONTROL_FLAGS or item["varPath"] == "kk_flag":
             item["val"] = "false"
         elif item["varPath"] == "license":
             item["val"] = os.environ.get("DCEMS_LICENSE_CODE", "")
-    flags = [
-        item for item in seed["emsConfig"] if item["varPath"] in CONTROL_FLAGS
-    ]
+    flags = [item for item in seed["emsConfig"] if item["varPath"] in CONTROL_FLAGS]
     if len(flags) != 3 or {item["varPath"] for item in flags} != CONTROL_FLAGS:
         raise ValueError("missing mandatory disabled automatic-control flags")
     return cast(dict[str, Any], seed)
@@ -96,8 +84,9 @@ def main() -> None:
     """只允许写入新文件；不得覆盖 dc-ems 已发布种子。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--gateway-host", choices=["127.0.0.1", "host.docker.internal"],
-                        required=True)
+    parser.add_argument(
+        "--gateway-host", choices=["127.0.0.1", "host.docker.internal"], required=True
+    )
     args = parser.parse_args()
     output = args.output.resolve()
     if (ROOT / "run").resolve() not in output.parents:

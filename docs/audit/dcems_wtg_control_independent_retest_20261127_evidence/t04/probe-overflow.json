@@ -1,0 +1,8 @@
+{
+  "modbus_ack": true,
+  "request_id": "c84f5d98451e4ef0ab3f27e16e845f97",
+  "forward_event": "forward REJECTED: c84f5d98451e4ef0ab3f27e16e845f97",
+  "commander_query_status": "FAILURE",
+  "commander_error_code": "NOT_FOUND",
+  "commander_data": null
+}

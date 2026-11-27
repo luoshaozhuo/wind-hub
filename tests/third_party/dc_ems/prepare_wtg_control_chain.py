@@ -28,9 +28,7 @@ def _read(path: Path) -> dict[str, Any]:
 
 def _write(path: Path, data: dict[str, Any]) -> None:
     """只更新隔离根中的生成配置。"""
-    path.write_text(
-        yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
 def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
@@ -90,29 +88,18 @@ def prepare(root: Path, *, nats_url: str = "nats://127.0.0.1:14223") -> Path:
     turbine["controller_mode"] = "local"
     _write(scenario_path, scenario_doc)
 
-    execution_path = (
-        config / "services" / "service_gateway-dcems-control-execution_v1.0.0.yaml"
-    )
+    execution_path = config / "services" / "service_gateway-dcems-control-execution_v1.0.0.yaml"
     execution = _read(execution_path)
-    wind = next(
-        item for item in execution["servers"] if item["device_id"] == "WTG_SIM01"
-    )
+    wind = next(item for item in execution["servers"] if item["device_id"] == "WTG_SIM01")
     wind["control"] = deepcopy(
-        next(
-            item["control"]
-            for item in execution["servers"]
-            if item["device_id"] == "PPC_SIM01"
-        )
+        next(item["control"] for item in execution["servers"] if item["device_id"] == "PPC_SIM01")
     )
     wind["control"]["mappings"] = [
-        {"variable_id": point_id, "target_point_id": point_id}
-        for point_id, _ in MAPPINGS
+        {"variable_id": point_id, "target_point_id": point_id} for point_id, _ in MAPPINGS
     ]
     _write(execution_path, execution)
 
-    ingress_path = (
-        config / "services" / "service_gateway-dcems-control-ingress_v1.0.0.yaml"
-    )
+    ingress_path = config / "services" / "service_gateway-dcems-control-ingress_v1.0.0.yaml"
     ingress = _read(ingress_path)
     wind_ingress = deepcopy(wind)
     wind_ingress["server_id"] = "dcems-control-ingress-wtg"

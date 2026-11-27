@@ -34,9 +34,7 @@ def require_server() -> None:
 def _dcems_set_power(value_kw: float) -> dict[str, Any]:
     """调用真实 DCEMS 控制参数入口；其成功回执不代表 Modbus 执行成功。"""
     url = "http://127.0.0.1:18090/api/config/setParam"
-    payload = json.dumps(
-        {"param": {"WTG01_ctrlActPow": value_kw}}, allow_nan=False
-    ).encode("utf-8")
+    payload = json.dumps({"param": {"WTG01_ctrlActPow": value_kw}}, allow_nan=False).encode("utf-8")
     request = Request(
         url,
         data=payload,

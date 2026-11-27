@@ -12,9 +12,7 @@ import yaml
 from data_generator.application.model.inputs import writable_inputs
 
 ROOT = Path(__file__).resolve().parents[3]
-CONTRACT = (
-    ROOT / "tests/third_party/dc-ems/config/dcems_control_output_contract_v1.0.0.yaml"
-)
+CONTRACT = ROOT / "tests/third_party/dc-ems/config/dcems_control_output_contract_v1.0.0.yaml"
 SEED = ROOT / "third_party/dc-ems/app/server/data.json"
 DATA_TYPES = {"F": ("float32", 2), "I": ("int32", 2), "B": ("bool", 1)}
 AREAS = {"0": "coil", "4": "holding"}

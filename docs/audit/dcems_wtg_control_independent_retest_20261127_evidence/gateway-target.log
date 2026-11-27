@@ -1,0 +1,32 @@
+INFO:pymodbus.logging:Server listening.
+INFO:pymodbus.logging:Repeating....
+INFO:__main__:Gateway v1 started: 2 configured servers
+ERROR:industrial_gateway.application.forwarding:Gateway control forwarding worker failed
+Traceback (most recent call last):
+  File "/home/luo/wind-hub/src/industrial_gateway/application/forwarding.py", line 225, in _work
+    await self._submit(event)
+  File "/home/luo/wind-hub/src/industrial_gateway/application/forwarding.py", line 295, in _submit
+    device_revision = await self._device_revision(event.device_id, event.expires_at)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/luo/wind-hub/src/industrial_gateway/application/forwarding.py", line 267, in _device_revision
+    revision = await self._client.get_revision(device_id, timeout=remaining)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/luo/wind-hub/src/industrial_gateway/infrastructure/adapters/outbound/grpc/commander_client.py", line 55, in get_revision
+    response = await self._ready().GetDevice(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        common.ObjectId(id=device_id), timeout=timeout, metadata=self._metadata
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/grpc/aio/_call.py", line 333, in __await__
+    raise _create_rpc_error(
+    ...<2 lines>...
+    )
+grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+	status = StatusCode.UNAVAILABLE
+	details = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52152: Failed to connect to remote host: Connection refused"
+	debug_error_string = "UNAVAILABLE:failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:52152: Failed to connect to remote host: Connection refused"
+>
+INFO:pymodbus.logging:Server listening.
+INFO:pymodbus.logging:Repeating....
+INFO:__main__:Gateway v1 started: 2 configured servers

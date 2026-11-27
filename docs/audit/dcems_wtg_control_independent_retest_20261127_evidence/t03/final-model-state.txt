@@ -1,0 +1,5 @@
+sim_rotor_speed {'double_value': 1.8348541164878205}
+aerodynamic_power {'double_value': 0.0}
+available_power {'double_value': 0.0}
+pitch_angle_1 {'double_value': 11.517774414239854}
+control_mode {'sint64_value': '1'}

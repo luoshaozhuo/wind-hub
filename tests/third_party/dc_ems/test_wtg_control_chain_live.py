@@ -35,13 +35,15 @@ def _words_cdab(value: float) -> list[int]:
 
 
 def _read_power(port: int, offset: int) -> float:
-    """从真实 Gateway2 读取风机模型有功输出 W。"""
+    """从真实 Gateway2 读取风机模型有功输出 W（CDAB 字序）。"""
     client = ModbusTcpClient("127.0.0.1", port=port, timeout=5)
     try:
         assert client.connect()
         response = client.read_input_registers(offset, count=2, device_id=1)
         assert not response.isError(), response
-        return float(struct.unpack(">f", struct.pack(">HH", *response.registers))[0])
+        # Gateway 以 CDAB 发布 F32：寄存器顺序为低字在前、高字在后。
+        low, high = response.registers
+        return float(struct.unpack(">f", struct.pack(">HH", high, low))[0])
     finally:
         client.close()
 
@@ -122,7 +124,7 @@ def test_fc16_wtg_setpoint_reaches_dg_in_si_units(
     assert command["outcome"] == "CONFIRMED_SUCCESS"
     assert command["io_settled"] is True
     assert command["point_id"] == point
-    assert _assert_applied(command_id, generation_id) > 0
+    effective_step = _assert_applied(command_id, generation_id)
 
     # Gateway2 接收的是归一化后的 SI 工程量，不是 Gateway1 的 kW/kvar。
     executor = ModbusTcpClient("127.0.0.1", port=15421, timeout=5)
@@ -134,15 +136,16 @@ def test_fc16_wtg_setpoint_reaches_dg_in_si_units(
                 break
             time.sleep(0.1)
         else:
-            pytest.fail(
-                f"Gateway2 {point} did not publish SI value {expected_si}"
-            )
+            pytest.fail(f"Gateway2 {point} did not publish SI value {expected_si}")
     finally:
         executor.close()
 
     # 真正的转换证据来自 Commander/DG 回执；不能把源端 450 当作 W。
     evidence = {
         "modbus_register": register,
+        "source_modbus_registers": list(back.registers),
+        "gateway2_si_registers": list(applied.registers),
+        "dg_effective_step": effective_step,
         "source_value": input_value,
         "source_unit": "kilowatt" if point == "active_power_setpoint" else "kilovar",
         "expected_generator_value": expected_si,

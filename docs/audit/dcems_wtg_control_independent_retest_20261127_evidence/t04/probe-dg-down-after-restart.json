@@ -1,0 +1,25 @@
+{
+  "retained": {
+    "request_id": "wtg-dgdown-fcd9fa26251949ea961fd61dfd026350",
+    "state": "UNKNOWN",
+    "commands": [
+      {
+        "command_id": "c5333163-b9b9-46d9-a5f3-228c49904d00",
+        "state": "UNKNOWN",
+        "outcome": "UNKNOWN",
+        "error_code": "WRITE_UNKNOWN",
+        "device_id": "WTG_SIM01",
+        "point_id": "active_power_setpoint",
+        "updated_at": "2026-11-27T00:15:54.895851Z",
+        "io_settled": true,
+        "message": ""
+      }
+    ],
+    "updated_at": "2026-11-27T00:15:54.895851Z",
+    "io_settled": true
+  },
+  "dg_execution": {
+    "state": "UNKNOWN",
+    "effective_step": 0
+  }
+}

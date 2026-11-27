@@ -1,0 +1,2 @@
+published e2e-final mappings (no value_scale field): [('PPC_SIM01', 'agc_power_setpoint', 1.0), ('PPC_SIM01', 'avc_voltage_setpoint', 1.0)]
+all default 1.0: True
