@@ -1,6 +1,6 @@
 <h1 class="title">Core 软件设计</h1>
 
-<p class="subtitle">v1_48 · 20261125 · 宽表重构协同设计（待技术验证）</p>
+<p class="subtitle">v1_48 · 20261125 · 20261127 实现契约与验收状态校核</p>
 
 <style>
 body {
@@ -747,7 +747,7 @@ System Test 必须遵守以下规定：
 
 # 3. 软件需求
 
-**本版目标与现行实现边界**：20261125 宽表重构为目标设计，代码和运行配置仍是旧实现；历史执行记录与现行代码示例仅用于迁移差距分析。目标线格式以 Contracts §11.6、§11.9 为唯一规范，物理模型以 Storage v1_14 为准。禁止新旧格式混用。未完成技术验证、完整配置和接口冻结前，不得认定可编码或生产就绪。
+**实现基线与验收状态（2026-11-27）**：当前开发分支已经实现 Collector→Sink NATS SampleBatch v4、Sink→Kafka→Storage JSON v3 和 TDengine 设备宽表；现行代码权威分别为 `src/contracts/sample_batch.py`、`src/sink_service/infrastructure/adapters/outbound/kafka_wire.py`、`src/storage_service/domain/wide_record.py` 及正式 Proto。本文其他日期的“迁移目标”“尚未执行”仅为对应设计/审查阶段的历史记录，不能代替最新测试证据。`docs/audit/storage_sink_capacity_retest_20261127.md` 的跨模块功能为 11/11 PASS，Storage 30 台容量 PASS，Storage 100/300 台、Sink 600 秒容量及整体生产资格 BLOCKED；完整 DCEMS 控制闭环、三等级同时容量及 1000 台探索 NOT_RUN。不得将单项 PASS 推定为全模块生产资格。
 
 **符合性约束（2026-11-23）**：以冻结总体设计 v1_27 的职责、Service→Instances→Templates 和 Deployment 发布机制为准；正式 RPC 以 `src/contracts/*.proto` 为准。RAW/PROTOCOL 源数据边界在冻结总体设计内部存在歧义，必须保留真实来源证据；未得到明确解释前不宣称 RAW 数据能力验收通过。历史分支状态及旧接口叙述不具有规范性。
 
