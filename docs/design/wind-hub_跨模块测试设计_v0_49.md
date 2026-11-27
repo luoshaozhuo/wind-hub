@@ -169,7 +169,7 @@ $$
 
 **符合性边界（2026-11-23）**：以冻结的总体设计 v1_27、当前 Proto 和主分支实现为依据；服务配置只通过 Deployment 版本选择、Repository 发布与模块独立生效。RAW/PROTOCOL 的精确定义在冻结总体设计 §5.3.4 尚有内部矛盾，本设计不得以缺失源载荷伪造 RAW，也不得将 PROTOCOL 改写为旧 ENGINEERING。未裁决的 RAW 语义不计为已验证实现。
 
-**迁移基线（非目标验收）**：现行 main NATS v3/Kafka v2；目标验收采用 NATS v4/Kafka v3、Storage v2。中间件与数据库由测试启动，服务经 CLI 启停及操作，覆盖全部目标 RPC/CLI 叶子。
+**迁移基线（历史验收）**：NATS v3/Kafka v2 为迁移前基线；当前开发分支采用 NATS v4/Kafka v3 与 Storage 宽表。中间件与数据库由测试启动，服务经 CLI 启停及操作，覆盖全部目标 RPC/CLI 叶子。
 
 ## 3.1 测试目标
 
