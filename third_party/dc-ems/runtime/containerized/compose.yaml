@@ -33,6 +33,10 @@ services:
         source: ${DEPLOY_CONFIG_DIR:?由 deploy.sh 设置配置目录}
         target: /config
       - type: bind
+        source: ${DEPLOY_CONFIG_DIR}/machine-id
+        target: /etc/machine-id
+        read_only: true
+      - type: bind
         source: ${DEPLOY_CONFIG_DIR}/ssl
         target: /opt/dc-ems/ssl
         read_only: true
