@@ -223,9 +223,10 @@ class Turbine:
                 * self._cp(lam, self.min_pitch)
                 * wind**3
             )
-            equilibrium_power = requested / eta + require_number(
-                p, "shaft_damping_nm_s_rad", minimum=0
-            ) * self.omega
+            # The tiny mechanical damping naturally slows the rotor during
+            # deep curtailment; do not create an artificial nonzero electrical
+            # production floor when the requested power is exactly zero.
+            equilibrium_power = requested / eta
             fraction = clamp(equilibrium_power / max(unpitched_power, 1.0), 0, 1)
             pitch_target = self.min_pitch + (self.feather - self.min_pitch) * (1 - fraction)
         if self.fault or not active:
