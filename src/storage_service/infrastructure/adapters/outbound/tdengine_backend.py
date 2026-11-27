@@ -107,6 +107,15 @@ class TDengineBackend:
         self._wide_device_types: dict[str, str] = {}
         self._wide_statements: dict[int, OrderedDict[str, _PreparedStatement]] = {}
         self._wide_current_database: dict[int, str] = {}
+        self._wide_stage_calls = 0
+        self._wide_stage_rows = 0
+        self._wide_stage_devices = 0
+        self._wide_stage_totals: dict[str, float] = {
+            "prepare": 0.0,
+            "columns": 0.0,
+            "bind": 0.0,
+            "execute": 0.0,
+        }
         self._wide_unknown_tables: set[str] = set()
         self._opening = False
         self._closed = False
@@ -632,6 +641,46 @@ class TDengineBackend:
                 self._wide_unknown_tables.update(names)
             raise
 
+    def _observe_wide_write(
+        self,
+        *,
+        rows: int,
+        devices: int,
+        stages: dict[str, float],
+    ) -> None:
+        """Log bounded aggregate stage timings without per-row log overhead."""
+        with self._lock:
+            self._wide_stage_calls += 1
+            self._wide_stage_rows += rows
+            self._wide_stage_devices += devices
+            for name in self._wide_stage_totals:
+                self._wide_stage_totals[name] += stages.get(name, 0.0)
+            if self._wide_stage_calls < 256:
+                return
+            calls = self._wide_stage_calls
+            rows_total = self._wide_stage_rows
+            devices_total = self._wide_stage_devices
+            averages = {
+                name: 1000 * elapsed / calls
+                for name, elapsed in self._wide_stage_totals.items()
+            }
+            self._wide_stage_calls = 0
+            self._wide_stage_rows = 0
+            self._wide_stage_devices = 0
+            for name in self._wide_stage_totals:
+                self._wide_stage_totals[name] = 0.0
+        _LOG.info(
+            "Storage STMT2 256-write window: rows=%d devices=%d "
+            "prepare_mean_ms=%.3f columns_mean_ms=%.3f "
+            "bind_mean_ms=%.3f execute_mean_ms=%.3f",
+            rows_total,
+            devices_total,
+            averages["prepare"],
+            averages["columns"],
+            averages["bind"],
+            averages["execute"],
+        )
+
     def _insert_wide_batch_sync(
         self,
         *,
@@ -643,6 +692,7 @@ class TDengineBackend:
         database = schema.database_name(records[0].wind_farm_id)
         stable = schema.supertable_name()
         family = f"{database}.{stable}"
+        stages: dict[str, float] = {}
         with self._borrow_connection(lease=lease) as (connection, driver):
             lease.remaining()
             connection_id = id(connection)
@@ -663,9 +713,14 @@ class TDengineBackend:
                 try:
                     placeholders = ", ".join("?" for _ in range(len(schema.columns) + 2))
                     tags = ", ".join("?" for _ in range(5))
-                    candidate.prepare(
-                        f"INSERT INTO ? USING {family} " f"TAGS ({tags}) VALUES ({placeholders})"
-                    )
+                    prepare_started = time.perf_counter()
+                    try:
+                        candidate.prepare(
+                            f"INSERT INTO ? USING {family} "
+                            f"TAGS ({tags}) VALUES ({placeholders})"
+                        )
+                    finally:
+                        stages["prepare"] = time.perf_counter() - prepare_started
                 except BaseException:
                     candidate.close()
                     raise
@@ -687,6 +742,12 @@ class TDengineBackend:
                 records=records,
                 device_types=device_types,
                 statement=statement,
+                stage_seconds=stages,
+            )
+            self._observe_wide_write(
+                rows=len(records),
+                devices=len(device_types),
+                stages=stages,
             )
 
     async def verify_existing_wide_table(
