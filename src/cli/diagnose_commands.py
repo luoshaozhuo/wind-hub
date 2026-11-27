@@ -2,17 +2,44 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import typer
 
-from .common_commands import _run_common
+from .common_commands import _run_common, request_common
 
 diagnose = typer.Typer(help="Stage-based diagnostics, not merely TCP availability.")
 collector = typer.Typer(help="Collector device, publishing and IEC104 GI checks.")
 diagnose.add_typer(collector, name="collector")
+
+
+def _save_evidence(output: Path, data: dict[str, Any]) -> None:
+    """Write a private JSON evidence file exactly once; never overwrite evidence."""
+    if output.suffix != ".json" or not output.parent.is_dir() or output.is_symlink():
+        raise ValueError("--output must name a new .json file in an existing directory")
+    payload = (json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _single_diagnose(service: str, target: str, output: Path | None) -> None:
+    from .main import _run
+
+    async def probe() -> dict[str, Any]:
+        result = await request_common(service, "Diagnose", {"target_id": target})
+        if output is not None:
+            await asyncio.to_thread(_save_evidence, output, result)
+        return result
+
+    _run(f"diagnose {service}", probe())
 
 
 @collector.command("device")
@@ -56,31 +83,42 @@ def collector_gi(
 
 
 @diagnose.command("commander")
-def commander_diagnose(device_id: str) -> None:
-    _run_common("commander", "Diagnose", {"target_id": device_id})
+def commander_diagnose(
+    device_id: str,
+    output: Path | None = typer.Option(None, "--output"),
+) -> None:
+    _single_diagnose("commander", device_id, output)
 
 
 @diagnose.command("sink")
-def sink_diagnose(delivery_id: str) -> None:
-    from .plant_commands import _run_sink_common
-
-    _run_sink_common("Diagnose", {"target_id": delivery_id})
+def sink_diagnose(
+    delivery_id: str,
+    output: Path | None = typer.Option(None, "--output"),
+) -> None:
+    _single_diagnose("sink", delivery_id, output)
 
 
 @diagnose.command("gateway")
-def gateway_diagnose(gateway_id: str) -> None:
-    _run_common("gateway", "Diagnose", {"target_id": gateway_id})
+def gateway_diagnose(
+    gateway_id: str,
+    output: Path | None = typer.Option(None, "--output"),
+) -> None:
+    _single_diagnose("gateway", gateway_id, output)
 
 
 @diagnose.command("data-generator")
-def generator_diagnose(generation_id: str) -> None:
-    _run_common("data-generator", "Diagnose", {"target_id": generation_id})
+def generator_diagnose(
+    generation_id: str,
+    output: Path | None = typer.Option(None, "--output"),
+) -> None:
+    _single_diagnose("data-generator", generation_id, output)
 
 
 @diagnose.command("pipeline")
 def pipeline_diagnose(
     device_id: str,
     sink_id: str = typer.Option(..., "--sink-id", help="Exact Sink Delivery ID"),
+    output: Path | None = typer.Option(None, "--output"),
 ) -> None:
     """Never claim end-to-end PASS without correlated evidence from both services."""
     from .main import _run, runtime
@@ -158,6 +196,8 @@ def pipeline_diagnose(
             reports["limitations"] = [
                 "No shared, verified message/sample ID across Collector and Sink.",
             ]
+        if output is not None:
+            await asyncio.to_thread(_save_evidence, output, reports)
         return reports
 
     _run("diagnose pipeline", probe())
