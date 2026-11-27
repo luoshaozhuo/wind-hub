@@ -128,7 +128,14 @@ class Turbine:
                     x0, y0 = left
                     x1, y1 = right
                     break
-        cp = y0 + (y1 - y0) * (lam - x0) / (x1 - x0)
+        slope = (y1 - y0) / (x1 - x0)
+        if lam < points[0][0]:
+            # Do not invent increasing capture toward a stopped rotor.
+            slope = max(0.0, slope)
+        elif lam > points[-1][0]:
+            # The high-TSR tail cannot grow beyond the last measured Cp.
+            slope = min(0.0, slope)
+        cp = y0 + slope * (lam - x0)
         pitch_factor = clamp(1 - (pitch - self.min_pitch) / (self.feather - self.min_pitch), 0, 1)
         return clamp(cp * pitch_factor, 0, 16 / 27)
 
