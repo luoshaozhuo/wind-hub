@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from storage_service.domain.wide_record import WideDataLevel
 
@@ -81,6 +81,12 @@ class WideSchema:
     quality_bytes: int
     declared_row_bytes: int
     fingerprint: str
+    point_ids: tuple[str, ...] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "point_ids", tuple(column.point_id for column in self.columns)
+        )
 
     @classmethod
     def build(
