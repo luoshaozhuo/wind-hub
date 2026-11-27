@@ -397,11 +397,17 @@ async def test_cancelled_caller_and_close_retain_shared_confirmation_ownership(
             await output.close()
 
 
-async def test_full_partition_wave_does_not_wait_for_linger(
+@pytest.mark.parametrize(
+    ("max_batch_size", "expect_linger"),
+    [(160, False), (1024, True)],
+)
+async def test_partition_wave_respects_only_needed_coalescing_delay(
     monkeypatch: pytest.MonkeyPatch,
     producer_env: dict[str, Any],
+    max_batch_size: int,
+    expect_linger: bool,
 ) -> None:
-    """A full physical write wave bypasses the configured coalescing delay."""
+    """A full Builder flushes immediately; a partial wave still coalesces."""
     from sink_service.infrastructure.adapters.outbound import realtime_adapters
 
     output = KafkaOutput(
@@ -409,7 +415,7 @@ async def test_full_partition_wave_does_not_wait_for_linger(
         topic=TOPIC,
         timeout_ms=10000,
         linger_ms=10,
-        max_batch_size=160,
+        max_batch_size=max_batch_size,
     )
     await output.open()
     sleep = asyncio.sleep
@@ -431,7 +437,7 @@ async def test_full_partition_wave_does_not_wait_for_linger(
         await asyncio.wait_for(task, timeout=2)
         await asyncio.wait_for(result, timeout=2)
         assert result.result().delivered == (0,)
-        assert 0.01 not in delays
+        assert (0.01 in delays) is expect_linger
         assert len(producer_env["producer"].submissions) == 1
     finally:
         await output.close()
