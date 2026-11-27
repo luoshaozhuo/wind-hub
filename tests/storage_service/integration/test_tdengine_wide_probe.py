@@ -1097,3 +1097,74 @@ def test_td13_stmt2_conflict_unknown_and_ordered_replay(
             "valid_rows_in_failed_request": 2,
         },
     )
+
+
+def test_td14_production_five_tag_multitable_stmt2(wide_probe: Probe) -> None:
+    """Exercise the real Storage tag shape, not the one-tag capability surrogate."""
+    probe = wide_probe
+    database = probe.database
+    columns = ", ".join(f"p{i:03d}_v1_0_0 BIGINT" for i in range(_POINT_COUNT))
+    probe.connection.execute(
+        f"CREATE STABLE {database}.production "
+        f"(ts TIMESTAMP, {columns}, quality VARBINARY(125)) "
+        "TAGS (device_id VARCHAR(128), device_type VARCHAR(64), "
+        "point_table_id VARCHAR(192), data_level TINYINT, "
+        "schema_fingerprint VARCHAR(64))"
+    )
+    probe.connection.execute(f"USE {database}")
+    placeholders = ", ".join("?" for _ in range(_POINT_COUNT + 2))
+    statement = probe.connection.stmt2_statement()
+    try:
+        statement.prepare(
+            f"INSERT INTO ? USING {database}.production "
+            f"TAGS (?, ?, ?, ?, ?) VALUES ({placeholders})"
+        )
+        start = time.time_ns() // 1000
+        for cycle in range(2):
+            bindings = []
+            for device in range(2):
+                timestamp = start + cycle * 100000
+                values = [
+                    probe.driver.micros_timestamps_to_column([timestamp]),
+                    *(
+                        probe.driver.big_ints_to_column([device * 1000 + cycle + point])
+                        for point in range(_POINT_COUNT)
+                    ),
+                    probe.driver.varbinary_to_column([_QUALITY]),
+                ]
+                bindings.append(
+                    probe.driver.stmt2_bind_param_view(
+                        table_name=f"production_d{device}",
+                        tags=[
+                            probe.driver.varchar_to_tag(f"wtg_{device:03d}"),
+                            probe.driver.varchar_to_tag("wind"),
+                            probe.driver.varchar_to_tag("point_table_v1"),
+                            probe.driver.int_to_tag(2),
+                            probe.driver.varchar_to_tag("a" * 64),
+                        ],
+                        columns=values,
+                    )
+                )
+            statement.bind(bindings)
+            assert statement.execute() >= 0
+        for device in range(2):
+            rows = list(
+                probe.connection.query(
+                    f"SELECT * FROM {database}.production_d{device} ORDER BY ts"
+                )
+            )
+            assert len(rows) == 2
+            for cycle, row in enumerate(rows):
+                assert list(row[1:-1]) == [
+                    device * 1000 + cycle + point for point in range(_POINT_COUNT)
+                ]
+                assert bytes(row[-1]) == _QUALITY
+            tags = list(
+                probe.connection.query(
+                    f"SHOW TAGS FROM {database}.production_d{device}"
+                )
+            )
+            assert len(tags) == 5
+            assert str(tags[3][5]) == "2"
+    finally:
+        statement.close()
