@@ -27,6 +27,13 @@ VERSION="$(sed -n 's/^release_version=//p' "${RELEASE}/VERSION")"
 export SERVER_IMAGE="${SERVER_IMAGE:-dc-ems-server:${VERSION}}"
 export WEB_IMAGE="${WEB_IMAGE:-dc-ems-web:${VERSION}}"
 
+if [[ "$1" != --down ]]; then
+    export PYTHONPATH="${ROOT}/src:${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+    python -m tests.third_party.dc_ems.preflight_wtg_dcems_server --root "${RUNTIME}" \
+        || fail "T02 release prerequisites missing; see preflight report"
+fi
+
+if [[ "$1" != --down ]]; then
 [[ -f "${DCEMS_WTG_SEED}" ]] || fail "prepare separate control data.json first"
 [[ -f "${DCEMS_WTG_WEB}/index.html" ]] || fail "prepare isolated Web assets first"
 [[ -f "${RUNTIME}/docker/dcems.env" ]] || fail "prepare isolated runtime first"
@@ -38,6 +45,8 @@ grep -q '/dcems_smoke?' "${DEPLOY_CONFIG_DIR}/db.property" \
 for img in "${SERVER_IMAGE}" "${WEB_IMAGE}" "dc-ems-timescaledb:2.7.0-pg14"; do
     docker image inspect "${img}" >/dev/null 2>&1 || fail "missing local image: ${img}"
 done
+fi
+
 compose=(
     docker compose
     --project-name dcems-wtg-control
