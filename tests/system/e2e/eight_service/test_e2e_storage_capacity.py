@@ -507,6 +507,14 @@ def test_storage_single_instance_500_point_device_row_capacity(
     database = WideSchema.database_name("e2e-final")
     total_rows = len(devices) * cycles
     target_rows_per_second = len(devices) * rate_per_device
+    producer_inflight = int(
+        os.environ.get(
+            "STORAGE_WIDE_PRODUCER_MAX_INFLIGHT",
+            str(256 if target_rows_per_second > 1000 else _WIDE_IN_FLIGHT_LIMIT),
+        )
+    )
+    if not 1 <= producer_inflight <= 512:
+        raise ValueError("Storage capacity producer in-flight must be in [1, 512]")
     # Every device shares the same 500 physical values within a cycle. Build
     # these immutable JSON fragments before the timed producer phase instead
     # of reserializing 500 points for each of 300 devices.
@@ -656,7 +664,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
                     cycle = sequence // len(devices)
                     sample_time_us = sample_start_us + cycle * interval_us
                     pending.add(asyncio.create_task(publish_one(device, cycle, sample_time_us)))
-                    if len(pending) >= _WIDE_IN_FLIGHT_LIMIT:
+                    if len(pending) >= producer_inflight:
                         done, pending = await asyncio.wait(
                             pending, return_when=asyncio.FIRST_COMPLETED
                         )
@@ -771,7 +779,7 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 "acks": "all",
                 "enable_idempotence": True,
                 "key": "wind_farm_id:device_id",
-                "max_test_tasks_in_flight": _WIDE_IN_FLIGHT_LIMIT,
+                "max_test_tasks_in_flight": producer_inflight,
                 "acknowledged_rows": published_rows,
                 "ack_latency_p95_ms": _nearest_rank_ms(ack_latencies, 0.95),
                 "ack_latency_p99_ms": _nearest_rank_ms(ack_latencies, 0.99),
