@@ -29,6 +29,8 @@ def test_column_order_uses_utf8_identity_not_input_order() -> None:
     right = _build((b, a))
     assert left == right
     assert tuple(c.point_id for c in left.columns) == ("active_power", "wind_speed")
+    assert left.point_ids == ("active_power", "wind_speed")
+    assert left.point_ids is left.point_ids
     assert left.quality_bytes == 1
     assert left.columns[0].column_name.endswith("_v1_2_0")
     assert left.fingerprint == right.fingerprint
@@ -59,6 +61,9 @@ def test_wide_schema_500_fields_has_125_quality_bytes() -> None:
     schema = _build(points)
     assert schema.quality_bytes == 125
     assert len(schema.columns) == 500
+    assert len(schema.point_ids) == 500
+    assert schema.point_ids[0] == "p_000"
+    assert schema.point_ids[-1] == "p_499"
     assert schema.declared_row_bytes == 8 + 125 + 2 + 4 * 500
 
 
