@@ -1,0 +1,55 @@
+# Wide-row target candidate: activate only after D4 runtime migration and final qualification.
+# 完整精确引用候选；历史版本仍不可变，不应自动选取最新版。
+# 候选新版本：引用 GW2MW BusinessPoint 一对一语义草案；未获 OEM 审定前不得激活生产。
+# Deployment 为同一部署域原子选择所有 Service / Instance 的不可变版本。
+# schema_version: 1；file_version: MAJOR.MINOR.PATCH；deployment_id: 唯一部署身份。
+# services.<service_id>.config_id 必须与映射键一致；file_version 为精确版本。
+# instances.<config_type>.<config_id>.file_version 为同部署域的唯一目标版本。
+# 实例依赖模板由 Instance 固定引用；Service 不允许直接引用 Template。
+schema_version: 1
+file_version: "2.0.1"
+deployment_id: prod-a
+services:
+  collector-realtime:
+    config_id: collector-realtime
+    file_version: "2.0.0"
+  collector-reliable:
+    config_id: collector-reliable
+    file_version: "2.0.0"
+  commander:
+    config_id: commander
+    file_version: "1.5.0"
+  gateway:
+    config_id: gateway
+    file_version: "1.3.0"
+  data-generator:
+    config_id: data-generator
+    file_version: "1.2.1"
+  sink-west:
+    config_id: sink-west
+    file_version: "2.0.0"
+  cli:
+    config_id: cli
+    file_version: "1.4.1"
+  storage-main:
+    config_id: storage-main
+    file_version: "2.0.0"
+instances:
+  site:
+    example_site:
+      file_version: "1.1.0"
+  device:
+    farm-a:
+      file_version: "1.6.0"
+  collector_tasks:
+    farm-a:
+      file_version: "1.0.0"
+  scenario:
+    prod-a:
+      file_version: "1.0.0"
+  sink:
+    prod-a:
+      file_version: "1.5.0"
+  delivery:
+    prod-a:
+      file_version: "1.6.0"
