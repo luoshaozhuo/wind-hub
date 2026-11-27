@@ -758,7 +758,7 @@ System Test 必须遵守以下规定：
 - **契约范围**：正式 Repository Proto 已包含全局候选、发布与读取接口；模块修订通知仅通过 NATS Core `wh.config.changed` 广播，不新增 CommonService 通知 RPC。
 - **已发布契约**：`src/contracts/common.proto`、`collector.proto`、`commander.proto`、`sink_service.proto`、`industrial_gateway.proto`、`data_generator.proto`，历史统计共 51 个 RPC（Common 9 + Collector 11 + Commander 8 + Sink 4 + Gateway 10 + Data Generator 9），**未计入 Configuration Repository 与 Storage 专属 RPC**，现行覆盖分母须动态枚举全部 Proto Descriptor。
 - **已发布契约**：`src/contracts/configuration_repository.proto` 已定义 Repository RPC，所有接口以 main 中的 Proto Descriptor 与生成绑定为准。
-- `src/contracts/sample_batch.py::SampleBatch(schema_version=3)` 属 Collector/Sink NATS 批量采样线协议；Sink→Kafka 输出为 JSON `schema_version=2`，二者独立于配置文件版本。
+- **当前实现（2026-11-27）**：`src/contracts/sample_batch.py::SampleBatch(schema_version=4)` 属 Collector/Sink NATS 批量采样线协议；Sink→Kafka 输出为设备级 JSON `schema_version=3`。两者独立于配置文件版本，旧 NATS v3/Kafka v2 仅是迁移前历史基线。
 
 ## 3.2 契约边界
 
@@ -1217,7 +1217,7 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 
 ## 11.6 Collector→Sink：同步设备采样批次目标线格式
 
-现行 SampleBatch v3 是迁移基线；不兼容目标版本固定为 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时批次必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
+历史 SampleBatch v3 是迁移基线；当前实现采用不兼容的 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时批次必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
 
 拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。目标字段及存在性见下表。Realtime 可以传输部分原生事件；Reliable 仅接收完整同步设备事件。
 
