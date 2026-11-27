@@ -47,6 +47,7 @@ from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
+from storage_service.infrastructure.adapters.outbound.configuration_snapshot import StorageBundleSnapshot
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
@@ -351,6 +352,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         config_status: Callable[[], str],
         metrics: StorageRuntimeMetrics,
         config_revisions: Callable[[], tuple[str, str]] | None = None,
+        config_snapshot: StorageBundleSnapshot | None = None,
     ) -> None:
         self._auth = AuthorizationPolicy(config)
         self._config = config
@@ -366,6 +368,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         self._secret = cursor_secret
         self._config_status = config_status
         self._config_revisions = config_revisions
+        self._config_snapshot = config_snapshot
         self._metrics = metrics
         self._started_at = datetime.now(UTC)
 
@@ -440,7 +443,10 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
+                "GetConfigSnapshot",
                 "GetMetrics",
+                "GetEvents",
+                "Diagnose",
                 "QuerySamples",
                 "QueryAggregates",
                 "CreateExport",
@@ -471,7 +477,41 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.GetConfigSnapshotRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetConfigSnapshotResponse:
-        return await self._unsupported_common(context, "storage.inspect")
+        """Read only a verified immutable manifest; never accept local publication."""
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        snapshot = self._config_snapshot
+        if snapshot is None:
+            raise RuntimeError("Storage snapshot is not attached")
+        if request.scope in (common.SNAPSHOT_SCOPE_DISK, common.SNAPSHOT_SCOPE_RUNTIME):
+            if request.candidate_id:
+                raise QueryRejectedError("candidate_id requires candidate scope")
+            bundle, content = await asyncio.to_thread(snapshot.export_accepted)
+            path = "storage/accepted_bundle.json"
+            if self._config_revisions is not None:
+                _target, active = self._config_revisions()
+                if active != bundle.target_revision:
+                    raise RuntimeError("Storage accepted snapshot differs from active revision")
+        elif request.scope == common.SNAPSHOT_SCOPE_CANDIDATE:
+            bundle, content = await asyncio.to_thread(snapshot.export_target)
+            path = "storage/target_bundle.json"
+            if request.candidate_id and request.candidate_id != bundle.target_revision:
+                raise QueryRejectedError("unknown Storage restart target")
+        else:
+            raise QueryRejectedError("invalid Storage snapshot scope")
+        checksum = hashlib.sha256(content).hexdigest()
+        return common.GetConfigSnapshotResponse(
+            snapshot_id=bundle.target_revision,
+            revision=bundle.target_revision,
+            files=[
+                common.SnapshotFile(
+                    relative_path=path,
+                    content=content,
+                    size_bytes=len(content),
+                    sha256=checksum,
+                )
+            ],
+            last_error="" if self._config_status() == "READY" else self._config_status(),
+        )
 
     @guarded
     async def PushConfigSnapshot(
@@ -931,6 +971,7 @@ def build_storage_grpc_server(
     config_status: Callable[[], str],
     metrics: StorageRuntimeMetrics,
     config_revisions: Callable[[], tuple[str, str]] | None = None,
+    config_snapshot: StorageBundleSnapshot | None = None,
 ) -> grpc.aio.Server:
     """Build but do not start the service; outer runtime manages lifecycle."""
     server = grpc.aio.server(
@@ -954,6 +995,7 @@ def build_storage_grpc_server(
         config_status=config_status,
         metrics=metrics,
         config_revisions=config_revisions,
+        config_snapshot=config_snapshot,
     )
     rpc.add_StorageServiceServicer_to_server(servicer, server)
     common_rpc.add_CommonServiceServicer_to_server(servicer, server)
