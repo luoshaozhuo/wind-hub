@@ -215,13 +215,8 @@ class KafkaStorageConsumer:
         messages: list[KafkaRecord],
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """Expose in-flight Kafka buffer gauges even while awaiting a permit."""
-        bytes_received = sum(len(message.value) for message in messages)
-        self._metrics.change_buffer(rows=len(messages), byte_count=bytes_received)
-        try:
-            await self._process_partition_inner(tp, messages, semaphore)
-        finally:
-            self._metrics.change_buffer(rows=-len(messages), byte_count=-bytes_received)
+        """Process a single assigned partition without changing queue ownership."""
+        await self._process_partition_inner(tp, messages, semaphore)
 
     async def _process_partition_inner(
         self,
@@ -396,6 +391,7 @@ class KafkaStorageConsumer:
                 finally:
                     buffered_rows -= rows
                     buffered_bytes -= byte_count
+                    self._metrics.change_buffer(rows=-rows, byte_count=-byte_count)
                     space_available.set()
                     queue.task_done()
 
@@ -502,6 +498,7 @@ class KafkaStorageConsumer:
                 queue.put_nowait((workload, rows_received, bytes_received))
                 buffered_rows += rows_received
                 buffered_bytes += bytes_received
+                self._metrics.change_buffer(rows=rows_received, byte_count=bytes_received)
         finally:
             stop_waiter.cancel()
             with suppress(asyncio.CancelledError):
