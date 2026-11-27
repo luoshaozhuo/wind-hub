@@ -909,9 +909,9 @@ Decoder 严格验证线格式；Resolver 解析可信固定闭包；Provisioner 
 
 ## 9.1 输入及配置接口
 
-Kafka 目标 JSON v3、完整设备记录以 Contracts 最新设计为唯一规范。字段：schema_version、wind_farm_id、device_config_id（完整固定文件身份）、device_id、data_level、sample_time、points（源 point_id 对应 [value,quality]）。不传 device_type、point_table_id、business_point_id、unit、data_type 等可派生字段。场站身份仍独立传输并授权。样本时间 UTC 微秒，拒绝精度截断造成的键碰撞。不得把多个采样时刻合并成一个 Record，也不得拆同一完整设备时刻为多个可能覆盖的 Record。RAW 值使用严格小写偶数长度十六进制线格式，存入原始 bytes；无真实原始载荷不得伪造，未采集/失败与明确 RAW 缺失契约违反由 Contracts 统一裁决。
+Kafka 目标 JSON v3、完整设备记录以 Contracts 最新设计为唯一规范。字段：schema_version、wind_farm_id、device_config_id（完整固定文件身份）、device_id、data_level、sample_time、points（RAW/PROTOCOL 用源 point_id，BUSINESS 用 business_point_id；每项对应 [value,quality]）。不传 device_type、point_table_id、business_point_id、unit、data_type 等可派生字段。场站身份仍独立传输并授权。样本时间 UTC 微秒，拒绝精度截断造成的键碰撞。不得把多个采样时刻合并成一个 Record，也不得拆同一完整设备时刻为多个可能覆盖的 Record。RAW 值使用严格小写偶数长度十六进制线格式，存入原始 bytes；无真实原始载荷不得伪造，未采集/失败与明确 RAW 缺失契约违反由 Contracts 统一裁决。
 
-Configuration 当前 GetServiceConfigBundle 用于活动闭包；扩展 GetConfigBundle 支持精确根配置版本（含 config_type/config_id/file_version 或不可变 version_id），返回固定依赖闭包及摘要。禁止按推荐版替代历史；GetPointTableBundle 不是新设备身份的唯一解析入口。目标字段编号已由 Contracts §10 指定；实际 Proto、生成物及调用方迁移属于后续实施。
+Configuration 当前已提供 `GetServiceConfigBundle` 和按不可变版本解析的 `GetConfigBundle`、`GetPointTableBundle`；Storage 还通过精确 Device Instance 历史闭包确定设备身份。禁止按推荐版本替代历史；字段号以现行 Contracts Proto 为准，生成物及调用方须保持同步。
 
 ## 9.2 查询接口
 
@@ -1019,7 +1019,7 @@ Service 仅依赖 Instance，Instance 固定依赖模板；不新增 Storage 专
 
 ## 11.2 配置示例与参数
 
-以下为目标增量配置，不是已经部署的 YAML；保留现有 bootstrap、Service/Deployment、授权场站、Kafka、gRPC、auth、query、export、backup、reconciliation 等必要配置。实现阶段应形成完整唯一 YAML 契约，并逐字段同步 Schema、加载器、Fixture；删除 kafka.max_buffer_records/max_buffer_bytes 与 tdengine 旧平铺 batch_max_records、batch_max_bytes、batch_wait_ms、write_timeout_ms；统一 ingestion 预算，保留 Kafka poll/partition/commit 与 TDengine connection/SQL/DDL 限额；query.max_page_size 改为宽表行。cachesize 不作为新基线，原生默认及可配置性由 D2 核验。
+下列配置片段是设计参数说明，不是独立可发布的完整 YAML；现行完整 Storage Service v2.0.0 配置已存在于 `deploy/config_roots/prod-a/services/service_storage-main_v2.0.0.yaml` 和隔离 E2E 根目录；保留现有 bootstrap、Service/Deployment、授权场站、Kafka、gRPC、auth、query、export、backup、reconciliation 等必要配置。实现阶段应形成完整唯一 YAML 契约，并逐字段同步 Schema、加载器、Fixture；删除 kafka.max_buffer_records/max_buffer_bytes 与 tdengine 旧平铺 batch_max_records、batch_max_bytes、batch_wait_ms、write_timeout_ms；统一 ingestion 预算，保留 Kafka poll/partition/commit 与 TDengine connection/SQL/DDL 限额；query.max_page_size 改为宽表行。cachesize 不作为新基线，原生默认及可配置性由 D2 核验。
 
 ```yaml
 tdengine:
@@ -1207,5 +1207,5 @@ TDengine 官方参考（公开文档可能含较新版本能力，均须在 3.3.
 | A37 | 物理映射代际历史重放 | 11.1 | F21 |
 | A38 | 配置和旧设计清理、历史数据另授权 | 11.3 | F22 |
 
-当前状态 DESIGN_REVISED / TECHNICAL_GATES_DEFERRED（用户要求集中线下执行）；文档基线已归并但不是生产或编码冻结批准。D2 准备技术试验与证据要求，D3 完善完整 YAML 契约与清理；按用户要求允许在真实技术门禁未执行时推进候选实现，但最终生产冻结必须取得 TD01–TD12 的适用证据。失败则回改设计和代码，不得提前批准生产。未执行测试或真实渲染时如实标记 NOT_RUN。当前代码仍为旧契约，禁止混合部署；不保留废弃兼容实现。
+**当前进度勘误（2026-11-27）**：设备级宽表与 Kafka v3 已实现，STMT2 多设备写入、UNKNOWN、Offset 防护和 30 台容量已取得独立实测证据；100/300 台 Storage 容量和 Sink 600 秒仍 BLOCKED，三等级同时与 1000 台 NOT_RUN。原 D2/D3 计划属于历史实施阶段，不能将其未执行状态覆盖最新证据；但仍不得据此宣称整体设计冻结或生产 READY。最新结果以 `docs/audit/storage_sink_capacity_retest_20261127.md` 为准。
 
