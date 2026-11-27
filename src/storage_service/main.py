@@ -256,7 +256,10 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
                     stopping.cancel()
                     await asyncio.gather(stopping, return_exceptions=True)
                     try:
-                        await asyncio.wait_for(consume, timeout=10)
+                        await asyncio.wait_for(
+                            consume,
+                            timeout=bundle.configuration.kafka.shutdown_drain_timeout_ms / 1000,
+                        )
                     except TimeoutError:
                         consume.cancel()
                         await asyncio.gather(consume, return_exceptions=True)
