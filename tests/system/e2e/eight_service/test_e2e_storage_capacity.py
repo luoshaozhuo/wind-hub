@@ -507,6 +507,19 @@ def test_storage_single_instance_500_point_device_row_capacity(
     database = WideSchema.database_name("e2e-final")
     total_rows = len(devices) * cycles
     target_rows_per_second = len(devices) * rate_per_device
+    # Every device shares the same 500 physical values within a cycle. Build
+    # these immutable JSON fragments before the timed producer phase instead
+    # of reserializing 500 points for each of 300 devices.
+    point_payloads = tuple(
+        json.dumps(
+            {
+                point_id: [_wide_value(index, cycle), 1]
+                for index, point_id in enumerate(_WIDE_POINT_IDS)
+            },
+            separators=(",", ":"),
+        ).encode()
+        for cycle in range(cycles)
+    )
     result_dir = Path(os.environ.get("STORAGE_WIDE_RESULT_DIR", "/tmp"))
     result_dir.mkdir(parents=True, exist_ok=True)
     writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
@@ -595,19 +608,17 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 .isoformat(timespec="microseconds")
                 .replace("+00:00", "Z")
             )
-            payload = {
-                "schema_version": 3,
-                "wind_farm_id": "e2e-final",
-                "device_config_id": DEVICE_CONFIG_ID,
-                "device_id": device,
-                "data_level": "protocol",
-                "sample_time": sample_time,
-                "points": {
-                    point_id: [_wide_value(index, cycle), 1]
-                    for index, point_id in enumerate(_WIDE_POINT_IDS)
-                },
-            }
-            encoded = json.dumps(payload, separators=(",", ":")).encode()
+            prefix = (
+                b'{"schema_version":3,"wind_farm_id":"e2e-final",'
+                b'"device_config_id":'
+                + json.dumps(DEVICE_CONFIG_ID).encode()
+                + b',"device_id":'
+                + json.dumps(device).encode()
+                + b',"data_level":"protocol","sample_time":'
+                + json.dumps(sample_time).encode()
+                + b',"points":'
+            )
+            encoded = prefix + point_payloads[cycle] + b"}"
             send_started = time.perf_counter()
             confirmation = await producer.send_and_wait(
                 "windhub.e2e.history",
