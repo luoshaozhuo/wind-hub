@@ -152,44 +152,47 @@ class StorageConfigurationWatcher:
         _LOG.info("Storage accepted effective closure %s", self.active_revision)
 
     async def run(self, stop: asyncio.Event) -> None:
+        """订阅配置变更提示，取消或异常退出时始终关闭 NATS 连接。"""
         connection: NatsClient | None = None
         timeout = self._active.configuration.configuration.reconcile_interval_s
-        while not stop.is_set():
-            if connection is None:
+        try:
+            while not stop.is_set():
+                if connection is None:
+                    try:
+                        connection = await nats.connect(
+                            servers=self._servers,
+                            connect_timeout=3,
+                            max_reconnect_attempts=-1,
+                        )
+
+                        async def notify(message: Msg) -> None:
+                            # NATS hints are not authoritative revisions; a bounded
+                            # message only triggers a full gRPC revision check.
+                            if len(message.data) <= 4096:
+                                self._changed.set()
+
+                        await connection.subscribe(
+                            _CONFIG_CHANGED_SUBJECT,
+                            cb=notify,
+                        )
+                    except Exception:
+                        _LOG.warning(
+                            "Storage NATS broadcast unavailable; periodic polling remains active"
+                        )
+                        if connection is not None:
+                            await connection.close()
+                        connection = None
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._changed.wait(), timeout=timeout)
+                self._changed.clear()
+                if stop.is_set():
+                    break
                 try:
-                    connection = await nats.connect(
-                        servers=self._servers,
-                        connect_timeout=3,
-                        max_reconnect_attempts=-1,
-                    )
-
-                    async def notify(message: Msg) -> None:
-                        # NATS hints are not authoritative revisions; a bounded
-                        # message only triggers a full gRPC revision check.
-                        if len(message.data) <= 4096:
-                            self._changed.set()
-
-                    await connection.subscribe(
-                        _CONFIG_CHANGED_SUBJECT,
-                        cb=notify,
-                    )
+                    await self.refresh_now()
+                except ConfigHistoryUnavailableError:
+                    _LOG.warning("Storage rejected an incomplete immutable configuration revision")
                 except Exception:
-                    _LOG.warning(
-                        "Storage NATS broadcast unavailable; periodic polling remains active"
-                    )
-                    if connection is not None:
-                        await connection.close()
-                    connection = None
-            with suppress(TimeoutError):
-                await asyncio.wait_for(self._changed.wait(), timeout=timeout)
-            self._changed.clear()
-            if stop.is_set():
-                break
-            try:
-                await self.refresh_now()
-            except ConfigHistoryUnavailableError:
-                _LOG.warning("Storage rejected an incomplete immutable configuration revision")
-            except Exception:
-                _LOG.warning("Storage Configuration reconciliation unavailable")
-        if connection is not None:
-            await connection.close()
+                    _LOG.warning("Storage Configuration reconciliation unavailable")
+        finally:
+            if connection is not None:
+                await connection.close()
