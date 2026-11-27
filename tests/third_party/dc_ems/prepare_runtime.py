@@ -94,9 +94,9 @@ def prepare(source: Path, destination: Path) -> None:
         "".join(f"{key}={value}\n" for key, value in environment.items()),
         encoding="utf-8",
     )
-    machine_id = destination / "machine-id"
+    machine_id = destination / "config" / "machine-id"
     machine_id.write_text(secrets.token_hex(16) + "\n", encoding="utf-8")
-    machine_id.chmod(0o444)
+    machine_id.chmod(0o600)
     for path in [envfile, dbfile, destination / "config" / "ssl" / "dc-ems.jks"]:
         os.chmod(path, 0o600)
 

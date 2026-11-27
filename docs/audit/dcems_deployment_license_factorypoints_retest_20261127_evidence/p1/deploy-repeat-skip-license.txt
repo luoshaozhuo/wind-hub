@@ -1,0 +1,15 @@
+ Container dc-ems-dc-ems-server-1 Running 
+ Container dc-ems-dc-ems-db-1 Running 
+ Container dc-ems-dc-ems-db-1 Waiting 
+ Container dc-ems-dc-ems-db-1 Healthy 
+  ✓ dc-ems-db 已运行
+  ✓ dc-ems-server 已运行
+写入服务端口配置：web.listenPort=18453
+UPDATE 1
+写入 RMI 端口配置：rmi.port=19444
+INSERT 0 0
+写入节点角色：nodeRole=primary
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+检测到已有授权码，跳过授权流程。

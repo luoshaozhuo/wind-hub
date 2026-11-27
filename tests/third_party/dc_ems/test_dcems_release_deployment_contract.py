@@ -16,13 +16,11 @@ RELEASE = REPO_ROOT / "third_party" / "dc-ems"
 def test_license_machine_identity_uses_server_contract() -> None:
     """Machine-code generation and Server must share a persisted identity."""
     script = (RELEASE / "deploy.sh").read_text(encoding="utf-8")
-    compose = (RELEASE / "runtime/containerized/compose.yaml").read_text(
-        encoding="utf-8"
-    )
+    compose = (RELEASE / "runtime/containerized/compose.yaml").read_text(encoding="utf-8")
     assert "machine-code DC-EMS" in script
     assert "machine-code DCEMS" not in script
     assert "ensure_machine_id" in script
-    assert 'ensure_machine_id\n\n    # 已部署' in script
+    assert "ensure_machine_id\n\n    # 已部署" in script
     assert "source=${ROOT}/config/machine-id,target=/etc/machine-id,readonly" in script
     assert "source: ${DEPLOY_CONFIG_DIR}/machine-id" in compose
     assert "target: /etc/machine-id" in compose

@@ -1,0 +1,7 @@
+## patch dry-run against UNPATCHED source (fuzz=0)
+checking file src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+fuzz0-dry-exit=0
+## patch dry-run against release-matched source root (a/server layout, fuzz=0)
+checking file server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 

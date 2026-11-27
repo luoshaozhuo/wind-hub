@@ -1,0 +1,5 @@
+machine-id file hash=e5a8b80440f6aa95cb9601cd4996944a9b1c98eb7cbbb94affd3c03f2238b6c4
+container_machine_id=606ccbc95e9e4bf7bfb12274a5873758
+matches=yes
+license_errors_last_30s=0
+in_container_web=OK

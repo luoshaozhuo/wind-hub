@@ -1,0 +1,9 @@
+machine-id file hash: e5a8b80440f6aa95cb9601cd4996944a9b1c98eb7cbbb94affd3c03f2238b6c4
+container machine-id matches: yes
+license errors in current boot:
+0
+2026-11-27 07:16:55.894 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 18453
+in-container web after restart:
+OK
+license error count since restart:
+0

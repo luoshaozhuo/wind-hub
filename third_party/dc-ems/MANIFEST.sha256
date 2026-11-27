@@ -122,7 +122,7 @@ e1403af350b24e9bd7ee29e96a034306d29b135cbe623183b9646b240ee18c0d  ./app/web/stat
 c2667ff6a553aa26d303592d2b3e0c83e28d235b3c3ce4f0b43a5d25a308ea7b  ./config/env.template
 6349fbdd1728d7ec5aabac75bc76db2afc24d8baa3d8f221120fb26afad5ab3b  ./config/log4j.properties
 fb9f1deb9d2f21e9d74819d445ecef05a6c4cf0eaf01e0b472c9ac345f37f1da  ./config/ssl/README.md
-0dea27077d7bcb73831620c7dee6b6c95fe1afa154707048c8391cdd008a74ad  ./deploy.sh
+280eb16a821ecad3d23a867fd36d402c9baad08e12d87ecc79e0f06dabc35454  ./deploy.sh
 5694498dfbfd6e6fd5ad6b9759674cd217f3084e9d34c8f49ccc527713427ac7  ./images/dc-ems-server.tar
 8a501f98cd6cad490fe99786991ad8dba88235b0834a7b1faa69e36fe68944b5  ./images/timescaledb.tar
 c039d5d2ad37b20dcf939e7449d0deb1a4547d0f1ee46548b1febaac9ced1b69  ./lib.sh

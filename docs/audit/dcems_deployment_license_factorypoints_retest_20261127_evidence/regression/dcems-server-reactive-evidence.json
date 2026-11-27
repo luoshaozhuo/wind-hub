@@ -1,0 +1,14 @@
+{
+  "source": "dc-ems Server /api/config/setParam",
+  "dcems_device_id": "WTG01",
+  "windhub_device_id": "WTG_SIM01",
+  "dcems_point_id": "ctrlReActPow",
+  "commanded_kvar": 125.0,
+  "expected_dg_var": 125000.0,
+  "gateway_event_id": "fb1d924706514846a72bff68bcd35749",
+  "commander_command_id": "39a9f70b-6762-422d-85bd-0888500c5e15",
+  "commander_outcome": "CONFIRMED_SUCCESS",
+  "generator_state": "APPLIED",
+  "gateway2_readback_var": 125000.0,
+  "dcems_web_ack_is_not_execution_proof": true
+}

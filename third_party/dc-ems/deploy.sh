@@ -46,8 +46,16 @@ write_db_property() {
     expected="$(printf 'con=%s\nuser=%s\npasswd=%s\ndriver=org.postgresql.Driver\n' \
         "${con}" "${DB_USER}" "${DB_PASSWORD}")"
     if [[ -f "${path}" ]]; then
-        current="$(tr -d '\r' < "${path}")"
-        [[ "${current}" == "${expected}" ]] || fail '已有 config/db.property 与当前 .env/部署模式不一致，拒绝静默覆盖'
+        # Server 会把 db.property 回写为 Java properties（转义 ``:``/``=``、重排、加注释）。
+        # 按字段语义比较，允许应用回写格式，但拒绝静默改变连接身份。
+        local cur_con cur_user cur_pass cur_driver
+        cur_con="$(sed -n 's/^con=//p' "${path}" | tail -n 1 | sed -e 's/\\:/:/g' -e 's/\\=/=/g')"
+        cur_user="$(sed -n 's/^user=//p' "${path}" | tail -n 1 | sed -e 's/\\:/:/g' -e 's/\\=/=/g')"
+        cur_pass="$(sed -n 's/^passwd=//p' "${path}" | tail -n 1 | sed -e 's/\\:/:/g' -e 's/\\=/=/g')"
+        cur_driver="$(sed -n 's/^driver=//p' "${path}" | tail -n 1)"
+        [[ "${cur_con}" == "${con}" && "${cur_user}" == "${DB_USER}" &&
+           "${cur_pass}" == "${DB_PASSWORD}" && "${cur_driver}" == "org.postgresql.Driver" ]] ||
+            fail '已有 config/db.property 与当前 .env/部署模式不一致，拒绝静默覆盖'
     else
         printf '%s' "${expected}" > "${path}"
         chmod 600 "${path}"
@@ -116,6 +124,10 @@ ensure_machine_id() {
         [[ -n "${server}" ]] || fail '已有部署但无法读取原 Server 机器身份'
         "${DOCKER}" cp "${server}:/etc/machine-id" "${path}" >/dev/null ||
             fail '已有部署的 Server 机器身份无法迁移'
+        if [[ ! -s "${path}" ]]; then
+            rm -f "${path}"
+            fail '旧部署 Server 机器身份为空，无法安全迁移；请重新申请授权或保留旧容器'
+        fi
     fi
     if [[ ! -e "${path}" ]]; then
         (umask 077
@@ -128,6 +140,10 @@ ensure_machine_id() {
     fi
     [[ -f "${path}" && ! -L "${path}" && -s "${path}" ]] ||
         fail '机器身份文件缺失、为空或不是普通文件'
+    local identity
+    identity="$(tr -d ' \r\n' < "${path}")"
+    [[ "${identity}" =~ ^[0-9a-fA-F]{32}$ ]] ||
+        fail '机器身份格式非法（必须是 32 位十六进制 machine-id）'
     chmod 600 "${path}"
 }
 
@@ -141,12 +157,20 @@ get_machine_code() {
         -cp dc-ems.jar cn.hedpy.scada.license.LiscenceUtil machine-code DC-EMS
 }
 
+psql_db() {
+    local container="$1"
+    shift
+    "${DOCKER}" exec -i -e "PGPASSWORD=${DB_PASSWORD}" "${container}" \
+        psql -U "${DB_USER}" -d "${DB_NAME}" "$@"
+}
+
 ensure_license() {
     # 检查数据库中是否已有授权码；若没有且 .env 中提供了 LICENSE_CODE 则写入，
     # 否则获取机器码并提示用户向管理员申请。
+    local db_container="dc-ems-dc-ems-db-1"
     local license_in_db
-    license_in_db="$("${DOCKER}" exec -i dc-ems-db psql -U "${DB_USER}" -d "${DB_NAME}" -t -A -c \
-        "SELECT \"val\" FROM ems_config WHERE \"id\" = 'license';" 2>/dev/null || true)"
+    license_in_db="$(psql_db "${db_container}" -t -A -c \
+        "SELECT \"val\" FROM ems_config WHERE \"var_path\" = 'license';" 2>/dev/null || true)"
     license_in_db="$(trim "${license_in_db}")"
 
     if [[ -n "${license_in_db}" ]]; then
@@ -155,12 +179,24 @@ ensure_license() {
     fi
 
     if [[ -n "${LICENSE_CODE:-}" ]]; then
-        # 将用户提供的授权码写入数据库
+        # 仅接受官方授权工具产生的 base64 密文，避免 SQL 注入与伪造格式。
+        [[ "${LICENSE_CODE}" =~ ^[A-Za-z0-9+/=]+$ ]] || fail '授权码格式非法'
         printf '正在写入授权码...\n'
-        "${DOCKER}" exec -i dc-ems-db psql -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1 <<SQL
-INSERT INTO ems_config ("id", "val", "remark") VALUES ('license', '${LICENSE_CODE}', 'license code')
-ON CONFLICT ("id") DO UPDATE SET "val" = EXCLUDED."val";
+        psql_db "${db_container}" \
+            -v lic="${LICENSE_CODE}" >/dev/null <<'SQL'
+UPDATE ems_config SET val = :'lic' WHERE var_path = 'license';
+INSERT INTO ems_config (var_path, val)
+SELECT 'license', :'lic'
+WHERE NOT EXISTS (SELECT 1 FROM ems_config WHERE var_path = 'license');
 SQL
+        license_in_db="$(psql_db "${db_container}" -t -A -c \
+            "SELECT \"val\" FROM ems_config WHERE \"var_path\" = 'license';" 2>/dev/null || true)"
+        [[ "$(trim "${license_in_db}")" == "${LICENSE_CODE}" ]] || fail '授权码写入数据库失败'
+        # Server 在启动时读取授权；写入后必须重启以生效。
+        if "${DOCKER}" ps -aq --filter name=dc-ems-dc-ems-server-1 | grep -q .; then
+            "${DOCKER}" restart dc-ems-dc-ems-server-1 >/dev/null || fail 'Server 重启失败'
+            sleep 5
+        fi
         printf '授权码已写入。\n'
         return 0
     fi
@@ -206,7 +242,7 @@ write_sys_config() {
     # 等待 sys_config 表就绪（server 启动时异步创建）
     start_time="$(date +%s)"
     while true; do
-        if "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" -c 'SELECT 1 FROM sys_config LIMIT 1' >/dev/null 2>&1; then
+        if psql_db "${db_container}" -c 'SELECT 1 FROM sys_config LIMIT 1' >/dev/null 2>&1; then
             break
         fi
         elapsed="$(($(date +%s) - start_time))"
@@ -219,13 +255,13 @@ write_sys_config() {
 
     # HTTPS 监听端口（覆盖 data.json 默认 443）
     printf '写入服务端口配置：web.listenPort=%s\n' "${SERVER_PORT}"
-    "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" 2>&1 <<SQL
+    psql_db "${db_container}" 2>&1 <<SQL
 UPDATE sys_config SET item_value = '${SERVER_PORT}' WHERE group_name = 'web' AND item_name = 'listenPort';
 SQL
 
     # RMI 端口
     printf '写入 RMI 端口配置：rmi.port=%s\n' "${RMI_PORT}"
-    "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" 2>&1 <<SQL
+    psql_db "${db_container}" 2>&1 <<SQL
 INSERT INTO sys_config (group_name, item_name, item_value, descr)
 SELECT 'rmi', 'port', '${RMI_PORT}', 'RMI 主备通信端口'
 WHERE NOT EXISTS (
@@ -235,7 +271,7 @@ SQL
 
     # 节点角色
     printf '写入节点角色：nodeRole=%s\n' "${NODE_ROLE}"
-    "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" 2>&1 <<SQL
+    psql_db "${db_container}" 2>&1 <<SQL
 INSERT INTO sys_config (group_name, item_name, item_value, descr)
 SELECT 'app', 'nodeRole', '${NODE_ROLE}', '节点角色 primary/standby'
 WHERE NOT EXISTS (
@@ -245,7 +281,7 @@ SQL
 
     if [[ -n "${PEER_HOST:-}" ]]; then
         printf '写入主备配置：rmi_listenHost=%s\n' "${PEER_HOST}"
-        "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" 2>&1 <<SQL
+        psql_db "${db_container}" 2>&1 <<SQL
 INSERT INTO sys_config (group_name, item_name, item_value, descr)
 SELECT 'rmi', 'listenHost', '${PEER_HOST}', '主备 RMI 主机 IP'
 WHERE NOT EXISTS (
@@ -255,7 +291,7 @@ SQL
     fi
     if [[ -n "${REDIS_HOST:-}" ]]; then
         local redis_con="${REDIS_HOST},${REDIS_PORT:-6379},${REDIS_PASSWORD:-},${REDIS_DB:-0}"
-        "${DOCKER}" exec -i "${db_container}" psql -U "${DB_USER}" -d "${DB_NAME}" 2>&1 <<SQL
+        psql_db "${db_container}" 2>&1 <<SQL
 INSERT INTO sys_config (group_name, item_name, item_value, descr)
 SELECT 'sync', 'redisCon', '${redis_con}', 'SCADA 数据同步 Redis 连接'
 WHERE NOT EXISTS (

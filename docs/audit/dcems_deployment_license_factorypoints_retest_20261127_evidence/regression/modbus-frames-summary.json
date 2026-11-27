@@ -1,0 +1,15 @@
+{
+  "fc16": [
+    {
+      "raw": "00270000000b0110a255000204000043e1",
+      "unit": 1,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "byte_count": 4,
+      "data_hex": "000043e1",
+      "decoded_cdab": 450.0
+    }
+  ],
+  "fc03_count": 105
+}

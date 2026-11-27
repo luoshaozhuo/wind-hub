@@ -1,0 +1,8 @@
+## baseline (unpatched emslib-1.0.jar) behavior
+log4j:WARN No appenders could be found for logger (cn.hedpy.scada.emslib.entity.FactoryPoints).
+log4j:WARN Please initialize the log4j system properly.
+log4j:WARN See http://logging.apache.org/log4j/1.2/faq.html#noconfig for more info.
+CASE all_null result=false
+Exception in thread "main" java.lang.AssertionError: one true must grant dispatch
+	at cn.hedpy.scada.emslib.entity.CheckIsLimitTest.main(CheckIsLimitTest.java:70)
+exit=1

@@ -1,0 +1,45 @@
+# Released JAR runtime evidence (from prior round dcems_t02_live_retest_20261127, released image dc-ems-server:1.1.4-583d5da)
+## FactoryPoints NPE occurrences in released Server log
+259:2026-11-27 06:28:32.880 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+260:java.lang.NullPointerException
+285:2026-11-27 06:28:33.872 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+286:java.lang.NullPointerException
+308:2026-11-27 06:28:34.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+309:java.lang.NullPointerException
+331:2026-11-27 06:28:35.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+332:java.lang.NullPointerException
+354:2026-11-27 06:28:36.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+355:java.lang.NullPointerException
+377:2026-11-27 06:28:37.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+378:java.lang.NullPointerException
+400:2026-11-27 06:28:38.873 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+401:java.lang.NullPointerException
+423:2026-11-27 06:28:39.570 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+424:java.lang.NullPointerException
+431:2026-11-27 06:28:39.874 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+432:java.lang.NullPointerException
+454:2026-11-27 06:28:40.875 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+455:java.lang.NullPointerException
+## stack sample
+21:2026-11-27 06:28:42.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+22-java.lang.NullPointerException
+23-	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+24-	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+25-	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+26-	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+27-	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+--
+44:2026-11-27 06:28:43.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+45-java.lang.NullPointerException
+46-	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+47-	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+48-	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+49-	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+50-	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+--
+67:2026-11-27 06:28:44.876 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+68-java.lang.NullPointerException
+69-	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+70-	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+1101:    private boolean checkIsLimit() {
+FactoryPoints.class entries in released jar: 1

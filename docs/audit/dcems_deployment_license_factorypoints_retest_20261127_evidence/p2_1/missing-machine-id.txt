@@ -1,0 +1,3 @@
+Error response from daemon: mount /run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-26.04/fc03c7e1fe66c8dc75bee575ce98c4db54a8583a9069be4fe375711280e54cdc:/proc/self/fd/63, flags: 0x5000: no such file or directory
+错误：已有部署的 Server 机器身份无法迁移
+restored=no file=

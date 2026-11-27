@@ -1,0 +1,11 @@
+## patch application (fuzz=0, module root -p3)
+checking file src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored
+fuzz0-dry-exit=1
+## emslib compile (patched, mvn -o)
+build-patched exit=0 target/emslib-1.0.jar
+830f43d16cb882b82092058cb0841655596946bdbbde3ba55d65fbc2ebe6e8b5  run/fp-build/emslib/target/emslib-1.0.jar
+8ea98f1ef68517d5de7d57dd27ea4a1765c44edada53547e25ca7bc3dcb744f5  run/fp-build/emslib-baseline/target/emslib-1.0.jar

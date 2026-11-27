@@ -1,0 +1,8 @@
+## patched emslib behavior
+CASE all_null result=false
+CASE one_true result=true
+CASE all_false result=false
+CASE limit_exceeded result=false
+CASE granted_within_limit result=true
+ALL_CASES_PASS
+exit=0

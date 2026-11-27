@@ -1,0 +1,47 @@
+ Network dc-ems_default Creating 
+ Network dc-ems_default Creating 
+ Volume dc-ems_files Creating 
+ Volume dc-ems_files Creating 
+ Volume dc-ems_cache Creating 
+ Volume dc-ems_cache Creating 
+ Volume dc-ems_models Creating 
+ Volume dc-ems_models Creating 
+ Volume dc-ems_database Creating 
+ Volume dc-ems_database Creating 
+ Volume dc-ems_logs Creating 
+ Volume dc-ems_logs Creating 
+ Volume dc-ems_files Created 
+ Volume dc-ems_files Created 
+ Volume dc-ems_models Created 
+ Volume dc-ems_models Created 
+ Volume dc-ems_database Created 
+ Volume dc-ems_database Created 
+ Volume dc-ems_cache Created 
+ Volume dc-ems_cache Created 
+ Volume dc-ems_logs Created 
+ Volume dc-ems_logs Created 
+ Network dc-ems_default Created 
+ Network dc-ems_default Created 
+ Container dc-ems-dc-ems-db-1 Creating 
+ Container dc-ems-dc-ems-db-1 Created 
+ Container dc-ems-dc-ems-server-1 Creating 
+ Container dc-ems-dc-ems-server-1 Created 
+ Container dc-ems-dc-ems-db-1 Starting 
+ Container dc-ems-dc-ems-db-1 Started 
+ Container dc-ems-dc-ems-db-1 Waiting 
+ Container dc-ems-dc-ems-db-1 Healthy 
+ Container dc-ems-dc-ems-server-1 Starting 
+ Container dc-ems-dc-ems-server-1 Started 
+  ✓ dc-ems-db 已运行
+  ✓ dc-ems-server 已运行
+写入服务端口配置：web.listenPort=18453
+UPDATE 1
+写入 RMI 端口配置：rmi.port=19444
+INSERT 0 1
+写入节点角色：nodeRole=primary
+INSERT 0 1
+INSERT 0 0
+INSERT 0 1
+错误：未提供授权码。请将以下机器码发送给管理员获取授权码，\n然后将授权码填入 .env 的 LICENSE_CODE 字段后重新执行 deploy.sh：\n\n------机器码------
+<redacted-machine-code>
+------------------
