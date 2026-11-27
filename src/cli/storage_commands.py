@@ -104,10 +104,10 @@ def query_samples(
 
 @storage.command("aggregates")
 def query_aggregates(
-    wind_farm_id: str,
-    start_time: str,
-    end_time: str,
-    level: str = typer.Option(..., "--level"),
+    wind_farm_id: str = typer.Option(..., "--wind-farm-id"),
+    start_time: str = typer.Option(..., "--start-time"),
+    end_time: str = typer.Option(..., "--end-time"),
+    level: str = typer.Option(..., "--data-level"),
     operation: str = typer.Option("avg", "--aggregation"),
     window_ms: int = typer.Option(60000, min=1),
     device_ids: list[str] | None = typer.Option(None, "--device-id"),
