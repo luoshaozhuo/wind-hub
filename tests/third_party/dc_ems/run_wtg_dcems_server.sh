@@ -32,10 +32,9 @@ compose=(
     -f "${BASE}"
     -f "${OVERLAY}"
 )
+# DCEMS 发布镜像与 JAR 不可变；禁止测试覆盖 Java 字节码。
 if [[ -n "${DCEMS_WTG_PATCHED_JAR:-}" ]]; then
-    # FactoryPoints 运行时复测：只读覆盖派生 JAR，不修改正式镜像。
-    [[ -f "${DCEMS_WTG_PATCHED_JAR}" ]] || fail "DCEMS_WTG_PATCHED_JAR not found"
-    compose+=( -f "${HERE}/compose.wtg_patched_jar.yaml" )
+    fail "DCEMS_WTG_PATCHED_JAR is unsupported: use the original DCEMS release image"
 fi
 
 cleanup_project() {
