@@ -935,3 +935,79 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
         if not task.done():
             consumer.request_stop()
             await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=2)
+
+
+async def test_normal_stop_drains_admitted_batches_before_kafka_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graceful STOP may not discard a queued, durably writable suffix."""
+    tp = TopicPartition(TOPIC, 0)
+    writing = asyncio.Event()
+    release = asyncio.Event()
+    fetched_two = asyncio.Event()
+
+    class _PollingConsumer(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            self.polls += 1
+            if self.polls <= 2:
+                if self.polls == 2:
+                    fetched_two.set()
+                return {
+                    tp: [
+                        SimpleNamespace(
+                            topic=tp.topic,
+                            partition=tp.partition,
+                            offset=self.polls - 1,
+                            key=None,
+                            value=b"record",
+                        )
+                    ]
+                }
+            await asyncio.sleep(0.01)
+            return {}
+
+    class _GatedIngestion(_Ingestion):
+        async def process(
+            self,
+            *,
+            generation: int,
+            offsets: PartitionOffsets,
+            records: Sequence[KafkaRecord],
+        ) -> None:
+            if records[0].offset == 0:
+                writing.set()
+                await release.wait()
+            await super().process(generation=generation, offsets=offsets, records=records)
+
+    broker = _PollingConsumer()
+    ingestion = _GatedIngestion()
+    consumer = _build(monkeypatch, broker, ingestion)
+    _own(consumer, tp)
+    runner = asyncio.create_task(consumer.run())
+    stopper: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(writing.wait(), timeout=2)
+        await asyncio.wait_for(fetched_two.wait(), timeout=2)
+        await asyncio.sleep(0)
+        stopper = asyncio.create_task(consumer.stop())
+        await asyncio.sleep(0)
+        assert not stopper.done()
+        assert not broker.stopped
+        release.set()
+        await asyncio.wait_for(stopper, timeout=2)
+        await asyncio.wait_for(runner, timeout=2)
+        assert broker.stopped
+        assert broker.commits == [{tp: 1}, {tp: 2}]
+        assert ingestion.calls == [(1, [0]), (1, [1])]
+        assert consumer._metrics.snapshot().buffer_rows == 0
+    finally:
+        release.set()
+        consumer.request_stop()
+        if stopper is not None and not stopper.done():
+            await asyncio.gather(stopper, return_exceptions=True)
+        if not runner.done():
+            await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=2)
