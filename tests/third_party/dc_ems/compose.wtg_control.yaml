@@ -16,6 +16,10 @@ services:
         source: ${DCEMS_WTG_SEED:?set absolute path to isolated data.json}
         target: /opt/dc-ems/data.json
         read_only: true
-# machine-id 由基础发布 Compose 从 DEPLOY_CONFIG_DIR 挂载，Overlay 不重复声明。
+      - type: bind
+        source: ${DEPLOY_CONFIG_DIR:?set isolated config directory}/machine-id
+        target: /etc/machine-id
+        read_only: true
+# machine-id 只在 wind-hub 测试 Overlay 内挂载；第三方发布 Compose 保持原样。
 # 发布包只提供 Server 与 TimescaleDB 镜像；Server 镜像内含 html/，
 # 并在 HTTPS 443 同端口提供 /dc-ems 静态页与 /api。不得虚构 dc-ems-web 镜像。
