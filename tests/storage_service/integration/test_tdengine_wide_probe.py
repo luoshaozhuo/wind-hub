@@ -599,6 +599,14 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
     """Observe partial native success and prove complete ordered replay restores values."""
     probe = wide_probe
     _create_family(probe, "protocol", "BIGINT")
+    probe.connection.execute(
+        f"CREATE STABLE {probe.database}.incompatible "
+        "(ts TIMESTAMP, payload INT) TAGS (device_id VARCHAR(64))"
+    )
+    probe.connection.execute(
+        f"CREATE TABLE {probe.database}.incompatible_d2 "
+        f"USING {probe.database}.incompatible TAGS ('wtg_002')"
+    )
     ts = time.time_ns() // 1000
     probe.connection.execute(f"USE {probe.database}")
     statement = probe.connection.stmt2_statement()
@@ -612,7 +620,7 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
             statement.bind(
                 [
                     _bind(probe, table="protocol_d0", tag="wtg_000", timestamps=[ts], base=10),
-                    _bind(probe, table="nonexistent_d2", tag="wtg_002", timestamps=[ts], base=20),
+                    _bind(probe, table="incompatible_d2", tag="wtg_002", timestamps=[ts], base=20),
                 ]
             )
             statement.execute()
