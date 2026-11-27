@@ -84,6 +84,9 @@ def test_windturbo_patch_guards_work_mode() -> None:
     assert "Boolean.TRUE.equals(emsComState.getVal())" in patch
     assert "Boolean.TRUE.equals(emsFaultState.getVal())" in patch
     assert "reaLogic == null ? 0 : reaLogic" in patch
+    assert "cosVal == null || !Double.isFinite(cosVal)" in patch
+    assert "cosVal <= 0d || cosVal > 1d" in patch
+    assert "emsReactSetLimitTurbo.update(0d)" in patch
     assert "emsWinSpd.getVal() == null ? 0d" in patch
     assert "emsPowAct.getVal() == null ? 0d" in patch
     for mode in (4, 8, 16, 32, 64):
