@@ -88,6 +88,8 @@ class GatewaySimulationSession:
         revision = gateway_info.gateway.revision
         if not revision:
             return ProtocolWriteResult(spec.point_id, WriteOutcome.UNKNOWN, "GATEWAY_NO_REVISION")
+        if expiry <= datetime.now(UTC):
+            return ProtocolWriteResult(spec.point_id, WriteOutcome.CONFIRMED_FAILURE, "EXPIRED")
         timestamp = Timestamp()
         timestamp.FromDatetime(expiry)
         try:
