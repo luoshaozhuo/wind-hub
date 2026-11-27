@@ -74,7 +74,9 @@ class KafkaStorageConsumer:
                 configuration.tdengine.ingestion.buffer_max_bytes // 2,
             ),
             max_partition_fetch_bytes=min(
-                1048576, configuration.tdengine.ingestion.batch_max_bytes
+                1048576,
+                configuration.tdengine.ingestion.batch_max_bytes,
+                configuration.tdengine.ingestion.buffer_max_bytes // 2
             ),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
