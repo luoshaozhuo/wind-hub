@@ -20,8 +20,21 @@ case "${1:-}" in
             tests/third_party/dc_ems/test_wtg_control_chain_config.py \
             tests/third_party/dc_ems/test_wtg_dcems_seed.py
         ;;
-    --up|--down)
-        bash tests/third_party/dc_ems/run_control_chain.sh "$1"
+    --up)
+        bash tests/third_party/dc_ems/run_control_chain.sh --up
+        # DCEMS WTG setpoint is a constant-power demand (mode=1). Mode=0
+        # intentionally performs maximum-power tracking and ignores setpoint.
+        # Apply only to this dedicated physical Generation through official CLI.
+        generation_id="$(cat "${DCEMS_CONTROL_ROOT}/state/generation-id.txt")"
+        python -m cli.main --config "${DCEMS_CONTROL_ROOT}/state/cli.yaml" \
+            data-generator variables update \
+            --generation-id "${generation_id}" \
+            --device-id WTG_SIM01 \
+            --request-id dcems-wtg-initialize-mode-one \
+            --point-id control_mode --value 1 --yes
+        ;;
+    --down)
+        bash tests/third_party/dc_ems/run_control_chain.sh --down
         ;;
     *)
         printf 'usage: %s --prepare|--check|--up|--down\n' "$0" >&2
