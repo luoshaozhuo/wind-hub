@@ -28,6 +28,7 @@ from .configuration_commands import configuration
 from .diagnose_commands import diagnose
 from .directory_diff import compare_directories
 from .history import SafeHistory
+from .monitor_commands import monitor
 from .network_probe import industrial_probe, ping_probe, scan_cidr, tcp_probe
 from .plant_commands import data_generator, gateway, sink
 from .process_manager import manage_service_process
@@ -49,6 +50,7 @@ app.add_typer(sink, name="sink")
 app.add_typer(gateway, name="gateway")
 app.add_typer(data_generator, name="data-generator")
 app.add_typer(diagnose, name="diagnose")
+app.add_typer(monitor, name="monitor")
 app.add_typer(storage, name="storage")
 
 _config: Path | None = None
