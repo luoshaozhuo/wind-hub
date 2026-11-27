@@ -447,6 +447,26 @@ class KafkaStorageConsumer:
                 if stop_after_group:
                     return
 
+        async def discard_queued() -> None:
+            """Drop unconfirmed prefetched data after a dispatcher failure.
+
+            Kafka offsets remain uncommitted, so a new owner must replay them.
+            """
+            nonlocal buffered_rows, buffered_bytes
+            while True:
+                try:
+                    item = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                queue.task_done()
+                if item is None:
+                    continue
+                _workload, rows, byte_count = item
+                buffered_rows -= rows
+                buffered_bytes -= byte_count
+                self._metrics.change_buffer(rows=-rows, byte_count=-byte_count)
+            space_available.set()
+
         worker = asyncio.create_task(process_queue(), name="storage-kafka-dispatch")
         poll: asyncio.Task[Any] | None = None
         try:
@@ -564,10 +584,10 @@ class KafkaStorageConsumer:
                     await queue.put(None)
                     await worker
                 elif not worker.cancelled():
-                    # Retrieve a dispatcher exception without masking the
-                    # original failure from the polling loop.
+                    # Retrieve an already-finished dispatcher's exception.
                     worker.exception()
             finally:
+                await discard_queued()
                 await self._close_consumer()
 
     async def _close_consumer(self) -> None:
