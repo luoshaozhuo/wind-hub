@@ -440,6 +440,7 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 "GetServiceInfo",
                 "GetServiceStatus",
                 "GetCapabilities",
+                "GetMetrics",
                 "QuerySamples",
                 "QueryAggregates",
                 "CreateExport",
@@ -494,7 +495,29 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.GetMetricsRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetMetricsResponse:
-        return await self._unsupported_common(context, "storage.inspect")
+        """Report process-lifetime counters and current buffer gauges only."""
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        if request.scope not in {"", "process"} or request.window_ms != 0:
+            raise QueryRejectedError("Storage metrics expose only process scope, not windows")
+        snapshot = self._metrics.snapshot()
+        sampled_at = Timestamp()
+        sampled_at.FromDatetime(datetime.now(UTC))
+        values = (
+            ("storage.persisted_rows", snapshot.persisted_rows, "rows"),
+            ("storage.persisted_points", snapshot.persisted_points, "points"),
+            ("storage.confirmed_records", snapshot.confirmed_records, "records"),
+            ("storage.write_unknown", snapshot.write_unknown, "operations"),
+            ("storage.schema_conflicts", snapshot.schema_conflicts, "operations"),
+            ("storage.buffer_rows", snapshot.buffer_rows, "rows"),
+            ("storage.buffer_bytes", snapshot.buffer_bytes, "bytes"),
+        )
+        result = common.GetMetricsResponse()
+        for name, value, unit in values:
+            metric = result.metrics.add(
+                name=name, value=float(value), unit=unit, window_ms=0
+            )
+            metric.sampled_at.CopyFrom(sampled_at)
+        return result
 
     @guarded
     async def GetEvents(
