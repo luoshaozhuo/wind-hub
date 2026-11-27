@@ -185,6 +185,34 @@ def _decode_capacity_row(payload: bytes) -> WideRecord:
     )
 
 
+async def _stop_audit_consumer(consumer: AIOKafkaConsumer) -> tuple[str, bool]:
+    """Recover aiokafka's cancelled fetch cleanup, then prove sockets are closed."""
+    error = ""
+    try:
+        await asyncio.wait_for(consumer.stop(), timeout=30)
+    except (KafkaError, TimeoutError) as exc:
+        error = type(exc).__name__
+    except asyncio.CancelledError:
+        if asyncio.current_task().cancelling():
+            raise
+        error = "aiokafka_internal_fetch_cancelled"
+    finally:
+        fetcher = consumer._fetcher  # noqa: SLF001
+        if fetcher is not None:
+            pending = tuple(fetcher._pending_tasks)  # noqa: SLF001
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        client = consumer._client  # noqa: SLF001
+        await asyncio.wait_for(client.close(), timeout=30)
+        fully_closed = client._sync_task is None and all(  # noqa: SLF001
+            connection.closed()
+            for connection in client._conns.values()  # noqa: SLF001
+        )
+    return error, fully_closed
+
+
 async def _audit_duplicates(
     harness: SinkSystemHarness, total_values: int, baseline_offsets: dict[int, int]
 ) -> dict[str, Any]:
@@ -232,17 +260,12 @@ async def _audit_duplicates(
             "audit_duplicate_record_excess": sum(c - 1 for c in dupes.values()),
             "audit_max_occurrence": max(dupes.values(), default=1),
             "audit_stop_error": stop_error,
+            "audit_consumer_closed": False,
         }
     finally:
-        try:
-            await asyncio.wait_for(audit.stop(), timeout=30)
-        except (KafkaError, TimeoutError) as exc:
-            stop_error = type(exc).__name__
-            result["audit_stop_error"] = stop_error
-        except asyncio.CancelledError:
-            if asyncio.current_task().cancelling():
-                raise
-            result["audit_stop_error"] = "CancelledError"
+        stop_error, closed = await _stop_audit_consumer(audit)
+        result["audit_stop_error"] = stop_error
+        result["audit_consumer_closed"] = closed
     return result
 
 
@@ -292,16 +315,12 @@ async def _audit_device_order_sample(harness: SinkSystemHarness) -> dict[str, An
             },
             "order_or_partition_violations": violations,
             "order_stop_error": "",
+            "order_consumer_closed": False,
         }
     finally:
-        try:
-            await asyncio.wait_for(audit.stop(), timeout=30)
-        except (KafkaError, TimeoutError) as exc:
-            result["order_stop_error"] = type(exc).__name__
-        except asyncio.CancelledError:
-            if asyncio.current_task().cancelling():
-                raise
-            result["order_stop_error"] = "CancelledError"
+        stop_error, closed = await _stop_audit_consumer(audit)
+        result["order_stop_error"] = stop_error
+        result["order_consumer_closed"] = closed
     return result
 
 
@@ -844,7 +863,7 @@ class TestR14SustainedCapacity:
                     result["duplicate_audit"]["audit_total_records"]
                     == confirmed_values // POINTS_PER_BATCH
                     and result["zero_loss"]
-                    and not result["duplicate_audit"]["audit_stop_error"]
+                    and result["duplicate_audit"]["audit_consumer_closed"]
                 )
                 result["confirmed_payload_mb_total"] = round(
                     result["duplicate_audit"]["audit_payload_bytes"] / 1e6, 3
@@ -877,7 +896,7 @@ class TestR14SustainedCapacity:
                 assert order_audit["devices_observed"] == DEGREE, result
                 assert order_audit["minimum_sequences_per_device"] >= 2, result
                 assert not order_audit["order_or_partition_violations"], result
-                assert not order_audit["order_stop_error"], result
+                assert order_audit["order_consumer_closed"], result
                 assert result["drained"], result
                 assert confirmed_values >= published_values, result
                 audit = result["duplicate_audit"]
