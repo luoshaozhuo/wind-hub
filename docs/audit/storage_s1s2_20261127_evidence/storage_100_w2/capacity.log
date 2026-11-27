@@ -1,0 +1,341 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_storage_single_instance_500_point_device_row_capacity __________
+
+storage_wide_started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-175/test_storage_single_instance_50/e2e'), stack=R5Sta...ath('/tmp/pytest-of-luosh/pytest-175/test_storage_single_instance_50/e2e/logs'), _started=['configuration', 'storage'])
+
+    def test_storage_single_instance_500_point_device_row_capacity(
+        storage_wide_started: EightServiceHarness,
+    ) -> None:
+        """单 Storage 的 Kafka v3 完整 500 点设备行容量与持久化身份闭合。"""
+        harness = storage_wide_started
+        devices = _wide_devices()
+        cycles = int(os.environ.get("STORAGE_WIDE_CYCLES", "600"))
+        rate_per_device = int(os.environ.get("STORAGE_WIDE_RATE_PER_DEVICE", "10"))
+        writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
+        drain_timeout = float(os.environ.get("STORAGE_WIDE_DRAIN_TIMEOUT_SECONDS", "900"))
+        if cycles <= 0 or rate_per_device <= 0 or rate_per_device > 1000:
+            raise ValueError("positive cycles and a rate in [1, 1000] are required")
+        if 1000 % rate_per_device:
+            raise ValueError("STORAGE_WIDE_RATE_PER_DEVICE must divide 1000 for millisecond timestamps")
+        if drain_timeout <= 0:
+            raise ValueError("positive drain timeout required")
+        interval_us = 1_000_000 // rate_per_device
+        point_table_id = "point_table_modbus_wtg_sim_v1.2.0"
+        database = WideSchema.database_name("e2e-final")
+        total_rows = len(devices) * cycles
+        target_rows_per_second = len(devices) * rate_per_device
+        result_dir = Path(os.environ.get("STORAGE_WIDE_RESULT_DIR", "/tmp"))
+        result_dir.mkdir(parents=True, exist_ok=True)
+        writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
+        stem = f"storage_wide_500_devices_{len(devices):03d}_w{writer_count}"
+        result_path = result_dir / f"{stem}.json"
+        jsonl_path = result_dir / f"{stem}.jsonl"
+    
+        async def exercise() -> dict[str, object]:
+            producer = AIOKafkaProducer(
+                bootstrap_servers=harness.stack.kafka,
+                acks="all",
+                enable_idempotence=True,
+                linger_ms=5,
+                max_batch_size=1048576,
+            )
+            pid = await asyncio.to_thread(_storage_process_pid, harness)
+            metadata = (("authorization", f"Bearer {harness.env['WIND_HUB_STORAGE_OPERATOR_TOKEN']}"),)
+            progress: dict[str, object] = {
+                "phase": "publish",
+                "acknowledged_rows": 0,
+                "published_payload_bytes": 0,
+                "persisted_rows": 0,
+                "persisted_devices": 0,
+            }
+            ack_latencies: list[float] = []
+            process_samples: list[dict[str, object]] = []
+            stop_monitor = asyncio.Event()
+            pending: set[asyncio.Task[None]] = set()
+            sample_start_us = (int(datetime.now(UTC).timestamp() * 1000) + 1000) * 1000
+            sample_end_us = sample_start_us + cycles * interval_us
+            counts = {device: 0 for device in devices}
+            started_at = 0.0
+            publish_end = 0.0
+            drained_at = 0.0
+    
+            async def monitor(stream: Any) -> None:
+                previous_at = time.monotonic()
+                previous_ticks, rss_kib, peak_rss_kib = await asyncio.to_thread(
+                    _read_process_sample, pid
+                )
+                process_samples.append(
+                    {
+                        "monotonic": previous_at,
+                        "ticks": previous_ticks,
+                        "rss_kib": rss_kib,
+                        "peak_rss_kib": peak_rss_kib,
+                    }
+                )
+                hz = os.sysconf("SC_CLK_TCK")
+                while True:
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(stop_monitor.wait(), timeout=1.0)
+                    now = time.monotonic()
+                    ticks, rss_kib, peak_rss_kib = await asyncio.to_thread(_read_process_sample, pid)
+                    cpu_percent = 100 * ((ticks - previous_ticks) / hz) / (now - previous_at)
+                    sample = {
+                        "monotonic": now,
+                        "ticks": ticks,
+                        "rss_kib": rss_kib,
+                        "peak_rss_kib": peak_rss_kib,
+                        "cpu_percent_of_one_core": cpu_percent,
+                    }
+                    process_samples.append(sample)
+                    stream.write(
+                        json.dumps(
+                            {
+                                "elapsed_seconds": now - started_at,
+                                **progress,
+                                "published_payload_MB": int(progress["published_payload_bytes"]) / 1e6,
+                                "storage_cpu_percent_of_one_core_interval": cpu_percent,
+                                "storage_rss_MiB": rss_kib / 1024,
+                                "storage_peak_rss_MiB": peak_rss_kib / 1024,
+                            },
+                            separators=(",", ":"),
+                        )
+                        + "\n"
+                    )
+                    previous_at, previous_ticks = now, ticks
+                    if stop_monitor.is_set():
+                        return
+    
+            async def publish_one(device: str, cycle: int, sample_time_us: int) -> None:
+                sample_time = (
+                    datetime.fromtimestamp(sample_time_us // 1_000_000, UTC)
+                    .replace(microsecond=sample_time_us % 1_000_000)
+                    .isoformat(timespec="microseconds")
+                    .replace("+00:00", "Z")
+                )
+                payload = {
+                    "schema_version": 3,
+                    "wind_farm_id": "e2e-final",
+                    "device_config_id": DEVICE_CONFIG_ID,
+                    "device_id": device,
+                    "data_level": "protocol",
+                    "sample_time": sample_time,
+                    "points": {
+                        point_id: [_wide_value(index, cycle), 1]
+                        for index, point_id in enumerate(_WIDE_POINT_IDS)
+                    },
+                }
+                encoded = json.dumps(payload, separators=(",", ":")).encode()
+                send_started = time.perf_counter()
+                confirmation = await producer.send_and_wait(
+                    "windhub.e2e.history",
+                    key=f"e2e-final:{device}".encode(),
+                    value=encoded,
+                )
+                assert confirmation.topic == "windhub.e2e.history"
+                ack_latencies.append(time.perf_counter() - send_started)
+                progress["acknowledged_rows"] = int(progress["acknowledged_rows"]) + 1
+                progress["published_payload_bytes"] = int(progress["published_payload_bytes"]) + len(
+                    encoded
+                )
+    
+            with jsonl_path.open("w", encoding="utf-8", buffering=1) as stream:
+                monitor_task: asyncio.Task[None] | None = None
+                channel = grpc.aio.insecure_channel(f"127.0.0.1:{_storage_port(harness)}")
+                stub = storage_rpc.StorageServiceStub(channel)
+                try:
+                    await producer.start()
+                    started_at = time.monotonic()
+                    monitor_task = asyncio.create_task(monitor(stream))
+                    next_send = started_at
+                    for sequence in range(total_rows):
+                        device = devices[sequence % len(devices)]
+                        cycle = sequence // len(devices)
+                        sample_time_us = sample_start_us + cycle * interval_us
+                        pending.add(asyncio.create_task(publish_one(device, cycle, sample_time_us)))
+                        if len(pending) >= _WIDE_IN_FLIGHT_LIMIT:
+                            done, pending = await asyncio.wait(
+                                pending, return_when=asyncio.FIRST_COMPLETED
+                            )
+                            await asyncio.gather(*done)
+                        next_send += 1 / target_rows_per_second
+                        await asyncio.sleep(max(0.0, next_send - time.monotonic()))
+                    if pending:
+                        await asyncio.gather(*pending)
+                        pending = set()
+                    publish_end = time.monotonic()
+                    assert not await _blocked_partitions(stub, metadata)
+    
+                    progress["phase"] = "drain"
+                    deadline = time.monotonic() + drain_timeout
+                    while time.monotonic() < deadline:
+                        try:
+                            counts = await asyncio.to_thread(
+                                _wide_counts_by_device,
+                                harness,
+                                database=database,
+                                point_table_id=point_table_id,
+                                devices=devices,
+                                start_us=sample_start_us,
+                                end_us=sample_end_us,
+                            )
+                        except R5StackError:
+                            await asyncio.sleep(1)
+                            continue
+                        progress["persisted_rows"] = sum(counts.values())
+                        progress["persisted_devices"] = sum(
+                            count == cycles for count in counts.values()
+                        )
+                        assert not await _blocked_partitions(stub, metadata)
+                        if all(count == cycles for count in counts.values()):
+                            break
+                        assert all(count <= cycles for count in counts.values()), counts
+                        await asyncio.sleep(2)
+                    drained_at = time.monotonic()
+                    blocked = await _blocked_partitions(stub, metadata)
+                    progress["phase"] = "verification"
+                    complete = set(counts) == set(devices) and all(
+                        count == cycles for count in counts.values()
+                    )
+                    if complete:
+                        edge_verification = {
+                            "first": await _verify_wide_edge(
+                                stub,
+                                metadata=metadata,
+                                device=devices[0],
+                                point_table_id=point_table_id,
+                                moment_us=sample_start_us,
+                                cycle=0,
+                            ),
+                            "last": await _verify_wide_edge(
+                                stub,
+                                metadata=metadata,
+                                device=devices[0],
+                                point_table_id=point_table_id,
+                                moment_us=sample_end_us - interval_us,
+                                cycle=cycles - 1,
+                            ),
+                        }
+                    else:
+                        edge_verification = {
+                            "status": "NOT_RUN",
+                            "reason": "incomplete persistence prevents first/last-row qualification",
+                        }
+                finally:
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        await asyncio.gather(*pending, return_exceptions=True)
+                    await producer.stop()
+                    await channel.close()
+                    stop_monitor.set()
+                    if monitor_task is not None:
+                        await monitor_task
+    
+            publish_seconds = publish_end - started_at
+            end_to_end_seconds = drained_at - started_at
+            published_rows = int(progress["acknowledged_rows"])
+            published_bytes = int(progress["published_payload_bytes"])
+            first_sample = process_samples[0]
+            last_sample = process_samples[-1]
+            process_seconds = float(last_sample["monotonic"]) - float(first_sample["monotonic"])
+            average_cpu = (
+                100
+                * ((int(last_sample["ticks"]) - int(first_sample["ticks"])) / os.sysconf("SC_CLK_TCK"))
+                / process_seconds
+                if process_seconds > 0
+                else 0.0
+            )
+            return {
+                "test": "single Storage / Kafka v3 / 500-point complete device rows",
+                "devices": list(devices),
+                "device_count": len(devices),
+                "cycles_per_device": cycles,
+                "points_per_complete_row": _WIDE_POINT_COUNT,
+                "rate_per_device_rows_per_second": rate_per_device,
+                "writer_count": writer_count,
+                "max_inflight_sql": max(4, writer_count),
+                "max_connections": max(8, writer_count),
+                "target_rows_per_second": target_rows_per_second,
+                "expected_rows": total_rows,
+                "expected_points": total_rows * _WIDE_POINT_COUNT,
+                "sample_window": {
+                    "start_us_inclusive": sample_start_us,
+                    "end_us_exclusive": sample_end_us,
+                    "interval_us": interval_us,
+                },
+                "kafka": {
+                    "acks": "all",
+                    "enable_idempotence": True,
+                    "key": "wind_farm_id:device_id",
+                    "max_test_tasks_in_flight": _WIDE_IN_FLIGHT_LIMIT,
+                    "acknowledged_rows": published_rows,
+                    "ack_latency_p95_ms": _nearest_rank_ms(ack_latencies, 0.95),
+                    "ack_latency_p99_ms": _nearest_rank_ms(ack_latencies, 0.99),
+                    "ack_latency_scope": (
+                        "单条 send_and_wait 调用至 RecordMetadata 返回；包含本地 batching/linger "
+                        "和 broker 副本 ACK，不含等待测试在途额度的时间，不是 TDengine E2E 写延迟"
+                    ),
+                    "ack_latency_percentile_method": "nearest-rank",
+                },
+                "published_rows_per_second": published_rows / publish_seconds,
+                "published_points_per_second": published_rows * _WIDE_POINT_COUNT / publish_seconds,
+                "published_payload_MB_per_second": published_bytes / 1e6 / publish_seconds,
+                "publish_seconds": publish_seconds,
+                "drain_seconds": drained_at - publish_end,
+                "end_to_end_confirmed_rows_per_second": sum(counts.values()) / end_to_end_seconds,
+                "end_to_end_confirmed_points_per_second": (
+                    sum(counts.values()) * _WIDE_POINT_COUNT / end_to_end_seconds
+                ),
+                "tdengine_counts_by_device_half_open_window": counts,
+                "fully_persisted": set(counts) == set(devices)
+                and all(count == cycles for count in counts.values()),
+                "blocked_partitions": blocked,
+                "dlq": {
+                    "applicable": False,
+                    "reason": "本用例直接注入 Kafka history，链路不涉及 NATS/JetStream 或其 DLQ",
+                },
+                "edge_verification": edge_verification,
+                "storage_process": {
+                    "pid": pid,
+                    "average_cpu_percent_of_one_core": average_cpu,
+                    "peak_interval_cpu_percent_of_one_core": max(
+                        (
+                            float(sample.get("cpu_percent_of_one_core", 0.0))
+                            for sample in process_samples
+                        ),
+                        default=0.0,
+                    ),
+                    "peak_rss_MiB": max(int(sample["peak_rss_kib"]) for sample in process_samples)
+                    / 1024,
+                    "sample_count": len(process_samples),
+                    "scope": (
+                        "单个 Storage OS 进程；CPU=/proc/PID/stat utime+stime 增量/墙钟/单核，"
+                        "RSS 峰值=/proc/PID/status VmHWM；不是整机或容器总 CPU"
+                    ),
+                },
+                "result_jsonl": str(jsonl_path),
+            }
+    
+        result = asyncio.run(exercise())
+        result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        kafka_result = result["kafka"]
+        assert isinstance(kafka_result, dict)
+        assert kafka_result["acknowledged_rows"] == total_rows, result
+        assert result["published_rows_per_second"] >= target_rows_per_second * 0.95, result
+        assert result["fully_persisted"], result
+>       assert result["end_to_end_confirmed_rows_per_second"] >= target_rows_per_second * 0.95, result
+E       AssertionError: {'blocked_partitions': [], 'cycles_per_device': 600, 'device_count': 100, 'devices': ['CAP_WTG000', 'CAP_WTG001', 'CAP_WTG002', 'CAP_WTG003', 'CAP_WTG004', 'CAP_WTG005', ...], ...}
+E       assert 492.36920440948603 >= (1000 * 0.95)
+
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:809: AssertionError
+=============================== warnings summary ===============================
+tests/system/e2e/eight_service/test_e2e_storage_capacity.py:30
+  /home/luosh/wind-hub/tests/system/e2e/eight_service/test_e2e_storage_capacity.py:30: PytestUnknownMarkWarning: Unknown pytest.mark.capacity - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.capacity]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_s1s2_20261127_evidence/storage_100_w2/capacity.xml -
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+1 failed, 1 warning in 141.97s (0:02:21)

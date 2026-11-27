@@ -1,0 +1,207 @@
+......F...                                                               [100%]
+=================================== FAILURES ===================================
+______________ test_eight_service_provenance_and_restart_readback ______________
+
+started = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-171/test_eight_service_provenance_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+
+    def test_eight_service_provenance_and_restart_readback(
+        started: EightServiceHarness,
+    ) -> None:
+        harness = started
+        assert all(harness.status(name)["status"] == "SUCCESS" for name in SERVICES)
+    
+        available = harness.cli("sink", "deliveries")
+        assert available["status"] == "SUCCESS", available
+        delivery_ids = {
+            item.get("delivery_id") or item.get("id")
+            for item in (available.get("data") or {}).get("deliveries", [])
+        }
+        assert set(DELIVERIES) <= delivery_ids, delivery_ids
+        for delivery_id in DELIVERIES:
+            result = harness.cli("sink", "start", delivery_id, "--yes", timeout=90)
+            assert result["status"] == "SUCCESS", (delivery_id, result)
+    
+        started_at = datetime.now(UTC)
+        deadline_at = started_at + timedelta(minutes=3)
+        start = (started_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = deadline_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+        async def _exercise() -> list[dict[str, Any]]:
+            # Subscribe before the generator starts; latest offsets exclude stale
+            # records from other test runs and avoid an arrival race.
+            consumer = AIOKafkaConsumer(
+                TOPIC,
+                bootstrap_servers=harness.stack.kafka,
+                group_id=None,
+                auto_offset_reset="latest",
+                enable_auto_commit=False,
+            )
+            await consumer.start()
+            try:
+                # Wait for a concrete latest-offset assignment and drain all
+                # pre-existing records before starting the source.
+                assignment_deadline = asyncio.get_running_loop().time() + 15
+                while not consumer.assignment():
+                    await consumer.getmany(timeout_ms=250)
+                    if asyncio.get_running_loop().time() >= assignment_deadline:
+                        raise AssertionError("Kafka consumer never received partition assignment")
+                drain_deadline = asyncio.get_running_loop().time() + 2.0
+                while asyncio.get_running_loop().time() < drain_deadline:
+                    backlog = await consumer.getmany(timeout_ms=250, max_records=5000)
+                    if not backlog:
+                        break
+                created = harness.cli(
+                    "data-generator",
+                    "start",
+                    "e2e-plant-physical",
+                    "--yes",
+                    timeout=90,
+                )
+                assert created["status"] == "SUCCESS", created
+                deadline = asyncio.get_running_loop().time() + 120
+                # Collector may sample the Gateway's initial zero-valued store
+                # before the first physical step is delivered. Select only samples
+                # at or after the independent source watermark.
+                truth_start: datetime | None = None
+                selected: dict[int, dict[str, Any]] = {}
+                while asyncio.get_running_loop().time() < deadline:
+                    if truth_start is None:
+                        points = _truth_points(harness)
+                        if points:
+                            truth_start = min(
+                                datetime.fromisoformat(point["source_time"]) for point in points
+                            )
+                    messages = await consumer.getmany(timeout_ms=1500, max_records=500)
+                    for records in messages.values():
+                        for record in records:
+                            row = json.loads(record.value)
+                            if (
+                                row.get("schema_version") != 3
+                                or row.get("data_level") != "protocol"
+                                or row.get("wind_farm_id") != "e2e-final"
+                                or row.get("device_id") != DEVICE
+                            ):
+                                continue
+                            sampled_at = datetime.fromisoformat(
+                                row["sample_time"].replace("Z", "+00:00")
+                            )
+                            points = row.get("points")
+                            if (
+                                truth_start is not None
+                                and sampled_at >= truth_start
+                                and isinstance(points, dict)
+                                and POINT in points
+                            ):
+                                _wire_point(row)
+                                selected[_time_us(row["sample_time"])] = row
+                                if len(selected) >= 5:
+                                    return list(selected.values())
+                raise AssertionError(
+                    f"expected five distinct live Kafka device rows, got {len(selected)}"
+                )
+            finally:
+                await consumer.stop()
+    
+        wire_records = asyncio.run(_exercise())
+        assert len(wire_records) == 5
+        source_times = {_time_us(row["sample_time"]) for row in wire_records}
+        assert len(source_times) == 5
+        assert len({row["device_config_id"] for row in wire_records}) == 1
+        for wire in wire_records:
+            _value, quality = _wire_point(wire)
+            assert quality == 1
+    
+        truth_deadline = time.monotonic() + 30
+        while not all(
+            _source_truth_matches(harness, row["sample_time"], _wire_point(row)[0])
+            for row in wire_records
+        ):
+            if time.monotonic() >= truth_deadline:
+                raise AssertionError(
+                    "Kafka data not time/value-aligned with independent Generator truth: "
+                    f"{[(row['sample_time'], row['points'][POINT]) for row in wire_records]}"
+                )
+            time.sleep(0.5)
+    
+        # Exactly the five observed timestamps must exist with matching values and
+        # quality. Each timestamp addresses one complete device row.
+        expected = {_time_us(wire["sample_time"]): _wire_point(wire) for wire in wire_records}
+        deadline = time.monotonic() + 120
+        last_groups: list[dict[str, Any]] = []
+        persisted: dict[int, tuple[float, int]] = {}
+        while time.monotonic() < deadline:
+            try:
+                last_groups = _query(harness, start, end)
+                stored = _stored_points(last_groups)
+                persisted = {timestamp: stored[timestamp] for timestamp in source_times & stored.keys()}
+                if len(persisted) == len(source_times):
+                    break
+            except (AssertionError, KeyError, ValueError):
+                persisted = {}
+            time.sleep(1)
+        assert set(persisted) == source_times, {
+            "missing_count": len(source_times - set(persisted)),
+            "missing_times": sorted(source_times - set(persisted)),
+            "last_groups": last_groups,
+        }
+        for timestamp, (wire_value, wire_quality) in expected.items():
+            stored_value, stored_quality = persisted[timestamp]
+            assert stored_value == pytest.approx(wire_value, rel=1e-6, abs=1e-5)
+            assert stored_quality == wire_quality
+    
+        # Restart Storage using the official CLI, then reconcile every persisted
+        # value and quality bit at the same five complete-row identities.
+        restarted = harness.cli("service", "restart", "storage", "--yes", timeout=120)
+        assert restarted["status"] == "SUCCESS", restarted
+        harness.wait_targets("storage")
+>       recovered = _stored_points(_query(harness, start, end))
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py:312: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+harness = EightServiceHarness(root=PosixPath('/tmp/pytest-of-luosh/pytest-171/test_eight_service_provenance_0/e2e'), stack=R5Sta...eway', 'gateway-target', 'commander', 'data-generator', 'sink', 'storage', 'collector-realtime', 'collector-reliable'])
+start = '2026-11-27T04:16:55Z', end = '2026-11-27T04:20:55Z'
+
+    def _query(harness: EightServiceHarness, start: str, end: str) -> list[dict[str, Any]]:
+        """读取全部游标页面，并保留每个物理 Schema 的列与质量位图。"""
+        groups: list[dict[str, Any]] = []
+        page_token = ""
+        seen_tokens: set[str] = set()
+        for _ in range(1000):
+            arguments = [
+                "storage",
+                "samples",
+                "e2e-final",
+                start,
+                end,
+                "--level",
+                "protocol",
+                "--device-id",
+                DEVICE,
+                "--point-id",
+                POINT,
+                "--page-size",
+                "1000",
+            ]
+            if page_token:
+                [REDACTED_TEST_CREDENTIAL]"--page-token", page_token))
+            response = harness.cli(*arguments, check=False, timeout=60)
+>           assert response.get("status") == "SUCCESS", response
+E           AssertionError: {'command': 'storage QuerySamples', 'data': None, 'error_code': 'UNAVAILABLE', 'exit_code': 3, ...}
+E           assert 'UNKNOWN' == 'SUCCESS'
+E             
+E             - SUCCESS
+E             + UNKNOWN
+
+tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py:73: AssertionError
+=============================== warnings summary ===============================
+tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34
+  /home/luosh/wind-hub/tests/sink_service/system/test_raw_protocol_storage_wire_e2e.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_s1s2_20261127_evidence/cross_module_e2e.xml -
+=========================== short test summary info ============================
+FAILED tests/system/e2e/eight_service/test_e2e_eight_service_provenance.py::test_eight_service_provenance_and_restart_readback
+1 failed, 9 passed, 1 warning in 179.59s (0:02:59)

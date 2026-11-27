@@ -1,0 +1,191 @@
+{
+  "backup_prompt_driven.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 48.449
+  },
+  "backup_prompt_final.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 199.116
+  },
+  "backup_real.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 46.596
+  },
+  "backup_real_final.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 48.644
+  },
+  "backup_restore_final.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 19.788
+  },
+  "backup_restore_verified.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 20.172
+  },
+  "cli.xml": {
+    "tests": 287,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 13,
+    "seconds": 94.961
+  },
+  "collector.xml": {
+    "tests": 120,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 13.111
+  },
+  "configuration.xml": {
+    "tests": 487,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 300.783
+  },
+  "contracts_core.xml": {
+    "tests": 667,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 29.847
+  },
+  "cross_module_e2e.xml": {
+    "tests": 10,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 179.586
+  },
+  "history_operations.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 36.829
+  },
+  "kafka_real.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 18.868
+  },
+  "kafka_retry_1.xml": {
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.417
+  },
+  "kafka_retry_2.xml": {
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.42
+  },
+  "kafka_retry_3.xml": {
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.418
+  },
+  "native_full_matrix.xml": {
+    "tests": 68,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 384.46
+  },
+  "native_targeted.xml": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 6.491
+  },
+  "performance.xml": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 22.373
+  },
+  "provenance_replay.xml": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 36.166
+  },
+  "sink.xml": {
+    "tests": 425,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 6.166
+  },
+  "sink_600_c16_l10.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 786.024
+  },
+  "stmt2_stage_metrics.xml": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 93.601
+  },
+  "storage.xml": {
+    "tests": 277,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.626
+  },
+  "storage_100_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 141.966
+  },
+  "storage_300_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 959.101
+  },
+  "storage_30_w2/capacity.xml": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 85.274
+  }
+}

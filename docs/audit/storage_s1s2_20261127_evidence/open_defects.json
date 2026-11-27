@@ -1,0 +1,26 @@
+[
+  {
+    "id": "S1S2-PERF-01",
+    "severity": "P1",
+    "status": "PERFORMANCE_BLOCKED",
+    "summary": "Sink 600-second steady confirmation is 237.12 rows/s with +62.900 rows/s backlog slope; Storage 30/100/300-device end-to-end rates are 277.985/492.369/191.744 rows/s, all below the mandatory 95% thresholds.",
+    "evidence": "sink_600_c16_l10.xml; storage_30_w2/capacity.xml; storage_100_w2/capacity.xml; storage_300_w2/capacity.xml",
+    "handoff": "ChatGPT must optimize the production write/dispatch/confirmation path. No additional Storage instances are allowed."
+  },
+  {
+    "id": "S1S2-CLEANUP-01",
+    "severity": "P2",
+    "status": "OPEN_FOR_EVALUATION",
+    "summary": "aiokafka consumer.stop raises CancelledError in the long-capacity audit, recorded as audit_stop_error and identity_closed=false.",
+    "evidence": "sink_600_c16_l10.log and r14_capacity_d30_r300_c16_b131072_l10_p1_cdb01efb67bc.json",
+    "handoff": "Evaluate production shutdown semantics without hiding the cleanup failure or discarding completed audit evidence."
+  },
+  {
+    "id": "S1S2-NOT-RUN-01",
+    "severity": "QUALIFICATION",
+    "status": "NOT_RUN",
+    "summary": "1000-device exploration, three-level simultaneous capacity, real PLC, containerd/iSulad, and the full DCEMS control loop were not executed.",
+    "evidence": "Report and skipped_tests metadata",
+    "handoff": "Execute only after the mandatory single-instance capacity and production deployment qualifications are available."
+  }
+]

@@ -1,0 +1,239 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_real_backup_and_taosdump_rename_restore _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-168/test_real_backup_and_taosdump_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7245ab364a10>
+
+    @pytest.mark.asyncio
+    async def test_real_backup_and_taosdump_rename_restore(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        pytest.importorskip("taosws", reason="NOT_RUN: real TDengine SQL driver unavailable")
+        assert (TOOLS / "taosdump").is_file() and (TOOLS / "libtaos.so").is_file()
+        probe = _real_pty_probe(tmp_path)
+        print(f"PTY_PROBE={json.dumps(probe, sort_keys=True)}", flush=True)
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = [REDACTED_TEST_CREDENTIAL]
+        storage_port = reserve_port()
+        operator_token = f"backup-storage-operator-{token}-0123456789abcdef"
+        cursor_secret = f"backup-storage-cursor-{token}-0123456789abcdef"
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", operator_token)
+        live: LiveConfiguration | None = None
+        cli_yaml = tmp_path / "cli" / "cli.yaml"
+        cache_root = tmp_path / "storage-cache"
+        bootstrap = tmp_path / "storage-bootstrap.yaml"
+        channel: grpc.aio.Channel | None = None
+        storage_log = tmp_path / "logs/storage.log"
+        try:
+            root = tmp_path / "configuration"
+            root.mkdir(parents=True)
+            live = write_live_configuration(root, reserve_port())
+            viewer_token = [REDACTED_TEST_CREDENTIAL]"viewer"]
+            started = await asyncio.to_thread(
+                live.cli, "service", "start", "configuration", "--yes", check=False
+            )
+            assert started["exit_code"] == 0, started
+    
+            service_document = _service_document(
+                stack=stack, storage_port=storage_port, token=token, work_root=tmp_path
+            )
+            service_document["service"]["backup"]["enabled"] = True
+            service_document["service"]["backup"]["timeout_s"] = 30
+            service_document["service"]["tdengine"]["ingestion"]["batch_wait_ms"] = 100
+            await _publish(live, _wide_documents(service_document))
+            topic = service_document["service"]["kafka"]["topic"]
+            await _create_storage_topic(stack.kafka, topic)
+            bootstrap.write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 1,
+                        "file_version": "1.0.0",
+                        "service_id": "storage-main",
+                        "deployment_id": "prod-a",
+                        "configuration": {
+                            "endpoint": f"127.0.0.1:{live.port}",
+                            "token_env": "WIND_HUB_CONFIG_VIEWER_TOKEN",
+                        },
+                        "nats": {"servers": [stack.nats]},
+                        "cache": {"directory": str(cache_root)},
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            process_env = {
+                "PATH": f"{TOOLS}:{os.environ['PATH']}",
+                "LD_LIBRARY_PATH": f"{TOOLS}:{os.environ.get('LD_LIBRARY_PATH', '')}",
+                "WIND_HUB_CONFIG_VIEWER_TOKEN": viewer_token,
+                "WIND_HUB_STORAGE_OPERATOR_TOKEN": operator_token,
+                "WIND_HUB_TDENGINE_USER": "root",
+                "WIND_HUB_TDENGINE_PASSWORD": PASSWORD,
+                "WIND_HUB_STORAGE_CURSOR_SECRET": cursor_secret,
+                "WIND_HUB_TEST_NATS_URL": stack.nats,
+            }
+            _write_cli_yaml(
+                cli_yaml,
+                storage_port=storage_port,
+                bootstrap=bootstrap,
+                work_root=tmp_path,
+                env=process_env,
+            )
+            start = await asyncio.to_thread(run_cli, cli_yaml, "service", "start", "storage", "--yes")
+            payload = last_json(start.stdout)
+            assert start.returncode == 0, start.stderr
+            assert payload["status"] == "SUCCESS", payload
+            assert payload["data"]["business"]["health"] == "HEALTHY"
+    
+            channel = grpc.aio.insecure_channel(f"127.0.0.1:{storage_port}")
+            await _wait_status(
+                channel,
+                operator_token,
+                lambda status: status.health == "HEALTHY"
+                and status.target_revision == status.active_revision
+                and status.dependencies[0].detail == "READY",
+                "Storage READY",
+            )
+            metadata = (("authorization", f"Bearer {operator_token}"),)
+            stub = storage_rpc.StorageServiceStub(channel)
+            base = datetime.now(UTC).replace(microsecond=0)
+            producer = AIOKafkaProducer(
+                bootstrap_servers=stack.kafka, acks="all", enable_idempotence=True, linger_ms=0
+            )
+            await producer.start()
+            try:
+                for row in range(2):
+                    body = _kafka_row(base + timedelta(seconds=row), row)
+                    await producer.send_and_wait(
+                        topic,
+                        key=f"{FARM}:{DEVICE}".encode(),
+                        value=json.dumps(body, separators=(",", ":")).encode(),
+                    )
+            finally:
+                await producer.stop()
+            groups = await _wait_ingested(
+                stub,
+                start=base - timedelta(seconds=1),
+                end=base + timedelta(seconds=3),
+                metadata=metadata,
+            )
+            _assert_rpc_rows(groups)
+            print("SOURCE_QUERY_SAMPLES=2 rows x 500 values, values and quality matched", flush=True)
+    
+            backup_root = tmp_path / "backups"
+            stop_observation = asyncio.Event()
+            observer = asyncio.create_task(_observe_taosdump(backup_root, stop_observation))
+            task = await stub.CreateBackup(
+                storage_pb.CreateBackupRequest(request_id=f"backup-{token}", wind_farm_id=FARM),
+                metadata=metadata,
+                timeout=30,
+            )
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                if task.state in {
+                    storage_pb.STORAGE_TASK_STATE_SUCCEEDED,
+                    storage_pb.STORAGE_TASK_STATE_FAILED,
+                    storage_pb.STORAGE_TASK_STATE_INTERRUPTED,
+                }:
+                    break
+                await asyncio.sleep(0.1)
+                task = await stub.GetBackupTask(
+                    storage_pb.GetStorageTaskRequest(task_id=task.task_id),
+                    metadata=metadata,
+                    timeout=30,
+                )
+            stop_observation.set()
+            observations = await observer
+            print(
+                f"TAOSDUMP_PROCESS_OBSERVATIONS={json.dumps(observations, sort_keys=True)}", flush=True
+            )
+            print(
+                f"BACKUP_TASK_STATE={storage_pb.StorageTaskState.Name(task.state)} "
+                f"error_code={task.error_code!r} message={task.message!r}",
+                flush=True,
+            )
+            for observation in observations:
+                assert PASSWORD not in " ".join(observation["argv"])
+            assert PASSWORD not in task.message and PASSWORD not in task.error_code
+            assert PASSWORD.encode("utf-8") not in storage_log.read_bytes()
+            for candidate in backup_root.rglob("*"):
+                if candidate.is_file():
+                    assert PASSWORD.encode("utf-8") not in candidate.read_bytes()
+            print("PASSWORD_LEAK_SCAN=argv, task errors, Storage log and artifact clean", flush=True)
+            assert task.state == storage_pb.STORAGE_TASK_STATE_SUCCEEDED, task
+            assert task.integrity_verified and task.artifact_id == task.task_id
+            artifact = Path(task.artifact_path)
+            assert artifact.is_dir() and task.size_bytes > 0 and len(task.sha256) == 64
+            database = WideSchema.database_name(FARM)
+            verified_size, verified_digest = NativeTDengineBackup.verify_manifest(
+                artifact, database=database
+            )
+            assert (verified_size, verified_digest) == (task.size_bytes, task.sha256)
+            manifest = json.loads((artifact / "storage_manifest.json").read_text(encoding="utf-8"))
+            assert manifest["historical_configuration"]["documents"]
+            assert manifest["historical_configuration"]["device_bindings"]
+            assert manifest["historical_configuration"]["semantic_pins"]
+            assert manifest["wide_schema_ownership"]
+            assert (
+                hashlib.sha256(
+                    json.dumps(
+                        {key: value for key, value in manifest.items() if key != "sha256"},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                == task.sha256
+            )
+            print(
+                f"BACKUP_VERIFIED path={artifact} size={task.size_bytes} sha256={task.sha256} "
+                f"history_documents={len(manifest['historical_configuration']['documents'])} "
+                f"wide_ownership={len(manifest['wide_schema_ownership'])}",
+                flush=True,
+            )
+    
+            restored_database = f"backup_restore_{token}"
+            restore_command = [
+                str(TOOLS / "taosdump"),
+                "-Z",
+                "1",
+                "-h",
+                stack.tdengine_rest.rsplit(":", 1)[0],
+                "-P",
+                stack.tdengine_rest.rsplit(":", 1)[1],
+                "-u",
+                "root",
+                "-p",
+                "-i",
+                str(artifact),
+                "-W",
+                f"{database}={restored_database}",
+            ]
+            restore_env = {
+                **os.environ,
+                "PATH": process_env["PATH"],
+                "LD_LIBRARY_PATH": process_env["LD_LIBRARY_PATH"],
+            }
+            restore_output = tmp_path / "taosdump-restore.log"
+            await asyncio.to_thread(_run_restore, restore_command, restore_env, restore_output)
+>           table = WideSchema.subtable_name(DEVICE)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: WideSchema.subtable_name() missing 1 required positional argument: 'device_id'
+
+tests/storage_service/integration/test_backup_pty_real.py:563: TypeError
+----------------------------- Captured stdout call -----------------------------
+PTY_PROBE={"controlling_tty": false, "dev_tty_errno": 6, "stdin_isatty": true, "stdin_name": "/dev/pts/10", "tty_nr": 0}
+SOURCE_QUERY_SAMPLES=2 rows x 500 values, values and quality matched
+TAOSDUMP_PROCESS_OBSERVATIONS=[{"argv": ["/tmp/windhub-d5-r3-tools/taosdump", "-Z", "1", "-h", "127.0.0.1", "-P", "51987", "-u", "root", "-p", "-D", "wh_farm_a_47451de0ab6c4101", "-o", "/tmp/pytest-of-luosh/pytest-168/test_real_backup_and_taosdump_0/backups/38877f5871b545ceac99521a64d6d7ae"], "controlling_tty": true, "pid": 1473364, "stdin": "/dev/pts/10", "tty_nr": 34826}]
+BACKUP_TASK_STATE=STORAGE_TASK_STATE_SUCCEEDED error_code='' message=''
+PASSWORD_LEAK_SCAN=argv, task errors, Storage log and artifact clean
+BACKUP_VERIFIED path=/tmp/pytest-of-luosh/pytest-168/test_real_backup_and_taosdump_0/backups/38877f5871b545ceac99521a64d6d7ae size=182789 sha256=b8115b5c6481a839050102a72a6e9429c850e3ab1c52e6fe09b57a563afd07d1 history_documents=7 wide_ownership=1
+STORAGE_LOG=/home/luosh/wind-hub/docs/audit/storage_wide_table_d5_round3_20261126_evidence/backup_pty_real_storage.log
+----------------------------- Captured stderr call -----------------------------
+I1127 12:12:23.243144 1472904 fork_posix.cc:71] Other threads are currently calling into gRPC, skipping fork() handlers
+- generated xml file: /home/luosh/wind-hub/docs/audit/storage_s1s2_20261127_evidence/backup_restore_final.xml -
+=========================== short test summary info ============================
+FAILED tests/storage_service/integration/test_backup_pty_real.py::test_real_backup_and_taosdump_rename_restore
+1 failed in 19.79s

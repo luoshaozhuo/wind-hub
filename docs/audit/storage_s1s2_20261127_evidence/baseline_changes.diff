@@ -1,0 +1,279 @@
+diff --git a/configs/services/service_storage-e2e_v2.0.0.yaml b/configs/services/service_storage-e2e_v2.0.0.yaml
+index 5318eeeab..841ef3349 100644
+--- a/configs/services/service_storage-e2e_v2.0.0.yaml
++++ b/configs/services/service_storage-e2e_v2.0.0.yaml
+@@ -18,6 +18,7 @@
+ # kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
+ # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
+ #   max_partition_workers [1,64] partitions; commit_interval_ms [100,10000] ms.
++#   shutdown_drain_timeout_ms [1000,600000] ms; bounded Kafka drain on STOP.
+ # tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
+ #   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
+ #   database: precision us; duration 30d, keep 1095d; vgroups positive (4);
+@@ -73,6 +74,7 @@ service:
+     max_poll_records: 500
+     max_partition_workers: 4
+     commit_interval_ms: 1000
++    shutdown_drain_timeout_ms: 120000
+   tdengine:
+     endpoint: 127.0.0.1:6041
+     credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
+diff --git a/configs/services/service_storage-main_v2.0.0.yaml b/configs/services/service_storage-main_v2.0.0.yaml
+index d12e3277a..fb0f76fde 100644
+--- a/configs/services/service_storage-main_v2.0.0.yaml
++++ b/configs/services/service_storage-main_v2.0.0.yaml
+@@ -18,6 +18,7 @@
+ # kafka.bootstrap_servers: required broker host:port list, comma-separated; no implicit localhost.
+ # kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
+ #   max_partition_workers [1,64] partitions; commit_interval_ms [100,10000] ms.
++#   shutdown_drain_timeout_ms [1000,600000] ms; bounded Kafka drain on STOP.
+ # tdengine.endpoint: REST address; credential_ref: required env:VARIABLE, no plaintext.
+ #   database.precision fixed us; duration/keep positive integer days with keep >= 3*duration.
+ #   database: precision us; duration 30d, keep 1095d; vgroups positive (4);
+@@ -73,6 +74,7 @@ service:
+     max_poll_records: 500
+     max_partition_workers: 4
+     commit_interval_ms: 1000
++    shutdown_drain_timeout_ms: 120000
+   tdengine:
+     endpoint: 127.0.0.1:6041
+     credential_ref: env:WIND_HUB_TDENGINE_PASSWORD
+diff --git a/src/storage_service/application/config.py b/src/storage_service/application/config.py
+index e459f35f1..372f4a447 100644
+--- a/src/storage_service/application/config.py
++++ b/src/storage_service/application/config.py
+@@ -107,6 +107,7 @@ class KafkaConfig(_StrictModel):
+     max_partition_workers: int = Field(default=4, ge=1, le=64)
+     commit_interval_ms: int = Field(default=1000, ge=100, le=10000)
+     commit_timeout_ms: int = Field(default=10000, ge=100, le=120000)
++    shutdown_drain_timeout_ms: int = Field(default=120000, strict=True, ge=1000, le=600000)
+ 
+ 
+ class DatabaseConfig(_StrictModel):
+diff --git a/src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py b/src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py
+index ad847ce9d..df162830f 100644
+--- a/src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py
++++ b/src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py
+@@ -239,7 +239,13 @@ class KafkaStorageConsumer:
+                 state is None
+                 or state.blocked
+                 or not messages
+-                or (expected_owner is not None and state is not expected_owner)
++                or (
++                    expected_owner is not None
++                    and (
++                        state is not expected_owner
++                        or messages[0].offset != state.offsets.next_commit_offset
++                    )
++                )
+             ):
+                 return
+             generation = state.generation
+diff --git a/src/storage_service/main.py b/src/storage_service/main.py
+index ab9ab643e..67e1a1767 100644
+--- a/src/storage_service/main.py
++++ b/src/storage_service/main.py
+@@ -256,7 +256,10 @@ async def run_service(bootstrap: StorageBootstrap) -> None:
+                     stopping.cancel()
+                     await asyncio.gather(stopping, return_exceptions=True)
+                     try:
+-                        await asyncio.wait_for(consume, timeout=10)
++                        await asyncio.wait_for(
++                            consume,
++                            timeout=bundle.configuration.kafka.shutdown_drain_timeout_ms / 1000,
++                        )
+                     except TimeoutError:
+                         consume.cancel()
+                         await asyncio.gather(consume, return_exceptions=True)
+diff --git a/tests/storage_service/unit/test_kafka_retry.py b/tests/storage_service/unit/test_kafka_retry.py
+index a1bd54263..2f5d6f4bc 100644
+--- a/tests/storage_service/unit/test_kafka_retry.py
++++ b/tests/storage_service/unit/test_kafka_retry.py
+@@ -690,6 +690,7 @@ async def test_run_polls_next_batch_before_first_write_finishes(
+             self.polls += 1
+             if self.polls <= 2:
+                 if self.polls == 2:
++                    await first_started.wait()
+                     second_polled.set()
+                 offset = self.polls - 1
+                 return {
+@@ -758,6 +759,7 @@ async def test_queued_suffix_discarded_after_rebalance(
+             self.polls += 1
+             if self.polls <= 2:
+                 if self.polls == 2:
++                    await started.wait()
+                     second_polled.set()
+                 return {
+                     tp: [
+@@ -822,6 +824,8 @@ async def test_run_coalesces_contiguous_buffered_poll_suffix(
+         async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+             self.polls += 1
+             if self.polls <= 3:
++                if self.polls == 2:
++                    await first_started.wait()
+                 if self.polls == 3:
+                     third_polled.set()
+                 return {
+@@ -859,6 +863,9 @@ async def test_run_coalesces_contiguous_buffered_poll_suffix(
+     try:
+         await asyncio.wait_for(first_started.wait(), timeout=2)
+         await asyncio.wait_for(third_polled.wait(), timeout=2)
++        async with asyncio.timeout(2):
++            while consumer._metrics.snapshot().buffer_rows < 3:
++                await asyncio.sleep(0)
+         release_first.set()
+         async with asyncio.timeout(2):
+             while len(broker.commits) != 2:
+@@ -888,6 +895,8 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
+         async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+             self.polls += 1
+             if self.polls <= 3:
++                if self.polls == 2:
++                    await writing.wait()
+                 if self.polls == 3:
+                     fetched_three.set()
+                 return {
+@@ -917,7 +926,9 @@ async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
+     try:
+         await asyncio.wait_for(writing.wait(), timeout=2)
+         await asyncio.wait_for(fetched_three.wait(), timeout=2)
+-        await asyncio.sleep(0)
++        async with asyncio.timeout(2):
++            while consumer._metrics.snapshot().buffer_rows < 3:
++                await asyncio.sleep(0)
+         release.set()
+         with pytest.raises(ExceptionGroup) as raised:
+             await asyncio.wait_for(task, timeout=2)
+@@ -955,6 +966,7 @@ async def test_normal_stop_drains_admitted_batches_before_kafka_close(
+             self.polls += 1
+             if self.polls <= 2:
+                 if self.polls == 2:
++                    await writing.wait()
+                     fetched_two.set()
+                 return {
+                     tp: [
+@@ -992,7 +1004,9 @@ async def test_normal_stop_drains_admitted_batches_before_kafka_close(
+     try:
+         await asyncio.wait_for(writing.wait(), timeout=2)
+         await asyncio.wait_for(fetched_two.wait(), timeout=2)
+-        await asyncio.sleep(0)
++        async with asyncio.timeout(2):
++            while consumer._metrics.snapshot().buffer_rows < 2:
++                await asyncio.sleep(0)
+         stopper = asyncio.create_task(consumer.stop())
+         await asyncio.sleep(0)
+         assert not stopper.done()
+@@ -1040,3 +1054,113 @@ async def test_prefetched_batch_rebalance_while_waiting_for_worker_permit(
+     assert consumer._assignments[tp] is replacement
+     assert ingestion.calls == []
+     assert broker.commits == []
++
++
++async def test_prefetched_batch_recheck_cursor_after_worker_permit(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """A queued suffix cannot bypass a retry rewind while awaiting its permit."""
++    tp = TopicPartition(TOPIC, 0)
++    broker = _Consumer([tp])
++    ingestion = _Ingestion()
++    consumer = _build(monkeypatch, broker, ingestion)
++    owner = _own(consumer, tp, cursor=3)
++    semaphore = asyncio.Semaphore(1)
++    await semaphore.acquire()
++    task = asyncio.create_task(
++        consumer._process_partition(
++            tp, [_record(tp, 3)], semaphore, expected_owner=owner
++        )
++    )
++    await asyncio.sleep(0)
++    owner.offsets = PartitionOffsets(
++        partition=tp.partition, generation=owner.generation, next_commit_offset=2
++    )
++    semaphore.release()
++    await asyncio.wait_for(task, timeout=2)
++    assert ingestion.calls == []
++    assert broker.commits == []
++
++
++async def test_run_applies_row_backpressure_while_writer_is_blocked(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Poll-ahead must stop at the configured row budget."""
++    tp = TopicPartition(TOPIC, 0)
++    first_started = asyncio.Event()
++    release = asyncio.Event()
++
++    class _UnlimitedBroker(_Consumer):
++        def __init__(self) -> None:
++            super().__init__([tp])
++            self.polls = 0
++
++        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
++            offset = self.polls
++            self.polls += 1
++            return {
++                tp: [
++                    SimpleNamespace(
++                        topic=tp.topic,
++                        partition=tp.partition,
++                        offset=offset,
++                        key=None,
++                        value=b"record",
++                    )
++                ]
++            }
++
++    class _Gated(_Ingestion):
++        async def process(
++            self,
++            *,
++            generation: int,
++            offsets: PartitionOffsets,
++            records: Sequence[KafkaRecord],
++        ) -> None:
++            if records[0].offset == 0:
++                first_started.set()
++                await release.wait()
++            await super().process(generation=generation, offsets=offsets, records=records)
++
++    broker = _UnlimitedBroker()
++    consumer = _build(monkeypatch, broker, _Gated())
++    limits = consumer._config.tdengine.ingestion.model_copy(
++        update={"buffer_max_rows": 100, "batch_max_rows": 100}
++    )
++    tdengine = consumer._config.tdengine.model_copy(update={"ingestion": limits})
++    kafka = consumer._config.kafka.model_copy(update={"max_poll_records": 1})
++    consumer._config = consumer._config.model_copy(
++        update={"kafka": kafka, "tdengine": tdengine}
++    )
++    _own(consumer, tp)
++    runner = asyncio.create_task(consumer.run())
++    try:
++        await asyncio.wait_for(first_started.wait(), timeout=2)
++        async with asyncio.timeout(2):
++            while consumer._metrics.snapshot().buffer_rows < 100:
++                await asyncio.sleep(0)
++        await asyncio.sleep(0.02)
++        assert broker.polls == 100
++        assert consumer._metrics.snapshot().buffer_rows == 100
++        assert broker.commits == []
++    finally:
++        consumer.request_stop()
++        release.set()
++        await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=3)
++    assert consumer._metrics.snapshot().buffer_rows == 0
++
++
++def test_storage_shutdown_drain_deadline_is_bounded() -> None:
++    """Graceful stop timeout is a validated service contract, not a magic 10s."""
++    config = load_storage_config(
++        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
++    )
++    assert config.kafka.shutdown_drain_timeout_ms == 120000
++    values = config.kafka.model_dump()
++    values["shutdown_drain_timeout_ms"] = 0
++    with pytest.raises(ValueError):
++        type(config.kafka).model_validate(values)
++    values["shutdown_drain_timeout_ms"] = 600001
++    with pytest.raises(ValueError):
++        type(config.kafka).model_validate(values)

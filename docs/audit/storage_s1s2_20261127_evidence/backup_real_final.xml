@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="48.644" timestamp="2026-11-27T11:59:10.215583+08:00" hostname="boss"><testcase classname="tests.storage_service.integration.test_backup_pty_real" name="test_real_backup_and_taosdump_rename_restore" time="48.525"><failure message="AssertionError: task_id: &quot;8fe26469956945e0bd6ee6221ac74290&quot;&#10;  state: STORAGE_TASK_STATE_FAILED&#10;  created_at {&#10;    seconds: 1795751963&#10;    nano...&#10;  }&#10;  finished_at {&#10;    seconds: 1795751995&#10;    nanos: 985297000&#10;  }&#10;  error_code: &quot;NATIVE_BACKUP_FAILED&quot;&#10;  message: &quot;TimeoutError&quot;&#10;  &#10;assert 4 == 3&#10; +  where 4 = task_id: &quot;8fe26469956945e0bd6ee6221ac74290&quot;\nstate: STORAGE_TASK_STATE_FAILED\ncreated_at {\n  seconds: 1795751963\n  nano...\n}\nfinished_at {\n  seconds: 1795751995\n  nanos: 985297000\n}\nerror_code: &quot;NATIVE_BACKUP_FAILED&quot;\nmessage: &quot;TimeoutError&quot;\n.state&#10; +  and   3 = storage_pb.STORAGE_TASK_STATE_SUCCEEDED">tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-162/test_real_backup_and_taosdump_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x72f7f416fbd0&gt;
+
+    @pytest.mark.asyncio
+    async def test_real_backup_and_taosdump_rename_restore(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -&gt; None:
+        if not r5_stack.docker_available():
+            pytest.skip("NOT_RUN: docker daemon unavailable")
+        pytest.importorskip("taosws", reason="NOT_RUN: real TDengine SQL driver unavailable")
+        assert (TOOLS / "taosdump").is_file() and (TOOLS / "libtaos.so").is_file()
+        probe = _real_pty_probe(tmp_path)
+        print(f"PTY_PROBE={json.dumps(probe, sort_keys=True)}", flush=True)
+        stack = await asyncio.to_thread(r5_stack.up_stack)
+        token = [REDACTED_TEST_CREDENTIAL]
+        storage_port = reserve_port()
+        operator_token = f"backup-storage-operator-{token}-0123456789abcdef"
+        cursor_secret = f"backup-storage-cursor-{token}-0123456789abcdef"
+        monkeypatch.setenv("WIND_HUB_STORAGE_OPERATOR_TOKEN", operator_token)
+        live: LiveConfiguration | None = None
+        cli_yaml = tmp_path / "cli" / "cli.yaml"
+        cache_root = tmp_path / "storage-cache"
+        bootstrap = tmp_path / "storage-bootstrap.yaml"
+        channel: grpc.aio.Channel | None = None
+        storage_log = tmp_path / "logs/storage.log"
+        try:
+            root = tmp_path / "configuration"
+            root.mkdir(parents=True)
+            live = write_live_configuration(root, reserve_port())
+            viewer_token = [REDACTED_TEST_CREDENTIAL]"viewer"]
+            started = await asyncio.to_thread(
+                live.cli, "service", "start", "configuration", "--yes", check=False
+            )
+            assert started["exit_code"] == 0, started
+    
+            service_document = _service_document(
+                stack=stack, storage_port=storage_port, token=token, work_root=tmp_path
+            )
+            service_document["service"]["backup"]["enabled"] = True
+            service_document["service"]["backup"]["timeout_s"] = 30
+            service_document["service"]["tdengine"]["ingestion"]["batch_wait_ms"] = 100
+            await _publish(live, _wide_documents(service_document))
+            topic = service_document["service"]["kafka"]["topic"]
+            await _create_storage_topic(stack.kafka, topic)
+            bootstrap.write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 1,
+                        "file_version": "1.0.0",
+                        "service_id": "storage-main",
+                        "deployment_id": "prod-a",
+                        "configuration": {
+                            "endpoint": f"127.0.0.1:{live.port}",
+                            "token_env": "WIND_HUB_CONFIG_VIEWER_TOKEN",
+                        },
+                        "nats": {"servers": [stack.nats]},
+                        "cache": {"directory": str(cache_root)},
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            process_env = {
+                "PATH": f"{TOOLS}:{os.environ['PATH']}",
+                "LD_LIBRARY_PATH": f"{TOOLS}:{os.environ.get('LD_LIBRARY_PATH', '')}",
+                "WIND_HUB_CONFIG_VIEWER_TOKEN": viewer_token,
+                "WIND_HUB_STORAGE_OPERATOR_TOKEN": operator_token,
+                "WIND_HUB_TDENGINE_USER": "root",
+                "WIND_HUB_TDENGINE_PASSWORD": PASSWORD,
+                "WIND_HUB_STORAGE_CURSOR_SECRET": cursor_secret,
+                "WIND_HUB_TEST_NATS_URL": stack.nats,
+            }
+            _write_cli_yaml(
+                cli_yaml,
+                storage_port=storage_port,
+                bootstrap=bootstrap,
+                work_root=tmp_path,
+                env=process_env,
+            )
+            start = await asyncio.to_thread(run_cli, cli_yaml, "service", "start", "storage", "--yes")
+            payload = last_json(start.stdout)
+            assert start.returncode == 0, start.stderr
+            assert payload["status"] == "SUCCESS", payload
+            assert payload["data"]["business"]["health"] == "HEALTHY"
+    
+            channel = grpc.aio.insecure_channel(f"127.0.0.1:{storage_port}")
+            await _wait_status(
+                channel,
+                operator_token,
+                lambda status: status.health == "HEALTHY"
+                and status.target_revision == status.active_revision
+                and status.dependencies[0].detail == "READY",
+                "Storage READY",
+            )
+            metadata = (("authorization", f"Bearer {operator_token}"),)
+            stub = storage_rpc.StorageServiceStub(channel)
+            base = datetime.now(UTC).replace(microsecond=0)
+            producer = AIOKafkaProducer(
+                bootstrap_servers=stack.kafka, acks="all", enable_idempotence=True, linger_ms=0
+            )
+            await producer.start()
+            try:
+                for row in range(2):
+                    body = _kafka_row(base + timedelta(seconds=row), row)
+                    await producer.send_and_wait(
+                        topic,
+                        key=f"{FARM}:{DEVICE}".encode(),
+                        value=json.dumps(body, separators=(",", ":")).encode(),
+                    )
+            finally:
+                await producer.stop()
+            groups = await _wait_ingested(
+                stub,
+                start=base - timedelta(seconds=1),
+                end=base + timedelta(seconds=3),
+                metadata=metadata,
+            )
+            _assert_rpc_rows(groups)
+            print("SOURCE_QUERY_SAMPLES=2 rows x 500 values, values and quality matched", flush=True)
+    
+            backup_root = tmp_path / "backups"
+            stop_observation = asyncio.Event()
+            observer = asyncio.create_task(_observe_taosdump(backup_root, stop_observation))
+            task = await stub.CreateBackup(
+                storage_pb.CreateBackupRequest(request_id=f"backup-{token}", wind_farm_id=FARM),
+                metadata=metadata,
+                timeout=30,
+            )
+            deadline = time.monotonic() + 90
+            while time.monotonic() &lt; deadline:
+                if task.state in {
+                    storage_pb.STORAGE_TASK_STATE_SUCCEEDED,
+                    storage_pb.STORAGE_TASK_STATE_FAILED,
+                    storage_pb.STORAGE_TASK_STATE_INTERRUPTED,
+                }:
+                    break
+                await asyncio.sleep(0.1)
+                task = await stub.GetBackupTask(
+                    storage_pb.GetStorageTaskRequest(task_id=task.task_id),
+                    metadata=metadata,
+                    timeout=30,
+                )
+            stop_observation.set()
+            observations = await observer
+            print(
+                f"TAOSDUMP_PROCESS_OBSERVATIONS={json.dumps(observations, sort_keys=True)}", flush=True
+            )
+            print(
+                f"BACKUP_TASK_STATE={storage_pb.StorageTaskState.Name(task.state)} "
+                f"error_code={task.error_code!r} message={task.message!r}",
+                flush=True,
+            )
+            for observation in observations:
+                assert PASSWORD not in " ".join(observation["argv"])
+            assert PASSWORD not in task.message and PASSWORD not in task.error_code
+            assert PASSWORD.encode("utf-8") not in storage_log.read_bytes()
+            for candidate in backup_root.rglob("*"):
+                if candidate.is_file():
+                    assert PASSWORD.encode("utf-8") not in candidate.read_bytes()
+            print("PASSWORD_LEAK_SCAN=argv, task errors, Storage log and artifact clean", flush=True)
+&gt;           assert task.state == storage_pb.STORAGE_TASK_STATE_SUCCEEDED, task
+E           AssertionError: task_id: "8fe26469956945e0bd6ee6221ac74290"
+E             state: STORAGE_TASK_STATE_FAILED
+E             created_at {
+E               seconds: 1795751963
+E               nano...
+E             }
+E             finished_at {
+E               seconds: 1795751995
+E               nanos: 985297000
+E             }
+E             error_code: "NATIVE_BACKUP_FAILED"
+E             message: "TimeoutError"
+E             
+E           assert 4 == 3
+E            +  where 4 = task_id: "8fe26469956945e0bd6ee6221ac74290"\nstate: STORAGE_TASK_STATE_FAILED\ncreated_at {\n  seconds: 1795751963\n  nano...\n}\nfinished_at {\n  seconds: 1795751995\n  nanos: 985297000\n}\nerror_code: "NATIVE_BACKUP_FAILED"\nmessage: "TimeoutError"\n.state
+E            +  and   3 = storage_pb.STORAGE_TASK_STATE_SUCCEEDED
+
+tests/storage_service/integration/test_backup_pty_real.py:503: AssertionError</failure></testcase></testsuite></testsuites>

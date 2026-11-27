@@ -1,0 +1,58 @@
+[
+  {
+    "path": "backup_restore_final.xml",
+    "replacements": 2
+  },
+  {
+    "path": "sink_600_c16_l10.xml",
+    "replacements": 1
+  },
+  {
+    "path": "cross_module_e2e.log",
+    "replacements": 1
+  },
+  {
+    "path": "backup_restore_final.log",
+    "replacements": 2
+  },
+  {
+    "path": "backup_real.log",
+    "replacements": 2
+  },
+  {
+    "path": "cross_module_e2e.xml",
+    "replacements": 1
+  },
+  {
+    "path": "backup_prompt_final.xml",
+    "replacements": 2
+  },
+  {
+    "path": "backup_real_final.log",
+    "replacements": 2
+  },
+  {
+    "path": "backup_real.xml",
+    "replacements": 2
+  },
+  {
+    "path": "backup_prompt_final.log",
+    "replacements": 2
+  },
+  {
+    "path": "backup_prompt_driven.xml",
+    "replacements": 2
+  },
+  {
+    "path": "backup_prompt_driven.log",
+    "replacements": 2
+  },
+  {
+    "path": "sink_600_c16_l10.log",
+    "replacements": 1
+  },
+  {
+    "path": "backup_real_final.xml",
+    "replacements": 2
+  }
+]

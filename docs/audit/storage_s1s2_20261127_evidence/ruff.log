@@ -1,0 +1,95 @@
+tests/storage_service/integration/test_tdengine_wide_probe.py:177:88: SyntaxError: Expected an indented block after function definition
+    |
+175 |             assert statement.execute() >= 0
+176 |         finally:
+177 |           def test_td02_td03_multitable_and_statement_reuse(wide_probe: Probe) -> None:
+    |                                                                                        ^
+178 |     """Probe the documented STMT2 dynamic-subtable form and statement reuse."""
+179 |     probe = wide_probe
+180 |     _create_family(probe, "protocol", "BIGINT")
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:213:35: SyntaxError: Simple statements must be separated by newlines or semicolons
+    |
+211 |                 )
+212 |     finally:
+213 |         statement.close()         cycle * 1000 + device * 10000,
+    |                                   ^
+214 |                 )
+215 |     finally:
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:214:1: SyntaxError: Unexpected indentation
+    |
+212 |     finally:
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+    | ^
+215 |     finally:
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:214:17: SyntaxError: Expected a statement
+    |
+212 |     finally:
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+    |                 ^
+215 |     finally:
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:214:18: SyntaxError: Expected a statement
+    |
+212 |     finally:
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+    |                  ^
+215 |     finally:
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:215:5: SyntaxError: Expected a statement
+    |
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+215 |     finally:
+    |     ^
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:215:12: SyntaxError: Expected a statement
+    |
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+215 |     finally:
+    |            ^
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:215:13: SyntaxError: Expected a statement
+    |
+213 |         statement.close()         cycle * 1000 + device * 10000,
+214 |                 )
+215 |     finally:
+    |             ^
+216 |         statement.close()
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:216:1: SyntaxError: Unexpected indentation
+    |
+214 |                 )
+215 |     finally:
+216 |         statement.close()
+    | ^
+    |
+
+tests/storage_service/integration/test_tdengine_wide_probe.py:219:1: SyntaxError: Expected a statement
+    |
+219 | @pytest.mark.parametrize(
+    | ^
+220 |     ("level", "kind"),
+221 |     [("raw", "VARBINARY(8)"), ("protocol", "FLOAT"), ("business", "DOUBLE")],
+    |
+
+Found 10 errors.
