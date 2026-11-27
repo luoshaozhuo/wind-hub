@@ -1,0 +1,17 @@
+--- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
++++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
+@@ -1100,10 +1100,14 @@
+     private boolean checkIsLimit() {
+         try {
+-            return (emsFacDispatchActEnabled.getVal() || emsGridDispatchActEnabled.getVal()
+-                    || emsJkDispatchActEnabled.getVal())
++            // No dispatch permission is inferred from a missing Boolean value.
++            boolean dispatchEnabled = Boolean.TRUE.equals(emsFacDispatchActEnabled.getVal())
++                    || Boolean.TRUE.equals(emsGridDispatchActEnabled.getVal())
++                    || Boolean.TRUE.equals(emsJkDispatchActEnabled.getVal());
++            return dispatchEnabled
+                     && (emsActSend.getVal() - emsActLoopRef.getVal() < GlobalData.FactoryConfig.emsLimitCoe.getVal()
+                             * GlobalData.FactoryConfig.fWFContractCapacity.getVal());
+         } catch (Exception e) {
+             log.error("check factory limit status error ", e);
+             return false;
