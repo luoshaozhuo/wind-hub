@@ -232,9 +232,18 @@ class Runtime:
         """Validate the entire batch and reserve exactly one future step."""
         async with self._lock:
             state = self.generations.get(generation_id)
+            if state is None:
+                raise GeneratorError("generation not found")
+            history_key = (caller, request_id)
+            # A previously accepted identity must remain queryable after STOP
+            # or configuration revision changes; replay never adds model input.
+            if history_key in state.request_history:
+                previous, step = state.request_history[history_key]
+                if previous != fingerprint:
+                    raise GeneratorError("request_id already used with different input")
+                return step
             if (
-                state is None
-                or self._active != generation_id
+                self._active != generation_id
                 or state.desired_state != "RUNNING"
                 or state.actual_state != "RUNNING"
                 or state.physical_engine is None
@@ -243,12 +252,6 @@ class Runtime:
             engine = state.physical_engine
             if device_id not in state.scenario.devices or device_id not in engine.models:
                 raise GeneratorError("physical device not found in Generation")
-            history_key = (caller, request_id)
-            if history_key in state.request_history:
-                previous, step = state.request_history[history_key]
-                if previous != fingerprint:
-                    raise GeneratorError("request_id already used with different input")
-                return step
             if len(state.request_history) >= 10000:
                 raise GeneratorError("generation request-id capacity exceeded")
             kind = engine.kinds[device_id]
