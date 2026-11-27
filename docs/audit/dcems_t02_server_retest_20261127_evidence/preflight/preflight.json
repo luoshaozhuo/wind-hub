@@ -1,0 +1,33 @@
+{
+  "project": "dcems-wtg-control",
+  "release_version": "1.1.4-583d5da",
+  "checks": {
+    "image:dc-ems-server:1.1.4-583d5da": "MISSING",
+    "image:dc-ems-web:1.1.4-583d5da": "MISSING",
+    "image:dc-ems-timescaledb:2.7.0-pg14": "MISSING",
+    "seed": "MISSING",
+    "web:index": "MISSING",
+    "runtime:env": "MISSING",
+    "runtime:db": "MISSING",
+    "runtime:jks": "MISSING",
+    "runtime:logging": "MISSING",
+    "license:configured": "MISSING",
+    "database:business_schema": "UNVERIFIED",
+    "server:actual_modbus_fc16": "UNVERIFIED"
+  },
+  "missing": [
+    "image:dc-ems-server:1.1.4-583d5da",
+    "image:dc-ems-timescaledb:2.7.0-pg14",
+    "image:dc-ems-web:1.1.4-583d5da",
+    "license:configured",
+    "runtime:db",
+    "runtime:env",
+    "runtime:jks",
+    "runtime:logging",
+    "seed",
+    "web:index"
+  ],
+  "ready_for_start_attempt": false,
+  "ready_for_T02_acceptance": false,
+  "note": "Schema and actual FC16 require an authorized live Server run."
+}

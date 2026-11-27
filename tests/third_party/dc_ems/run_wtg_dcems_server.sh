@@ -27,13 +27,41 @@ VERSION="$(sed -n 's/^release_version=//p' "${RELEASE}/VERSION")"
 export SERVER_IMAGE="${SERVER_IMAGE:-dc-ems-server:${VERSION}}"
 export WEB_IMAGE="${WEB_IMAGE:-dc-ems-web:${VERSION}}"
 
-if [[ "$1" != --down ]]; then
-    export PYTHONPATH="${ROOT}/src:${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-    python -m tests.third_party.dc_ems.preflight_wtg_dcems_server --root "${RUNTIME}" \
-        || fail "T02 release prerequisites missing; see preflight report"
+compose=(
+    docker compose
+    --project-name dcems-wtg-control
+    --env-file "${RUNTIME}/docker/dcems.env"
+    -f "${BASE}"
+    -f "${OVERLAY}"
+)
+
+cleanup_project() {
+    # 资源缺失或 Compose 无法解析时，仅按项目标签清理容器与网络，绝不删除数据卷。
+    local -a containers networks
+    mapfile -t containers < <(docker ps -aq --filter label=com.docker.compose.project=dcems-wtg-control)
+    if (( ${#containers[@]} > 0 )); then
+        docker rm -f "${containers[@]}" >/dev/null
+    fi
+    mapfile -t networks < <(docker network ls -q --filter label=com.docker.compose.project=dcems-wtg-control)
+    if (( ${#networks[@]} > 0 )); then
+        docker network rm "${networks[@]}" >/dev/null 2>&1 || true
+    fi
+    printf 'DCEMS WTG Server: cleaned project containers/networks; volumes preserved.\n'
+}
+
+if [[ "$1" == --down ]]; then
+    if [[ -f "${RUNTIME}/docker/dcems.env" ]] && "${compose[@]}" config --quiet >/dev/null 2>&1; then
+        "${compose[@]}" down --remove-orphans
+    else
+        cleanup_project
+    fi
+    exit 0
 fi
 
-if [[ "$1" != --down ]]; then
+export PYTHONPATH="${ROOT}/src:${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+python -m tests.third_party.dc_ems.preflight_wtg_dcems_server --root "${RUNTIME}" \
+    || fail "T02 release prerequisites missing; see preflight report"
+
 [[ -f "${DCEMS_WTG_SEED}" ]] || fail "prepare separate control data.json first"
 [[ -f "${DCEMS_WTG_WEB}/index.html" ]] || fail "prepare isolated Web assets first"
 [[ -f "${RUNTIME}/docker/dcems.env" ]] || fail "prepare isolated runtime first"
@@ -45,15 +73,7 @@ grep -q '/dcems_smoke?' "${DEPLOY_CONFIG_DIR}/db.property" \
 for img in "${SERVER_IMAGE}" "${WEB_IMAGE}" "dc-ems-timescaledb:2.7.0-pg14"; do
     docker image inspect "${img}" >/dev/null 2>&1 || fail "missing local image: ${img}"
 done
-fi
 
-compose=(
-    docker compose
-    --project-name dcems-wtg-control
-    --env-file "${RUNTIME}/docker/dcems.env"
-    -f "${BASE}"
-    -f "${OVERLAY}"
-)
 "${compose[@]}" config --quiet || fail "invalid Compose contract"
 
 if [[ "$1" == --up ]]; then
@@ -64,8 +84,4 @@ if [[ "$1" == --up ]]; then
     "${compose[@]}" up -d --pull never
     printf 'WTG Control Web: http://127.0.0.1:18090/dc-ems/\n'
     printf 'Server readiness and Docker-to-Gateway TCP must be verified independently.\n'
-fi
-
-if [[ "$1" == --down ]]; then
-    "${compose[@]}" down --remove-orphans
 fi

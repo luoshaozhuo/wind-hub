@@ -7,7 +7,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 ROOT = Path(__file__).resolve().parents[3]
 RELEASE = ROOT / "third_party" / "dc-ems"
@@ -57,9 +57,20 @@ def _has_value(path: Path, key: str) -> bool:
     return False
 
 
-def inspect(root: Path, release: Path = RELEASE) -> dict[str, object]:
+def inspect(root: Path, release: Path = RELEASE) -> dict[str, Any]:
     """Return machine-readable, non-secret prerequisites for live T02."""
-    version = _release_version(release / "VERSION")
+    try:
+        version = _release_version(release / "VERSION")
+    except (FileNotFoundError, ValueError) as exc:
+        return {
+            "project": "dcems-wtg-control",
+            "release_version": "",
+            "checks": {"release:version": "MISSING"},
+            "missing": ["release:version"],
+            "ready_for_start_attempt": False,
+            "ready_for_T02_acceptance": False,
+            "note": f"release VERSION unavailable: {type(exc).__name__}",
+        }
     docker_root = root / "docker"
     config = docker_root / "config"
     images = (
@@ -81,9 +92,7 @@ def inspect(root: Path, release: Path = RELEASE) -> dict[str, object]:
     for label, path in required.items():
         checks[label] = "READY" if path.is_file() and path.stat().st_size else "MISSING"
     checks["license:configured"] = (
-        "READY"
-        if _has_value(docker_root / "dcems.env", "LICENSE_CODE")
-        else "MISSING"
+        "READY" if _has_value(docker_root / "dcems.env", "LICENSE_CODE") else "MISSING"
     )
     checks["database:business_schema"] = "UNVERIFIED"
     checks["server:actual_modbus_fc16"] = "UNVERIFIED"

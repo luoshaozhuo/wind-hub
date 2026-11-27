@@ -1,0 +1,14 @@
+# trusted release resource search
+## docker images matching dc-ems
+NONE
+## image/release archives under /home/luo
+(end)
+## release dirs
+/home/luo/dc-ems/tools/release
+/home/luo/.local/state/wind-hub-c7d7/release-static
+## jks/db.property
+(end)
+## dc-ems release dir
+ls: cannot access '/home/luo/dc-ems/release': No such file or directory
+## docker volumes with dc-ems label
+(end)

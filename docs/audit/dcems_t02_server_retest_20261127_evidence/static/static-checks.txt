@@ -1,0 +1,15 @@
+## ruff
+All checks passed!
+## format
+39 files already formatted
+## mypy preflight
+Success: no issues found in 2 source files
+## requested tests
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+15 passed, 367 warnings in 0.15s
+## shell syntax
+run_wtg_dcems_server.sh OK
+run_wtg_control_chain.sh OK
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 245 warnings in 0.98s

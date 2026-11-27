@@ -1,0 +1,25 @@
+## MANIFEST verification
+./app/web/static/js/chunk-d46e6b4a.b9e0177f.js: OK
+./app/web/static/js/chunk-ee11dcac.bda8a666.js: OK
+./app/web/static/js/chunk-elementUI.4ab0f8ab.js: OK
+./app/web/static/js/chunk-libs.2c50c3e1.js: OK
+./app/web/static/media/empty-audio.2e5bf17b.mp3: OK
+./config/env.template: OK
+./config/log4j.properties: OK
+./config/ssl/README.md: OK
+./deploy.sh: OK
+sha256sum: ./images/dc-ems-server.tar: No such file or directory
+./images/dc-ems-server.tar: FAILED open or read
+sha256sum: ./images/timescaledb.tar: No such file or directory
+./images/timescaledb.tar: FAILED open or read
+./lib.sh: OK
+./runtime/containerized/compose.yaml: OK
+./runtime/host-based/dc-ems.service: OK
+./start.sh: OK
+./status.sh: OK
+./stop.sh: OK
+sha256sum: WARNING: 2 listed files could not be read
+## missing release image tars
+5694498dfbfd6e6fd5ad6b9759674cd217f3084e9d34c8f49ccc527713427ac7  ./images/dc-ems-server.tar
+8a501f98cd6cad490fe99786991ad8dba88235b0834a7b1faa69e36fe68944b5  ./images/timescaledb.tar
+ls: cannot access 'third_party/dc-ems/images': No such file or directory
