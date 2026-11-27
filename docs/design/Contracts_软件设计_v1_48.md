@@ -1229,12 +1229,12 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 | batch_id、collector_id、task_id | 必填非空字符串，重投保持不变 |
 | wind_farm_id、device_config_id、device_id、device_type、point_table_id | 必填非空字符串；device_config_id 和 point_table_id 必须为带完整文件版本号的不可变身份；配置身份无 .yaml；Subject 与授权范围一致 |
 | mode | 必填 realtime 或 reliable |
-| sample_time、publish_time | 必填 UTC RFC3339，六位小数秒及 Z |
+| sample_time、publish_time | 必填具有明确时区偏移的 ISO 8601 字符串；当前解码器允许有效偏移并规范化为 UTC，编码器输出 UTC；不要求输入固定六位小数或必须以 Z 结尾 |
 | samples.max_staleness_ms | Realtime 每个样本必填正整数，Reliable 不得有非空值；按样本所属批次统一采样时间计算 TTL |
 | samples | 必填非空数组；每项 point_id、sample_id、value、quality、sample_time 必填；source_time、receive_time、raw_payload_hex 可选；禁止重复点及样本身份，sample_time 必须与批次一致 |
 | samples.value | 固定协议类型的 JSON 标量或 null；禁止非有限浮点 |
 | samples.quality | JSON 字符串 `not_collected` / `good` / `bad` / `uncertain`；`not_collected` 时 value 必须 null 且 raw_payload_hex 必须为空；Kafka v3 才采用对应的 0/1/2/3 整数位值 |
-| samples.receive_time | 可选真实 UTC RFC3339 六位小数秒 Z，不作为行键 |
+| samples.source_time、samples.receive_time | 可选真实时间戳，若存在必须具有明确时区偏移，解码后规范化为 UTC；均不作为宽表行键 |
 | samples.raw_payload_hex | 可选真实协议原始字节的1–2048 字节真实载荷的小写偶数长度十六进制串，不得由解码值反推 |
 
 Reliable 批每个可读点必须恰好出现一次。未尝试点在 NATS 中为 `value=null, quality=not_collected`，尝试失败且无有效值的点为 `value=null, quality=bad`；转换为 Kafka 设备行时质量分别编码为 0 和 2；合法非空协议值缺 RAW 载荷为 RAW Delivery 契约违反，不得填0掩盖。Kafka points 必须等于固定完整点表源 ID 集合，包含不可读点 NULL/0；禁止缺列及额外列。Sink 不得把非法缺失的可靠源批当成完整事件。Realtime 原生事件可拆稳定子批，不跨事件合并；Redis/Modbus/Gateway 保留独立输出契约。
@@ -1270,7 +1270,7 @@ PointTable 必须固定关联历史 BusinessPoint、Units 版本，并保持源 
 | device_config_id | 完整固定身份 device_<config_id>_v<file_version>，无 .yaml |
 | device_id | 该配置内唯一设备 |
 | data_level | raw/protocol/business 必填 |
-| sample_time | UTC RFC3339，微秒精度，不允许截断导致冲突 |
+| sample_time | 严格 UTC ISO 8601 且以 Z 结尾，允许 0～6 位小数秒（微秒时间精度）；禁止缺失时区或超出微秒精度，不允许截断导致冲突 |
 | points | RAW/PROTOCOL 以源 point_id 为键；BUSINESS 以 business_point_id 为键；值为 `[value,quality]`，键集合必须恰好匹配该等级的完整物理 Schema |
 
 ```json
