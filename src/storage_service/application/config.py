@@ -107,6 +107,7 @@ class KafkaConfig(_StrictModel):
     max_partition_workers: int = Field(default=4, ge=1, le=64)
     commit_interval_ms: int = Field(default=1000, ge=100, le=10000)
     commit_timeout_ms: int = Field(default=10000, ge=100, le=120000)
+    shutdown_drain_timeout_ms: int = Field(default=120000, strict=True, ge=1000, le=600000)
 
 
 class DatabaseConfig(_StrictModel):
