@@ -309,7 +309,10 @@ def _run_writer(
         connection.execute(f"USE {probe.database}")
         statement = connection.stmt2_statement()
         placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
-        statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
+        statement.prepare(
+            f"INSERT INTO ? USING {probe.database}.protocol_v1_0_0 "
+            f"TAGS (?) VALUES ({placeholders})"
+        )
         for first in range(0, cycles, batch_cycles):
             end = min(first + batch_cycles, cycles)
             timestamps = [start_us + i * 100_000 for i in range(first, end)]
@@ -319,6 +322,7 @@ def _run_writer(
                     _bind(
                         local,
                         table=f"protocol_d{device}",
+                        tag=f"wtg_{device:03d}",
                         timestamps=timestamps,
                         base=device * 1_000_000 + first,
                     )
