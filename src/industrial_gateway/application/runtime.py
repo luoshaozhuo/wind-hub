@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import struct
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -185,6 +186,18 @@ class GatewayApplicationRuntime:
                                 error_code="CONTROL_SCALE_INVALID",
                             )
                             return
+                        target = resolved.variables[mapping.target_point_id]
+                        if target.data_type == "float32":
+                            try:
+                                struct.pack(">f", forwarded_value)
+                            except (OverflowError, struct.error):
+                                self.observability.event(
+                                    server_id,
+                                    "scaled control exceeds target float32 range",
+                                    severity="ERROR",
+                                    error_code="CONTROL_SCALE_OUT_OF_RANGE",
+                                )
+                                return
                     forwarder.capture(
                         event_id=event_id,
                         gateway_id=server_id,
