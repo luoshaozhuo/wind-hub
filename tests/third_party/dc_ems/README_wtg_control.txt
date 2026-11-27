@@ -153,3 +153,19 @@ WTG 模型在超出 Cp 曲线最后一个叶尖速比点后采用连续且非增
 过渡曲线。不得使用不足以完成真实变桨的 5 秒窗口评判稳态，
 也不得降低功率变化或安全保护的验收要求。
 本轮生产修改及模式初始化尚未运行独立集中复测。
+
+
+标准部署缺陷整改（当前 wind-hub 开发分支）
+----------------------------------------
+本分支已修订 third_party/dc-ems/deploy.sh 中的授权系统标识为
+DC-EMS；通过持久化 machine-id 让一次性机器码生成容器与正式
+Server 容器使用相同机器身份。同步更新 Compose 及 MANIFEST.sha256，
+不能再以修改前的发布包摘要作为修改后脚本的来源证明。
+
+特别注意：本仓库的 third_party/dc-ems 为已构建发布包，仅包含
+dc-ems.jar，没有 FactoryPoints.java 的可编译源代码。FactoryPoints
+布尔调度使能空值修复已保存在
+tests/third_party/dc_ems/patches/factorypoints-null-dispatch-flags.patch，
+此文件是供持有 DCEMS Java 源码的构建环境应用的补丁，不会改变
+现有 JAR 的行为。必须重新构建并独立验证合法发布包后，才能认定
+该 NPE 的生产缺陷关闭；不得将本轮的补丁存在视为测试通过。
