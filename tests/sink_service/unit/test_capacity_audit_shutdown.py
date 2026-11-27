@@ -14,9 +14,9 @@ from tests.sink_service.system.test_capacity_r14_sustained import _stop_audit_co
 class _Connection:
     def __init__(self) -> None:
         self.is_closed = False
-
-    def closed(self) -> bool:
-        return self.is_closed
+        self._reader: object | None = object()
+        self._writer: object | None = object()
+        self._closed_fut = SimpleNamespace(done=lambda: self.is_closed)
 
 
 class _Client:
@@ -28,6 +28,8 @@ class _Client:
         self._sync_task = None
         for connection in self._conns.values():
             connection.is_closed = True
+            connection._reader = None
+            connection._writer = None
 
 
 class _Consumer:
@@ -50,7 +52,7 @@ async def test_internal_fetch_cancellation_recovers_and_closes_client() -> None:
     assert closed is True
     assert fetch.done()
     assert consumer._client._sync_task is None
-    assert all(connection.closed() for connection in consumer._client._conns.values())
+    assert all(connection._closed_fut.done() for connection in consumer._client._conns.values())
 
 
 async def test_caller_cancellation_is_not_rewritten_as_recovery() -> None:

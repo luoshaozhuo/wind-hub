@@ -207,7 +207,9 @@ async def _stop_audit_consumer(consumer: AIOKafkaConsumer) -> tuple[str, bool]:
         client = consumer._client  # noqa: SLF001
         await asyncio.wait_for(client.close(), timeout=30)
         fully_closed = client._sync_task is None and all(  # noqa: SLF001
-            connection.closed()
+            connection._reader is None  # noqa: SLF001
+            and connection._writer is None  # noqa: SLF001
+            and connection._closed_fut.done()  # noqa: SLF001
             for connection in client._conns.values()  # noqa: SLF001
         )
     return error, fully_closed
