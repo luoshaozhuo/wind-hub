@@ -439,15 +439,23 @@ def sink_metrics(
 
 @sink.command("events")
 def sink_events(
-    page_size: int = 100,
+    page_size: int = typer.Option(100, "--page-size", min=1, max=500),
     page_token: str = "",
+    from_time: str = typer.Option("", "--from-time"),
+    to_time: str = typer.Option("", "--to-time"),
+    query: str = typer.Option("", "--filter"),
 ) -> None:
+    from .common_commands import event_filter
+
     _run_sink_common(
         "GetEvents",
-        {
-            "page_size": page_size,
-            "page_token": page_token,
-        },
+        event_filter(
+            page_size=page_size,
+            page_token=page_token,
+            from_time=from_time,
+            to_time=to_time,
+            query=query,
+        ),
     )
 
 
@@ -459,16 +467,25 @@ def gateway_metrics(scope: str = "", window_ms: int = 60000) -> None:
 
 
 @gateway.command("events")
-def gateway_events(page_size: int = 100, page_token: str = "") -> None:
-    from .common_commands import _run_common
+def gateway_events(
+    page_size: int = typer.Option(100, "--page-size", min=1, max=500),
+    page_token: str = "",
+    from_time: str = typer.Option("", "--from-time"),
+    to_time: str = typer.Option("", "--to-time"),
+    query: str = typer.Option("", "--filter"),
+) -> None:
+    from .common_commands import _run_common, event_filter
 
     _run_common(
         "gateway",
         "GetEvents",
-        {
-            "page_size": page_size,
-            "page_token": page_token,
-        },
+        event_filter(
+            page_size=page_size,
+            page_token=page_token,
+            from_time=from_time,
+            to_time=to_time,
+            query=query,
+        ),
     )
 
 
@@ -487,14 +504,23 @@ def generator_metrics(scope: str = "", window_ms: int = 60000) -> None:
 
 
 @data_generator.command("events")
-def generator_events(page_size: int = 100, page_token: str = "") -> None:
-    from .common_commands import _run_common
+def generator_events(
+    page_size: int = typer.Option(100, "--page-size", min=1, max=500),
+    page_token: str = "",
+    from_time: str = typer.Option("", "--from-time"),
+    to_time: str = typer.Option("", "--to-time"),
+    query: str = typer.Option("", "--filter"),
+) -> None:
+    from .common_commands import _run_common, event_filter
 
     _run_common(
         "data-generator",
         "GetEvents",
-        {
-            "page_size": page_size,
-            "page_token": page_token,
-        },
+        event_filter(
+            page_size=page_size,
+            page_token=page_token,
+            from_time=from_time,
+            to_time=to_time,
+            query=query,
+        ),
     )
