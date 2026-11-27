@@ -648,11 +648,11 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
                 evidence = [common.Evidence(name="configuration_status", value=config_state)]
             elif name == "ingestion":
                 recovering = self._consumer.recovering
-                status = "UNKNOWN" if recovering else "PASS"
+                status = "UNKNOWN"
                 detail = (
                     "Kafka replay recovery has not settled"
                     if recovering
-                    else "Ingestion buffer is observable; no end-to-end probe performed"
+                    else "Ingestion counters observable; delivery not actively probed"
                 )
                 evidence = [
                     common.Evidence(name="buffer_rows", value=str(counters.buffer_rows)),
