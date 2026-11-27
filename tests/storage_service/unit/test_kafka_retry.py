@@ -869,3 +869,65 @@ async def test_run_coalesces_contiguous_buffered_poll_suffix(
         release_first.set()
         consumer.request_stop()
         await asyncio.wait_for(task, timeout=2)
+
+
+async def test_dispatcher_failure_releases_queued_buffer_and_closes_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fatal processing error must not retain uncommitted prefetched rows."""
+    tp = TopicPartition(TOPIC, 0)
+    writing = asyncio.Event()
+    release = asyncio.Event()
+    fetched_three = asyncio.Event()
+
+    class _PollingConsumer(_Consumer):
+        def __init__(self) -> None:
+            super().__init__([tp])
+            self.polls = 0
+
+        async def getmany(self, **_kwargs: object) -> dict[TopicPartition, list[object]]:
+            self.polls += 1
+            if self.polls <= 3:
+                if self.polls == 3:
+                    fetched_three.set()
+                return {
+                    tp: [
+                        SimpleNamespace(
+                            topic=tp.topic,
+                            partition=tp.partition,
+                            offset=self.polls - 1,
+                            key=None,
+                            value=b"record",
+                        )
+                    ]
+                }
+            await asyncio.sleep(0.01)
+            return {}
+
+    class _FailingIngestion:
+        async def process(self, **_kwargs: object) -> None:
+            writing.set()
+            await release.wait()
+            raise RuntimeError("injected fatal processing error")
+
+    broker = _PollingConsumer()
+    consumer = _build(monkeypatch, broker, _FailingIngestion())
+    _own(consumer, tp)
+    task = asyncio.create_task(consumer.run())
+    try:
+        await asyncio.wait_for(writing.wait(), timeout=2)
+        await asyncio.wait_for(fetched_three.wait(), timeout=2)
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(ExceptionGroup, match="injected fatal processing error"):
+            await asyncio.wait_for(task, timeout=2)
+        snapshot = consumer._metrics.snapshot()
+        assert snapshot.buffer_rows == 0
+        assert snapshot.buffer_bytes == 0
+        assert broker.stopped
+        assert broker.commits == []
+    finally:
+        release.set()
+        if not task.done():
+            consumer.request_stop()
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=2)
