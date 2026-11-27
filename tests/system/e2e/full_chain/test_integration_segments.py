@@ -13,6 +13,7 @@ import grpc
 import nats
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from nats.js.api import DeliverPolicy
 from pymodbus.client import AsyncModbusTcpClient
 
 from cli.runtime import Runtime
@@ -524,7 +525,10 @@ async def test_i05_real_modbus_control_audit_replay_auth_and_unknown(
         await audit_queue.put(event)
 
     subscription = await client.jetstream().subscribe(
-        f"commander.fullchain.{harness.token}", cb=on_audit, manual_ack=True
+        f"commander.fullchain.{harness.token}",
+        cb=on_audit,
+        manual_ack=True,
+        deliver_policy=DeliverPolicy.NEW,
     )
     commander_stopped = False
     try:
