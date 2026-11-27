@@ -1209,7 +1209,7 @@ Configuration Repository 负责版本发布和 Deployment 目标选择；各业�
 
 Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯一权威**。NATS Realtime 与 JetStream Reliable 使用同一种 Envelope 和 SampleItem Schema，由 `mode` 区分，并分别使用 `wh.rt.batch.<wind_farm_id>.<collector_id>.<device_id>`、`wh.hist.batch.<wind_farm_id>.<collector_id>.<device_id>` Subject。跨模块源格式以 §11.6 为准；Sink 对外输出以 §11.9 为准。各模块设计只引用这些唯一字段契约，不得再另定义字段含义或格式版本。
 
-现行 NATS v3/Kafka v2 为迁移基线；目标 NATS v4/Kafka v3 分别见 §11.6、§11.9。
+迁移前的 NATS v3/Kafka v2 仅作为历史基线；当前 NATS v4/Kafka v3 分别见 §11.6、§11.9。
 
 ## 11.5 Proto 兼容规则
 
@@ -1217,7 +1217,7 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 
 ## 11.6 Collector→Sink：同步设备采样批次目标线格式
 
-历史 SampleBatch v3 是迁移基线；当前实现采用不兼容的 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段 schema_version、batch_id、mode、wind_farm_id、collector_id、task_id、device_config_id（完整 device_<config_id>_v<file_version>）、device_id、sample_time、publish_time、samples。每项 point_id、sample_id、value、quality、可选 receive_time、raw_payload_hex；实时批次必须有 max_staleness_ms，可靠必须省略。device_type、point_table_id 由固定配置闭包恢复，不重复传输。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
+历史 SampleBatch v3 是迁移基线；当前实现采用不兼容的 v4。实时与可靠仍共享严格 UTF-8 JSON、独立通道及 TTL 规则。公共字段为 `schema_version`、`batch_id`、`mode`、`wind_farm_id`、`collector_id`、`task_id`、`device_type`、`device_id`、`point_table_id`、`device_config_id`（完整 `device_<config_id>_v<file_version>`）、`sample_time`、`publish_time`、`samples`。每个样本必含 `point_id`、`sample_id`、`value`、`quality`、`sample_time`，可含 `source_time`、`receive_time`、`raw_payload_hex`；实时样本必须携带 `max_staleness_ms`，可靠样本不得携带非空 `max_staleness_ms`。`device_type`、`point_table_id` 均在 NATS v4 批次中显式传输，消费者必须依据不可变配置闭包验证，不得按当前推荐版本替代。采样时间提升到批次层；同一设备采样事件内所有测点统一时间、允许 NULL。必要源追踪、实时 TTL 和 JetStream 源批 ACK 保留。
 
 拒绝重复 JSON 键、重复 point_id/sample_id、未知字段、非法时间/值、NaN/Inf；RAW 必须真实原始字节。默认 500 点、1 MiB，但完整历史设备批不得静默拆成多个相互覆盖的部分记录；超限拒绝。Collector Task/point_groups 须保证同设备同一时刻只有一完整历史采样批；未采集允许 NULL，不能另行补写同一时间的部分行。不能满足同步前提时历史链路阻断，不隐式对齐。配置变化时在途批固定原 device_config_id。NATS Subject 仍以场站、Collector、设备组织；协同切换生产者/消费者，不保留混合版本兼容路径。目标字段及存在性见下表。Realtime 可以传输部分原生事件；Reliable 仅接收完整同步设备事件。
 
@@ -1227,17 +1227,17 @@ Contracts 是 Collector 发布与 Sink 消费的 **SampleBatch JSON 线格式唯
 |---|---|
 | schema_version | 必填 JSON 整数 4 |
 | batch_id、collector_id、task_id | 必填非空字符串，重投保持不变 |
-| wind_farm_id、device_config_id、device_id | 必填非空字符串；配置身份无 .yaml；Subject 与授权范围一致 |
+| wind_farm_id、device_config_id、device_id、device_type、point_table_id | 必填非空字符串；device_config_id 和 point_table_id 必须为带完整文件版本号的不可变身份；配置身份无 .yaml；Subject 与授权范围一致 |
 | mode | 必填 realtime 或 reliable |
 | sample_time、publish_time | 必填 UTC RFC3339，六位小数秒及 Z |
-| max_staleness_ms | Realtime 必填正整数，Reliable 禁止出现；按批次采样时间计算 TTL |
-| samples | 必填非空数组；每项 point_id、sample_id、value、quality 必填；receive_time、raw_payload_hex 可选；禁止重复点及样本身份 |
+| samples.max_staleness_ms | Realtime 每个样本必填正整数，Reliable 不得有非空值；按样本所属批次统一采样时间计算 TTL |
+| samples | 必填非空数组；每项 point_id、sample_id、value、quality、sample_time 必填；source_time、receive_time、raw_payload_hex 可选；禁止重复点及样本身份，sample_time 必须与批次一致 |
 | samples.value | 固定协议类型的 JSON 标量或 null；禁止非有限浮点 |
-| samples.quality | JSON 整数 0/1/2/3；禁止 bool；0 时 value 必须 null |
+| samples.quality | JSON 字符串 `not_collected` / `good` / `bad` / `uncertain`；`not_collected` 时 value 必须 null 且 raw_payload_hex 必须为空；Kafka v3 才采用对应的 0/1/2/3 整数位值 |
 | samples.receive_time | 可选真实 UTC RFC3339 六位小数秒 Z，不作为行键 |
 | samples.raw_payload_hex | 可选真实协议原始字节的1–2048 字节真实载荷的小写偶数长度十六进制串，不得由解码值反推 |
 
-Reliable 批每个可读点必须恰好出现一次。未尝试点 NULL/0，尝试失败 NULL/2；合法非空协议值缺 RAW 载荷为 RAW Delivery 契约违反，不得填0掩盖。Kafka points 必须等于固定完整点表源 ID 集合，包含不可读点 NULL/0；禁止缺列及额外列。Sink 不得把非法缺失的可靠源批当成完整事件。Realtime 原生事件可拆稳定子批，不跨事件合并；Redis/Modbus/Gateway 保留独立输出契约。
+Reliable 批每个可读点必须恰好出现一次。未尝试点在 NATS 中为 `value=null, quality=not_collected`，尝试失败且无有效值的点为 `value=null, quality=bad`；转换为 Kafka 设备行时质量分别编码为 0 和 2；合法非空协议值缺 RAW 载荷为 RAW Delivery 契约违反，不得填0掩盖。Kafka points 必须等于固定完整点表源 ID 集合，包含不可读点 NULL/0；禁止缺列及额外列。Sink 不得把非法缺失的可靠源批当成完整事件。Realtime 原生事件可拆稳定子批，不跨事件合并；Redis/Modbus/Gateway 保留独立输出契约。
 
 ## 11.7 数据三级语义与映射不变量
 
@@ -1271,7 +1271,7 @@ PointTable 必须固定关联历史 BusinessPoint、Units 版本，并保持源 
 | device_id | 该配置内唯一设备 |
 | data_level | raw/protocol/business 必填 |
 | sample_time | UTC RFC3339，微秒精度，不允许截断导致冲突 |
-| points | 源 point_id 对应 [value,quality]，非空 |
+| points | RAW/PROTOCOL 以源 point_id 为键；BUSINESS 以 business_point_id 为键；值为 `[value,quality]`，键集合必须恰好匹配该等级的完整物理 Schema |
 
 ```json
 {
@@ -1289,7 +1289,7 @@ PointTable 必须固定关联历史 BusinessPoint、Units 版本，并保持源 
 }
 ```
 
-Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value 允许 NULL，质量不从值推断；完整点表中未采集点填 NULL/0。三个等级统一用源 point_id，Storage 由配置解析 BUSINESS 物理列。device_type、point_table_id、business_point_id、unit、data_type 等不重复传输；sample_id、batch_id、collector_id、task_id、逐点 receive/publish_time、TTL 和逻辑哈希不属于 Kafka 历史记录，上游必要追踪仍保留。Record Key 为 UTF-8 wind_farm_id:device_id，禁止组件冒用分隔符；同 Topic 分区数和算法稳定。同设备较大 offset 的数据优先。真实 broker ACK 与 JetStream ACK 独立；Builder 可合并同分区完整 Record，不能拆 Record。producer/broker/topic/consumer 消息上限及封装余量须一致；超限阻断。迁移停源、排空旧流、确认归档后切换新契约，不混合 v2/v3。Redis/Modbus/Gateway 表达不擅自改变。
+Quality 0 未采集（值必须 NULL）、1 GOOD、2 BAD、3 UNCERTAIN。value 允许 NULL，质量不从值推断；完整点表中未采集点填 NULL/0。RAW/PROTOCOL 使用源 `point_id`；BUSINESS 使用依据可信历史闭包一对一映射的 `business_point_id`。Storage 根据记录等级和不可变设备配置身份解析完整物理 Schema，禁止将两套 ID 混用。device_type、point_table_id、business_point_id、unit、data_type 等不重复传输；sample_id、batch_id、collector_id、task_id、逐点 receive/publish_time、TTL 和逻辑哈希不属于 Kafka 历史记录，上游必要追踪仍保留。Record Key 为 UTF-8 wind_farm_id:device_id，禁止组件冒用分隔符；同 Topic 分区数和算法稳定。同设备较大 offset 的数据优先。真实 broker ACK 与 JetStream ACK 独立；Builder 可合并同分区完整 Record，不能拆 Record。producer/broker/topic/consumer 消息上限及封装余量须一致；超限阻断。迁移停源、排空旧流、确认归档后切换新契约，不混合 v2/v3。Redis/Modbus/Gateway 表达不擅自改变。
 
 # 12. 测试、生成与验收
 
