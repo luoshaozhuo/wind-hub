@@ -615,7 +615,68 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.DiagnoseRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.DiagnoseResponse:
-        return await self._unsupported_common(context, "storage.inspect")
+        """Expose bounded, evidence-backed checks without performing unsafe writes."""
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        allowed = {"configuration", "kafka", "ingestion", "tdengine"}
+        stages = list(request.stages) or sorted(allowed)
+        if (
+            request.target_id not in {"", self._config.service_id}
+            or len(stages) > len(allowed)
+            or len(stages) != len(set(stages))
+            or any(name not in allowed for name in stages)
+            or (request.timeout_ms and not 1 <= request.timeout_ms <= 5000)
+        ):
+            raise QueryRejectedError("unknown target, stage, or diagnostic budget")
+        config_state = self._config_status()
+        counters = self._metrics.snapshot()
+        response = common.DiagnoseResponse()
+        for name in stages:
+            if name == "configuration":
+                status = "PASS" if config_state == "READY" else "FAIL"
+                detail = config_state
+                evidence = [common.Evidence(name="configuration_status", value=config_state)]
+            elif name == "ingestion":
+                recovering = self._consumer.recovering
+                status = "UNKNOWN" if recovering else "PASS"
+                detail = (
+                    "Kafka replay recovery has not settled"
+                    if recovering
+                    else "Ingestion buffer is observable; no end-to-end probe performed"
+                )
+                evidence = [
+                    common.Evidence(name="buffer_rows", value=str(counters.buffer_rows)),
+                    common.Evidence(
+                        name="confirmed_records", value=str(counters.confirmed_records)
+                    ),
+                ]
+            else:
+                status = "UNKNOWN"
+                detail = (
+                    "Kafka broker connectivity not actively probed"
+                    if name == "kafka"
+                    else "TDengine read/write health not actively probed"
+                )
+                evidence = []
+            stage = response.stages.add(
+                stage=name,
+                status=status,
+                duration_ms=0,
+                message=detail,
+                source="storage-process",
+                evidence=evidence,
+            )
+            stage.observed_at.FromDatetime(datetime.now(UTC))
+        response.overall_status = (
+            "DEGRADED"
+            if any(stage.status == "FAIL" for stage in response.stages)
+            else "UNKNOWN"
+            if any(stage.status == "UNKNOWN" for stage in response.stages)
+            else "HEALTHY"
+        )
+        response.limitations.append(
+            "Process-local diagnostics do not confirm broker or database availability"
+        )
+        return response
 
     @guarded
     async def QuerySamples(
