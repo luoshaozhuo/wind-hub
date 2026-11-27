@@ -1118,7 +1118,9 @@ async def test_run_applies_row_backpressure_while_writer_is_blocked(
 
     broker = _UnlimitedBroker()
     consumer = _build(monkeypatch, broker, _Gated())
-    limits = consumer._config.tdengine.ingestion.model_copy(update={"buffer_max_rows": 100})
+    limits = consumer._config.tdengine.ingestion.model_copy(
+        update={"buffer_max_rows": 100, "batch_max_rows": 100}
+    )
     tdengine = consumer._config.tdengine.model_copy(update={"ingestion": limits})
     kafka = consumer._config.kafka.model_copy(update={"max_poll_records": 1})
     consumer._config = consumer._config.model_copy(
