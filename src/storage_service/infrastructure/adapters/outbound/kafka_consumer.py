@@ -510,14 +510,16 @@ class KafkaStorageConsumer:
                 poll.cancel()
                 with suppress(asyncio.CancelledError):
                     await poll
-            if not worker.done():
-                await queue.put(None)
-                await worker
-            else:
-                # Retrieve an exception from the dispatcher when it terminated
-                # before a sentinel could be delivered.
-                worker.exception()
-            await self._close_consumer()
+            try:
+                if not worker.done():
+                    await queue.put(None)
+                    await worker
+                elif not worker.cancelled():
+                    # Retrieve a dispatcher exception without masking the
+                    # original failure from the polling loop.
+                    worker.exception()
+            finally:
+                await self._close_consumer()
 
     async def _close_consumer(self) -> None:
         """Serialize shutdown; the run loop and external STOP share one owner."""
