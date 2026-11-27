@@ -565,7 +565,49 @@ class StorageServicer(rpc.StorageServiceServicer, common_rpc.CommonServiceServic
         request: common.GetEventsRequest,
         context: grpc.aio.ServicerContext[Any, Any],
     ) -> common.GetEventsResponse:
-        return await self._unsupported_common(context, "storage.inspect")
+        """Page bounded process-local warnings, not an invented durable audit log."""
+        self._auth.require(context, permission="storage.inspect", farm=None)
+        limit = request.page_size or 100
+        if not 1 <= limit <= 500:
+            raise QueryRejectedError("Storage event page size must be 1..500")
+        if request.page_token and (
+            not request.page_token.isascii() or not request.page_token.isdecimal()
+        ):
+            raise QueryRejectedError("invalid Storage event cursor")
+        cursor = int(request.page_token) if request.page_token else 0
+        start = request.from_time.ToDatetime(tzinfo=UTC) if request.HasField("from_time") else None
+        end = request.to_time.ToDatetime(tzinfo=UTC) if request.HasField("to_time") else None
+        if start is not None and end is not None and start > end:
+            raise QueryRejectedError("invalid Storage event time range")
+        retained = self._metrics.events()
+        if retained and cursor and cursor < retained[0].event_id - 1:
+            raise RuntimeError("Storage process event cursor is no longer retained")
+        selected = [
+            entry
+            for entry in retained
+            if entry.event_id > cursor
+            and (start is None or entry.timestamp >= start)
+            and (end is None or entry.timestamp <= end)
+            and (
+                not request.filter
+                or request.filter.lower() in entry.error_code.lower()
+                or request.filter.lower() in entry.severity.lower()
+                or request.filter.lower() in "storage"
+            )
+        ]
+        result = common.GetEventsResponse()
+        for entry in selected[:limit]:
+            event = result.events.add(
+                event_id=str(entry.event_id),
+                severity=entry.severity,
+                source="storage",
+                error_code=entry.error_code,
+                message=entry.message,
+            )
+            event.timestamp.FromDatetime(entry.timestamp)
+        if len(selected) > limit:
+            result.next_page_token = str(selected[limit - 1].event_id)
+        return result
 
     @guarded
     async def Diagnose(
