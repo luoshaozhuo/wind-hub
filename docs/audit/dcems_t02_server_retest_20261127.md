@@ -13,8 +13,9 @@
 | 分支 | `feat/dcems-gateway-smoke-20261126` |
 | 起始 HEAD | `ed8be88bfd1f71e36e10ab80c0211c5f878883d0`（本地/远端一致） |
 | 最近 4 个提交 | `1ca3b4c3` `98c86510` `fdff1f69` `ed8be88b` |
-| 本轮测试修复与证据 | 见第 10 节 |
-| 报告提交 | 本文件提交 |
+| 本轮测试修复与证据 | `dea2f540` |
+| 报告提交（最终功能性 HEAD） | `3760fdb5` |
+| HEAD 元数据提交 | 仅更新本表、不改变裁决 |
 
 未创建 PR、未合并 main、未 force push/rebase。
 
