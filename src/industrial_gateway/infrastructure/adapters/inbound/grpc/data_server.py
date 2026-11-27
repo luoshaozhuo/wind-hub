@@ -459,9 +459,6 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         await _authorize(context, self._runtime, "simulation_execute")
         instance = await self._instance(request.gateway_id, context)
         control = instance.config.settings.control
-        if not control.enabled or control.simulation is None:
-            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "simulation not configured")
-            raise RuntimeError("abort unexpectedly returned") from None
         if (
             not request.request_id.strip()
             or not request.device_id.strip()
@@ -489,6 +486,9 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         replay = await self._simulation.replay(command)
         if replay is not None:
             return self._simulation_response(replay)
+        if not control.enabled or control.simulation is None:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "simulation not configured")
+            raise RuntimeError("abort unexpectedly returned") from None
         if request.expected_revision != self._runtime.config.revision:
             await context.abort(grpc.StatusCode.ABORTED, "Gateway revision changed")
             raise RuntimeError("abort unexpectedly returned") from None
