@@ -992,7 +992,7 @@ I --> J
 
 ### 3.5.3 业务规则
 
-**R04-01 现有入站契约全集。** `CommonService` 9 项：`GetServiceInfo`、`GetServiceStatus`、`GetCapabilities`、`GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot`、`GetMetrics`、`GetEvents`、`Diagnose`；`IndustrialGatewayService` 8 项：`ListGateways`、`GetGateway`、`StartGateway`、`StopGateway`、`ListVariables`、`ReadVariables`、`UpdateVariables`、`ClaimTargets`。合计 **17 个 Unary RPC**。
+**R04-01 现有入站契约全集。** `CommonService` 9 项：`GetServiceInfo`、`GetServiceStatus`、`GetCapabilities`、`GetConfigSnapshot`、`PushConfigSnapshot`、`ApplyConfigSnapshot`、`GetMetrics`、`GetEvents`、`Diagnose`；`IndustrialGatewayService` 10 项：`ListGateways`、`GetGateway`、`StartGateway`、`StopGateway`、`ListVariables`、`ReadVariables`、`UpdateVariables`、`ClaimTargets`、`ExecuteSimulationCommand`、`GetSimulationExecutionResult`。合计 **19 个 Unary RPC**。
 
 **R04-02 出站契约。** Commander 控制提交/查询使用 `SubmitCommand`、`GetCommandResult`、`GetRequestResult`；辅助映射校验可使用 `ListDevices`、`GetDevice`、`ListPoints`。这些方法属于出站客户端，不属于 Gateway Server。
 
