@@ -87,6 +87,8 @@ class KafkaStorageConsumer:
         self._stop = asyncio.Event()
         self._close_lock = asyncio.Lock()
         self._consumer_closed = False
+        self._run_active = False
+        self._run_done = asyncio.Event()
         self._assignment_ready = False
         # Snapshot each assigned partition's broker end before serving queries.
         self._replay_targets: dict[TopicPartition, int] = {}
@@ -347,6 +349,10 @@ class KafkaStorageConsumer:
         One queue consumer processes whole poll groups in fetch order. Each group
         retains the existing partition-level parallelism and generation fences.
         """
+        if self._run_active:
+            raise RuntimeError("Storage Kafka consumer is already running")
+        self._run_active = True
+        self._run_done.clear()
         limits = self._config.tdengine.ingestion
         max_rows = limits.buffer_max_rows
         max_bytes = limits.buffer_max_bytes
@@ -593,8 +599,12 @@ class KafkaStorageConsumer:
                     # Retrieve an already-finished dispatcher's exception.
                     worker.exception()
             finally:
-                await discard_queued()
-                await self._close_consumer()
+                try:
+                    await discard_queued()
+                    await self._close_consumer()
+                finally:
+                    self._run_active = False
+                    self._run_done.set()
 
     async def _close_consumer(self) -> None:
         """Serialize shutdown; the run loop and external STOP share one owner."""
@@ -671,4 +681,7 @@ class KafkaStorageConsumer:
 
     async def stop(self) -> None:
         self.request_stop()
-        await self._close_consumer()
+        if self._run_active:
+            await self._run_done.wait()
+        else:
+            await self._close_consumer()
