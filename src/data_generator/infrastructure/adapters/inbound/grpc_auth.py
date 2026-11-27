@@ -26,10 +26,9 @@ _READ_METHODS = frozenset(
         "Diagnose",
     }
 )
+_LIFECYCLE_METHODS = frozenset({"StartGeneration", "StopGeneration"})
 _UPDATE_METHODS = frozenset(
     {
-        "StartGeneration",
-        "StopGeneration",
         "UpdateVariables",
         "GetInputExecution",
         "PushConfigSnapshot",
@@ -63,6 +62,8 @@ class GeneratorAuthorization(grpc.aio.ServerInterceptor):
         method = handler_call_details.method.rsplit("/", maxsplit=1)[-1]
         if method in _READ_METHODS:
             required = "variables_read"
+        elif method in _LIFECYCLE_METHODS:
+            required = "generation_manage"
         elif method in _UPDATE_METHODS:
             required = "variables_update"
         else:
