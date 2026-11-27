@@ -1,0 +1,11 @@
+{
+  "overflow_dg": {
+    "state": "UNKNOWN",
+    "effective_step": 0
+  },
+  "legal_request_id": "428d7a78c0204d4cbf254dc7acb166dd",
+  "legal_command_id": "4f4e82c1-7a0f-402b-a6bf-ede9bfad248d",
+  "legal_state": "SUCCEEDED",
+  "legal_outcome": "CONFIRMED_SUCCESS",
+  "legal_step": 2473
+}

@@ -1,0 +1,19 @@
+{
+  "modbus_register": 41555,
+  "source_modbus_registers": [
+    0,
+    17146
+  ],
+  "gateway2_si_registers": [
+    9216,
+    18420
+  ],
+  "dg_effective_step": 160,
+  "source_value": 125.0,
+  "source_unit": "kilovar",
+  "expected_generator_value": 125000.0,
+  "request_id": "c7f9807ce2a04f58b722b8359ce5fe55",
+  "command_id": "c52eeff3-f85f-4248-aca5-7a582aa75da9",
+  "dg_state": "APPLIED",
+  "gateway2_si_readback": 125000.0
+}

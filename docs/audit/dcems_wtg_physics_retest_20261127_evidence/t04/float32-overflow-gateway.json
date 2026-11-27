@@ -1,0 +1,16 @@
+{
+  "write_is_error": false,
+  "readback_registers": [
+    65535,
+    32639
+  ],
+  "readback_is_error": false,
+  "protocol_request_id": "aee674fc998c40c8afcff69ff7cc9f60",
+  "forward_events": [],
+  "gateway_scale_events": [
+    "scaled control exceeds target float32 range"
+  ],
+  "commander_query_status": "FAILURE",
+  "commander_error_code": "NOT_FOUND",
+  "commander_data": null
+}

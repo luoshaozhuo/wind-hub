@@ -85,6 +85,10 @@ def test_wtg_dcems_loader_and_control_contract(tmp_path: Path) -> None:
     params = model["simulation"]["parameters"]
     assert "WTG_SIM01" not in params["participating_device_ids"]
     assert "WTG_SIM01" not in params["allocation_weights"]
+    # 其余发电/储能设备仍由 PPC 控制，分配权重不变。
+    assert {"PV_SIM01", "BESS_SIM01"} <= set(params["participating_device_ids"])
+    assert params["allocation_weights"]["PV_SIM01"] == 1.0
+    assert params["allocation_weights"]["BESS_SIM01"] == 1.0
 
 
 @pytest.mark.parametrize("bad_scale", [0, -1, float("inf"), float("nan")])

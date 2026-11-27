@@ -1,0 +1,20 @@
+## ruff
+All checks passed!
+## format
+132 files already formatted
+## mypy
+Success: no issues found in 84 source files
+## physical unit tests
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+118 passed, 5917 warnings in 0.90s
+## contract/seed/config
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+15 passed, 330 warnings in 1.12s
+## gateway regression
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+59 passed, 1763 warnings in 10.18s
+## dg permissions
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 300 warnings in 3.04s
+## import-linter
+Contracts: 22 kept, 0 broken.

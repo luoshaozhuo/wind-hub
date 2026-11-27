@@ -16,7 +16,12 @@ from data_generator.infrastructure.config.service_settings import load_settings
 pytestmark = [pytest.mark.unit]
 
 SERVICE_PATH = (
-    Path(__file__).resolve().parents[4] / "configs" / "services" / "data-generator-sim.example.yaml"
+    Path(__file__).resolve().parents[4]
+    / "deploy"
+    / "config_roots"
+    / "sim-a"
+    / "services"
+    / "service_data-generator-sim_v1.3.1.yaml"
 )
 EXPECTED_COUNTS = {
     "WTG_SIM01": 32,

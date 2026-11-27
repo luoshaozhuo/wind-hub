@@ -150,7 +150,9 @@ def test_initial_overspeed_trips_and_brakes_within_max_rotor_speed(
 def test_curtailment_mode_zero_limit_drives_power_to_zero(make_params, make_weather) -> None:
     turbine = Turbine(make_params("turbine"))
     controls = {"control_mode": 2, "power_limit_setpoint": 0.0}
-    weather = [make_weather(wind_speed=11.0) for _ in range(200)]
+    # 全行程顺桨 1.57 rad / 0.12 rad/s ≈ 13.1s，再加转矩一阶衰减与近零尾段；
+    # 30s 观察窗覆盖真实执行机构动态，仍要求最终功率 <1 W。
+    weather = [make_weather(wind_speed=11.0) for _ in range(600)]
     outputs = _run(turbine, weather, controls)
     assert outputs[0]["control_mode"] == 2
     assert outputs[-1]["active_power"] == pytest.approx(0.0, abs=1.0)

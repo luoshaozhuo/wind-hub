@@ -1,0 +1,12 @@
+grpcio 1.84.0
+protobuf 6.33.6
+pymodbus 3.15.0
+nats-py 2.16.0
+python 3.14.7
+platform Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43
+docker 29.8.0
+nats-server: v2.10.29
+release_version=1.1.4-583d5da
+git_commit=583d5dae6887f2a871f0a99b0c686803258b6877
+git_commit_short=583d5da
+fb3ff3cce7eae5172d68f5c43795dee242ee8378
