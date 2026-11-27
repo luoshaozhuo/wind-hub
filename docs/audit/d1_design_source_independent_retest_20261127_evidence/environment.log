@@ -1,0 +1,8 @@
+Repository: /home/luosh/wind-hub
+Python executable: /home/luosh/miniconda3/envs/wind-hub/bin/python3
+[PASS] Python >= 3.11: 3.11.16
+[PASS] pytest
+[PASS] ruff
+[PASS] mypy
+[PASS] importlinter
+RESULT: PASS

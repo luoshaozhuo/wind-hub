@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/luosh/wind-hub/src/core/configuration/local_selection.py", line 138, in select_local_service
+    raise ValueError("Service file differs from selected Deployment version")
+ValueError: Service file differs from selected Deployment version
+
+reproduced_exit=1

@@ -1,0 +1,12 @@
+Usage: python -m cli.main [OPTIONS] COMMAND [ARGS]...
+Try 'python -m cli.main --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'monitor'.                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Usage: python -m cli.main gateway [OPTIONS] COMMAND [ARGS]...
+Try 'python -m cli.main gateway --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such command 'watch'.                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+monitor_exit=2 gateway_watch_exit=2
