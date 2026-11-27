@@ -233,7 +233,11 @@ class Turbine:
             # The tiny mechanical damping naturally slows the rotor during
             # deep curtailment; do not create an artificial nonzero electrical
             # production floor when the requested power is exactly zero.
-            equilibrium_power = requested / eta
+            # Use the commanded limit, not min(available, limit).
+            # Otherwise a unit already feathered to a low output cannot
+            # unfeather when dispatch raises the setpoint.
+            commanded_power = demand if mode == 1 else limit
+            equilibrium_power = commanded_power / eta
             fraction = clamp(equilibrium_power / max(unpitched_power, 1.0), 0, 1)
             pitch_target = self.min_pitch + (self.feather - self.min_pitch) * (1 - fraction)
         if self.fault or not active:
