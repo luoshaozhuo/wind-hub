@@ -47,7 +47,9 @@ from storage_service.domain.wide_schema import WideSchema
 from storage_service.infrastructure.adapters.outbound.configuration_archive import (
     ConfigurationPointTableResolver,
 )
-from storage_service.infrastructure.adapters.outbound.configuration_snapshot import StorageBundleSnapshot
+from storage_service.infrastructure.adapters.outbound.configuration_snapshot import (
+    StorageBundleSnapshot,
+)
 from storage_service.infrastructure.adapters.outbound.kafka_consumer import (
     KafkaStorageConsumer,
 )
