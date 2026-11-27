@@ -6,7 +6,7 @@ A prepared statement is not shared across threads or conflicting schema families
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from storage_service.domain.wide_record import WideRecord
@@ -83,40 +83,67 @@ def write_wide_stmt2(
     connection: WideStmt2Connection,
     driver: object,
     *,
-    table_name: str,
     schema: WideSchema,
     records: Sequence[WideRecord],
+    device_types: Mapping[str, str],
+    statement: WideStmt2Statement | None = None,
 ) -> None:
-    """Write complete timestamp-keyed rows without read-before-write SELECT.
+    """Write verified multi-device wide rows in one prepared STMT2 execution.
 
-    This synchronous method does not retry uncertain operations. The surrounding
-    lease must preserve ownership until driver I/O returns or is isolated.
+    The connection pool owns any caller-supplied statement. Statements created
+    here are closed on success or failure.
     """
     if not records:
         return
     first = records[0]
-    expected = (
-        f"{schema.database_name(first.wind_farm_id)}." f"{schema.subtable_name(first.device_id)}"
-    )
-    if table_name != expected:
-        raise ValueError("wide insert target differs from exact device schema identity")
-    if any(
-        row.wind_farm_id != first.wind_farm_id or row.device_id != first.device_id
-        for row in records
-    ):
-        raise ValueError("wide STMT2 batch cannot mix device identities")
-    database, subtable = expected.split(".", 1)
-    columns = bind_wide_columns(schema, records, driver)
-    statement = connection.stmt2_statement()
+    database = schema.database_name(first.wind_farm_id)
+    if any(row.wind_farm_id != first.wind_farm_id for row in records):
+        raise ValueError("wide STMT2 batch cannot mix wind farms")
+    if len(records) > 1000:
+        raise ValueError("STMT2 device-wide batch exceeds 1000 physical rows")
+    by_device: dict[str, list[WideRecord]] = {}
+    for row in records:
+        if row.device_id not in device_types:
+            raise ValueError("STMT2 target lacks verified device type")
+        by_device.setdefault(row.device_id, []).append(row)
+    builder = getattr(driver, "stmt2_bind_param_view", None)
+    varchar_tag = getattr(driver, "varchar_to_tag", None)
+    tinyint_tag = getattr(driver, "tiny_int_to_tag", None)
+    if not all(callable(fn) for fn in (builder, varchar_tag, tinyint_tag)):
+        raise RuntimeError("taosws connector lacks dynamic STMT2 binding API")
+    level = {"raw": 1, "protocol": 2, "business": 3}[schema.data_level.value]
+    bindings: list[object] = []
+    for device_id, group in by_device.items():
+        device_type = device_types[device_id]
+        if len(device_id.encode("utf-8")) > 128 or len(device_type.encode("utf-8")) > 64:
+            raise ValueError("device STMT2 TAG exceeds declared width")
+        columns = bind_wide_columns(schema, group, driver)
+        bindings.append(
+            builder(
+                table_name=schema.subtable_name(device_id),
+                tags=[
+                    varchar_tag(device_id),
+                    varchar_tag(device_type),
+                    varchar_tag(schema.point_table_id),
+                    tinyint_tag(level),
+                    varchar_tag(schema.fingerprint),
+                ],
+                columns=columns,
+            )
+        )
+    owned = statement is None
+    active = statement if statement is not None else connection.stmt2_statement()
     try:
-        placeholders = ", ".join("?" for _ in columns)
-        statement.prepare(f"INSERT INTO {database}.{subtable} VALUES ({placeholders})")
-        builder = getattr(driver, "stmt2_bind_param_view", None)
-        if not callable(builder):
-            raise RuntimeError("taosws connector lacks STMT2 column-binding API")
-        binding = builder(table_name=None, tags=None, columns=columns)
-        statement.bind([binding])
-        if statement.execute() < 0:
+        if owned:
+            placeholders = ", ".join("?" for _ in range(len(schema.columns) + 2))
+            tags = ", ".join("?" for _ in range(5))
+            active.prepare(
+                f"INSERT INTO ? USING {database}.{schema.supertable_name()} "
+                f"TAGS ({tags}) VALUES ({placeholders})"
+            )
+        active.bind(bindings)
+        if active.execute() < 0:
             raise RuntimeError("TDengine STMT2 returned a negative affected-row count")
     finally:
-        statement.close()
+        if owned:
+            active.close()
