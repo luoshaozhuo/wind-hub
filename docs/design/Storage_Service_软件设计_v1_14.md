@@ -1,6 +1,6 @@
 <h1 class="title">Storage Service 软件设计</h1>
 
-<p class="subtitle">v1_14 · 20261125 · 设备级宽表重构设计（待技术验证）</p>
+<p class="subtitle">v1_14 · 20261125 · 设备级宽表设计 · 20261127 实现状态与验收边界勘误</p>
 
 <style>
 body {
@@ -751,7 +751,7 @@ System Test 必须遵守以下规定：
 
 ## 3.1 范围和原始需求
 
-本版是目标设计，替代此前逐点写入模型；现行代码尚未迁移，不得以本文宣称生产就绪。服务消费 Sink 可靠 Kafka 设备级采样记录，持久化至 TDengine 3.3.6.13，并提供历史查询、聚合、导出、备份和运行管理。Storage 不解码工业协议、不转换工程值、不补值，不管理 TDengine 服务端进程，不提供实时控制。单 Storage 实例为验收范围。Web Server/Web Admin 不在范围内。
+本版定义的设备级宽表已在当前开发分支实现，替代此前逐点写入模型，但不得以完成实现宣称生产就绪。服务消费 Sink 可靠 Kafka JSON v3 设备级采样记录，持久化至 TDengine 3.3.6.13，并提供历史查询、聚合、导出、备份和运行管理。Storage 不解码工业协议、不转换工程值、不补值，不管理 TDengine 服务端进程，不提供实时控制。单 Storage 实例为验收范围。Web Server/Web Admin 不在范围内。**2026-11-27 验收边界**：STMT2 可靠性 PASS、30 台 299.929 行/s PASS；100 台 925.434 行/s、300 台 1132.980 行/s 均低于既定门禁，BLOCKED。三等级同时容量及 1000 台探索 NOT_RUN；详见 `docs/audit/storage_sink_capacity_retest_20261127.md`。
 
 <p class="table-caption">表 3-1 原始需求与验收追溯</p>
 
