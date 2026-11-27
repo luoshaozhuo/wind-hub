@@ -513,7 +513,7 @@ RAW 是真实协议解码前载荷，不必等于完整 ADU；禁止将已解码
 
 ## 5.3.5 Collector、Sink 与 Storage 的唯一数据契约
 
-目标 NATS 同步设备批 v4、Kafka JSON v3 由 Contracts §11.6/§11.9 规定，现行 v3/v2 为迁移基线。一设备、一时刻、固定配置、一个等级对应 Kafka 一条 Record 和 TDengine 一行；允许 NULL，Reliable 不拆分、不异步对齐；非同步原生事件仅用于 Realtime。Key 场站:设备，同分区有序。Storage 按配置闭包生成宽表，每场站 DB 启动建立，每 PointTable 固定版本/等级/物理指纹 SuperTable，每设备 SubTable，测点列版本化；ts 主键、后到覆盖、Quality 2 bit/点单列。异步有界缓冲、STMT2 多表绑定、连续 Offset；取消常态逐点哈希回读。DURATION 30d、KEEP 1095d；DB 参数及类型映射由 Storage 配置，服务端资源由部署管理。历史 Schema 保留，删除废弃 YAML 前证明运行归档可用。详见 Storage v1_14。
+当前 NATS 同步设备批 v4、Kafka JSON v3 由 Contracts §11.6/§11.9 规定，v3/v2 为迁移前历史基线。一设备、一时刻、固定配置、一个等级对应 Kafka 一条 Record 和 TDengine 一行；允许 NULL，Reliable 不拆分、不异步对齐；非同步原生事件仅用于 Realtime。Key 场站:设备，同分区有序。Storage 按配置闭包生成宽表，每场站 DB 启动建立，每 PointTable 固定版本/等级/物理指纹 SuperTable，每设备 SubTable，测点列版本化；ts 主键、后到覆盖、Quality 2 bit/点单列。异步有界缓冲、STMT2 多表绑定、连续 Offset；取消常态逐点哈希回读。DURATION 30d、KEEP 1095d；DB 参数及类型映射由 Storage 配置，服务端资源由部署管理。历史 Schema 保留，删除废弃 YAML 前证明运行归档可用。详见 Storage v1_14。
 
 ## 5.4 配置文件命名规则
 
