@@ -15,7 +15,7 @@ import yaml
 from cli.runtime import load_config
 
 ROOT = Path(__file__).resolve().parents[3]
-DEPLOYMENT_NAME = "deployment_e2e-final_v1.0.10.yaml"
+DEPLOYMENT_NAME = "deployment_e2e-final_v2.0.0.yaml"
 CLI_NAME = "service_cli-e2e_v1.1.8.yaml"
 SERVICE_ROLES = {
     "gateway": "gateway-e2e-source",
@@ -54,7 +54,7 @@ def test_active_immutable_e2e_candidate_is_exactly_pinned() -> None:
     deployment = _document(deployment_active)
     cli_document = _document(cli_active)
     assert deployment["deployment_id"] == "e2e-final"
-    assert deployment["file_version"] == "1.0.10"
+    assert deployment["file_version"] == "2.0.0"
     assert cli_document["service_id"] == "cli-e2e"
     assert cli_document["file_version"] == "1.1.8"
 

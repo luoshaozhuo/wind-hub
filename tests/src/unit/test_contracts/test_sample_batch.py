@@ -1,4 +1,4 @@
-"""SampleBatch v2 严格线协议契约（Contracts 设计 v1_6 §5.2 矩阵）。
+"""SampleBatch v4 严格线协议契约。
 
 覆盖：schema_version 严格性、Realtime/Reliable 隔离、NATS Subject 与
 Header 安全、显式 null、标量边界、时间戳语义、重复 JSON 字段、多余/缺失
@@ -62,6 +62,8 @@ def _batch(
         device_type="wind_turbine",
         device_id="wtg-01",
         point_table_id="point_table_wtg_sim_v1.0.0",
+        device_config_id="device_sim_v1.0.0",
+        sample_time=_AWARE,
         publish_time=publish_time,
         samples=samples if samples is not None else (_item(),),
     )
@@ -70,15 +72,15 @@ def _batch(
 # ---------- schema_version 严格性 ----------
 
 
-def test_schema_version_is_literal_3_and_wire_requires_int_3() -> None:
+def test_schema_version_is_literal_4_and_wire_requires_int_4() -> None:
     batch = _batch()
-    assert batch.schema_version == 3
+    assert batch.schema_version == 4
     payload = batch.encode()
     decoded = SampleBatch.decode(payload, "realtime")
-    assert decoded.schema_version == 3
+    assert decoded.schema_version == 4
 
 
-@pytest.mark.parametrize("version", [1, 2, "3", 3.0, None])
+@pytest.mark.parametrize("version", [1, 2, 3, "4", 4.0, None])
 def test_decode_rejects_non_literal_schema_version(version: object) -> None:
     document = json.loads(_batch().encode())
     if version is None:
@@ -140,6 +142,8 @@ def test_batch_identity_fields_use_subject_validation(field: str) -> None:
         "device_type": "wind_turbine",
         "device_id": "wtg-01",
         "point_table_id": "point_table_wtg_sim_v1.0.0",
+        "device_config_id": "device_sim_v1.0.0",
+        "sample_time": _AWARE,
         "publish_time": _AWARE,
         "samples": (_item(),),
     }
@@ -392,6 +396,7 @@ def test_identity_is_stable_across_resends_and_publish_time_restamp() -> None:
         "wind_turbine",
         "wtg-01",
         "point_table_wtg_sim_v1.0.0",
+        "device_sim_v1.0.0",
         "realtime",
         "batch-0001",
     )

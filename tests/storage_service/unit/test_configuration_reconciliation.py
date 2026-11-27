@@ -174,8 +174,11 @@ class _Snapshot:
     def __init__(self) -> None:
         self.stored: list[StorageBundle] = []
         self.pending: list[StorageBundle] = []
+        self.store_error: Exception | None = None
 
     def store(self, bundle: StorageBundle) -> None:
+        if self.store_error is not None:
+            raise self.store_error
         self.stored.append(bundle)
 
     def store_target(self, bundle: StorageBundle) -> None:
@@ -313,7 +316,7 @@ async def test_concurrent_partitions_and_periodic_hint_share_one_pull(tmp_path: 
         asyncio.create_task(watcher.refresh_now()),
         asyncio.create_task(watcher.refresh_now()),
     ]
-    await asyncio.wait_for(client.entered.wait(), timeout=1)
+    await asyncio.wait_for(client.entered.wait(), timeout=2)
     await asyncio.sleep(0)
     client.release.set()
     await asyncio.wait_for(asyncio.gather(*tasks), timeout=1)
@@ -474,7 +477,9 @@ async def test_rejected_device_model_rebinding_is_not_persisted(
         model=replace(original.model, device_type_id="different"),
     )
     updated = StorageBundle(
-        configuration=active.configuration,
+        configuration=active.configuration.model_copy(
+            update={"query": active.configuration.query.model_copy(update={"max_page_size": 999})}
+        ),
         revision_id=2,
         deployment_id="prod-a",
         target_revision="b" * 64,
@@ -498,3 +503,214 @@ async def test_rejected_device_model_rebinding_is_not_persisted(
     assert watcher.status == "CONFIG_HISTORY_UNAVAILABLE"
     assert metadata.pins == {}
     assert snapshot.stored == []
+    assert snapshot.pending == []
+
+
+async def test_activation_failure_keeps_old_active_until_retry(tmp_path: Path) -> None:
+    old_pins = {OLD: ("turbine", "v1")}
+    new_pins = {**old_pins, NEW: ("turbine", "v2")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1"), "v2": _document(NEW, "v2")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=old_pins,
+        device_bindings=_bindings(old_pins),
+    )
+    active = _bundle(1, old_pins)
+    watcher, _, snapshot = _watcher(
+        client=_Client(_bundle(2, new_pins)), resolver=resolver, active=active
+    )
+    snapshot.store_error = OSError("snapshot disk unavailable")
+
+    with pytest.raises(OSError, match="snapshot disk unavailable"):
+        await watcher.refresh_now()
+
+    assert watcher.active_revision == active.target_revision
+    assert watcher._active == active
+    assert watcher.status == "CONFIG_RECONCILE_DEGRADED"
+    assert snapshot.stored == []
+    assert snapshot.pending == []
+
+    snapshot.store_error = None
+    await watcher.refresh_now()
+    assert watcher.active_revision != active.target_revision
+    assert watcher.status == "READY"
+    assert [item.revision_id for item in snapshot.stored] == [2]
+
+
+async def test_refresh_cancellation_is_not_swallowed(tmp_path: Path) -> None:
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    client = _Client(_bundle(1, pins))
+    client.release = asyncio.Event()
+    watcher, _, _ = _watcher(client=client, resolver=resolver, active=_bundle(1, pins))
+    task = asyncio.create_task(watcher.refresh_now())
+    await asyncio.wait_for(client.entered.wait(), timeout=2)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+class _NatsConnection:
+    def __init__(self) -> None:
+        self.subscribed = asyncio.Event()
+        self.close_calls = 0
+
+    async def subscribe(self, subject: str, cb: Any) -> None:
+        assert subject == "wh.config.changed"
+        assert callable(cb)
+        self.subscribed.set()
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
+def _fast_reconcile_config() -> StorageConfig:
+    config = _config()
+    return config.model_copy(
+        update={
+            "configuration": config.configuration.model_copy(update={"reconcile_interval_s": 1})
+        }
+    )
+
+
+async def test_nats_normal_stop_closes_connection_without_reconcile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    client = _Client(_bundle(1, pins))
+    watcher, _, _ = _watcher(client=client, resolver=resolver, active=_bundle(1, pins))
+    connection = _NatsConnection()
+
+    async def connect(**kwargs: Any) -> _NatsConnection:
+        assert kwargs["servers"] == ["nats://127.0.0.1:4222"]
+        return connection
+
+    monkeypatch.setattr(
+        "storage_service.infrastructure.adapters.outbound.configuration_watch.nats.connect",
+        connect,
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(watcher.run(stop))
+    await asyncio.wait_for(connection.subscribed.wait(), timeout=1)
+    stop.set()
+    watcher._changed.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert connection.close_calls == 1
+    assert client.calls == 0
+
+
+async def test_nats_task_cancellation_closes_connection_and_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    watcher, _, _ = _watcher(
+        client=_Client(_bundle(1, pins)), resolver=resolver, active=_bundle(1, pins)
+    )
+    connection = _NatsConnection()
+
+    async def connect(**kwargs: Any) -> _NatsConnection:
+        return connection
+
+    monkeypatch.setattr(
+        "storage_service.infrastructure.adapters.outbound.configuration_watch.nats.connect",
+        connect,
+    )
+    task = asyncio.create_task(watcher.run(asyncio.Event()))
+    await asyncio.wait_for(connection.subscribed.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert connection.close_calls == 1
+
+
+async def test_nats_connection_failure_keeps_periodic_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _fast_reconcile_config()
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    client = _Client(_bundle(1, pins, config=config))
+    watcher, _, _ = _watcher(
+        client=client, resolver=resolver, active=_bundle(1, pins, config=config)
+    )
+    attempts = 0
+
+    async def connect(**kwargs: Any) -> _NatsConnection:
+        nonlocal attempts
+        attempts += 1
+        raise ConnectionError("NATS unavailable")
+
+    monkeypatch.setattr(
+        "storage_service.infrastructure.adapters.outbound.configuration_watch.nats.connect",
+        connect,
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(watcher.run(stop))
+    await asyncio.wait_for(client.entered.wait(), timeout=2)
+    stop.set()
+    watcher._changed.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert attempts >= 1
+    assert client.calls >= 1
+    assert watcher.status == "READY"
+
+
+async def test_connected_nats_without_hint_still_reconciles_periodically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _fast_reconcile_config()
+    pins = {OLD: ("turbine", "v1")}
+    resolver = ConfigurationPointTableResolver(
+        fetcher=_Fetcher({"v1": _document(OLD, "v1")}),
+        archive=ImmutableConfigArchive(tmp_path),
+        point_table_versions=pins,
+        device_bindings=_bindings(pins),
+    )
+    client = _Client(_bundle(1, pins, config=config))
+    watcher, _, _ = _watcher(
+        client=client, resolver=resolver, active=_bundle(1, pins, config=config)
+    )
+    connection = _NatsConnection()
+
+    async def connect(**kwargs: Any) -> _NatsConnection:
+        return connection
+
+    monkeypatch.setattr(
+        "storage_service.infrastructure.adapters.outbound.configuration_watch.nats.connect",
+        connect,
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(watcher.run(stop))
+    await asyncio.wait_for(client.entered.wait(), timeout=2)
+    stop.set()
+    watcher._changed.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert client.calls >= 1
+    assert connection.close_calls == 1

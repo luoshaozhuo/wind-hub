@@ -26,14 +26,16 @@ from core.configuration.shared_documents import (
 pytestmark = [pytest.mark.component, pytest.mark.contract]
 
 _REPO_CONFIGS = Path(__file__).resolve().parents[4] / "configs"
+_SITE_FILE = _REPO_CONFIGS / "instances" / "site_example_site_v1.1.0.yaml"
+_DEVICES_FILE = _REPO_CONFIGS / "instances" / "device_farm-a_v1.6.0.yaml"
 
 
 def _repo_paths(*, load_site: bool = True) -> SharedConfigPaths:
     return SharedConfigPaths(
         instances=_REPO_CONFIGS / "instances",
         templates=_REPO_CONFIGS / "templates",
-        site_file=_REPO_CONFIGS / "instances" / "site.yaml",
-        devices_file=_REPO_CONFIGS / "instances" / "devices.yaml",
+        site_file=_SITE_FILE,
+        devices_file=_DEVICES_FILE,
         load_site=load_site,
     )
 
@@ -54,10 +56,10 @@ def test_source_manifest_is_complete_sorted_and_byte_accurate() -> None:
     assert len(set(logical_keys)) == len(logical_keys)
 
     expected_sources = (
-        "instances/site.yaml",
-        "instances/devices.yaml",
-        "templates/units_standard.yaml",
-        "templates/business_points_standard.yaml",
+        "instances/site_example_site_v1.1.0.yaml",
+        "instances/device_farm-a_v1.6.0.yaml",
+        "templates/units_standard_v1.2.0.yaml",
+        "templates/business_points_standard_v1.5.0.yaml",
     )
     for relative in expected_sources:
         assert relative in logical_keys, relative
@@ -87,7 +89,7 @@ def test_closure_rejects_whitespace_only_change_with_equal_yaml_semantics(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "devices.yaml"
-    original = (_REPO_CONFIGS / "instances" / "devices.yaml").read_bytes()
+    original = _DEVICES_FILE.read_bytes()
     source.write_bytes(original)
 
     with pytest.raises(ConfigError, match="SOURCE_CHANGED"), verify_shared_source_closure():
@@ -109,7 +111,7 @@ def test_read_stable_document_rejects_replacement_inside_single_read_window(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "devices.yaml"
-    original = (_REPO_CONFIGS / "instances" / "devices.yaml").read_bytes()
+    original = _DEVICES_FILE.read_bytes()
     source.write_bytes(original)
     # 同语义、不同字节的重写必须被前后两次 read_bytes 对比捕获。
     with pytest.MonkeyPatch.context() as monkeypatch:
@@ -135,7 +137,7 @@ def test_read_stable_document_rejects_replacement_inside_single_read_window(
 
 def test_closure_rejects_deleted_source(tmp_path: Path) -> None:
     source = tmp_path / "devices.yaml"
-    source.write_bytes((_REPO_CONFIGS / "instances" / "devices.yaml").read_bytes())
+    source.write_bytes(_DEVICES_FILE.read_bytes())
     with pytest.raises(ConfigError, match="SOURCE_CHANGED"), verify_shared_source_closure():
         read_stable_document(source)
         source.unlink()
@@ -143,7 +145,7 @@ def test_closure_rejects_deleted_source(tmp_path: Path) -> None:
 
 def test_closure_rejects_source_moved_out_of_root(tmp_path: Path) -> None:
     source = tmp_path / "devices.yaml"
-    source.write_bytes((_REPO_CONFIGS / "instances" / "devices.yaml").read_bytes())
+    source.write_bytes(_DEVICES_FILE.read_bytes())
     moved_to = tmp_path / "moved-devices.yaml"
     with pytest.raises(ConfigError, match="SOURCE_CHANGED"), verify_shared_source_closure():
         read_stable_document(source)
@@ -159,8 +161,8 @@ def test_loader_rejects_sources_outside_coordination_root(tmp_path: Path) -> Non
     paths = SharedConfigPaths(
         instances=external / "instances",
         templates=external / "templates",
-        site_file=external / "instances" / "site.yaml",
-        devices_file=external / "instances" / "devices.yaml",
+        site_file=external / "instances" / _SITE_FILE.name,
+        devices_file=external / "instances" / _DEVICES_FILE.name,
         coordination_root=coordination_root,
     )
 
@@ -175,7 +177,7 @@ def test_loader_rejects_sources_outside_coordination_root(tmp_path: Path) -> Non
 
 def test_load_devices_resolves_only_selected_subset_without_site() -> None:
     paths = _repo_paths(load_site=False)
-    devices_file = _REPO_CONFIGS / "instances" / "devices.yaml"
+    devices_file = _DEVICES_FILE
     documents = SharedDocumentLoader(paths).load_devices(
         devices_file,
         selected_device_ids={"TZ01"},
@@ -194,14 +196,14 @@ def test_load_devices_resolves_only_selected_subset_without_site() -> None:
 
 def test_load_devices_without_selection_loads_full_catalog() -> None:
     paths = _repo_paths(load_site=False)
-    devices_file = _REPO_CONFIGS / "instances" / "devices.yaml"
+    devices_file = _DEVICES_FILE
     documents = SharedDocumentLoader(paths).load_devices(devices_file)
     assert "TZ01" in documents.devices and "GW01" in documents.devices
 
 
 def test_load_devices_rejects_unknown_subset_id() -> None:
     paths = _repo_paths(load_site=False)
-    devices_file = _REPO_CONFIGS / "instances" / "devices.yaml"
+    devices_file = _DEVICES_FILE
     with pytest.raises(ConfigError, match="configured device IDs not found"):
         SharedDocumentLoader(paths).load_devices(
             devices_file,
