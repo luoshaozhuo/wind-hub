@@ -112,12 +112,23 @@ class Turbine:
 
     def _cp(self, lam: float, pitch: float) -> float:
         points = self.cp_curve
-        cp = 0.0
-        if points[0][0] <= lam <= points[-1][0]:
-            for (x0, y0), (x1, y1) in zip(points, points[1:], strict=True):
-                if lam <= x1:
-                    cp = y0 + (y1 - y0) * (lam - x0) / (x1 - x0)
+        # Extrapolate continuously at the measured Cp-curve edges. A hard zero
+        # outside the tabulated TSR interval creates a fictitious power cliff.
+        if lam < points[0][0]:
+            x0, y0 = points[0]
+            x1, y1 = points[1]
+        elif lam > points[-1][0]:
+            x0, y0 = points[-2]
+            x1, y1 = points[-1]
+        else:
+            x0, y0 = points[0]
+            x1, y1 = points[1]
+            for left, right in zip(points, points[1:], strict=True):
+                if lam <= right[0]:
+                    x0, y0 = left
+                    x1, y1 = right
                     break
+        cp = y0 + (y1 - y0) * (lam - x0) / (x1 - x0)
         pitch_factor = clamp(1 - (pitch - self.min_pitch) / (self.feather - self.min_pitch), 0, 1)
         return clamp(cp * pitch_factor, 0, 16 / 27)
 
@@ -169,7 +180,11 @@ class Turbine:
             )
             torque_target = k_opt * self.omega**2 / n
         else:
-            torque_target = requested / max(eta * n * self.omega, 0.01)
+            # Curtailment cannot step the generator torque down faster than the
+            # pitch actuator can shed aerodynamic power. While feathering, take
+            # the available power electrically; only settle at the requested
+            # power once capture has decreased to the requested level.
+            torque_target = available / max(eta * n * self.omega, 0.01)
         torque_cap = min(
             require_number(p, "max_generator_torque_nm"), rated / max(eta * n * self.omega, 0.01)
         )
@@ -185,14 +200,34 @@ class Turbine:
             0,
             torque_cap,
         )
-        pitch_target = clamp(
-            self.min_pitch
-            + require_number(p, "pitch_speed_gain_s")
-            * max(0, self.omega - require_number(p, "rated_rotor_speed_rad_s"))
-            + require_number(p, "pitch_power_gain_rad_w", minimum=0) * max(0, eta * pa - requested),
-            self.min_pitch,
-            self.feather,
-        )
+        if mode == 0:
+            pitch_target = clamp(
+                self.min_pitch
+                + require_number(p, "pitch_speed_gain_s")
+                * max(0, self.omega - require_number(p, "rated_rotor_speed_rad_s"))
+                + require_number(p, "pitch_power_gain_rad_w", minimum=0)
+                * max(0, eta * pa - requested),
+                self.min_pitch,
+                self.feather,
+            )
+        else:
+            # Invert the model's linear pitch reduction of Cp to find the
+            # aerodynamic capture needed at the commanded electrical power.
+            # Pitch is rate limited below; electrical torque follows captured
+            # energy during this transition, preventing rotor overspeed.
+            unpitched_power = (
+                0.5
+                * weather.air_density
+                * math.pi
+                * radius**2
+                * self._cp(lam, self.min_pitch)
+                * wind**3
+            )
+            equilibrium_power = requested / eta + require_number(
+                p, "shaft_damping_nm_s_rad", minimum=0
+            ) * self.omega
+            fraction = clamp(equilibrium_power / max(unpitched_power, 1.0), 0, 1)
+            pitch_target = self.min_pitch + (self.feather - self.min_pitch) * (1 - fraction)
         if self.fault or not active:
             pitch_target = self.feather
         rates = []
