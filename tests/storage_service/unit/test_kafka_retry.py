@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Coroutine, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -675,8 +676,6 @@ async def test_run_polls_next_batch_before_first_write_finishes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A bounded poll queue must overlap Kafka fetching with TDengine I/O."""
-    from types import SimpleNamespace
-
     tp = TopicPartition(TOPIC, 0)
     first_started = asyncio.Event()
     release_first = asyncio.Event()
@@ -745,8 +744,6 @@ async def test_queued_suffix_discarded_after_rebalance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Queued old-generation data must never be committed by the new owner."""
-    from types import SimpleNamespace
-
     tp = TopicPartition(TOPIC, 0)
     started = asyncio.Event()
     release = asyncio.Event()
