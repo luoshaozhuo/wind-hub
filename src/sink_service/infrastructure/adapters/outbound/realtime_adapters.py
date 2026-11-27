@@ -473,9 +473,17 @@ class KafkaOutput:
         queue = self._partition_queues[partition]
         try:
             while queue:
-                # Coalesce every submission wave, not only the first one.
-                # The source device lock continues to own its pending write.
-                await asyncio.sleep(self._linger_ms / 1000)
+                # A full native Builder should not wait through the linger
+                # window. Smaller waves still coalesce cross-device records.
+                # Include conservative per-record framing overhead: the actual
+                # BatchBuilder remains authoritative for exact capacity.
+                queued_bytes = sum(
+                    len(request.key) + len(payload) + 64
+                    for request in queue
+                    for payload in request.payloads
+                )
+                if queued_bytes < self._max_batch_size:
+                    await asyncio.sleep(self._linger_ms / 1000)
                 requests = queue[:]
                 queue.clear()
                 try:
