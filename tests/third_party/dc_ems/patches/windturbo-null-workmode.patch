@@ -1,0 +1,40 @@
+--- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
++++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/WindTurbo.java
+@@ -748,3 +748,3 @@
+             AlterPower2List.remove(this);
+-        } else if (isSample.getVal() || emsWorkMode.getVal() == 32) {
++        } else if (Boolean.TRUE.equals(isSample.getVal()) || Integer.valueOf(32).equals(emsWorkMode.getVal())) {
+             emsReaRun.update(1);
+@@ -776,4 +776,5 @@
+             } else {// 解耦版
+-                if ((emsWorkMode.getVal() == 4 && !emsFaultState.getVal()) || emsWorkMode.getVal() == 8
+-                        || emsWorkMode.getVal() == 16) {
++                if ((Integer.valueOf(4).equals(emsWorkMode.getVal()) && !Boolean.TRUE.equals(emsFaultState.getVal()))
++                        || Integer.valueOf(8).equals(emsWorkMode.getVal())
++                        || Integer.valueOf(16).equals(emsWorkMode.getVal())) {
+                     emsTheoryReactPower.update(max(calCapacity * FactoryConfig.fcReaPowerRatio.getVal(), 0d));
+@@ -928,3 +929,3 @@
+             Integer workMode = emsWorkMode.getVal();
+-            if (workMode != 32) {
++            if (!Integer.valueOf(32).equals(workMode)) {
+                 // 只要工作模式不为并网(32)，则一直更新这个时间
+@@ -941,3 +942,3 @@
+                 emsPowReactLow.update(0d);
+-                if (emsWorkMode.getVal() != 64) {
++                if (!Integer.valueOf(64).equals(emsWorkMode.getVal())) {
+                     emsFaultStateYunNan.update(true);
+@@ -989,3 +990,3 @@
+             emsRunStateForShanDong.update(3);
+-        }else if(emsWorkMode.getVal() == 32){
++        }else if(Integer.valueOf(32).equals(emsWorkMode.getVal())){
+             emsRunStateForShanDong.update(1);
+@@ -1040,3 +1041,3 @@
+         boolean canAlter = false;
+-        if (emsWorkMode.getVal() == 32) {
++        if (Integer.valueOf(32).equals(emsWorkMode.getVal())) {
+             double actPower = emsPowAct.getVal();
+@@ -1632,3 +1633,3 @@
+         boolean limitTmOk = curTm - recentNoLimitTm.getVal() > 30_000;
+-        return emsComState.getVal() && emsWorkMode.getVal() == 32
++        return Boolean.TRUE.equals(emsComState.getVal()) && Integer.valueOf(32).equals(emsWorkMode.getVal())
+                 && gridTmOk
