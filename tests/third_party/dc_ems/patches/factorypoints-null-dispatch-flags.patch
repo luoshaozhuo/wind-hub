@@ -1,6 +1,6 @@
 --- a/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
 +++ b/server/emslib/src/main/java/cn/hedpy/scada/emslib/entity/FactoryPoints.java
-@@ -1100,10 +1100,14 @@
+@@ -1101,10 +1101,13 @@
      private boolean checkIsLimit() {
          try {
 -            return (emsFacDispatchActEnabled.getVal() || emsGridDispatchActEnabled.getVal()
