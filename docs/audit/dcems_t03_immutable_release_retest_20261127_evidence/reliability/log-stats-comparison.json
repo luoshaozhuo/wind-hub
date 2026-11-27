@@ -1,0 +1,36 @@
+{
+  "start": {
+    "label": "start",
+    "exception_in_thread": {
+      "dataMain": 2,
+      "reactPow": 2
+    },
+    "nullpointer_total": 5,
+    "factorypoints_stack_lines": 12,
+    "windturbo_stack_lines": 0,
+    "sql_exceptions": 6,
+    "view_create_errors": 6,
+    "license_errors": 0,
+    "web_5xx": 0,
+    "log_lines": 2408
+  },
+  "end": {
+    "label": "end",
+    "exception_in_thread": {
+      "dataMain": 2,
+      "reactPow": 2
+    },
+    "nullpointer_total": 5,
+    "factorypoints_stack_lines": 12,
+    "windturbo_stack_lines": 0,
+    "sql_exceptions": 6,
+    "view_create_errors": 6,
+    "license_errors": 0,
+    "web_5xx": 0,
+    "log_lines": 2408
+  },
+  "thread_death_delta_during_window": {
+    "reactPow": 0,
+    "dataMain": 0
+  }
+}

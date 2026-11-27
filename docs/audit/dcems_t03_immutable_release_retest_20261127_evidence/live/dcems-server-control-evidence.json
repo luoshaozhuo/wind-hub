@@ -1,0 +1,15 @@
+{
+  "source": "dc-ems Server /api/config/setParam",
+  "dcems_device_id": "WTG01",
+  "windhub_device_id": "WTG_SIM01",
+  "dcems_point_id": "ctrlActPow",
+  "commanded_kw": 450.0,
+  "expected_dg_w": 450000.0,
+  "gateway_event_id": "a13ca5c11b3444aa8b8c2086270cdaa2",
+  "commander_command_id": "7aeb269f-d398-46e0-82ff-97582d9bf57e",
+  "commander_outcome": "CONFIRMED_SUCCESS",
+  "generator_state": "APPLIED",
+  "gateway2_readback_w": 450000.0,
+  "physical_active_power_w": 450005.3984375,
+  "dcems_web_ack_is_not_execution_proof": true
+}

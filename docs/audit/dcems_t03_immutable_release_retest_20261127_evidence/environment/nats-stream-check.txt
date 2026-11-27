@@ -1,0 +1,2 @@
+COMMAND_AUDIT subjects: ['windhub.commander.audit'] messages: 38
+publish_ok stream: COMMAND_AUDIT seq: 39

@@ -1,0 +1,2 @@
+bash -n deploy.sh: PASS
+bash -n run_wtg_dcems_server.sh: PASS

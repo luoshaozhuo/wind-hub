@@ -1,0 +1,6 @@
+D4（无 token setParam 拒绝）证据说明
+- 测试：tests/third_party/dc_ems/test_wtg_dcems_server_live.py::test_dcems_control_requires_token
+- 断言：HTTP 200 + body code=401，并断言无新增 Gateway1 protocol write 事件。
+- 结果：最终轮 pytest-t03-d1-d6-final.txt 6 passed（含本用例）。
+- Server 日志不记录 401 响应体（LogRouter 仅记录到会话校验前的 ACCESS 行），
+  因此以 pytest 断言与"无协议写事件"为权威证据；DCEMS 未因无 token 产生任何 FC16。

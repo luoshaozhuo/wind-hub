@@ -1,0 +1,96 @@
+..F...                                                                   [100%]
+=================================== FAILURES ===================================
+_________ test_dcems_gateway_disconnect_is_observable_and_recoverable __________
+
+    def test_dcems_gateway_disconnect_is_observable_and_recoverable() -> None:
+        """Gateway1 失联时 Web 仍回“控制成功”但无 FC16；恢复后控制可用。"""
+        session = _login()
+        token = os.environ["WIND_HUB_DCE_CONTROL_INGRESS_OPERATOR_TOKEN"]
+        _ingress_listener("StopGateway")
+        _wait_port(15531, opened=False)
+        prior = {event.event_id for event in _events(token)}
+>       body = _dcems_set_point(session, POWER_POINT, 450.0)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/third_party/dc_ems/test_wtg_dcems_server_live.py:285: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/third_party/dc_ems/test_wtg_dcems_server_live.py:127: in _dcems_set_point
+    status, body = _set_param(token, {f"{CONTROL_DEVICE_ID}_{point}": value})
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/third_party/dc_ems/test_wtg_dcems_server_live.py:122: in _set_param
+    return _request("/api/config/setParam", data=payload, token=token, method="POST")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/third_party/dc_ems/test_wtg_dcems_server_live.py:92: in _request
+    with urlopen(request, timeout=15, context=_ssl_context()) as response:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:187: in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:487: in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:504: in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:464: in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:1368: in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+../miniconda3/envs/wind-hub/lib/python3.14/urllib/request.py:1324: in do_open
+    r = h.getresponse()
+        ^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/http/client.py:1478: in getresponse
+    response.begin()
+../miniconda3/envs/wind-hub/lib/python3.14/http/client.py:343: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/http/client.py:304: in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/socket.py:729: in readinto
+    return self._sock.recv_into(b)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.14/ssl.py:1304: in recv_into
+    return self.read(nbytes, buffer)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <ssl.SSLSocket [closed] fd=-1, family=2, type=1, proto=6>, len = 131072
+buffer = <memory at 0x796499da6ec0>
+
+    def read(self, len=1024, buffer=None):
+        """Read up to LEN bytes and return them.
+        Return zero-length string on EOF."""
+    
+        self._checkClosed()
+        if self._sslobj is None:
+            raise ValueError("Read on closed or unwrapped SSL socket.")
+        try:
+            if buffer is not None:
+>               return self._sslobj.read(len, buffer)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               TimeoutError: The read operation timed out
+
+../miniconda3/envs/wind-hub/lib/python3.14/ssl.py:1138: TimeoutError
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 237 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/third_party/dc_ems/test_wtg_dcems_server_live.py::test_real_dcems_server_wtg_power_command_reaches_dg
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/third_party/dc_ems/test_wtg_dcems_server_live.py::test_dcems_gateway_disconnect_is_observable_and_recoverable
+1 failed, 5 passed, 244 warnings in 23.05s

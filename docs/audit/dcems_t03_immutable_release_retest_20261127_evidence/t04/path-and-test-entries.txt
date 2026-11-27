@@ -1,0 +1,46 @@
+## measurement full chain read_merge override
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:16:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:29:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:42:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:55:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:68:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:81:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:94:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:107:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:120:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-target_v1.0.0.yaml:133:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:16:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:29:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:42:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:55:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:68:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:81:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:94:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:107:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:120:        read_merge_max_gap: 0
+run/dcems-measurement/configs/instances/device_dcems-source_v1.0.0.yaml:133:        read_merge_max_gap: 0
+run/dcems-measurement/configs/templates/protocols/protocol_modbus_tcp_v1.1.0.yaml:22:  read_merge_max_gap: 8
+## full chain test entries
+  tests/third_party/dc_ems/test_full_chain_live.py:123:async def test_source_to_target_ten_turbine_realtime() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:200:async def test_source_to_target_static_device_contract() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:230:def test_collector_task_running_and_publishing_to_nats() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:244:def test_sink_ten_deliveries_are_running() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:253:def test_collector_endpoints_exclude_target_gateway() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:269:def test_wrong_bearer_token_cannot_access_target_gateway() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:294:def test_unauthorized_client_cannot_query_sink() -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:320:def test_collector_and_sink_share_verified_sample_identity(index: int) -> None:
+  tests/third_party/dc_ems/test_full_chain_live.py:331:def test_identity_stimulus_isolates_all_ten_devices() -> None:
+## live smoke entries
+  tests/third_party/dc_ems/test_live_smoke.py:44:def test_web_container_serves_application() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:54:def test_web_api_does_not_return_gateway_error() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:67:async def test_gateway_modbus_random_input_changes(device_index: int) -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:91:async def test_station_power_and_primary_frequency_mode_over_gateway() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:114:def test_dcems_websocket_upgrades_through_local_proxy() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:134:def test_dcems_websocket_contains_live_ten_device_values() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:213:async def test_gateway_ten_turbine_all_points_match_scenario_contract(device_index: int) -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:252:async def test_gateway_and_dcems_numeric_reconciliation() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:346:def test_browser_ten_turbines_are_numeric_and_refresh() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:417:def test_browser_station_power_is_visible_and_refreshes() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:452:def test_browser_avc_page_is_navigable_without_control_action() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:478:def test_factory_primary_frequency_mode_matches_false_input() -> None:
+  tests/third_party/dc_ems/test_live_smoke.py:497:def test_browser_primary_frequency_mode_matches_false_input() -> None:

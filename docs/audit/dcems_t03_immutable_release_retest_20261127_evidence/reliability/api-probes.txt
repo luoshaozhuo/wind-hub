@@ -1,0 +1,10 @@
+2026-11-27T15:04:33Z api=200 index=200 com=t rows_60s=54 frames_total=552
+2026-11-27T15:05:03Z api=200 index=200 com=t rows_60s=54 frames_total=612
+2026-11-27T15:05:33Z api=200 index=200 com=t rows_60s=54 frames_total=672
+2026-11-27T15:06:04Z api=200 index=200 com=t rows_60s=54 frames_total=732
+2026-11-27T15:06:34Z api=200 index=200 com=t rows_60s=53 frames_total=792
+2026-11-27T15:07:04Z api=200 index=200 com=t rows_60s=53 frames_total=852
+2026-11-27T15:07:35Z api=200 index=200 com=t rows_60s=53 frames_total=912
+2026-11-27T15:08:05Z api=200 index=200 com=t rows_60s=52 frames_total=972
+2026-11-27T15:08:35Z api=200 index=200 com=t rows_60s=52 frames_total=1032
+2026-11-27T15:09:05Z api=200 index=200 com=t rows_60s=52 frames_total=1092

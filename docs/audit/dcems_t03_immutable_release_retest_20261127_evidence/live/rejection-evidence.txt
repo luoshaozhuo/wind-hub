@@ -1,0 +1,23 @@
+2026-11-27 14:46:45.022 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 14:47:05.518 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:10.035 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:19.285 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:26.335 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:27.968 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 14:53:24.575 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:29.140 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:46.274 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:46.951 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 15:00:45.640 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:00:50.231 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:00:59.294 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:01:06.334 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:01:07.961 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 14:46:45.021 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:47:27.968 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:53:46.950 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 15:01:07.960 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:46:44.429 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=MTc5NTc5MDgwNDQwMS9hZG1pbi9hZG1pbkAxMjMtd3Jvbmc%3D DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 14:47:27.280 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=MTc5NTc5MDg0NzI1NC9hZG1pbi9hZG1pbkAxMjMtd3Jvbmc%3D DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 14:53:46.364 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=MTc5NTc5MTIyNTM5NS9hZG1pbi9hZG1pbkAxMjMtd3Jvbmc%3D DATA:{"code":"400","msg":"用户密码错误","data":null}
+2026-11-27 15:01:07.305 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] GET:/api/login?auth=MTc5NTc5MTY2NzI4NC9hZG1pbi9hZG1pbkAxMjMtd3Jvbmc%3D DATA:{"code":"400","msg":"用户密码错误","data":null}

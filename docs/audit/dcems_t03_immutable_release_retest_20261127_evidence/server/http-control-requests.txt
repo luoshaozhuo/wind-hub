@@ -1,0 +1,38 @@
+2026-11-27 14:46:10.574 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:46:10.588 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:46:26.912 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 14:46:26.917 [ INFO][vert-worker-pool-11][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:46:28.314 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:46:36.375 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:46:43.421 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:46:43.424 [ INFO][vert-worker-pool-14][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:46:45.021 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:46:45.022 [ INFO][vert-worker-pool-18][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 14:47:05.515 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:47:05.518 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:10.031 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 14:47:10.035 [ INFO][vert-worker-pool-2][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:11.223 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:47:19.285 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:26.330 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:47:26.335 [ INFO][vert-worker-pool-5][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:47:27.968 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:47:27.968 [ INFO][vert-worker-pool-9][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 14:53:24.557 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:53:24.575 [ INFO][vert-worker-pool-6][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:29.133 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 14:53:29.140 [ INFO][vert-worker-pool-8][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:30.260 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 14:53:46.274 [ INFO][vert-worker-pool-10][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 14:53:46.950 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 14:53:46.951 [ INFO][vert-worker-pool-13][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}
+2026-11-27 15:00:45.635 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 15:00:45.640 [ INFO][vert-worker-pool-15][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:00:50.225 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlReActPow": 125.0}}
+2026-11-27 15:00:50.231 [ INFO][vert-worker-pool-17][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:00:51.234 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 15:00:59.294 [ INFO][vert-worker-pool-19][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:01:06.329 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 450.0}}
+2026-11-27 15:01:06.334 [ INFO][vert-worker-pool-1][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"200","msg":"成功","data":"控制成功"}
+2026-11-27 15:01:07.960 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-ACCESS] POST:/api/config/setParam BODY:{"param": {"WTG01_ctrlActPow": 3000.0}}
+2026-11-27 15:01:07.961 [ INFO][vert-worker-pool-4][cn.hedpy.scada.ems.core.web.routers.LogRouter] [WEB-RETURN] POST:/api/config/setParam DATA:{"code":"400","msg":"有功设定值超出范围: 0-2000.0","data":null}

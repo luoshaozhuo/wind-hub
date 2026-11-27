@@ -1,0 +1,7 @@
+## runtime config digests (values not shown)
+4c3dc8da884c17fdaf2b5fe447f2a8027b6a0f3c96fa3107fb5525a0744c0035  run/dcems-control-wtg/docker/dcems.env
+8d99efac783e19be4510c90052ca21d44ad1e7a61acd0bf411d40c8d986f7189  run/dcems-control-wtg/docker/config/db.property
+e3deb6f1c5426f19111bba56731abdeaf9181cfe4906fbd67ebf897e22fe1149  run/dcems-control-wtg/docker/config/ssl/dc-ems.jks
+6349fbdd1728d7ec5aabac75bc76db2afc24d8baa3d8f221120fb26afad5ab3b  run/dcems-control-wtg/docker/config/log4j.properties
+a1b27f20b74a6a9c3c2b2c9e98a58bf57b56c3df03f38360c991896bdf5786cb  run/dcems-control-wtg/docker/config/machine-id
+24dcf1a75560359989ae4b26a5b850fbd06aee7e38b6e2f4ff298f06c1ff9ea1  run/dcems-control-wtg/data.json

@@ -1,0 +1,13 @@
+{
+  "exception_in_thread": {
+    "dataMain": 2,
+    "reactPow": 2
+  },
+  "factorypoints_error_lines": 0,
+  "windturbo_mentions": 0,
+  "windturbo_npe": 0,
+  "sql_exceptions": 6,
+  "view_create_errors": 6,
+  "license_error_mentions": 0,
+  "nullpointer_total": 5
+}

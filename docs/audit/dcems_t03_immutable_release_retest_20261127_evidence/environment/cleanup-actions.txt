@@ -1,0 +1,7 @@
+stopped: dcems-wtg-control compose project (containers+network)
+stopped: wind-hub control chain services (gateway/commander/gateway-target/data-generator)
+stopped: modbus_request_probe
+removed: docker container dcems-t03-nats (port 14223 released)
+preserved volumes: dcems-wtg-control_cache dcems-wtg-control_database dcems-wtg-control_files dcems-wtg-control_logs dcems-wtg-control_models 
+deleted: run/dcems-control-wtg (runtime root, logs copied to evidence)
+deleted: run/dcems-t03 (tokens/license/machine-code/JKS/.env secrets)
