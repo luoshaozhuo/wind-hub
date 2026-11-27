@@ -1142,3 +1142,18 @@ async def test_run_applies_row_backpressure_while_writer_is_blocked(
         release.set()
         await asyncio.wait_for(asyncio.gather(runner, return_exceptions=True), timeout=3)
     assert consumer._metrics.snapshot().buffer_rows == 0
+
+
+def test_storage_shutdown_drain_deadline_is_bounded() -> None:
+    """Graceful stop timeout is a validated service contract, not a magic 10s."""
+    config = load_storage_config(
+        (ROOT / "configs/services/service_storage-main_v2.0.0.yaml").read_bytes()
+    )
+    assert config.kafka.shutdown_drain_timeout_ms == 120000
+    values = config.kafka.model_dump()
+    values["shutdown_drain_timeout_ms"] = 0
+    with pytest.raises(ValueError):
+        type(config.kafka).model_validate(values)
+    values["shutdown_drain_timeout_ms"] = 600001
+    with pytest.raises(ValueError):
+        type(config.kafka).model_validate(values)
