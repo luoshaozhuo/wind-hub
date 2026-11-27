@@ -48,6 +48,35 @@ WTG_SIM01 从 PPC 控制清单中移除，由 DG local 管理控制输入。
 
 三、准备真实 DCEMS Server 的专用数据库
 ------------------------------------
+先运行非破坏性的发布资源预检：
+
+  python -m tests.third_party.dc_ems.preflight_wtg_dcems_server \\
+    --root "$DCEMS_CONTROL_ROOT" --json
+
+退出码 2 代表外部资源缺失，输出逐项 MISSING/READY；此时不应
+执行 Docker 启动。数据库业务 Schema 和真实 FC16 在准备阶段一律
+标记 UNVERIFIED，只有正式 Server 成功初始化和发令才算通过。
+
+dc-ems 发布源码的 DbStructService 包含首次建表与 data.json
+基础数据导入逻辑，因此不能假定需要人工提供独立 SQL。
+同时不能仅根据 PostgreSQL SELECT 1 或 Docker Running 宣称
+业务表已经正确建好。真实启动后核查 ems_config、device、
+edge_addr_set 等实际表与 WTG01/ctrlActPow/ctrlReActPow 记录。
+
+所需外部材料：匹配 VERSION 的三份官方预构建镜像
+dc-ems-server、dc-ems-web、dc-ems-timescaledb；发布配置副本
+(.env、log4j.properties、SSL JKS 或由授权部署流程生成的 JKS)；
+合法 LICENSE_CODE。只允许从受信任发布包校验 MANIFEST.sha256
+后执行 docker load，禁止使用 docker build 或自动拉取未知镜像。
+例如在完整受信任发布包目录中：
+
+  (cd "$DCEMS_RELEASE_DIR" && sha256sum -c MANIFEST.sha256)
+  docker load -i "$DCEMS_RELEASE_DIR/images/dc-ems-server.tar"
+  docker load -i "$DCEMS_RELEASE_DIR/images/dc-ems-web.tar"
+  docker load -i "$DCEMS_RELEASE_DIR/images/timescaledb.tar"
+
+仅在文件已存在、校验通过且人工确认来源后执行；不存在则保持
+T02=ENVIRONMENT_BLOCKED。不得生成或伪造 license。
 必须从授权的发布配置副本准备 db.property/JKS 和合法的授权码，
 不提交数据库凭据、许可证、令牌或运行文件。
 运行独立种子构造器：
@@ -101,8 +130,9 @@ DCEMS 源代码存在一个限制：Web setParam 忽略 getter.control()
 
 禁止 docker compose down -v；保留独立运行日志，绝不清理其他项目卷。
 
-当前仅提交代码和隔离配置：所有新测试和 Docker 联测尚未执行。
-请在全部实现冻结后集中交由 Claude 进行静态/Loader/协议/真实 Server 测试。
+已有独立验收：WTG_PHYSICS_PASS、WINDHUB_CONTROL_PASS。
+真实 DCEMS Server T02 未执行，仍为 ENVIRONMENT_BLOCKED。
+本轮新增发布资源预检及运行脚本调整，尚未进行新的集中测试。
 
 
 物理模型 P1 修复说明（2026-11-27）
