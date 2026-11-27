@@ -127,3 +127,29 @@ async def test_unknown_multidevice_write_fences_every_table(
         metadata.close()
     statement.close.assert_called_once()
     connection.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stmt2_stage_summary_is_bounded_to_256_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend, metadata, _connection, _statement = await _setup(tmp_path, monkeypatch)
+    try:
+        with caplog.at_level("INFO"):
+            for _ in range(256):
+                backend._observe_wide_write(
+                    rows=10,
+                    devices=2,
+                    stages={"prepare": 0.0, "columns": 0.002, "bind": 0.003, "execute": 0.004},
+                )
+        assert backend._wide_stage_calls == 0
+        assert backend._wide_stage_rows == 0
+        assert "rows=2560 devices=512" in caplog.text
+        assert "columns_mean_ms=2.000" in caplog.text
+        assert "bind_mean_ms=3.000" in caplog.text
+        assert "execute_mean_ms=4.000" in caplog.text
+    finally:
+        await backend.close()
+        metadata.close()
