@@ -364,16 +364,17 @@ class KafkaStorageConsumer:
         buffered_rows = 0
         buffered_bytes = 0
 
+        deferred: (
+            tuple[
+                list[tuple[TopicPartition, _AssignedPartition, list[KafkaRecord]]],
+                int,
+                int,
+            ]
+            | None
+        ) = None
+
         async def process_queue() -> None:
-            nonlocal buffered_rows, buffered_bytes
-            deferred: (
-                tuple[
-                    list[tuple[TopicPartition, _AssignedPartition, list[KafkaRecord]]],
-                    int,
-                    int,
-                ]
-                | None
-            ) = None
+            nonlocal buffered_rows, buffered_bytes, deferred
             while True:
                 if deferred is None:
                     item = await queue.get()
@@ -452,7 +453,14 @@ class KafkaStorageConsumer:
 
             Kafka offsets remain uncommitted, so a new owner must replay them.
             """
-            nonlocal buffered_rows, buffered_bytes
+            nonlocal buffered_rows, buffered_bytes, deferred
+            if deferred is not None:
+                _workload, rows, byte_count = deferred
+                buffered_rows -= rows
+                buffered_bytes -= byte_count
+                self._metrics.change_buffer(rows=-rows, byte_count=-byte_count)
+                queue.task_done()
+                deferred = None
             while True:
                 try:
                     item = queue.get_nowait()
