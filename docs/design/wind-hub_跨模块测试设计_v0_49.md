@@ -389,15 +389,15 @@ sequenceDiagram
 
 ## 5.6 联测专用配置闭包与文件名规范（v0_39）
 
-**历史候选基线（非当前执行选择）**：原 e2e-final v1.0.2 与当时尚未注册的 Service Schema v3 属于前期方案。当前隔离执行候选已更新为 `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.1.yaml`，Service Schema v3 已在 `src/configuration_service/application/schema_catalog.py` 注册；是否实际发布、激活及通过仍以当前 SHA 的运行证据判断。所有受测 Service 与 Instance 使用 `e2e` 或 `e2e-final` 独立逻辑身份；统一文件名 `<type>_<info>_v<MAJOR.MINOR.PATCH>.yaml`。Service 必须遵守正式 `service_<service-id>_v...` 前缀，不得擅自简化为缺少 `service_` 的文件名。E2E 文件不覆盖 `prod-a` 和 `sim-a` 的已发布版本；相同业务 Template 可以按原 SHA/版本引用，不复制第二份人工维护的型号或点表。
+**历史候选基线（非当前执行选择）**：原 e2e-final v1.0.2 与当时尚未注册的 Service Schema v3 属于前期方案。当前隔离执行候选已更新为 `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.2.yaml`，Service Schema v3 已在 `src/configuration_service/application/schema_catalog.py` 注册；是否实际发布、激活及通过仍以当前 SHA 的运行证据判断。所有受测 Service 与 Instance 使用 `e2e` 或 `e2e-final` 独立逻辑身份；统一文件名 `<type>_<info>_v<MAJOR.MINOR.PATCH>.yaml`。Service 必须遵守正式 `service_<service-id>_v...` 前缀，不得擅自简化为缺少 `service_` 的文件名。E2E 文件不覆盖 `prod-a` 和 `sim-a` 的已发布版本；相同业务 Template 可以按原 SHA/版本引用，不复制第二份人工维护的型号或点表。
 
 | 类别 | E2E 唯一配置及用途 |
 |---|---|
-| Deployment | `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.1.yaml`；精确选择 9 个 Service 和 6 类 Instance |
+| Deployment | `deploy/config_roots/e2e-final/deployments/deployment_e2e-final_v2.0.2.yaml`；精确选择 9 个 Service 和 6 类 Instance |
 | Collector | `service_collector-e2e-realtime_v2.0.0.yaml`、`service_collector-e2e-reliable_v2.0.0.yaml`；独立身份和所选 Collector Task Instance |
 | Gateway | `service_gateway-e2e-source_v1.1.3.yaml`、`service_gateway-e2e-target_v1.1.1.yaml`；令牌鉴权、源协议 Server 和隔离输出目标 |
 | 模型/控制 | `service_data-generator-e2e_v1.1.2.yaml`、`service_commander-e2e_v1.1.0.yaml`；令牌鉴权、隔离仿真场景和 PPC 控制映射 |
-| 派发/入库 | `service_sink-e2e_v2.0.0.yaml`、`service_storage-e2e_v2.0.0.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
+| 派发/入库 | `service_sink-e2e_v2.0.0.yaml`、`service_storage-e2e_v2.0.1.yaml`；隔离 Kafka Topic/Consumer Group、TDengine 数据库、授权身份和可靠通道 |
 | CLI | `service_cli-e2e_v1.1.9.yaml`；隔离管理配置按当前部署选择使用，不依赖生产 CLI 容器状态 |
 | Instance | `site_e2e-final_v1.0.0.yaml`、`device_e2e-final_v1.0.1.yaml`、`collector_tasks_e2e-final_v1.0.1.yaml`、`scenarios_e2e-final_v1.0.0.yaml`、`sinks_e2e-final_v1.0.3.yaml`、`deliveries_e2e-final_v1.0.2.yaml` |
 | 本地引导 | `deploy/e2e/configuration_bootstrap_e2e_v1.0.0.yaml`、`deploy/e2e/storage_bootstrap_e2e_v1.0.0.yaml`；不参与 Configuration Repository 业务文件发布 |
