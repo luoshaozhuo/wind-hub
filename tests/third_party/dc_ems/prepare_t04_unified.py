@@ -408,6 +408,8 @@ def prepare(
     for index, server in enumerate(target_gateway["servers"]):
         server["server_id"] = f"dcems-target-{index + 1:02d}"
         server["listen_port"] = target_port_base + index
+        # Report expired Sink-fed values as STALE in Gateway ReadVariables.
+        server["read_stale_after_ms"] = 5000
         server["control"] = {
             "enabled": False,
             "target": {"kind": "none"},
