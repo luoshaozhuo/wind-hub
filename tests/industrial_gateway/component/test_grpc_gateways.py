@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import grpc
@@ -171,7 +171,7 @@ async def test_expired_injected_value_is_not_reported_current(harness) -> None:
     instance = harness.runtime.instances["gw1"]
     instance.config = replace(
         instance.config,
-        settings=instance.config.settings.model_copy(update={"read_stale_after_ms": 20}),
+        settings=instance.config.settings.model_copy(update={"read_stale_after_ms": 5000}),
     )
     await instance.store.update(FEEDBACK_FLOAT, 123.0)
     stub = harness.gateway_stub()
@@ -181,7 +181,10 @@ async def test_expired_injected_value_is_not_reported_current(harness) -> None:
     assert current.values[0].quality == "GOOD"
     assert current.values[0].freshness == "CURRENT"
 
-    await asyncio.sleep(0.05)
+    previous = instance.store.read(FEEDBACK_FLOAT)
+    instance.store._values[FEEDBACK_FLOAT] = replace(
+        previous, updated_at=datetime.now(UTC) - timedelta(seconds=10)
+    )
     stale = await stub.ReadVariables(
         pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
     )
