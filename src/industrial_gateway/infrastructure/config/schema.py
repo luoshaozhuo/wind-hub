@@ -173,6 +173,7 @@ class ServerConfig(StrictModel):
     listen_host: str = Field(min_length=1)
     listen_port: int = Field(ge=1, le=65535)
     desired_state: Literal["START", "STOP"] = "STOP"
+    read_stale_after_ms: int | None = Field(default=None, ge=1)
     control: ServerControl
 
     @model_validator(mode="after")
