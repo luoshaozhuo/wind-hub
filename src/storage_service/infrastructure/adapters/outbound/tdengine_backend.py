@@ -229,7 +229,9 @@ class TDengineBackend:
             host=host,
             port=port,
             # taosws 将此 DSN 参数传给 WebSocket 请求/响应及结果拉取。
-            read_timeout=str(max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)),
+            read_timeout=str(
+                max(1, (self._config.tdengine.ingestion.write_timeout_ms + 999) // 1000)
+            ),
         )
 
     def _open_sync(self, *, lease: _OperationLease) -> None:

@@ -146,9 +146,7 @@ def _assert_row(
 ) -> None:
     """Check every physical point and quality byte independently."""
     rows = list(
-        probe.connection.query(
-            f"SELECT * FROM {probe.database}.{table} WHERE ts = {timestamp}"
-        )
+        probe.connection.query(f"SELECT * FROM {probe.database}.{table} WHERE ts = {timestamp}")
     )
     assert len(rows) == 1
     row = rows[0]
@@ -340,7 +338,8 @@ def _verify_workload(probe: Probe, devices: int, cycles: int, start_us: int) -> 
     """Check every physical value and quality byte after timed ingestion."""
     for device in range(devices):
         rows = probe.connection.query(
-            f"SELECT CAST(ts AS BIGINT), " + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
+            "SELECT CAST(ts AS BIGINT), "
+            + ", ".join(f"p{i:03d}_v1_0_0" for i in range(_POINT_COUNT))
             + f", quality FROM {probe.database}.protocol_d{device} ORDER BY ts"
         )
         count = 0
@@ -397,9 +396,7 @@ def test_td01_td04_td05_td06_td10_capacity_matrix(
     ready = Event()
     stripes = [list(range(worker, devices, workers)) for worker in range(workers)]
     with ThreadPoolExecutor(max_workers=workers + 1) as pool:
-        reader = (
-            pool.submit(_read_while_writing, probe, stop, ready) if concurrent_read else None
-        )
+        reader = pool.submit(_read_while_writing, probe, stop, ready) if concurrent_read else None
         try:
             if reader is not None:
                 assert ready.wait(timeout=10)
@@ -519,7 +516,7 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
     placeholders = ", ".join(["?"] * (_POINT_COUNT + 2))
     try:
         statement.prepare(f"INSERT INTO ? VALUES ({placeholders})")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - TDengine bind rejection class is driver-defined
             statement.bind(
                 [
                     _bind(probe, table="protocol_d0", timestamps=[ts], base=10),
@@ -532,9 +529,7 @@ def test_td07_partial_success_and_ordered_replay(wide_probe: Probe) -> None:
 
     # Native multi-table failure may have applied zero or some rows.
     rows = list(
-        probe.connection.query(
-            f"SELECT COUNT(*) FROM {probe.database}.protocol_d0 WHERE ts = {ts}"
-        )
+        probe.connection.query(f"SELECT COUNT(*) FROM {probe.database}.protocol_d0 WHERE ts = {ts}")
     )
     assert int(rows[0][0]) in (0, 1)
     for device, base in [(0, 10), (1, 20), (0, 30)]:
@@ -641,19 +636,13 @@ def test_td09_compression_measurement(wide_probe: Probe, record_property: Any) -
             )
             columns.append(probe.driver.varbinary_to_column([_QUALITY] * len(rows)))
             statement.bind(
-                [
-                    probe.driver.stmt2_bind_param_view(
-                        table_name=None, tags=None, columns=columns
-                    )
-                ]
+                [probe.driver.stmt2_bind_param_view(table_name=None, tags=None, columns=columns)]
             )
             assert statement.execute() >= 0
     finally:
         statement.close()
     probe.connection.execute(f"FLUSH DATABASE {probe.database}")
-    rows = probe.connection.query(
-        f"SELECT * FROM {probe.database}.protocol_d0 ORDER BY ts"
-    )
+    rows = probe.connection.query(f"SELECT * FROM {probe.database}.protocol_d0 ORDER BY ts")
     count = 0
     for index, row in enumerate(rows):
         assert list(row[1:-1]) == expected_rows[index]

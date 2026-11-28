@@ -182,6 +182,14 @@ def test_legacy_100_template_remains_serial_capability() -> None:
     assert document["capabilities"]["max_safe_inflight"] == 1
 
 
+def test_wrong_kafka_schema_version_is_rejected() -> None:
+    """出厂 Kafka 模板错误 schema（如退回1）必须被生产快照校验拒绝。"""
+    docs = _two_device_docs()
+    docs[KAFKA_PATH_110]["schema_version"] = 1
+    with pytest.raises(ConfigurationError, match="unsupported schema_version"):
+        _validate(docs)
+
+
 # ---- 接受路径 -------------------------------------------------------------
 
 

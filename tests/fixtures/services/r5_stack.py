@@ -198,7 +198,6 @@ def _up_stack_once() -> R5Stack:
         raise
 
 
-
 def up_stack() -> R5Stack:
     """Retry transient Docker host-port binding collisions with fresh ports."""
     for attempt in range(3):
@@ -207,8 +206,7 @@ def up_stack() -> R5Stack:
         except R5StackError as exc:
             detail = str(exc).lower()
             is_port_conflict = (
-                "port is already allocated" in detail
-                or "address already in use" in detail
+                "port is already allocated" in detail or "address already in use" in detail
             )
             if not is_port_conflict or attempt == 2:
                 raise

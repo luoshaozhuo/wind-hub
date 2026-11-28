@@ -1,0 +1,10 @@
+{
+  "gateway_quality": "BAD",
+  "gateway_freshness": "STALE",
+  "gateway_error_code": "STALE_VALUE",
+  "modbus_served_value": 11.287199974060059,
+  "dcems_com_state": "t",
+  "dcems_value_frozen": true,
+  "freeze_started_at": "2026-11-28T08:40:05.709118+00:00",
+  "note": "DCEMS/Modbus 无法表达过期；comOk 与行继续更新但值冻结"
+}

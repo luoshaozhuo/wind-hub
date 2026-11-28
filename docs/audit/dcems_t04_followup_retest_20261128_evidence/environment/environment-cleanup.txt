@@ -1,0 +1,10 @@
+stopped: run_t04_unified.sh --down (six wind-hub services + modbus probe + dcems-t04 compose)
+removed: docker container dcems-t04-nats (port 14222 released)
+ports released: 14222 15121-15130 15221-15230 15321-15330 15433 18453 52051 52053 52061 52073 52074 52152
+preserved volumes: dcems-t04_database dcems-t04_files dcems-t04_logs dcems-t04_cache dcems-t04_models
+  (上轮保留卷因新 machine-id/授权一致性在本轮开始时删除并以新卷重建；本轮结束再次保留供复核)
+deleted: run/dcems-t04 (tokens/license/machine-id/JKS/.env/seed/config), run/dcems-fu-tokens.env,
+  run/t04-fu-up.log, run/capacity-evidence, run/capacity_sampler*.sh, run/*-final.log
+untouched: run/dcems-measurement, run/dcems-smoke, run/dcems-modbus-cli*, run/gap8 及其容器/卷;
+  未执行 docker compose down -v / 全局 prune
+probe note: 探针 SIGTERM 收尾时按设计 mkdir+写 modbus-frames-summary.json（已归档 t04/），随后目录清除

@@ -94,10 +94,14 @@ def create_database_sql(
             raise ValueError("unsupported TDengine CACHEMODEL")
         sql += f" CACHEMODEL '{cachemodel}'"
     if (
-        type(vgroups) is not int or vgroups < 1
-        or type(buffer_mb) is not int or buffer_mb < 1
-        or replica != 1 or comp not in (0, 1, 2)
-        or wal_level != 2 or wal_fsync_period_ms != 0
+        type(vgroups) is not int
+        or vgroups < 1
+        or type(buffer_mb) is not int
+        or buffer_mb < 1
+        or replica != 1
+        or comp not in (0, 1, 2)
+        or wal_level != 2
+        or wal_fsync_period_ms != 0
     ):
         raise ValueError("invalid database durability or allocation settings")
     return (

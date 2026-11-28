@@ -12,7 +12,6 @@ import json
 import os
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -109,7 +108,7 @@ def test_f3_single_device_stops_updating_and_recovers_with_f2_restart() -> None:
         "freeze_started_at": freeze_at.isoformat(),
         "note": "DCEMS/Modbus 无法表达过期；comOk 与行继续更新但值冻结",
     }
-    out = Path("docs/audit/dcems_t04_f1_f2_f3_retest_20261128_evidence/f3")
+    out = BASE / "state" / "f3-evidence"
     out.mkdir(parents=True, exist_ok=True)
     (out / "dcems-reaction-to-frozen-value.json").write_text(
         json.dumps(dcems_reaction, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -215,7 +214,7 @@ def test_f1_fault_status_zero_one_converts_end_to_end() -> None:
         "isolation_random_devices": "WTG02-10 device_fault_active=False",
         "stimulus": "wind_speed_mean=26 >= cut_out_speed_m_s=25 (weather input)",
     }
-    out = Path("docs/audit/dcems_t04_f1_f2_f3_retest_20261128_evidence/f1")
+    out = BASE / "state" / "f1-evidence"
     out.mkdir(parents=True, exist_ok=True)
     (out / "fault-status-e2e.json").write_text(
         json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8"

@@ -71,7 +71,9 @@ class KafkaStorageConsumer:
             auto_offset_reset="earliest",
             max_poll_records=configuration.kafka.max_poll_records,
             fetch_max_bytes=configuration.tdengine.ingestion.buffer_max_bytes,
-            max_partition_fetch_bytes=min(1048576, configuration.tdengine.ingestion.buffer_max_bytes),
+            max_partition_fetch_bytes=min(
+                1048576, configuration.tdengine.ingestion.buffer_max_bytes
+            ),
         )
         self._assignments: dict[TopicPartition, _AssignedPartition] = {}
         self._retry_failures: dict[TopicPartition, int] = {}

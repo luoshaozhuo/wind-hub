@@ -170,7 +170,7 @@ dedup_key=batch_id）、两处单测/组件本地 kafka 模板 schema2、N802 no
 | # | 级别 | 问题 |
 |---|---|---|
 | 1 | P2（既有矛盾） | 出厂 `configs/templates/sinks/sink_kafka_history_v1.1.0.yaml` `schema_version:1` 与 `f5823592` Kafka-Sink-模板必须 schema2 的门禁互斥 → `test_shipped_kafka_110...` 长期失败（UNRELATED）。需裁决：改出厂文件或门禁对历史版本豁免 |
-| 2 | P2（环境） | `test_sustained_capacity_600s` 在本机三连败（confirmed≈52–62/120，伴 Kafka GroupCoordinator 错误）；整改零交集、C6 曾通过 → 疑本机 Kafka 压测环境退化，建议在基准机复跑确认 |
+| 2 | P1（既有 OPEN，非本轮整改引入） | `test_sustained_capacity_600s` 在本机三连败（confirmed≈52–62/120，伴 Kafka GroupCoordinator 错误）；整改零交集。历史 C6 同样失败（97.9–102 批/s，C6-01 P1 OPEN；前轮“C6 曾通过”有误，已更正）。完整分层诊断见 `docs/audit/dcems_t04_followup_retest_20261128.md` §7，交 ChatGPT |
 | 3 | P3（测试基建） | sink system Docker 栈存在端口释放竞态（`48565 already allocated` 致 lifecycle 5 errors，单跑即过）；建议 harness 启动前等待端口释放或重试 |
 | 4 | P3（观测） | sink 进程 stdout/stderr 落盘为0字节（日志缓冲/未刷新），事故现场无法回放——建议 sink CLI spawn 使用 `-u` 或 logging 直写文件 |
 

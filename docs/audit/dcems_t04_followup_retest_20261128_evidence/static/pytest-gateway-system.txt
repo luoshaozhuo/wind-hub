@@ -1,0 +1,79 @@
+......................                                                   [100%]
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 971 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: 22 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/industrial_gateway/system/test_claims_restart.py::test_claims_do_not_survive_process_restart
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:773: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    _restore_event_loop_policy(asyncio.get_event_loop_policy()),
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1028: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(new_loop_policy)
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1029: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:788: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:833: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:857: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(previous_policy)
+
+tests/industrial_gateway/system/test_claims_restart.py: 1 warning
+tests/industrial_gateway/system/test_config_churn.py: 1 warning
+tests/industrial_gateway/system/test_fifty_devices.py: 2 warnings
+tests/industrial_gateway/system/test_modbus_framing.py: 11 warnings
+tests/industrial_gateway/system/test_process_lifecycle.py: 5 warnings
+tests/industrial_gateway/system/test_watchdog_recovery.py: 2 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:869: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+22 passed, 1148 warnings in 18.08s
