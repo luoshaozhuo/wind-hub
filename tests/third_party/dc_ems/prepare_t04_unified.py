@@ -549,6 +549,11 @@ def prepare(
                     "source_device_id": device_id,
                     "source_point_id": source_point,
                     "variable_id": target_point,
+                    **(
+                        {"conversion": "int01_to_bool"}
+                        if source_point == "fault_status"
+                        else {}
+                    ),
                 }
                 for source_point, target_point in WTG01_MAPPINGS
             ]
