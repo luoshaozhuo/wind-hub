@@ -1,0 +1,49 @@
+## git
+865f78a41eb412210bedce23965c234e5e43c54c
+865f78a41eb412210bedce23965c234e5e43c54c
+865f78a4 fix(sink): clear obsolete stopping state only after no resources remain
+ffeb738a fix(gateway): reject noninteger and nonpositive variable staleness limits
+8ae4ba4f test(gateway): make stale-value gRPC test deterministic without wall-clock sleeps
+7b9ba444 test(dcems): assert explicit fault conversion and target value expiry in T04 contract
+ffde1da7 test(gateway): assert expired Sink-fed values report BAD/STALE
+ad25a402 test(sink): cover bounded Delivery stop without premature native resource release
+e0be3698 test(sink): cover explicit int01_to_bool mapping and reject invalid fault codes
+e5cc5242 style(sink): preserve bytes scalar support in explicit Gateway conversion
+5445a832 test(dcems): enable 5-second Gateway read freshness on ten target servers
+682f9cfa fix(gateway): report expired injected variable as stale instead of current
+8a417686 fix(gateway): define optional per-server variable freshness expiry
+e006983a fix(sink): bound Delivery settlement and retry safe stop before restart
+92d3bb36 test(dcems): explicitly convert physical fault_status 0/1 to Gateway boolean
+f1ca50c8 fix(sink): convert only explicitly mapped int 0/1 fault flags to booleans
+3f79abb4 fix(sink): bind explicit target conversion to Gateway runtime and signature
+2adaa2f3 fix(sink): validate explicit 0/1-to-bool Gateway mapping conversion
+## remediation diff stat
+ .../adapters/inbound/grpc/data_server.py           | 24 +++++-
+ .../infrastructure/config/schema.py                |  8 ++
+ src/sink_service/application/config.py             |  5 ++
+ src/sink_service/application/realtime_delivery.py  | 18 ++++-
+ .../infrastructure/adapters/outbound/gateway.py    | 46 ++++++++++--
+ .../infrastructure/realtime_runtime.py             |  5 ++
+ .../component/test_grpc_gateways.py                | 30 ++++++++
+ .../unit/test_gateway_value_conversion.py          | 86 ++++++++++++++++++++++
+ .../unit/test_realtime_delivery_stop_settlement.py | 80 ++++++++++++++++++++
+ tests/third_party/dc_ems/prepare_t04_unified.py    |  7 ++
+ .../third_party/dc_ems/test_t04_unified_config.py  | 10 +++
+ 11 files changed, 308 insertions(+), 11 deletions(-)
+## images
+[dc-ems-server:1.1.4-583d5da] sha256:30779cafbfc62090718db55e93c9bb857b2f7e831dad4ccc927cd8a137fe4e4e 2026-09-12T13:32:51.49120682Z
+[dc-ems-timescaledb:2.7.0-pg14] sha256:0f5553d37abbe0f20bfe0a04dab5d1238955b5cda2711aba403090f95b6e51ff 2025-04-30T18:33:32.32173472Z
+## jar
+1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2  third_party/dc-ems/app/server/dc-ems.jar
+## version
+release_version=1.1.4-583d5da
+git_commit=583d5dae6887f2a871f0a99b0c686803258b6877
+git_commit_short=583d5da
+server_version=1.1.4
+git_commit=583d5dae6887f2a871f0a99b0c686803258b6877
+git_commit_short=583d5da
+build_time=2026-09-12T21:31:48+08:00
+git_dirty=true
+jar_sha256=1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2
+web_sha256=057411c9bcf8393ab7888f4c0d738c77782c0d03c1f1ab0673abfd147b2bd91b
+jar_path=server/dc-ems/target/dc-ems-1.1.4-jar-with-dependencies.jar

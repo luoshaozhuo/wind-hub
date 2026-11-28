@@ -75,3 +75,16 @@ def test_duplicate_caller_token_reference_is_rejected() -> None:
     raw["security"]["callers"][1]["token_env"] = raw["security"]["callers"][0]["token_env"]
     with pytest.raises(ValidationError, match="duplicate"):
         GatewayServiceConfig.model_validate(raw)
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, False, 5000.0, "5000", None])
+def test_read_stale_after_ms_rejects_invalid_values(bad: object) -> None:
+    """零、负数、布尔、非整数期限必须被配置校验拒绝；None 表示未配置。"""
+    raw = _valid()
+    raw["servers"][-1]["read_stale_after_ms"] = bad
+    if bad is None:
+        config = GatewayServiceConfig.model_validate(raw)
+        assert config.servers[-1].read_stale_after_ms is None
+    else:
+        with pytest.raises(ValidationError):
+            GatewayServiceConfig.model_validate(raw)

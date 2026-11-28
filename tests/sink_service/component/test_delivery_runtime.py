@@ -26,20 +26,38 @@ class FakePort(DeliveryPort):
         *,
         start_fails: bool = False,
         stop_fails: bool = False,
+        stop_timeouts_left: int = 0,
     ) -> None:
         self.delivery_id = delivery_id
         self.start_fails = start_fails
         self.stop_fails = stop_fails
+        # 模拟 F2：stop() 在原生 I/O 未结算期间超时，随后恢复。
+        self.stop_timeouts_left = stop_timeouts_left
         self.started = 0
         self.stopped = 0
+        self._last_error = ""
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
 
     async def start(self) -> None:
+        # 与 RealtimeDeliveryPort.start 一致：仍持有未清理状态时先重试 stop。
+        if self._last_error:
+            await self.stop()
         self.started += 1
         if self.start_fails:
             raise RuntimeError(f"{self.delivery_id}: start refused")
 
     async def stop(self) -> None:
         self.stopped += 1
+        if self.stop_timeouts_left > 0:
+            self.stop_timeouts_left -= 1
+            from sink_service.domain.config import ConfigurationError
+
+            raise ConfigurationError("Delivery output settlement timed out; ownership retained")
+        # 原生 I/O 结算后，传输层错误随之清除（与真实端口语义一致）。
+        self._last_error = ""
         if self.stop_fails:
             raise RuntimeError(f"{self.delivery_id}: stop refused")
 
@@ -52,9 +70,14 @@ def _snapshot(desired: dict[str, str] | None = None) -> ValidatedSnapshot:
     return validate_snapshot(snapshot_files(docs))
 
 
-def _factory(fail_start: set[str] | None = None, fail_stop: set[str] | None = None):
+def _factory(
+    fail_start: set[str] | None = None,
+    fail_stop: set[str] | None = None,
+    stop_timeouts: dict[str, int] | None = None,
+):
     fail_start = fail_start or set()
     fail_stop = fail_stop or set()
+    stop_timeouts = stop_timeouts or {}
     created: dict[str, FakePort] = {}
 
     def factory(definition: DeliveryDefinition, snapshot: ValidatedSnapshot) -> FakePort:
@@ -62,6 +85,7 @@ def _factory(fail_start: set[str] | None = None, fail_stop: set[str] | None = No
             definition.delivery_id,
             start_fails=definition.delivery_id in fail_start,
             stop_fails=definition.delivery_id in fail_stop,
+            stop_timeouts_left=stop_timeouts.get(definition.delivery_id, 0),
         )
         created[definition.delivery_id] = port
         return port
@@ -237,3 +261,31 @@ async def test_failed_start_not_revived_when_desired_stop() -> None:
     assert registry.get("ems_power").actual_state == "STOPPED"
     await registry.reconcile_all()
     assert created["ems_power"].started == 1
+
+
+async def test_watchdog_recovers_delivery_after_settlement_timeout() -> None:
+    """F2 核心：stop 超时 → FAILED（保留所有权）→ I/O 结算 → 看门狗自动恢复 RUNNING。"""
+    snapshot = _snapshot()
+    registry = DeliveryRegistry("realtime", snapshot)
+    factory, created = _factory(stop_timeouts={"ems_power": 1})
+    applied = await registry.apply_configuration(snapshot, factory)
+    assert set(applied) == {"ems_power"}
+    assert registry.get("ems_power").actual_state == "RUNNING"
+
+    # 模拟原生 I/O 不确定：watchdog 观察 port.last_error 后先尝试 stop，
+    # 首次结算超时 → FAILED（所有权保留，不重复 start）。
+    created["ems_power"]._last_error = "native write uncertain"
+    await registry.reconcile_all()
+    view = registry.get("ems_power")
+    assert view.actual_state == "FAILED"
+    assert "settlement timed out" in view.last_error
+    # 超时期间不重复 start、不释放：stopped只增一次 stop 尝试。
+    assert created["ems_power"].started == 1
+
+    # 原生 I/O 最终结算后，下一轮看门狗经 start() 重试清理并恢复。
+    await registry.reconcile_all()
+    view = registry.get("ems_power")
+    assert view.actual_state == "RUNNING"
+    assert view.last_error == ""
+    assert created["ems_power"].started == 2
+    assert created["ems_power"].stopped >= 2

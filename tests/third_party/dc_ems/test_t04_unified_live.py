@@ -370,53 +370,62 @@ def _assert_dcems_within_gateway_bracket(
     return observed, before, after
 
 
-def _assert_dcems_within_gateway_envelope(
-    device: str, point: str, *, window_s: float, margin: float, scale: float = 1.0
-) -> tuple[float, float, float]:
-    """连续变化点包络对账：DCEMS 值落在行时刻±窗口的 Gateway 采样包络内。
+def _tail_json_lines(path: Path, max_bytes: int = 4_000_000) -> list[str]:
+    """从文件尾部读取足够覆盖最近窗口的行（避免整文件扫描）。"""
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(0, size - max_bytes))
+        chunk = handle.read().decode("utf-8", errors="replace")
+    lines = chunk.splitlines()
+    if size > max_bytes:
+        lines = lines[1:]  # 丢弃可能被截断的首行
+    return lines
 
-    DCEMS 行写入存在第三方调度/停顿（实测 ≤30s），读取时刻相对行 tm 存在
-    不确定度；窗口取 ±30s 覆盖该不确定度，margin=1.5 m/s 覆盖湍流
-    （TI=0.12 → σ≈1.1 m/s）。该断言验证“值来自同期真实测量”，不接受
-    过期/越界/填零值；随机机恒值点同时由逐点相等断言覆盖。
+
+def _assert_dcems_within_dg_source_envelope(
+    device: str,
+    *,
+    dcems_key: str,
+    source_point: str,
+    window_s: float,
+    margin: float,
+    scale: float = 1.0,
+) -> tuple[float, float, float]:
+    """以 DCEMS 行 tm 为中心，用 DG 源历史（source_time）构造对账包络。
+
+    Gateway 只保存当前值，无法回放行时刻的历史；DG 录制含完整
+    source_time 序列。取 [row_tm-window, row_tm] 的源值包络：链路旅行
+    时延 ≤5s（t04-timestamp-pipeline 已断言），DCEMS 行值应落在该窗口
+    源值经 scale 换算并加湍流/动态 margin 的范围内。
     """
-    index = int(device[-2:])
     row = _dcems_row(device)
     row_tm = datetime.strptime(str(row["tm"]), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=UTC)
-    start = (row_tm - timedelta(seconds=window_s)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    end = (row_tm + timedelta(seconds=window_s)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    samples: list[float] = []
-    deadline = time.monotonic() + 35
-    while time.monotonic() < deadline and len(samples) < 30:
-        sample = _gateway_read(
-            f"dcems-target-{index:02d}",
-            TARGET_GRPC,
-            [point],
-            "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
-        )[point]
-        ts = datetime.fromtimestamp(
-            sample.sample_timestamp.seconds + sample.sample_timestamp.nanos / 1e9, tz=UTC
-        )
-        if start <= ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] <= end:
-            value = float(_sample_scalar(sample))
-            if not samples or value != samples[-1]:
-                samples.append(value)
-        time.sleep(0.4)
-    assert samples, f"{device}: no gateway samples in window"
-    key = {
-        "wind_speed": "wind_speed",
-        "sim_active_power": "pow_act_kw",
-        "sim_reactive_power": "pow_react_kvar",
-    }[point]
-    observed = float(row[key])
-    low, high = min(samples) * scale, max(samples) * scale
+    record = BASE / "state" / "generator-records" / f"{_generation_id()}.jsonl"
+    assert record.is_file(), record
+    start = (row_tm - timedelta(seconds=window_s)).isoformat()
+    end = row_tm.isoformat()
+    values: list[float] = []
+    for line in _tail_json_lines(record):
+        payload = json.loads(line)
+        produced = payload.get("produced_at", "")
+        if produced > end:
+            continue
+        if produced < start:
+            continue
+        for point in payload.get("points", []):
+            if point.get("device_id") == device and point.get("point_id") == source_point:
+                values.append(float(point["value"]))
+    assert values, f"{device}: no DG source samples in [{start}, {end}]"
+    observed = float(row[dcems_key])
+    low, high = min(values) * scale, max(values) * scale
     assert low - margin <= observed <= high + margin, (
         device,
-        point,
+        source_point,
         observed,
         low,
         high,
-        len(samples),
+        len(values),
     )
     return observed, low, high
 
@@ -442,9 +451,15 @@ def test_ten_device_nine_point_reconciliation() -> None:
         assert samples["wind_speed"].freshness == "CURRENT", device
         assert row["wind_speed"] is not None
         if device == "WTG01":
-            # 物理机风速连续变化：以行 tm 为中心的 Gateway 包络对账
+            # 物理机风速连续变化：以行 tm 为中心的 DG 源历史包络对账
             assert 4.0 <= row["wind_speed"] <= 18.0, row
-            _assert_dcems_within_gateway_envelope(device, "wind_speed", window_s=15, margin=1.0)
+            _assert_dcems_within_dg_source_envelope(
+                device,
+                dcems_key="wind_speed",
+                source_point="wind_speed",
+                window_s=8,
+                margin=1.5,
+            )
 
         else:
             assert row["wind_speed"] == pytest.approx(expected[device]["wind_speed"], abs=1e-3)
@@ -454,8 +469,13 @@ def test_ten_device_nine_point_reconciliation() -> None:
         assert samples["sim_active_power"].freshness == "CURRENT", device
         if device == "WTG01":
             # 物理有功在设定值附近动态波动：用包络而非瞬时夹逼
-            _assert_dcems_within_gateway_envelope(
-                device, "sim_active_power", window_s=10, margin=25.0, scale=0.001
+            _assert_dcems_within_dg_source_envelope(
+                device,
+                dcems_key="pow_act_kw",
+                source_point="active_power",
+                window_s=8,
+                margin=25.0,
+                scale=0.001,
             )
         else:
             assert row["pow_act_kw"] == pytest.approx(gw_power * 0.001, rel=1e-3, abs=0.5), (
@@ -467,8 +487,13 @@ def test_ten_device_nine_point_reconciliation() -> None:
         # 无功同理
         gw_react = float(_sample_scalar(samples["sim_reactive_power"]))
         if device == "WTG01":
-            _assert_dcems_within_gateway_envelope(
-                device, "sim_reactive_power", window_s=10, margin=25.0, scale=0.001
+            _assert_dcems_within_dg_source_envelope(
+                device,
+                dcems_key="pow_react_kvar",
+                source_point="reactive_power",
+                window_s=8,
+                margin=25.0,
+                scale=0.001,
             )
         else:
             assert row["pow_react_kvar"] == pytest.approx(gw_react * 0.001, rel=1e-3, abs=0.5)
@@ -613,7 +638,18 @@ def test_gateway1_and_dcems_read_consistency() -> None:
         device = f"WTG{index:02d}"
         row = _dcems_row(device)
         assert row["com"] == "t"
-        _assert_dcems_within_gateway_envelope(device, "wind_speed", window_s=15, margin=1.0)
+        if device == "WTG01":
+            _assert_dcems_within_dg_source_envelope(
+                device,
+                dcems_key="wind_speed",
+                source_point="wind_speed",
+                window_s=8,
+                margin=1.5,
+            )
+        else:
+            assert row["wind_speed"] == pytest.approx(
+                _expected_random()[device]["wind_speed"], abs=1e-3
+            )
 
 
 # ---------------------------------------------------------------- T04-D
@@ -635,7 +671,7 @@ def test_quality_states_and_missing_fault_cell() -> None:
         assert _sample_scalar(sample) is False
         row = _dcems_row(f"WTG{index:02d}")
         assert row["fault"] == "f"
-    # 2) 物理 WTG01：源 GOOD（int32），目标 bool 变量 UNINITIALIZED（生产缺口）
+    # 2) 物理 WTG01（F1 整改后）：源 int32 0 → 目标 bool False，GOOD/CURRENT
     source = _gateway_read(
         "dcems-source-01",
         SOURCE_GRPC,
@@ -643,17 +679,19 @@ def test_quality_states_and_missing_fault_cell() -> None:
         "WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN",
     )["fault_status"]
     assert source.quality == "GOOD" and source.freshness == "CURRENT"
+    assert int(_sample_scalar(source)) in (0, 1)
     target = _gateway_read(
         "dcems-target-01",
         TARGET_GRPC,
         ["device_fault_active"],
         "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
     )["device_fault_active"]
-    assert target.freshness == "UNINITIALIZED", target
-    assert target.quality == "UNKNOWN"
-    # 3) 缺失点被网关以默认 False 供给 DCEMS（不可当真实测量）——记录而非掩盖
+    assert target.freshness == "CURRENT", target
+    assert target.quality == "GOOD", target
+    # 显式 int01_to_bool：目标值必须与源 0/1 一致（不再是默认 False 掩盖）
+    assert _sample_scalar(target) is bool(int(_sample_scalar(source)))
     row = _dcems_row("WTG01")
-    assert row["fault"] == "f"
+    assert row["fault"] == ("t" if int(_sample_scalar(source)) == 1 else "f")
     evidence = {
         "wtg01_source_fault_status": {
             "quality": source.quality,
@@ -663,18 +701,14 @@ def test_quality_states_and_missing_fault_cell() -> None:
         "wtg01_target_device_fault_active": {
             "quality": target.quality,
             "freshness": target.freshness,
-            "value": None,
+            "value": _sample_scalar(target),
         },
+        "conversion": "int01_to_bool (F1 remediation verified)",
         "dcems_observed_fault": row["fault"],
-        "finding": (
-            "int32 fault_status cannot be delivered into bool device_fault_active; "
-            "Gateway1 serves register default False to DCEMS. Production gap: "
-            "VariableStore.validate_value rejects int for bool (see int-to-bool-repro)."
-        ),
         "random_devices_fault": "GOOD/CURRENT/False on WTG02-10",
         "dcems_quality_field": "NOT_EXPRESSIBLE (Modbus has no quality attribute)",
     }
-    out = Path("docs/audit/dcems_t04_measurement_control_e2e_20261128_evidence/quality")
+    out = BASE / "state" / "quality-evidence"
     out.mkdir(parents=True, exist_ok=True)
     (out / "quality-states.json").write_text(
         json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -806,7 +840,7 @@ def test_disconnect_isolation_and_recovery() -> None:
         "wtg01_recovered_tm": str(row["tm"]),
         "other_nine_continued": True,
     }
-    out = Path("docs/audit/dcems_t04_measurement_control_e2e_20261128_evidence/quality")
+    out = BASE / "state" / "quality-evidence"
     out.mkdir(parents=True, exist_ok=True)
     (out / "disconnect-recovery.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
 
@@ -882,9 +916,7 @@ def test_d1_active_power_450kw_with_measurement_feedback() -> None:
     )
     out = BASE / "state" / "t04-d1-evidence.json"
     out.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-    Path("docs/audit/dcems_t04_measurement_control_e2e_20261128_evidence/control").mkdir(
-        parents=True, exist_ok=True
-    )
+    Path(BASE / "state" / "control-evidence").mkdir(parents=True, exist_ok=True)
 
 
 def test_d2_reactive_125kvar_with_physical_feedback() -> None:

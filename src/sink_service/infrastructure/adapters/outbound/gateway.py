@@ -238,7 +238,9 @@ class GatewayOutput:
             error=(
                 "GATEWAY_CONVERSION_INVALID"
                 if rejected
-                else "GATEWAY_PARTIAL" if len(delivered) != len(samples) else ""
+                else "GATEWAY_PARTIAL"
+                if len(delivered) != len(samples)
+                else ""
             ),
             permanent=tuple(sorted(rejected)),
             successful_attempts=1 if succeeded else 0,

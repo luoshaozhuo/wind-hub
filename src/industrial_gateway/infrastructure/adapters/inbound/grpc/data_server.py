@@ -341,19 +341,18 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
                 and stale_after_ms is not None
                 and (
                     snapshot.updated_at is None
-                    or (now - snapshot.updated_at).total_seconds() * 1000
-                    >= stale_after_ms
+                    or (now - snapshot.updated_at).total_seconds() * 1000 >= stale_after_ms
                 )
             )
             sample = common.Sample(
                 point_id=variable_id,
-                quality=(
-                    "BAD" if stale else "GOOD" if snapshot.value is not None else "UNKNOWN"
-                ),
+                quality=("BAD" if stale else "GOOD" if snapshot.value is not None else "UNKNOWN"),
                 freshness=(
                     "STALE"
                     if stale
-                    else "CURRENT" if snapshot.value is not None else "UNINITIALIZED"
+                    else "CURRENT"
+                    if snapshot.value is not None
+                    else "UNINITIALIZED"
                 ),
                 error_code="STALE_VALUE" if stale else "",
                 queried_at=queried_at,

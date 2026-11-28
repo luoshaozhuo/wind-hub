@@ -39,7 +39,8 @@ KAFKA_100 = f"{TEMPLATE_ROOT}/sinks/sink_kafka_history_v1.0.0.yaml"
 
 def _kafka_template(*, version: str, concurrent: bool, inflight: int) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        # Kafka Sink 模板信封门禁要求 schema v2。
+        "schema_version": 2,
         "file_version": version,
         "template_id": "kafka_history",
         "kind": "kafka",

@@ -1,0 +1,4 @@
+                    "confirmed_batches_per_s_steady": round(steady_values_s / POINTS_PER_BATCH, 2),
+>               assert result["confirmed_batches_per_s_steady"] >= (
+E               AssertionError: {'achieved_publish_batches_per_s': 120.0, 'backlog_slope_batches_per_s_steady': 37.585, 'confirmed_batches_per_s_steady': 60.85, 'confirmed_points_per_physical_builder': 202.633, ...}
+FAILED tests/sink_service/system/test_capacity_r14_sustained.py::TestR14SustainedCapacity::test_sustained_capacity_600s

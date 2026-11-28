@@ -195,6 +195,50 @@ async def test_expired_injected_value_is_not_reported_current(harness) -> None:
     assert stale.values[0].HasField("sample_timestamp")
 
 
+async def test_stale_boundary_recovery_and_unconfigured_semantics(harness) -> None:
+    """恰好到达期限=STALE；重新注入恢复 CURRENT；未配置保持旧语义。"""
+    instance = harness.runtime.instances["gw1"]
+    stub = harness.gateway_stub()
+    # 未配置 read_stale_after_ms：过期样本仍按旧语义 GOOD/CURRENT。
+    await instance.store.update(FEEDBACK_FLOAT, 7.0)
+    old_previous = instance.store.read(FEEDBACK_FLOAT)
+    instance.store._values[FEEDBACK_FLOAT] = replace(
+        old_previous, updated_at=datetime.now(UTC) - timedelta(seconds=60)
+    )
+    unconfigured = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+    )
+    assert unconfigured.values[0].quality == "GOOD"
+    assert unconfigured.values[0].freshness == "CURRENT"
+
+    instance.config = replace(
+        instance.config,
+        settings=instance.config.settings.model_copy(update={"read_stale_after_ms": 5000}),
+    )
+    # 恰好到达期限（age == stale_after_ms 判定用 >=，见 data_server）：
+    # 以 queried_at 对齐构造 age=5000ms，读取时刻 age≥5000 → 必须 STALE。
+    await instance.store.update(FEEDBACK_FLOAT, 9.0)
+    previous = instance.store.read(FEEDBACK_FLOAT)
+    instance.store._values[FEEDBACK_FLOAT] = replace(
+        previous, updated_at=datetime.now(UTC) - timedelta(milliseconds=5000)
+    )
+    boundary = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+    )
+    assert boundary.values[0].quality == "BAD"
+    assert boundary.values[0].freshness == "STALE"
+    assert boundary.values[0].error_code == "STALE_VALUE"
+
+    # 恢复有效注入 → GOOD/CURRENT。
+    await instance.store.update(FEEDBACK_FLOAT, 11.0)
+    recovered = await stub.ReadVariables(
+        pb.ReadVariablesRequest(gateway_id="gw1", variable_ids=[FEEDBACK_FLOAT])
+    )
+    assert recovered.values[0].quality == "GOOD"
+    assert recovered.values[0].freshness == "CURRENT"
+    assert recovered.values[0].error_code == ""
+
+
 async def test_service_info_capabilities_and_status(harness) -> None:
     common_stub = harness.common_stub()
     info = await common_stub.GetServiceInfo(common.Empty())

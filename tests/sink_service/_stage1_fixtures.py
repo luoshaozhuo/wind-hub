@@ -36,7 +36,9 @@ _CONFIG_SOURCES = {
 }
 
 _BASE_SERVICE: dict[str, Any] = {
-    "schema_version": 2,
+    # 生产门禁自 108ade2d 起要求 token-security service schema v6；
+    # 夹具同步到 v6，保持与 config_io/service_policy 一致。
+    "schema_version": 6,
     "file_version": "1.0.0",
     "service_id": "sink-west",
     "wind_farm_id": "farm-a",
@@ -96,7 +98,7 @@ _BASE_SERVICE: dict[str, Any] = {
         "replay_max_inflight": 1,
         "replay_max_rate_per_second": 50,
         "replay_starvation_alarm_seconds": 300,
-        "dedup_key": "sample_id",
+        "dedup_key": "batch_id",
     },
     "metrics": {
         "metrics_compute_interval_ms": 1000,
@@ -145,7 +147,8 @@ _REDIS_TEMPLATE = {
 }
 
 _KAFKA_TEMPLATE = {
-    "schema_version": 1,
+    # Kafka Sink 模板自严格信封门禁起要求 schema v2。
+    "schema_version": 2,
     "file_version": "1.0.0",
     "template_id": "kafka_history",
     "kind": "kafka",
@@ -165,6 +168,26 @@ _KAFKA_TEMPLATE = {
         "enable_idempotence": True,
         "acks": "all",
         "write_timeout_ms": 5000,
+    },
+}
+
+_GATEWAY_TEMPLATE = {
+    "schema_version": 1,
+    "file_version": "1.0.0",
+    "template_id": "gateway_realtime",
+    "kind": "gateway",
+    "capabilities": {
+        "realtime": True,
+        "reliable": False,
+        "idempotent": False,
+        "supports_concurrent_write": False,
+        "max_safe_inflight": 1,
+    },
+    "connection": {},
+    "output": {
+        "write_timeout_ms": 2000,
+        "lease_ms": 15000,
+        "max_batch_size": 500,
     },
 }
 
@@ -204,6 +227,7 @@ def template_doc(name: str) -> dict[str, Any]:
     mapping = {
         "redis_realtime": _REDIS_TEMPLATE,
         "kafka_history": _KAFKA_TEMPLATE,
+        "gateway_realtime": _GATEWAY_TEMPLATE,
         "realtime_power": _REALTIME_DELIVERY_TEMPLATE,
         "reliable_history": _RELIABLE_DELIVERY_TEMPLATE,
     }
@@ -215,6 +239,7 @@ def template_path(name: str, version: str = "1.0.0") -> str:
     family = {
         "redis_realtime": "sinks",
         "kafka_history": "sinks",
+        "gateway_realtime": "sinks",
         "realtime_power": "deliveries",
         "reliable_history": "deliveries",
     }[name]

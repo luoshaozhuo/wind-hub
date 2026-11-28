@@ -1,0 +1,3 @@
+{
+  "dcems_wtg01:fault_status->device_fault_active": "int01_to_bool"
+}

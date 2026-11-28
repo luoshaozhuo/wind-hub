@@ -1,0 +1,15 @@
+{
+  "baseline": {
+    "source_fault_status": 0,
+    "target": false,
+    "dcems": "f"
+  },
+  "after_trip": {
+    "source_fault_status": 1,
+    "target": true,
+    "dcems": "t"
+  },
+  "conversion": "int01_to_bool",
+  "isolation_random_devices": "WTG02-10 device_fault_active=False",
+  "stimulus": "wind_speed_mean=26 >= cut_out_speed_m_s=25 (weather input)"
+}

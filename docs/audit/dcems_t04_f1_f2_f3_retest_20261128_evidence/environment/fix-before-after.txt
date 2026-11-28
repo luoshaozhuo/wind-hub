@@ -1,0 +1,14 @@
+== 修复前（865f78a4）release 结算检查 ==
+  if any(not task.done() or task.cancelled() for task in current.physical.tasks):
+      current.unsafe = True   # physical.tasks 为十机共享集合 → 兄弟在途写触发误栅栏
+  → sink stop 任一 Delivery → physical.unsafe=True（共享）→ 10/10 FAILED
+    "cancelled native Sink I/O requires external fencing" → 仅进程重启可恢复
+  实测两轮复现（F3 live 首两轮失败现场）
+
+== 修复后 ==
+  _SinkOutput 增加自有 tasks 集合；写入登记/完成回调双写；
+  release 仅检查 current.tasks（本 Sink 自有在途写）。
+  取消语义不变：_finish 中 cancelled 仍置 physical.unsafe（任务级隔离保留）。
+  回归测试 test_release_of_one_owner_does_not_fence_sibling_inflight_writes。
+  实测：sink stop/start wtg01（兄弟九机在途写）→ STOPPED/RUNNING 正常，
+  30 分钟注入两轮停启 + 15/15 live 全绿。

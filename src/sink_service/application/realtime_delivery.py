@@ -153,9 +153,7 @@ class RealtimeDeliveryPort:
         await engine.stop()
         if self._writer is not None:
             try:
-                await asyncio.wait_for(
-                    self._writer.settle(), timeout=self._settle_timeout
-                )
+                await asyncio.wait_for(self._writer.settle(), timeout=self._settle_timeout)
             except TimeoutError as exc:
                 # Do not release a physical output while native I/O remains
                 # uncertain. The next reconciliation may retry this cleanup.

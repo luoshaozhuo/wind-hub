@@ -1,0 +1,12 @@
+ .../adapters/inbound/grpc/data_server.py           | 24 +++++-
+ .../infrastructure/config/schema.py                |  8 ++
+ src/sink_service/application/config.py             |  5 ++
+ src/sink_service/application/realtime_delivery.py  | 18 ++++-
+ .../infrastructure/adapters/outbound/gateway.py    | 46 ++++++++++--
+ .../infrastructure/realtime_runtime.py             |  5 ++
+ .../component/test_grpc_gateways.py                | 30 ++++++++
+ .../unit/test_gateway_value_conversion.py          | 86 ++++++++++++++++++++++
+ .../unit/test_realtime_delivery_stop_settlement.py | 80 ++++++++++++++++++++
+ tests/third_party/dc_ems/prepare_t04_unified.py    |  7 ++
+ .../third_party/dc_ems/test_t04_unified_config.py  | 10 +++
+ 11 files changed, 308 insertions(+), 11 deletions(-)

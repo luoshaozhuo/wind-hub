@@ -162,3 +162,55 @@ async def test_release_observes_native_state_when_done_callback_runs_after_close
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     assert output.unsafe is cancel_native
+
+
+class _InstantAdapter:
+    async def write_batch(self, samples: tuple[Any, ...]) -> BatchOutcome:
+        return BatchOutcome(tuple(range(len(samples))), tuple(range(len(samples))))
+
+    async def close(self) -> None:
+        return None
+
+
+async def test_release_of_one_owner_does_not_fence_sibling_inflight_writes() -> None:
+    """共享物理目标：释放一个 Delivery 不得因兄弟在途写而触发错误栅栏。
+
+    回归：release 曾检查共享 physical.tasks，兄弟写几乎总在途 →
+    任一 Delivery 停止即把整个物理目标标为 unsafe，全部 FAILED，
+    只能进程级重启恢复（T04 复测实测）。
+    """
+    physical = _PhysicalQuota(2)
+    physical.references = 2
+    physical.register("sink1", 1)
+    physical.register("sink2", 1)
+    gated = _GatedAdapter()
+    output1 = _SinkOutput(_InstantAdapter(), "sig1", "gw://target", physical)
+    output1.references = 1
+    output2 = _SinkOutput(gated, "sig2", "gw://target", physical)
+    output2.references = 1
+    pool = SharedSinkOutputPool(lambda _sink_id, _snapshot: (_InstantAdapter(), "sig"))
+    pool._entries["sink1"] = output1
+    pool._entries["sink2"] = output2
+    pool._physical_quotas[output1.physical_key] = physical
+
+    writer2 = _writer(gated, output2, asyncio.Semaphore(2))
+    writing = asyncio.create_task(writer2.write_batch((object(),)))
+    await asyncio.wait_for(gated.first_started.wait(), timeout=1)
+    assert output2.tasks, "sibling write must be tracked as in-flight"
+
+    # 兄弟在途写期间释放 sink1：必须成功且不污染物理目标。
+    await asyncio.wait_for(pool.release("sink1"), timeout=1)
+    assert "sink1" not in pool._entries
+    assert not physical.unsafe
+    assert physical.references == 1
+
+    # 兄弟写继续正常完成。
+    gated.release_writes.set()
+    result = await asyncio.wait_for(writing, timeout=1)
+    assert result.delivered == (0,)
+    assert not physical.unsafe
+
+    gated.release_close.set()
+    await asyncio.wait_for(pool.release("sink2"), timeout=1)
+    assert not pool._entries
+    assert not pool._physical_quotas

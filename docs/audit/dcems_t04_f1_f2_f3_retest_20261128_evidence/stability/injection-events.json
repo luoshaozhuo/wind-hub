@@ -1,0 +1,47 @@
+[
+  {
+    "ts": "2026-11-28T04:54:44.221239+00:00",
+    "kind": "inject",
+    "detail": "sink stop dcems_wtg01 (F2 manual STOP)"
+  },
+  {
+    "ts": "2026-11-28T04:54:52.908802+00:00",
+    "kind": "observe",
+    "detail": "wtg01=BAD/STALE wtg05=GOOD/CURRENT"
+  },
+  {
+    "ts": "2026-11-28T04:54:52.908847+00:00",
+    "kind": "inject",
+    "detail": "sink start dcems_wtg01 (F2 manual START)"
+  },
+  {
+    "ts": "2026-11-28T04:57:44.188061+00:00",
+    "kind": "inject",
+    "detail": "service stop gateway-target (Sink write path outage60s)"
+  },
+  {
+    "ts": "2026-11-28T04:58:44.956213+00:00",
+    "kind": "inject",
+    "detail": "service start gateway-target"
+  },
+  {
+    "ts": "2026-11-28T04:58:50.556024+00:00",
+    "kind": "recover",
+    "detail": "gateway-target values CURRENT again: 0.13s"
+  },
+  {
+    "ts": "2026-11-28T05:02:44.178948+00:00",
+    "kind": "inject",
+    "detail": "sink stop/start dcems_wtg02 (second cycle)"
+  },
+  {
+    "ts": "2026-11-28T05:07:44.194858+00:00",
+    "kind": "inject",
+    "detail": "control command during stability (duplicate-execution check)"
+  },
+  {
+    "ts": "2026-11-28T05:07:56.982342+00:00",
+    "kind": "control",
+    "detail": "setParam code=200 fc16_delta=1 (expect 1; >1 = duplicate)"
+  }
+]

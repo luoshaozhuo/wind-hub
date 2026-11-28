@@ -1,0 +1,43 @@
+diff --git a/src/sink_service/application/output_pool.py b/src/sink_service/application/output_pool.py
+index f702ac35..2275dab3 100644
+--- a/src/sink_service/application/output_pool.py
++++ b/src/sink_service/application/output_pool.py
+@@ -77,6 +77,9 @@ class _SinkOutput:
+         self.physical_key = physical_key
+         self.physical = physical
+         self.references = 0
++        # 本 Sink 自有的在途原生写。release 的结算检查只看自己的写；
++        # 共享同一物理目标的兄弟 Delivery 在途写不得触发错误栅栏。
++        self.tasks: set[asyncio.Task[BatchOutcome]] = set()
+ 
+     @property
+     def quota(self) -> _PhysicalCapacity:
+@@ -117,6 +120,7 @@ class _QuotaWriter:
+             # an external fence or process termination proves safety.
+             self._output.unsafe = True
+             return
++        self._output.tasks.discard(task)
+         self._output.physical.tasks.discard(task)
+         task.exception()
+         self._sink_quota.release()
+@@ -177,6 +181,7 @@ class _QuotaWriter:
+             raise
+         self._pending = task
+         self._pending_timings = (global_seconds, physical_seconds, native_started)
++        self._output.tasks.add(task)
+         self._output.physical.tasks.add(task)
+         task.add_done_callback(self._finish)
+         try:
+@@ -307,8 +312,10 @@ class SharedSinkOutputPool:
+                 return
+             await current.adapter.close()
+             # Adapter.close may yield while native I/O finishes or is
+-            # cancelled. An unsafe target must remain pinned for fencing.
+-            if any(not task.done() or task.cancelled() for task in current.physical.tasks):
++            # cancelled. Only this Sink's own native writes can be unsettled
++            # here; sibling Deliveries sharing the physical target keep their
++            # own in-flight tasks and must not be fenced by this release.
++            if any(not task.done() or task.cancelled() for task in current.tasks):
+                 current.unsafe = True
+             if current.unsafe:
+                 raise ConfigurationError("cancelled native Sink I/O requires external fencing")

@@ -1,0 +1,155 @@
+F...F........                                                            [100%]
+=================================== FAILURES ===================================
+__________________ test_ten_device_nine_point_reconciliation ___________________
+
+    def test_ten_device_nine_point_reconciliation() -> None:
+        """十机 ×9 点：DCEMS 实测值与 wind-hub 源值/期望逐点对账。"""
+        expected = _expected_random()
+        report: dict[str, Any] = {"devices": {}, "checked_at": datetime.now(UTC).isoformat()}
+        for index in range(1, 11):
+            device = f"WTG{index:02d}"
+            row = _dcems_row(device)
+            assert row["com"] == "t", (device, row)
+            assert row["tm"], device
+            samples = _gateway_read(
+                f"dcems-target-{index:02d}",
+                TARGET_GRPC,
+                list(NINE_POINTS),
+                "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+            )
+            entry: dict[str, Any] = {"dcems": {}, "gateway": {}, "expected": {}}
+            # wind_speed 身份与对账
+            gw_wind = _sample_scalar(samples["wind_speed"])
+            assert samples["wind_speed"].freshness == "CURRENT", device
+            assert row["wind_speed"] is not None
+            if device == "WTG01":
+                # 物理机风速连续变化：以行 tm 为中心的 Gateway 包络对账
+                assert 4.0 <= row["wind_speed"] <= 18.0, row
+                _assert_dcems_within_gateway_envelope(device, "wind_speed", window_s=15, margin=1.0)
+    
+            else:
+                assert row["wind_speed"] == pytest.approx(expected[device]["wind_speed"], abs=1e-3)
+                assert gw_wind == pytest.approx(expected[device]["wind_speed"], abs=1e-3)
+            # 有功：DCEMS kW = Gateway W ×0.001（coe）
+            gw_power = float(_sample_scalar(samples["sim_active_power"]))
+            assert samples["sim_active_power"].freshness == "CURRENT", device
+            if device == "WTG01":
+                # 物理有功在设定值附近动态波动：用包络而非瞬时夹逼
+>               _assert_dcems_within_gateway_envelope(
+                    device, "sim_active_power", window_s=10, margin=25.0, scale=0.001
+                )
+
+tests/third_party/dc_ems/test_t04_unified_live.py:457: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+device = 'WTG01', point = 'sim_active_power'
+
+    def _assert_dcems_within_gateway_envelope(
+        device: str, point: str, *, window_s: float, margin: float, scale: float = 1.0
+    ) -> tuple[float, float, float]:
+        """连续变化点包络对账：DCEMS 值落在行时刻±窗口的 Gateway 采样包络内。
+    
+        DCEMS 行写入存在第三方调度/停顿（实测 ≤30s），读取时刻相对行 tm 存在
+        不确定度；窗口取 ±30s 覆盖该不确定度，margin=1.5 m/s 覆盖湍流
+        （TI=0.12 → σ≈1.1 m/s）。该断言验证“值来自同期真实测量”，不接受
+        过期/越界/填零值；随机机恒值点同时由逐点相等断言覆盖。
+        """
+        index = int(device[-2:])
+        row = _dcems_row(device)
+        row_tm = datetime.strptime(str(row["tm"]), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=UTC)
+        start = (row_tm - timedelta(seconds=window_s)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        end = (row_tm + timedelta(seconds=window_s)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        samples: list[float] = []
+        deadline = time.monotonic() + 35
+        while time.monotonic() < deadline and len(samples) < 30:
+            sample = _gateway_read(
+                f"dcems-target-{index:02d}",
+                TARGET_GRPC,
+                [point],
+                "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+            )[point]
+            ts = datetime.fromtimestamp(
+                sample.sample_timestamp.seconds + sample.sample_timestamp.nanos / 1e9, tz=UTC
+            )
+            if start <= ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] <= end:
+                value = float(_sample_scalar(sample))
+                if not samples or value != samples[-1]:
+                    samples.append(value)
+            time.sleep(0.4)
+>       assert samples, f"{device}: no gateway samples in window"
+E       AssertionError: WTG01: no gateway samples in window
+E       assert []
+
+tests/third_party/dc_ems/test_t04_unified_live.py:405: AssertionError
+__________________ test_quality_states_and_missing_fault_cell __________________
+
+    def test_quality_states_and_missing_fault_cell() -> None:
+        """质量四态证据：GOOD/UNKNOWN/NOT_COLLECTED 的真实落点与不可表达项。"""
+        # 1) 随机机故障点：bool 规则 → 全链 GOOD，DCEMS 可见
+        for index in range(2, 11):
+            samples = _gateway_read(
+                f"dcems-target-{index:02d}",
+                TARGET_GRPC,
+                ["device_fault_active"],
+                "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+            )
+            sample = samples["device_fault_active"]
+            assert sample.quality == "GOOD", (index, sample)
+            assert sample.freshness == "CURRENT"
+            assert _sample_scalar(sample) is False
+            row = _dcems_row(f"WTG{index:02d}")
+            assert row["fault"] == "f"
+        # 2) 物理 WTG01：源 GOOD（int32），目标 bool 变量 UNINITIALIZED（生产缺口）
+        source = _gateway_read(
+            "dcems-source-01",
+            SOURCE_GRPC,
+            ["fault_status"],
+            "WIND_HUB_DCE_GATEWAY_OPERATOR_TOKEN",
+        )["fault_status"]
+        assert source.quality == "GOOD" and source.freshness == "CURRENT"
+        target = _gateway_read(
+            "dcems-target-01",
+            TARGET_GRPC,
+            ["device_fault_active"],
+            "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+        )["device_fault_active"]
+>       assert target.freshness == "UNINITIALIZED", target
+E       AssertionError: point_id: "device_fault_active"
+E         value {
+E           bool_value: false
+E         }
+E         quality: "GOOD"
+E         sample_timestamp {
+E           seconds: 1795838298
+E           nanos: 961667000
+E         }
+E         queried_at {
+E           seconds: 1795838298
+E           nanos: 977655000
+E         }
+E         freshness: "CURRENT"
+E         
+E       assert 'CURRENT' == 'UNINITIALIZED'
+E         
+E         - UNINITIALIZED
+E         + CURRENT
+
+tests/third_party/dc_ems/test_t04_unified_live.py:652: AssertionError
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 510 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: 13 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/third_party/dc_ems/test_t04_unified_live.py::test_ten_device_nine_point_reconciliation
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/third_party/dc_ems/test_t04_unified_live.py::test_ten_device_nine_point_reconciliation
+FAILED tests/third_party/dc_ems/test_t04_unified_live.py::test_quality_states_and_missing_fault_cell
+2 failed, 11 passed, 524 warnings in 503.36s (0:08:23)
