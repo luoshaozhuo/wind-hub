@@ -144,7 +144,7 @@ def _wait_tcp(host: str, port: int, *, deadline: float) -> None:
     raise R5StackError(f"TCP {host}:{port} not reachable before deadline")
 
 
-def up_stack() -> R5Stack:
+def _up_stack_once() -> R5Stack:
     """启动 R5 真实服务栈并完成应用层就绪确认。"""
     if not docker_available():
         raise R5StackError("docker CLI or daemon unavailable")
@@ -192,6 +192,23 @@ def up_stack() -> R5Stack:
     except Exception:
         down_project(project, env)
         raise
+
+
+
+def up_stack() -> R5Stack:
+    """Retry transient Docker host-port binding collisions with fresh ports."""
+    for attempt in range(3):
+        try:
+            return _up_stack_once()
+        except R5StackError as exc:
+            detail = str(exc).lower()
+            is_port_conflict = (
+                "port is already allocated" in detail
+                or "address already in use" in detail
+            )
+            if not is_port_conflict or attempt == 2:
+                raise
+    raise AssertionError("unreachable")
 
 
 def _wait_tdengine_ready(stack: R5Stack) -> None:
