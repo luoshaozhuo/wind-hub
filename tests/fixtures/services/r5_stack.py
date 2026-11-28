@@ -152,13 +152,18 @@ def _up_stack_once() -> R5Stack:
     import secrets
 
     project = f"wind-hub-r5-{secrets.token_hex(4)}"
+    selected: list[int] = []
+    while len(selected) < 5:
+        candidate = free_port()
+        if candidate not in selected:
+            selected.append(candidate)
     ports = {
         "R5_PROJECT": project,
-        "R5_NATS_PORT": str(free_port()),
-        "R5_NATS_MON_PORT": str(free_port()),
-        "R5_REDIS_PORT": str(free_port()),
-        "R5_TDENGINE_PORT": str(free_port()),
-        "R5_KAFKA_PORT": str(free_port()),
+        "R5_NATS_PORT": str(selected[0]),
+        "R5_NATS_MON_PORT": str(selected[1]),
+        "R5_REDIS_PORT": str(selected[2]),
+        "R5_TDENGINE_PORT": str(selected[3]),
+        "R5_KAFKA_PORT": str(selected[4]),
     }
     import os
 
