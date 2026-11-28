@@ -3040,7 +3040,7 @@ Core 仅收录可被多个业务模块复用、字段含义及不变量稳定的
 | 设备与站点 | `Site`、`Device`、`DeviceGroup`、`DeviceType`、`DeviceModel`（`domain/site.py`、`device.py`） | 描述现场设备、类别、型号、设备组及其稳定关系 | 不持有 Session、Watchdog、采集任务或运行状态 |
 | 测点与点表 | `PointTable`、`Point`、`BusinessPoint`（`domain/point.py`） | 定义设备协议测点与跨设备标准业务量的映射 | 协议专有字段留在 `Point.ext`，由协议 Adapter 校验 |
 | 单位及基础类型 | `Quantity`、`Unit`、`UnitCatalog`、`DataType`、`PointAccess`、`Protocol`、`ConnectionEndpoint` | 工程量类别、单位换算、数据类型及端点身份 | 不决定采集或控制策略 |
-| 点值与质量 | `PointValue`、`Quality`、`PointScalar` | 表达跨模块可共享的工程点值、质量及时间 | 不承载采集任务执行状态和派发策略 |
+| 类型与质量边界 | `DataType`、`PointAccess`（Core）；采样质量与时间（Contracts 消息） | Core 提供标量类型与测点访问能力；采样质量、时间由线协议承载 | 不引入 Core `PointValue` 或采集运行状态 |
 | 标识 | `DeviceId`、`DeviceModelId`、`DeviceTypeId`、`DeviceGroupId`、`PointTableId`、`BusinessPointId` | 限定标识的语义类型 | `NewType` 属于静态类型标识，不是运行时实体 |
 
 ## 10.2 设备、型号与测点模型
@@ -3137,9 +3137,9 @@ classDiagram
 
 `DeviceModel.point_table_id` 指向**一张**点表，多个型号可以引用同一张点表。`PointTable` 的一个 `Point` 对应一个 `BusinessPointId`，多个设备点可以引用同一标准业务点。`Point.ext` 不定义 ADS、Modbus TCP、IEC104 的专有字段解释，相关规则由第 7 章协议 Adapter 执行。
 
-## 10.3 工程单位、点值与质量模型
+## 10.3 工程单位与测点类型模型
 
-<p class="figure-caption">图 10-2 工程单位、业务点与点值类图</p>
+<p class="figure-caption">图 10-2 工程单位、业务点与数据类型类图</p>
 
 ```mermaid
 %%{init: {"class": {"useMaxWidth": true}}}%%
@@ -3174,22 +3174,6 @@ classDiagram
         +float scale
         +float offset
     }
-    class PointValue {
-        +str device_id
-        +str point_id
-        +PointScalar value
-        +Quality quality
-        +datetime timestamp
-        +datetime receive_time
-        +datetime device_time
-        +str timestamp_source
-    }
-    class Quality {
-        <<enumeration>>
-        GOOD
-        BAD
-        UNCERTAIN
-    }
     class DataType {
         <<enumeration>>
         BOOL
@@ -3205,13 +3189,11 @@ classDiagram
     BusinessPoint --> Unit : standard_unit
     Point --> Unit : source_unit
     BusinessPoint --> DataType : data_type
-    PointValue --> Quality : quality
-    PointValue ..> Point : point_id
 ```
 
-**图例：**`PointValue` 以 `device_id` 和 `point_id` 关联设备实例及测点，不直接持有 `Point`。`DataType` 在图中仅列举代表性枚举值，完整类型集合以公共类型契约为准；`Quality` 为完整的三态质量枚举。
+**图例：**`Point`、`BusinessPoint` 和 `DataType` 为 Core 定义；图中仅列举代表性数据类型。采样值、质量及时间由当前 Contracts SampleBatch v4 承载，Core 不再定义 `PointValue`。
 
-<p class="table-caption">表 10-3 单位、类型及点值对象的关键契约</p>
+<p class="table-caption">表 10-3 单位与类型对象的关键契约</p>
 
 | 对象 | 关键属性或方法 | 约束与语义 |
 |---|---|---|
@@ -3220,8 +3202,7 @@ classDiagram
 | `UnitCatalog` | `units`、`base_units`、`convert()` | 每个 Quantity 声明唯一基准单位；基准单位系数为 1、偏置为 0；禁止跨 Quantity 换算 |
 | `DataType` | `BOOL`、整数、浮点、字符串等 | `coerce()` 约束类型、整数范围、有限浮点及 FLOAT32 可表示范围 |
 | `PointAccess` | `READ`、`WRITE`、`READ_WRITE` | 表示设备点的基础访问能力，不等同控制授权 |
-| `Quality` | `GOOD`、`BAD`、`UNCERTAIN` | 通用点值质量，协议专有质量位由 Adapter 转换 |
-| `PointValue` | `device_id`、`point_id`、`value`、`quality`、时间字段 | 标识非空；时间带时区并统一为 UTC；时间来源为 `device` 或 `local` |
+| 采样质量与时间（Contracts） | `quality`、`sample_time`、可选源时间/接收时间 | 由当前 SampleBatch v4 消息与相关适配器负责，不作为 Core 领域实体 |
 
 单位转换由 `UnitCatalog.convert()` 与 `convert_value()` 负责。`Point` 的 `scale`、`offset` 仅表示点级线性工程换算；两个换算机制不能在调用链中重复应用。时间信息区分设备采样时间和本地接收时间，不能将本地读取时刻伪装成设备采样时刻。
 
