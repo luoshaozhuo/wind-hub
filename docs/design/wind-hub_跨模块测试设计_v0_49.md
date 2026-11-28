@@ -910,6 +910,8 @@ C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前�
 | sim-a | `sim-a@2.0.1` | 23 | `cli-sim@1.10.1` | D2 配置闭包、字节一致性 |
 | e2e-final | `e2e-final@2.0.2` | 35 | `cli-e2e@1.1.9` | D2 配置闭包、字节一致性 |
 
+**不可变 YAML 注释说明**：`e2e-final@2.0.2` 文件头仍包含历史的“等待 D4 runtime migration”候选说明。为保证该版本文件内容 SHA 与 D2 验收基线严格一致，不改写该配置文件的注释；当前 D1/D2 已完成的实际验收状态以本节及对应审计报告为准。
+
 **版本与验收依据**：Deployment 的选版以 `deploy/config_roots/<root>/deployments/` 内当前唯一文件、其 Service/Instance/Template 精确闭包及 Configuration Repository 校验结果为准，不以 §15.2～§15.7 的旧候选选版替代；`configs/` 为不可变历史归档。D2 最终生产源码/测试 SHA 为 `13955c2e06cd387589535aa52142a2604818905e`，最终报告提交 SHA 为 `f5500634cf333533b0f9924a201945ae0ecef618`。
 
 **实际已执行**：D2 三套配置闭包及相关测试 118 PASS、87 份活动 YAML 逐字节一致；CLI 294 PASS/13 个环境 skip；非 Web 模块联合 1036 PASS；D1 Full-chain 选定 32/32 PASS；静态检查全绿。上述证据分别见 `docs/audit/d2_final_independent_retest_20261128.md` 及证据目录。已执行的子集不得扩展为其他 Full-chain、容量、现场硬件、netem、长稳、Web 或整体 Production Ready。
