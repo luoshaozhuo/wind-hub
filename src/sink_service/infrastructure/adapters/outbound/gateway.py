@@ -32,6 +32,7 @@ class GatewayOutput:
         gateway_id: str,
         owner_id: str,
         mappings: TargetMap,
+        conversions: dict[str, str] | None = None,
         timeout_ms: int,
         lease_ms: int,
         max_batch_size: int,
@@ -40,6 +41,7 @@ class GatewayOutput:
         self._gateway_id = gateway_id
         self._owner_id = owner_id
         self._mappings = mappings
+        self._conversions = conversions or {}
         self._variable_ids = tuple(
             sorted({value for values in mappings.values() for value in values})
         )
@@ -131,6 +133,16 @@ class GatewayOutput:
         if channel is not None:
             await channel.close()
 
+    def _target_value(self, variable_id: str, value: float | int | bool | str) -> float | int | bool | str:
+        conversion = self._conversions.get(variable_id)
+        if conversion is None:
+            return value
+        if conversion == "int01_to_bool":
+            if type(value) is not int or value not in (0, 1):
+                raise ValueError("int01_to_bool requires integer 0 or 1")
+            return bool(value)
+        raise ValueError(f"unsupported Gateway target conversion: {conversion}")
+
     async def write_batch(self, samples: tuple[DeliveryPoint, ...]) -> BatchOutcome:
         client = self._client
         if client is None or not self._lease_token or self._unhealthy:
@@ -142,16 +154,30 @@ class GatewayOutput:
         updates: list[gateway.VariableUpdate] = []
         expected: dict[str, int] = {}
         excluded: set[int] = set()
+        rejected: set[int] = set()
         for index, sample in enumerate(samples):
             targets = self._mappings.get((sample.device_id, sample.point_id))
             if not targets or sample.value is None:
                 excluded.add(index)
                 continue
-            for variable_id in targets:
+            try:
+                converted = [
+                    (variable_id, self._target_value(variable_id, sample.value))
+                    for variable_id in targets
+                ]
+            except ValueError:
+                rejected.add(index)
+                logger.warning(
+                    "Rejected invalid Gateway mapping conversion for %s:%s",
+                    sample.device_id,
+                    sample.point_id,
+                )
+                continue
+            for variable_id, value in converted:
                 updates.append(
                     gateway.VariableUpdate(
                         variable_id=variable_id,
-                        value=encode_scalar(sample.value),
+                        value=encode_scalar(value),
                     )
                 )
                 expected[variable_id] = index
@@ -160,8 +186,9 @@ class GatewayOutput:
         if not updates:
             return BatchOutcome(
                 delivered=(),
-                settled=tuple(sorted(excluded)),
-                error="GATEWAY_NO_VALID_TARGETS",
+                settled=tuple(sorted(excluded | rejected)),
+                error="GATEWAY_CONVERSION_INVALID" if rejected else "GATEWAY_NO_VALID_TARGETS",
+                permanent=tuple(sorted(rejected)),
             )
         started = perf_counter()
         try:
@@ -194,7 +221,7 @@ class GatewayOutput:
                 )
             (succeeded if result.success else failed).add(result.variable_id)
         delivered: list[int] = []
-        settled: set[int] = set(excluded)
+        settled: set[int] = set(excluded | rejected)
         for index, sample in enumerate(samples):
             targets = self._mappings.get((sample.device_id, sample.point_id), ())
             if targets and all(target in succeeded for target in targets):
@@ -206,7 +233,12 @@ class GatewayOutput:
         return BatchOutcome(
             delivered=tuple(delivered),
             settled=tuple(sorted(settled)),
-            error="GATEWAY_PARTIAL" if len(delivered) != len(samples) else "",
+            error=(
+                "GATEWAY_CONVERSION_INVALID"
+                if rejected
+                else "GATEWAY_PARTIAL" if len(delivered) != len(samples) else ""
+            ),
+            permanent=tuple(sorted(rejected)),
             successful_attempts=1 if succeeded else 0,
             failed_attempts=1 if failed else 0,
             successful_latencies_ms=(elapsed_ms,) if succeeded else (),
