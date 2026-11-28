@@ -133,7 +133,9 @@ class GatewayOutput:
         if channel is not None:
             await channel.close()
 
-    def _target_value(self, variable_id: str, value: float | int | bool | str) -> float | int | bool | str:
+    def _target_value(
+        self, variable_id: str, value: float | int | bool | str | bytes
+    ) -> float | int | bool | str | bytes:
         conversion = self._conversions.get(variable_id)
         if conversion is None:
             return value
