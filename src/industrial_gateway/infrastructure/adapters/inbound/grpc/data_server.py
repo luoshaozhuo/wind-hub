@@ -317,7 +317,9 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
         await _authorize(context, self._runtime, "read")
         instance = await self._instance(request.gateway_id, context)
         ids = list(request.variable_ids) or list(instance.config.variables)
-        queried_at = _timestamp(datetime.now(UTC))
+        now = datetime.now(UTC)
+        queried_at = _timestamp(now)
+        stale_after_ms = instance.config.settings.read_stale_after_ms
         samples: list[common.Sample] = []
         for variable_id in ids:
             try:
@@ -334,10 +336,26 @@ class GatewayGrpcService(rpc.IndustrialGatewayServiceServicer):
                     )
                 )
                 continue
+            stale = (
+                snapshot.value is not None
+                and stale_after_ms is not None
+                and (
+                    snapshot.updated_at is None
+                    or (now - snapshot.updated_at).total_seconds() * 1000
+                    >= stale_after_ms
+                )
+            )
             sample = common.Sample(
                 point_id=variable_id,
-                quality="GOOD" if snapshot.value is not None else "UNKNOWN",
-                freshness="CURRENT" if snapshot.value is not None else "UNINITIALIZED",
+                quality=(
+                    "BAD" if stale else "GOOD" if snapshot.value is not None else "UNKNOWN"
+                ),
+                freshness=(
+                    "STALE"
+                    if stale
+                    else "CURRENT" if snapshot.value is not None else "UNINITIALIZED"
+                ),
+                error_code="STALE_VALUE" if stale else "",
                 queried_at=queried_at,
             )
             if snapshot.value is not None:
