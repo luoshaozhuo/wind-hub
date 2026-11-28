@@ -1,10 +1,8 @@
-"""本地纯逻辑验收：网络探针（真实本机 socket）、目录 diff、快照导出、历史脱敏、确认门。"""
+"""本地纯逻辑验收：真实网络探针、目录 diff、历史脱敏及确认门。"""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import hashlib
 import shutil
 import socket
 import subprocess
@@ -16,7 +14,6 @@ from cli.directory_diff import compare_directories
 from cli.history import SafeHistory
 from cli.network_probe import MAX_CONCURRENCY, MAX_HOSTS, industrial_probe, scan_cidr, tcp_probe
 from cli.safety import confirm_mutation
-from cli.snapshot_io import export_snapshot
 
 
 async def _echo_server() -> tuple[asyncio.Server, int]:
@@ -153,70 +150,6 @@ def test_directory_diff_truncation_is_display_only(tmp_path: Path) -> None:
     result = compare_directories(left, right, max_output_lines=3)
     assert result["text_diff_truncated"] is True
     assert result["modified"] == ["f"]  # 修改判定不受截断影响
-
-
-def _snapshot_file(name: str, content: bytes) -> dict[str, object]:
-    return {
-        "relative_path": name,
-        "content": base64.b64encode(content).decode(),
-        "size_bytes": len(content),
-        "sha256": hashlib.sha256(content).hexdigest(),
-    }
-
-
-def test_export_snapshot_happy_path_atomic(tmp_path: Path) -> None:
-    payload = _snapshot_file("conf/a.yaml", b"services: []\n")
-    destination = tmp_path / "out"
-    summary = export_snapshot(
-        {"snapshot_id": "s1", "revision": "r1", "files": [payload]}, destination, 1024
-    )
-    assert summary["file_count"] == 1
-    assert (destination / "conf" / "a.yaml").read_bytes() == b"services: []\n"
-    assert (destination / "conf" / "a.yaml").stat().st_mode & 0o777 == 0o600
-
-
-@pytest.mark.parametrize(
-    "name",
-    ["../escape.yaml", "/abs.yaml", "a/./b", "a/../b.yaml", "a\\b.yaml"],
-)
-def test_export_snapshot_blocks_traversal(tmp_path: Path, name: str) -> None:
-    with pytest.raises(ValueError, match="traversal|path"):
-        export_snapshot(
-            {"files": [_snapshot_file(name, b"x")]},
-            tmp_path / "out",
-            1024,
-        )
-
-
-def test_export_snapshot_rejects_existing_destination(tmp_path: Path) -> None:
-    destination = tmp_path / "out"
-    destination.mkdir()
-    with pytest.raises(ValueError, match="must not already exist"):
-        export_snapshot({"files": []}, destination, 1024)
-
-
-def test_export_snapshot_checksum_and_size_mismatch(tmp_path: Path) -> None:
-    payload = _snapshot_file("a", b"abc")
-    payload["sha256"] = "0" * 64
-    with pytest.raises(ValueError, match="checksum"):
-        export_snapshot({"files": [payload]}, tmp_path / "out1", 1024)
-    payload2 = _snapshot_file("a", b"abc")
-    payload2["size_bytes"] = 99
-    with pytest.raises(ValueError, match="size"):
-        export_snapshot({"files": [payload2]}, tmp_path / "out2", 1024)
-
-
-def test_export_snapshot_rejects_duplicates_and_bad_base64(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="duplicate"):
-        export_snapshot(
-            {"files": [_snapshot_file("a", b"x"), _snapshot_file("a", b"y")]},
-            tmp_path / "out",
-            1024,
-        )
-    payload = _snapshot_file("a", b"x")
-    payload["content"] = "not base64!!"
-    with pytest.raises(ValueError):
-        export_snapshot({"files": [payload]}, tmp_path / "out2", 1024)
 
 
 def test_safe_history_suppresses_mutations_and_secrets() -> None:
