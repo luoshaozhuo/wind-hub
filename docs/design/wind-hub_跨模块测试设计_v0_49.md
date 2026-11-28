@@ -883,7 +883,7 @@ C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前�
 
 **后继候选再修复**：Gateway-source@1.1.1 的 `servers[].control.simulation` 中发现重复 `token_env` 键（严格 YAML 解析必须拒绝），不得发布或回退宽松解析。现行源 Gateway-source@1.1.2、CLI@1.1.2、Deployment@1.0.4 作为不可变后继选版，Gateway-target 仍为 1.1.1；旧源版本保留作为未发布历史审计，不在 E2E 活动根中选择。台账现为 135 项。
 
-### 15.7 第二阶段当前候选与代码测试门禁（2026-11-23）
+### 15.7 第二阶段历史候选与代码测试门禁（2026-11-23）
 
 以本节为最新候选选版，不改写 §15.2～§15.6 历史状态：
 
@@ -898,3 +898,22 @@ C-07：查 `docs/audit/config_version_release_ledger_20261123.csv`，所有前�
 **本轮新增必测**：Configuration v3 动态对象及旧 v1/v2 不变性；Commander/Gateway/Generator 任意 RPC 匿名/错误令牌/重复令牌拒绝；Gateway Sink 注入口权限隔离（Sink Token 不得访问管理 RPC）；Gateway→Commander→Gateway→Generator 与 Generator→Gateway 双向令牌和身份绑定；Generator 出站诊断、授权租约、模型输入及执行证明；旧 mTLS Fixture 删除后全仓测试调用方必须迁移；清理后的 Common 旧 Push/Apply 必须拒绝业务写入。RAW/PROTOCOL/BUSINESS 最终以 Storage 独立读回为准。
 
 **状态**：本阶段正在集中生产编码与测试代码迁移，以上软件门禁全部保留为 `NOT_RUN`，不得将 GitHub 代码提交视为 E2E 或 Production Ready。
+
+
+## 15.8 D3 当前有效版本及验收证据边界（2026-11-28）
+
+§15.2～§15.7 为 2026-11-23 的历史候选、审查过程和当时的 NOT_RUN 状态；其中写作“当前”的版本、风险和测试状态均仅相对于该历史阶段成立，不再作为现在的活动 Deployment 或当前测试结果。不可变历史配置仍须保留，禁止为了修正文档而覆盖其原始 Blob。
+
+| 活动配置根 | 当前唯一 Deployment | YAML 文件数 | 当前 CLI Service 版本 | 证据 |
+|---|---|---:|---|---|
+| prod-a | `prod-a@2.0.2` | 29 | `cli@1.4.1` | D2 配置闭包、字节一致性 |
+| sim-a | `sim-a@2.0.1` | 23 | `cli-sim@1.10.1` | D2 配置闭包、字节一致性 |
+| e2e-final | `e2e-final@2.0.2` | 35 | `cli-e2e@1.1.9` | D2 配置闭包、字节一致性 |
+
+**版本与验收依据**：Deployment 的选版以 `deploy/config_roots/<root>/deployments/` 内当前唯一文件、其 Service/Instance/Template 精确闭包及 Configuration Repository 校验结果为准，不以 §15.2～§15.7 的旧候选选版替代；`configs/` 为不可变历史归档。D2 最终生产源码/测试 SHA 为 `13955c2e06cd387589535aa52142a2604818905e`，最终报告提交 SHA 为 `f5500634cf333533b0f9924a201945ae0ecef618`。
+
+**实际已执行**：D2 三套配置闭包及相关测试 118 PASS、87 份活动 YAML 逐字节一致；CLI 294 PASS/13 个环境 skip；非 Web 模块联合 1036 PASS；D1 Full-chain 选定 32/32 PASS；静态检查全绿。上述证据分别见 `docs/audit/d2_final_independent_retest_20261128.md` 及证据目录。已执行的子集不得扩展为其他 Full-chain、容量、现场硬件、netem、长稳、Web 或整体 Production Ready。
+
+**当前线协议**：Collector→Sink NATS `SampleBatch schema_version=4`；Sink→Kafka 设备级 JSON `schema_version=3`；Storage 宽表以最终可信设备版本及历史闭包解释 RAW/PROTOCOL/BUSINESS。消息字段以 `src/contracts/sample_batch.py`、对应生产端及 Contracts 设计 §11.6/§11.9 为准。旧 NATS v3/Kafka v2 只用于追溯迁移前状态。
+
+**仍需独立验收**：容量及性能、硬件资格、长期稳定性、未执行的 Full-chain 场景、OEM 尚未确认的 BUSINESS 点语义以及所有未取得现场授权或可信历史 Manifest 的生产激活条件。不能把 D1/D2 功能与静态门禁结果直接宣称为生产资格。
