@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from sink_service.application.config import template_document as _template
@@ -31,6 +32,7 @@ class RealtimeDeliveryPort:
         self._engine: RealtimeEngine | None = None
         self._writer: _QuotaWriter | None = None
         self._stopping = False
+        self._settle_timeout = snapshot.service["runtime"]["io_wait_timeout_ms"] / 1000
         self._retained: dict[str, float] = {}
         self._retained_latency = LatencyWindow(
             window_ms=snapshot.service["metrics"]["metrics_window_ms"]
@@ -87,7 +89,8 @@ class RealtimeDeliveryPort:
 
     async def start(self) -> None:
         if self._stopping:
-            raise ConfigurationError("previous Delivery stop has not safely settled")
+            # Retry cleanup only after the prior native operation has settled.
+            await self.stop()
         if self._engine is not None:
             return
         sink = await self._pool.acquire(self._sink_id, self._snapshot)
@@ -147,7 +150,16 @@ class RealtimeDeliveryPort:
         await self._ingress.remove(self._id)
         await engine.stop()
         if self._writer is not None:
-            await self._writer.settle()
+            try:
+                await asyncio.wait_for(
+                    self._writer.settle(), timeout=self._settle_timeout
+                )
+            except TimeoutError as exc:
+                # Do not release a physical output while native I/O remains
+                # uncertain. The next reconciliation may retry this cleanup.
+                raise ConfigurationError(
+                    "Delivery output settlement timed out; ownership retained"
+                ) from exc
         await self._pool.release(self._sink_id)
         for name, value in (
             ("received_total", engine.received_total),
