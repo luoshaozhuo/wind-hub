@@ -160,6 +160,7 @@ def test_shipped_kafka_110_template_declares_device_concurrency() -> None:
     document = yaml.safe_load(SHIPPED_110.read_bytes())
     assert document["template_id"] == "kafka_history"
     assert document["file_version"] == "1.1.0"
+    assert document["schema_version"] == 2
     caps = document["capabilities"]
     assert caps["supports_concurrent_write"] is True
     assert caps["max_safe_inflight"] == 4
@@ -176,6 +177,7 @@ def test_legacy_100_template_remains_serial_capability() -> None:
     document = yaml.safe_load(
         (REPO_ROOT / "configs/templates/sinks/sink_kafka_history_v1.0.0.yaml").read_bytes()
     )
+    assert document["schema_version"] == 2
     assert document["capabilities"]["supports_concurrent_write"] is False
     assert document["capabilities"]["max_safe_inflight"] == 1
 
