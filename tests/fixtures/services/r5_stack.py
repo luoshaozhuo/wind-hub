@@ -171,7 +171,6 @@ def _up_stack_once() -> R5Stack:
     try:
         result = _compose(project, env, "up", "-d", "--wait", "--wait-timeout", "180")
         if result.returncode != 0:
-            _compose(project, env, "down", "-v", "--remove-orphans", timeout=60.0)
             raise R5StackError(
                 f"docker compose up failed ({result.returncode}):\n"
                 f"{result.stdout}\n{result.stderr}"
