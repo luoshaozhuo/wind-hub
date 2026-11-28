@@ -1,0 +1,3 @@
+wind-hub production gap repro: VariableStore.update('device_fault_active' bool, value=1 int) -> TypeError: bool requires a boolean value
+path: Sink target_mappings fault_status(int32) -> device_fault_active(bool); no coercion in encode/decode/validate chain
+live evidence: target ReadVariables device_fault_active freshness=UNINITIALIZED while source fault_status GOOD/CURRENT

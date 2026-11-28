@@ -1,0 +1,7 @@
+## runtime config digests (values not shown)
+41454a1fe5b9194c6e44c124454d6474a6310dca98e510f3522d72a066e54fe4  run/dcems-t04/server/docker/dcems.env
+42b3d4d66dd0ac3cc25bff42bb61aa063f5b6aacd68bb56f9daaaa37f85bc989  run/dcems-t04/server/docker/config/db.property
+7e05ee7719d480ec57a90cab84a63774c6987ce42f461b034e43c953a5c73a5f  run/dcems-t04/server/docker/config/ssl/dc-ems.jks
+6349fbdd1728d7ec5aabac75bc76db2afc24d8baa3d8f221120fb26afad5ab3b  run/dcems-t04/server/docker/config/log4j.properties
+cb7cc4f2a724b413e53f1be0691c8a29a3d129508320889bbd03157b9b3868a7  run/dcems-t04/server/docker/config/machine-id
+28817522843b018cf0d0b114c5056816884eb4d373cf3a5444d19351289c072e  run/dcems-t04/server/data.json

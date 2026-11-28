@@ -1,0 +1,17 @@
+{
+  "dg_source_time_for_row": "2026-11-28T02:06:26.785301+00:00",
+  "gateway1_sample_time": "2026-11-28T02:06:36.958594+00:00",
+  "dcems_row_time_utc": "2026-11-28T02:06:26.793000+00:00",
+  "observed_travel_lag_s": 0.007699,
+  "observed_gateway_lag_s": 0.319835,
+  "observed_dcems_freshness_s": 10.485429,
+  "declared_tolerance_s": 5.0,
+  "clock_basis": "host UTC (probe/DG/DCEMS tm aligned per T03)",
+  "sampling": {
+    "dg_interval_s": 0.1,
+    "collector_interval_ms": 500,
+    "dcems_row_period_s": 1,
+    "dcems_edge_interval_ms": 500
+  },
+  "dcems_writer_freshness_bound_s": 45.0
+}

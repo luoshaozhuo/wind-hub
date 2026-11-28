@@ -1,0 +1,6 @@
+{
+  "original_frame_count": 233499,
+  "sampling": "every 20th frame + all FC16 (stratified; full counts in modbus-frames-summary.json)",
+  "kept_lines": 11687,
+  "fc16_lines": 12
+}

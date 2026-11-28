@@ -1,0 +1,16 @@
+{
+  "wtg01_source_fault_status": {
+    "quality": "GOOD",
+    "freshness": "CURRENT",
+    "value": 0
+  },
+  "wtg01_target_device_fault_active": {
+    "quality": "UNKNOWN",
+    "freshness": "UNINITIALIZED",
+    "value": null
+  },
+  "dcems_observed_fault": "f",
+  "finding": "int32 fault_status cannot be delivered into bool device_fault_active; Gateway1 serves register default False to DCEMS. Production gap: VariableStore.validate_value rejects int for bool (see int-to-bool-repro).",
+  "random_devices_fault": "GOOD/CURRENT/False on WTG02-10",
+  "dcems_quality_field": "NOT_EXPRESSIBLE (Modbus has no quality attribute)"
+}

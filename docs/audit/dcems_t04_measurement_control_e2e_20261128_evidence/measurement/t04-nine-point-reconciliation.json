@@ -1,0 +1,185 @@
+{
+  "devices": {
+    "WTG01": {
+      "dcems": {
+        "wind_speed": 9.417809,
+        "pow_act_kw": 59.171806,
+        "pow_react_kvar": 0.0
+      },
+      "gateway": {},
+      "expected": {}
+    },
+    "WTG02": {
+      "dcems": {
+        "wind_speed": 8.0,
+        "pow_act_kw": 300.0,
+        "pow_react_kvar": -30.0
+      },
+      "gateway": {
+        "wind_speed": 8.0,
+        "sim_running_status": 1,
+        "sim_active_power": 300000.0,
+        "sim_reactive_power": -30000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 142.0,
+        "blade_1_pitch_angle": 4.199999809265137,
+        "pitch_angle": 3.200000047683716
+      },
+      "expected": {}
+    },
+    "WTG03": {
+      "dcems": {
+        "wind_speed": 9.0,
+        "pow_act_kw": 350.0,
+        "pow_react_kvar": -20.0
+      },
+      "gateway": {
+        "wind_speed": 9.0,
+        "sim_running_status": 1,
+        "sim_active_power": 350000.0,
+        "sim_reactive_power": -20000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 143.0,
+        "blade_1_pitch_angle": 4.300000190734863,
+        "pitch_angle": 3.299999952316284
+      },
+      "expected": {}
+    },
+    "WTG04": {
+      "dcems": {
+        "wind_speed": 10.0,
+        "pow_act_kw": 400.0,
+        "pow_react_kvar": -10.0
+      },
+      "gateway": {
+        "wind_speed": 10.0,
+        "sim_running_status": 1,
+        "sim_active_power": 400000.0,
+        "sim_reactive_power": -10000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 144.0,
+        "blade_1_pitch_angle": 4.400000095367432,
+        "pitch_angle": 3.4000000953674316
+      },
+      "expected": {}
+    },
+    "WTG05": {
+      "dcems": {
+        "wind_speed": 11.0,
+        "pow_act_kw": 450.0,
+        "pow_react_kvar": 0.0
+      },
+      "gateway": {
+        "wind_speed": 11.0,
+        "sim_running_status": 1,
+        "sim_active_power": 450000.0,
+        "sim_reactive_power": 0.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 145.0,
+        "blade_1_pitch_angle": 4.5,
+        "pitch_angle": 3.5
+      },
+      "expected": {}
+    },
+    "WTG06": {
+      "dcems": {
+        "wind_speed": 12.0,
+        "pow_act_kw": 500.0,
+        "pow_react_kvar": 10.0
+      },
+      "gateway": {
+        "wind_speed": 12.0,
+        "sim_running_status": 1,
+        "sim_active_power": 500000.0,
+        "sim_reactive_power": 10000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 146.0,
+        "blade_1_pitch_angle": 4.599999904632568,
+        "pitch_angle": 3.5999999046325684
+      },
+      "expected": {}
+    },
+    "WTG07": {
+      "dcems": {
+        "wind_speed": 13.0,
+        "pow_act_kw": 550.0,
+        "pow_react_kvar": 20.0
+      },
+      "gateway": {
+        "wind_speed": 13.0,
+        "sim_running_status": 1,
+        "sim_active_power": 550000.0,
+        "sim_reactive_power": 20000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 147.0,
+        "blade_1_pitch_angle": 4.699999809265137,
+        "pitch_angle": 3.700000047683716
+      },
+      "expected": {}
+    },
+    "WTG08": {
+      "dcems": {
+        "wind_speed": 14.0,
+        "pow_act_kw": 600.0,
+        "pow_react_kvar": 30.0
+      },
+      "gateway": {
+        "wind_speed": 14.0,
+        "sim_running_status": 1,
+        "sim_active_power": 600000.0,
+        "sim_reactive_power": 30000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 148.0,
+        "blade_1_pitch_angle": 4.800000190734863,
+        "pitch_angle": 3.799999952316284
+      },
+      "expected": {}
+    },
+    "WTG09": {
+      "dcems": {
+        "wind_speed": 15.0,
+        "pow_act_kw": 650.0,
+        "pow_react_kvar": 40.0
+      },
+      "gateway": {
+        "wind_speed": 15.0,
+        "sim_running_status": 1,
+        "sim_active_power": 650000.0,
+        "sim_reactive_power": 40000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 149.0,
+        "blade_1_pitch_angle": 4.900000095367432,
+        "pitch_angle": 3.9000000953674316
+      },
+      "expected": {}
+    },
+    "WTG10": {
+      "dcems": {
+        "wind_speed": 16.0,
+        "pow_act_kw": 700.0,
+        "pow_react_kvar": 50.0
+      },
+      "gateway": {
+        "wind_speed": 16.0,
+        "sim_running_status": 1,
+        "sim_active_power": 700000.0,
+        "sim_reactive_power": 50000.0,
+        "device_fault_active": false,
+        "active_power_limit": 2000000.0,
+        "generator_speed": 150.0,
+        "blade_1_pitch_angle": 5.0,
+        "pitch_angle": 4.0
+      },
+      "expected": {}
+    }
+  },
+  "checked_at": "2026-11-28T02:04:48.454519+00:00"
+}

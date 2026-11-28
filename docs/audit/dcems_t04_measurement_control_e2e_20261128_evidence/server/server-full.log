@@ -1,0 +1,831 @@
+### TRIMMED from 84508 lines: boot head + dedup error signatures + tail
+### error_lines_total=20381 unique_signatures=22
+
+2026-11-28 01:08:16.258 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Starting...
+2026-11-28 01:08:16.438 [ INFO][main][com.zaxxer.hikari.HikariDataSource] HikariPool-1 - Start completed.
+2026-11-28 01:08:17.051 [ERROR][main][cn.hedpy.scada.ems.service.QueryService] create view energy_report_view error ,sql:drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 1402 Query: drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+	time_bucket ( '1 day', tm ) AS bucket,
+ LAST ( ems_in_obs_energy_total1, tm ) - FIRST ( ems_in_obs_energy_total1, tm ) AS ems_in_obs_energy_total1,
+	LAST ( ems_in_obs_energy_total2, tm ) - FIRST ( ems_in_obs_energy_total2, tm ) AS ems_in_obs_energy_total2,
+ LAST ( ems_theory_energy_total1, tm ) - FIRST ( ems_theory_energy_total1,tm ) AS ems_theory_energy_total1,
+	LAST ( ems_theory_energy_total2, tm ) - FIRST ( ems_theory_energy_total2, tm ) AS ems_theory_energy_total2,
+ LAST ( ems_use_energy_total1, tm ) - FIRST ( ems_use_energy_total1, tm ) AS ems_use_energy_total1,
+	LAST ( ems_use_energy_total2, tm ) - FIRST ( ems_use_energy_total2, tm ) AS ems_use_energy_total2,
+ LAST ( ems_out_obs_energy_total1, tm ) - FIRST ( ems_out_obs_energy_total1, tm ) AS ems_out_obs_energy_total1,
+	LAST ( ems_out_obs_energy_total2, tm ) - FIRST ( ems_out_obs_energy_total2, tm ) AS ems_out_obs_energy_total2,
+ LAST ( ems_in_obs_energy1, tm ) AS ems_in_obs_energy1,
+	LAST ( ems_in_obs_energy2, tm ) AS ems_in_obs_energy2,
+ LAST ( ems_theory_energy1, tm ) AS ems_theory_energy1,
+	LAST ( ems_theory_energy2, tm ) AS ems_theory_energy2,
+ LAST ( ems_use_energy1, tm ) AS ems_use_energy1,
+	LAST ( ems_use_energy2, tm ) AS ems_use_energy2,
+ LAST ( ems_out_obs_energy1, tm ) AS ems_out_obs_energy1,
+	LAST ( ems_out_obs_energy2, tm ) AS ems_out_obs_energy2 
+FROM
+	DATA.d_fp 
+GROUP BY
+	bucket 
+ORDER BY
+	bucket DESC Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.service.QueryService.createMaterializedView(QueryService.java:324)
+	at cn.hedpy.scada.ems.service.DbStructService.checkView(DbStructService.java:254)
+	at cn.hedpy.scada.ems.EmsApp.checkTableStruct(EmsApp.java:214)
+	at cn.hedpy.scada.ems.EmsApp.<init>(EmsApp.java:36)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:24)
+2026-11-28 01:08:17.726 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wt error ,sql:create or replace  view  pldata_power_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG04
+java.sql.SQLException: ERROR: relation "data.d_wtg07" does not exist
+  Position: 303 Query: create or replace  view  pldata_power_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG04 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:193)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-28 01:08:17.728 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wt error ,sql:create or replace  view  pldata_repower_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG04
+java.sql.SQLException: ERROR: relation "data.d_wtg07" does not exist
+  Position: 325 Query: create or replace  view  pldata_repower_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG04 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:194)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-28 01:08:17.730 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wf error ,sql:create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 376 Query: create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:195)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-28 01:08:17.731 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wf error ,sql:create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+  Position: 396 Query: create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:197)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-28 01:08:17.732 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view data_wt error ,sql:create or replace  view  data_wt as select 'WTG07' as device,* from data.d_WTG07 union all select 'WTG06' as device,* from data.d_WTG06 union all select 'WTG09' as device,* from data.d_WTG09 union all select 'WTG08' as device,* from data.d_WTG08 union all select 'WTG10' as device,* from data.d_WTG10 union all select 'WTG01' as device,* from data.d_WTG01 union all select 'WTG03' as device,* from data.d_WTG03 union all select 'WTG02' as device,* from data.d_WTG02 union all select 'WTG05' as device,* from data.d_WTG05 union all select 'WTG04' as device,* from data.d_WTG04
+java.sql.SQLException: ERROR: relation "data.d_wtg07" does not exist
+  Position: 69 Query: create or replace  view  data_wt as select 'WTG07' as device,* from data.d_WTG07 union all select 'WTG06' as device,* from data.d_WTG06 union all select 'WTG09' as device,* from data.d_WTG09 union all select 'WTG08' as device,* from data.d_WTG08 union all select 'WTG10' as device,* from data.d_WTG10 union all select 'WTG01' as device,* from data.d_WTG01 union all select 'WTG03' as device,* from data.d_WTG03 union all select 'WTG02' as device,* from data.d_WTG02 union all select 'WTG05' as device,* from data.d_WTG05 union all select 'WTG04' as device,* from data.d_WTG04 Parameters: []
+	at org.apache.commons.dbutils.AbstractQueryRunner.rethrow(AbstractQueryRunner.java:527)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:531)
+	at org.apache.commons.dbutils.QueryRunner.update(QueryRunner.java:497)
+	at cn.hedpy.scada.ems.service.DbService.updateOne(DbService.java:132)
+	at cn.hedpy.scada.ems.service.QueryService.executeSql(QueryService.java:308)
+	at cn.hedpy.scada.ems.ConfigLoader.createView(ConfigLoader.java:205)
+	at cn.hedpy.scada.ems.ConfigLoader.createTableViews(ConfigLoader.java:199)
+	at cn.hedpy.scada.ems.ConfigLoader.loadConfig(ConfigLoader.java:122)
+	at cn.hedpy.scada.ems.EmsApp.Start(EmsApp.java:74)
+	at cn.hedpy.scada.ems.StartUp.main(StartUp.java:40)
+2026-11-28 01:08:17.756 [ INFO][main][cn.hedpy.scada.ems.EmsApp] RMI监听IP为空，正常模式启动
+2026-11-28 01:08:17.774 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15321
+2026-11-28 01:08:17.776 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15322
+2026-11-28 01:08:17.777 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15323
+2026-11-28 01:08:17.778 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15324
+2026-11-28 01:08:17.779 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15325
+2026-11-28 01:08:17.780 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15326
+2026-11-28 01:08:17.781 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15327
+2026-11-28 01:08:17.782 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15328
+2026-11-28 01:08:17.783 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15329
+2026-11-28 01:08:17.784 [ INFO][main][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] init datagetter ok  :  host.docker.internal,15330
+2026-11-28 01:08:17.801 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:18.035 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA REDIS 连接未配置
+2026-11-28 01:08:18.036 [ WARN][main][cn.hedpy.scada.ems.core.sync.SyncManager] SCADA 心跳连接未配置
+2026-11-28 01:08:18.214 [ INFO][vert-worker-pool-0][cn.hedpy.scada.ems.core.web.WebVerticle] https listened on 443
+2026-11-28 01:08:18.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:19.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:20.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:21.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:22.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:23.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:24.386 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:24.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:25.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:26.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:27.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:28.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:29.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:30.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:31.387 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:31.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:32.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:33.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:34.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:35.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:36.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:37.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:38.389 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:38.792 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:39.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:40.793 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:41.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:42.794 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:43.795 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:44.795 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:45.391 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 01:08:45.796 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+
+### ERROR/EXCEPTION SIGNATURES (dedup, first occurrence; counts)
+
+[x0] 2026-11-28 01:08:17.051 [ERROR][main][cn.hedpy.scada.ems.service.QueryService] create view energy_report_view error ,sql:drop MATERIALIZED VIEW if exists energy_report_view; create MATERIALIZED view  energy_report_view as SELECT
+[x3] java.sql.SQLException: ERROR: relation "data.d_fp" does not exist
+[x0] 2026-11-28 01:08:17.726 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wt error ,sql:create or replace  view  pldata_power_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 1 as 有功, ems_work_mode as 模式, ems_run as Run ,ems_win_spd as 风速, ems_pow_act as 实发, w_ought_power as 应发,ems_act_power_max_set_feedback as 反馈,ems_act_power_set as 设定,ems_act_power_set_middle as 中间 from data.d_WTG04
+[x3] java.sql.SQLException: ERROR: relation "data.d_wtg07" does not exist
+[x0] 2026-11-28 01:08:17.728 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wt error ,sql:create or replace  view  pldata_repower_wt as select tm as 时间, 'DCEMS WTG 07' as 设备名称,'WTG07' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG07 union all select tm as 时间, 'DCEMS WTG 06' as 设备名称,'WTG06' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG06 union all select tm as 时间, 'DCEMS WTG 09' as 设备名称,'WTG09' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG09 union all select tm as 时间, 'DCEMS WTG 08' as 设备名称,'WTG08' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG08 union all select tm as 时间, 'DCEMS WTG 10' as 设备名称,'WTG10' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG10 union all select tm as 时间, 'DCEMS WTG 01' as 设备名称,'WTG01' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG01 union all select tm as 时间, 'DCEMS WTG 03' as 设备名称,'WTG03' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG03 union all select tm as 时间, 'DCEMS WTG 02' as 设备名称,'WTG02' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG02 union all select tm as 时间, 'DCEMS WTG 05' as 设备名称,'WTG05' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG05 union all select tm as 时间, 'DCEMS WTG 04' as 设备名称,'WTG04' as 设备编号, 2 as 无功, ems_work_mode as 模式, ems_rea_run as rearun ,ems_win_spd as 风速, ems_pow_react as 实发, ems_theory_react_power as 应发,ems_react_power_max_set_feedback as 反馈,ems_react_power_set as 设定,ems_react_power_middle as 中间 from data.d_WTG04
+[x0] 2026-11-28 01:08:17.730 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_power_wf error ,sql:create or replace  view  pldata_power_wf as select tm as 时间, 1 as 有功,ems_dispatch_act_type as 调度状态, ems_dispatch_act as 调度功率, ems_factory_act_sum as 风场功率,ems_syz_act as 升压站,ems_act_set_limit as 设定限值,ems_act_limit_top as 可调限值,ems_act_limit as 限发值,ems_act_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+[x0] 2026-11-28 01:08:17.731 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view pldata_repower_wf error ,sql:create or replace  view  pldata_repower_wf as select tm as 时间, 2 as 无功,ems_dispatch_react_type as 调度状态, ems_dispatch_rea_act as 调度功率, ems_factory_react_sum as 风场功率,ems_syz_react as 升压站,ems_react_set_limit as 设定限值,ems_react_limit_top as 可调限值,ems_react_limit as 限发值,ems_react_send as 下发值,ems_min_one_min as OneMin,ems_max_one_min as OneMax,ems_min_ten_min as tenMin,ems_max_ten_min as tenMax from data.d_fp
+[x0] 2026-11-28 01:08:17.732 [ERROR][main][cn.hedpy.scada.ems.ConfigLoader] create view data_wt error ,sql:create or replace  view  data_wt as select 'WTG07' as device,* from data.d_WTG07 union all select 'WTG06' as device,* from data.d_WTG06 union all select 'WTG09' as device,* from data.d_WTG09 union all select 'WTG08' as device,* from data.d_WTG08 union all select 'WTG10' as device,* from data.d_WTG10 union all select 'WTG01' as device,* from data.d_WTG01 union all select 'WTG03' as device,* from data.d_WTG03 union all select 'WTG02' as device,* from data.d_WTG02 union all select 'WTG05' as device,* from data.d_WTG05 union all select 'WTG04' as device,* from data.d_WTG04
+[x0] 2026-11-28 01:08:17.801 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+[x6639] java.lang.NullPointerException
+[x0] 2026-11-28 01:08:24.386 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+[x0] 2026-11-28 01:41:35.231 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+[x3478] Caused by: java.lang.NullPointerException
+[x0] 2026-11-28 01:42:39.890 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+[x0] 2026-11-28 01:42:42.686 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+[x0] 2026-11-28 01:42:58.779 [ERROR][vert-worker-pool-10][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+[x0] 2026-11-28 01:42:58.835 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] 通讯异常：host.docker.internal:15321
+[x0] 2026-11-28 01:43:38.944 [ERROR][vert-worker-pool-15][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+[x0] 2026-11-28 01:45:08.353 [ERROR][vert-worker-pool-2][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+[x0] 2026-11-28 01:48:49.989 [ERROR][vert-worker-pool-3][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+[x0] 2026-11-28 02:01:00.875 [ERROR][vert-worker-pool-17][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+[x0] 2026-11-28 02:13:48.712 [ERROR][vert-worker-pool-11][cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl] control order failed : deviceId:WTG01 controlId:ctrlActPow params:450.0
+
+### TAIL
+
+2026-11-28 02:14:30.158 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:30.158 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:30.164 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:30.674 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:31.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:31.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:31.182 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:31.691 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:32.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:32.160 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:32.200 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:32.709 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:33.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:33.160 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:33.218 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:33.727 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:33.946 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:33.947 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:34.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:34.160 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:34.234 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:34.743 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:35.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:35.160 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:35.260 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:35.773 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:36.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:36.159 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:36.284 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:36.791 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:37.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:37.157 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:37.306 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:37.813 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:38.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:38.157 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:38.321 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:38.830 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:39.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:39.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:39.340 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:39.847 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:40.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:40.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:40.359 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:40.869 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:40.947 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:40.948 [ERROR][reactPow][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startReactPowerThread$16(EmsDispatcher.java:389)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:41.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:41.157 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:41.376 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:41.890 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException
+2026-11-28 02:14:42.156 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.WindTurbo] reactStateCheck error ,device is WTG01
+java.lang.NullPointerException
+2026-11-28 02:14:42.157 [ERROR][dataMain][cn.hedpy.scada.emslib.entity.FactoryPoints] check factory limit status error 
+java.lang.NullPointerException
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.checkIsLimit(FactoryPoints.java:1103)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.optimizePower(FactoryPoints.java:1050)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.calTheoryPower(FactoryPoints.java:922)
+	at cn.hedpy.scada.emslib.entity.FactoryPoints.refresh(FactoryPoints.java:868)
+	at cn.hedpy.scada.emslib.EmsDispatcher.lambda$startMainData$12(EmsDispatcher.java:303)
+	at java.lang.Thread.run(Thread.java:750)
+2026-11-28 02:14:42.404 [ERROR][MODBUSTCP-wind-hub-gateway-01][cn.hedpy.scada.emslib.entity.AbstractValueObj] wind turbo get data error,emsActPowerMaxSetFeedback
+java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor145.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at cn.hedpy.scada.emslib.entity.AbstractValueObj.setData(AbstractValueObj.java:102)
+	at cn.hedpy.scada.ems.G$1.updateData(G.java:146)
+	at cn.hedpy.scada.ems.core.edge.impl.DataGetterModbusImpl.run(DataGetterModbusImpl.java:349)
+	at java.lang.Thread.run(Thread.java:750)
+Caused by: java.lang.NullPointerException

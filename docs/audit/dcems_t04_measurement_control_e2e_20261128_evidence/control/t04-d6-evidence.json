@@ -1,0 +1,9 @@
+{
+  "request_id": "5775e8f6fc1c4431bac9476e8ffa7872",
+  "command_id": "d39ecc8f-1a89-4560-b393-d794ef163fa1",
+  "outcome": "CONFIRMED_SUCCESS",
+  "dg_effective_step": 12134,
+  "gateway2_readback": 450000.0,
+  "token_env": "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+  "dcems_web_ack_is_not_execution_proof": true
+}

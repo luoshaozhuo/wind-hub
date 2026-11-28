@@ -1,0 +1,12 @@
+{
+  "request_id": "6e28057a0bac4a598eb613e4aea991a3",
+  "command_id": "787fffce-c653-4f5d-90e1-d89befa442e3",
+  "outcome": "CONFIRMED_SUCCESS",
+  "dg_effective_step": 11239,
+  "gateway2_readback": 450000.0,
+  "token_env": "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+  "commanded_kw": 450.0,
+  "dcems_observed_kw": 435.16653,
+  "response_time_s": 18.32685923698591,
+  "feedback_path": "DG physical -> GW2 -> Collector -> Sink -> GW1 -> DCEMS"
+}

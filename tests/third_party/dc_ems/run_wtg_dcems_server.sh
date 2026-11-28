@@ -8,6 +8,8 @@ RELEASE="${ROOT}/third_party/dc-ems"
 BASE="${RELEASE}/runtime/containerized/compose.yaml"
 OVERLAY="${HERE}/compose.wtg_control.yaml"
 RUNTIME="${DCEMS_WTG_CONTROL_ROOT:-${ROOT}/run/dcems-control-wtg}"
+# Compose 项目名可由调用方指定（T04 使用独立项目与数据卷），默认保持 T02/T03 基线。
+PROJECT="${DCEMS_COMPOSE_PROJECT:-dcems-wtg-control}"
 
 fail() { printf 'DCEMS WTG Server: %s\n' "$*" >&2; exit 1; }
 [[ "${1:-}" == --check || "${1:-}" == --up || "${1:-}" == --down ]] \
@@ -27,7 +29,7 @@ export SERVER_IMAGE="${SERVER_IMAGE:-dc-ems-server:${VERSION}}"
 
 compose=(
     docker compose
-    --project-name dcems-wtg-control
+    --project-name "${PROJECT}"
     --env-file "${RUNTIME}/docker/dcems.env"
     -f "${BASE}"
     -f "${OVERLAY}"
@@ -40,11 +42,11 @@ fi
 cleanup_project() {
     # 资源缺失或 Compose 无法解析时，仅按项目标签清理容器与网络，绝不删除数据卷。
     local -a containers networks
-    mapfile -t containers < <(docker ps -aq --filter label=com.docker.compose.project=dcems-wtg-control)
+    mapfile -t containers < <(docker ps -aq --filter label=com.docker.compose.project=${PROJECT})
     if (( ${#containers[@]} > 0 )); then
         docker rm -f "${containers[@]}" >/dev/null
     fi
-    mapfile -t networks < <(docker network ls -q --filter label=com.docker.compose.project=dcems-wtg-control)
+    mapfile -t networks < <(docker network ls -q --filter label=com.docker.compose.project=${PROJECT})
     if (( ${#networks[@]} > 0 )); then
         docker network rm "${networks[@]}" >/dev/null 2>&1 || true
     fi
@@ -78,7 +80,7 @@ done
 "${compose[@]}" config --quiet || fail "invalid Compose contract"
 
 if [[ "$1" == --up ]]; then
-    if docker volume inspect dcems-wtg-control_database >/dev/null 2>&1 &&
+    if docker volume inspect "${PROJECT}_database" >/dev/null 2>&1 &&
         [[ "${DCEMS_WTG_ALLOW_REUSE:-}" != 1 ]]; then
         fail "existing isolated DB volume; verify it before setting DCEMS_WTG_ALLOW_REUSE=1"
     fi

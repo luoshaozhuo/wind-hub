@@ -1,0 +1,3 @@
+bash deploy: PASS
+bash runner: PASS
+bash t04: PASS

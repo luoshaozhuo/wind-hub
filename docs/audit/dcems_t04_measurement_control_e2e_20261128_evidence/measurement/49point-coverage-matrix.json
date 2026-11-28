@@ -1,0 +1,207 @@
+{
+  "total": 49,
+  "counts": {
+    "已映射、已验证（T04 九点 E2E）": 9,
+    "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）": 31,
+    "已映射、已验证（T04 控制 E2E / 控制输出契约）": 2,
+    "本轮不适用（控制输出契约 NOT_MAPPED，未接入）": 7
+  },
+  "points": [
+    {
+      "dcems_var_path": "emsWorkMode",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsWinSpd",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsWinSpdAvg10Sec",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsWinSpdAvg60Sec",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowAct",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsPowActCvt",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowActAvg10Sec",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowActAvg60Sec",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowReactCvt",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowReact",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsPowReact10",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsPowReact60",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsBladeAngle1",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsBladeAngle2",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsBladeAngle3",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsGenRotateSpd",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsGenTorque",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsMinBladeAngle",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsOilTemp",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsTotalEnergy",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsAutoLimitSetFeedback",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsActPowerMaxSetFeedback",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsReactPowerMaxSetFeedback",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsGridPhaseCurrentA",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsConvertVol",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsCabinTemp",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsEnvTemp",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsReactPowerSet",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "ctrlReActPow",
+      "classification": "已映射、已验证（T04 控制 E2E / 控制输出契约）"
+    },
+    {
+      "dcems_var_path": "emsActPowerSet",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "ctrlActPow",
+      "classification": "已映射、已验证（T04 控制 E2E / 控制输出契约）"
+    },
+    {
+      "dcems_var_path": "emsActPowerRead",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsActPowerSetInertia",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "emsReactPowerSetStatus",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsReactPowerSetStatusWrite",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "emsActPowerChangeRate",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "emsActCtrlMode",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "inertiaLimitValue",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsFaultState",
+      "classification": "已映射、已验证（T04 九点 E2E）"
+    },
+    {
+      "dcems_var_path": "emsLocalOnOff",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsAutoLimitState",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsLocalLimitState",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsRemoteLimitState",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsLimitStop",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsLocalActPowerEnableState",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "emsReactCanCtrl",
+      "classification": "本轮不适用（未纳入9点映射；需 T05 前按业务需要扩展映射与来源）"
+    },
+    {
+      "dcems_var_path": "ctrlStart",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "ctrlStop",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    },
+    {
+      "dcems_var_path": "ctrlReset",
+      "classification": "本轮不适用（控制输出契约 NOT_MAPPED，未接入）"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+.............                                                            [100%]
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 510 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: 13 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/third_party/dc_ems/test_t04_unified_live.py::test_ten_device_nine_point_reconciliation
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+13 passed, 524 warnings in 547.54s (0:09:07)

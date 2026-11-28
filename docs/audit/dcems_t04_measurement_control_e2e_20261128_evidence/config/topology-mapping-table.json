@@ -1,0 +1,212 @@
+[
+  {
+    "dcems_device_id": "WTG01",
+    "windhub_device_id": "WTG01",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15121,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15221,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_modbus_wtg_sim_v1.2.0",
+    "control_table": "point_table_dcems_wtg_unified_v1.0.0 holding41557/41555 CDAB",
+    "direction": "测量+控制",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "wtg_sim_physical"
+  },
+  {
+    "dcems_device_id": "WTG02",
+    "windhub_device_id": "WTG02",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15122,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15222,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG03",
+    "windhub_device_id": "WTG03",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15123,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15223,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG04",
+    "windhub_device_id": "WTG04",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15124,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15224,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG05",
+    "windhub_device_id": "WTG05",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15125,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15225,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG06",
+    "windhub_device_id": "WTG06",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15126,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15226,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG07",
+    "windhub_device_id": "WTG07",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15127,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15227,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG08",
+    "windhub_device_id": "WTG08",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15128,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15228,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG09",
+    "windhub_device_id": "WTG09",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15129,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15229,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  },
+  {
+    "dcems_device_id": "WTG10",
+    "windhub_device_id": "WTG10",
+    "gw1_target": {
+      "ip": "127.0.0.1",
+      "port": 15130,
+      "unit_id": 1
+    },
+    "gw2_source": {
+      "ip": "127.0.0.1",
+      "port": 15230,
+      "unit_id": 1
+    },
+    "measurement_table": "point_table_dcems_wtg_unified_v1.0.0 (target) / point_table_dcems_wtg_random_v1.0.0 (source)",
+    "control_table": "-",
+    "direction": "测量",
+    "dcems_edge_interval_ms": 500,
+    "collector_interval_ms": 500,
+    "dg_interval_s": 0.05,
+    "model": "dcems_wtg_random"
+  }
+]

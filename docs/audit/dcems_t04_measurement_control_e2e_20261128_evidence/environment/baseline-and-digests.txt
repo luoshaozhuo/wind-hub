@@ -1,0 +1,31 @@
+## git
+41e540205f2b12d4fde6e616a10d856c43f99fb6
+41e540205f2b12d4fde6e616a10d856c43f99fb6
+## feat/dcems-gateway-smoke-20261126...origin/feat/dcems-gateway-smoke-20261126
+ M tests/third_party/dc_ems/run_wtg_dcems_server.sh
+?? docs/audit/dcems_t04_measurement_control_e2e_20261128_evidence/
+?? tests/third_party/dc_ems/prepare_t04_dcems_seed.py
+?? tests/third_party/dc_ems/prepare_t04_unified.py
+?? tests/third_party/dc_ems/run_t04_unified.sh
+?? tests/third_party/dc_ems/test_t04_unified_config.py
+?? tests/third_party/dc_ems/test_t04_unified_live.py
+## images
+[dc-ems-server:1.1.4-583d5da] sha256:30779cafbfc62090718db55e93c9bb857b2f7e831dad4ccc927cd8a137fe4e4e 2026-09-12T13:32:51.49120682Z
+[dc-ems-timescaledb:2.7.0-pg14] sha256:0f5553d37abbe0f20bfe0a04dab5d1238955b5cda2711aba403090f95b6e51ff 2025-04-30T18:33:32.32173472Z
+## jar
+1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2  third_party/dc-ems/app/server/dc-ems.jar
+## image tars
+5694498dfbfd6e6fd5ad6b9759674cd217f3084e9d34c8f49ccc527713427ac7  third_party/dc-ems/images/dc-ems-server.tar
+8a501f98cd6cad490fe99786991ad8dba88235b0834a7b1faa69e36fe68944b5  third_party/dc-ems/images/timescaledb.tar
+## version
+release_version=1.1.4-583d5da
+git_commit=583d5dae6887f2a871f0a99b0c686803258b6877
+git_commit_short=583d5da
+server_version=1.1.4
+git_commit=583d5dae6887f2a871f0a99b0c686803258b6877
+git_commit_short=583d5da
+build_time=2026-09-12T21:31:48+08:00
+git_dirty=true
+jar_sha256=1df1c053265c7d1127755b4792646a2e5f3503fd5ba6f23fae43c6cbcf9ae7d2
+web_sha256=057411c9bcf8393ab7888f4c0d738c77782c0d03c1f1ab0673abfd147b2bd91b
+jar_path=server/dc-ems/target/dc-ems-1.1.4-jar-with-dependencies.jar

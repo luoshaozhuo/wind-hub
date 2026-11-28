@@ -1,0 +1,12 @@
+{
+  "request_id": "7ed4f5897bfe4e8284f7ff8d5c6e657a",
+  "command_id": "e7f0a4c0-8ba7-4c31-a9c5-876e7065d628",
+  "outcome": "CONFIRMED_SUCCESS",
+  "dg_effective_step": 11627,
+  "gateway2_readback": 125000.0,
+  "token_env": "WIND_HUB_DCE_TARGET_OPERATOR_TOKEN",
+  "commanded_kvar": 125.0,
+  "dcems_observed_kvar": 124.99999,
+  "response_time_s": 9.000467901991215,
+  "register_readback_is_not_physical_proof": true
+}

@@ -1,0 +1,12 @@
+{
+  "exception_in_thread": {},
+  "factorypoints_npe_lines": 4554,
+  "windturbo_mentions": 5445,
+  "sql_exceptions": 6,
+  "view_create_errors": 6,
+  "license_errors": 0,
+  "nullpointer_total": 10117,
+  "dataMain_error_lines": 5809,
+  "reactPow_error_lines": 830,
+  "actPow_death": 0
+}

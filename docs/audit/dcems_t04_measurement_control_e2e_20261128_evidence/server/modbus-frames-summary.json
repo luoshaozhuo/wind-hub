@@ -1,0 +1,134 @@
+{
+  "total": 233511,
+  "by_fc_addr_qty": [
+    {
+      "function": 2,
+      "address": 1,
+      "quantity": 1,
+      "count": 77833
+    },
+    {
+      "function": 3,
+      "address": 41555,
+      "quantity": 4,
+      "count": 77833
+    },
+    {
+      "function": 4,
+      "address": 0,
+      "quantity": 20,
+      "count": 77833
+    },
+    {
+      "function": 16,
+      "address": 41555,
+      "quantity": 2,
+      "count": 4
+    },
+    {
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "count": 8
+    }
+  ],
+  "fc16_count": 12,
+  "fc16_frames": [
+    {
+      "at": "2026-11-28T01:41:35.099978+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "2df70000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T01:42:39.210608+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41555,
+      "quantity": 2,
+      "raw_hex": "2f720000000b0110a253000204000042fa"
+    },
+    {
+      "at": "2026-11-28T01:45:13.219950+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "32580000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T01:48:29.183803+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "34a40000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T01:48:38.593065+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41555,
+      "quantity": 2,
+      "raw_hex": "34db0000000b0110a253000204000042fa"
+    },
+    {
+      "at": "2026-11-28T01:48:54.870875+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "35060000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T02:00:48.321233+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "44e30000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T02:00:49.505508+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41555,
+      "quantity": 2,
+      "raw_hex": "44ea0000000b0110a253000204000042fa"
+    },
+    {
+      "at": "2026-11-28T02:01:05.837583+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "45150000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T02:13:09.015778+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "553f0000000b0110a255000204000043e1"
+    },
+    {
+      "at": "2026-11-28T02:13:28.436155+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41555,
+      "quantity": 2,
+      "raw_hex": "55b20000000b0110a253000204000042fa"
+    },
+    {
+      "at": "2026-11-28T02:13:53.778745+00:00",
+      "listen_port": 15321,
+      "function": 16,
+      "address": 41557,
+      "quantity": 2,
+      "raw_hex": "56100000000b0110a255000204000043e1"
+    }
+  ]
+}

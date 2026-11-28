@@ -1,0 +1,8 @@
+stopped: wind-hub six services (gateway, gateway-target, commander, data-generator, collector, sink)
+stopped: modbus_request_probe (15321-15330)
+removed: dcems-t04 compose containers+network (dcems-t04-dc-ems-server-1, dcems-t04-dc-ems-db-1)
+removed: docker container dcems-t04-nats (port 14222 released)
+preserved volumes: dcems-t04_database dcems-t04_files dcems-t04_logs dcems-t04_cache dcems-t04_models
+untouched: dcems-wtg-control_* (T03), run/dcems-measurement, run/dcems-smoke, run/dcems-modbus-cli*, run/gap8
+deleted: run/dcems-t04 (tokens/license/machine-id/JKS/.env/seed/config), run/dcems-t04-tokens.env, run/dcems-t04-up.log
+ports released: 14222 15121-15130 15221-15230 15321-15330 15433 18453 52051 52053 52061 52073 52074 52152
