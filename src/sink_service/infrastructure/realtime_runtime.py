@@ -57,6 +57,7 @@ class SinkOutputPool(SharedSinkOutputPool):
             )
         elif kind == "gateway":
             mapping: dict[tuple[str, str], list[str]] = {}
+            conversions: dict[str, str] = {}
             seen_targets: set[str] = set()
             for delivery in snapshot.deliveries.values():
                 if delivery["sink_id"] != sink_id:
@@ -66,17 +67,21 @@ class SinkOutputPool(SharedSinkOutputPool):
                     if variable_id in seen_targets:
                         raise ConfigurationError(f"duplicate Gateway variable: {variable_id}")
                     seen_targets.add(variable_id)
+                    if "conversion" in item:
+                        conversions[variable_id] = item["conversion"]
                     key = (item["source_device_id"], item["source_point_id"])
                     mapping.setdefault(key, []).append(variable_id)
             fixed_mapping = {key: tuple(values) for key, values in mapping.items()}
             config_signature["gateway_mappings"] = [
                 (key, values) for key, values in sorted(fixed_mapping.items())
             ]
+            config_signature["gateway_conversions"] = sorted(conversions.items())
             adapter = GatewayOutput(
                 endpoint=connection["endpoint"],
                 gateway_id=connection["gateway_id"],
                 owner_id=f"{snapshot.service['deployment_id']}:{sink_id}",
                 mappings=fixed_mapping,
+                conversions=conversions,
                 timeout_ms=int(output["write_timeout_ms"]),
                 lease_ms=int(output["lease_ms"]),
                 max_batch_size=int(output["max_batch_size"]),
