@@ -1,0 +1,11 @@
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+..................................................s..............s...... [ 43%]
+........................................................................ [ 57%]
+........................................................................ [ 72%]
+........................................................................ [ 86%]
+..................................................................       [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/configuration_service/integration/test_revision_notification.py:49: real NATS not reachable for revision broadcast: nats: no servers available for connection
+SKIPPED [1] tests/configuration_service/integration/test_storage_deployment_flow.py:261: real NATS not reachable for revision broadcast: nats: no servers available for connection
+496 passed, 2 skipped in 291.44s (0:04:51)

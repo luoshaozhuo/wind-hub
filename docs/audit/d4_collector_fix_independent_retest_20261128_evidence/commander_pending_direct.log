@@ -1,0 +1,4 @@
+stopped=frozenset()
+pending_nats_tasks_after_5s=[]
+
+direct_probe_exit=0

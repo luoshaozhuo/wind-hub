@@ -1,0 +1,194 @@
+.F.                                                                      [100%]
+=================================== FAILURES ===================================
+______________ test_restart_recovers_executing_command_as_unknown ______________
+
+config_tree = (PosixPath('/tmp/pytest-of-luosh/pytest-449/test_restart_recovers_executin0/config'), PosixPath('/tmp/pytest-of-luosh/pytest-449/test_restart_recovers_executin0/state/commander.db'))
+modbus_server = <tests.fixtures.servers.modbus_server.ModbusMockServer object at 0x7c2301350d90>
+jetstream_url = 'nats://127.0.0.1:34795'
+
+    async def test_restart_recovers_executing_command_as_unknown(
+        config_tree, modbus_server, jetstream_url
+    ) -> None:
+        root, db_path = config_tree
+        service, _stream, _subject = await _start_service(
+            root, db_path, jetstream_url, modbus_server.port
+        )
+        fingerprint = _fingerprint(service)
+        command_id = None
+        audit_connection = service._audit_transport._connection  # noqa: SLF001
+        audit_tasks = _nats_tasks(audit_connection) if audit_connection is not None else set()
+        try:
+            assert await service.stop() == frozenset()
+            await _reap_nats_tasks(audit_tasks)
+        finally:
+            pass
+    
+        # 模拟进程在 T2 之后崩溃：直接用真实 SQLite 留下 EXECUTING 命令。
+        journal = EventRepository(db_path)
+        try:
+            buffer = BufferedJournal()
+            accepted = buffer.accept(
+                [CommandSpec("WT01", "setpoint_power", 10.0, fingerprint)],
+                request_id=f"req-e2e-{uuid4().hex}",
+                caller_id="ops-console",
+            )
+            command_id = accepted[0].command_id
+            buffer.transition(command_id, CommandState.CONNECTING)
+            buffer.transition(command_id, CommandState.EXECUTING)
+            journal.append_events(buffer.snapshot(100))
+        finally:
+            journal.close()
+    
+        service2, _s2, _j2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
+        try:
+            health = service2.health()
+            assert health.recovered_commands == 1
+            # R1-F1 M-P1-03：恢复 UNKNOWN 的设备未确认隔离前不得 READY。
+            assert health.state is ServiceState.DEGRADED
+            assert health.ready is False
+            assert "WT01" in service2.executor.blocked_devices()
+            recovered = await service2.control.get_command(command_id)
+            assert recovered is not None and recovered.outcome is not None
+            assert recovered.state.value == "UNKNOWN"
+            assert recovered.outcome.value == "UNKNOWN"
+            # 未确认隔离的设备拒绝新的冲突控制命令（受理阶段即拒绝，无 T1）。
+            fingerprint2 = _fingerprint(service2)
+            with pytest.raises(RuntimeError, match="device unavailable"):
+                await service2.executor.accept(
+                    [CommandSpec("WT01", "setpoint_power", 99.0, fingerprint2)],
+                    request_id=f"req-e2e-{uuid4().hex}",
+                    caller_id="ops-console",
+                )
+            # 恢复绝不重发、拒绝命令也不下发：寄存器保持 0（服务从未下发）。
+            assert modbus_server.write_count == 0
+        finally:
+            audit_connection = service2._audit_transport._connection  # noqa: SLF001
+            audit_tasks = _nats_tasks(audit_connection) if audit_connection is not None else set()
+            # 停机必须如实报告残留阻断设备，不得伪装 STOPPED。
+            assert await service2.stop() == frozenset({"WT01"})
+>           await _reap_nats_tasks(audit_tasks)
+
+tests/commander/system/test_service_e2e_real_stack.py:284: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/system/test_service_e2e_real_stack.py:72: in _reap_nats_tasks
+    await _assert_nats_tasks_reaped()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def _assert_nats_tasks_reaped() -> None:
+        """Prove canceled NATS tasks finish instead of being collected by the GC."""
+        deadline = asyncio.get_running_loop().time() + 1.0
+        current = asyncio.current_task()
+        while True:
+            leaked = []
+            for task in asyncio.all_tasks():
+                if task is current or task.done():
+                    continue
+                coroutine = task.get_coro()
+                name = getattr(coroutine, "__qualname__", "")
+                if "Subscription._wait_for_msgs" in name or "Client._flusher" in name:
+                    leaked.append(name)
+            if not leaked:
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+>               raise AssertionError(f"NATS tasks remain after close: {leaked}")
+E               AssertionError: NATS tasks remain after close: ['Client._flusher', 'Subscription._wait_for_msgs']
+
+tests/commander/system/test_service_e2e_real_stack.py:91: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+------------------------------ Captured log call -------------------------------
+WARNING  asyncio:base_events.py:1931 Executing <Task pending name='Task-76' coro=<test_restart_recovers_executing_command_as_unknown() running at /home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py:228> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/futures.py:387, Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> cb=[_run_until_complete_cb() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:181] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680> took 0.689 seconds
+WARNING  asyncio:base_events.py:1931 Executing <Task pending name='Task-76' coro=<test_restart_recovers_executing_command_as_unknown() running at /home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py:257> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/futures.py:387, Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> cb=[_run_until_complete_cb() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:181] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680> took 0.648 seconds
+ERROR    commander.application.queued_executor:queued_executor.py:183 Commander request admission failed: device unavailable for control
+=============================== warnings summary ===============================
+tests/commander/system/test_service_e2e_real_stack.py::test_reload_unchanged_config_is_noop_and_restart_not_required
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/yaml/scanner.py:286: RuntimeWarning: coroutine 'Event.wait' was never awaited
+  Coroutine created at (most recent call last)
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+      res = hook_impl.function(*args)
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 193, in pytest_runtest_teardown
+      item.session._setupstate.teardown_exact(nextitem)
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 546, in teardown_exact
+      fin()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py", line 1058, in finish
+      fin()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 341, in finalizer
+      event_loop.run_until_complete(async_finalizer())
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+      self.run_forever()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+      self._run_once()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+      handle._run()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+      self._context.run(self._callback, *self._args)
+    File "/home/luosh/wind-hub/src/commander/application/persistence.py", line 318, in _run
+      await asyncio.wait_for(self._buffer.wake.wait(), timeout=self._interval)
+    for level in list(self.possible_simple_keys):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/commander/system/test_service_e2e_real_stack.py::test_reload_unchanged_config_is_noop_and_restart_not_required
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7c22fe613010>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+      msg = await self._pending_queue.get()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/commander/system/test_service_e2e_real_stack.py::test_reload_unchanged_config_is_noop_and_restart_not_required
+  /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <coroutine object Client._flusher at 0x7c22fe612c50>
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 158, in get
+      await getter
+  GeneratorExit
+  
+  During handling of the above exception, another exception occurred:
+  
+  Traceback (most recent call last):
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+      future: asyncio.Future = await self._flush_queue.get()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+      getter.cancel()  # Just in case getter is not done yet.
+      ^^^^^^^^^^^^^^^
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/commander/system/test_service_e2e_real_stack.py::test_restart_recovers_executing_command_as_unknown
+1 failed, 2 passed, 3 warnings in 6.98s

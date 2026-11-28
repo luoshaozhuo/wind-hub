@@ -1,0 +1,828 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_restart_recovers_executing_command_as_unknown ______________
+
+config_tree = (PosixPath('/tmp/pytest-of-luosh/pytest-452/test_restart_recovers_executin0/config'), PosixPath('/tmp/pytest-of-luosh/pytest-452/test_restart_recovers_executin0/state/commander.db'))
+modbus_server = <tests.fixtures.servers.modbus_server.ModbusMockServer object at 0x7d6dd6346590>
+jetstream_url = 'nats://127.0.0.1:42541'
+
+    async def test_restart_recovers_executing_command_as_unknown(
+        config_tree, modbus_server, jetstream_url
+    ) -> None:
+        root, db_path = config_tree
+        service, _stream, _subject = await _start_service(
+            root, db_path, jetstream_url, modbus_server.port
+        )
+        fingerprint = _fingerprint(service)
+        command_id = None
+        audit_connection = service._audit_transport._connection  # noqa: SLF001
+        audit_tasks = _nats_tasks(audit_connection) if audit_connection is not None else set()
+        try:
+            assert await service.stop() == frozenset()
+            await _reap_nats_tasks(audit_tasks)
+        finally:
+            pass
+    
+        # 模拟进程在 T2 之后崩溃：直接用真实 SQLite 留下 EXECUTING 命令。
+        journal = EventRepository(db_path)
+        try:
+            buffer = BufferedJournal()
+            accepted = buffer.accept(
+                [CommandSpec("WT01", "setpoint_power", 10.0, fingerprint)],
+                request_id=f"req-e2e-{uuid4().hex}",
+                caller_id="ops-console",
+            )
+            command_id = accepted[0].command_id
+            buffer.transition(command_id, CommandState.CONNECTING)
+            buffer.transition(command_id, CommandState.EXECUTING)
+            journal.append_events(buffer.snapshot(100))
+        finally:
+            journal.close()
+    
+        service2, _s2, _j2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
+        try:
+            health = service2.health()
+            assert health.recovered_commands == 1
+            # R1-F1 M-P1-03：恢复 UNKNOWN 的设备未确认隔离前不得 READY。
+            assert health.state is ServiceState.DEGRADED
+            assert health.ready is False
+            assert "WT01" in service2.executor.blocked_devices()
+            recovered = await service2.control.get_command(command_id)
+            assert recovered is not None and recovered.outcome is not None
+            assert recovered.state.value == "UNKNOWN"
+            assert recovered.outcome.value == "UNKNOWN"
+            # 未确认隔离的设备拒绝新的冲突控制命令（受理阶段即拒绝，无 T1）。
+            fingerprint2 = _fingerprint(service2)
+            with pytest.raises(RuntimeError, match="device unavailable"):
+                await service2.executor.accept(
+                    [CommandSpec("WT01", "setpoint_power", 99.0, fingerprint2)],
+                    request_id=f"req-e2e-{uuid4().hex}",
+                    caller_id="ops-console",
+                )
+            # 恢复绝不重发、拒绝命令也不下发：寄存器保持 0（服务从未下发）。
+            assert modbus_server.write_count == 0
+        finally:
+            audit_connection = service2._audit_transport._connection  # noqa: SLF001
+            audit_tasks = _nats_tasks(audit_connection) if audit_connection is not None else set()
+            # 停机必须如实报告残留阻断设备，不得伪装 STOPPED。
+            assert await service2.stop() == frozenset({"WT01"})
+>           await _reap_nats_tasks(audit_tasks)
+
+tests/commander/system/test_service_e2e_real_stack.py:298: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/commander/system/test_service_e2e_real_stack.py:72: in _reap_nats_tasks
+    await _assert_nats_tasks_reaped()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def _assert_nats_tasks_reaped() -> None:
+        """Prove canceled NATS tasks finish instead of being collected by the GC."""
+        deadline = asyncio.get_running_loop().time() + 5.0
+        current = asyncio.current_task()
+        while True:
+            leaked = []
+            for task in asyncio.all_tasks():
+                if task is current or task.done():
+                    continue
+                coroutine = task.get_coro()
+                name = getattr(coroutine, "__qualname__", "")
+                if "Subscription._wait_for_msgs" in name or "Client._flusher" in name:
+                    leaked.append(name)
+            if not leaked:
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                stacks = [
+                    (
+                        task.get_name(),
+                        task.get_coro().cr_code.co_filename,
+                        task.get_stack()[-1].f_lineno if task.get_stack() else task.get_coro().cr_code.co_firstlineno,
+                    )
+                    for task in asyncio.all_tasks()
+                    if task is not current
+                    and not task.done()
+                    and any(
+                        marker in getattr(task.get_coro(), "__qualname__", "")
+                        for marker in ("Subscription._wait_for_msgs", "Client._flusher")
+                    )
+                ]
+>               raise AssertionError(f"NATS tasks remain after close: {stacks}")
+E               AssertionError: NATS tasks remain after close: [('Task-40', '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py', 305), ('Task-39', '/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py', 2359)]
+
+tests/commander/system/test_service_e2e_real_stack.py:105: AssertionError
+------------------------------ Captured log setup ------------------------------
+WARNING  pymodbus.logging:context.py:65 ModbusDeviceContext, ModbusSequentialDataBlock, ModbusSparseDataBlock are deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+WARNING  pymodbus.logging:context.py:65 Repeating....
+WARNING  pymodbus.logging:context.py:120 ModbusServerContext is deprecated and will be removed in v4.
+Please convert to SimData/SimDevice.
+Please read https://pymodbus.readthedocs.io/en/dev/source/upgrade_40.html#convert-to-simdata-simdevice
+------------------------------ Captured log call -------------------------------
+WARNING  asyncio:base_events.py:1931 Executing <Task pending name='Task-3' coro=<test_restart_recovers_executing_command_as_unknown() running at /home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py:242> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/futures.py:387, Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> cb=[_run_until_complete_cb() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:181] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680> took 0.693 seconds
+WARNING  asyncio:base_events.py:1931 Executing <Task pending name='Task-3' coro=<test_restart_recovers_executing_command_as_unknown() running at /home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py:271> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/futures.py:387, Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> cb=[_run_until_complete_cb() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:181] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680> took 0.688 seconds
+ERROR    commander.application.queued_executor:queued_executor.py:183 Commander request admission failed: device unavailable for control
+=========================== short test summary info ============================
+FAILED tests/commander/system/test_service_e2e_real_stack.py::test_restart_recovers_executing_command_as_unknown
+1 failed in 8.33s
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py", line 271, in test_restart_recovers_executing_command_as_unknown
+    service2, _s2, _j2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
+  File "/home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py", line 147, in _start_service
+    await service.start()
+  File "/home/luosh/wind-hub/src/commander/application/service_lifecycle.py", line 177, in start
+    await self._start_locked()
+  File "/home/luosh/wind-hub/src/commander/application/service_lifecycle.py", line 263, in _start_locked
+    audit.start()
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 71, in start
+    self._task = asyncio.create_task(self._run(), name="commander:audit")
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 384, in create_task
+    task = loop.create_task(coro)
+task: <Task pending name='commander:audit' coro=<AuditDelivery._run() running at /home/luosh/wind-hub/src/commander/application/audit.py:118> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:384>
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py", line 271, in test_restart_recovers_executing_command_as_unknown
+    service2, _s2, _j2 = await _start_service(root, db_path, jetstream_url, modbus_server.port)
+  File "/home/luosh/wind-hub/tests/commander/system/test_service_e2e_real_stack.py", line 147, in _start_service
+    await service.start()
+  File "/home/luosh/wind-hub/src/commander/application/service_lifecycle.py", line 177, in start
+    await self._start_locked()
+  File "/home/luosh/wind-hub/src/commander/application/service_lifecycle.py", line 260, in _start_locked
+    persistence.start()
+  File "/home/luosh/wind-hub/src/commander/application/persistence.py", line 310, in start
+    self._task = asyncio.create_task(self._run(), name="commander:persistence")
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 384, in create_task
+    task = loop.create_task(coro)
+task: <Task pending name='commander:persistence' coro=<PersistenceWorker._run() running at /home/luosh/wind-hub/src/commander/application/persistence.py:318> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:384>
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 118, in _run
+    await self._sleep_or_stop(0.1)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 156, in _sleep_or_stop
+    await asyncio.wait_for(self._stop.wait(), timeout=seconds)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 470, in wait_for
+    fut = ensure_future(fut, loop=loop)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 659, in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 680, in _ensure_future
+    return loop.create_task(coro_or_future)
+task: <Task pending name='Task-187' coro=<Event.wait() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/locks.py:213> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> cb=[_release_waiter(<Future pendi...events.py:428>)() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:431] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680>
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 141, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 193, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 546, in teardown_exact
+    fin()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/fixtures.py", line 1058, in finish
+    fin()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 341, in finalizer
+    event_loop.run_until_complete(async_finalizer())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/persistence.py", line 318, in _run
+    await asyncio.wait_for(self._buffer.wake.wait(), timeout=self._interval)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 470, in wait_for
+    fut = ensure_future(fut, loop=loop)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 659, in ensure_future
+    return _ensure_future(coro_or_future, loop=loop)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py", line 680, in _ensure_future
+    return loop.create_task(coro_or_future)
+task: <Task pending name='Task-190' coro=<Event.wait() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/locks.py:200> cb=[_release_waiter(<Future pendi...events.py:428>)() at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:431] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/tasks.py:680>
+sys:1: RuntimeWarning: coroutine 'Event.wait' was never awaited
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 122, in _run
+    await self._transport.publish(event)
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 50, in publish
+    await self.connect()
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 41, in connect
+    connection = await nats.connect(servers=list(self._servers))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/__init__.py", line 46, in connect
+    await nc.connect(servers, **options)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 619, in connect
+    await self._process_connect_init()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2331, in _process_connect_init
+    self._reading_task = asyncio.get_running_loop().create_task(self._read_loop())
+task: <Task pending name='Task-37' coro=<Client._read_loop() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2413> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2331>
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 122, in _run
+    await self._transport.publish(event)
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 50, in publish
+    await self.connect()
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 41, in connect
+    connection = await nats.connect(servers=list(self._servers))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/__init__.py", line 46, in connect
+    await nc.connect(servers, **options)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 619, in connect
+    await self._process_connect_init()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2334, in _process_connect_init
+    self._ping_interval_task = asyncio.get_running_loop().create_task(self._ping_interval())
+task: <Task pending name='Task-38' coro=<Client._ping_interval() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2381> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2334>
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 122, in _run
+    await self._transport.publish(event)
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 50, in publish
+    await self.connect()
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 41, in connect
+    connection = await nats.connect(servers=list(self._servers))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/__init__.py", line 46, in connect
+    await nc.connect(servers, **options)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 619, in connect
+    await self._process_connect_init()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2337, in _process_connect_init
+    self._flusher_task = asyncio.get_running_loop().create_task(self._flusher())
+task: <Task pending name='Task-39' coro=<Client._flusher() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2359> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py:2337>
+Exception ignored in: <coroutine object Client._flusher at 0x7d6dd3785210>
+Traceback (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 2359, in _flusher
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+RuntimeError: Event loop is closed
+Task was destroyed but it is pending!
+source_traceback: Object created at (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/bin/pytest", line 8, in <module>
+    sys.exit(console_main())
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 201, in console_main
+    code = main()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/config/__init__.py", line 175, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 336, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 289, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 343, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/main.py", line 367, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 117, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 136, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 245, in call_and_report
+    call = CallInfo.from_call(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 344, in from_call
+    result: TResult | None = func()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 246, in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/runner.py", line 178, in pytest_runtest_call
+    item.runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 457, in runtest
+    super().runtest()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 1671, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/_pytest/python.py", line 157, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 929, in inner
+    _loop.run_until_complete(task)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 641, in run_until_complete
+    self.run_forever()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 608, in run_forever
+    self._run_once()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 1928, in _run_once
+    handle._run()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/luosh/wind-hub/src/commander/application/audit.py", line 122, in _run
+    await self._transport.publish(event)
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/nats_audit.py", line 52, in publish
+    await self._publisher.publish(event)
+  File "/home/luosh/wind-hub/src/commander/infrastructure/adapters/outbound/audit_publisher.py", line 54, in publish
+    ack = await self._client.publish(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/js/client.py", line 208, in publish
+    msg = await self._nc.request(
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 1142, in request
+    msg = await self._request_new_style(subject, payload, timeout=timeout, headers=headers)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 1158, in _request_new_style
+    await self._init_request_sub()
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 1107, in _init_request_sub
+    await self.subscribe(resp_mux_subject.decode(), cb=self._request_sub_callback)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/client.py", line 1081, in subscribe
+    sub._start(self._error_cb)
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 216, in _start
+    self._wait_for_msgs_task = asyncio.get_running_loop().create_task(self._wait_for_msgs(error_cb))
+task: <Task pending name='Task-40' coro=<Subscription._wait_for_msgs() running at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py:305> wait_for=<Future pending cb=[Task.task_wakeup()] created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:428> created at /home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py:216>
+Exception ignored in: <coroutine object Subscription._wait_for_msgs at 0x7d6dd37855d0>
+Traceback (most recent call last):
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/site-packages/nats/aio/subscription.py", line 305, in _wait_for_msgs
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/queues.py", line 160, in get
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+  File "/home/luosh/miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+RuntimeError: Event loop is closed

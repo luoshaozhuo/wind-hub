@@ -1,0 +1,2 @@
+stopped=frozenset()
+pending_nats_tasks_after_5s=[]

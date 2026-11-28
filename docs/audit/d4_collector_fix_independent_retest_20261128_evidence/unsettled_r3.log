@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.16, pytest-8.4.2, pluggy-1.6.0 -- /home/luosh/miniconda3/envs/wind-hub/bin/python3.11
+cachedir: .pytest_cache
+rootdir: /home/luosh/wind-hub
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.14.5, asyncio-0.24.0
+asyncio: mode=Mode.AUTO, default_loop_scope=None
+collecting ... collected 5 items / 4 deselected / 1 selected
+
+tests/collector/system/test_collector_lifecycle_system.py::test_uc08_s03_unsettled_io_shutdown_exits_nonzero PASSED [100%]
+
+======================= 1 passed, 4 deselected in 3.37s ========================

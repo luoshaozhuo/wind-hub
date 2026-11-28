@@ -1,0 +1,102 @@
+........................................................................ [ 23%]
+........................................................................ [ 47%]
+........................................................................ [ 70%]
+..........................................sssssssssss...........F....... [ 94%]
+...............ss.                                                       [100%]
+=================================== FAILURES ===================================
+_____________ test_shell_ctrl_c_cancels_inflight_rpc_and_continues _____________
+
+cli_env = CliEnv(config_path=PosixPath('/tmp/pytest-of-luosh/pytest-459/test_shell_ctrl_c_cancels_infl0/cli.yaml'), server=<test....<locals>.invoke at 0x7374bd86c900>, subprocess_invoke=<function cli_env.<locals>.subprocess_invoke at 0x7374bd86e480>)
+tmp_path = PosixPath('/tmp/pytest-of-luosh/pytest-459/test_shell_ctrl_c_cancels_infl0')
+
+    def test_shell_ctrl_c_cancels_inflight_rpc_and_continues(cli_env: Any, tmp_path: Any) -> None:
+        """S03（CLI-P1-SHELL-01 复测）：真实 PTY + 真实在途慢 RPC。
+    
+        要求：Ctrl+C 后输出 INTERRUPTED 信封；服务端处理协程真实收到 CancelledError
+        （而不是跑到 DEADLINE）；无重复分派、无孤儿 Task 异常；Shell 不退出，
+        连续中断两次后仍可执行下一条命令。
+        """
+        import asyncio
+    
+        events: list[str] = []
+        inflight = {"n": 0}
+    
+        async def slow(request: Any, context: Any) -> Any:
+            inflight["n"] += 1
+            seq = inflight["n"]
+            events.append(f"start-{seq}")
+            try:
+                await asyncio.sleep(10)
+                return common_pb2.GetServiceInfoResponse(service_id="x")
+            except asyncio.CancelledError:
+                events.append(f"cancelled-{seq}")
+                raise
+    
+        cli_env.server.respond(cli_env.server.method_path("CommonService", "GetServiceInfo"), slow)
+        shell = PtyShell(
+            _config(
+                tmp_path, cli_env.server.cert_files, cli_env.server.port, cli_env.server.insecure_port
+            )
+        )
+    
+        def interrupt_once(label: str) -> None:
+            before = len(cli_env.server.calls)
+            shell.send("service info collector")
+            deadline = time.monotonic() + 5.0
+            while f"start-{label}" not in events:
+                if time.monotonic() > deadline:
+                    raise AssertionError(f"RPC {label} never went in flight: {events}")
+                time.sleep(0.1)
+            time.sleep(0.5)  # 让 RPC 稳定在途
+            os.kill(shell.proc.pid, signal.SIGINT)
+            output = shell.read_for('"status": "INTERRUPTED"', timeout=6.0)
+            # 提示符可能与中断信封在同一个读出块中，容忍两种到达顺序。
+            if "wind-hub>" not in output:
+                shell.read_for("wind-hub>")
+            assert "error_code" in output and "INTERRUPTED" in output
+            assert "Task exception was never retrieved" not in output
+            assert "Unhandled exception in event loop" not in output
+            assert "Press ENTER to continue" not in output
+            assert len(cli_env.server.calls) == before + 1  # 无重复分派
+            # 客户端 INTERRUPTED 信封可能先于 RST_STREAM 到达服务端；等待服务端
+            # 处理协程真实记账 CancelledError（而不是让它跑到 DEADLINE）。
+            cancel_deadline = time.monotonic() + 5.0
+            while f"cancelled-{label}" not in events and time.monotonic() < cancel_deadline:
+                time.sleep(0.05)
+            assert f"cancelled-{label}" in events, events
+    
+        try:
+            shell.read_for("wind-hub>")
+            interrupt_once(1)
+            interrupt_once(2)
+            assert events == ["start-1", "cancelled-1", "start-2", "cancelled-2"], events
+            # Shell 未退出，继续执行本地命令；channel 与会话仍可用
+            shell.send("net ping 127.0.0.1")
+            output = shell.read_for('"command": "net ping"')
+            assert '"status": "SUCCESS"' in output
+            # 两次中断后 prompt_toolkit 的 CPR 重绘可能把提示符文字擦到滚屏区，
+            # 不再逐字节匹配提示符；以 exit 被会话接受并干净退出 rc=0 证明存活。
+            shell.send("exit")
+            deadline = time.monotonic() + 5.0
+            while shell.proc.poll() is None and time.monotonic() < deadline:
+                ready, _, _ = select.select([shell.master], [], [], 0.2)
+                if ready:
+                    try:
+                        raw = os.read(shell.master, 65536)
+                    except OSError:
+                        break  # 子进程已退出，PTY 对端关闭
+                    if b"\x1b[6n" in raw:
+                        os.write(shell.master, b"\x1b[2;1R")
+>           assert shell.proc.poll() == 0, shell.proc.poll()
+E           AssertionError: 0
+E           assert None == 0
+E            +  where None = poll()
+E            +    where poll = <Popen: returncode: None args: ['/home/luosh/miniconda3/envs/wind-hub/bin/py...>.poll
+E            +      where <Popen: returncode: None args: ['/home/luosh/miniconda3/envs/wind-hub/bin/py...> = <tests.cli.test_shell_e2e.PtyShell object at 0x7374bc6813d0>.proc
+
+tests/cli/test_shell_e2e.py:291: AssertionError
+=========================== short test summary info ============================
+SKIPPED [11] tests/cli/test_runtime_e2e.py: NOT_RUN: 本机无可用 containerd（socket=/tmp/wh-run/containerd.sock），UC-02 九宫格未执行；准备命令：docker run -d --name wh-ctr --privileged -v /tmp/wh-run:/tmp/wh-run docker:27-dind 并在其中以 state=/tmp/wh-run 启动 containerd + ctr image pull busybox:1.36
+SKIPPED [1] tests/cli/test_system_real.py:38: NOT_RUN: 本机无 containerd socket/CLI，UC-02 containerd 9 宫格未执行
+SKIPPED [1] tests/cli/test_system_real.py:47: NOT_RUN: 本机无 iSulad，UC-02 isulad 9 宫格未执行
+1 failed, 292 passed, 13 skipped, 1 deselected in 54.58s
