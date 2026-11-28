@@ -364,9 +364,7 @@ class DeviceWorker:
                     # A poll slot is a scheduling target, not the protocol I/O
                     # deadline. A slow but healthy response skips subsequent
                     # slots without forcing a reconnect or overlapping reads.
-                    received = await self._bounded(
-                        self.driver.read_many(point_ids), self.timeout
-                    )
+                    received = await self._bounded(self.driver.read_many(point_ids), self.timeout)
                     samples = tuple(received)
                     validate_read_many_results(point_ids, samples)
                 # Never fill a closed cycle with data received after its deadline.
