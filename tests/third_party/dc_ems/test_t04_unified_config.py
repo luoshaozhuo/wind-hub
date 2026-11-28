@@ -172,6 +172,15 @@ def test_deliveries_map_nine_points_with_renames() -> None:
     targets = {item["source_point_id"]: item["variable_id"] for item in wtg01["target_mappings"]}
     assert targets["active_power"] == "sim_active_power"
     assert targets["fault_status"] == "device_fault_active"
+    fault_mapping = next(
+        item for item in wtg01["target_mappings"] if item["source_point_id"] == "fault_status"
+    )
+    assert fault_mapping["conversion"] == "int01_to_bool"
+    assert all(
+        "conversion" not in item
+        for item in wtg01["target_mappings"]
+        if item["source_point_id"] != "fault_status"
+    )
     assert (
         sum(1 for item in wtg01["target_mappings"] if item["source_point_id"] == "pitch_angle_1")
         == 2
@@ -256,6 +265,7 @@ def test_commander_targets_wtg01_on_source_gateway() -> None:
     assert "simulation" not in wtg01_t["control"]
     assert wtg01_t["control"]["mappings"][0]["value_scale"] == 1000.0
     for server in target_gw["servers"]:
+        assert server["read_stale_after_ms"] == 5000
         if server["device_id"] != "WTG01":
             assert server["control"]["enabled"] is False
 
