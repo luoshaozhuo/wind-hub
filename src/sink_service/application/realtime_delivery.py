@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from sink_service.application.config import template_document as _template
 from sink_service.application.delivery_definition import DeliveryDefinition
@@ -12,6 +13,9 @@ from sink_service.application.output_pool import _QuotaWriter
 from sink_service.application.ports.realtime import RealtimeIngressPort, SinkOutputPoolPort
 from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
+
+
+logger = logging.getLogger(__name__)
 
 
 class RealtimeDeliveryPort:
@@ -140,6 +144,7 @@ class RealtimeDeliveryPort:
             raise
         self._engine = engine
         self._writer = sink
+        logger.info("Realtime Delivery started delivery=%s sink=%s", self._id, self._sink_id)
 
     async def stop(self) -> None:
         engine = self._engine
@@ -157,6 +162,11 @@ class RealtimeDeliveryPort:
             except TimeoutError as exc:
                 # Do not release a physical output while native I/O remains
                 # uncertain. The next reconciliation may retry this cleanup.
+                logger.warning(
+                    "Realtime Delivery settlement timed out delivery=%s sink=%s",
+                    self._id,
+                    self._sink_id,
+                )
                 raise ConfigurationError(
                     "Delivery output settlement timed out; ownership retained"
                 ) from exc
@@ -173,3 +183,4 @@ class RealtimeDeliveryPort:
         self._engine = None
         self._writer = None
         self._stopping = False
+        logger.info("Realtime Delivery stopped delivery=%s sink=%s", self._id, self._sink_id)
