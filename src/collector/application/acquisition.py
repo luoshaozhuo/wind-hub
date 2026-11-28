@@ -93,7 +93,7 @@ class DeviceWorker:
         if self._inflight is not None and not self._inflight.done():
             if inspect.iscoroutine(work):
                 work.close()
-            raise RuntimeError("device I/O is still unsettled")
+            raise TimeoutError("device I/O is still unsettled")
         task = asyncio.ensure_future(work)
         self._inflight = task
         try:
@@ -293,6 +293,19 @@ class DeviceWorker:
             raise ValueError(f"unsupported acquisition mode: {mode}")
         self.last_error = ""
 
+    def _mark_running(self) -> None:
+        if self._recovery_started is not None:
+            if self.telemetry is not None:
+                self.telemetry.observe_milliseconds(
+                    f"collector.device.{self.plan.device.device_id}.recovery_ms",
+                    (time.monotonic() - self._recovery_started) * 1000,
+                )
+                self.telemetry.increment(
+                    f"collector.device.{self.plan.device.device_id}.reconnections"
+                )
+            self._recovery_started = None
+        self.actual_state = "RUNNING"
+
     async def _on_samples(
         self, samples: tuple[ProtocolSample, ...], *, sample_time: datetime | None = None
     ) -> None:
@@ -313,17 +326,7 @@ class DeviceWorker:
             sample for sample in samples if sample.point_id in self.plan.point_table.points
         ]
         if any(sample.quality is Quality.GOOD for sample in converted):
-            if self._recovery_started is not None:
-                if self.telemetry is not None:
-                    self.telemetry.observe_milliseconds(
-                        "collector.device." f"{self.plan.device.device_id}.recovery_ms",
-                        (time.monotonic() - self._recovery_started) * 1000,
-                    )
-                    self.telemetry.increment(
-                        f"collector.device.{self.plan.device.device_id}.reconnections"
-                    )
-                self._recovery_started = None
-            self.actual_state = "RUNNING"
+            self._mark_running()
         if converted or self.plan.mode == "poll":
             if self.telemetry is not None:
                 self.telemetry.increment("collector.points.collected", len(converted))
@@ -358,9 +361,11 @@ class DeviceWorker:
                 )
             try:
                 async with self._lock:
-                    remaining = max(0.001, next_slot - time.monotonic())
+                    # A poll slot is a scheduling target, not the protocol I/O
+                    # deadline. A slow but healthy response skips subsequent
+                    # slots without forcing a reconnect or overlapping reads.
                     received = await self._bounded(
-                        self.driver.read_many(point_ids), min(self.timeout, remaining)
+                        self.driver.read_many(point_ids), self.timeout
                     )
                     samples = tuple(received)
                     validate_read_many_results(point_ids, samples)
@@ -368,6 +373,10 @@ class DeviceWorker:
                 if time.monotonic() >= next_slot:
                     if self.telemetry is not None:
                         self.telemetry.increment("collector.poll.late_discarded")
+                    # The data missed its sampling window, but a completed
+                    # healthy read still establishes a working session.
+                    if any(sample.quality is Quality.GOOD for sample in samples):
+                        self._mark_running()
                     await self._on_samples((), sample_time=cycle_time)
                 else:
                     await self._on_samples(samples, sample_time=cycle_time)
