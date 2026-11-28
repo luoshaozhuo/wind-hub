@@ -391,12 +391,11 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
                 self.last_error = f"Reliable consumer task stopped unexpectedly: {failure}"
             elif not self._stop.is_set():
                 self.last_error = "Reliable consumer exited without STOP"
-        if self.last_error:
+        if self.last_error and not self._stop.is_set():
             logger.error(
-                "Reliable Delivery task terminated delivery=%s sink=%s reason=%s",
+                "Reliable Delivery task terminated unexpectedly delivery=%s sink=%s",
                 self._definition.delivery_id,
                 self._definition.sink_id,
-                self.last_error,
             )
 
     async def stop(self) -> None:
