@@ -325,6 +325,8 @@ def _start_service(
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
+    # Preserve crash diagnostics for service subprocesses even on abrupt termination.
+    env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(  # noqa: S603
         [script, *args],
         stdout=log_file,
