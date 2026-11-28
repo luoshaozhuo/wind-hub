@@ -1,0 +1,5 @@
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=ems_power sink=ems_redis
+INFO:sink_service.infrastructure.reliable_runtime:Reliable Delivery started delivery=power_history sink=history_kafka durable=WH_SINK_bfbd98a845f826d6b229b874 revision=77b5cbf01f609a41042aeeb5a51cbb5e42ad38c64b6d9d2c96bd411c7d2cf5d9
+ERROR:aiokafka.cluster:Topic wh-history-qa-185b686f0a6e not found in cluster metadata
+INFO:sink_service.application.realtime_delivery:Realtime Delivery stopped delivery=ems_power sink=ems_redis
+INFO:sink_service.infrastructure.reliable_runtime:Reliable Delivery stopped delivery=power_history sink=history_kafka revision=77b5cbf01f609a41042aeeb5a51cbb5e42ad38c64b6d9d2c96bd411c7d2cf5d9

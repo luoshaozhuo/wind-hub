@@ -1,0 +1,5 @@
+live stop/start cycle lines added: 2
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg01 sink=dcems_gateway_01
+INFO:sink_service.application.realtime_delivery:Realtime Delivery stopped delivery=dcems_wtg01 sink=dcems_gateway_01
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg01 sink=dcems_gateway_01
+idle10s added lines: 0

@@ -1,0 +1,247 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 120.0,
+  "degree": 30,
+  "target_batch_rate_global": 120.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 14400,
+  "scheduled_batches": 14400,
+  "published_batches": 14400,
+  "published_values": 7200000,
+  "confirmed_values": 7200000,
+  "physical_builder_count": 22288.0,
+  "confirmed_points_per_physical_builder": 323.044,
+  "cross_device_coalescing_observed": false,
+  "kafka_partition_count": 4,
+  "kafka_confirmed_by_partition": {
+    "0": 1920000,
+    "1": 2160000,
+    "2": 960000,
+    "3": 2160000
+  },
+  "device_order_audit": {
+    "scanned_records": 61000,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT002": [
+        3
+      ],
+      "WT001": [
+        3
+      ],
+      "WT006": [
+        3
+      ],
+      "WT013": [
+        3
+      ],
+      "WT009": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT010": [
+        0
+      ],
+      "WT015": [
+        0
+      ],
+      "WT005": [
+        1
+      ],
+      "WT003": [
+        1
+      ],
+      "WT004": [
+        1
+      ],
+      "WT012": [
+        1
+      ],
+      "WT008": [
+        2
+      ],
+      "WT007": [
+        2
+      ],
+      "WT021": [
+        2
+      ],
+      "WT030": [
+        2
+      ],
+      "WT023": [
+        3
+      ],
+      "WT024": [
+        3
+      ],
+      "WT027": [
+        3
+      ],
+      "WT016": [
+        0
+      ],
+      "WT018": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT014": [
+        1
+      ],
+      "WT017": [
+        1
+      ],
+      "WT020": [
+        1
+      ],
+      "WT028": [
+        3
+      ],
+      "WT029": [
+        3
+      ],
+      "WT019": [
+        1
+      ],
+      "WT025": [
+        1
+      ],
+      "WT026": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 120.01,
+  "achieved_publish_batches_per_s": 119.99,
+  "publisher_puback_batches_per_s_steady": 120.0,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 2.153,
+  "confirmed_values_per_s_steady": 31506.29,
+  "confirmed_batches_per_s_steady": 63.01,
+  "backlog_slope_batches_per_s_steady": 57.033,
+  "final_pending": {
+    "WH_SINK_4287f87e4302a23ff66893e9": 0,
+    "WH_SINK_278f6941ce5bcd452578fb08": 0,
+    "WH_SINK_af9abfcf1bfdde4de06fa870": 0,
+    "WH_SINK_d4621449fd40a4faaa7233be": 0,
+    "WH_SINK_6eb6a80ef0bcf16669e9d270": 0,
+    "WH_SINK_a0ef0f8b55a88b73d2afc5b3": 0,
+    "WH_SINK_0060037ab39eb0fda1798be1": 0,
+    "WH_SINK_99bc5ca3851f2fa7719350c4": 0,
+    "WH_SINK_68119f1d8e4fe44f62cd72c0": 0,
+    "WH_SINK_e2018857e82a6607f7a187c2": 0,
+    "WH_SINK_81387522515f6376fb3b6476": 0,
+    "WH_SINK_f15e26f01f3426c9a23c633d": 0,
+    "WH_SINK_e06b00e6026ce02268c6a852": 0,
+    "WH_SINK_50afe03a6c0c4d1298497590": 0,
+    "WH_SINK_95100a78ed8778948a885734": 0,
+    "WH_SINK_0e8e92337b592160048b0330": 0,
+    "WH_SINK_039b3ab8654d7db497e591b7": 0,
+    "WH_SINK_35d520213d89d120ccb4aa49": 0,
+    "WH_SINK_d83d4318515a04581f59bfdf": 0,
+    "WH_SINK_06f1faf3743299114d2ba589": 0,
+    "WH_SINK_d4f088b50899732b9a07bb40": 0,
+    "WH_SINK_f48c87f8a2245cd2841d1c80": 0,
+    "WH_SINK_91404510ba7100ea016711ae": 0,
+    "WH_SINK_216dfe8730ddf8764b2954da": 0,
+    "WH_SINK_c9c4140bf65be66d7950f017": 0,
+    "WH_SINK_c53fe2ad0d9135c0bc54f8b1": 0,
+    "WH_SINK_be985df955911039c330e8c7": 0,
+    "WH_SINK_583362c164e37ff1c4d2687d": 0,
+    "WH_SINK_30b93da73c14de7cd4c78522": 0,
+    "WH_SINK_b1c075cb82e6fbc7457befdb": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 117,
+  "grpc_max_latency_ms": 11.0,
+  "event_loop_lag_p99_max_ms": 82.03750097891316,
+  "write_latency_p99_max_ms": 269.97762972536816,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 112.052,
+      "operations": 7517,
+      "mean_duration_ms": 14.907
+    },
+    "reliable_encode": {
+      "duration_seconds": 50.358,
+      "operations": 7516,
+      "mean_duration_ms": 6.7
+    },
+    "reliable_write": {
+      "duration_seconds": 3292.535,
+      "operations": 7488,
+      "mean_duration_ms": 439.708
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 53.536,
+      "operations": 7488,
+      "mean_duration_ms": 7.15
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.016,
+      "writes": 7488,
+      "mean_duration_ms": 0.002
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 7488,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 240.671,
+      "writes": 7488,
+      "mean_duration_ms": 32.141
+    },
+    "confirm": {
+      "duration_seconds": 212.645,
+      "writes": 7488,
+      "mean_duration_ms": 28.398
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 0.098,
+      "writes": 7488,
+      "mean_duration_ms": 0.013
+    },
+    "physical": {
+      "duration_seconds": 2797.714,
+      "writes": 7488,
+      "mean_duration_ms": 373.626
+    },
+    "native": {
+      "duration_seconds": 477.215,
+      "writes": 7488,
+      "mean_duration_ms": 63.731
+    }
+  },
+  "confirmed_subbatches_per_write": 2.976,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 4,
+    "max_batch_size": 131072,
+    "partitions": 4
+  },
+  "cpu_percent_of_one_core": 52.2,
+  "rss_max_mib": 280.7,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p4_17dc6cb5ce22_samples.jsonl",
+  "samples_sha256": "cc67eb13f5fe6a024df282594246c15d71bfce51a2ff9f5e4d95f22908abeb39",
+  "result_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p4_17dc6cb5ce22.json"
+}

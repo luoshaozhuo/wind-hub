@@ -1,0 +1,247 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 120.0,
+  "degree": 30,
+  "target_batch_rate_global": 120.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 14400,
+  "scheduled_batches": 14400,
+  "published_batches": 14400,
+  "published_values": 7200000,
+  "confirmed_values": 7200000,
+  "physical_builder_count": 7394.0,
+  "confirmed_points_per_physical_builder": 973.763,
+  "cross_device_coalescing_observed": true,
+  "kafka_partition_count": 4,
+  "kafka_confirmed_by_partition": {
+    "0": 1920000,
+    "1": 2160000,
+    "2": 960000,
+    "3": 2160000
+  },
+  "device_order_audit": {
+    "scanned_records": 57500,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT002": [
+        3
+      ],
+      "WT001": [
+        3
+      ],
+      "WT006": [
+        3
+      ],
+      "WT010": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT009": [
+        0
+      ],
+      "WT008": [
+        2
+      ],
+      "WT007": [
+        2
+      ],
+      "WT021": [
+        2
+      ],
+      "WT003": [
+        1
+      ],
+      "WT004": [
+        1
+      ],
+      "WT005": [
+        1
+      ],
+      "WT030": [
+        2
+      ],
+      "WT012": [
+        1
+      ],
+      "WT014": [
+        1
+      ],
+      "WT017": [
+        1
+      ],
+      "WT013": [
+        3
+      ],
+      "WT023": [
+        3
+      ],
+      "WT024": [
+        3
+      ],
+      "WT015": [
+        0
+      ],
+      "WT016": [
+        0
+      ],
+      "WT019": [
+        1
+      ],
+      "WT020": [
+        1
+      ],
+      "WT025": [
+        1
+      ],
+      "WT027": [
+        3
+      ],
+      "WT028": [
+        3
+      ],
+      "WT029": [
+        3
+      ],
+      "WT018": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT026": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 120.001,
+  "achieved_publish_batches_per_s": 120.0,
+  "publisher_puback_batches_per_s_steady": 120.0,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 2.362,
+  "confirmed_values_per_s_steady": 31496.06,
+  "confirmed_batches_per_s_steady": 62.99,
+  "backlog_slope_batches_per_s_steady": 57.008,
+  "final_pending": {
+    "WH_SINK_82326bf1f18bb9a5519e51da": 0,
+    "WH_SINK_fc33cdb5f234e56994448119": 0,
+    "WH_SINK_e20f57b3afd4b3e57dceff3b": 0,
+    "WH_SINK_919b2c00261baeb42e6c8725": 0,
+    "WH_SINK_836b1ec10c715b63c8379b8f": 0,
+    "WH_SINK_5d7f323871564f08d07ba33d": 0,
+    "WH_SINK_c619c37f25b4503d7cd09153": 0,
+    "WH_SINK_be45a449977fb0e479b55a82": 0,
+    "WH_SINK_40c6086de6418a3fd7fbc6fb": 0,
+    "WH_SINK_d7cae8ec21cf7f0b690edb6e": 0,
+    "WH_SINK_227df53a9603ff1b63fe08f9": 0,
+    "WH_SINK_c2c6da9e3edba3b4abe3213c": 0,
+    "WH_SINK_eeb05748bb17a48b4c645d53": 0,
+    "WH_SINK_79dff66196344dc79df8573e": 0,
+    "WH_SINK_7150b1db7b5b500cad258fa3": 0,
+    "WH_SINK_bc89df7fb6843c4ce5e7952d": 0,
+    "WH_SINK_6bbc2619407c8a43517d77a4": 0,
+    "WH_SINK_560f6e7c424524f363553d42": 0,
+    "WH_SINK_f4d55da64e2d949da6ebbb0e": 0,
+    "WH_SINK_24c26bed3c3c74043aede1d1": 0,
+    "WH_SINK_6aa87f76e1f237d18ce4de76": 0,
+    "WH_SINK_b15c46de7e7f8a386fc12b7d": 0,
+    "WH_SINK_f3bfd96119497160f10c0e49": 0,
+    "WH_SINK_d648d8b665a09b9d84ac5f5c": 0,
+    "WH_SINK_4c2b0e1390fafe576eac2f10": 0,
+    "WH_SINK_679b0235aea638ea4b53a43d": 0,
+    "WH_SINK_59d9f864af5497b5872b57c0": 0,
+    "WH_SINK_7d0c3e4f1557bbfe1ec63796": 0,
+    "WH_SINK_034a0bc08a5aee3fa07e8927": 0,
+    "WH_SINK_194b8d0888f5845d0d541dce": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 116,
+  "grpc_max_latency_ms": 41.3,
+  "event_loop_lag_p99_max_ms": 70.99817699054256,
+  "write_latency_p99_max_ms": 225.541990208866,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 186.68,
+      "operations": 7487,
+      "mean_duration_ms": 24.934
+    },
+    "reliable_encode": {
+      "duration_seconds": 86.101,
+      "operations": 7487,
+      "mean_duration_ms": 11.5
+    },
+    "reliable_write": {
+      "duration_seconds": 3094.863,
+      "operations": 7465,
+      "mean_duration_ms": 414.583
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 130.26,
+      "operations": 7463,
+      "mean_duration_ms": 17.454
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.013,
+      "writes": 7465,
+      "mean_duration_ms": 0.002
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 7465,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 59.148,
+      "writes": 7465,
+      "mean_duration_ms": 7.923
+    },
+    "confirm": {
+      "duration_seconds": 345.478,
+      "writes": 7465,
+      "mean_duration_ms": 46.28
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 0.096,
+      "writes": 7465,
+      "mean_duration_ms": 0.013
+    },
+    "physical": {
+      "duration_seconds": 2569.57,
+      "writes": 7465,
+      "mean_duration_ms": 344.216
+    },
+    "native": {
+      "duration_seconds": 477.629,
+      "writes": 7465,
+      "mean_duration_ms": 63.982
+    }
+  },
+  "confirmed_subbatches_per_write": 0.99,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 4,
+    "max_batch_size": 524288,
+    "partitions": 4
+  },
+  "cpu_percent_of_one_core": 53.9,
+  "rss_max_mib": 280.2,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b524288_p4_d6f447562b6f_samples.jsonl",
+  "samples_sha256": "af7dd5b94a2335a0191f7815e34dd5e205071771fa01235648ea4b0abd309652",
+  "result_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b524288_p4_d6f447562b6f.json"
+}

@@ -1,0 +1,79 @@
+.........................ssssssssss..............................        [100%]
+=============================== warnings summary ===============================
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 2987 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: 65 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/sink_service/integration/test_config_repository.py::test_first_commit_publishes_atomic_current_pointer
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:773: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    _restore_event_loop_policy(asyncio.get_event_loop_policy()),
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1028: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(new_loop_policy)
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1029: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:788: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:833: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:857: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(previous_policy)
+
+tests/sink_service/integration/test_grpc_contract.py: 7 warnings
+tests/sink_service/integration/test_historical_point_table_client.py: 5 warnings
+tests/sink_service/integration/test_redis_batch_contract.py: 2 warnings
+tests/sink_service/integration/test_reliable_durable_ack_real_nats.py: 10 warnings
+tests/industrial_gateway/integration/test_command_outcomes.py: 6 warnings
+tests/industrial_gateway/integration/test_modbus_matrix.py: 24 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:869: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+55 passed, 10 skipped, 3431 warnings in 36.43s

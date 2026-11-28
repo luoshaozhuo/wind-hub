@@ -14,7 +14,6 @@ from sink_service.application.ports.realtime import RealtimeIngressPort, SinkOut
 from sink_service.application.realtime import RealtimeEngine
 from sink_service.domain.config import ConfigurationError, ValidatedSnapshot
 
-
 logger = logging.getLogger(__name__)
 
 

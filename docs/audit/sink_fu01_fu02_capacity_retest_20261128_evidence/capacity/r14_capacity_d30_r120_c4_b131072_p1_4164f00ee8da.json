@@ -1,0 +1,244 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 120.0,
+  "degree": 30,
+  "target_batch_rate_global": 120.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 14400,
+  "scheduled_batches": 14400,
+  "published_batches": 14400,
+  "published_values": 7200000,
+  "confirmed_values": 7036500,
+  "physical_builder_count": 16763.0,
+  "confirmed_points_per_physical_builder": 419.764,
+  "cross_device_coalescing_observed": false,
+  "kafka_partition_count": 1,
+  "kafka_confirmed_by_partition": {
+    "0": 7036500
+  },
+  "device_order_audit": {
+    "scanned_records": 47226,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT002": [
+        0
+      ],
+      "WT001": [
+        0
+      ],
+      "WT003": [
+        0
+      ],
+      "WT004": [
+        0
+      ],
+      "WT005": [
+        0
+      ],
+      "WT006": [
+        0
+      ],
+      "WT007": [
+        0
+      ],
+      "WT008": [
+        0
+      ],
+      "WT009": [
+        0
+      ],
+      "WT010": [
+        0
+      ],
+      "WT012": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT013": [
+        0
+      ],
+      "WT014": [
+        0
+      ],
+      "WT016": [
+        0
+      ],
+      "WT015": [
+        0
+      ],
+      "WT017": [
+        0
+      ],
+      "WT019": [
+        0
+      ],
+      "WT021": [
+        0
+      ],
+      "WT018": [
+        0
+      ],
+      "WT022": [
+        0
+      ],
+      "WT020": [
+        0
+      ],
+      "WT023": [
+        0
+      ],
+      "WT026": [
+        0
+      ],
+      "WT024": [
+        0
+      ],
+      "WT025": [
+        0
+      ],
+      "WT028": [
+        0
+      ],
+      "WT029": [
+        0
+      ],
+      "WT030": [
+        0
+      ],
+      "WT027": [
+        0
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": false,
+  "publish_wall_seconds": 119.998,
+  "achieved_publish_batches_per_s": 120.0,
+  "publisher_puback_batches_per_s_steady": 120.0,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 2.139,
+  "confirmed_values_per_s_steady": 28311.17,
+  "confirmed_batches_per_s_steady": 56.62,
+  "backlog_slope_batches_per_s_steady": 63.395,
+  "final_pending": {
+    "WH_SINK_19c1a2f197db9b816b98d6a3": 11,
+    "WH_SINK_da27c1f85b47c5487b0e581e": 9,
+    "WH_SINK_dd4063a96995e6634114d57c": 11,
+    "WH_SINK_86310f3cacb572829f9e933b": 7,
+    "WH_SINK_46e5b318f2b31f4126b0ed5f": 6,
+    "WH_SINK_2f68e7ce98fdda416ae8c486": 11,
+    "WH_SINK_09d21849c422c6ffb4bad75d": 10,
+    "WH_SINK_44b80c7470dc03f3e6e79f38": 13,
+    "WH_SINK_89876f2b17cb401c4e4a9097": 14,
+    "WH_SINK_ba243771e99afe97f8c6e754": 15,
+    "WH_SINK_6846c38ef33e6330f7ec41cb": 19,
+    "WH_SINK_ecbb89e35a278f7922b26cc1": 10,
+    "WH_SINK_b4689d62666dda07bdfe9d9d": 11,
+    "WH_SINK_b5fd1cd075181848939f070f": 15,
+    "WH_SINK_734edb8d4aa2923d9a072ba5": 13,
+    "WH_SINK_6e768e29b708983d529a6d45": 7,
+    "WH_SINK_0876d62520c7b3d7430dffeb": 8,
+    "WH_SINK_f4bd73c500f62397e2efcba2": 10,
+    "WH_SINK_f5bd3f3bbb9790be7a931ce9": 7,
+    "WH_SINK_1f130cf921166a7a7d7974fb": 14,
+    "WH_SINK_3b9eae475cfb904935b1ac0d": 13,
+    "WH_SINK_965352012212a0f43a6410cd": 17,
+    "WH_SINK_56eb5f60a51133513e5f4333": 9,
+    "WH_SINK_375160e02f65e9fb200bfb59": 12,
+    "WH_SINK_4418a2fcab924205fa956440": 6,
+    "WH_SINK_09158a578f9e7190b69dcb90": 11,
+    "WH_SINK_4de7e64de607a081149117fe": 6,
+    "WH_SINK_34f31360995f66665d883870": 13,
+    "WH_SINK_aea259c4f2813650f98c47c4": 12,
+    "WH_SINK_1dde58001b02216aa863205b": 8
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 117,
+  "grpc_max_latency_ms": 8.8,
+  "event_loop_lag_p99_max_ms": 60.83723498159088,
+  "write_latency_p99_max_ms": 227.8074101109546,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 77.182,
+      "operations": 6734,
+      "mean_duration_ms": 11.462
+    },
+    "reliable_encode": {
+      "duration_seconds": 54.717,
+      "operations": 6734,
+      "mean_duration_ms": 8.126
+    },
+    "reliable_write": {
+      "duration_seconds": 3364.682,
+      "operations": 6705,
+      "mean_duration_ms": 501.817
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 20.061,
+      "operations": 6704,
+      "mean_duration_ms": 2.992
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.009,
+      "writes": 6705,
+      "mean_duration_ms": 0.001
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 6705,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 344.388,
+      "writes": 6705,
+      "mean_duration_ms": 51.363
+    },
+    "confirm": {
+      "duration_seconds": 116.006,
+      "writes": 6705,
+      "mean_duration_ms": 17.301
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 0.076,
+      "writes": 6705,
+      "mean_duration_ms": 0.011
+    },
+    "physical": {
+      "duration_seconds": 2871.763,
+      "writes": 6705,
+      "mean_duration_ms": 428.302
+    },
+    "native": {
+      "duration_seconds": 476.859,
+      "writes": 6705,
+      "mean_duration_ms": 71.12
+    }
+  },
+  "confirmed_subbatches_per_write": 2.5,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 4,
+    "max_batch_size": 131072,
+    "partitions": 1
+  },
+  "cpu_percent_of_one_core": 42.7,
+  "rss_max_mib": 278.2,
+  "redeliver_peak": {},
+  "drained": false,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p1_4164f00ee8da_samples.jsonl",
+  "samples_sha256": "ffcdb70d477584f884e6250595b4149c0c74d41cd2d28531588cd436993f87ef",
+  "result_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p1_4164f00ee8da.json"
+}

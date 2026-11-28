@@ -1,0 +1,64 @@
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/sink_service/system/test_delivery_flow.py:36
+  /home/luo/wind-hub/tests/sink_service/system/test_delivery_flow.py:36: PytestUnknownMarkWarning: Unknown pytest.mark.nats - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytest.mark.nats,
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: 125 warnings
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:179: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+../miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:450: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1056: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:773: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    _restore_event_loop_policy(asyncio.get_event_loop_policy()),
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1028: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(new_loop_policy)
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1029: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:788: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:833: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:857: DeprecationWarning: 'asyncio.set_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    asyncio.set_event_loop_policy(previous_policy)
+
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s01_realtime_batches_reach_redis
+tests/sink_service/system/test_delivery_flow.py::TestRealtimeDelivery::test_uc04_s02_quality_preserved_and_expired_samples_dropped
+tests/sink_service/system/test_delivery_flow.py::TestReliableDelivery::test_uc05_s01_reliable_batch_reaches_kafka_then_source_acked
+  /home/luo/miniconda3/envs/wind-hub/lib/python3.14/site-packages/pytest_asyncio/plugin.py:869: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    policy = asyncio.get_event_loop_policy()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 151 warnings in 27.66s

@@ -1,0 +1,10 @@
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg01 sink=dcems_gateway_01
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg02 sink=dcems_gateway_02
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg03 sink=dcems_gateway_03
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg04 sink=dcems_gateway_04
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg05 sink=dcems_gateway_05
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg06 sink=dcems_gateway_06
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg07 sink=dcems_gateway_07
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg08 sink=dcems_gateway_08
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg09 sink=dcems_gateway_09
+INFO:sink_service.application.realtime_delivery:Realtime Delivery started delivery=dcems_wtg10 sink=dcems_gateway_10

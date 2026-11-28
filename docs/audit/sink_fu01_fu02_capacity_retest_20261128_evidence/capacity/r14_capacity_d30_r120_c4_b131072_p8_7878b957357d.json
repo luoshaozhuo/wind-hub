@@ -1,0 +1,251 @@
+{
+  "scenario": "r14_sustained_reliable",
+  "history_stream_max_bytes": 4294967296,
+  "history_stream_max_age_s": 180,
+  "duration_s": 120.0,
+  "degree": 30,
+  "target_batch_rate_global": 120.0,
+  "points_per_batch": 500,
+  "scheduled_target_batches": 14400,
+  "scheduled_batches": 14400,
+  "published_batches": 14400,
+  "published_values": 7200000,
+  "confirmed_values": 7200000,
+  "physical_builder_count": 21201.0,
+  "confirmed_points_per_physical_builder": 339.607,
+  "cross_device_coalescing_observed": false,
+  "kafka_partition_count": 8,
+  "kafka_confirmed_by_partition": {
+    "0": 480000,
+    "1": 720000,
+    "2": 0,
+    "3": 480000,
+    "4": 1440000,
+    "5": 1440000,
+    "6": 960000,
+    "7": 1680000
+  },
+  "device_order_audit": {
+    "scanned_records": 71194,
+    "devices_observed": 30,
+    "minimum_sequences_per_device": 3,
+    "device_partitions": {
+      "WT010": [
+        4
+      ],
+      "WT015": [
+        4
+      ],
+      "WT016": [
+        4
+      ],
+      "WT018": [
+        4
+      ],
+      "WT004": [
+        1
+      ],
+      "WT017": [
+        1
+      ],
+      "WT019": [
+        1
+      ],
+      "WT009": [
+        0
+      ],
+      "WT011": [
+        0
+      ],
+      "WT024": [
+        3
+      ],
+      "WT027": [
+        3
+      ],
+      "WT008": [
+        6
+      ],
+      "WT007": [
+        6
+      ],
+      "WT021": [
+        6
+      ],
+      "WT030": [
+        6
+      ],
+      "WT005": [
+        5
+      ],
+      "WT003": [
+        5
+      ],
+      "WT014": [
+        5
+      ],
+      "WT012": [
+        5
+      ],
+      "WT001": [
+        7
+      ],
+      "WT002": [
+        7
+      ],
+      "WT006": [
+        7
+      ],
+      "WT013": [
+        7
+      ],
+      "WT023": [
+        7
+      ],
+      "WT028": [
+        7
+      ],
+      "WT029": [
+        7
+      ],
+      "WT020": [
+        5
+      ],
+      "WT025": [
+        5
+      ],
+      "WT022": [
+        4
+      ],
+      "WT026": [
+        4
+      ]
+    },
+    "order_or_partition_violations": {}
+  },
+  "zero_loss": true,
+  "publish_wall_seconds": 120.0,
+  "achieved_publish_batches_per_s": 120.0,
+  "publisher_puback_batches_per_s_steady": 120.01,
+  "publisher_encoder_processes": 4,
+  "publisher_max_inflight_batches": 240,
+  "publisher_puback_mean_ms": 2.268,
+  "confirmed_values_per_s_steady": 29598.68,
+  "confirmed_batches_per_s_steady": 59.2,
+  "backlog_slope_batches_per_s_steady": 60.803,
+  "final_pending": {
+    "WH_SINK_1f23916dcd6f7a2a56b09bf6": 0,
+    "WH_SINK_a8a531d11aa0d1fbb15c9a29": 0,
+    "WH_SINK_b69eb19ea14b0881425a1150": 0,
+    "WH_SINK_c7e4f15694356360b338e2c3": 0,
+    "WH_SINK_e58e40613c764ec1dd0881da": 0,
+    "WH_SINK_c05a93db331db533c444ef80": 0,
+    "WH_SINK_782d085cc3f74481797ae79c": 0,
+    "WH_SINK_3b5888946afb0f84729ad995": 0,
+    "WH_SINK_a652f2877ebf26019a94a27e": 0,
+    "WH_SINK_7e1c327111bc5a32e830b6a7": 0,
+    "WH_SINK_3e81d4278a6a20dfe75c45f2": 0,
+    "WH_SINK_07bf5e04804db852f38218ac": 0,
+    "WH_SINK_2c5b6f178bd9d8166ad72fed": 0,
+    "WH_SINK_52d06085ae27cef60c10f45d": 0,
+    "WH_SINK_c42cff97baa7746a8e9127b3": 0,
+    "WH_SINK_bafe2d29e0d7d8014c406861": 0,
+    "WH_SINK_ee086f7b012ec0933dedc0a1": 0,
+    "WH_SINK_12c1dd4ddf8381d157b81209": 0,
+    "WH_SINK_27854dc26d71e648febcca27": 0,
+    "WH_SINK_a737c0bea33f9e98e96f47c2": 0,
+    "WH_SINK_b321e6aa8601991de714b2e9": 0,
+    "WH_SINK_1ccdf93ae862a27ff1a3e66e": 0,
+    "WH_SINK_10ae81ac8d2b80db9a54c6de": 0,
+    "WH_SINK_eb7148d365fbd2b74cdf6e7f": 0,
+    "WH_SINK_1ef3886ae548fe82d8e08e40": 0,
+    "WH_SINK_2166ae3996cef21677289edc": 0,
+    "WH_SINK_f489afdc0641a08cb5ece019": 0,
+    "WH_SINK_d335b9dd8dd4b6ae59c8218d": 0,
+    "WH_SINK_97c9b7e4972adb41444644a4": 0,
+    "WH_SINK_305cb845cb05097fb11a322b": 0
+  },
+  "dlq_count": 0,
+  "grpc_failures": 0,
+  "metrics_failures": 0,
+  "grpc_probes": 116,
+  "grpc_max_latency_ms": 24.2,
+  "event_loop_lag_p99_max_ms": 93.5680569964461,
+  "write_latency_p99_max_ms": 336.29015335687865,
+  "reliable_stage_diagnostics": {
+    "reliable_source_fetch": {
+      "duration_seconds": 120.002,
+      "operations": 7141,
+      "mean_duration_ms": 16.805
+    },
+    "reliable_encode": {
+      "duration_seconds": 54.594,
+      "operations": 7141,
+      "mean_duration_ms": 7.645
+    },
+    "reliable_write": {
+      "duration_seconds": 3280.787,
+      "operations": 7112,
+      "mean_duration_ms": 461.303
+    },
+    "reliable_source_ack": {
+      "duration_seconds": 52.388,
+      "operations": 7112,
+      "mean_duration_ms": 7.366
+    }
+  },
+  "kafka_stage_diagnostics": {
+    "lock": {
+      "duration_seconds": 0.012,
+      "writes": 7112,
+      "mean_duration_ms": 0.002
+    },
+    "metadata": {
+      "duration_seconds": 0.0,
+      "writes": 7112,
+      "mean_duration_ms": 0.0
+    },
+    "submit": {
+      "duration_seconds": 241.609,
+      "writes": 7112,
+      "mean_duration_ms": 33.972
+    },
+    "confirm": {
+      "duration_seconds": 214.821,
+      "writes": 7112,
+      "mean_duration_ms": 30.205
+    }
+  },
+  "quota_stage_diagnostics": {
+    "global": {
+      "duration_seconds": 0.086,
+      "writes": 7112,
+      "mean_duration_ms": 0.012
+    },
+    "physical": {
+      "duration_seconds": 2788.609,
+      "writes": 7112,
+      "mean_duration_ms": 392.099
+    },
+    "native": {
+      "duration_seconds": 476.302,
+      "writes": 7112,
+      "mean_duration_ms": 66.972
+    }
+  },
+  "confirmed_subbatches_per_write": 2.981,
+  "kafka_capacity_profile": {
+    "max_safe_inflight": 4,
+    "max_batch_size": 131072,
+    "partitions": 8
+  },
+  "cpu_percent_of_one_core": 52.0,
+  "rss_max_mib": 280.5,
+  "redeliver_peak": {},
+  "drained": true,
+  "minimum_sustained_fraction": 0.95,
+  "maximum_backlog_slope_fraction": 0.02,
+  "samples_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p8_7878b957357d_samples.jsonl",
+  "samples_sha256": "f3d8dc82783a8b1253de58b14ff21bcc77bc6d571e3a08d79ea394bd17deedd1",
+  "result_path": "/home/luo/wind-hub/run/exp-evidence/r14_capacity_d30_r120_c4_b131072_p8_7878b957357d.json"
+}

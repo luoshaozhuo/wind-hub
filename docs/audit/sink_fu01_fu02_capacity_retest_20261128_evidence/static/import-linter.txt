@@ -1,0 +1,43 @@
+
+╔══╗─────────▶╔╗ ╔╗      ╔╗◀───┐
+╚╣╠╝◀─────┐  ╔╝╚╗║║────▶╔╝╚╗   │
+ ║║   ╔══╦══╦╩╗╔╝║║  ╔╦═╩╗╔╝╔═╦══╗
+ ║║╔══╣╔╗║╔╗║╔╣║ ║║ ╔╬╣╔╗║║ ║│║╔═╝
+╔╣╠╣║║║╚╝║╚╝║║║╚╗║╚═╝║║║║║╚╗║═╣║
+╚══╩╩╩╣╔═╩══╩╝╚═╝╚═══╩╩╝╚╩═╩╩═╩╝
+  └──▶║║                    ▲ 
+      ╚╝────────────────────┘
+
+
+---------
+Contracts
+---------
+
+Analyzed 565 files, 3272 dependencies.
+--------------------------------------
+
+storage-service 三层依赖方向 KEPT
+storage-service 不得依赖其他业务进程包 KEPT
+Storage application/domain 不得依赖生成 Protobuf KEPT
+configuration-service 三层依赖方向 KEPT
+configuration-service 不得依赖其他业务进程包 KEPT
+configuration application/domain 不得依赖生成 Protobuf KEPT
+new core 不得依赖进程包 KEPT
+new core 三层依赖方向 KEPT
+new commander 不得依赖 collector 或 cli KEPT
+new collector 不得依赖 commander 或 cli KEPT
+new commander 三层依赖方向 KEPT
+new collector 三层依赖方向 KEPT
+cli 只依赖 shared core，不依赖进程包 KEPT
+industrial gateway 三层依赖方向 KEPT
+industrial gateway 不得依赖其他进程包 KEPT
+new collector/commander application 与 domain 不得依赖生成的 protobuf KEPT
+web_server 只通过 core RPC 访问服务 KEPT
+data generator 三层依赖方向 KEPT
+data generator 不得依赖其他进程包 KEPT
+data generator 业务层不得依赖 wire Proto KEPT
+core.configuration 只依赖公共基础库，不依赖业务进程包 KEPT
+sink service 三层依赖方向 KEPT
+
+Contracts: 22 kept, 0 broken.
+exit=0
