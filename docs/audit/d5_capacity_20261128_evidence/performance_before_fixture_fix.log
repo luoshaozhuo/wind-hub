@@ -1,0 +1,122 @@
+
+==> performance
+$ /home/luosh/miniconda3/envs/wind-hub/bin/python3 -m pytest tests/src/performance -q -m performance and not soak --junitxml docs/audit/d5_capacity_20261128_evidence/performance.xml
+....FFF                                                                  [100%]
+=================================== FAILURES ===================================
+_____________ test_ten_hertz_five_devices_hold_103_point_contract ______________
+
+    def test_ten_hertz_five_devices_hold_103_point_contract() -> None:
+>       baseline = asyncio.run(_run_rate(dt=0.1, writes_per_second=20.0))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:131: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/src/performance/test_physical_engine_rate.py:55: in _run_rate
+    settings = load_settings(SERVICE_PATH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/deploy/config_roots/sim-a/services', rest = ''
+strict = True, seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/deploy/config_roots/sim-a/services/service_data-generator-sim_v1.3.1.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+____________ test_twenty_hertz_five_devices_hold_103_point_contract ____________
+
+    def test_twenty_hertz_five_devices_hold_103_point_contract() -> None:
+>       baseline = asyncio.run(_run_rate(dt=0.05, writes_per_second=40.0))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:139: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/src/performance/test_physical_engine_rate.py:55: in _run_rate
+    settings = load_settings(SERVICE_PATH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/deploy/config_roots/sim-a/services', rest = ''
+strict = True, seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/deploy/config_roots/sim-a/services/service_data-generator-sim_v1.3.1.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+____________ test_concurrent_control_inputs_are_observed_by_models _____________
+
+    def test_concurrent_control_inputs_are_observed_by_models() -> None:
+        """并发 set_inputs 不得丢批：推进后 PPC AGC 使能与 BESS 目标进入模型状态。"""
+>       settings = load_settings(SERVICE_PATH)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/src/performance/test_physical_engine_rate.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/data_generator/infrastructure/config/service_settings.py:372: in load_settings
+    path = service_path.resolve(strict=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../miniconda3/envs/wind-hub/lib/python3.11/pathlib.py:993: in resolve
+    s = os.path.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen posixpath>:413: in realpath
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/home/luosh/wind-hub/deploy/config_roots/sim-a/services', rest = ''
+strict = True, seen = {}
+
+>   ???
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/luosh/wind-hub/deploy/config_roots/sim-a/services/service_data-generator-sim_v1.3.1.yaml'
+
+<frozen posixpath>:457: FileNotFoundError
+=============================== warnings summary ===============================
+tests/src/performance/test_batch_throughput.py::test_kafka_v3_encode_and_storage_validation_baseline
+  tests/src/performance/test_batch_throughput.py:130: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_kafka_v3_encode_and_storage_validation_baseline(record_property: Any) -> None:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/luosh/wind-hub/docs/audit/d5_capacity_20261128_evidence/performance.xml -
+=========================== short test summary info ============================
+FAILED tests/src/performance/test_physical_engine_rate.py::test_ten_hertz_five_devices_hold_103_point_contract
+FAILED tests/src/performance/test_physical_engine_rate.py::test_twenty_hertz_five_devices_hold_103_point_contract
+FAILED tests/src/performance/test_physical_engine_rate.py::test_concurrent_control_inputs_are_observed_by_models
+3 failed, 4 passed, 1 warning in 1.94s
+[FAIL] performance: exit=1
+
+GATE RESULT: FAIL
+
+EXIT_CODE=1

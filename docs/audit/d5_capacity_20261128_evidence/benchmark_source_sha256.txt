@@ -1,0 +1,2 @@
+4e999abbe73b4fa76c2f5c0702a2986cfa29bf98b0d5dfa30d21accbc1e798c6  /tmp/d5_wide_stmt2_before.py
+de0f13d74d69a1493fcb4a681e94af2a86eff8bdd407e669c45e91035f2d046e  src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py

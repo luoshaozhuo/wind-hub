@@ -1,0 +1,173 @@
+{
+  "30": {
+    "evidence": "docs/audit/d5_capacity_20261128_evidence/storage_30_metered_final/storage_wide_500_devices_030_w2.json",
+    "target_rows_per_second": 300,
+    "published_rows_per_second": 299.98341992633016,
+    "steady_persisted_rows_per_second": 299.9664447805646,
+    "end_to_end_confirmed_rows_per_second": 279.1362352063768,
+    "drain_seconds": 4.481325097993249,
+    "fully_persisted": true,
+    "blocked_partitions": [],
+    "runtime": {
+      "steady_window": "publish 10%..90%; GetStorageStats sampled once per second",
+      "steady_sample_count": 47,
+      "steady_persisted_rows_per_second": 299.9664447805646,
+      "steady_buffer_rows_slope_per_second": -0.01161699557878996,
+      "steady_partition_lag_slope_per_second": -0.02450418045885881,
+      "peak_buffer_rows": 999,
+      "peak_partition_lag": 1001,
+      "write_unknown_total": 0,
+      "schema_conflicts_total": 0
+    },
+    "process": {
+      "pid": 3125697,
+      "average_cpu_percent_of_one_core": 46.68324526727775,
+      "peak_interval_cpu_percent_of_one_core": 82.72165724225877,
+      "peak_rss_MiB": 140.9609375,
+      "sample_count": 61,
+      "scope": "\u5355\u4e2a Storage OS \u8fdb\u7a0b\uff1bCPU=/proc/PID/stat utime+stime \u589e\u91cf/\u5899\u949f/\u5355\u6838\uff0cRSS \u5cf0\u503c=/proc/PID/status VmHWM\uff1b\u4e0d\u662f\u6574\u673a\u6216\u5bb9\u5668\u603b CPU"
+    },
+    "kafka": {
+      "acks": "all",
+      "enable_idempotence": true,
+      "key": "wind_farm_id:device_id",
+      "max_test_tasks_in_flight": 128,
+      "acknowledged_rows": 18000,
+      "ack_latency_p95_ms": 7.151293015340343,
+      "ack_latency_p99_ms": 7.671634026337415,
+      "ack_latency_scope": "\u5355\u6761 send_and_wait \u8c03\u7528\u81f3 RecordMetadata \u8fd4\u56de\uff1b\u5305\u542b\u672c\u5730 batching/linger \u548c broker \u526f\u672c ACK\uff0c\u4e0d\u542b\u7b49\u5f85\u6d4b\u8bd5\u5728\u9014\u989d\u5ea6\u7684\u65f6\u95f4\uff0c\u4e0d\u662f TDengine E2E \u5199\u5ef6\u8fdf",
+      "ack_latency_percentile_method": "nearest-rank"
+    },
+    "edge_verification": {
+      "first": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795864059409000,
+        "cycle": 0,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      },
+      "last": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795864119309000,
+        "cycle": 599,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      }
+    },
+    "gate_pass": false
+  },
+  "100": {
+    "evidence": "docs/audit/d5_capacity_20261128_evidence/storage_100_metered_valid/storage_wide_500_devices_100_w2.json",
+    "target_rows_per_second": 1000,
+    "published_rows_per_second": 999.8829216590294,
+    "steady_persisted_rows_per_second": 1003.0461670456189,
+    "end_to_end_confirmed_rows_per_second": 926.3868985342374,
+    "drain_seconds": 4.760729822999565,
+    "fully_persisted": true,
+    "blocked_partitions": [],
+    "runtime": {
+      "steady_window": "publish 10%..90%; GetStorageStats sampled once per second",
+      "steady_sample_count": 46,
+      "steady_persisted_rows_per_second": 1003.0461670456189,
+      "steady_buffer_rows_slope_per_second": 0.9045139281687146,
+      "steady_partition_lag_slope_per_second": 1.3037253941115314,
+      "peak_buffer_rows": 3143,
+      "peak_partition_lag": 3133,
+      "write_unknown_total": 0,
+      "schema_conflicts_total": 0
+    },
+    "process": {
+      "pid": 3117187,
+      "average_cpu_percent_of_one_core": 77.25079806560306,
+      "peak_interval_cpu_percent_of_one_core": 102.14286239206274,
+      "peak_rss_MiB": 209.6875,
+      "sample_count": 59,
+      "scope": "\u5355\u4e2a Storage OS \u8fdb\u7a0b\uff1bCPU=/proc/PID/stat utime+stime \u589e\u91cf/\u5899\u949f/\u5355\u6838\uff0cRSS \u5cf0\u503c=/proc/PID/status VmHWM\uff1b\u4e0d\u662f\u6574\u673a\u6216\u5bb9\u5668\u603b CPU"
+    },
+    "kafka": {
+      "acks": "all",
+      "enable_idempotence": true,
+      "key": "wind_farm_id:device_id",
+      "max_test_tasks_in_flight": 128,
+      "acknowledged_rows": 60000,
+      "ack_latency_p95_ms": 6.577790016308427,
+      "ack_latency_p99_ms": 6.906911003170535,
+      "ack_latency_scope": "\u5355\u6761 send_and_wait \u8c03\u7528\u81f3 RecordMetadata \u8fd4\u56de\uff1b\u5305\u542b\u672c\u5730 batching/linger \u548c broker \u526f\u672c ACK\uff0c\u4e0d\u542b\u7b49\u5f85\u6d4b\u8bd5\u5728\u9014\u989d\u5ea6\u7684\u65f6\u95f4\uff0c\u4e0d\u662f TDengine E2E \u5199\u5ef6\u8fdf",
+      "ack_latency_percentile_method": "nearest-rank"
+    },
+    "edge_verification": {
+      "first": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795863612815000,
+        "cycle": 0,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      },
+      "last": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795863672715000,
+        "cycle": 599,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      }
+    },
+    "gate_pass": false
+  },
+  "300": {
+    "evidence": "docs/audit/d5_capacity_20261128_evidence/storage_300_metered_final/storage_wide_500_devices_300_w2.json",
+    "target_rows_per_second": 3000,
+    "published_rows_per_second": 2999.812454975378,
+    "steady_persisted_rows_per_second": 1148.0931040743915,
+    "end_to_end_confirmed_rows_per_second": 1063.763165563873,
+    "drain_seconds": 109.20684557201457,
+    "fully_persisted": true,
+    "blocked_partitions": [],
+    "runtime": {
+      "steady_window": "publish 10%..90%; GetStorageStats sampled once per second",
+      "steady_sample_count": 43,
+      "steady_persisted_rows_per_second": 1148.0931040743915,
+      "steady_buffer_rows_slope_per_second": -128.05819986470252,
+      "steady_partition_lag_slope_per_second": 1844.5662240709364,
+      "peak_buffer_rows": 7482,
+      "peak_partition_lag": 119267,
+      "write_unknown_total": 0,
+      "schema_conflicts_total": 0
+    },
+    "process": {
+      "pid": 3121426,
+      "average_cpu_percent_of_one_core": 88.41410444414679,
+      "peak_interval_cpu_percent_of_one_core": 107.54996343516696,
+      "peak_rss_MiB": 324.16796875,
+      "sample_count": 149,
+      "scope": "\u5355\u4e2a Storage OS \u8fdb\u7a0b\uff1bCPU=/proc/PID/stat utime+stime \u589e\u91cf/\u5899\u949f/\u5355\u6838\uff0cRSS \u5cf0\u503c=/proc/PID/status VmHWM\uff1b\u4e0d\u662f\u6574\u673a\u6216\u5bb9\u5668\u603b CPU"
+    },
+    "kafka": {
+      "acks": "all",
+      "enable_idempotence": true,
+      "key": "wind_farm_id:device_id",
+      "max_test_tasks_in_flight": 128,
+      "acknowledged_rows": 180000,
+      "ack_latency_p95_ms": 6.97396500618197,
+      "ack_latency_p99_ms": 8.385736000491306,
+      "ack_latency_scope": "\u5355\u6761 send_and_wait \u8c03\u7528\u81f3 RecordMetadata \u8fd4\u56de\uff1b\u5305\u542b\u672c\u5730 batching/linger \u548c broker \u526f\u672c ACK\uff0c\u4e0d\u542b\u7b49\u5f85\u6d4b\u8bd5\u5728\u9014\u989d\u5ea6\u7684\u65f6\u95f4\uff0c\u4e0d\u662f TDengine E2E \u5199\u5ef6\u8fdf",
+      "ack_latency_percentile_method": "nearest-rank"
+    },
+    "edge_verification": {
+      "first": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795863846607000,
+        "cycle": 0,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      },
+      "last": {
+        "device_id": "CAP_WTG000",
+        "sample_time_us": 1795863906507000,
+        "cycle": 599,
+        "float32_values_verified_individually": 500,
+        "good_quality_values_verified_individually": 500
+      }
+    },
+    "gate_pass": false
+  }
+}

@@ -1,0 +1,55 @@
+INFO:aiokafka.consumer.subscription_state:Updating subscribed topics to: frozenset({'windhub.e2e.history'})
+INFO:aiokafka.consumer.consumer:Subscribed to topic(s): {'windhub.e2e.history'}
+ERROR:aiokafka.consumer.group_coordinator:Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Revoking previously assigned partitions set() for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Joined group 'storage-e2e' (generation 1) with member_id aiokafka-0.14.0-47117370-e180-492d-a019-1af9d199a27c
+INFO:aiokafka.consumer.group_coordinator:Elected group leader -- performing partition assignments using roundrobin
+INFO:aiokafka.consumer.group_coordinator:Successfully synced group storage-e2e with generation 1
+INFO:aiokafka.consumer.group_coordinator:Setting newly assigned partitions {TopicPartition(topic='windhub.e2e.history', partition=0), TopicPartition(topic='windhub.e2e.history', partition=1), TopicPartition(topic='windhub.e2e.history', partition=2)} for group storage-e2e
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=1850 devices=719 prepare_mean_ms=0.016 columns_mean_ms=1.169 bind_mean_ms=0.895 execute_mean_ms=5.714
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=610 devices=610 prepare_mean_ms=0.000 columns_mean_ms=0.783 bind_mean_ms=0.714 execute_mean_ms=5.452
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=639 devices=639 prepare_mean_ms=0.000 columns_mean_ms=0.786 bind_mean_ms=0.744 execute_mean_ms=5.843
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=615 devices=615 prepare_mean_ms=0.000 columns_mean_ms=0.767 bind_mean_ms=0.694 execute_mean_ms=5.754
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=656 devices=656 prepare_mean_ms=0.000 columns_mean_ms=0.800 bind_mean_ms=0.775 execute_mean_ms=6.168
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=711 devices=711 prepare_mean_ms=0.000 columns_mean_ms=0.859 bind_mean_ms=0.747 execute_mean_ms=7.265
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=667 devices=667 prepare_mean_ms=0.000 columns_mean_ms=0.817 bind_mean_ms=0.694 execute_mean_ms=6.686
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=542 devices=542 prepare_mean_ms=0.000 columns_mean_ms=0.670 bind_mean_ms=0.650 execute_mean_ms=4.514
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=588 devices=588 prepare_mean_ms=0.000 columns_mean_ms=0.768 bind_mean_ms=0.757 execute_mean_ms=5.243
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=603 devices=603 prepare_mean_ms=0.000 columns_mean_ms=0.761 bind_mean_ms=0.723 execute_mean_ms=5.291
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=576 devices=576 prepare_mean_ms=0.000 columns_mean_ms=0.715 bind_mean_ms=0.691 execute_mean_ms=5.360
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=598 devices=598 prepare_mean_ms=0.000 columns_mean_ms=0.713 bind_mean_ms=0.696 execute_mean_ms=5.901
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=593 devices=593 prepare_mean_ms=0.000 columns_mean_ms=0.719 bind_mean_ms=0.671 execute_mean_ms=5.639
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=629 devices=629 prepare_mean_ms=0.000 columns_mean_ms=0.751 bind_mean_ms=0.695 execute_mean_ms=5.870
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=652 devices=652 prepare_mean_ms=0.000 columns_mean_ms=0.784 bind_mean_ms=0.713 execute_mean_ms=6.417
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=628 devices=628 prepare_mean_ms=0.000 columns_mean_ms=0.745 bind_mean_ms=0.648 execute_mean_ms=6.192
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=659 devices=659 prepare_mean_ms=0.000 columns_mean_ms=0.794 bind_mean_ms=0.689 execute_mean_ms=6.379
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=692 devices=692 prepare_mean_ms=0.000 columns_mean_ms=0.882 bind_mean_ms=0.772 execute_mean_ms=6.994
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=645 devices=645 prepare_mean_ms=0.000 columns_mean_ms=0.798 bind_mean_ms=0.672 execute_mean_ms=6.383
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=559 devices=559 prepare_mean_ms=0.000 columns_mean_ms=0.700 bind_mean_ms=0.651 execute_mean_ms=5.259
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=562 devices=562 prepare_mean_ms=0.000 columns_mean_ms=0.712 bind_mean_ms=0.657 execute_mean_ms=5.011
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=589 devices=589 prepare_mean_ms=0.000 columns_mean_ms=0.707 bind_mean_ms=0.674 execute_mean_ms=5.677
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=618 devices=618 prepare_mean_ms=0.000 columns_mean_ms=0.762 bind_mean_ms=0.679 execute_mean_ms=5.725
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=607 devices=607 prepare_mean_ms=0.000 columns_mean_ms=0.765 bind_mean_ms=0.673 execute_mean_ms=5.848
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=662 devices=662 prepare_mean_ms=0.000 columns_mean_ms=0.795 bind_mean_ms=0.680 execute_mean_ms=6.664
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=632 devices=632 prepare_mean_ms=0.000 columns_mean_ms=0.711 bind_mean_ms=0.642 execute_mean_ms=6.292
+INFO:aiokafka.consumer.group_coordinator:LeaveGroup request succeeded

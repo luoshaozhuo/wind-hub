@@ -1,0 +1,11 @@
+2026-11-28T18:33:04+08:00
+7ba03104b8115f92ef6ef234e7d1348ba5eb4aab
+ M src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+?? docs/audit/d5_capacity_20261128_evidence/
+Python 3.11.16
+taos-ws-py 0.7.1
+aiokafka 0.14.0
+20
+               total        used        free      shared  buff/cache   available
+Mem:           64221        6822       52108          89        6004       57398
+Swap:          16384           0       16384

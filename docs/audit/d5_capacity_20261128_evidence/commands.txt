@@ -1,0 +1,27 @@
+# D5 reproducible commands (run serially from repository root)
+
+python3 scripts/dev.py env
+python3 -m ruff check src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+python3 -m ruff format --check src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+python3 -m mypy src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py
+python3 -m pytest tests/storage_service/unit -q
+python3 -m pytest tests/storage_service/integration/test_backend_multitable_real.py -q
+python3 -m pytest tests/sink_service/unit tests/sink_service/component -q
+
+git show 772e9f832^:src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py > /tmp/d5_wide_stmt2_before.py
+python3 docs/audit/d5_capacity_20261128_evidence/benchmark_stmt2_columns.py
+
+# Formal Storage cases: one process at a time, writer_count=2, 600 cycles/device.
+STORAGE_WIDE_DEVICES=30 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 STORAGE_WIDE_RESULT_DIR=docs/audit/d5_capacity_20261128_evidence/repro_storage_30 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=100 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 STORAGE_WIDE_RESULT_DIR=docs/audit/d5_capacity_20261128_evidence/repro_storage_100 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+STORAGE_WIDE_DEVICES=300 STORAGE_WIDE_CYCLES=600 STORAGE_WIDE_RATE_PER_DEVICE=10 STORAGE_WIDE_WRITER_COUNT=2 STORAGE_WIDE_PRODUCER_MAX_INFLIGHT=128 STORAGE_WIDE_RESULT_DIR=docs/audit/d5_capacity_20261128_evidence/repro_storage_300 python3 -m pytest -q tests/system/e2e/eight_service/test_e2e_storage_capacity.py::test_storage_single_instance_500_point_device_row_capacity
+
+# Sink: 30 devices, 10 Hz/device, 500 points; same p4/c16 candidate as prior round.
+R14_DURATION_S=60 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_KAFKA_MAX_SAFE_INFLIGHT=16 R14_KAFKA_LINGER_MS=10 R14_KAFKA_PARTITIONS=4 R14_RESULT_DIR=docs/audit/d5_capacity_20261128_evidence/repro_sink_short python3 -m pytest -q tests/sink_service/system/test_capacity_r14_sustained.py
+R14_DURATION_S=600 R14_DEGREE=30 R14_TARGET_BATCH_RATE=300 R14_POINTS=500 R14_MIN_SUSTAINED_FRACTION=1 R14_KAFKA_MAX_SAFE_INFLIGHT=16 R14_KAFKA_LINGER_MS=10 R14_KAFKA_PARTITIONS=4 R14_RESULT_DIR=docs/audit/d5_capacity_20261128_evidence/repro_sink_600 python3 -m pytest -q tests/sink_service/system/test_capacity_r14_sustained.py
+
+# Notes
+# - pytest exit 1 for formal capacity is a measured gate failure; JSON evidence is still written.
+# - The initial metered fixture runs failed during monitor teardown and are retained, not counted as capacity samples.
+# - Valid metered Storage cases are storage_30_metered_final, storage_100_metered_valid, storage_300_metered_final.
+# - No production instance count, target rate, assertion threshold, skip or xfail was relaxed.

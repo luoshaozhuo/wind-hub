@@ -1,0 +1,71 @@
+{
+  "git_head": "7ba03104b8115f92ef6ef234e7d1348ba5eb4aab",
+  "iterations_per_implementation": 300,
+  "alternating_order": "AB on even iterations, BA on odd iterations",
+  "rows_per_execute": 72,
+  "device_bindings_per_execute": 68,
+  "points_per_row": 500,
+  "scope": "real taosws typed column construction and bind-param views; bind/execute mocked",
+  "overall_wall_seconds": 11.07944009397761,
+  "overall_process_cpu_seconds": 12.310305682,
+  "overall_cpu_percent_of_one_core": 111.10945659331146,
+  "max_rss_mib": 221.25,
+  "implementations": {
+    "before": {
+      "total_ms": {
+        "mean": 19.109657636533182,
+        "p95": 31.366912997327745,
+        "p99": 32.60724799474701,
+        "max": 33.72043001581915
+      },
+      "columns_ms": {
+        "mean": 18.43576284358278,
+        "p95": 30.029852990992367,
+        "p99": 31.87915400485508,
+        "max": 32.64405200025067
+      },
+      "bind_ms": {
+        "mean": 0.34398321916038793,
+        "p95": 0.16410599346272647,
+        "p99": 12.794647976988927,
+        "max": 14.089791977312416
+      },
+      "execute_ms": {
+        "mean": 0.009730740081674108,
+        "p95": 0.012003001756966114,
+        "p99": 0.020083010895177722,
+        "max": 0.021315005142241716
+      },
+      "rows_per_second": 3767.728410913699
+    },
+    "after": {
+      "total_ms": {
+        "mean": 17.818561919848435,
+        "p95": 30.277738987933844,
+        "p99": 42.90271198260598,
+        "max": 45.77063402393833
+      },
+      "columns_ms": {
+        "mean": 17.373967480283074,
+        "p95": 29.170979978516698,
+        "p99": 42.638854996766895,
+        "max": 45.518002996686846
+      },
+      "bind_ms": {
+        "mean": 0.12347083490264292,
+        "p95": 0.13891002163290977,
+        "p99": 0.16771501395851374,
+        "max": 0.36294199526309967
+      },
+      "execute_ms": {
+        "mean": 0.00955210329266265,
+        "p95": 0.0111880071926862,
+        "p99": 0.017443002434447408,
+        "max": 0.02305899397470057
+      },
+      "rows_per_second": 4040.7301287203113
+    }
+  },
+  "columns_mean_reduction_percent": 5.7594327520290305,
+  "rows_per_second_change_percent": 7.245790779819172
+}

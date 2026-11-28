@@ -1,0 +1,2 @@
+f33a10a7a01564b595161fbb29be4741d0fbc49d9d051b30cb93ffba6a1f664c  tests/system/e2e/eight_service/test_e2e_storage_capacity.py
+de0f13d74d69a1493fcb4a681e94af2a86eff8bdd407e669c45e91035f2d046e  src/storage_service/infrastructure/adapters/outbound/wide_stmt2.py

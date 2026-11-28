@@ -1,0 +1,72 @@
+INFO:aiokafka.consumer.subscription_state:Updating subscribed topics to: frozenset({'windhub.e2e.history'})
+INFO:aiokafka.consumer.consumer:Subscribed to topic(s): {'windhub.e2e.history'}
+ERROR:aiokafka.consumer.group_coordinator:Group Coordinator Request failed: [Error 15] GroupCoordinatorNotAvailableError
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Revoking previously assigned partitions set() for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+WARNING:aiokafka.consumer.group_coordinator:Marking the coordinator dead (node 1)for group storage-e2e.
+INFO:aiokafka.consumer.group_coordinator:Discovered coordinator 1 for group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:(Re-)joining group storage-e2e
+INFO:aiokafka.consumer.group_coordinator:Joined group 'storage-e2e' (generation 1) with member_id aiokafka-0.14.0-7d8e133e-75e9-4c1e-9ab9-b063c4531b3d
+INFO:aiokafka.consumer.group_coordinator:Elected group leader -- performing partition assignments using roundrobin
+INFO:aiokafka.consumer.group_coordinator:Successfully synced group storage-e2e with generation 1
+INFO:aiokafka.consumer.group_coordinator:Setting newly assigned partitions {TopicPartition(topic='windhub.e2e.history', partition=2), TopicPartition(topic='windhub.e2e.history', partition=0), TopicPartition(topic='windhub.e2e.history', partition=1)} for group storage-e2e
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=1532 devices=577 prepare_mean_ms=0.014 columns_mean_ms=0.828 bind_mean_ms=0.578 execute_mean_ms=4.671
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=450 devices=450 prepare_mean_ms=0.000 columns_mean_ms=0.489 bind_mean_ms=0.460 execute_mean_ms=4.387
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=436 devices=436 prepare_mean_ms=0.000 columns_mean_ms=0.473 bind_mean_ms=0.445 execute_mean_ms=3.931
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=433 devices=433 prepare_mean_ms=0.000 columns_mean_ms=0.472 bind_mean_ms=0.444 execute_mean_ms=4.194
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=425 devices=425 prepare_mean_ms=0.000 columns_mean_ms=0.470 bind_mean_ms=0.441 execute_mean_ms=4.061
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=438 devices=438 prepare_mean_ms=0.000 columns_mean_ms=0.501 bind_mean_ms=0.437 execute_mean_ms=4.160
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=466 devices=466 prepare_mean_ms=0.000 columns_mean_ms=0.522 bind_mean_ms=0.509 execute_mean_ms=4.524
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=451 devices=451 prepare_mean_ms=0.000 columns_mean_ms=0.495 bind_mean_ms=0.463 execute_mean_ms=4.330
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=450 devices=450 prepare_mean_ms=0.000 columns_mean_ms=0.490 bind_mean_ms=0.456 execute_mean_ms=4.440
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=449 devices=449 prepare_mean_ms=0.000 columns_mean_ms=0.495 bind_mean_ms=0.448 execute_mean_ms=4.319
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=428 devices=428 prepare_mean_ms=0.000 columns_mean_ms=0.466 bind_mean_ms=0.458 execute_mean_ms=4.239
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=434 devices=434 prepare_mean_ms=0.000 columns_mean_ms=0.471 bind_mean_ms=0.431 execute_mean_ms=4.248
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=443 devices=443 prepare_mean_ms=0.000 columns_mean_ms=0.484 bind_mean_ms=0.464 execute_mean_ms=4.374
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=445 devices=445 prepare_mean_ms=0.000 columns_mean_ms=0.486 bind_mean_ms=0.433 execute_mean_ms=4.394
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=506 devices=506 prepare_mean_ms=0.000 columns_mean_ms=0.555 bind_mean_ms=0.451 execute_mean_ms=5.104
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=391 devices=391 prepare_mean_ms=0.000 columns_mean_ms=0.432 bind_mean_ms=0.417 execute_mean_ms=3.010
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.354 bind_mean_ms=0.398 execute_mean_ms=1.484
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.353 bind_mean_ms=0.391 execute_mean_ms=1.490
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=326 devices=326 prepare_mean_ms=0.000 columns_mean_ms=0.363 bind_mean_ms=0.399 execute_mean_ms=1.708
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=319 devices=319 prepare_mean_ms=0.000 columns_mean_ms=0.353 bind_mean_ms=0.395 execute_mean_ms=1.488
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=324 devices=324 prepare_mean_ms=0.000 columns_mean_ms=0.369 bind_mean_ms=0.446 execute_mean_ms=1.724
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.357 bind_mean_ms=0.392 execute_mean_ms=1.506
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.353 bind_mean_ms=0.386 execute_mean_ms=1.455
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.356 bind_mean_ms=0.390 execute_mean_ms=1.515
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=321 devices=321 prepare_mean_ms=0.000 columns_mean_ms=0.354 bind_mean_ms=0.389 execute_mean_ms=1.497
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=327 devices=327 prepare_mean_ms=0.000 columns_mean_ms=0.372 bind_mean_ms=0.431 execute_mean_ms=1.700
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=322 devices=322 prepare_mean_ms=0.000 columns_mean_ms=0.362 bind_mean_ms=0.391 execute_mean_ms=1.603
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.356 bind_mean_ms=0.383 execute_mean_ms=1.605
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.353 bind_mean_ms=0.389 execute_mean_ms=1.473
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=327 devices=327 prepare_mean_ms=0.000 columns_mean_ms=0.375 bind_mean_ms=0.429 execute_mean_ms=1.658
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=322 devices=322 prepare_mean_ms=0.000 columns_mean_ms=0.371 bind_mean_ms=0.442 execute_mean_ms=1.616
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=322 devices=322 prepare_mean_ms=0.000 columns_mean_ms=0.365 bind_mean_ms=0.394 execute_mean_ms=1.548
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.356 bind_mean_ms=0.399 execute_mean_ms=1.469
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.354 bind_mean_ms=0.397 execute_mean_ms=1.454
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=323 devices=323 prepare_mean_ms=0.000 columns_mean_ms=0.361 bind_mean_ms=0.410 execute_mean_ms=1.551
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=319 devices=319 prepare_mean_ms=0.000 columns_mean_ms=0.349 bind_mean_ms=0.402 execute_mean_ms=1.503
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=321 devices=321 prepare_mean_ms=0.000 columns_mean_ms=0.354 bind_mean_ms=0.393 execute_mean_ms=1.473
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.366 bind_mean_ms=0.406 execute_mean_ms=1.558
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=319 devices=319 prepare_mean_ms=0.000 columns_mean_ms=0.371 bind_mean_ms=0.424 execute_mean_ms=1.550
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=321 devices=321 prepare_mean_ms=0.000 columns_mean_ms=0.359 bind_mean_ms=0.390 execute_mean_ms=1.484
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.352 bind_mean_ms=0.389 execute_mean_ms=1.454
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=319 devices=319 prepare_mean_ms=0.000 columns_mean_ms=0.355 bind_mean_ms=0.392 execute_mean_ms=1.479
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=321 devices=321 prepare_mean_ms=0.000 columns_mean_ms=0.354 bind_mean_ms=0.381 execute_mean_ms=1.486
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=320 devices=320 prepare_mean_ms=0.000 columns_mean_ms=0.357 bind_mean_ms=0.399 execute_mean_ms=1.517
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=319 devices=319 prepare_mean_ms=0.000 columns_mean_ms=0.352 bind_mean_ms=0.392 execute_mean_ms=1.476
+INFO:storage_service.infrastructure.adapters.outbound.tdengine_backend:Storage STMT2 256-write window: rows=321 devices=321 prepare_mean_ms=0.000 columns_mean_ms=0.350 bind_mean_ms=0.380 execute_mean_ms=1.480
+INFO:aiokafka.consumer.group_coordinator:LeaveGroup request succeeded

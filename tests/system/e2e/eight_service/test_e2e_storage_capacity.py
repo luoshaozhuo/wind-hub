@@ -351,6 +351,17 @@ def _nearest_rank_ms(values: list[float], percentile: float) -> float:
     return ordered[rank - 1] * 1000
 
 
+def _linear_slope(points: list[tuple[float, float]]) -> float:
+    if len(points) < 2:
+        return 0.0
+    mean_x = sum(point[0] for point in points) / len(points)
+    mean_y = sum(point[1] for point in points) / len(points)
+    denominator = sum((point[0] - mean_x) ** 2 for point in points)
+    if denominator == 0:
+        return 0.0
+    return sum((x - mean_x) * (y - mean_y) for x, y in points) / denominator
+
+
 def _storage_process_pid(harness: EightServiceHarness) -> int:
     payload = harness.status("storage")
     data = payload.get("data") or []
@@ -581,15 +592,29 @@ def test_storage_single_instance_500_point_device_row_capacity(
             while True:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop_monitor.wait(), timeout=1.0)
+                if stop_monitor.is_set():
+                    return
                 now = time.monotonic()
                 ticks, rss_kib, peak_rss_kib = await asyncio.to_thread(_read_process_sample, pid)
                 cpu_percent = 100 * ((ticks - previous_ticks) / hz) / (now - previous_at)
+                stats = await stub.GetStorageStats(
+                    storage_pb.GetStorageStatsRequest(wind_farm_id="e2e-final"),
+                    metadata=metadata,
+                    timeout=5,
+                )
                 sample = {
                     "monotonic": now,
                     "ticks": ticks,
                     "rss_kib": rss_kib,
                     "peak_rss_kib": peak_rss_kib,
                     "cpu_percent_of_one_core": cpu_percent,
+                    "persisted_rows": stats.persisted_rows_total,
+                    "confirmed_records": stats.confirmed_records_total,
+                    "buffer_rows": stats.buffer_rows,
+                    "buffer_bytes": stats.buffer_bytes,
+                    "write_unknown": stats.write_unknown_total,
+                    "schema_conflicts": stats.schema_conflicts_total,
+                    "partition_lag": sum(item.lag for item in stats.partitions),
                 }
                 process_samples.append(sample)
                 stream.write(
@@ -601,6 +626,13 @@ def test_storage_single_instance_500_point_device_row_capacity(
                             "storage_cpu_percent_of_one_core_interval": cpu_percent,
                             "storage_rss_MiB": rss_kib / 1024,
                             "storage_peak_rss_MiB": peak_rss_kib / 1024,
+                            "storage_persisted_rows": stats.persisted_rows_total,
+                            "storage_confirmed_records": stats.confirmed_records_total,
+                            "storage_buffer_rows": stats.buffer_rows,
+                            "storage_buffer_bytes": stats.buffer_bytes,
+                            "storage_partition_lag": sum(item.lag for item in stats.partitions),
+                            "storage_write_unknown": stats.write_unknown_total,
+                            "storage_schema_conflicts": stats.schema_conflicts_total,
                         },
                         separators=(",", ":"),
                     )
@@ -737,10 +769,10 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 if pending:
                     await asyncio.gather(*pending, return_exceptions=True)
                 await producer.stop()
-                await channel.close()
                 stop_monitor.set()
                 if monitor_task is not None:
                     await monitor_task
+                await channel.close()
 
         publish_seconds = publish_end - started_at
         end_to_end_seconds = drained_at - started_at
@@ -756,6 +788,24 @@ def test_storage_single_instance_500_point_device_row_capacity(
             if process_seconds > 0
             else 0.0
         )
+        steady_samples = [
+            sample
+            for sample in process_samples
+            if "buffer_rows" in sample
+            and started_at + 0.1 * publish_seconds
+            <= float(sample["monotonic"])
+            <= started_at + 0.9 * publish_seconds
+        ]
+        steady_persisted_rows_per_second = 0.0
+        if len(steady_samples) >= 2:
+            steady_seconds = float(steady_samples[-1]["monotonic"]) - float(
+                steady_samples[0]["monotonic"]
+            )
+            if steady_seconds > 0:
+                steady_persisted_rows_per_second = (
+                    int(steady_samples[-1]["persisted_rows"])
+                    - int(steady_samples[0]["persisted_rows"])
+                ) / steady_seconds
         return {
             "test": "single Storage / Kafka v3 / 500-point complete device rows",
             "devices": list(devices),
@@ -806,6 +856,33 @@ def test_storage_single_instance_500_point_device_row_capacity(
                 "reason": "本用例直接注入 Kafka history，链路不涉及 NATS/JetStream 或其 DLQ",
             },
             "edge_verification": edge_verification,
+            "storage_runtime": {
+                "steady_window": "publish 10%..90%; GetStorageStats sampled once per second",
+                "steady_sample_count": len(steady_samples),
+                "steady_persisted_rows_per_second": steady_persisted_rows_per_second,
+                "steady_buffer_rows_slope_per_second": _linear_slope(
+                    [
+                        (float(sample["monotonic"]), float(sample["buffer_rows"]))
+                        for sample in steady_samples
+                    ]
+                ),
+                "steady_partition_lag_slope_per_second": _linear_slope(
+                    [
+                        (float(sample["monotonic"]), float(sample["partition_lag"]))
+                        for sample in steady_samples
+                    ]
+                ),
+                "peak_buffer_rows": max(
+                    (int(sample.get("buffer_rows", 0)) for sample in process_samples),
+                    default=0,
+                ),
+                "peak_partition_lag": max(
+                    (int(sample.get("partition_lag", 0)) for sample in process_samples),
+                    default=0,
+                ),
+                "write_unknown_total": int(last_sample.get("write_unknown", 0)),
+                "schema_conflicts_total": int(last_sample.get("schema_conflicts", 0)),
+            },
             "storage_process": {
                 "pid": pid,
                 "average_cpu_percent_of_one_core": average_cpu,

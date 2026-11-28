@@ -77,17 +77,13 @@ def bind_wide_columns(
         return factory
 
     values.append(
-        column_factory("micros_timestamps_to_column")(
-            [record.timestamp_us for record in bound]
-        )
+        column_factory("micros_timestamps_to_column")([record.timestamp_us for record in bound])
     )
     for index, column in enumerate(schema.columns):
         factory = column_factory(_factory_name(column.sql_type))
         values.append(factory([record.values[index] for record in bound]))
     values.append(
-        column_factory("varbinary_to_column")(
-            [record.quality_bitmap for record in bound]
-        )
+        column_factory("varbinary_to_column")([record.quality_bitmap for record in bound])
     )
     return values
 

@@ -1,0 +1,15 @@
+tests/system/e2e/eight_service/conftest.py:337:                [NewTopic(name=topic, num_partitions=3, replication_factor=1)]
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:72:            max_poll_records=configuration.kafka.max_poll_records,
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:374:        poll_rows = self._config.kafka.max_poll_records
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:525:                    self._consumer.getmany(
+src/storage_service/infrastructure/adapters/outbound/kafka_consumer.py:526:                        timeout_ms=limits.batch_wait_ms,
+configs/services/service_storage-e2e_v2.0.1.yaml:19:# kafka.topic/group_id: required nonempty strings; max_poll_records [1,5000] records;
+configs/services/service_storage-e2e_v2.0.1.yaml:30:#   batch_wait_ms [0,60000] ms; buffer_max_rows [100,100000], >= batch_max_rows;
+configs/services/service_storage-e2e_v2.0.1.yaml:74:    max_poll_records: 500
+configs/services/service_storage-e2e_v2.0.1.yaml:98:      batch_wait_ms: 60000
+src/storage_service/application/wide_ingestion.py:56:    async def insert_wide_batch(
+src/storage_service/application/wide_ingestion.py:167:                latest_by_device_time: dict[tuple[str, int], tuple[int, WideRecord]] = {}
+src/storage_service/application/wide_ingestion.py:174:                    latest_by_device_time[(entry.row.device_id, entry.row.sample_time_us)] = (
+src/storage_service/application/wide_ingestion.py:185:                ordered = tuple(row for _position, row in sorted(latest_by_device_time.values()))
+src/storage_service/application/wide_ingestion.py:186:                await self._storage.insert_wide_batch(first.schema, ordered)
+src/storage_service/application/wide_ingestion.py:226:    async def process(
