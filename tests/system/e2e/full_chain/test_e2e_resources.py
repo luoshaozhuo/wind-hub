@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -17,7 +16,7 @@ from tests.support.proc_resources import (
     wait_process_trees_reaped,
 )
 
-from .conftest import FullChainHarness, _build_and_start, _teardown
+from .conftest import FullChainHarness, _build_and_start, _teardown, decode_kafka_wide_point
 
 pytestmark = [
     pytest.mark.system,
@@ -81,13 +80,9 @@ async def test_r4e_resources_and_formal_stop_all_release_complete_trees(
     activity_started = datetime.now(UTC)
 
     def is_fresh_kafka(record: Any) -> bool:
-        item = json.loads(record.value)
-        return (
-            item.get("collector_id") == harness.reliable_collector
-            and item.get("device_id") == "WTG_SIM01"
-            and item.get("point_id") == "wind_speed"
-            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
-            >= activity_started
+        item = decode_kafka_wide_point(record, device_id="WTG_SIM01", point_id="wind_speed")
+        return item is not None and (
+            datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= activity_started
         )
 
     try:
@@ -115,9 +110,18 @@ async def test_r4e_resources_and_formal_stop_all_release_complete_trees(
             min_messages=1, timeout=90, match=is_fresh_kafka
         )
         kafka_sample = next(
-            json.loads(record.value) for record in kafka_records if is_fresh_kafka(record)
+            item
+            for record in kafka_records
+            if is_fresh_kafka(record)
+            and (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
         )
-        assert redis_sample["sample_id"] != kafka_sample["sample_id"]
+        assert redis_sample["collector_id"] == harness.rt_collector
+        assert kafka_sample["data_level"] == "protocol"
         for config in (harness.cli_rt, harness.cli_rel):
             await harness.poll(
                 config,

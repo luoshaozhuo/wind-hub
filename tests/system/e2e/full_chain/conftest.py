@@ -34,6 +34,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -710,7 +711,7 @@ class FullChainHarness:
             len(args) >= 3
             and args[0] == "collector"
             and args[1] in {"start", "stop"}
-            and args[2] in SIM_DEVICES
+            and args[2] in E2E_DEVICES
         ):
             device = await self.cli.cli(
                 config,
@@ -1331,6 +1332,29 @@ def bess_boundary_chain(
 
 
 # ----------------------------- 独立读回原语 -----------------------------
+
+
+def decode_kafka_wide_point(record: Any, *, device_id: str, point_id: str) -> dict[str, Any] | None:
+    """Project one point from the current strict device-wide Kafka JSON v3 contract."""
+    from storage_service.domain.wide_record import WideRecord, parse_wide_envelope
+
+    parsed = parse_wide_envelope(record.value)
+    envelope = WideRecord.from_parsed(parsed, physical_points=tuple(parsed.points))
+    if envelope.device_id != device_id or point_id not in envelope.point_ids:
+        return None
+    index = envelope.point_ids.index(point_id)
+    sample_time = datetime.fromtimestamp(envelope.sample_time_us / 1_000_000, UTC)
+    return {
+        "schema_version": 3,
+        "wind_farm_id": envelope.wind_farm_id,
+        "device_config_id": envelope.device_config_id,
+        "device_id": envelope.device_id,
+        "data_level": str(envelope.data_level),
+        "point_id": point_id,
+        "sample_time": sample_time.isoformat().replace("+00:00", "Z"),
+        "value": envelope.values[index],
+        "quality_code": parsed.points[point_id][1],
+    }
 
 
 async def read_gateway_modbus_float(port: int, address: int) -> float:

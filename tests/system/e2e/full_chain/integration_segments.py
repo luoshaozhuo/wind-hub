@@ -21,6 +21,7 @@ import nats
 import yaml
 from aiokafka import AIOKafkaConsumer
 from nats.aio.msg import Msg
+from nats.js.api import DeliverPolicy
 
 from cli.runtime import Runtime
 from contracts.sample_batch import SampleBatch, SampleItem
@@ -267,7 +268,12 @@ class DualBatchObserver:
 
         self.subscriptions = [
             await self.client.subscribe(self.rt_subject, cb=on_rt),
-            await self.client.jetstream().subscribe(self.hist_subject, cb=on_hist, manual_ack=True),
+            await self.client.jetstream().subscribe(
+                self.hist_subject,
+                cb=on_hist,
+                manual_ack=True,
+                deliver_policy=DeliverPolicy.NEW,
+            ),
         ]
         await self.client.flush(timeout=10)
 

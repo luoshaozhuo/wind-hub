@@ -7,7 +7,7 @@
 - gRPC 端口被占用时第二个实例必须 bind 失败退出，存活实例不受影响，
   禁止双实例静默并存；
 - 同配置根冷重启保持单一 JetStream Durable 所有权，Kafka 侧按
-  sample_id 去重的记录数等于发布数，重启不产生重复交付或重投。
+  宽表点身份去重的记录数等于发布数，重启不产生重复交付或重投。
 """
 
 from __future__ import annotations
@@ -63,35 +63,10 @@ async def _delivery_errors(harness: SinkSystemHarness) -> dict[str, str]:
     return {item.delivery_id: item.last_error for item in response.deliveries}
 
 
-async def _kafka_sample_ids(harness: SinkSystemHarness, min_messages: int) -> set[str]:
-    """独立 group、earliest 全量读取，返回 sample_id 集合（跨重启去重观测）。"""
-    import json as json_lib
-    import uuid
-
-    from aiokafka import AIOKafkaConsumer
-
-    consumer = AIOKafkaConsumer(
-        harness.kafka_topic,
-        bootstrap_servers=harness.stack.kafka,
-        auto_offset_reset="earliest",
-        group_id=f"qa-uc09-{uuid.uuid4().hex[:10]}",
-        enable_auto_commit=False,
-    )
-    await consumer.start()
-    try:
-        records: list[Any] = []
-        deadline = asyncio.get_running_loop().time() + 45
-        while asyncio.get_running_loop().time() < deadline and len(records) < min_messages:
-            result = await consumer.getmany(timeout_ms=2000, max_records=500)
-            for messages in result.values():
-                records.extend(messages)
-        sample_ids = set()
-        for record in records:
-            payload = json_lib.loads(record.value.decode("utf-8"))
-            sample_ids.add(payload["sample_id"])
-        return sample_ids
-    finally:
-        await consumer.stop()
+async def _kafka_point_identities(harness: SinkSystemHarness, min_points: int) -> set[Any]:
+    """独立 group、earliest 全量读取，返回真实宽表点身份集合。"""
+    points = await harness.wait_kafka_points(min_points=min_points, timeout=45)
+    return {point.identity for point in points}
 
 
 class TestUC09S03:
@@ -196,7 +171,7 @@ class TestUC09S03:
     async def test_restart_keeps_single_durable_and_no_duplicate_writes(
         self, sink_harness: SinkSystemHarness
     ) -> None:
-        """同根冷重启：durable 同名、零重投，Kafka sample_id 全局无重复。"""
+        """同根冷重启：durable 同名、零重投，Kafka 宽表点身份全局无重复。"""
         sink_harness.write_dual_channel_root(ack_wait_seconds=10)
         await sink_harness.provision_streams()
         await sink_harness.start()
@@ -205,7 +180,7 @@ class TestUC09S03:
                 await sink_harness.publish_reliable(
                     sink_harness.make_batch("reliable", seq=seq, points=20)
                 )
-            first_ids = await _kafka_sample_ids(sink_harness, min_messages=40)
+            first_ids = await _kafka_point_identities(sink_harness, min_points=40)
             assert len(first_ids) == 40
 
             durable_before = (await sink_harness.consumer_state())["durable"]
@@ -218,7 +193,7 @@ class TestUC09S03:
                 await sink_harness.publish_reliable(
                     sink_harness.make_batch("reliable", seq=seq, points=20)
                 )
-            all_ids = await _kafka_sample_ids(sink_harness, min_messages=80)
+            all_ids = await _kafka_point_identities(sink_harness, min_points=80)
             assert len(all_ids) == 80, f"duplicate/missing samples after restart: {len(all_ids)}"
             assert first_ids.issubset(all_ids)
 

@@ -7,15 +7,13 @@
 - 一个 Delivery 被持久 STOP 后，另一个 Delivery 的交付链路全程不受影响、
   无错误记账、无重投；
 - STOP 期间积压在被停 Durable 名下，START 后原位排空；
-- 两个 Durable 全程并存，Kafka 侧按 sample_id 去重的总量与发布量严格相等
+- 两个 Durable 全程并存，Kafka 侧按宽表点身份去重的总量与发布量严格相等
   （共享 Sink 不得产生交叉写入或重复写入）。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json as json_lib
-import uuid
 from typing import Any
 
 import nats
@@ -97,27 +95,9 @@ async def _wait_state(
     raise AssertionError(f"{delivery_id} never reached {state}: {last}")
 
 
-async def _kafka_sample_ids(harness: SinkSystemHarness, min_messages: int) -> set[str]:
-    from aiokafka import AIOKafkaConsumer
-
-    consumer = AIOKafkaConsumer(
-        harness.kafka_topic,
-        bootstrap_servers=harness.stack.kafka,
-        auto_offset_reset="earliest",
-        group_id=f"qa-uc11-{uuid.uuid4().hex[:10]}",
-        enable_auto_commit=False,
-    )
-    await consumer.start()
-    try:
-        records: list[Any] = []
-        deadline = asyncio.get_running_loop().time() + 45
-        while asyncio.get_running_loop().time() < deadline and len(records) < min_messages:
-            result = await consumer.getmany(timeout_ms=2000, max_records=500)
-            for messages in result.values():
-                records.extend(messages)
-        return {json_lib.loads(record.value.decode("utf-8"))["sample_id"] for record in records}
-    finally:
-        await consumer.stop()
+async def _kafka_point_identities(harness: SinkSystemHarness, min_points: int) -> set[Any]:
+    points = await harness.wait_kafka_points(min_points=min_points, timeout=45)
+    return {point.identity for point in points}
 
 
 async def _sink_durable_names(harness: SinkSystemHarness) -> set[str]:
@@ -224,7 +204,7 @@ class TestUC11S02:
                         "reliable", seq=seq + 100, points=20, device_id=DEVICE_B
                     )
                 )
-            baseline_ids = await _kafka_sample_ids(sink_harness, min_messages=80)
+            baseline_ids = await _kafka_point_identities(sink_harness, min_points=80)
             assert len(baseline_ids) == 80
 
             # 故障注入：持久 STOP A；B 必须保持 RUNNING。
@@ -244,7 +224,7 @@ class TestUC11S02:
             await sink_harness.publish_reliable(
                 sink_harness.make_batch("reliable", seq=300, points=20, device_id=DEVICE_A)
             )
-            b_ids = await _kafka_sample_ids(sink_harness, min_messages=160)
+            b_ids = await _kafka_point_identities(sink_harness, min_points=160)
             assert len(b_ids) == 160, f"B leaked or duplicated across shared sink: {len(b_ids)}"
             assert baseline_ids.issubset(b_ids)
 
@@ -256,7 +236,7 @@ class TestUC11S02:
             # 恢复 A：积压原位排空，总量收敛到 180，无重复无交叉。
             await _set_delivery(sink_harness, DELIVERY_A, start=True)
             await _wait_state(sink_harness, DELIVERY_A, "RUNNING")
-            final_ids = await _kafka_sample_ids(sink_harness, min_messages=180)
+            final_ids = await _kafka_point_identities(sink_harness, min_points=180)
             assert len(final_ids) == 180, f"duplicate/missing after recovery: {len(final_ids)}"
             assert b_ids.issubset(final_ids)
 

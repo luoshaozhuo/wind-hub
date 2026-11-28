@@ -170,7 +170,7 @@ async def test_uc07_s01_all_20_rpcs_real_invocation(collector, grpc_clients, rea
     # The same device's background poll really reached the independent NATS.
     observed = await collect_realtime(real_nats.url, count=3, timeout=10)
     assert all(item["device_id"] == DEVICE_MODBUS for item in observed)
-    assert all(item["schema_version"] == 3 for item in observed)
+    assert all(item["schema_version"] == 4 for item in observed)
     assert {item["point_id"] for item in point_docs(observed)} == {
         "active_power",
         "rotor_speed",

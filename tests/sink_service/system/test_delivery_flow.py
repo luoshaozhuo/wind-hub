@@ -40,18 +40,23 @@ pytestmark = [
 ]
 
 
-def _quality_batch(harness: SinkSystemHarness) -> SampleBatch:
+def _quality_batches(harness: SinkSystemHarness) -> tuple[SampleBatch, SampleBatch]:
     now = datetime.now(UTC)
-    return SampleBatch(
+    expired = datetime.fromtimestamp(now.timestamp() - harness.staleness_ms / 1000.0 - 5, UTC)
+    common = {
+        "mode": "realtime",
+        "wind_farm_id": WIND_FARM_ID,
+        "collector_id": COLLECTOR_ID,
+        "task_id": "task-qa",
+        "device_type": "wtg",
+        "device_id": DEVICE_ID,
+        "point_table_id": "point_table_modbus_wtg_sim_v1.0.0",
+        "device_config_id": "device_farm-a_v1.0.0",
+        "publish_time": now,
+    }
+    valid = SampleBatch(
         batch_id=f"b-quality-{harness.token}",
-        mode="realtime",
-        wind_farm_id=WIND_FARM_ID,
-        collector_id=COLLECTOR_ID,
-        task_id="task-qa",
-        device_type="wtg",
-        device_id=DEVICE_ID,
-        point_table_id="point_table_modbus_wtg_sim_v1.0.0",
-        publish_time=now,
+        sample_time=now,
         samples=(
             SampleItem(
                 point_id="q_good",
@@ -77,18 +82,25 @@ def _quality_batch(harness: SinkSystemHarness) -> SampleBatch:
                 sample_time=now,
                 max_staleness_ms=harness.staleness_ms,
             ),
+        ),
+        **common,
+    )
+    stale = SampleBatch(
+        batch_id=f"b-quality-expired-{harness.token}",
+        sample_time=expired,
+        samples=(
             SampleItem(
                 point_id="q_expired",
                 sample_id=f"q-expired-{harness.token}",
                 value=44.0,
                 quality="good",
-                sample_time=datetime.fromtimestamp(
-                    now.timestamp() - harness.staleness_ms / 1000.0 - 5, UTC
-                ),
+                sample_time=expired,
                 max_staleness_ms=harness.staleness_ms,
             ),
         ),
+        **common,
     )
+    return valid, stale
 
 
 @pytest.mark.normal
@@ -131,7 +143,7 @@ class TestRealtimeDelivery:
         await sink_harness.provision_streams()
         await sink_harness.start()
         try:
-            await sink_harness.publish_realtime([_quality_batch(sink_harness)])
+            await sink_harness.publish_realtime(list(_quality_batches(sink_harness)))
 
             for point_id, quality in (
                 ("q_good", "good"),

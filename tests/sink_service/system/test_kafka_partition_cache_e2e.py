@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -29,9 +28,10 @@ from aiokafka.admin import AIOKafkaAdminClient, NewPartitions, NewTopic
 from contracts import sink_service_pb2, sink_service_pb2_grpc
 from tests.sink_service._stage1_fixtures import template_path
 from tests.sink_service.system.conftest import (
-    COLLECTOR_ID,
     WIND_FARM_ID,
+    KafkaPoint,
     SinkSystemHarness,
+    project_kafka_points,
 )
 
 pytestmark = [
@@ -52,7 +52,7 @@ DEVICES = [f"WT{idx:03d}" for idx in range(1, 9)]
 
 
 def _device_key(device_id: str) -> bytes:
-    return ":".join((WIND_FARM_ID, COLLECTOR_ID, device_id)).encode("utf-8")
+    return ":".join((WIND_FARM_ID, device_id)).encode("utf-8")
 
 
 async def _ensure_topic(bootstrap: str, topic: str, partitions: int) -> None:
@@ -127,19 +127,22 @@ def _open_assigned_consumer(bootstrap: str, topic: str, partitions: list[int]) -
 
 async def _drain(
     consumer: AIOKafkaConsumer,
-    min_messages: int,
+    min_points: int,
     deadline_s: float,
     *,
     poll_timeout_ms: int = 2000,
-) -> list[Any]:
+) -> list[KafkaPoint]:
     records: list[Any] = []
     deadline = asyncio.get_running_loop().time() + deadline_s
     while True:
         result = await consumer.getmany(timeout_ms=poll_timeout_ms, max_records=500)
         for messages in result.values():
             records.extend(messages)
-        if len(records) >= min_messages or asyncio.get_running_loop().time() >= deadline:
-            return records
+        if (
+            len(project_kafka_points(records)) >= min_points
+            or asyncio.get_running_loop().time() >= deadline
+        ):
+            return project_kafka_points(records)
 
 
 def _retarget_kafka_topic(harness: SinkSystemHarness, topic: str) -> None:
@@ -204,10 +207,9 @@ class TestKafkaPartitionCacheE2E:
             assert len(records) == 320
             observed: dict[str, set[int]] = {}
             per_device: dict[str, int] = {}
-            for record in records:
-                payload = json.loads(record.value.decode("utf-8"))
-                device = payload["device_id"]
-                observed.setdefault(device, set()).add(record.partition)
+            for point in records:
+                device = point.device_id
+                observed.setdefault(device, set()).add(point.partition)
                 per_device[device] = per_device.get(device, 0) + 1
             assert per_device == {device: 40 for device in DEVICES}
             for device, partitions in observed.items():
@@ -256,9 +258,8 @@ class TestKafkaPartitionCacheE2E:
                 assert len(phase1) == 160
                 assert all(record.partition < 6 for record in phase1)
                 phase1_partitions: dict[str, set[int]] = {}
-                for record in phase1:
-                    payload = json.loads(record.value.decode("utf-8"))
-                    phase1_partitions.setdefault(payload["device_id"], set()).add(record.partition)
+                for point in phase1:
+                    phase1_partitions.setdefault(point.device_id, set()).add(point.partition)
                 for device, partition in expected6.items():
                     assert phase1_partitions[device] == {partition}
 
@@ -290,9 +291,8 @@ class TestKafkaPartitionCacheE2E:
                     await asyncio.sleep(poll_interval_s)
                     batch = await _drain(consumer, 0, deadline_s=1.0, poll_timeout_ms=500)
                     all_records.extend(batch)
-                    for record in batch:
-                        payload = json.loads(record.value.decode("utf-8"))
-                        if payload["device_id"] == target and record.partition in (6, 7):
+                    for point in batch:
+                        if point.device_id == target and point.partition in (6, 7):
                             saw_new_partition = True
                     if saw_new_partition:
                         break
@@ -306,11 +306,7 @@ class TestKafkaPartitionCacheE2E:
                 all_records.extend(remaining)
             finally:
                 await consumer.stop()
-            target_records = [
-                record
-                for record in all_records
-                if json.loads(record.value.decode("utf-8"))["device_id"] == target
-            ]
+            target_records = [point for point in all_records if point.device_id == target]
             assert len(target_records) == seq * 20
             assert any(record.partition in (6, 7) for record in target_records)
             assert len(all_records) == 160 + seq * 20

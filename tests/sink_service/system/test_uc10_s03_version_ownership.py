@@ -108,7 +108,7 @@ class TestUC10S03:
                 await sink_harness.publish_reliable(
                     sink_harness.make_batch("reliable", seq=seq, points=20)
                 )
-            records = await sink_harness.wait_kafka_messages(min_messages=40, timeout=45)
+            records = await sink_harness.wait_kafka_points(min_points=40, timeout=45)
             assert len(records) >= 40
             deployment_a = f"qa-{sink_harness.token}"
             durable_a = _expected_durable(deployment_a)
@@ -165,7 +165,7 @@ class TestUC10S03:
                     await harness_b.publish_reliable(
                         harness_b.make_batch("reliable", seq=seq, points=20)
                     )
-                more = await harness_b.wait_kafka_messages(min_messages=80, timeout=45)
+                more = await harness_b.wait_kafka_points(min_points=80, timeout=45)
                 assert len(more) >= 80
                 # 切换后无重投：新 Durable 对新消息只投递一次。
                 info_b = await _consumer_info(harness_b, durable_b)

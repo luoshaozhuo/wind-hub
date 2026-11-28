@@ -22,11 +22,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import grpc
 import pytest
 import yaml
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import TopicAlreadyExistsError
 
+from contracts import configuration_repository_pb2 as configuration_pb
+from contracts import configuration_repository_pb2_grpc as configuration_rpc
 from tests.fixtures.services import r5_stack
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -158,7 +161,7 @@ def _write_storage_bootstrap(root: Path, stack: r5_stack.R5Stack) -> Path:
 def _write_cli_config(root: Path, configuration_bootstrap: Path, storage_bootstrap: Path) -> Path:
     """Adapt the shipped CLI process map to this isolated root and interpreter."""
     document = yaml.safe_load(
-        (E2E_ROOT / "services" / "service_cli-e2e_v1.1.8.yaml").read_text(encoding="utf-8")
+        (E2E_ROOT / "services" / "service_cli-e2e_v1.1.9.yaml").read_text(encoding="utf-8")
     )
     services = document["services"]
     for name, entry in services.items():
@@ -346,8 +349,8 @@ def harness(tmp_path: Path, stack: r5_stack.R5Stack) -> Iterator[EightServiceHar
         shutil.copytree(E2E_ROOT / folder, configs / folder)
     _rewrite_endpoints(configs, stack)
     data_level = os.environ.get("EIGHT_SERVICE_SINK_DATA_LEVEL", "protocol")
-    if data_level not in {"protocol", "raw"}:
-        raise ValueError("EIGHT_SERVICE_SINK_DATA_LEVEL must be protocol or raw")
+    if data_level not in {"protocol", "raw", "business"}:
+        raise ValueError("EIGHT_SERVICE_SINK_DATA_LEVEL must be protocol, raw or business")
     history_template = (
         configs / "templates" / "deliveries" / "delivery_reliable_history_v1.1.0.yaml"
     )
@@ -355,6 +358,21 @@ def harness(tmp_path: Path, stack: r5_stack.R5Stack) -> Iterator[EightServiceHar
     document["output"]["data_level"] = data_level
     history_template.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     configuration_bootstrap = _write_configuration_bootstrap(root, stack)
+    if data_level == "business":
+        bootstrap = yaml.safe_load(configuration_bootstrap.read_text(encoding="utf-8"))
+        sink_service_path = configs / "services" / "service_sink-e2e_v2.0.0.yaml"
+        sink_service = yaml.safe_load(sink_service_path.read_text(encoding="utf-8"))
+        sink_service["config_sync"]["repository_endpoint"] = (
+            f"{bootstrap['grpc']['host']}:{bootstrap['grpc']['port']}"
+        )
+        sink_service["config_sync"]["repository_token_ref"] = "env:WIND_HUB_CONFIG_SINK_TOKEN"
+        # Replaced with the Repository-authenticated digest before Sink starts.
+        sink_service["config_sync"]["approved_point_table_manifests"] = {
+            "point_table_modbus_wtg_sim_v1.2.0": "0" * 64
+        }
+        sink_service_path.write_text(
+            yaml.safe_dump(sink_service, sort_keys=False), encoding="utf-8"
+        )
     storage_bootstrap = _write_storage_bootstrap(root, stack)
     cli_config = _write_cli_config(root, configuration_bootstrap, storage_bootstrap)
 
@@ -377,6 +395,56 @@ def harness(tmp_path: Path, stack: r5_stack.R5Stack) -> Iterator[EightServiceHar
         _free_fixed_ports()
 
 
+def _authenticate_business_manifest(harness: EightServiceHarness) -> None:
+    """Bind the simulated BUSINESS route to its actual Repository closure."""
+    with grpc.insecure_channel(f"127.0.0.1:{CONFIGURATION_PORT}") as channel:
+        response = configuration_rpc.ConfigurationRepositoryServiceStub(
+            channel
+        ).GetPointTableBundle(
+            configuration_pb.GetPointTableBundleRequest(
+                point_table_id="point_table_modbus_wtg_sim_v1.2.0"
+            ),
+            timeout=30,
+            metadata=(("authorization", f"Bearer {harness.env['WIND_HUB_CONFIG_SINK_TOKEN']}"),),
+        )
+    assert response.manifest_sha256 and response.manifest_sha256 != "0" * 64
+    service_path = harness.root / "configs" / "services" / "service_sink-e2e_v2.0.0.yaml"
+    document = yaml.safe_load(service_path.read_text(encoding="utf-8"))
+    document["file_version"] = "2.0.1"
+    document["config_sync"]["approved_point_table_manifests"] = {
+        response.point_table_id: response.manifest_sha256
+    }
+    selected_service = service_path.with_name("service_sink-e2e_v2.0.1.yaml")
+    selected_service.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    service_path.unlink()
+
+    deployment_path = harness.root / "configs" / "deployments" / "deployment_e2e-final_v2.0.2.yaml"
+    deployment = yaml.safe_load(deployment_path.read_text(encoding="utf-8"))
+    deployment["file_version"] = "2.0.3"
+    deployment["services"]["sink-e2e"]["file_version"] = "2.0.1"
+    selected_deployment = deployment_path.with_name("deployment_e2e-final_v2.0.3.yaml")
+    selected_deployment.write_text(yaml.safe_dump(deployment, sort_keys=False), encoding="utf-8")
+    deployment_path.unlink()
+
+    cli_document = yaml.safe_load(harness.cli_config.read_text(encoding="utf-8"))
+    for argument in cli_document["services"]["sink"]["process"]["argv"]:
+        if argument.endswith("service_sink-e2e_v2.0.0.yaml"):
+            index = cli_document["services"]["sink"]["process"]["argv"].index(argument)
+            cli_document["services"]["sink"]["process"]["argv"][index] = argument.replace(
+                "service_sink-e2e_v2.0.0.yaml", "service_sink-e2e_v2.0.1.yaml"
+            )
+    harness.cli_config.write_text(yaml.safe_dump(cli_document, sort_keys=False), encoding="utf-8")
+    published = harness.cli(
+        "config",
+        "publish",
+        "--root",
+        str(harness.root / "configs"),
+        timeout=180,
+    )
+    assert published["status"] == "SUCCESS", published
+    harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(published["data"]["revision_id"])
+
+
 @pytest.fixture
 def started(harness: EightServiceHarness) -> EightServiceHarness:
     """Configuration first, publish the active root, then every business process."""
@@ -391,6 +459,8 @@ def started(harness: EightServiceHarness) -> EightServiceHarness:
     )
     assert publish["status"] == "SUCCESS", publish
     harness.env["WIND_HUB_CONFIGURATION_REVISION"] = str(int(publish["data"]["revision_id"]))
+    if os.environ.get("EIGHT_SERVICE_SINK_DATA_LEVEL") == "business":
+        _authenticate_business_manifest(harness)
     asyncio.run(_ensure_topic(harness.stack.kafka, "windhub.e2e.history"))
     asyncio.run(_ensure_streams(harness.stack.nats))
     for name in SERVICES:

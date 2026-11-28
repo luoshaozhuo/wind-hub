@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import math
-from datetime import datetime, timedelta
+import struct
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from .conftest import GOLDEN_DEVICES, SINK_TARGET_POINT, wait_sink_modbus_float
+from .conftest import (
+    GOLDEN_DEVICES,
+    SINK_TARGET_POINT,
+    decode_kafka_wide_point,
+)
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -49,6 +53,80 @@ def _source_truth(
     assert 0 <= delta <= 1.0, (device_id, point_id, delta)
     tolerance = max(1e-3, abs(source_value) * 2e-3)
     return source_time, source_value, delta, tolerance
+
+
+def _source_observation(
+    harness: Any,
+    generation_id: str,
+    device_id: str,
+    point_id: str,
+    observed_at: datetime,
+    actual: float,
+) -> tuple[datetime, float, float, float]:
+    """Correlate an asynchronous output with its own recent DG source sample."""
+    candidates = [
+        (timestamp, value)
+        for row in harness.read_recording(generation_id)
+        for point in row.get("points", [])
+        if point.get("device_id") == device_id
+        and point.get("point_id") == point_id
+        and 0 <= (observed_at - (timestamp := _time(point["source_time"]))).total_seconds() <= 1.0
+        and math.isfinite(value := _number(point["value"]))
+    ]
+    matching = [
+        (timestamp, value, max(1e-3, abs(value) * 2e-3))
+        for timestamp, value in candidates
+        if abs(actual - value) <= max(1e-3, abs(value) * 2e-3)
+    ]
+    assert matching, (device_id, point_id, observed_at, actual, candidates[-5:])
+    source_time, source_value, tolerance = min(matching, key=lambda item: abs(actual - item[1]))
+    return source_time, source_value, (observed_at - source_time).total_seconds(), tolerance
+
+
+async def _wait_modbus_source(
+    harness: Any, generation_id: str, device_id: str, point_id: str, port: int
+) -> tuple[float, int, datetime, datetime, float, float, float]:
+    """Read Modbus independently and correlate its value at the observation instant."""
+    from pymodbus.client import AsyncModbusTcpClient
+
+    deadline = asyncio.get_running_loop().time() + 90
+    latest: Any = None
+    while asyncio.get_running_loop().time() < deadline:
+        client = AsyncModbusTcpClient("127.0.0.1", port=port)
+        try:
+            await client.connect()
+            values = await client.read_holding_registers(1000, count=2, device_id=1)
+            quality = await client.read_holding_registers(2000, count=1, device_id=1)
+            observed_at = datetime.now(UTC)
+            if values.isError() or quality.isError():
+                raise RuntimeError(f"sink modbus read failed: {values!r}, {quality!r}")
+            value = struct.unpack(">f", struct.pack(">HH", *values.registers))[0]
+            quality_code = int(quality.registers[0])
+            latest = (value, quality_code, observed_at)
+            if quality_code == 0:
+                try:
+                    source = _source_observation(
+                        harness, generation_id, device_id, point_id, observed_at, value
+                    )
+                except AssertionError as error:
+                    latest = error
+                else:
+                    source_time, source_value, source_delta, tolerance = source
+                    return (
+                        value,
+                        quality_code,
+                        observed_at,
+                        source_time,
+                        source_value,
+                        source_delta,
+                        tolerance,
+                    )
+        except (OSError, RuntimeError) as error:
+            latest = error
+        finally:
+            client.close()
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"Modbus output did not correlate with DG source: {latest}")
 
 
 async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
@@ -114,46 +192,65 @@ async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
                 "read",
                 f"gw-{device_id.lower()}",
                 SINK_TARGET_POINT,
-                predicate=lambda data, expected=redis_value, limit=tolerance: bool(
-                    data.get("values")
-                )
+                predicate=lambda data: bool(data.get("values"))
                 and data["values"][0].get("quality") == "GOOD"
-                and abs(_number(data["values"][0]["value"]) - expected) <= limit,
+                and _time(data["values"][0]["sample_timestamp"]) >= generation_start
+                and math.isfinite(_number(data["values"][0]["value"])),
                 timeout=90,
             )
+            gateway_sample_time = _time(gateway["values"][0]["sample_timestamp"])
             gateway_value = _number(gateway["values"][0]["value"])
-            modbus_value, modbus_quality = await wait_sink_modbus_float(
+            (
+                gateway_source_time,
+                gateway_source_value,
+                gateway_source_delta,
+                gateway_tolerance,
+            ) = _source_observation(
+                harness,
+                generation_id,
+                device_id,
+                point_id,
+                gateway_sample_time,
+                gateway_value,
+            )
+            (
+                modbus_value,
+                modbus_quality,
+                modbus_observed_at,
+                modbus_source_time,
+                modbus_source_value,
+                modbus_source_delta,
+                modbus_tolerance,
+            ) = await _wait_modbus_source(
+                harness,
+                generation_id,
+                device_id,
+                point_id,
                 harness.sink_modbus_ports[device_id],
-                redis_value,
-                timeout=90,
-                tolerance=tolerance,
             )
             assert modbus_quality == 0
 
             def is_golden_record(
                 record: Any, device_id: str = device_id, point_id: str = point_id
             ) -> bool:
-                item = json.loads(record.value.decode("utf-8"))
-                return (
-                    item.get("collector_id") == harness.reliable_collector
-                    and item.get("device_id") == device_id
-                    and item.get("point_id") == point_id
-                    and _time(item["sample_time"]) >= generation_start
-                )
+                item = decode_kafka_wide_point(record, device_id=device_id, point_id=point_id)
+                return item is not None and _time(item["sample_time"]) >= generation_start
 
             records = await harness.sink.wait_kafka_messages(
                 min_messages=1, timeout=90, offset_reset="earliest", match=is_golden_record
             )
             matching = [
-                json.loads(record.value.decode("utf-8"))
+                item
                 for record in records
                 if is_golden_record(record)
+                and (
+                    item := decode_kafka_wide_point(record, device_id=device_id, point_id=point_id)
+                )
+                is not None
             ]
             assert matching, (device_id, point_id)
             kafka = matching[0]
-            kafka_sample_id = str(kafka["sample_id"])
-            assert kafka_sample_id
-            assert len({item["sample_id"] for item in matching}) == len(matching)
+            assert len({item["sample_time"] for item in matching}) == len(matching)
             kafka_sample_time = _time(kafka["sample_time"])
             kafka_value = _number(kafka["value"])
             (
@@ -181,29 +278,33 @@ async def test_pv_bess_four_output_golden(full_chain: Any) -> None:
                     "tolerance": tolerance,
                 },
                 gateway={
-                    "correlated_redis_sample_id": redis_sample_id,
-                    "expected": redis_value,
+                    "sample_time": gateway_sample_time.isoformat(),
+                    "source_time": gateway_source_time.isoformat(),
+                    "source_delta_seconds": gateway_source_delta,
+                    "expected": gateway_source_value,
                     "actual": gateway_value,
-                    "tolerance": tolerance,
+                    "tolerance": gateway_tolerance,
                     "quality": gateway["values"][0]["quality"],
                 },
                 modbus={
-                    "correlated_redis_sample_id": redis_sample_id,
-                    "expected": redis_value,
+                    "observed_at": modbus_observed_at.isoformat(),
+                    "source_time": modbus_source_time.isoformat(),
+                    "source_delta_seconds": modbus_source_delta,
+                    "expected": modbus_source_value,
                     "actual": modbus_value,
-                    "tolerance": tolerance,
+                    "tolerance": modbus_tolerance,
                     "encoding": "float32",
                     "quality_code": modbus_quality,
                 },
                 kafka={
-                    "sample_id": kafka_sample_id,
                     "sample_time": kafka_sample_time.isoformat(),
+                    "device_config_id": kafka["device_config_id"],
                     "source_time": kafka_source_time.isoformat(),
                     "source_delta_seconds": kafka_source_delta,
                     "expected": kafka_source_value,
                     "actual": kafka_value,
                     "tolerance": kafka_tolerance,
-                    "collector_id": kafka["collector_id"],
+                    "data_level": kafka["data_level"],
                 },
             )
     finally:

@@ -50,7 +50,6 @@ from tests.support.configuration_live import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE = ROOT / "docs/audit/storage_wide_table_d5_round3_20261126_evidence"
 TOOLS = Path("/tmp/windhub-d5-r3-tools")
 POINT_IDS = tuple(f"p_{index:03d}" for index in range(500))
 FARM = "farm-a"
@@ -356,6 +355,7 @@ async def test_real_backup_and_taosdump_rename_restore(
     pytest.importorskip("taosws", reason="NOT_RUN: real TDengine SQL driver unavailable")
     assert (TOOLS / "taosdump").is_file() and (TOOLS / "libtaos.so").is_file()
     probe = _real_pty_probe(tmp_path)
+    monkeypatch.chdir(tmp_path)
     print(f"PTY_PROBE={json.dumps(probe, sort_keys=True)}", flush=True)
     stack = await asyncio.to_thread(r5_stack.up_stack)
     token = uuid4().hex[:10]
@@ -423,6 +423,9 @@ async def test_real_backup_and_taosdump_rename_restore(
             work_root=tmp_path,
             env=process_env,
         )
+        cli_document = yaml.safe_load(cli_yaml.read_text(encoding="utf-8"))
+        cli_document["services"]["storage"]["process"]["cwd"] = str(tmp_path)
+        cli_yaml.write_text(yaml.safe_dump(cli_document, sort_keys=False), encoding="utf-8")
         start = await asyncio.to_thread(run_cli, cli_yaml, "service", "start", "storage", "--yes")
         payload = last_json(start.stdout)
         assert start.returncode == 0, start.stderr
@@ -584,7 +587,8 @@ async def test_real_backup_and_taosdump_rename_restore(
             )
             assert stopped["exit_code"] == 0, stopped
         if storage_log.exists():
-            EVIDENCE.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(storage_log, EVIDENCE / "backup_pty_real_storage.log")
-            print(f"STORAGE_LOG={EVIDENCE / 'backup_pty_real_storage.log'}", flush=True)
+            evidence = tmp_path / "evidence"
+            evidence.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(storage_log, evidence / "backup_pty_real_storage.log")
+            print(f"STORAGE_LOG={evidence / 'backup_pty_real_storage.log'}", flush=True)
         await asyncio.to_thread(r5_stack.down_stack, stack)

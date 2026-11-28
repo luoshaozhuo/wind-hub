@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from .conftest import SINK_TARGET_POINT, wait_sink_modbus_float
+from .conftest import SINK_TARGET_POINT, decode_kafka_wide_point, wait_sink_modbus_float
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -92,14 +91,17 @@ async def test_e2e_01_wind_step(full_chain: Any) -> None:
         records = await harness.sink.wait_kafka_messages(
             min_messages=100, timeout=90, offset_reset="latest"
         )
-        payloads = [json.loads(record.value) for record in records]
-        assert any(
-            item.get("collector_id") == harness.reliable_collector
-            and item.get("device_id") == "WTG_SIM01"
-            and item.get("point_id") == "wind_speed"
-            and abs(float(item["value"]) - 12.0) < 1e-3
-            for item in payloads
-        )
+        payloads = [
+            item
+            for record in records
+            if (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
+        ]
+        assert any(abs(float(item["value"]) - 12.0) < 1e-3 for item in payloads)
         rows = harness.read_recording(generation_id)
         wind = [
             p["value"]

@@ -11,7 +11,12 @@ from uuid import uuid4
 import nats
 import pytest
 
-from .conftest import FARM, SINK_TARGET_POINT, wait_sink_modbus_float
+from .conftest import (
+    FARM,
+    SINK_TARGET_POINT,
+    decode_kafka_wide_point,
+    wait_sink_modbus_float,
+)
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -24,8 +29,8 @@ def _seconds(start: datetime, end: datetime) -> float:
     return (end - start).total_seconds()
 
 
-async def _accepted_sample_ids(harness: Any, since: datetime) -> set[str]:
-    """直接读取 JetStream 已受理源批，形成 Kafka 对账责任集合。"""
+async def _accepted_sample_times(harness: Any, since: datetime) -> set[str]:
+    """直接读取 JetStream 已受理源批，以逻辑样本时间与 Kafka v3 对账。"""
     from contracts.sample_batch import SampleBatch
 
     client = await nats.connect(servers=harness.stack.nats, connect_timeout=10)
@@ -39,7 +44,7 @@ async def _accepted_sample_ids(harness: Any, since: datetime) -> set[str]:
             if batch.collector_id != harness.reliable_collector or batch.device_id != "WTG_SIM01":
                 continue
             result.update(
-                sample.sample_id
+                sample.sample_time.isoformat()
                 for sample in batch.samples
                 if sample.point_id == "wind_speed" and sample.sample_time >= since
             )
@@ -48,7 +53,7 @@ async def _accepted_sample_ids(harness: Any, since: datetime) -> set[str]:
         await client.drain()
 
 
-async def _kafka_sample_ids(harness: Any, expected: set[str], since: datetime) -> list[str]:
+async def _kafka_sample_times(harness: Any, expected: set[str], since: datetime) -> list[str]:
     from aiokafka import AIOKafkaConsumer
 
     consumer = AIOKafkaConsumer(
@@ -66,15 +71,15 @@ async def _kafka_sample_ids(harness: Any, expected: set[str], since: datetime) -
             batches = await consumer.getmany(timeout_ms=1000, max_records=1000)
             for records in batches.values():
                 for record in records:
-                    item = json.loads(record.value)
-                    if (
-                        item.get("collector_id") == harness.reliable_collector
-                        and item.get("device_id") == "WTG_SIM01"
-                        and item.get("point_id") == "wind_speed"
-                        and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
-                        >= since
-                    ):
-                        observed.append(str(item["sample_id"]))
+                    item = decode_kafka_wide_point(
+                        record, device_id="WTG_SIM01", point_id="wind_speed"
+                    )
+                    if item is not None:
+                        sample_time = datetime.fromisoformat(
+                            item["sample_time"].replace("Z", "+00:00")
+                        )
+                        if sample_time >= since:
+                            observed.append(sample_time.isoformat())
             if expected and expected.issubset(observed):
                 return observed
         return observed
@@ -200,10 +205,9 @@ async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -> None:
             raise AssertionError(f"Reliable backlog did not drain: {state}")
 
         def is_recovered(record: Any) -> bool:
-            item = json.loads(record.value)
-            return (
-                item.get("collector_id") == harness.reliable_collector
-                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= outage_at
+            item = decode_kafka_wide_point(record, device_id="WTG_SIM01", point_id="wind_speed")
+            return item is not None and (
+                datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= outage_at
             )
 
         records = await harness.sink.wait_kafka_messages(
@@ -211,18 +215,26 @@ async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -> None:
             timeout=90,
             match=is_recovered,
         )
-        payloads = [json.loads(record.value) for record in records]
+        payloads = [
+            item
+            for record in records
+            if (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
+        ]
         assert any(
-            item.get("collector_id") == harness.reliable_collector
-            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= outage_at
+            datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= outage_at
             for item in payloads
         )
         first_good_at = _now()
-        expected_ids = await _accepted_sample_ids(harness, audit_start)
-        observed_ids = await _kafka_sample_ids(harness, expected_ids, audit_start)
-        missing = sorted(expected_ids - set(observed_ids))
-        duplicate_excess = len(observed_ids) - len(set(observed_ids))
-        assert expected_ids, "no JetStream-accepted source samples in audit window"
+        expected_times = await _accepted_sample_times(harness, audit_start)
+        observed_times = await _kafka_sample_times(harness, expected_times, audit_start)
+        missing = sorted(expected_times - set(observed_times))
+        duplicate_excess = len(observed_times) - len(set(observed_times))
+        assert expected_times, "no JetStream-accepted source samples in audit window"
         assert not missing, f"accepted source samples missing from Kafka: {missing[:10]}"
         assert duplicate_excess == 0, f"duplicate Kafka sample identities: {duplicate_excess}"
         harness.record(
@@ -232,8 +244,8 @@ async def test_e2e_10_kafka_outage_holds_and_recovers(full_chain: Any) -> None:
             held=held,
             drained=state,
             consumer_state=await harness.sink.consumer_state(),
-            accepted_count=len(expected_ids),
-            kafka_count=len(observed_ids),
+            accepted_count=len(expected_times),
+            kafka_count=len(observed_times),
             missing=missing,
             duplicate_excess=duplicate_excess,
             fault_at=outage_at.isoformat(),
@@ -301,14 +313,22 @@ async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -> None:
         records = await harness.sink.wait_kafka_messages(
             min_messages=20, timeout=90, offset_reset="latest"
         )
-        payloads = [json.loads(record.value) for record in records]
+        payloads = [
+            item
+            for record in records
+            if (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
+        ]
         recovered_kafka = [
             item
             for item in payloads
-            if item.get("collector_id") == harness.reliable_collector
-            and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
+            if datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
         ]
-        assert len({item["sample_id"] for item in recovered_kafka}) >= 2, recovered_kafka
+        assert len({item["sample_time"] for item in recovered_kafka}) >= 2, recovered_kafka
         consecutive = await harness.sink.wait_redis_value(
             key,
             timeout=30,
@@ -323,7 +343,7 @@ async def test_e2e_10_nats_recovers_both_channels(full_chain: Any) -> None:
             before=before["sample_id"],
             after=after["sample_id"],
             consecutive_after=consecutive["sample_id"],
-            kafka_after=[item["sample_id"] for item in recovered_kafka],
+            kafka_after=[item["sample_time"] for item in recovered_kafka],
             fault_at=fault_at.isoformat(),
             detected_at=detected_at.isoformat(),
             restored_at=restored_at.isoformat(),
@@ -502,16 +522,21 @@ async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
         records = await harness.sink.wait_kafka_messages(
             min_messages=20, timeout=90, offset_reset="latest"
         )
-        payloads = [json.loads(record.value) for record in records]
+        payloads = [
+            item
+            for record in records
+            if (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
+        ]
         kafka = next(
             (
                 item
                 for item in payloads
-                if item.get("collector_id") == harness.reliable_collector
-                and item.get("device_id") == "WTG_SIM01"
-                and item.get("point_id") == "wind_speed"
-                and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
-                >= restored_at
+                if datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00")) >= restored_at
                 and abs(float(item["value"]) - 12.0) < 1e-3
             ),
             None,
@@ -526,7 +551,7 @@ async def test_e2e_10_gateway_restart_recovers_data(full_chain: Any) -> None:
             redis_sample_id=after["sample_id"],
             gateway=gateway["values"][0],
             modbus={"value": modbus_value, "quality": modbus_quality},
-            kafka_sample_id=kafka["sample_id"],
+            kafka_sample_time=kafka["sample_time"],
             old_generation_state="STOPPED",
             fault_at=fault_at.isoformat(),
             detected_at=detected_at.isoformat(),

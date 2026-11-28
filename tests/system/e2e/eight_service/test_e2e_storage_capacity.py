@@ -305,7 +305,7 @@ def storage_wide_capacity_config(harness: EightServiceHarness) -> tuple[str, ...
     writer_count = int(os.environ.get("STORAGE_WIDE_WRITER_COUNT", "4"))
     if writer_count not in {1, 2, 4, 8}:
         raise ValueError("STORAGE_WIDE_WRITER_COUNT must be 1, 2, 4, or 8")
-    storage_service_path = harness.root / "configs" / "services" / "service_storage-e2e_v2.0.0.yaml"
+    storage_service_path = harness.root / "configs" / "services" / "service_storage-e2e_v2.0.1.yaml"
     storage_service = yaml.safe_load(storage_service_path.read_text(encoding="utf-8"))
     tdengine = storage_service["service"]["tdengine"]
     tdengine["ingestion"]["writer_count"] = writer_count

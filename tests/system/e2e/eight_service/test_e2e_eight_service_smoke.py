@@ -38,7 +38,7 @@ def _storage_port(harness: EightServiceHarness) -> int:
     import yaml
 
     config = yaml.safe_load(
-        (harness.root / "configs" / "services" / "service_storage-e2e_v2.0.0.yaml").read_text(
+        (harness.root / "configs" / "services" / "service_storage-e2e_v2.0.1.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -163,10 +163,13 @@ def test_eight_service_chain_is_cli_managed_and_persisted(
     proto_args = (
         "storage",
         "samples",
+        "--wind-farm-id",
         "e2e-final",
+        "--start-time",
         (window_start - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "--end-time",
         window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "--level",
+        "--data-level",
         "protocol",
         "--device-id",
         "WTG_SIM01",

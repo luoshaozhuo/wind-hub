@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from .conftest import SIM_DEVICES, SINK_TARGET_POINT, wait_sink_modbus_float
+from .conftest import (
+    SIM_DEVICES,
+    SINK_TARGET_POINT,
+    decode_kafka_wide_point,
+    wait_sink_modbus_float,
+)
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -62,7 +65,7 @@ async def test_e2e_07_four_sink_outputs(full_chain) -> None:  # noqa: ANN001
         )
         assert modbus_quality == 0
 
-        # OUT-04: independent Kafka consumer sees reliable Collector identity.
+        # OUT-04: the reliable-only topic carries strict device-wide JSON v3.
         await harness.poll(
             harness.cli_rel,
             "collector",
@@ -79,19 +82,22 @@ async def test_e2e_07_four_sink_outputs(full_chain) -> None:  # noqa: ANN001
         records = await harness.sink.wait_kafka_messages(
             min_messages=100, timeout=90, offset_reset="latest"
         )
-        payloads = [json.loads(record.value.decode("utf-8")) for record in records]
-        matching = [
+        payloads = [
             item
-            for item in payloads
-            if item.get("collector_id") == harness.reliable_collector
-            and item.get("device_id") == "WTG_SIM01"
-            and item.get("point_id") == "wind_speed"
+            for record in records
+            if (
+                item := decode_kafka_wide_point(
+                    record, device_id="WTG_SIM01", point_id="wind_speed"
+                )
+            )
+            is not None
         ]
+        matching = [item for item in payloads if item["data_level"] == "protocol"]
         assert matching, payloads
         assert any(abs(float(item["value"]) - expected) < 1e-3 for item in matching), [
             item["value"] for item in matching
         ]
-        assert len({item["sample_id"] for item in matching}) == len(matching)
+        assert len({item["sample_time"] for item in matching}) == len(matching)
 
         harness.record(
             "E2E-07",

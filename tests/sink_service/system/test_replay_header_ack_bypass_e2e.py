@@ -16,7 +16,7 @@ import asyncio
 import nats
 import pytest
 
-from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.sink_service.system.conftest import SinkSystemHarness, expected_kafka_point_identities
 
 pytestmark = [
     pytest.mark.system,
@@ -41,7 +41,7 @@ class TestReplayHeaderAckBypass:
         await sink_harness.start()
         try:
             batch = sink_harness.make_batch("reliable", seq=4711, points=5)
-            marker = batch.samples[0].sample_id
+            expected = expected_kafka_point_identities(batch)
 
             client = await nats.connect(servers=sink_harness.stack.nats, connect_timeout=10)
             try:
@@ -56,11 +56,11 @@ class TestReplayHeaderAckBypass:
             finally:
                 await client.drain()
 
-            records = await sink_harness.wait_kafka_messages(min_messages=1, timeout=60)
-            matched = [record for record in records if marker.encode() in record.value]
-            assert matched, (
+            points = await sink_harness.wait_kafka_points(min_points=len(batch.samples), timeout=60)
+            observed = {point.identity for point in points}
+            assert expected.issubset(observed), (
                 "forged Wh-Replay-Delivery header skipped real delivery: "
-                f"no Kafka record contains {marker}"
+                f"Kafka wide points missing {expected - observed}"
             )
 
             async def _drained() -> bool:

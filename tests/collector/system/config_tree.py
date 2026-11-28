@@ -67,7 +67,7 @@ def write_config_tree(
         "messaging": {
             "servers": nats_servers,
             "delivery": delivery,
-            "max_staleness_ms": max_staleness_ms,
+            **({"max_staleness_ms": max_staleness_ms} if delivery == "realtime" else {}),
         },
         "metrics": {
             "enabled": True,
@@ -247,18 +247,30 @@ def write_config_tree(
             {
                 **_HEADER,
                 "tasks": {
-                    "modbus_task": {
-                        "group": "modbus-group",
-                        "point_group": "all",
-                        "interval_ms": max(1, round(task_interval * 1000)),
-                        "desired_state": desired_state,
-                    },
-                    "iec104_task": {
-                        "group": "iec104-group",
-                        "point_group": "all",
-                        "interval_ms": max(1, round(task_interval * 1000)),
-                        "desired_state": desired_state,
-                    },
+                    **(
+                        {
+                            "modbus_task": {
+                                "group": "modbus-group",
+                                "point_group": "all",
+                                "interval_ms": max(1, round(task_interval * 1000)),
+                                "desired_state": desired_state,
+                            }
+                        }
+                        if "modbus-1" in devices
+                        else {}
+                    ),
+                    **(
+                        {
+                            "iec104_task": {
+                                "group": "iec104-group",
+                                "point_group": "all",
+                                "interval_ms": max(1, round(task_interval * 1000)),
+                                "desired_state": desired_state,
+                            }
+                        }
+                        if "iec104-1" in devices
+                        else {}
+                    ),
                     **(
                         {
                             "hold_task": {

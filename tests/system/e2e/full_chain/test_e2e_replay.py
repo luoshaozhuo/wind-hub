@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from datetime import datetime
 from typing import Any
@@ -10,6 +9,8 @@ from uuid import uuid4
 
 import pytest
 from aiokafka import AIOKafkaConsumer
+
+from .conftest import decode_kafka_wide_point
 
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
@@ -86,12 +87,11 @@ async def test_e2e_05_csv_replay_recording(full_chain: Any, speed: int) -> None:
             batches = await consumer.getmany(timeout_ms=1000, max_records=1000)
             for records in batches.values():
                 for record in records:
-                    item = json.loads(record.value)
-                    if (
-                        item.get("collector_id") == harness.reliable_collector
-                        and item.get("device_id") == "GW02"
-                        and item.get("point_id") == "a02_dm_pitchangle1"
-                        and datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                    item = decode_kafka_wide_point(
+                        record, device_id="GW02", point_id="a02_dm_pitchangle1"
+                    )
+                    if item is not None and (
+                        datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
                         >= started_at
                     ):
                         value = float(item["value"])

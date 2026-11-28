@@ -23,7 +23,7 @@ import secrets
 import socket
 import subprocess
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +35,12 @@ import pytest
 
 from contracts import common_pb2, common_pb2_grpc, sink_service_pb2, sink_service_pb2_grpc
 from contracts.sample_batch import SampleBatch, SampleItem
+from storage_service.domain.wide_record import (
+    WideDataLevel,
+    WideIdentity,
+    WideRecord,
+    parse_wide_envelope,
+)
 from tests.fixtures.services import r5_stack
 from tests.sink_service._stage1_fixtures import (
     DELIVERIES_INSTANCE,
@@ -104,6 +110,80 @@ def make_system_batch(
         publish_time=now,
         samples=samples,
     )
+
+
+KafkaPointIdentity = tuple[WideIdentity, int, str]
+
+
+@dataclass(frozen=True)
+class KafkaPoint:
+    """Kafka v3 宽表记录中一个经过生产模型校验的点。"""
+
+    kafka_record: Any
+    wide_record: WideRecord
+    point_id: str
+    value: int | float | bool | str | None
+
+    @property
+    def device_id(self) -> str:
+        return self.wide_record.device_id
+
+    @property
+    def partition(self) -> int:
+        return int(self.kafka_record.partition)
+
+    @property
+    def identity(self) -> KafkaPointIdentity:
+        return (
+            WideIdentity(
+                self.wide_record.wind_farm_id,
+                self.wide_record.device_config_id,
+                self.wide_record.device_id,
+                self.wide_record.data_level,
+            ),
+            self.wide_record.sample_time_us,
+            self.point_id,
+        )
+
+
+def decode_kafka_wide(payload: bytes) -> WideRecord:
+    """严格校验 Kafka v3 信封、完整点集、值和两位质量。"""
+    parsed = parse_wide_envelope(payload)
+    return WideRecord.from_parsed(parsed, physical_points=tuple(parsed.points))
+
+
+def project_kafka_points(records: Iterable[Any]) -> list[KafkaPoint]:
+    """把每批一条的 Kafka v3 宽表记录投影为逐点观测，不伪造 sample_id。"""
+    projected: list[KafkaPoint] = []
+    for kafka_record in records:
+        wide = decode_kafka_wide(kafka_record.value)
+        for point_id, value in zip(wide.point_ids, wide.values, strict=True):
+            projected.append(
+                KafkaPoint(
+                    kafka_record=kafka_record,
+                    wide_record=wide,
+                    point_id=point_id,
+                    value=value,
+                )
+            )
+    return projected
+
+
+def kafka_point_count(records: Iterable[Any]) -> int:
+    return len(project_kafka_points(records))
+
+
+def expected_kafka_point_identities(batch: SampleBatch) -> set[KafkaPointIdentity]:
+    """从源 SampleBatch 推导 PROTOCOL 宽表中真实存在的点身份。"""
+    delta = batch.sample_time - datetime(1970, 1, 1, tzinfo=UTC)
+    sample_time_us = (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
+    identity = WideIdentity(
+        batch.wind_farm_id,
+        batch.device_config_id,
+        batch.device_id,
+        WideDataLevel.PROTOCOL,
+    )
+    return {(identity, sample_time_us, sample.point_id) for sample in batch.samples}
 
 
 def free_port() -> int:
@@ -657,6 +737,7 @@ class SinkSystemHarness:
         self,
         *,
         min_messages: int = 1,
+        min_points: int | None = None,
         timeout: float = 45.0,
         offset_reset: str = "earliest",
         match: Callable[[Any], bool] | None = None,
@@ -687,7 +768,14 @@ class SinkSystemHarness:
         try:
             records: list[Any] = []
             matched = False
-            while time.monotonic() < deadline and (len(records) < min_messages or not matched):
+            while time.monotonic() < deadline:
+                enough = (
+                    kafka_point_count(records) >= min_points
+                    if min_points is not None
+                    else len(records) >= min_messages
+                )
+                if enough and matched:
+                    break
                 result = await consumer.getmany(timeout_ms=2000, max_records=100)
                 for messages in result.values():
                     records.extend(messages)
@@ -698,6 +786,16 @@ class SinkSystemHarness:
             return records
         finally:
             await consumer.stop()
+
+    async def wait_kafka_points(
+        self,
+        *,
+        min_points: int,
+        timeout: float = 45.0,
+    ) -> list[KafkaPoint]:
+        """等待足够的逻辑点，并返回严格 v3 宽表逐点投影。"""
+        records = await self.wait_kafka_messages(min_points=min_points, timeout=timeout)
+        return project_kafka_points(records)
 
 
 @pytest.fixture

@@ -20,7 +20,7 @@ import json
 
 import pytest
 
-from tests.sink_service.system.conftest import SinkSystemHarness
+from tests.sink_service.system.conftest import SinkSystemHarness, expected_kafka_point_identities
 from tests.sink_service.system.nats_fault_proxy import NatsFaultProxy, drop_jetstream_ack
 
 pytestmark = [
@@ -163,7 +163,7 @@ class TestAckLossRedelivery:
     async def test_s3_03_dropped_jetstream_ack_causes_at_least_once_redelivery(
         self, sink_harness: SinkSystemHarness
     ) -> None:
-        """ACK 帧在线路丢失 -> 服务端重投 -> Kafka 出现同 sample_id 重复。"""
+        """ACK 帧在线路丢失 -> 服务端重投 -> Kafka 出现相同宽表点身份重复。"""
         host, _, port = sink_harness.stack.nats.removeprefix("nats://").rpartition(":")
         proxy = NatsFaultProxy(host, int(port), drop=drop_jetstream_ack)
         await proxy.start()
@@ -173,18 +173,17 @@ class TestAckLossRedelivery:
             await sink_harness.start()
             try:
                 batch = sink_harness.make_batch("reliable", seq=7, points=5)
-                sample_ids = {sample.sample_id for sample in batch.samples}
+                expected = expected_kafka_point_identities(batch)
                 await sink_harness.publish_reliable(batch)
 
                 async def _duplicates_seen() -> bool:
-                    records = await sink_harness.wait_kafka_messages(
-                        min_messages=len(batch.samples) + 1, timeout=8
+                    points = await sink_harness.wait_kafka_points(
+                        min_points=len(batch.samples) + 1, timeout=8
                     )
-                    if len(records) <= len(batch.samples):
+                    if len(points) <= len(batch.samples):
                         return False
-                    payloads = [json.loads(record.value.decode()) for record in records]
-                    observed = {item["sample_id"] for item in payloads}
-                    return sample_ids.issubset(observed)
+                    observed = {point.identity for point in points}
+                    return len(observed) < len(points) and expected.issubset(observed)
 
                 deadline = asyncio.get_running_loop().time() + 70
                 while asyncio.get_running_loop().time() < deadline:

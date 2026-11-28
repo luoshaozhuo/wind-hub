@@ -45,7 +45,7 @@ async def test_uc03_s01_poll_publishes_complete_envelope(
     batches = await collect_realtime(real_nats.url, count=6, timeout=10)
     # v2：一个采集周期形成一个设备级批次，信封与批次身份在批次层，逐点值在 samples 内。
     for batch in batches:
-        assert batch["schema_version"] == 3
+        assert batch["schema_version"] == 4
         assert batch["wind_farm_id"] == "site_alpha"
         assert batch["device_id"] == MODBUS
         assert batch["mode"] == "realtime"
@@ -104,7 +104,7 @@ async def test_uc03_s01_reliable_delivery_is_pubacked_in_jetstream(
     real_nats: RealNats,
 ) -> None:
     await ensure_hist_stream(real_nats.url)
-    handle = await collector(delivery="reliable", task_interval=0.2)
+    handle = await collector(delivery="reliable", task_interval=0.2, devices=("modbus-1",))
     _channel, _config, device_stub = grpc_clients(handle.process.grpc_port)
     await start_task(device_stub, _config, MODBUS)
     assert await wait_actual(device_stub, MODBUS, {"RUNNING"}) == "RUNNING"

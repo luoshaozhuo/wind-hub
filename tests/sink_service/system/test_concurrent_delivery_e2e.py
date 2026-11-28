@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json as json_lib
 import shutil
 import uuid
 from typing import Any
@@ -38,7 +37,10 @@ from tests.sink_service.system.conftest import (
     COLLECTOR_ID,
     KAFKA_SINK,
     WIND_FARM_ID,
+    KafkaPoint,
     SinkSystemHarness,
+    kafka_point_count,
+    project_kafka_points,
 )
 
 pytestmark = [
@@ -201,8 +203,8 @@ async def _wait_all_drained(
 
 
 async def _drain_kafka(
-    harness: SinkSystemHarness, *, min_messages: int, timeout: float = 60.0
-) -> list[Any]:
+    harness: SinkSystemHarness, *, min_points: int, timeout: float = 60.0
+) -> list[KafkaPoint]:
     from aiokafka import AIOKafkaConsumer
 
     consumer = AIOKafkaConsumer(
@@ -216,11 +218,13 @@ async def _drain_kafka(
     try:
         records: list[Any] = []
         deadline = asyncio.get_running_loop().time() + timeout
-        while asyncio.get_running_loop().time() < deadline and len(records) < min_messages:
+        while (
+            asyncio.get_running_loop().time() < deadline and kafka_point_count(records) < min_points
+        ):
             result = await consumer.getmany(timeout_ms=2000, max_records=1000)
             for messages in result.values():
                 records.extend(messages)
-        return records
+        return project_kafka_points(records)
     finally:
         await consumer.stop()
 
@@ -318,19 +322,18 @@ class TestConcurrentReliableDelivery:
                 await asyncio.sleep(0.05)
             assert parallel_seen, "从未观察到两个 Durable 同时在途"
             await _wait_all_drained(sink_harness, expected_names)
-            records = await _drain_kafka(sink_harness, min_messages=total)
+            records = await _drain_kafka(sink_harness, min_points=total)
             assert len(records) == total
-            # 同设备严格有序：按 offset 顺序解析 sample_id 中的 seq/idx。
-            # sample_id 本身不含设备标识，跨设备去重键必须带 device_id。
+            # 同设备严格有序：v3 不携带 sample_id，按源 Fixture 的 value=seq+idx
+            # 与 point_id=p{idx} 还原同一顺序对；宽表点身份包含设备与逻辑时间。
             per_device: dict[str, list[tuple[int, int]]] = {device: [] for device in DEVICES}
-            identities: set[tuple[str, str]] = set()
-            for record in records:
-                payload = json_lib.loads(record.value.decode("utf-8"))
-                per_device[payload["device_id"]].append(
-                    tuple(int(part) for part in payload["sample_id"].split("-")[2:4])
-                )
-                identities.add((payload["device_id"], payload["sample_id"]))
-            assert len(identities) == total  # 零重复（设备内 sample_id 唯一）
+            identities: set[tuple[object, ...]] = set()
+            for point in records:
+                point_index = int(point.point_id.removeprefix("p"))
+                assert isinstance(point.value, int | float)
+                per_device[point.device_id].append((int(point.value) - point_index, point_index))
+                identities.add(point.identity)
+            assert len(identities) == total  # 零重复（宽表点身份唯一）
             for device, pairs in per_device.items():
                 assert len(pairs) == total // len(DEVICES)
                 assert pairs == sorted(pairs), f"{device} 出现乱序"
@@ -372,12 +375,12 @@ class TestConcurrentReliableDelivery:
                 watch_deadline = asyncio.get_running_loop().time() + 60
                 while (
                     asyncio.get_running_loop().time() < watch_deadline
-                    and len(seen) < 4 * 2 * POINTS_PER_BATCH
+                    and kafka_point_count(seen) < 4 * 2 * POINTS_PER_BATCH
                 ):
                     result = await watcher.getmany(timeout_ms=2000, max_records=1000)
                     for messages in result.values():
                         seen.extend(messages)
-                before = len(seen)
+                before = kafka_point_count(seen)
                 assert before == 4 * 2 * POINTS_PER_BATCH
 
                 sink_harness.stack.pause("kafka")
@@ -401,14 +404,14 @@ class TestConcurrentReliableDelivery:
                             continue
                         for messages in paused.values():
                             seen.extend(messages)
-                    assert len(seen) == before  # pause 期间 Kafka 零新增
+                    assert kafka_point_count(seen) == before  # pause 期间 Kafka 零新增
                 finally:
                     sink_harness.stack.unpause("kafka")
             finally:
                 await watcher.stop()
             await _wait_all_drained(sink_harness, names, timeout=90)
             total = 4 * 4 * POINTS_PER_BATCH
-            records = await _drain_kafka(sink_harness, min_messages=total, timeout=90)
+            records = await _drain_kafka(sink_harness, min_points=total, timeout=90)
             assert len(records) == total
         finally:
             await sink_harness.stop()
@@ -432,11 +435,9 @@ class TestConcurrentReliableDelivery:
             await _wait_all_drained(sink_harness, names)
             assert await sink_harness.dlq_count() >= 1
             good_total = 4 * 3 * POINTS_PER_BATCH
-            records = await _drain_kafka(sink_harness, min_messages=good_total)
+            records = await _drain_kafka(sink_harness, min_points=good_total)
             assert len(records) == good_total
-            devices_seen = {
-                json_lib.loads(record.value.decode("utf-8"))["device_id"] for record in records
-            }
+            devices_seen = {point.device_id for point in records}
             assert devices_seen == set(DEVICES)
             infos = await _consumer_infos(sink_harness)
             redelivered = {name: infos[name].num_redelivered for name in names}
@@ -477,7 +478,7 @@ class TestConcurrentReliableDelivery:
             await _wait_state(sink_harness, target, "RUNNING")
             await _wait_all_drained(sink_harness, names)
             total = 4 * 2 * POINTS_PER_BATCH
-            records = await _drain_kafka(sink_harness, min_messages=total)
+            records = await _drain_kafka(sink_harness, min_points=total)
             assert len(records) == total
         finally:
             await sink_harness.stop()
@@ -504,14 +505,13 @@ class TestConcurrentReliableDelivery:
             )
             total = await _publish_per_device(sink_harness, batches=2)
             await _wait_all_drained(sink_harness, {name})
-            records = await _drain_kafka(sink_harness, min_messages=total)
+            records = await _drain_kafka(sink_harness, min_points=total)
             assert len(records) == total
             per_device: dict[str, list[tuple[int, int]]] = {device: [] for device in DEVICES}
-            for record in records:
-                payload = json_lib.loads(record.value.decode("utf-8"))
-                per_device[payload["device_id"]].append(
-                    tuple(int(part) for part in payload["sample_id"].split("-")[2:4])
-                )
+            for point in records:
+                point_index = int(point.point_id.removeprefix("p"))
+                assert isinstance(point.value, int | float)
+                per_device[point.device_id].append((int(point.value) - point_index, point_index))
             for device, pairs in per_device.items():
                 assert pairs == sorted(pairs), f"{device} 乱序"
         finally:
@@ -564,9 +564,8 @@ class TestConcurrentReliableDelivery:
                 # 但新进程只向新 Durable 消费，Kafka 侧不得双写。
                 assert old_durable in infos and new_durable in infos
                 expected_total = first + backlog
-                records = await _drain_kafka(sink_harness, min_messages=expected_total, timeout=90)
-                payloads = [json_lib.loads(record.value.decode("utf-8")) for record in records]
-                ids = {(payload["device_id"], payload["sample_id"]) for payload in payloads}
+                records = await _drain_kafka(sink_harness, min_points=expected_total, timeout=90)
+                ids = {point.identity for point in records}
                 assert len(ids) == expected_total  # 无重复、无遗漏
             finally:
                 await sink_harness.stop()

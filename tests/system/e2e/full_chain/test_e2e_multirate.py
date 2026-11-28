@@ -13,6 +13,8 @@ from uuid import uuid4
 import pytest
 from aiokafka import AIOKafkaConsumer
 
+from .conftest import decode_kafka_wide_point
+
 pytestmark = [pytest.mark.system, pytest.mark.real_service, pytest.mark.docker, pytest.mark.slow]
 
 PERIODS = {
@@ -73,16 +75,15 @@ async def test_e2e_06_reliable_multirate(
                 for record in records:
                     item = json.loads(record.value)
                     device_id = item.get("device_id")
-                    if (
-                        device_id in PERIODS
-                        and item.get("collector_id") == harness.reliable_collector
-                        and item.get("point_id") == PERIODS[device_id][0]
-                    ):
-                        sample_time = datetime.fromisoformat(
-                            item["sample_time"].replace("Z", "+00:00")
-                        )
-                        if sample_time >= source_start:
-                            samples[device_id].append(sample_time)
+                    if device_id not in PERIODS:
+                        continue
+                    point_id = PERIODS[device_id][0]
+                    item = decode_kafka_wide_point(record, device_id=device_id, point_id=point_id)
+                    if item is None:
+                        continue
+                    sample_time = datetime.fromisoformat(item["sample_time"].replace("Z", "+00:00"))
+                    if sample_time >= source_start:
+                        samples[device_id].append(sample_time)
         realtime_samples = await redis_task
         redis_task = None
         rows = harness.read_recording(harness.generation_id)
