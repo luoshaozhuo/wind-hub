@@ -1,4 +1,4 @@
-# 当前 e2e-final 宽表联测 Deployment；D1/D2 已完成指定功能回归，容量、长稳及生产资格另行验收。
+# Wide-row target candidate: activate only after D4 runtime migration and final qualification.
 # 完整精确引用候选；历史版本仍不可变，不应自动选取最新版。
 # 正式全模块联测唯一 Deployment；仅选隔离的 Service/Instance 精确版本。
 # schema_version=1；file_version=MAJOR.MINOR.PATCH；禁止生产配置选择此 deployment。
