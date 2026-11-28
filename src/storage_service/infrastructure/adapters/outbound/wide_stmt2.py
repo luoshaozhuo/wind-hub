@@ -62,21 +62,27 @@ def bind_wide_columns(
         raise ValueError("STMT2 device-wide batch exceeds 1000 physical rows")
     bound = tuple(bind_wide_row(record, schema) for record in records)
     values: list[object] = []
-    kinds = ("TIMESTAMP", *(column.sql_type for column in schema.columns), "VARBINARY")
-    for index, kind in enumerate(kinds):
-        if index == 0:
-            data: list[Any] = [record.timestamp_us for record in bound]
-            factory_name = "micros_timestamps_to_column"
-        elif index == len(kinds) - 1:
-            data = [record.quality_bitmap for record in bound]
-            factory_name = "varbinary_to_column"
-        else:
-            data = [record.values[index - 1] for record in bound]
-            factory_name = _factory_name(kind)
-        factory = getattr(driver, factory_name, None)
-        if not callable(factory):
-            raise RuntimeError(f"taosws connector lacks required {factory_name}")
-        values.append(factory(data))
+    # Hundreds of points commonly share one physical type. Resolve each
+    # connector factory only once per bind, not once per physical column.
+    factories: dict[str, Callable[..., Any]] = {}
+
+    def column_factory(name: str) -> Callable[..., Any]:
+        factory = factories.get(name)
+        if factory is None:
+            candidate = getattr(driver, name, None)
+            if not callable(candidate):
+                raise RuntimeError(f"taosws connector lacks required {name}")
+            factory = cast(Callable[..., Any], candidate)
+            factories[name] = factory
+        return factory
+
+    values.append(
+        column_factory("micros_timestamps_to_column")([record.timestamp_us for record in bound])
+    )
+    for index, column in enumerate(schema.columns):
+        factory = column_factory(_factory_name(column.sql_type))
+        values.append(factory([record.values[index] for record in bound]))
+    values.append(column_factory("varbinary_to_column")([record.quality_bitmap for record in bound]))
     return values
 
 
