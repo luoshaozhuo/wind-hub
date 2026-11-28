@@ -362,6 +362,13 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             task = asyncio.create_task(self._run())
             task.add_done_callback(self._on_task_finished)
             self._task = task
+            logger.info(
+                "Reliable Delivery started delivery=%s sink=%s durable=%s revision=%s",
+                self._definition.delivery_id,
+                self._definition.sink_id,
+                durable,
+                self._snapshot.revision,
+            )
         except BaseException:
             try:
                 if self._client is not None:
@@ -378,12 +385,19 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
     def _on_task_finished(self, task: asyncio.Task[None]) -> None:
         if task.cancelled():
             self.last_error = "Reliable consumer task was cancelled unexpectedly"
-            return
-        failure = task.exception()
-        if failure is not None:
-            self.last_error = f"Reliable consumer task stopped unexpectedly: {failure}"
-        elif not self._stop.is_set():
-            self.last_error = "Reliable consumer exited without STOP"
+        else:
+            failure = task.exception()
+            if failure is not None:
+                self.last_error = f"Reliable consumer task stopped unexpectedly: {failure}"
+            elif not self._stop.is_set():
+                self.last_error = "Reliable consumer exited without STOP"
+        if self.last_error:
+            logger.error(
+                "Reliable Delivery task terminated delivery=%s sink=%s reason=%s",
+                self._definition.delivery_id,
+                self._definition.sink_id,
+                self.last_error,
+            )
 
     async def stop(self) -> None:
         self._stop.set()
@@ -408,6 +422,12 @@ class ReliableDeliveryRuntime(ReliableDeliveryEngine):
             await adapter.settle()
             await self._pool.release(self._definition.sink_id)
             self._adapter = None
+        logger.info(
+            "Reliable Delivery stopped delivery=%s sink=%s revision=%s",
+            self._definition.delivery_id,
+            self._definition.sink_id,
+            self._snapshot.revision,
+        )
 
     async def _fetch_messages(self) -> list[ReliableMessagePort]:
         if self._subscription is None:
