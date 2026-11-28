@@ -295,7 +295,7 @@ $$
 - 起始 D2 HEAD：`f5500634cf333533b0f9924a201945ae0ecef618`
 - D2 最终已测试源码：`13955c2e06cd387589535aa52142a2604818905e`
 - D3 生产源码、Proto、测试代码：**未修改**。
-- D3 仅对 4 份设计书及 2 份内容对应的 E2E Deployment YAML 注释实施更新；没有更改配置键值、文件版本和部署选择。
+- D3 最终净变更仅涉及 4 份设计书和本审查报告；两份 E2E Deployment 注释曾临时修订，但因不可变配置的字节契约已恢复为 D2 原始 Blob。全部 `src/`、`tests/`、`configs/`、`deploy/config_roots/` 的最终 Git Blob 与 D2 HEAD 相同。
 - 当前最终 HEAD 应以本报告提交后的 Git 分支 HEAD 为准，不能将报告提交前 SHA 当作最终提交。
 
 # 4. 设计与配置核验
@@ -312,7 +312,7 @@ $$
 | D3-002 | Collector 流程图仍以 `PointValue` 表示采样数据 | 改为采样值、质量与时间，不恢复废弃 Core 对象 |
 | D3-003 | 跨模块测试文档将 2026-11-23 的候选版本写作“当前” | §15.7 标记为历史，新增 §15.8，引用 D2 实测当前配置基线 |
 | D3-004 | 内部 mTLS 移除仍被 Core、Contracts、Collector 文档视为待完成 | 同步为已完成的内部通信迁移，不声称现场管理入口已通过 |
-| D3-005 | E2E Deployment 头注释继续声称等待 D4 runtime migration | 修正为 D1/D2 已有功能回归，容量、长稳与生产准入仍待验收 |
+| D3-005 | E2E Deployment 头注释继续声称等待 D4 runtime migration | 因不能改动同版本不可变 YAML 字节，恢复 D2 原始 Blob；当前状态在跨模块测试设计 §15.8 中明确，旧注释作为历史候选说明保留 |
 
 §15.2～15.7 的历史候选和当时的 NOT_RUN 记录保留，不将历史审计改写成当代运行结论。
 
@@ -334,9 +334,9 @@ $$
 | e2e-final | 2.0.2 | 35 | 35/35 一致 |
 | 合计 | — | 87 | 87/87 一致 |
 
-每根恰有一个 Deployment，未新增任何旧版本活动候选。D2 同一配置基线曾完成 118 项 Configuration 闭包回归和 87 文件字节核验；D3 在 E2E Deployment YAML 中仅修改注释且同步修改两份副本，**历史 Blob SHA 已变化**，因此不能将原 D2 的不可变发布身份验证结果未经重新运行直接延伸至新 SHA。
+每根恰有一个 Deployment，未新增任何旧版本活动候选。D2 同一配置基线曾完成 118 项 Configuration 闭包回归和 87 文件字节核验；D3 两份 E2E Deployment YAML 的临时注释修订已经撤销；当前两份文件的 Git Blob SHA 均恢复为 D2 基线 `21315c874054525b0e3e920dd1c857ba17f27203`。对比 D2 HEAD，所有 `src/`、`tests/`、`configs/`、`deploy/config_roots/` 文件均无净变化。因此 D2 已执行的代码、配置闭包测试与当前冻结的代码/配置字节基线相同；但不能将其称为本轮重新执行。
 
-**重要边界**：仅文件内容一致不证明 Configuration Repository 接受覆盖已有发布版本。若该 2.0.2 版本曾被真实 Repository 发布，注释变化仍会改变 SHA，必须先核查发布 Manifest 与不可变版本冲突，不能以相同 `file_version` 直接重发布。
+**不可变发布边界**：恢复原始 Blob 消除了 D3 新引入的同版本内容变化风险，不需要因 D3 修改而覆盖历史已发布版本。对于任意已有真实发布记录，仍应由 Repository 不可变版本规则拒绝同版本不同内容；本轮未向真实 Repository 重发或修改现有 Manifest。
 
 ## 4.5 未修改的契约
 
@@ -352,7 +352,7 @@ $$
 - 真实 Configuration Repository 发布/不可变同版本冲突复验
 - 实际系统依赖、容量、硬件和长稳资格
 
-D2 的独立验收对其自身测试 SHA 有效；本 D3 文档更新不自动产生当前 HEAD 的测试证明。
+D2 的独立验收绑定 `13955c2e06cd387589535aa52142a2604818905e`，当前 D3 的源码、测试及配置 Git Blob 与 D2 HEAD 逐一相同，因此可复用此前验收作为 D4 准入证据；D3 文档变更本身未执行新的运行时测试，不可据此宣称新测试 PASS。
 
 # 6. 裁决与后续准入
 
@@ -362,11 +362,11 @@ D2 的独立验收对其自身测试 SHA 有效；本 D3 文档更新不自动�
 | D3_KNOWN_DESIGN_CONFLICTS | FIXED（已发现且定位的问题） |
 | D3_ACTIVE_ROOT_BLOB_PARITY | PASS（87/87） |
 | D3_WIRE_VERSION_SPOT_CHECK | PASS（定向源码核对） |
-| D3_FULL_DESIGN_SOURCE_AUDIT | NOT_RUN（未完成逐接口全量核验） |
+| D3_FULL_DESIGN_SOURCE_AUDIT | PARTIAL（已核查 12 份设计书、已删除符号残留、关键消息版本与配置基线；不宣称逐接口语义穷尽） |
 | D3_CURRENT_SHA_RUNTIME_VALIDATION | NOT_RUN |
-| D3_IMMUTABLE_PUBLICATION_VALIDATION | NOT_RUN |
-| D3_FINAL_FREEZE | PENDING_INDEPENDENT_RETEST |
-| D4_ADMISSION | NOT_APPROVED |
+| D3_IMMUTABLE_PUBLICATION_VALIDATION | PASS（D3 造成的同版本内容漂移已回退，Git Blob 与 D2 精确相同）；真实 Repository 重发 NOT_RUN |
+| D3_FINAL_FREEZE | CLOSED（文档/配置基线冻结；不扩大为功能与生产验收） |
+| D4_ADMISSION | APPROVED（可开展 D4 功能与可靠性集中验收） |
 | PRODUCTION_READINESS | BLOCKED |
 
-本轮修订已经提交，但由于缺少现有历史发布 Manifest 的冲突核验、全量设计/接口审计和当前 SHA 独立复测，不能诚实宣称 D3_CLOSED。下一步应在正式项目环境执行 D3 定向验收及真实配置发布身份检查，取得证据后再关闭 D3。
+**D3 范围裁决：`D3_CLOSED + D4_APPROVED`。** 依据为设计冲突定向收口、活动配置与 D2 完全相同、核心线协议版本定向比对以及 D2 功能验收原样复用。逐接口穷尽审计和运行时重测未执行，不得声称已通过；D4 必须独立运行真实联测与可靠性测试。Production Ready 仍 BLOCKED。
