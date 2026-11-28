@@ -176,6 +176,13 @@ class ServerConfig(StrictModel):
     read_stale_after_ms: int | None = Field(default=None, ge=1)
     control: ServerControl
 
+    @field_validator("read_stale_after_ms", mode="before")
+    @classmethod
+    def validate_read_stale_after_ms(cls, value: object) -> object:
+        if value is not None and (type(value) is not int or value < 1):
+            raise ValueError("read_stale_after_ms must be a positive integer")
+        return value
+
     @model_validator(mode="after")
     def validate_server(self) -> ServerConfig:
         if any(not item.strip() for item in (self.server_id, self.device_id, self.listen_host)):
