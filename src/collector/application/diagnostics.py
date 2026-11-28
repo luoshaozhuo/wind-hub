@@ -87,7 +87,9 @@ class CollectorDiagnostics:
             detail = "not evaluated"
             code = ""
             evidence: list[tuple[str, str]] = []
-            if name not in self.SUPPORTED:
+            if time.monotonic() >= deadline:
+                detail = "diagnostic deadline expired"
+            elif name not in self.SUPPORTED:
                 detail = "unknown diagnostic stage"
             elif name == "BOUNDARY":
                 status, detail = "PASS", "Collector evidence is not Sink persistence"
@@ -220,6 +222,11 @@ class CollectorDiagnostics:
                                 ("encoded_points", str(encoded)),
                             )
                         )
+            # A probe settling after the caller's budget is not evidence of
+            # failure or success within that budget.
+            if time.monotonic() >= deadline and status != "NOT_RUN":
+                status, detail, code = "NOT_RUN", "diagnostic deadline expired", ""
+                evidence.clear()
             if status in {"FAIL", "UNKNOWN", "NOT_RUN"} and not code:
                 code = status
             results.append(
