@@ -2358,7 +2358,7 @@ CollectorTaskDefinition；对应实例的 desired_state
 ``` mermaid
 %%{init: {"flowchart": {"useMaxWidth": true}}}%%
 flowchart LR
-  POLL["POLL<br/>Modbus / ADS 轮询"] --> V["PointValue"]
+  POLL["POLL<br/>Modbus / ADS 轮询"] --> V["采样值、质量与时间"]
   SUB["SUBSCRIBE<br/>ADS Notification"] --> V
   LISTEN["LISTEN<br/>IEC104 自发上送"] --> V
   V --> E["AcquisitionEngine"]
